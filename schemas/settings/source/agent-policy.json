@@ -30,7 +30,23 @@
     {
       "agent": "settable",
       "keys": [
+        "customize.checklist.done",
+        "customize.checklist.enabled"
+      ]
+    },
+    {
+      "agent": "settable",
+      "keys": [
         "shortcuts.showModifierHoldHints"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Which keys lists and the code editor answer to and how shortcuts find their key: the person's keyboard habits, nothing private or destructive, and `cmux settings set app.keyStyle vim` is the documented way to set it.",
+      "keys": [
+        "app.keyStyle",
+        "app.shortcutLayout",
+        "editor.vimMode"
       ]
     },
     {
@@ -286,6 +302,7 @@
         "appearance.backgroundBlur",
         "appearance.inactiveWindowDim",
         "appearance.wallpaperTint",
+        "appearance.liveWallpaperFrameRate",
         "appearance.terminalCellBackgrounds",
         "appearance.background",
         "appearance.backgroundRotation",
@@ -429,6 +446,8 @@
         "sidebar.showSpaces",
         "sidebar.showProfileControl",
         "sidebar.showSearchButton",
+        "sidebar.showLiveToggle",
+        "presence.live",
         "sidebar.showNewWorkspaceChooser",
         "sidebar.workspacesAsTabs",
         "sidebar.chromeGroups",
@@ -528,13 +547,18 @@
         "experiments.hoverLook",
         "experiments.seeThroughDock",
         "experiments.attachmentTypeIcons",
+        "experiments.composerCustomizer",
         "experiments.agentBadges",
         "experiments.agentBadgesBeam",
+        "experiments.terminalAgentMark",
         "experiments.menuStyleV2",
         "experiments.menuRowStates",
         "experiments.toastsV2",
         "experiments.terminalHistoryFind",
-        "experiments.terminalHistory"
+        "experiments.terminalHistory",
+        "experiments.quietConnect",
+        "experiments.threadMinimapRestReveal",
+        "experiments.forum"
       ]
     },
     {
@@ -1718,7 +1742,8 @@
       "keys": [
         "agents.autoRetry.enabled",
         "agents.autoRetry.intervalSeconds",
-        "agents.autoRetry.attempts"
+        "agents.autoRetry.attempts",
+        "agents.autoRetry.capacityFallbackAfter"
       ]
     },
     {
@@ -1730,10 +1755,13 @@
     },
     {
       "agent": "userOnly",
-      "why": "Compacting on a timer spends the person's usage (one model call each): their call.",
+      "why": "Compacting on a timer or before a cold wake, and batching the person's chats' wakes, spends their usage (one model call each) and delays delivery: their call.",
       "keys": [
         "agents.cacheCompact.enabled",
-        "agents.cacheCompact.minContextPercent"
+        "agents.cacheCompact.minContextPercent",
+        "agents.coldWake.enabled",
+        "agents.coldWake.compact",
+        "agents.coldWake.compactAboveTokens"
       ]
     },
     {

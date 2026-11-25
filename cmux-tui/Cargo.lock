@@ -24,6 +24,7 @@ dependencies = [
  "clap",
  "cmux-agent-customize",
  "cmux-agent-pane-policy",
+ "cmux-auto-session",
  "cmux-bounded",
  "cmux-build-space",
  "cmux-chat-index",
@@ -44,6 +45,7 @@ dependencies = [
  "cmux-fault",
  "cmux-felt",
  "cmux-file-lock",
+ "cmux-forum-hosted",
  "cmux-git",
  "cmux-host",
  "cmux-host-budget",
@@ -75,6 +77,7 @@ dependencies = [
  "cmux-supervise-core",
  "cmux-tag-cache",
  "cmux-tailnet",
+ "cmux-tailnet-front",
  "cmux-tailnet-join",
  "cmux-transport",
  "cmux-tui-hooks",
@@ -230,6 +233,7 @@ dependencies = [
  "acpmux",
  "anyhow",
  "base64",
+ "cmux-bounded",
  "cmux-json",
  "cmux-scope",
  "crossterm",
@@ -1419,6 +1423,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-auto-session"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "cmux-autocloud"
 version = "0.1.0"
 dependencies = [
@@ -1496,6 +1510,7 @@ version = "0.1.0"
 name = "cmux-braid-path"
 version = "0.1.0"
 dependencies = [
+ "cmux-transport",
  "futures-util",
  "tokio",
 ]
@@ -1603,6 +1618,7 @@ version = "1.0.0"
 dependencies = [
  "base64",
  "bytes",
+ "cmux-auto-session",
  "cmux-build-space",
  "cmux-cloud-client",
  "cmux-cloud-machine",
@@ -2080,6 +2096,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-forum-hosted"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "url",
+]
+
+[[package]]
 name = "cmux-git"
 version = "0.1.0"
 dependencies = [
@@ -2232,6 +2259,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-keymap"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-kitty-media"
 version = "0.1.0"
 dependencies = [
@@ -2313,6 +2348,18 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-migrate"
+version = "0.1.0"
+dependencies = [
+ "cmux-git",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml",
+ "yaml-rust",
 ]
 
 [[package]]
@@ -2854,6 +2901,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-tailnet-front"
+version = "0.1.0"
+dependencies = [
+ "cmux-scope",
+ "cmux-tailnet",
+ "libc",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-tailnet-join"
 version = "0.1.0"
 dependencies = [
@@ -3049,6 +3108,7 @@ dependencies = [
  "cmux-layout-reducer",
  "cmux-lifeline",
  "cmux-link",
+ "cmux-migrate",
  "cmux-panic-log",
  "cmux-process",
  "cmux-projection",
@@ -3190,6 +3250,7 @@ dependencies = [
  "cmux-file-lock",
  "cmux-flow-trace",
  "cmux-focus-core",
+ "cmux-forum-hosted",
  "cmux-git",
  "cmux-history",
  "cmux-holder",
@@ -3251,6 +3312,7 @@ dependencies = [
  "socket2",
  "subsecond",
  "tar",
+ "time",
  "tokio",
  "tokio-tungstenite",
  "toml",
@@ -3533,6 +3595,7 @@ dependencies = [
  "blake2",
  "boringtun",
  "bytes",
+ "cmux-braid-path",
  "cmux-rd-core",
  "cmux-rd-engine",
  "cmux-rd-link",

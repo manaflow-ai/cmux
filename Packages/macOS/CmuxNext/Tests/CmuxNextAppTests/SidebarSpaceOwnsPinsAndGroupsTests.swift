@@ -216,6 +216,79 @@ import Testing
         #expect(members(room: nil, spaces: nil) == ["itm_app", "itm_legacy", "itm_link", "itm_tab"], "A daemon without profiles filtered members: \(members(room: nil, spaces: nil))")
     }
 
+    /// #31378 item 1: Work's Pinned group `itm_pw` lists in Default too (its workspace `ws-1` is live in the Default
+    /// window, rule 1's fallback). Its link `itm_uw` and its subgroup's link `itm_nw` store Work (moved into Pinned
+    /// there): they draw only in Work, not in Default with the group. A link that stores no space (`itm_un`) or another
+    /// space than the group's (`itm_uh`, moved in from the Default window) lists wherever the group lists, so it is never
+    /// left out of every window. Without a space filter every member draws.
+    @Test func aPinnedGroupsMemberOfItsSpaceDrawsOnlyThere() {
+        let records = SidebarDocRecords(sections: [
+            Self.pinned: SidebarDocSection(id: Self.pinned, kind: .pinned, region: .top),
+            Self.machine: SidebarDocSection(id: Self.machine, kind: .machine(session: Self.session)),
+        ], items: [
+            "itm_pw": Self.group("itm_pw", Self.pinned, room: Self.work),
+            "itm_1": SidebarDocItem(id: "itm_1", section: Self.pinned, parent: "itm_pw", body: .workspace(Self.ref("ws-1"))),
+            "itm_uw": SidebarDocItem(id: "itm_uw", section: Self.pinned, parent: "itm_pw", body: .url("https://work.example", title: "W"), room: Self.work),
+            "itm_un": SidebarDocItem(id: "itm_un", section: Self.pinned, parent: "itm_pw", body: .url("https://none.example", title: "N")),
+            "itm_uh": SidebarDocItem(id: "itm_uh", section: Self.pinned, parent: "itm_pw", body: .tab("tab-h"), room: Self.home),
+            "itm_pn": SidebarDocItem(id: "itm_pn", section: Self.pinned, parent: "itm_pw",
+                                     body: .group(name: "itm_pn", color: nil, icon: nil, collapsed: false)),
+            "itm_nw": SidebarDocItem(id: "itm_nw", section: Self.pinned, parent: "itm_pn", body: .app("acme.weather"), room: Self.work),
+        ])
+        let rows = [
+            SidebarDocRow(key: "itm_pw", kind: "group", section: Self.pinned, item: "itm_pw"),
+            SidebarDocRow(key: "itm_1", kind: "item", section: Self.pinned, parent: "itm_pw", depth: 1, item: "itm_1", ref: Self.ref("ws-1")),
+            SidebarDocRow(key: "itm_uw", kind: "url", section: Self.pinned, parent: "itm_pw", depth: 1, item: "itm_uw"),
+            SidebarDocRow(key: "itm_un", kind: "url", section: Self.pinned, parent: "itm_pw", depth: 1, item: "itm_un"),
+            SidebarDocRow(key: "itm_uh", kind: "url", section: Self.pinned, parent: "itm_pw", depth: 1, item: "itm_uh"),
+            SidebarDocRow(key: "itm_pn", kind: "group", section: Self.pinned, parent: "itm_pw", depth: 1, item: "itm_pn"),
+            SidebarDocRow(key: "itm_nw", kind: "url", section: Self.pinned, parent: "itm_pn", depth: 2, item: "itm_nw"),
+        ]
+        let projection = SidebarDocProjection(rows: rows, records: records, revision: 1)
+        let ws1 = SidebarWorkspace(id: WorkspaceID("ws-1"), title: "ws-1")
+        func members(_ room: String?, window: [SidebarNode]) -> Set<String> {
+            let arranged = projection.arrange([SidebarSection(kind: .machine(Self.thisMac), nodes: window)], drag: Self.drag(room: room))
+            return Set(arranged.flatMap(\.nodes).flatMap(\.listedItems).map(\.id))
+        }
+        let defaultWindow: [SidebarNode] = [.group(SidebarGroup(id: GroupID("itm_pw"), name: "itm_pw", workspaces: [ws1]))]
+        #expect(members(Self.home, window: defaultWindow) == ["itm_un", "itm_uh"], "\(members(Self.home, window: defaultWindow))")
+        #expect(members(Self.work, window: []) == ["itm_uw", "itm_un", "itm_uh", "itm_nw"], "\(members(Self.work, window: []))")
+        #expect(members(nil, window: defaultWindow) == ["itm_uw", "itm_un", "itm_uh", "itm_nw"], "\(members(nil, window: defaultWindow))")
+    }
+
+    /// A Pinned group holding a link moved into Pinned in Work (`itm_lw`, it stores Work), one that stores no space
+    /// (`itm_ln`) and one of Play (`itm_lp`).
+    static let memberDocument = Data("""
+    {"revision": "3",
+     "sections": [
+       {"id": "sec_pinned", "kind": {"type": "pinned"}, "region": "top", "order": "a"},
+       {"id": "sec_m_s-local", "kind": {"type": "machine", "session_id": "s-local"}, "order": "b"}
+     ],
+     "items": [
+       {"id": "itm_g", "section": "sec_pinned", "order": "a", "body": {"type": "group", "name": "G", "profile": "prof_work"}},
+       {"id": "itm_lw", "section": "sec_pinned", "parent": "itm_g", "order": "b", "body": {"type": "url", "url": "https://w.example"},
+        "extra": {"room": "prof_work"}},
+       {"id": "itm_ln", "section": "sec_pinned", "parent": "itm_g", "order": "c", "body": {"type": "url", "url": "https://n.example"}},
+       {"id": "itm_lp", "section": "sec_pinned", "parent": "itm_g", "order": "d", "body": {"type": "url", "url": "https://p.example"},
+        "extra": {"room": "prof_play"}}
+     ]}
+    """.utf8)
+
+    /// Move Group to Space takes the group's own members along: a link, tab or app under it that stored the group's
+    /// old space stores the new one in the same change, so it keeps drawing with its group (#31378). One that stores no
+    /// space or another space keeps what it stores.
+    @Test func movingAGroupToASpaceTakesItsMembersOfThatSpace() async throws {
+        let remote = RecordingRemote(document: Self.memberDocument)
+        let store = try await Self.loadedStore(remote)
+        store.moveGroup("itm_g", toSpace: Self.home)
+        await RapidWorkspaceCreateTests.wait(within: .seconds(10)) { !remote.applied.isEmpty }
+        let sent = remote.applied.flatMap { $0 }
+        #expect(sent.first { $0["op"] as? String == "group.update" && $0["id"] as? String == "itm_g" }
+            .flatMap { ($0["patch"] as? [String: Any])?["profile"] as? String } == Self.home, "\(sent)")
+        #expect(Self.roomUpdate(sent, item: "itm_lw") == Self.home, "\(sent)")
+        #expect(Self.roomUpdate(sent, item: "itm_ln") == nil && Self.roomUpdate(sent, item: "itm_lp") == nil, "\(sent)")
+    }
+
     /// New Subgroup stores no space (`SidebarDocSubgroupPlan`): a group that stores none under another group follows
     /// that parent, in a band and in a machine section. Work's empty group `itm_wp` holds the unscoped empty `itm_ws`;
     /// This Mac's Work group `itm_mw` holds the unscoped empty `itm_mu`.
