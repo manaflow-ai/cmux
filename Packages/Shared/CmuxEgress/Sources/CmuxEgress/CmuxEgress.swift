@@ -1,5 +1,10 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+#if canImport(os)
 import os
+#endif
 #if canImport(Network)
 import Network
 #endif
@@ -301,7 +306,11 @@ public struct CmuxEgress {
         static let namePrefix = "CmuxEgressGate."
 
         static var site: String {
+            #if canImport(ObjectiveC)
             let name = NSStringFromClass(self)
+            #else
+            let name = String(reflecting: self)
+            #endif
             return name.hasPrefix(namePrefix) ? String(name.dropFirst(namePrefix.count)) : "urlsession"
         }
 
