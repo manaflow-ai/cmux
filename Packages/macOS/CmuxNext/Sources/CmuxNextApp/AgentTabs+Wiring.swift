@@ -137,7 +137,16 @@ extension AgentTabStore {
                   let daemon = services.machines.daemons.first(where: { $0.store === found.store }),
                   services.placeEligible(found.record, session: session, on: daemon) else { return nil }
             let record = found.record
-            return services.cloud.place.placeJSON(session: session, onCloud: record.host.hasPrefix(MachineRegistry.registryHostPrefix), cloudName: record.hostName)
+            // The control's blocked and slots-full facts (Rust decides, ``CloudPlaceFlows/ControlFacts``): a plan only once a
+            // read kept one, so a plan not read never claims No Plan or a full slot list. The chats are read only when Rust
+            // will count slots (signed in, plan kept): a header with no plan never walks every tab.
+            let signedIn = services.cloud.isSignedIn
+            let plan = signedIn ? tabs.cloudMachines.planReads.kept(account: services.cloud.account) : nil
+            let control = CloudPlaceFlows.ControlFacts(signedIn: signedIn, restoring: services.cloud.auth.isRestoring,
+                                                       planKnown: plan != nil, planId: plan?.id,
+                                                       chats: plan == nil ? [] : services.cloud.place.controlChats(services.placeChats()))
+            return services.cloud.place.placeJSON(session: session, onCloud: record.host.hasPrefix(MachineRegistry.registryHostPrefix), cloudName: record.hostName,
+                                                  control: control)
         }
         tabs.evacuateState = { [weak services] in services?.cloud.placeDriver?.evacuateJSON() }
         // Move to…: every Cloud machine of the account but the one the chat runs on, and this Mac for a

@@ -294,12 +294,42 @@ public final class CloudPlaceFlows {
 
     // MARK: The chat's place, for pane.tabState
 
-    /// `place: {mode, at, cloudName?, move?}` for the chat header, as JSON; nil with no session.
-    public func placeJSON(session: String?, onCloud: Bool, cloudName: String?) -> Data? {
+    /// `place: {mode, at, cloudName?, move?, blocked?, holders?}` for the chat header, as JSON; nil with no session.
+    /// `blocked` and `holders` are Rust's answer (`cloud_move_place_control`, `priority::control`) to `control`'s facts.
+    public func placeJSON(session: String?, onCloud: Bool, cloudName: String?, control: ControlFacts? = nil) -> Data? {
         guard let session else { return nil }
         var place: [String: Any] = ["mode": mode(of: session, onCloud: onCloud), "at": onCloud ? "cloud" : "local"]
         if let cloudName { place["cloudName"] = cloudName }
         if !settled.contains(session), let view = views[session], let move = try? JSONSerialization.jsonObject(with: view) { place["move"] = move }
+        if let control, let request = try? JSONEncoder().encode(control.with(session: session)), let reply = core("cloud_move_place_control", request),
+           let answer = try? JSONSerialization.jsonObject(with: reply) as? [String: Any] {
+            if let blocked = answer["blocked"] { place["blocked"] = blocked }
+            if let holders = answer["holders"] { place["holders"] = holders }
+        }
         return try? JSONSerialization.data(withJSONObject: place, options: [.sortedKeys])
+    }
+
+    /// What Rust needs to say whether the header's cloud control is blocked or every slot is held (`priority::ControlFacts`).
+    /// Facts only: a plan id is mapped to its slots in Rust (`priority::plan_of_id`); a plan not read is `planKnown: false`.
+    public struct ControlFacts: Encodable, Sendable, Equatable {
+        public struct Chat: Encodable, Sendable, Equatable {
+            public var session: String, title: String, pin: String, at: String, hasWork: Bool, activeAtMs: UInt64
+            public init(session: String, title: String, pin: String, at: String, hasWork: Bool, activeAtMs: UInt64 = 0) {
+                (self.session, self.title, self.pin, self.at, self.hasWork, self.activeAtMs) = (session, title, pin, at, hasWork, activeAtMs)
+            }
+        }
+        public var session = "", signedIn: Bool, restoring: Bool, planKnown: Bool, planId: String?, chats: [Chat]
+        public init(signedIn: Bool, restoring: Bool, planKnown: Bool, planId: String?, chats: [Chat]) {
+            (self.signedIn, self.restoring, self.planKnown, self.planId, self.chats) = (signedIn, restoring, planKnown, planId, chats)
+        }
+        func with(session: String) -> Self { var copy = self; copy.session = session; return copy }
+    }
+
+    /// ``ControlFacts/Chat`` for each chat the place controls see, pinned as the person set it here.
+    public func controlChats(_ chats: [CloudPlaceChat]) -> [ControlFacts.Chat] {
+        chats.map { chat in
+            ControlFacts.Chat(session: chat.session, title: chat.title, pin: mode(of: chat.session, onCloud: chat.onCloud), at: chat.onCloud ? "cloud" : "local",
+                              hasWork: chat.turnRunning || chat.queued > 0, activeAtMs: chat.turnStartedAtMs.flatMap { $0.isFinite && $0 > 0 ? UInt64($0) : nil } ?? 0)
+        }
     }
 }
