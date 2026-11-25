@@ -212,8 +212,10 @@ public struct TerminalTabCard: View {
     private var cardContent: some View {
         GeometryReader { geo in
             ZStack(alignment: .top) {
-                Color(uiColor: (model.hostTheme ?? CmuxMobileTerminalThemes.shared.theme(for: model.hostMacID))?.backgroundColor
-                    ?? CmuxMobileGhosttyApp.background)
+                // The page's ground: the Mac's wallpaper under the terminal background's tint, else that background.
+                CmuxMobileBackdrop(background: Color(uiColor: (model.hostTheme
+                        ?? CmuxMobileTerminalThemes.shared.theme(for: model.hostMacID))?.backgroundColor
+                    ?? CmuxMobileGhosttyApp.background))
                 switch content {
                 case .connecting:
                     TerminalConnectingView(topInset: insets.top, lastFrame: model.snapshot)

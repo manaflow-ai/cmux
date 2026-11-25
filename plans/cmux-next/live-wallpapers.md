@@ -52,11 +52,15 @@ struct Frame {
     paper: vec4<f32>,     // theme window background, linear, a = 1
     accent: vec4<f32>,    // theme accent, linear, a = 1
     params: array<vec4<f32>, 2>, // the manifest's params in order, up to 8 floats
+    activity: vec4<f32>,  // x agent activity in the window (0..1, eased), y seconds since the newest agent event, z agent events so far (mod 1024), w 0
 }
 var<uniform> frame: Frame;   // the host's binding; never declared by the program
 ```
 
-Every field is a `vec4<f32>`, so the layout is the same in Metal, WGSL and GLSL std140: 144 bytes (nine `vec4<f32>`).
+Every field is a `vec4<f32>`, so the layout is the same in Metal, WGSL and GLSL std140: 160 bytes (ten `vec4<f32>`).
+
+An agent event is an agent in the window writing output or changing state. A burst counts once: an
+event within 0.4 s of the last counted one only raises the level (`ActivityState`, `cmux_wallpaper_activity_*`).
 
 ### Translation
 
@@ -97,6 +101,7 @@ decided place to translate them that keeps the compiler out of the app and daemo
 - `scale`: the backing scale it renders at, 0.25 to 1. Grain and soft fields look the same at half
   scale for a quarter of the pixels.
 - `interactive`: whether pointer motion wakes it (below).
+- `agents` (optional, false): whether agent events wake it; the program reads `Frame.activity`.
 - `params`: up to 8 floats, shown nowhere yet; a theme file or `cmux.json` may set them.
 - `still`: the time and pointer (fractions of the size) a still uses when the caller gives none.
 - `variants`: up to a few named looks (`name`, `accent` `#RRGGBB`, `params` by name, `themes`), each
@@ -119,7 +124,8 @@ change the answer and on each frame; it answers `hold` or `run` at an interval.
   screen or in an inactive session; in Low Power Mode; at serious thermal state; with Reduce Motion or
   animations off.
 - Idle: when nothing has happened for 20 seconds (no pointer motion over the window, no key press in
-  it, no change of size or theme), it holds on the frame it is on. Pointer motion over the window, a
+  it, no change of size or theme, and for a wallpaper with `agents` no agent event), it holds on the
+  frame it is on. Pointer motion over the window, an agent event (with `agents`), a
   key press or a theme change wakes it, and it eases back in from the held frame (time continues from
   where it stopped, so there is no jump).
 - Run at `min(manifest fps, Settings cap)`, 30 by default, with the display link's preferred frame rate
@@ -155,6 +161,9 @@ Our own takes on the references, each one program:
 4. Orbits: fine orbit linework; the pointer bends the nearest orbit like a mass.
 5. Metal: embossed brushed metal with light that follows the pointer.
 6. Blueprint: a blueprint grid with dimension ticks; the pointer draws a crosshair and the grid breathes.
+7. Block Matrix: a fine, even matrix of faint dots lit by a glow centered on the pointer (with a short
+   trail), a few slow drifting lights and agent output (`agents`); the light arrives in rectangular
+   blocks that ease between levels.
 
 Each is mostly the theme's paper and ink with one accent.
 

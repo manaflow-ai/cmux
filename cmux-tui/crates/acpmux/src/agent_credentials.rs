@@ -296,7 +296,7 @@ pub fn launched_with(env: &[(String, String)]) -> Vec<(String, String)> {
     let vars: BTreeMap<&str, &str> = env.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
     let Some(credential) = recovered_in(&vars) else { return Vec::new() };
     let mut out = vec![(MARKER.to_owned(), credential.names().collect::<Vec<_>>().join(","))];
-    out.extend(credential.env.into_iter());
+    out.extend(credential.env);
     out
 }
 
