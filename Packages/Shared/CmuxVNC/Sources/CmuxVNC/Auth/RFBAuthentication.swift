@@ -5,6 +5,9 @@ import CommonCrypto
 import CryptoKit
 #else
 import Crypto
+#if !canImport(CryptoKit)
+import _CryptoExtras
+#endif
 #endif
 import Foundation
 #if canImport(Security)
@@ -24,7 +27,9 @@ struct VNCPasswordAuthentication {
         return CipherECB(algorithm: CCAlgorithm(kCCAlgorithmDES), key: key).encrypt(challenge)
         #else
         guard challenge.count.isMultiple(of: 8) else { return nil }
-        return RFBDES.encrypt(challenge[...], key: key)
+        let result = RFBDES.encrypt(challenge[...], key: key)
+        print("DESDEBUG", result.map { String(format: "%02x", $0) }.joined())
+        return result
         #endif
     }
 
@@ -65,9 +70,36 @@ struct AppleDHAuthentication {
         guard let encrypted = CipherECB(algorithm: CCAlgorithm(kCCAlgorithmAES128), key: key).encrypt(credentials), encrypted.count == 128 else { return nil }
         return Response(encryptedCredentials: encrypted, clientPublicKey: clientPublic)
         #else
-        return nil
+        let length = prime.count
+        guard length > 0, serverPublicKey.count == length, let math = ModularExponentiation(modulus: prime) else { return nil }
+        let secret = privateKey ?? Self.randomBytes(length)
+        let generatorBytes = [UInt8(generator >> 8), UInt8(generator & 0xFF)]
+        let clientPublic = math.power(generatorBytes, secret)
+        let shared = math.power(serverPublicKey, secret)
+        let key = Array(Insecure.MD5.hash(data: Data(shared)))
+        let credentials = Self.credentials(username: username, password: password, padding: padding)
+        guard let encrypted = Self.encryptAES128ECB(credentials, key: key), encrypted.count == 128 else { return nil }
+        return Response(encryptedCredentials: encrypted, clientPublicKey: clientPublic)
         #endif
     }
+
+    #if !canImport(CommonCrypto)
+    private static func encryptAES128ECB(_ plaintext: [UInt8], key: [UInt8]) -> [UInt8]? {
+        guard key.count == 16, plaintext.count.isMultiple(of: 16) else { return nil }
+        let symmetricKey = SymmetricKey(data: key)
+        var output = plaintext
+        do {
+            for offset in stride(from: 0, to: output.count, by: 16) {
+                var block = Array(output[offset ..< offset + 16])
+                try AES.permute(&block, key: symmetricKey)
+                output.replaceSubrange(offset ..< offset + 16, with: block)
+            }
+            return output
+        } catch {
+            return nil
+        }
+    }
+    #endif
 
     static func credentials(username: String, password: String, padding: [UInt8]?) -> [UInt8] {
         var block = padding.flatMap { $0.count == 128 ? $0 : nil } ?? randomBytes(128)
