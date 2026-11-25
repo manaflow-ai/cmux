@@ -473,6 +473,23 @@ class Fallback(unittest.TestCase):
                       "only a push supersedes a run: a label or close event must not cancel a push's calls")
         self.assertIs(fallback["concurrency"]["cancel-in-progress"], True)
 
+    def test_ready_to_land_on_a_large_pull_request_calls_the_land_tier(self):
+        # The land tier (docs/ci/cmux-next-workflow-notes.md#note-561): a ready head runs ci.yml's and guards' heavy
+        # tiers only on ready-to-land, and their filters may not see past the first 300 files.
+        files = PROSE + [CODE]
+        event = pull_request_event("labeled", label="ready-to-land", changed=len(files))
+        self.assertTrue(gate_runs(event))
+        earlier = [{"path": f".github/workflows/{n}", "created": 0.0} for n in ("ci.yml", "cmux-next-guards.yml")]
+        self.assertEqual(self.plan(event, files, earlier, since=10_000.0), ["ci.yml", "cmux-next-guards.yml"],
+                         "the push's runs were the cheap tier")
+        this_event = [{"path": f".github/workflows/{n}", "created": 9_999.0} for n in ("ci.yml", "cmux-next-guards.yml")]
+        self.assertEqual(self.plan(event, files, this_event, since=10_000.0), [], "their own filters started them")
+        # 300 files or fewer: their filters saw every file, so the gate takes no runner.
+        self.assertFalse(gate_runs(pull_request_event("labeled", label="ready-to-land", changed=300)))
+        self.assertFalse(gate_runs(pull_request_event("unlabeled", label="ready-to-land", changed=len(files))))
+        # A docs-only pull request runs no CI tier, large or not.
+        self.assertEqual(self.plan(event, PROSE + ["docs/b.md"], None), [])
+
     def test_the_labels_are_ci_yml_s(self):
         ci = (WORKFLOWS / "ci.yml").read_text()
         self.assertIn(docs.label_guard(docs.CI_LABELS), ci, "ci.yml's label guard and the fallback's name the same labels")

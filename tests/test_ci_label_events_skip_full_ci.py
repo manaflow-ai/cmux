@@ -41,8 +41,9 @@ GUARDED: dict[str, tuple[str, ...]] = {
     # (tests/test_pr_body_checks.py pins which step runs on which label).
     "pr-body-checks.yml": ("media-tour", "media-tour-mac", "perf", "performance"),
     # Calls ci.yml for a docs-only pull request that gets one of ci.yml's labels (its `paths:` filters label events
-    # too); its gate takes no runner for any other label (scripts/ci/docs_only_paths.py FALLBACK).
-    "docs-only-fallback.yml": ("full-ci", "dev-build"),
+    # too), and ci.yml and guards on ready-to-land past 300 files; its gate takes no runner for any other label
+    # (scripts/ci/docs_only_paths.py FALLBACK).
+    "docs-only-fallback.yml": ("full-ci", "dev-build", "ready-to-land"),
     # Adding full-ci re-runs the tiers a feat-cmux-next pull request skips without it (scripts/ci/affected_jobs.py PR_SKIP_IF).
     "cmux-next.yml": ("full-ci", "ready-to-land"),
     # Applies on backend:apply-migrations; full-ci lifts its draft skip. Every other label took a Blacksmith VM

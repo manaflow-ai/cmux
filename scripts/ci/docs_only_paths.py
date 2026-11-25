@@ -196,7 +196,13 @@ def job_id(name: str) -> str:
 
 # ci.yml's labels: the opt-ins plus the land handoff (scripts/ci/head_tier.py land rule). A docs-only pull request
 # runs no CI tier, so the fallback does not start ci.yml on `ready-to-land`.
-CI_LABELS = LABEL_OPT_INS + ("ready-to-land",)
+LAND_HANDOFF = "ready-to-land"
+CI_LABELS = LABEL_OPT_INS + (LAND_HANDOFF,)
+# The fallback's gate reads the land handoff too, on a pull request of more than PATHS_FILTER_LIMIT files only: a
+# ready head runs ci.yml's and cmux-next-guards.yml's heavy tiers only on `ready-to-land` (the land tier), and their
+# `paths:` may not see past the first 300 files, so without this call those tiers never ran before merge
+# (docs/ci/cmux-next-workflow-notes.md#note-561). A pull request of 300 files or fewer starts them on its own.
+FALLBACK_LABELS = CI_LABELS
 
 
 def label_guard(labels_read: tuple[str, ...] = LABEL_OPT_INS) -> str:
@@ -213,7 +219,9 @@ def gate_condition() -> str:
     over = f"github.event.pull_request.changed_files > {PATHS_FILTER_LIMIT}"
     return ("${{ ((github.event.action != 'labeled' && github.event.action != 'unlabeled' && " + over + ") || "
             f"(contains(fromJSON('{labels}'), github.event.label.name) && (github.event.action == 'labeled' || "
-            + over + "))) && " + label_guard() + " }}")
+            + over + ")) || "
+            f"(github.event.label.name == '{LAND_HANDOFF}' && github.event.action == 'labeled' && " + over + ")) && "
+            + label_guard(FALLBACK_LABELS) + " }}")
 
 
 def render_fallback(root: Path) -> str:
@@ -247,7 +255,7 @@ permissions: {{}}
 # A push supersedes the pull request's older run (and its calls, which tested an older head). Any other event runs in a
 # group of its own, so a label, review-ready or close event never cancels a push's calls in flight.
 concurrency:
-  group: docs-only-fallback-${{{{ github.event.pull_request.number }}}}${{{{ !contains(fromJSON('{json.dumps(list(PUSH_ACTIONS), separators=(",", ":"))}'), github.event.action) && format('-{{0}}-{{1}}', github.event.action, github.run_id) || '' }}}}${{{{ {label_guard()[2:-1]} && format('-label-{{0}}', github.run_id) || '' }}}}
+  group: docs-only-fallback-${{{{ github.event.pull_request.number }}}}${{{{ !contains(fromJSON('{json.dumps(list(PUSH_ACTIONS), separators=(",", ":"))}'), github.event.action) && format('-{{0}}-{{1}}', github.event.action, github.run_id) || '' }}}}${{{{ {label_guard(FALLBACK_LABELS)[2:-1]} && format('-label-{{0}}', github.run_id) || '' }}}}
   cancel-in-progress: true
 
 jobs:

@@ -5294,3 +5294,8 @@ it in fast-check-route; on a cheap head the gates job skips and `post` writes `c
 "cheap tier: the gates run when ready-to-land is added", never success, so a merger that reads only that status
 still dispatches the gates (the dispatch path is unchanged). The push runs on feat-cmux-next are unchanged and stay
 the backstop. `vars.CI_LAND_TIER=0` turns both off with the rest of the land rule.
+
+A pull request of more than 300 files: GitHub's `paths:` sees only the first 300, so `ready-to-land` may start
+neither ci.yml nor guards on their own. docs-only-fallback.yml's gate takes `ready-to-land` there (and only there),
+and calls whichever of them shows no run of that label event; a docs-only one still runs no CI tier
+(scripts/ci/docs_only_paths.py FALLBACK_LABELS). This also closes the same gap for ci.yml's land tier.
