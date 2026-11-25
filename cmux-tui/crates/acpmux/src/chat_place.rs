@@ -68,8 +68,14 @@ impl Place {
         }
     }
 
-    /// The place a chat's `autoSession` row says it is in (`AutoRecord::row`).
+    /// The place a chat's `autoSession` row says it is in (`AutoRecord::row`): its `mode`, which
+    /// reads `local` from the moment a chat is asked home; for a row with no `mode`, the two
+    /// fields a mode stands for.
     pub fn of_row(row: &Value) -> Self {
+        let mode = row["mode"].as_str();
+        if let Some(place) = Self::ALL.into_iter().find(|place| Some(place.as_str()) == mode) {
+            return place;
+        }
         match (row["auto"].as_bool(), row["keepInCloud"].as_bool()) {
             (Some(true), Some(true)) => Self::Cloud,
             (Some(true), _) => Self::Auto,

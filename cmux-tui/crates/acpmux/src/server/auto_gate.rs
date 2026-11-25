@@ -79,9 +79,16 @@ async fn chat_move(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value,
         RpcError::invalid_params(&format!("on must be local, cloud or auto (got {word:?})"))
     })?;
     let s = hub.resolve(session_key(params)?)?;
-    let from = Place::of_row(&crate::auto_session::record::AutoRecord::row_of(
-        hub.auto_record(&s).as_ref(),
-    ));
+    let row = crate::auto_session::record::AutoRecord::row_of(hub.auto_record(&s).as_ref());
+    let from = Place::of_row(&row);
+    // A chat kept in the Cloud that runs on this Mac with no move under way (it has not gone
+    // yet, or the Cloud did not take it) is not there: asked again, it is moved, by the rules
+    // for a chat set to auto.
+    let laptop = hub.auto_holder.get().is_some_and(|holder| !holder.on_machine());
+    let waits_here = (from, to) == (Place::Cloud, Place::Cloud)
+        && laptop
+        && row["here"] == true
+        && row.get("moving").is_none();
     let asker = if persons(conn) {
         Asker::Person
     } else {
@@ -91,7 +98,7 @@ async fn chat_move(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value,
             enabled: agent_moves_enabled(),
         }
     };
-    let verdict = consent(from, to, asker);
+    let verdict = consent(if waits_here { Place::Auto } else { from }, to, asker);
     let id = s.id.to_string();
     match verdict {
         Consent::Go => {
@@ -103,8 +110,18 @@ async fn chat_move(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value,
             // chat the Cloud has home before Auto goes off.
             let set = to.set_params(&id);
             let mut answer = crate::auto_session::surface::chat(hub, &s, &set, Ask::Set).await?;
+            // The answer says what the chat's row says: `moving` while it is on its way, and
+            // never `moved` for a chat whose setting did not change.
+            let row = answer.get("autoSession").unwrap_or(&Value::Null);
+            let reads = Place::of_row(row);
+            if reads != to {
+                let (reads, to) = (reads.as_str(), to.as_str());
+                let why = format!("this chat was not moved to {to}: it is still set to {reads}");
+                return Err(RpcError::internal(why));
+            }
+            let status = if row.get("moving").is_some() { "moving" } else { "moved" };
             if let Some(o) = answer.as_object_mut() {
-                o.insert("status".into(), "moved".into());
+                o.insert("status".into(), status.into());
                 o.insert("from".into(), from.as_str().into());
                 o.insert("to".into(), to.as_str().into());
             }

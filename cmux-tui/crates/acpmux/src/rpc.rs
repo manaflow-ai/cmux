@@ -1070,7 +1070,8 @@ pub mod method {
     /// move the Cloud refuses is the request's error, in plain words.
     pub const MUX_AUTO_SESSION_MOVE: &str = "_acpmux/auto_session/move";
     /// Move one chat between Local, Cloud and AutoCloud (`chat_place.rs`): `{sessionId, on,
-    /// reason?}` -> `{status: moved|already|needs_person, from, to, autoSession?, command?, why?}`.
+    /// reason?}` -> `{status: moved|moving|already|needs_person, from, to, autoSession?, command?,
+    /// why?}`. `moving`: the Cloud took the move and the chat is on its way (`autoSession.moving`).
     /// The person may make any move; a chat's own agent only the ones `chat_place::consent` allows.
     pub const MUX_CHAT_MOVE: &str = "_acpmux/chat_move";
     /// The changes kept aside when the Cloud took a chat: `{sessionId, action}` with `show` ->

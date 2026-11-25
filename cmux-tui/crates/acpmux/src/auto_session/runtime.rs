@@ -170,6 +170,11 @@ where
 }
 
 impl HolderHandle {
+    /// This daemon is a Cloud machine's, which holds chats for the person's devices.
+    pub(crate) fn on_machine(&self) -> bool {
+        self.me.is_vm()
+    }
+
     fn tell(&self, command: Command) {
         // The loop ends only with its daemon: a command after that has nobody to act on it.
         let _ = self.commands.send(command);

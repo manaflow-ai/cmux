@@ -806,6 +806,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 let to = v["to"].as_str().unwrap_or("?");
                 match v["status"].as_str() {
                     Some("moved") => println!("moved {id} to {to}"),
+                    Some("moving") => println!("moving {id} to {to}"),
                     Some("already") => println!("{id} already runs {to}"),
                     _ => println!(
                         "not moved: {}\nthe person runs: {}",
