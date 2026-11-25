@@ -12,6 +12,7 @@
 //! `cmux ext dev --once --headless --json`. The tests below fail when a page is added
 //! without being listed here, or names a surface or a key this build does not have.
 
+use cmux_action_catalog::{CMD, CTRL, KEYBOARD, OPT, SHIFT, Shortcut};
 use cmux_customize::SURFACE_KEYS;
 use cmux_customize::schema::Schema;
 use serde_json::{Value, json};
@@ -71,6 +72,17 @@ const PROMPTS: &[(&str, &str)] = &[
     ),
 ];
 
+/// cmux's motion scale: the default length of every chrome animation (hover, fold, fade, ...),
+/// the file `gen-motion-scale.py` writes the pages' `--cmux-motion-*` tokens from.
+const MOTION_SCALE: &str = include_str!("../../../../../../schemas/motion-scale/motion-scale.json");
+
+/// Generated reference surfaces that are neither one recipe nor one brief line: every key
+/// binding action, and the motion settings beside the timings they scale.
+const REFERENCES: &[(&str, &str)] = &[
+    ("keybindings", "Key bindings: every action id a key can run, its title and default keys"),
+    ("motion", "Animations: the ui.animations.* switches and cmux's default chrome timings"),
+];
+
 /// Where to look next from a settings surface: the extension surfaces that add to it.
 const SEE_ALSO: &[(&str, &[&str])] = &[
     ("sidebar", &["section", "live-section"]),
@@ -102,6 +114,7 @@ pub(super) fn surface_names() -> Vec<&'static str> {
         .iter()
         .map(|(what, _)| settings_name(what))
         .chain(RECIPES.iter().map(|(name, _)| *name))
+        .chain(REFERENCES.iter().map(|(name, _)| *name))
         .collect()
 }
 
@@ -122,6 +135,144 @@ fn interface_of(page: &str) -> Option<String> {
     Some(rest.split('`').next()?.to_owned())
 }
 
+/// One setting's line: key, title, kind, summary, choices or range, default, who sets it.
+fn setting_line(setting: &cmux_customize::schema::Setting) -> String {
+    let mut text = format!("- `{}` ({}, {})", setting.key, setting.title, setting.kind);
+    if let Some(summary) = &setting.summary {
+        text.push_str(&format!(": {summary}"));
+    }
+    if !setting.choices.is_empty() {
+        text.push_str(&format!(". One of: {}", setting.choices.join(", ")));
+    }
+    if let Some(range) = &setting.range {
+        text.push_str(&format!(". {} to {} by {}{}", range.min, range.max, range.step, range.unit));
+    }
+    if let Some(default) = &setting.default {
+        text.push_str(&format!(". Default: {default}"));
+    }
+    if !setting.agent_settable {
+        text.push_str(". Only the person sets it");
+    }
+    text.push('\n');
+    text
+}
+
+/// A catalog shortcut in `keybindings.json` syntax (`cmd+shift+]`, `ctrl+alt+left`).
+fn key_text(shortcut: &Shortcut) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    for (bit, name) in [(CTRL, "ctrl"), (OPT, "alt"), (SHIFT, "shift"), (CMD, "cmd")] {
+        if shortcut.modifiers & bit != 0 {
+            parts.push(name.to_owned());
+        }
+    }
+    let key = match shortcut.key {
+        "\u{f702}" => "left",
+        "\u{f703}" => "right",
+        "\u{f700}" => "up",
+        "\u{f701}" => "down",
+        "\r" => "enter",
+        "\t" => "tab",
+        "\u{1b}" => "escape",
+        " " => "space",
+        "\u{8}" | "\u{7f}" => "backspace",
+        "\u{f728}" => "delete",
+        "\u{f729}" => "home",
+        "\u{f72b}" => "end",
+        "\u{f72c}" => "pageup",
+        "\u{f72d}" => "pagedown",
+        other => other,
+    };
+    parts.push(key.to_owned());
+    parts.join("+")
+}
+
+/// `keybindings`: every action a key can run, from the action catalog (what `cmux keybinding
+/// list` reads from a running app), so an agent can bind keys with no cmux open.
+fn keybindings_surface() -> Surface {
+    let mut text = String::from(
+        "# keybindings (reference)\n\nKey bindings live in `keybindings.json` in cmux's config folder (beside `cmux-next.json`), in the common editor \
+format; cmux reloads it on save. Each entry is `{ \"key\": KEYS, \"command\": ACTION_ID }`; a `-` before the id \
+removes that default. With cmux open, `cmux keybinding list --command ID` shows what is bound now and \
+`cmux keybinding resolve KEYS` what keys do.\n\n```json keybindings.json\n[\n  { \"key\": \"cmd+k cmd+p\", \"command\": \"palette.open\" },\n  { \"key\": \"cmd+shift+p\", \"command\": \"-palette.open\" }\n]\n```\n\n## Actions\n\n`id`: title (default keys)\n\n",
+    );
+    for action in cmux_action_catalog::actions() {
+        if action.is_debug_only || action.surfaces & KEYBOARD == 0 {
+            continue;
+        }
+        let mut keys: Vec<String> = action.default_shortcut.iter().map(key_text).collect();
+        if let Some(chord) = &action.default_chord {
+            keys.push(format!("{} {}", key_text(&chord.first), key_text(&chord.second)));
+        }
+        text.push_str(&format!("- `{}`: {}", action.id, action.title.en));
+        if !keys.is_empty() {
+            text.push_str(&format!(" ({})", keys.join(", ")));
+        }
+        text.push('\n');
+    }
+    text.push_str(
+        "\nProve it: `cmux customize check` exits 0 with no problems (each problem names a file and a line).\n",
+    );
+    Surface {
+        name: "keybindings".to_owned(),
+        kind: "reference",
+        interface: None,
+        summary: REFERENCES[0].1.to_owned(),
+        text,
+    }
+}
+
+/// `motion`: the animation settings, then the default length of each chrome motion they turn
+/// off or scale (`schemas/motion-scale/motion-scale.json`, which the pages' tokens come from).
+fn motion_surface(schema: &Schema) -> Surface {
+    let mut text = String::from(
+        "# motion (settings)\n\nAnimations in cmux's own chrome: the switches below turn a kind off, \
+`ui.animationSpeed` scales every length. Write one with `cmux settings set KEY VALUE`. An extension's own \
+motion (`.animation`, `.contentTransition`, `.loop`) is in `cmux customize prompts add-animation`.\n\n",
+    );
+    for setting in schema.settings.iter().filter(|setting| setting.key.starts_with("ui.animation"))
+    {
+        text.push_str(&setting_line(setting));
+    }
+    text.push_str(
+        "\n## Default chrome timings\n\nAt the normal speed. Web pages and themes name them as `--cmux-motion-NAME` \
+(never a raw number).\n\n",
+    );
+    let scale: Value = serde_json::from_str(MOTION_SCALE).unwrap_or(Value::Null);
+    let purpose = |row: &Value| {
+        let text = row["for"].as_str().unwrap_or_default();
+        text.split(" (").next().unwrap_or(text).trim_end_matches('.').to_owned()
+    };
+    for step in scale["steps"].as_array().into_iter().flatten() {
+        text.push_str(&format!(
+            "- `{}`: {} ms: {}\n",
+            step["name"].as_str().unwrap_or_default(),
+            step["ms"],
+            purpose(step)
+        ));
+    }
+    for (name, token) in [
+        ("settle", "settle"),
+        ("sendPop", "send-pop"),
+        ("send", "send"),
+        ("spinner", "spinner-period"),
+    ] {
+        let row = &scale[name];
+        if let Some(ms) = row["ms"].as_u64() {
+            text.push_str(&format!("- `{token}`: {ms} ms: {}\n", purpose(row)));
+        }
+    }
+    text.push_str(
+        "\nProve it: `cmux customize check` exits 0 with no problems (each problem names a file and a line).\n",
+    );
+    Surface {
+        name: "motion".to_owned(),
+        kind: "settings",
+        interface: None,
+        summary: REFERENCES[1].1.to_owned(),
+        text,
+    }
+}
+
 fn settings_surface(schema: &Schema, what: &str, keys: &[&str]) -> Surface {
     let name = settings_name(what);
     let mut text = format!("# {name} (settings)\n\n");
@@ -135,26 +286,7 @@ cmux at once (`cmux settings list` shows every key, `cmux customize schema setti
             text.push_str(&format!("- `{key}`\n"));
             continue;
         };
-        text.push_str(&format!("- `{key}` ({}, {})", setting.title, setting.kind));
-        if let Some(summary) = &setting.summary {
-            text.push_str(&format!(": {summary}"));
-        }
-        if !setting.choices.is_empty() {
-            text.push_str(&format!(". One of: {}", setting.choices.join(", ")));
-        }
-        if let Some(range) = &setting.range {
-            text.push_str(&format!(
-                ". {} to {} by {}{}",
-                range.min, range.max, range.step, range.unit
-            ));
-        }
-        if let Some(default) = &setting.default {
-            text.push_str(&format!(". Default: {default}"));
-        }
-        if !setting.agent_settable {
-            text.push_str(". Only the person sets it");
-        }
-        text.push('\n');
+        text.push_str(&setting_line(setting));
         if example.is_none() && setting.agent_settable {
             let value = setting
                 .choices
@@ -234,6 +366,7 @@ pub(super) fn surfaces(schema: &Schema) -> Vec<Surface> {
         .iter()
         .map(|(what, keys)| settings_surface(schema, what, keys))
         .chain(RECIPES.iter().map(|(name, page)| extension_surface(schema, name, page)))
+        .chain([keybindings_surface(), motion_surface(schema)])
         .collect()
 }
 
@@ -273,7 +406,7 @@ or field, and a working example.\n\n",
     let width = all.iter().map(|surface| surface.name.len()).max().unwrap_or(0);
     for surface in all {
         text.push_str(&format!(
-            "  {:width$}  {:9}  {}\n",
+            "  {:width$}  {:10}  {}\n",
             surface.name, surface.kind, surface.summary
         ));
     }
@@ -407,6 +540,7 @@ mod tests {
         unique.sort_unstable();
         unique.dedup();
         assert_eq!(unique.len(), names.len(), "{names:?}");
+        assert_eq!(surfaces(&schema).len(), names.len(), "a surface with no reference");
         for surface in surfaces(&schema) {
             assert!(surface.text.contains("Prove it"), "{}: no proof line", surface.name);
             if surface.kind == "extension" {
@@ -462,6 +596,15 @@ mod tests {
         let (text, _) = answer(&sidebar).unwrap();
         assert!(text.contains("sidebar.density") && text.contains("cmux settings set"), "{text}");
         assert!(super::super::parse(&["docs".to_owned(), "nope".to_owned()]).is_err());
+        let keys = super::super::parse(&["docs".to_owned(), "keybindings".to_owned()]).unwrap();
+        let (text, _) = answer(&keys).unwrap();
+        assert!(text.contains("`palette.open`") && text.contains("cmd+"), "{text}");
+        let motion = super::super::parse(&["docs".to_owned(), "motion".to_owned()]).unwrap();
+        let (text, _) = answer(&motion).unwrap();
+        assert!(
+            text.contains("ui.animations.enabled") && text.contains("`quick`: 80 ms"),
+            "{text}"
+        );
         let prompts = super::super::parse(&["prompts".to_owned()]).unwrap();
         let (_, json) = answer(&prompts).unwrap();
         assert_eq!(json["prompts"].as_array().map(Vec::len), Some(PROMPTS.len()));
