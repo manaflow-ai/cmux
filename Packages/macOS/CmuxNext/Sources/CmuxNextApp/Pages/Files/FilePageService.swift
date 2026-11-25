@@ -185,11 +185,14 @@ final class FilePageService: InternalPageProvider {
 
     /// `file` as a new tab of `model`, a pane no window shows (an agent's workspace off screen): the
     /// tab goes into the daemon's model unselected and shows when its workspace shows (user, 2026-11-18).
-    func open(_ file: URL, parkedIn model: PaneModel, of daemon: DaemonService, window: WindowController, userChose: Bool) -> Bool {
+    /// `created` hears the new tab's surface once the daemon made it (the classic import moves it into place).
+    func open(_ file: URL, parkedIn model: PaneModel, of daemon: DaemonService, window: WindowController, userChose: Bool,
+              created: (@MainActor (SurfaceID) -> Void)? = nil) -> Bool {
         guard daemon.isLocal, services.pages.keepsRoutes(daemon) else { return false }
         let files = machineFiles(on: daemon), real = files.canonical(file), key = LocalPageTab.makeKey(kind.page)
         tabs[key] = Tab(file: real, userChose: userChose, readOnly: false, recoveredText: nil, reveal: nil, files: files, machine: "local")
-        guard services.pages.openStoreTab(kind.page, in: model, of: daemon, services: services, controller: nil, window: window, focus: false, key: key) != nil else {
+        guard services.pages.openStoreTab(kind.page, in: model, of: daemon, services: services, controller: nil, window: window, focus: false, key: key,
+                                          created: created) != nil else {
             tabs[key] = nil
             return false
         }

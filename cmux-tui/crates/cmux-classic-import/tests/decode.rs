@@ -319,3 +319,90 @@ fn a_read_saves_scrollback_is_its_replay_text() {
     );
     assert_eq!(tabs[1].scrollback, None);
 }
+
+#[test]
+fn markdown_and_file_preview_tabs_come_over_with_their_files_and_pins() {
+    let snapshot = decode_one(json!({
+        "stableId": "w", "currentDirectory": "/proj",
+        "focusedPanelId": "md",
+        "panels": [
+            {"id": PANEL_A, "type": "terminal", "isPinned": true, "terminal": {"workingDirectory": "/a"}},
+            {"id": "md", "type": "markdown", "customTitle": "Notes", "markdown": {"filePath": "/proj/README.md"}},
+            {"id": "pv", "type": "filePreview", "filePreview": {"filePath": "/proj/shot.png"}},
+            {"id": "rel", "type": "markdown", "markdown": {"filePath": "relative.md"}},
+            {"id": "sim", "type": "simulator", "simulator": {}},
+        ],
+        "layout": {"type": "split", "split": {
+            "orientation": "horizontal", "dividerPosition": 0.4,
+            "first": {"type": "pane", "pane": {"panelIds": [PANEL_A], "selectedPanelId": PANEL_A}},
+            "second": {"type": "pane", "pane": {"panelIds": ["md", "pv", "rel", "sim"], "selectedPanelId": "pv"}},
+        }},
+    }));
+    let workspace = &snapshot.windows[0].workspaces[0];
+    // The simulator and the relative path stay in classic.
+    assert!(workspace.left_out_panels);
+    let Layout::Split { first, second, .. } = &workspace.layout else {
+        panic!("{:?}", workspace.layout)
+    };
+    let (Layout::Pane(left), Layout::Pane(right)) = (&**first, &**second) else { panic!() };
+    assert!(left.tabs[0].pinned);
+    assert!(!left.focused);
+    assert!(right.focused);
+    assert_eq!(right.tabs.len(), 2);
+    assert_eq!(right.selected_tab, 1);
+    let md = right.tabs[0].file.as_ref().unwrap();
+    assert_eq!((md.path.as_str(), md.markdown), ("/proj/README.md", true));
+    assert_eq!(right.tabs[0].title.as_deref(), Some("Notes"));
+    let preview = right.tabs[1].file.as_ref().unwrap();
+    assert_eq!((preview.path.as_str(), preview.markdown), ("/proj/shot.png", false));
+    assert!(right.tabs.iter().all(|tab| tab.url.is_none() && tab.working_directory.is_none()));
+}
+
+#[test]
+fn a_workspace_keeps_its_description_and_task_lane() {
+    let snapshot = decode_one(json!({
+        "stableId": "w", "currentDirectory": "/proj",
+        "customDescription": "  Ship the migration audit  ",
+        "taskStatusOverride": "needs-attention",
+        "panels": [terminal(PANEL_A, json!({}))],
+    }));
+    let workspace = &snapshot.windows[0].workspaces[0];
+    assert_eq!(workspace.description.as_deref(), Some("Ship the migration audit"));
+    assert_eq!(workspace.task_status.as_deref(), Some("needs-attention"));
+    assert!(!workspace.left_out_panels);
+
+    let odd = decode_one(json!({
+        "stableId": "w", "currentDirectory": "/proj",
+        "customDescription": "   ",
+        "taskStatusOverride": "someday",
+        "panels": [terminal(PANEL_A, json!({}))],
+    }));
+    let workspace = &odd.windows[0].workspaces[0];
+    assert_eq!((workspace.description.as_ref(), workspace.task_status.as_ref()), (None, None));
+
+    let long = decode_one(json!({
+        "stableId": "w", "currentDirectory": "/proj",
+        "customDescription": "é".repeat(5000),
+        "panels": [terminal(PANEL_A, json!({}))],
+    }));
+    assert_eq!(long.windows[0].workspaces[0].description.as_ref().unwrap().chars().count(), 4096);
+}
+
+#[test]
+fn a_workspace_without_a_focused_panel_focuses_no_pane() {
+    let snapshot = decode_one(json!({
+        "stableId": "w", "currentDirectory": "/proj",
+        "focusedPanelId": "gone",
+        "panels": [terminal(PANEL_A, json!({})), terminal(PANEL_B, json!({}))],
+        "layout": {"type": "split", "split": {
+            "orientation": "vertical", "dividerPosition": 0.5,
+            "first": {"type": "pane", "pane": {"panelIds": [PANEL_A]}},
+            "second": {"type": "pane", "pane": {"panelIds": [PANEL_B]}},
+        }},
+    }));
+    let Layout::Split { first, second, .. } = &snapshot.windows[0].workspaces[0].layout else {
+        panic!()
+    };
+    let (Layout::Pane(a), Layout::Pane(b)) = (&**first, &**second) else { panic!() };
+    assert!(!a.focused && !b.focused);
+}

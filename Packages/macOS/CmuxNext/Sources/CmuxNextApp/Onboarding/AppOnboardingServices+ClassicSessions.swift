@@ -3,6 +3,7 @@ import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDaemonService
+import CmuxNextFocus
 import CmuxNextOnboarding
 import CmuxNextSidebar
 import CmuxNextWakeups
@@ -84,7 +85,11 @@ extension AppOnboardingServices {
         // only pages on a daemon without browser tabs) is not opened.
         let browsers = daemon.supports(DaemonCapability.frontendBrowserTabs.rawValue)
         if saved.leftOutPanels { summary.leftTabs = true }
-        guard let layout = saved.layout.keeping({ browsers || $0.url == nil }) else { return nil }
+        // A markdown or file preview tab opens its file on this Mac, so only in a local workspace and only while the
+        // file is there; it is built as a page on the file and becomes its markdown or editor page once placed.
+        let keepsFile: (ClassicSessionFile) -> Bool = { browsers && saved.remote == nil && FileManager.default.fileExists(atPath: $0.path) }
+        if saved.layout.tabs.contains(where: { $0.file.map { !keepsFile($0) } ?? false }) { summary.leftTabs = true }
+        guard let layout = saved.layout.keeping({ tab in tab.file.map(keepsFile) ?? (browsers || tab.url == nil) }) else { return nil }
         if saved.remote != nil, layout.tabs.contains(where: { $0.scrollback != nil }) { summary.leftSSHScrollback = true }
         var node = WorkspaceBlueprint.Node.pane([])
         do {
@@ -106,7 +111,11 @@ extension AppOnboardingServices {
             let placed = try await restoreClassicTitles(layout, workspaceID: id, daemon: daemon, connection: connection)
             // Adopted chats run in this Mac's acpmux, which has only this
             // Mac's sessions: an SSH workspace's agent stays a terminal.
-            if daemon.isLocal { await openClassicChats(placed, on: daemon, connection: connection) }
+            if daemon.isLocal {
+                await openClassicChats(placed, on: daemon, connection: connection)
+                await openClassicFiles(placed, on: daemon, connection: connection)
+            }
+            await restoreClassicPanes(layout, workspaceID: id, daemon: daemon, connection: connection)
             // The run sets the workspace's classic group next. A slot placement still queued would land after
             // that, take the workspace out of the group again and delete the group it emptied (#26153).
             await Self.placementLanded(listed, queue: services.personalPlacements, doc: services.sidebarDoc)
@@ -228,7 +237,9 @@ extension AppOnboardingServices {
             // An agent's terminal holds its place until its chat opens, and
             // replays nothing: its chat has the session's own history.
             return .pane(pane.tabs.map { tab in
-                tab.url.map { .browser(url: $0, engine: nil) }
+                // A file tab holds its place as the file's own preview (an image or PDF stays one).
+                if let file = tab.file { return .browser(url: file.url.absoluteString, engine: Self.classicPreviewEngine(file.url)) }
+                return tab.url.map { .browser(url: $0, engine: nil) }
                     ?? .terminal(cwd: tab.agent?.workingDirectory ?? tab.workingDirectory,
                                  replay: replays && tab.agent == nil ? replayFile(tab.scrollback) : nil)
             })
@@ -278,7 +289,8 @@ extension AppOnboardingServices {
         }
         for (index, tab) in layout.tabs.enumerated() where index < placed.count {
             placed[index].tab = tab
-            guard let title = tab.title, !title.isEmpty else { continue }
+            // A file tab's page names itself after its file.
+            guard tab.file == nil, let title = tab.title, !title.isEmpty else { continue }
             // A page whose tab takes no name keeps the page's title.
             if tab.url != nil { try? await connection.renameTab(placed[index].surface, to: title) }
             else { try await daemon.renameTab(placed[index].surface, to: title, in: WorkspaceKey(rawValue: workspaceID), on: connection) }
@@ -313,6 +325,84 @@ extension AppOnboardingServices {
 }
 
 extension AppOnboardingServices {
+    /// The engine of the page a classic file tab is built as: the preview's own (WebKit for images, PDFs and media).
+    nonisolated static func classicPreviewEngine(_ url: URL) -> BrowserEngine? {
+        FilePageOpener.tabEngine(for: url).flatMap(BrowserEngine.init(rawValue:))
+    }
+
+    /// Replaces each classic markdown tab, and each file preview of a text file, with its file's markdown or code
+    /// editor page, at the page's place in its pane (as ``openClassicChats(_:on:connection:)`` does for agents). A
+    /// file the browser previews (an image, a PDF, media) keeps its page. The page stays when its replacement
+    /// does not open within ten seconds.
+    func openClassicFiles(_ placed: [ClassicPlacedTab], on daemon: DaemonService, connection: DaemonConnection) async {
+        let services = services
+        guard let window = services.windows.active ?? services.windows.controllersActingFirst.first else { return }
+        for slot in placed {
+            guard let file = slot.tab?.file, let kind = FilePageOpener.kind(for: file.url),
+                  let model = daemon.store.pane(slot.pane) else { continue }
+            let pages = kind == .markdown ? services.viewers.markdownPages : services.viewers.editorPages
+            let made = FirstOutcome<SurfaceID?>()
+            guard pages.open(file.url, parkedIn: model, of: daemon, window: window, userChose: false,
+                             created: { made.resolve($0) }) else { continue }
+            let bound = DemandTimer(owner: "ClassicImport.filePage")
+            bound.schedule(after: .seconds(10)) { made.resolve(nil) }
+            let surface = await made.value()
+            bound.cancel()
+            guard let surface else {
+                services.daemon.logger.error("classic file tab did not open: \(file.path, privacy: .private)")
+                continue
+            }
+            do {
+                try await connection.moveTab(surface, to: slot.pane, index: slot.index)
+                try await connection.closeTab(slot.surface)
+            } catch {
+                services.daemon.logger.error("classic file tab not placed: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
+    /// Each pane as classic left it: its pinned tabs pinned, the tab it selected selected in every window, and the
+    /// pane classic focused remembered as the workspace's focused pane. Panes match by order, as tabs do in
+    /// ``restoreClassicTitles(_:workspaceID:daemon:connection:)``; the chats and pages that replaced tabs took
+    /// their places, so a tab's index still names it.
+    func restoreClassicPanes(_ layout: ClassicSessionLayout, workspaceID: String, daemon: DaemonService,
+                             connection: DaemonConnection) async {
+        let classic = layout.panes
+        // A pane of one tab has nothing to select; the builder leaves its last made tab selected in the others.
+        guard classic.contains(where: { $0.focused || $0.tabs.count > 1 }),
+              let screen = try? await daemon.shape(of: WorkspaceKey(rawValue: workspaceID), after: connection)?.screens.first else { return }
+        let panes = screen.layout.paneIDs.compactMap { id in screen.panes.first { $0.handle == id } }
+        for (saved, pane) in zip(classic, panes) {
+            // Pinned tabs sort first in cmux NEXT as in classic: pin them in their order.
+            for (index, tab) in saved.tabs.enumerated() where tab.pinned && index < pane.surfaces.count {
+                do { _ = try await connection.setTabPinned(pane.surfaces[index], true) } catch {
+                    services.daemon.logger.error("classic tab pin not kept: \(String(describing: error), privacy: .public)")
+                }
+            }
+        }
+        // Read again: pinning may have moved tabs.
+        guard let screen = try? await daemon.shape(of: WorkspaceKey(rawValue: workspaceID), after: connection)?.screens.first else { return }
+        let shown = screen.layout.paneIDs.compactMap { id in screen.panes.first { $0.handle == id } }
+        for (saved, pane) in zip(classic, shown) {
+            guard let model = daemon.store.pane(pane.handle) else { continue }
+            let selected = saved.tabs.indices.contains(saved.selectedTab) ? saved.tabs[saved.selectedTab] : nil
+            // The selected tab's place after the pins moved to the front.
+            let order = saved.tabs.filter(\.pinned) + saved.tabs.filter { !$0.pinned }
+            if saved.tabs.count > 1, let selected, let index = order.firstIndex(of: selected), index < pane.surfaces.count,
+               let tab = model.tabs.first(where: { $0.surface == pane.surfaces[index] }) {
+                for controller in services.windows.controllers { controller.state.selection.select(tab.id, in: model.id) }
+            }
+            if saved.focused {
+                for controller in services.windows.controllers {
+                    controller.state.selection.focus(model.id, in: workspaceID)
+                    controller.focus.send(.restoredPane(model.id, workspace: workspaceID))
+                }
+            }
+        }
+    }
+}
+
+extension AppOnboardingServices {
     /// What this Mac's acpmux would do with `adopt` (Open Chat's plan); nil
     /// when acpmux is not available.
     fileprivate func classicChatPlan(_ adopt: AgentPaneAdopt, cwd: String?) async throws -> AcpmuxChatOpenPlan? {
@@ -323,7 +413,7 @@ extension AppOnboardingServices {
 }
 
 /// A classic tab and the daemon tab made for it.
-private struct ClassicPlacedTab {
+struct ClassicPlacedTab {
     var pane: PaneID
     var index: Int
     var surface: SurfaceID

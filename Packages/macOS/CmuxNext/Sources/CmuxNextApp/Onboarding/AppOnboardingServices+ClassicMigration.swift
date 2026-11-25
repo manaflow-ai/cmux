@@ -369,7 +369,7 @@ extension AppOnboardingServices {
         return made
     }
 
-    /// The workspace's classic color, pin and group, on its new cmux-next workspace.
+    /// The workspace's classic color, pin, description, task lane and group, on its new cmux-next workspace.
     fileprivate func applyClassicIdentity(_ saved: ClassicSessionWorkspace, to id: String, groups: [String: WorkspaceGroupID]) async {
         let local = services.machines.local
         let store = local.store
@@ -385,6 +385,13 @@ extension AppOnboardingServices {
             }
             if saved.pinned, local.supports(DaemonCapability.workspacePin.rawValue) {
                 _ = try await connection.setWorkspaceMetadata(key, pinned: true)
+            }
+            // The description and task lane the person gave it in classic; a daemon without them keeps neither.
+            let description = local.supports(DaemonCapability.workspaceDescription.rawValue) ? saved.description : nil
+            let status = local.supports(DaemonCapability.workspaceStatus.rawValue) ? saved.taskStatus.flatMap(WorkspaceTaskStatus.init(rawValue:)) : nil
+            if description != nil || status != nil, let resource = store.stateResourceID(workspace: key) {
+                try await connection.state.updateWorkspace(resource, description: description.map { .set($0) } ?? .unchanged,
+                                                           taskStatus: status.map { .set($0) } ?? .unchanged)
             }
             if let session = store.registryID, store.servesStateResources, case let group = saved.groupID.flatMap({ groups[$0] }) {
                 try await connection.state.placePersonalWorkspace(session: session, key: key, resource: store.personalStateID(session: session, key: key), group: group.map { .set($0) } ?? .clear,
