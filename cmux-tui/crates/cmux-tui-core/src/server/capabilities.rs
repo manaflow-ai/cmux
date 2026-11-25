@@ -125,6 +125,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(agent_transfer::AGENT_TRANSFER_CAPABILITY);
         capabilities.push(agent_transfer::AGENT_TRANSFER_VM_KIND_CAPABILITY);
         capabilities.push(agent_transfer::AGENT_TRANSFER_CONTINUES_CAPABILITY);
+        capabilities.push(agent_transfer::AGENT_TRANSFER_CREDENTIALS_CAPABILITY);
         capabilities.push(agent_transfer::AGENT_TRANSFER_BEGIN_TOKEN_CAPABILITY);
         capabilities.extend_from_slice(agent_transfer::AGENT_TRANSFER_BUNDLE_FILE_CAPABILITIES);
         capabilities.push(agent_transfer::AGENT_TRANSFER_HISTORY_LATER_CAPABILITY);
@@ -447,6 +448,7 @@ pub(super) fn advertised_capabilities(
         TERMINAL_FRONTEND_SHELL_INTEGRATION_CAPABILITY,
         SCREEN_TERMINAL_ENV_CAPABILITY,
         LAUNCH_SNAPSHOT_CAPABILITY,
+        LAUNCH_SNAPSHOT_FLUSH_CAPABILITY,
         LIST_WORKSPACES_KNOWN_CAPABILITY,
         LIST_WORKSPACES_LIMIT_CAPABILITY,
         LIST_WORKSPACES_PAGE_CAPABILITY,
@@ -484,6 +486,7 @@ pub(super) fn advertised_capabilities(
         crate::resource_router::browser_import::CAPABILITY,
         crate::resource_router::palette_rank::BATCH_CAPABILITY,
         crate::resource_router::theme_scheme::CAPABILITY,
+        crate::resource_router::theme_scheme::SLOTS_CAPABILITY,
         crate::state::browser_devices::CAPABILITY,
         crate::state::workspace_checklist::CAPABILITY,
         crate::state::browser_devices::FIT_CAPABILITY,
