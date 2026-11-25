@@ -67,6 +67,7 @@ import { pausedMachineResume } from "../agent-session/acpmux/pausedMachine.exper
 import { codeRouterOffer } from "../agent-session/acpmux/conversation/codeRouterOffer.experiment";
 import { stoppedTurnLook } from "../agent-session/acpmux/conversation/stoppedTurn.experiment";
 import { chromiumGlassUnderlay } from "../ui/glass/chromiumUnderlay.experiment";
+import { glassEngine } from "../ui/glass/engine/glassEngine.experiment";
 import { hoverLook } from "../ui/hoverLook.experiment";
 import { questionPreviewLayout } from "../agent-session/acpmux/question/previewLayout.experiment";
 import { trayPanelLook, trayRowLook, trayStopLook } from "../agent-session/acpmux/subagents/trayPanel.experiment";
@@ -77,7 +78,9 @@ import { hatQuestionsLook } from "../agent-session/acpmux/question/hatQuestions.
 import { hatChevronLook, hatDoneCheckPlace, hatDoneLook } from "../agent-session/acpmux/subagents/hatParts.experiment";
 import { hatTuckLook } from "../agent-session/acpmux/subagents/hatTuck.experiment";
 import { hatOpenLook } from "../agent-session/acpmux/subagents/hatOpen.experiment";
+import { hatHeaderLook } from "../agent-session/acpmux/subagents/hatHeader.experiment";
 import { goalHatPlace } from "../agent-session/acpmux/goalHat.experiment";
+import { customizeBarPlace } from "../agent-session/acpmux/customizeBar/customizeBar.experiment";
 import { trayHeadLook } from "../agent-session/acpmux/subagents/trayHead.experiment";
 import { trayFoldHeadLook } from "../agent-session/acpmux/subagents/trayFoldHead.experiment";
 import { trayKindLineLook } from "../agent-session/acpmux/subagents/trayKindLine.experiment";
@@ -132,11 +135,13 @@ import { composerShellLook } from "../agent-session/acpmux/composer/shellLook.ex
 import { composerFooterControls } from "../agent-session/acpmux/composer/footerControls.experiment";
 import { composerEmptyHeight } from "../agent-session/acpmux/composer/emptyHeight.experiment";
 import { toastsV2 } from "../ui/toastsV2.experiment";
+import { diffViewedProgress } from "../diff-viewer/viewedProgress.experiment";
 import type { Experiment } from "./experiment";
 
 export const EXPERIMENTS: readonly Experiment[] = [
   diffTreeDisclosure,
   treeNameFade,
+  diffViewedProgress,
   sessionReplay,
   steerQueueExperiment,
   statusIslandExperiment,
@@ -183,6 +188,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   timeHoverWording,
   timeHoverDate,
   chromiumGlassUnderlay,
+  glassEngine,
   hoverLook,
   questionPreviewLayout,
   toolErrorLook,
@@ -216,7 +222,9 @@ export const EXPERIMENTS: readonly Experiment[] = [
   hatChevronLook,
   hatTuckLook,
   hatOpenLook,
+  hatHeaderLook,
   goalHatPlace,
+  customizeBarPlace,
   hatDoneLook,
   hatDoneCheckPlace,
   trayHeadLook,

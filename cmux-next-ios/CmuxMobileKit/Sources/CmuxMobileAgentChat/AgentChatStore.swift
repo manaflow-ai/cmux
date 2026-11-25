@@ -387,6 +387,9 @@ public final class AgentChatStore {
     /// The newest change was a replayed batch: views that animate on a value change
     /// (the permission bar, the queue) draw it in place.
     @ObservationIgnored public private(set) var lastChangeWasReplay = false
+    /// The same attach replay can be delivered again after a reconnect. Equal batches do not
+    /// change the transcript, so they must not bump ``revision`` or redraw its rows.
+    @ObservationIgnored private var lastReplayBatch: [AgentSessionEvent]?
     /// Set by the composer when it took its place without motion (the chat opened on its
     /// history): the bottom stack's next height lands at once too (then cleared).
     @ObservationIgnored var placeBottomStackInstantly = false
@@ -441,7 +444,10 @@ public final class AgentChatStore {
         self.isStarting = source.isStarting
         self.quietStatus = quietStatus
         quietStatus.update(down: source.summary.status == .disconnected || source.isOffline || source.loadsHistory)
-        let stream = source.events()
+        // What the source already holds (a kept transcript) goes in now, so the chat's first
+        // frame draws it; the rest streams in.
+        let (head, stream) = source.eventsWithHead()
+        for event in head { receive(event) }
         task = Task { [weak self] in
             for await event in stream {
                 guard let self else { return }
@@ -568,6 +574,7 @@ public final class AgentChatStore {
         let chunks = pendingChunks
         pendingChunks = []
         chunkFlushes += 1
+        lastReplayBatch = nil
         for chunk in Self.merged(chunks) { applyEvent(chunk) }
         refreshDerived(lastTurnOnly: true)
         updateQuietStatus()
@@ -997,6 +1004,9 @@ public final class AgentChatStore {
     }
 
     func apply(_ event: AgentSessionEvent) {
+        // Anything applied since a replay (a refused Full-access switch, a mode pick) may have
+        // moved the state that replay sets, so the next equal replay applies again.
+        if case .batch = event {} else { lastReplayBatch = nil }
         applyEvent(event)
         spillIfOffScreen()
         refreshDerived()
@@ -1006,6 +1016,10 @@ public final class AgentChatStore {
 
     private func applyEvent(_ event: AgentSessionEvent) {
         if !spilledTurnIDs.isEmpty, replaysSpilledTurn(event) { return }
+        if case .batch(let events) = event {
+            guard events != lastReplayBatch else { return }
+            lastReplayBatch = events
+        }
         revision &+= 1
         lastChangeWasReplay = false
         placeBottomStackInstantly = false

@@ -5291,6 +5291,29 @@ Example:
 {"id":20,"ok":true,"data":{"workspace":4,"key":"9dc5432b-6e28-4b58-9f35-75b263f6e84f","workspace_revision":2}}
 ```
 
+### release-workspace-names
+
+| Field | Value |
+| --- | --- |
+| name | `release-workspace-names` |
+| status | implemented |
+| since | protocol 12 |
+
+Hands every user-owned workspace name back to the automatic namer: each name keeps its text, becomes automatic and advances its name revision. A name already automatic is skipped, so a second call releases nothing. A row renamed between the read and its release stays pinned.
+
+Params: none.
+
+Result: `object{released:uint64,still_pinned:uint64}`.
+
+This control-only command has no public CLI mapping.
+
+Example:
+
+```json
+{"id":22,"cmd":"release-workspace-names"}
+{"id":22,"ok":true,"data":{"released":3,"still_pinned":0}}
+```
+
 ### rename-provider-managed-workspace
 
 Requires the `provider-managed-workspace-authority-v2` capability. Clients must not send this command to a server that omits the capability.
@@ -8403,8 +8426,8 @@ are at most 32 KiB each, `tool.input` at most 16 KiB as JSON; a link is http,
 https or a cmux scheme (at most 2048 bytes); an attachment is an `attachment`
 part's fields without `type`, checked like a message part's
 (`conversation_rejected` `unknown_attachment`, `attachment_mismatch`) and
-kept usable while the step names it. A run keeps at most 2000 steps
-(`run_full`), and a conversation its newest 200 runs: a new run drops the
+kept usable while the step names it. A run keeps every step (no count
+cap; each is one row, paged by `rev`), and a conversation its newest 200 runs: a new run drops the
 oldest finished ones with their steps and attachment references. Any other bad field is `run_rejected` `invalid_run` or a bad
 request. Values are absolute, so a retried append writes the same rows.
 
@@ -10001,7 +10024,7 @@ Example:
 
 Blocks until a regular expression matches the current plain-text screen for a PTY surface. The server polls the same text source as `read-screen` and returns as soon as a match is found or the timeout expires. This is the primary automation synchronization primitive.
 
-A wait with a nonzero `timeout_ms` does not hold the connection: it starts after the requests sent before it, and later requests on the same connection are answered while it waits (they may run during its first check), so its reply can arrive after theirs (match replies by `id`). Each such pending `wait-for` takes one terminal-wait worker, from the budget `terminal.wait` uses (8 per connection, 64 per daemon); a `wait-for` over that budget fails at once and is not run. A one-shot check (`timeout_ms` 0) runs in request order and takes no worker. When the connection closes, its pending waits end at once; when the client only half-closes (shuts down its write side), they still run to their end and reply.
+A wait with a nonzero `timeout_ms` does not hold the connection: it starts after the requests sent before it, and later requests on the same connection are answered while it waits (they may run during its first check), so its reply can arrive after theirs (match replies by `id`). Each such pending `wait-for` takes one terminal-wait worker (a thread with a 256 KiB stack), as `terminal.wait` does, with no count cap; a `wait-for` whose worker cannot start fails at once and is not run. A one-shot check (`timeout_ms` 0) runs in request order and takes no worker. When the connection closes, its pending waits end at once; when the client only half-closes (shuts down its write side), they still run to their end and reply.
 
 Params:
 
@@ -10654,7 +10677,7 @@ tries `127.0.0.1`, then `::1`. `window` is the client's receive window
 `{stream, address, window}`, where `window` is the daemon's receive window
 (256 KiB). Errors carry `error_code`: `loopback.not-enabled`,
 `loopback.disabled`, `loopback.denied-host`, `loopback.denied-port`,
-`loopback.limit` (128 streams per connection, 512 per daemon),
+`loopback.limit` (the daemon could not start the stream's threads; no count cap),
 `loopback.refused`, `loopback.timeout` (3 s), `loopback.duplicate-stream`,
 `loopback.bad-request`.
 
@@ -10771,8 +10794,8 @@ comes from the store record: no command takes a session id, a cwd, a command,
 an agent or an MCP server, and every unknown param is
 `agent_session.bad_request`. Other error codes: `agent_session.not_trusted`,
 `agent_session.unavailable` (no acpmux), `agent_session.not_attached`,
-`agent_session.limit` (8 attachments per connection, 64 per daemon, 8 calls in
-flight per attachment), `agent_session.timeout` (5 s; 30 s for a prompt's
+`agent_session.limit` (8 calls in flight per attachment; attachments have no
+count cap), `agent_session.timeout` (5 s; 30 s for a prompt's
 acceptance, which a chat started a moment before can take longer than 5 s to
 give), `agent_session.refused`
 (acpmux refused), `agent_session.bad_list` (acpmux's session list could not be
