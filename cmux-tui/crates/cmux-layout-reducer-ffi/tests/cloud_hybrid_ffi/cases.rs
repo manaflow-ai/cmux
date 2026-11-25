@@ -46,6 +46,45 @@ fn a_pro_account_gets_it_and_another_plan_hears_why_not() {
 }
 
 #[test]
+fn the_apps_cloud_send_runs_its_first_turn_here_on_a_plain_folder() {
+    let send = json!({
+        "account": {"plan": "next_pro", "signedIn": true},
+        "folder": true,
+        "catalog": {"defaultHarness": "claude", "harnesses": {"claude": {}}},
+    });
+    assert_eq!(
+        call(c"cloud_hybrid_gui_start", &send),
+        (OK, json!({"here": true, "probe": "cloud hybrid gui start: here"}))
+    );
+    let mut repo = send.clone();
+    repo["repository"] = json!(true);
+    assert_eq!(
+        call(c"cloud_hybrid_gui_start", &repo),
+        (
+            OK,
+            json!({"here": false, "off": "repository",
+                    "probe": "cloud hybrid gui start: off repository"})
+        )
+    );
+    let mut bare = send.clone();
+    bare["catalog"] = Value::Null;
+    assert_eq!(call(c"cloud_hybrid_gui_start", &bare).1["off"], "no-local-harness");
+    let mut killed = send;
+    killed["killed"] = json!(true);
+    assert_eq!(call(c"cloud_hybrid_gui_start", &killed).1["off"], "kill-switch");
+}
+
+#[test]
+fn a_call_key_is_the_gateways_header_and_a_stable_hash() {
+    let ask = json!({"chatId": "c", "turnId": "t", "callSeq": 0});
+    let (code, reply) = call(c"cloud_hybrid_call_key", &ask);
+    assert_eq!(code, OK);
+    assert_eq!(reply["header"], "x-cmux-call-key");
+    assert_eq!(reply["key"].as_str().map(str::len), Some(64));
+    assert_eq!(call(c"cloud_hybrid_call_key", &ask).1, reply);
+}
+
+#[test]
 fn a_start_answers_here_at_once_and_goes_on_on_its_machine() {
     let begun = step(&Value::Null, json!({"on": "begin"}), 0);
     assert_eq!(
@@ -176,4 +215,20 @@ fn a_computer_status_needs_its_session_and_reads_a_live_hybrid_show() {
     });
     let (_, status) = call(c"cloud_computer_status", &failed);
     assert_eq!((&status["phase"], &status["home"]), (&json!("move_failed"), &json!("this_mac")));
+}
+
+#[test]
+fn the_balance_simulates_each_place_and_picks_one() {
+    let kept = json!({"folderBytes": 500_000_000u64, "headBytes": 5_000_000u64,
+                      "uploadBytesPerSec": 5_000_000u64, "wakeMs": 8_000, "keepRunning": true});
+    let (code, reply) = call(c"cloud_hybrid_balance", &kept);
+    assert_eq!(code, OK);
+    assert_eq!(
+        (reply["best"].clone(), reply["why"].clone()),
+        (json!("hybrid"), json!("answerHereWhileItWakes"))
+    );
+    assert_eq!(reply["places"].as_array().map(Vec::len), Some(4));
+    assert_eq!(reply["headFirstSavesMs"], 92_000);
+    assert_eq!(call(c"cloud_hybrid_balance", &json!({})).1["best"], "local");
+    assert_eq!(call(c"cloud_hybrid_balance", &json!({"folderBytes": "big"})).0, ERR_INVALID);
 }

@@ -15,7 +15,7 @@ extension AppServices {
         let address = cache.pageRequests.proxiedTabs.appFetchableFavicon(
             live.map { $0.state.faviconURL?.absoluteString } ?? recordFavicon, key: key, page: live)
         let profile = known.map { browserProfiles.engineProfile(for: $0.tab, incognito: $0.incognito) } ?? browserProfiles.engineProfile(forTab: key)
-        return favicons.image(for: address, profile: profile, tab: live)
+        return favicons.face(for: address, profile: profile, tab: live, page: live?.state.url ?? (known?.tab.url ?? machines.local.store.tab(id: key)?.url).flatMap { URL(string: $0) }, persist: !(known?.incognito ?? cache.browserTabs.isIncognitoTab(key)))
     }
 
     /// What the sidebar row of `workspace` shows of its front tab, or a
@@ -28,7 +28,7 @@ extension AppServices {
         let names = WorkspaceAutoNameWiring(services: self, workspace: workspace).reader
         let audio = tab.kind != .browser ? nil : BrowserTabAudio.rowAudio(cache.existingBrowser(tab.id)?.tab.state), icon = tab.kind != .browser ? nil : BrowserTabIconState.pageIcon(tab.url.flatMap { URL(string: $0) })
         return .init(title: names.label(workspace, front: tab, work: work), favicon: sidebarPageFavicon(workspace, tab: tab), audio: audio,
-                     startsInCloud: icon == .remoteDisplay || cloudStartTitles.startsInCloud(tab) || cloudStartTitles.startsInCloud(workspace: workspace.id), icon: icon)
+                     icon: icon) // no cloud on a sidebar row: only a Cloud chat's tab wears it (cmux#55668)
     }
 
     /// The favicon `tab` shows in `workspace`'s sidebar row and band item; nil for a tab that is not a page, and while

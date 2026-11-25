@@ -242,7 +242,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// Opens Connected Devices for a live terminal of a Mac (its session, its Mac).
     var showConnectedDevices: (@MainActor (DaemonTerminalSession, _ macID: String) -> Void)?
 
-    private func host(for tab: WorkspaceTab, in workspace: Workspace) -> TerminalTabHost {
+    private func host(for tab: WorkspaceTab, in workspace: Workspace, attachLive: Bool = true) -> TerminalTabHost {
         let key = frameKey(for: tab, in: workspace)
         // Another Mac's tab with the same id: its host (and its attach) goes, and
         // this tab builds its own on its own Mac.
@@ -270,8 +270,22 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             slots[id] = nil
             cardViews[id] = nil
         }
-        let live = sessionProvider?(tab, workspace.macID)
-        if let host = hosts[tab.id], live == nil { return host }
+        // Cards only need the saved frame or the Mac's short `read-screen` reply.
+        // Starting a daemon attach for every card makes opening the grid churn
+        // sessions, then immediately stop most of them as they leave the warm set.
+        // A page still asks for its live session, and `liveDataChanged()` upgrades
+        // this placeholder in place when the page becomes live.
+        let live = attachLive ? sessionProvider?(tab, workspace.macID) : nil
+        if let host = hosts[tab.id], live == nil {
+            // A card-only placeholder becomes a page placeholder when the page
+            // opens while the Mac is still unavailable. Re-register it so the
+            // next live-data publish can attach the page in place.
+            if attachLive {
+                upgrade.built(tabID: tab.id, workspaceID: workspace.id, live: false, upgradable: true)
+                placeholderTabs[tab.id] = (tab, workspace)
+            }
+            return host
+        }
         if live != nil { liveTabs.insert(tab.id) }
         // A placeholder replaced by the live session: its frame carries over,
         // and it stops.
@@ -310,6 +324,9 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         // still of its never-attached surface is a blank page (`TerminalFrameKeep`).
         var frame = key.flatMap { lastFrames.removeValue(forKey: $0) ?? framesBeingWritten[$0] } ?? previous?.model.frameToKeep()
         if frame == nil, let key, let data = frameStore?.load(key) { frame = UIImage(data: data) }
+        #if DEBUG
+        if frame == nil, live == nil, TerminalColdFrameDemo.servesFrame { frame = TerminalColdFrameDemo.frame() }
+        #endif
         model.restoreLastFrame(frame)
         // Its rows, fed to the new surface before the attach: the page is live at once.
         var rows = key.flatMap { lastRows.removeValue(forKey: $0) } ?? previous?.model.rowsToKeep()
@@ -333,7 +350,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         hosts[tab.id] = host
         hostFrameKeys[tab.id] = key
         frameLifecycle.hostBuilt(tabID: tab.id)
-        upgrade.built(tabID: tab.id, workspaceID: workspace.id, live: live != nil)
+        upgrade.built(tabID: tab.id, workspaceID: workspace.id, live: live != nil, upgradable: attachLive)
         placeholderTabs[tab.id] = live == nil ? (tab, workspace) : nil
         if let slot = slots[tab.id] { slot.host = host }
         watchReattach(tab.id, model: model)
@@ -410,7 +427,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         // Cmd-click); a public page opens on this iPhone (TerminalLinkRoute).
         host.model.linkOpener = context.openLink
         return AnyView(TerminalTabSlotPage(slot: slot, insets: context.safeAreaInsets, chromeTop: context.chromeTop,
-                                           isInteractive: context.isInteractive))
+                                           isInteractive: context.isInteractive, isOnPage: context.isOnPage))
     }
 
     /// Releases a tab that fell out of the warm set: its Mac attach and its
@@ -530,7 +547,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
            hostMacs[tab.id] == workspace.macID { return cached.view }
         // A card shown before its tab was prepared (or after its slot was
         // cooled): its host and slot are made now, once.
-        let host = host(for: tab, in: workspace)
+        let host = host(for: tab, in: workspace, attachLive: false)
         primeScreenText(for: tab, in: workspace, model: host.model)
         let slot = slot(for: tab.id, host: host)
         // A new host (first card, or after a cool or a Mac swap) asks for the
@@ -556,7 +573,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     }
 
     func prepareCard(for tab: WorkspaceTab, in workspace: Workspace) {
-        let host = host(for: tab, in: workspace)
+        let host = host(for: tab, in: workspace, attachLive: false)
         primeScreenText(for: tab, in: workspace, model: host.model)
         _ = cardView(tab.id, slot: slot(for: tab.id, host: host))
         refreshScreenText(for: tab, model: host.model)
@@ -898,9 +915,11 @@ struct TerminalTabSlotPage: View {
     let insets: EdgeInsets
     var chromeTop: CGFloat?
     let isInteractive: Bool
+    let isOnPage: Bool
 
     var body: some View {
-        TerminalTabPage(host: slot.host, insets: insets, chromeTop: chromeTop, isInteractive: isInteractive)
+        TerminalTabPage(host: slot.host, insets: insets, chromeTop: chromeTop, isInteractive: isInteractive,
+                        isOnPage: isOnPage)
             .id(ObjectIdentifier(slot.host))
     }
 }
@@ -912,10 +931,18 @@ struct TerminalTabSlotCard: View {
     let insets: EdgeInsets
 
     var body: some View {
-        let card = TerminalTabCard(model: slot.host.model, insets: insets)
+        // The tab's last-known picture (its Mac's thumbnail, or one this phone drew) stands in for the
+        // labeled placeholder, and is asked of the disk again if the cache let it go.
+        let known = slot.host.model.hostMacID.flatMap { TabCardSnapshots.shared.key(macID: $0, tabID: tabID) }.map { key -> UIImage? in
+            let entry = TabCardSnapshots.shared.entry(key)
+            if entry.image == nil { TabCardSnapshots.shared.warm([key]) }
+            return entry.image
+        } ?? nil
+        let card = TerminalTabCard(model: slot.host.model, insets: insets, fallback: known)
+        let content = card.content
         card
             .id(ObjectIdentifier(slot.host))
-            .modifier(TabCardFaceRecord(tabID: tabID, face: "\(card.content)"))
+            .modifier(TabCardFaceRecord(tabID: tabID, face: content == .nothing && known != nil ? "lastKnown" : "\(content)"))
     }
 }
 #endif
