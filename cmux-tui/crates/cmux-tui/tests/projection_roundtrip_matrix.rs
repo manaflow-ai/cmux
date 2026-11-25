@@ -835,6 +835,7 @@ fn a_folder_removed_mid_turn_keeps_its_edits_for_bring_back_and_refuses_later_wr
 
     // Bring Back of a removed folder reads its kept upper layer (`cmux link project back`, what
     // Bring Back Local's `seed pull --or-copy` runs for a projected folder): the mount is gone.
+    // `--keep`, so the folder can be added back below with its layer.
     let output = t
         .mac
         .cmux()
@@ -842,6 +843,7 @@ fn a_folder_removed_mid_turn_keeps_its_edits_for_bring_back_and_refuses_later_wr
         .arg(&t.machine.dial)
         .arg("--at")
         .arg(&t.folder)
+        .arg("--keep")
         .arg(&t.local)
         .output()
         .unwrap();
@@ -858,9 +860,10 @@ fn a_folder_removed_mid_turn_keeps_its_edits_for_bring_back_and_refuses_later_wr
     assert_eq!(read(&t.mac("notes.txt")), "written before\n", "{answer}");
     assert!(!t.mac("src/after.txt").exists(), "{answer}");
 
-    // Added back: served again under the same name, the mount reads the edits brought home.
-    let _server = t.restart_server();
+    // Added back: served again under the same name (`--keep` left the kept layer and this Mac's
+    // record), the mount reads the kept edits.
     assert_eq!(name, t.projection_name());
+    let _server = t.restart_server();
     assert_eq!(read(&t.at("src/a.txt")), "alpha, edited before the removal\n");
     write(&t.at("src/b.txt"), "bravo, after it came back\n");
     let answer = t.brought_back();
