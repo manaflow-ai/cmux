@@ -178,9 +178,16 @@ pub fn vm_stat_free_gib(text: &str) -> Option<f64> {
 pub fn pmset_batt(text: &str) -> (bool, Option<u8>) {
     let on_battery = text.contains("'Battery Power'");
     let percent = text.lines().find(|l| l.contains("InternalBattery")).and_then(|l| {
-        let head = &l[..l.find('%')?];
-        let start = head.rfind(|c: char| !c.is_ascii_digit()).map_or(0, |i| i + 1);
-        head[start..].parse().ok()
+        let head = l.split('%').next().filter(|_| l.contains('%'))?;
+        let digits: String = head
+            .chars()
+            .rev()
+            .take_while(char::is_ascii_digit)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
+        digits.parse().ok()
     });
     (on_battery, percent)
 }
