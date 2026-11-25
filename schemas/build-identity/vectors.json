@@ -151,7 +151,7 @@
       "app_support": "/Users/u/Library/Application Support/cmux/builds/com.cmuxterm.app",
       "app_daemon": {
         "session": "cmux-app",
-        "control_socket": "/Users/u/.local/state/cmux/cmux.sock",
+        "control_socket": "/Users/u/.local/state/cmux-next/cmux.sock",
         "state_dir": null
       }
     },

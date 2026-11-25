@@ -947,6 +947,11 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     let local_app_file = local_app.as_ref().map(|a| a.path().to_owned());
     let peer_file = peer.as_ref().map(|a| a.path().to_owned());
     let carrier_file = crate::server::carrier::start(&hub, &home()).await;
+    // A fleet host takes a new channel build within a minute (`cli/host_update_watch.rs`), only
+    // from the daemon `acpmux.service` runs: one in another home (a test's, a second daemon's) leaves it.
+    if home() == crate::config::default_home() {
+        hub.scope.spawn_until_cancelled("channel watch", crate::cli::hosts::watch_channel());
+    }
     let ws_shutdown = hub.ws_shutdown.clone();
     // Opt-in (`CMUX_TAILNET_CARRIER`): peers of this person's tailnet may also reach the same
     // port on this machine's tailnet address, whois-admitted (`tailnet_carrier.rs`).
