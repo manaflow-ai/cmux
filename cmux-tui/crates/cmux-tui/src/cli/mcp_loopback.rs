@@ -230,20 +230,20 @@ pub(super) fn ensure(port: u16, forward: &str) -> Result<(), String> {
     }
     let exe = std::env::current_exe()
         .map_err(|_| "could not find the cmux CLI to listen for the sign-in".to_owned())?;
-    let mut command = std::process::Command::new(exe);
+    let mut command = cmux_process::Command::new(exe);
     command
         .args(["mcp-servers", "loopback-serve", "--port", &port.to_string(), "--forward", forward])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null());
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
+        .stdin(cmux_process::Stdio::null())
+        .stdout(cmux_process::Stdio::piped())
+        .stderr(cmux_process::Stdio::null())
         // Its own process group: the app's Process ending the CLI never takes the listener with it.
-        command.process_group(0);
-    }
+        .process_group(0);
     let mut child =
         command.spawn().map_err(|_| "could not start the sign-in listener".to_owned())?;
+    // It must wait for the browser after this CLI exits; it ends itself (SIGN_IN_FOR, AFTER_CALLBACK).
+    child.detach(
+        "the sign-in listener waits for the browser after the CLI exits, and times itself out",
+    );
     let mut first = String::new();
     if let Some(out) = child.stdout.take() {
         let _ = BufReader::new(out).read_line(&mut first);

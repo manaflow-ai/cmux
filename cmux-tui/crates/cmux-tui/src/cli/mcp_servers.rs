@@ -329,7 +329,8 @@ pub(super) fn api_error(status: u16, body: &Value) -> Value {
         "mcp_servers.unavailable" => "That server is not available here.".into(),
         "mcp_servers.catalog_unknown" => "That server is not in the catalog.".into(),
         "mcp_servers.loopback_required" => {
-            "That server signs in through this Mac; update cmux and Connect again.".into()
+            "That server signs in through this Mac; run `cmux mcp-servers connect NAME` to sign in."
+                .into()
         }
         _ => format!("the cmux platform answered HTTP {status}"),
     });
