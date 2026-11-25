@@ -53,12 +53,19 @@ final class PagedListScrollSpring {
 
     /// Starts from `from` (or carries on from where it is, when running). `jump`: no motion, one
     /// jump once no finger holds it.
-    func run(from: CGFloat, jump: Bool = false) {
+    /// The running slide is capped at ``maxSpeed`` (the list's own follow); a slide the person asked
+    /// for (the newest-rows indicator's jump) keeps the spring's own motion.
+    private(set) var capped = true
+
+    func run(from: CGFloat, jump: Bool = false, capped: Bool = true) {
         guard link == nil else {
-            // Running already: it carries on (and jumps from here if motion went away).
+            // Running already: it carries on (and jumps from here if motion went away). The person's
+            // jump takes over an automatic slide uncapped; an automatic one never caps theirs.
             if jump { jumps = true }
+            if !capped { self.capped = false }
             return
         }
+        self.capped = capped
         position = from
         applied = current?()
         velocity = 0
@@ -106,7 +113,8 @@ final class PagedListScrollSpring {
             finish(at: goal)
             return
         }
-        let next = Self.step(position: position, velocity: velocity, goal: goal, dt: dt, response: response)
+        let next = Self.step(position: position, velocity: velocity, goal: goal, dt: dt, response: response,
+                             maxSpeed: capped ? Self.maxSpeed : nil)
         if next.settled {
             finish(at: goal)
             return
@@ -127,7 +135,8 @@ final class PagedListScrollSpring {
     /// One step of the critically damped spring toward `goal`, `dt` seconds on, capped at
     /// ``maxSpeed``: the next position and velocity, and whether it has settled (within a quarter
     /// point, nearly still). Plain data, so the step can be tested without a display link.
-    static func step(position: CGFloat, velocity: CGFloat, goal: CGFloat, dt: Double, response: Double)
+    static func step(position: CGFloat, velocity: CGFloat, goal: CGFloat, dt: Double, response: Double,
+                     maxSpeed: CGFloat? = PagedListScrollSpring.maxSpeed)
         -> (position: CGFloat, velocity: CGFloat, settled: Bool) {
         let omega = 2 * Double.pi / response
         let x = Double(position - goal)
@@ -137,10 +146,12 @@ final class PagedListScrollSpring {
         var nextV = (v - omega * (v + omega * x) * dt) * decay
         if abs(nextX) < 0.25, abs(nextV) < 4 { return (goal, 0, true) }
         var next = goal + CGFloat(nextX)
-        let limit = maxSpeed * CGFloat(dt)
-        if abs(next - position) > limit {
-            next = position + (next > position ? limit : -limit)
-            nextV = Double(next > position ? maxSpeed : -maxSpeed)
+        if let maxSpeed {
+            let limit = maxSpeed * CGFloat(dt)
+            if abs(next - position) > limit {
+                next = position + (next > position ? limit : -limit)
+                nextV = Double(next > position ? maxSpeed : -maxSpeed)
+            }
         }
         return (next, CGFloat(nextV), false)
     }

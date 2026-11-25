@@ -932,7 +932,9 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
             deliberateJump = true
             scrollToNewest()
         } else {
-            spring.run(from: collectionView.contentOffset.y)
+            // The person asked for this slide: it keeps the spring's own motion (no cap), and every
+            // frame of it is theirs, not a push.
+            spring.run(from: collectionView.contentOffset.y, capped: false)
         }
     }
 
@@ -1211,7 +1213,10 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
                                                   reading: drawnReading) else { return }
         let shift = (followed.now - followed.was) + explained
         if let push = probe?.pushShift {
-            pushMoves.append(.init(move: followed.now - followed.was, tracking: collectionView.isTracking, deliberate: deliberateJump))
+            // A frame the person asked for: a jump (deliberateJump), the indicator's slide while it runs
+            // (the uncapped spring), or the status bar's scroll to top.
+            let asked = deliberateJump || (spring.isRunning && !spring.capped) || scrollingToTop
+            pushMoves.append(.init(move: followed.now - followed.was, tracking: collectionView.isTracking, deliberate: asked))
             deliberateJump = false
             if pushMoves.count > 3 { pushMoves.removeFirst() }
             let sampled = CACurrentMediaTime()

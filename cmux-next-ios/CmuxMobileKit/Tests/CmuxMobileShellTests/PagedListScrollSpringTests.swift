@@ -41,6 +41,13 @@ struct PagedListScrollSpringTests {
         #expect(abs(at120 - cap * CGFloat(frame120)) < 0.5, "120 Hz frame moved \(at120) pt")
     }
 
+    /// The slide the person asked for (the newest-rows indicator) is not capped: from 6000 pt/s it
+    /// moves as the spring does, more than the cap allows a frame.
+    @Test func thePersonsSlideIsNotCapped() {
+        let next = PagedListScrollSpring.step(position: 1000, velocity: -6000, goal: 0, dt: frame60, response: response, maxSpeed: nil)
+        #expect(abs(next.position - 1000) > cap * CGFloat(frame60) + 1)
+    }
+
     /// Arrivals faster than the cap for two seconds at 60 Hz: the goal moves away by 80 pt each frame
     /// (4800 pt/s); every step stays within the cap, the slide never jumps to catch up, and the lag grows
     /// by the same small amount each frame (smoothly), then closes once arrivals stop.
