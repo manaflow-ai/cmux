@@ -32,7 +32,7 @@ import Testing
     typealias Frames = RemoteAcpmuxObserverTests.Frames
 
     /// What ``RemoteAcpmuxWire/ChatNoted`` heard: each noted summary's host, `sessionId` and `title`.
-    final class Noted: Sendable {
+    nonisolated final class Noted: Sendable {
         let notes = Mutex<[String]>([])
         var all: [String] { notes.withLock { $0 } }
         var chatNoted: RemoteAcpmuxWire.ChatNoted {
