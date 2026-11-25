@@ -15,11 +15,15 @@ use crate::link::{Link, LinkConfig, Role};
 use crate::signaling::{SessionEvent, SignalEnvelope, SignalPayload, SignalingClient, SignalingEvent};
 
 pub mod diagnosis;
+pub(crate) mod dpi;
 pub mod portmap;
 pub mod relay;
 pub(crate) mod turn;
+#[doc(hidden)]
+pub use dpi::dropped_wireguard_datagrams;
 /// Measurement support (cmux-mobile-path-probe).
 pub use turn::{TimedAllocation, TurnTransport, timed_allocation};
+pub use wireguard::EarlyTurn;
 pub mod webrtc;
 pub mod wireguard;
 
@@ -38,7 +42,7 @@ impl TransportKind {
         match payload {
             SignalPayload::WebrtcOffer { media_for: Some(_), .. } => None,
             SignalPayload::WebrtcOffer { .. } => Some(Self::WebRtc),
-            SignalPayload::WgInit { .. } => Some(Self::WireGuard),
+            SignalPayload::WgInit { .. } | SignalPayload::WgResumed { .. } => Some(Self::WireGuard),
             _ => None,
         }
     }
@@ -137,6 +141,16 @@ pub struct DialOptions {
     /// server the dial fails at once. WebRTC ignores it (webrtc-rs has no
     /// TURN over TCP or TLS).
     pub block_udp: bool,
+    /// WireGuard UDP dropped (the app's debug "Drop WireGuard" mode): this
+    /// side acts as behind a firewall whose packet inspection blocks
+    /// WireGuard (`dial/dpi.rs`). STUN and TURN's requests pass, every datagram
+    /// carrying WireGuard (plain UDP, or TURN over UDP) is dropped both ways,
+    /// so only TURN over TLS carries the tunnel.
+    pub drop_wireguard_udp: bool,
+    /// How TURN over TLS or TCP leaves this device: the system's proxy for
+    /// the TURN server (PAC included), the OS trust store, and whether only a
+    /// proxy may carry it (the debug "Proxy only" mode). [`crate::egress`].
+    pub egress: crate::egress::Egress,
     /// cmux's WebSocket relay (PROTOCOL.md "WebSocket relay"): where this
     /// side joins it when neither plain UDP nor TURN reaches the peer.
     /// `None`: no relay (tests, tools, and the dial fails as before).
@@ -153,8 +167,8 @@ pub struct DialOptions {
     /// before the relay socket is let go (default 60 s).
     #[doc(hidden)]
     pub relay_leave_after: Option<Duration>,
-    /// Test support: trust these roots, not the public web PKI, for TURN
-    /// over TLS (a test TURN server's self-signed certificate).
+    /// Test support: trust these roots and nothing else for TURN over TLS (a
+    /// test TURN server's self-signed certificate); wins over `egress.trust`.
     #[doc(hidden)]
     pub turn_tls_roots: Option<std::sync::Arc<rustls::RootCertStore>>,
     /// Test support: WireGuard silently drops every UDP datagram this side
@@ -316,6 +330,8 @@ impl Default for DialOptions {
             exclude_cgnat: false,
             relay_only: false,
             block_udp: false,
+            drop_wireguard_udp: false,
+            egress: crate::egress::Egress::default(),
             turn_tls_roots: None,
             drop_outbound_udp: false,
             refuse_udp_to: None,
@@ -432,6 +448,17 @@ pub struct TunnelKeys {
     pub answerer: String,
 }
 
+/// The WireGuard overlay a link rides, for its own datagram ports (viewport sync, 7424).
+#[derive(Clone)]
+pub struct Overlay {
+    pub net: std::sync::Arc<cmux_wg::WgNet>,
+    /// The other side's overlay address.
+    pub peer_ip: std::net::IpAddr,
+}
+
+/// Runs once the link exists (see [`Dialed::on_link`]).
+pub type OnLink = Box<dyn FnOnce(&Link) + Send>;
+
 /// A dialed or answered transport.
 pub struct Dialed {
     pub stream: Box<dyn LinkStream>,
@@ -452,10 +479,15 @@ pub struct Dialed {
     /// Pings and pongs as datagrams, when both sides listed
     /// [`crate::link::LIVENESS_LANE`] (WireGuard).
     pub liveness: Option<crate::link::LivenessDatagrams>,
+    /// Runs once the link exists (a WireGuard tunnel's lease learns how its
+    /// link closes, [`wireguard::dormant`]).
+    pub on_link: Option<OnLink>,
     /// Both sides listed [`crate::RELIABLE_LANE`].
     pub reliable: bool,
     /// The tunnel's static keys (WireGuard); `None` on WebRTC.
     pub tunnel_keys: Option<TunnelKeys>,
+    /// The tunnel's overlay (WireGuard links only).
+    pub overlay: Option<Overlay>,
 }
 
 /// A negotiated media carrier; the link starts its core once it runs (the
@@ -662,6 +694,8 @@ pub struct Connected {
     pub resumed: bool,
     /// The tunnel's static keys (WireGuard); `None` on WebRTC.
     pub tunnel_keys: Option<TunnelKeys>,
+    /// The WireGuard overlay this link rides (`None` on WebRTC).
+    pub overlay: Option<Overlay>,
 }
 
 /// Phone side: dial `mac` over `kind` and run a link on the result.
@@ -674,6 +708,26 @@ pub async fn connect(
 ) -> Result<Connected, DialError> {
     refuse_unreachable(kind, options)?;
     connect_on(signaling, mac, kind, options, link_config, None).await
+}
+
+/// Phone side, [`connect`] taking `early`, the TURN allocation a cold dial
+/// started as soon as `/v1/ice` answered, beside the signaling socket's open
+/// ([`EarlyTurn::for_dial`] on these `options`): its round trips (behind a
+/// proxy: a `CONNECT`, TLS through it, then the allocation) overlap the
+/// socket's instead of following them. `None` is [`connect`]. An allocation
+/// the dial never takes (it was refused, or this future was dropped) is
+/// released at once.
+pub async fn connect_with_early_turn(
+    signaling: &SignalingClient,
+    mac: &str,
+    kind: TransportKind,
+    options: &DialOptions,
+    link_config: LinkConfig,
+    early: Option<EarlyTurn>,
+) -> Result<Connected, DialError> {
+    refuse_unreachable(kind, options)?;
+    connect_on(signaling, mac, kind, options, link_config, early.filter(|_| kind == TransportKind::WireGuard))
+        .await
 }
 
 /// Phone side, a redial: `signaling` is the signaling reconnect, and the
@@ -693,7 +747,7 @@ pub async fn connect_after<E: std::fmt::Display>(
     link_config: LinkConfig,
 ) -> Result<(SignalingClient, Connected), DialError> {
     refuse_unreachable(kind, options)?;
-    let early = (kind == TransportKind::WireGuard).then(|| wireguard::EarlyTurn::start(options));
+    let early = EarlyTurn::for_dial(kind, options);
     let signaling = signaling.await.map_err(|error| DialError::Signaling(error.to_string()))?;
     options.timeline.mark("signaling_connected");
     let connected = connect_on(&signaling, mac, kind, options, link_config, early).await?;
@@ -737,6 +791,9 @@ async fn connect_on(
     let (dialed, session_id) = dial_transport(signaling, mac, kind, options, early).await?;
     let link_config = reliable_config(link_config, dialed.reliable, None);
     let link = Link::new(dialed.stream, Role::Phone, link_config, Some(dialed.guard));
+    if let Some(on_link) = dialed.on_link {
+        on_link(&link);
+    }
     if let Some(hold) = dialed.hold {
         link.set_hold_hook(hold);
     }
@@ -757,6 +814,7 @@ async fn connect_on(
         webrtc_media: dialed.webrtc_media,
         resumed: false,
         tunnel_keys: dialed.tunnel_keys,
+        overlay: dialed.overlay,
     })
 }
 
@@ -788,6 +846,10 @@ pub async fn resume(
     link.resume_carrier(dialed.stream, Some(dialed.guard))
         .await
         .map_err(|error| DialError::Transport(error.to_string()))?;
+    // The new tunnel's lease learns how this link closes.
+    if let Some(on_link) = dialed.on_link {
+        on_link(link);
+    }
     if let Some(hold) = dialed.hold {
         link.set_hold_hook(hold);
     }
@@ -804,6 +866,7 @@ pub async fn resume(
         webrtc_media: dialed.webrtc_media,
         resumed: true,
         tunnel_keys: dialed.tunnel_keys,
+        overlay: dialed.overlay,
     })
 }
 
@@ -889,6 +952,9 @@ pub async fn answer(
             crate::Accepted::New(link) => (link, false),
             crate::Accepted::Resumed(link) => (link, true),
         };
+        if let Some(on_link) = dialed.on_link {
+            on_link(&link);
+        }
         // A resumed link's new carrier is a new transport: its hook replaces
         // the last carrier's.
         if let Some(hold) = dialed.hold {
@@ -910,10 +976,14 @@ pub async fn answer(
             webrtc_media: dialed.webrtc_media,
             resumed,
             tunnel_keys: dialed.tunnel_keys,
+            overlay: dialed.overlay,
         });
     }
     let link =
         Link::new(dialed.stream, Role::Mac, reliable_config(link_config, false, None), Some(dialed.guard));
+    if let Some(on_link) = dialed.on_link {
+        on_link(&link);
+    }
     if let Some(hold) = dialed.hold {
         link.set_hold_hook(hold);
     }
@@ -934,7 +1004,31 @@ pub async fn answer(
         webrtc_media: dialed.webrtc_media,
         resumed: false,
         tunnel_keys: dialed.tunnel_keys,
+        overlay: dialed.overlay,
     })
+}
+
+/// Run a link on a stream dialed or accepted off signaling (the LAN path,
+/// [`crate::lan`]): no session to unsubscribe and no media beside it.
+pub(crate) fn run_dialed(
+    dialed: Dialed,
+    role: Role,
+    link_config: LinkConfig,
+    transport: TransportKind,
+) -> Connected {
+    let link = Link::new(dialed.stream, role, link_config, Some(dialed.guard));
+    follow_lane(&link, dialed.lane);
+    Connected {
+        link,
+        transport,
+        path: dialed.path,
+        peer: dialed.peer,
+        session_id: uuid::Uuid::new_v4().to_string(),
+        webrtc_media: false,
+        resumed: false,
+        tunnel_keys: dialed.tunnel_keys,
+        overlay: dialed.overlay,
+    }
 }
 
 #[cfg(test)]
@@ -1054,7 +1148,7 @@ mod tests {
                 channel.send(Bytes::from(vec![round; 1000])).await.unwrap();
                 match tokio::time::timeout(std::time::Duration::from_secs(5), channel.recv()).await {
                     Ok(Some(ChannelEvent::Data(bytes))) => {
-                        assert_eq!(&bytes[..], &[round; 1000][..], "{label}")
+                        assert_eq!(&bytes[..], &[round; 1000][..], "{label}");
                     }
                     other => panic!("{label}: unexpected {other:?}"),
                 }
@@ -1178,6 +1272,15 @@ mod tests {
         let reconnect = async {
             if !held(&turn, 1).await {
                 return Err("no TURN allocation while signaling reconnected");
+            }
+            // The server counts the allocation before its answer reaches the
+            // phone, which marks it then: wait for the phone's mark too.
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+            while options.timeline.get("turn_early_allocated").is_none() {
+                if tokio::time::Instant::now() >= deadline {
+                    return Err("the phone never had its early allocation");
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
             }
             SignalingClient::connect(&signaling.base_url, "user:alice", "team", "phone")
                 .await
