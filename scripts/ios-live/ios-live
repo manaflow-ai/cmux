@@ -13,6 +13,7 @@
 #   ios-live window                  open the Simulator app (Xcode 27: Device Hub) on the live device, in the background
 #   ios-live ffi-sync FROM_HOST      copy the built Rust FFI from FROM_HOST (a host with Rust iOS targets)
 #   ios-live slots                   every slot on every host: base, holder; and how many are free
+#   ios-live whoami                  the owner name your lease carries (IOS_LIVE_OWNER overrides it)
 #
 # Slots (the default): many always-on iPhones, IOS_LIVE_SLOTS_PER_HOST (default 3) on each of
 # IOS_LIVE_HOSTS (default aws-m4pro-1,aws-m4pro-7, the reserved ios pool). `lease take` holds any
@@ -26,11 +27,35 @@
 # "Your change" is this checkout against its merge base with origin/feat-cmux-next: commits,
 # staged, unstaged and untracked files. Nothing is pushed.
 #
-# IOS_LIVE_OWNER names you on the lease (default HOST/session). Every call goes through `reach`.
+# IOS_LIVE_OWNER names you on the lease (default HOST/SESSION/CHECKOUT, the same on every call from one
+# agent in one checkout; `ios-live whoami` prints it). Every call goes through `reach`.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-owner="${IOS_LIVE_OWNER:-$(hostname -s)/${CLAUDE_SESSION_ID:-${CODEX_SESSION_ID:-$PPID}}}"
+# default_owner: the same name on every call from one agent in one checkout, so a lease taken in one shell is
+# still yours in the next (each agent tool call is a fresh shell: $PPID changes, it is no name). HOST/SESSION/CHECKOUT
+# when the agent's session id is in the environment (Claude Code, Codex); else HOST/CHECKOUT-TOKEN, the token made
+# once and kept in this checkout's git dir. The checkout is in both, so helpers of one session in two checkouts differ.
+default_owner() {
+  local who top gitdir name file token
+  who="$(hostname -s)"
+  top="$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)"
+  name="$(basename "$top")"; name="${name//[^A-Za-z0-9._-]/_}"
+  local sid="${CLAUDE_CODE_SESSION_ID:-${CLAUDE_SESSION_ID:-${CODEX_THREAD_ID:-${CODEX_SESSION_ID:-}}}}"
+  if [[ -n "$sid" ]]; then echo "$who/$sid/$name"; return; fi
+  if gitdir="$(git rev-parse --absolute-git-dir 2>/dev/null)"; then
+    file="$gitdir/ios-live-owner"
+  else
+    file="${XDG_CACHE_HOME:-$HOME/.cache}/ios-live/owner-$(printf '%s' "$top" | shasum -a 256 | cut -c1-16)"
+  fi
+  token="$(head -n 1 "$file" 2>/dev/null | tr -dc 'A-Za-z0-9' || true)"
+  if [[ -z "$token" ]]; then
+    token="$(od -An -N6 -tx1 /dev/urandom | tr -dc '0-9a-f')"
+    mkdir -p "$(dirname "$file")" && echo "$token" >"$file"
+  fi
+  echo "$who/$name-$token"
+}
+owner="${IOS_LIVE_OWNER:-$(default_owner)}"
 remote_root='~/ios-live'
 
 die() { echo "ios-live: $*" >&2; exit 1; }
@@ -165,7 +190,7 @@ if [[ "$slot_mode" == 1 ]]; then
         release) slot_release "${2:-}"; exit ;;
       esac ;;
     slots) list_slots; exit ;;
-    ffi-sync|-h|--help|help) ;;
+    ffi-sync|whoami|-h|--help|help) ;;
     *) need_slot ;;
   esac
 fi
@@ -203,6 +228,7 @@ case "$cmd" in
         | reach "$to" "rm -rf ~/ios-live/ffi && mkdir -p ~/ios-live/ffi && tar -C ~/ios-live/ffi -xf - && echo $from > ~/ios-live/ffi/synced" 2> >(quiet)
       echo "ios-live: FFI copied from $from to $to"
     done ;;
+  whoami) echo "$owner" ;;
   -h|--help|help) awk 'NR > 1 && /^set -/ {exit} NR > 1' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
   *) die "unknown command $cmd (ios-live help)" ;;
 esac
