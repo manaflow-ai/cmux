@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { integrationCompletionRequest, integrationConfigureLink, integrationReturnLink, integrationSavedOnGitHub, integrationTeamHint } from "./integration-callback"
+import { integrationCompletionKey, integrationCompletionRequest, integrationConfigureLink, integrationReturnLink, integrationSavedOnGitHub, integrationTeamHint } from "./integration-callback"
 
 const token = (payload: unknown) =>
   `header.${btoa(JSON.stringify(payload)).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_")}.signature`
@@ -15,7 +15,7 @@ test("keeps personal-team callback completion scoped", () => {
   expect(integrationCompletionRequest(state, { installation_id: "42" })).toEqual({
     params: { state, installation_id: "42" },
     team: "team_abcdef0123456789abcd",
-    idempotency_key: `complete:${state.slice(-40)}`,
+    idempotency_key: integrationCompletionKey(state, { installation_id: "42" }),
   })
 })
 
@@ -39,8 +39,21 @@ test("completion frame uses the originating team, not the dashboard search scope
   expect(integrationCompletionRequest(state, search)).toEqual({
     params: { state, code: "provider-code", installation_id: "123", setup_action: "install" },
     team: "team_0123456789abcdef0123",
-    idempotency_key: `complete:${state.slice(-40)}`,
+    idempotency_key: integrationCompletionKey(state, search),
   })
+})
+
+test("each redirect of one state is its own completion; the same redirect replays (cmux#55104)", () => {
+  const state = token({ team: "team_0123456789abcdef0123" })
+  const update = integrationCompletionKey(state, { installation_id: "7", setup_action: "update" })
+  const withCode = integrationCompletionKey(state, { code: "c", installation_id: "7", setup_action: "update" })
+  const otherInstall = integrationCompletionKey(state, { code: "c", installation_id: "8", setup_action: "update" })
+  expect(new Set([update, withCode, otherInstall]).size).toBe(3)
+  expect(integrationCompletionKey(state, { code: "c", installation_id: "7", setup_action: "update" })).toBe(withCode)
+  expect(withCode.startsWith(`complete:${state.slice(-40)}:`)).toBe(true)
+  expect(withCode.length).toBeLessThanOrEqual(128)
+  // Pinned so the app's CloudGitHubCompletion.idempotencyKey (CloudGitHubReposTests) derives the same key.
+  expect(integrationCompletionKey("a.b.sig", { code: "abc", installation_id: "42", setup_action: "install" })).toBe(`complete:a.b.sig:9f146c4dbeb30218`)
 })
 
 test("opens only a GitHub installation settings page", () => {
