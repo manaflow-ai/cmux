@@ -178,7 +178,7 @@ public final class AppStore {
         teams[index].macs = macs
     }
 
-    /// The team's picked Mac (``Team/pickedMacID``), which stands for its computer in the lists.
+    /// The team's picked Mac (``Team/pickedMacID``): the one this phone focuses.
     public func setPickedMac(_ macID: String?, teamID: String) {
         guard let index = teams.firstIndex(where: { $0.id == teamID }), teams[index].pickedMacID != macID else { return }
         teams[index].pickedMacID = macID
@@ -236,7 +236,7 @@ public final class AppStore {
     }
 
     /// A Stack Auth team as the account reports it.
-    public struct AccountTeam: Hashable, Sendable {
+    public struct AccountTeam: Hashable, Sendable, Codable {
         public let id: String
         public let name: String
 
@@ -325,6 +325,12 @@ public final class AppStore {
         let id = resolvedWorkspaceID(id)
         return workspaces.first { $0.id == id }
     }
+
+    /// The workspace as this phone last saved it (the live snapshot on disk), for a screen that
+    /// opens before `workspaces` lists it: a cold open from a notification while the list loads,
+    /// a workspace past the first screen of cached rows. Nil when the phone never saved it.
+    /// Live mode sets it (`LiveCoordinator`); it is never observed and reads no network.
+    @ObservationIgnored public var savedWorkspace: (String) -> Workspace? = { _ in nil }
 
     /// Follows a created placeholder to its real workspace id.
     public func resolvedWorkspaceID(_ id: String) -> String {
