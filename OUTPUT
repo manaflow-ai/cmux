@@ -1,0 +1,146 @@
+ci-step regen-47834-2d794d8c: scripts/cmux-next/regenerate-settings-exports.sh settings-exports.patch at 2d794d8ce84708674521feef74c0c342601f6695: exit 1
+446 |     private func recordFailure(_ key: WorkspaceKey, _ error: Error) {
+456 |     private func finishPopulating(_ key: WorkspaceKey, succeeded: Bool, error: Error? = nil) {
+446 |     private func recordFailure(_ key: WorkspaceKey, _ error: Error) {
+456 |     private func finishPopulating(_ key: WorkspaceKey, succeeded: Bool, error: Error? = nil) {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+82 |     private static func reason(_ error: any Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+ 35 |     static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+120 | private nonisolated func controlError(_ error: Error) -> ControlError {
+310 |     nonisolated static func message(for error: Error) -> String {
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+✔ Test run with 4 tests in 1 suite passed after 0.069 seconds.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+✘ Test everyKeyHasAnExplicitAgentPolicy() recorded an issue at SettingsSchemaExportTests.swift:67:9: Expectation failed: (unknown → ["remoteDesktop.maxFps", "remoteDesktop.quality", "remoteDesktop.maxBitrateMbps"]).isEmpty → false
+✘ Test everyKeyHasAnExplicitAgentPolicy() failed after 0.038 seconds with 1 issue.
+✘ Test exportIsFresh() recorded an issue at SettingsSchemaExportTests.swift:22:6: Caught error: keys not in Localizable.xcstrings: settings.experiments.forum, settings.experiments.forum.help, settings.experiments.terminalAgentMark, settings.experiments.terminalAgentMark.help, settings.sessions.keepAwakeWhenLocked, settings.sessions.keepAwakeWhenLocked.help
+✘ Test exportIsFresh() failed after 0.139 seconds with 1 issue.
+✘ Test everyRowDeclaresSurfaceParity() recorded an issue at SettingsSchemaExportTests.swift:78:6: Caught error: keys not in Localizable.xcstrings: settings.experiments.forum, settings.experiments.forum.help, settings.experiments.terminalAgentMark, settings.experiments.terminalAgentMark.help, settings.sessions.keepAwakeWhenLocked, settings.sessions.keepAwakeWhenLocked.help
+✘ Test everyRowDeclaresSurfaceParity() failed after 0.141 seconds with 1 issue.
+✘ Suite SettingsSchemaExportTests failed after 0.146 seconds with 3 issues.
+✘ Test run with 6 tests in 1 suite failed after 0.147 seconds with 3 issues.
+::error::the settings export did not rewrite schemas/settings/settings-schema.json
+ci-step regen-47834-2d794d8c exited 1
