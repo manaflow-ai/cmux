@@ -16,7 +16,7 @@ pub const FREE_FLOOR_PERCENT: u64 = 25;
 
 /// The most the floor ever asks to keep free, in GiB. A quarter of a 20 GiB Cloud disk is 5 GiB;
 /// a quarter of a 256 GiB lane VM disk is 64 GiB, which refused every fill on a lane VM with
-/// 52 GiB free (fs-agent-lane-13, 2026-11-25) though an 11 GiB mirror fit with room to spare.
+/// 52 GiB free (2026-11-25) though an 11 GiB mirror fit with room to spare.
 pub const FREE_FLOOR_MAX_GIB: u64 = 16;
 
 /// The bytes the cache leaves free on a filesystem of `total` bytes: a quarter of it, at most
@@ -98,7 +98,7 @@ mod tests {
     #[test]
     fn floor_is_capped_on_big_disks() {
         let gib = 1u64 << 30;
-        // fs-agent-lane-13: 52 GiB free of 257 GiB was refused by the old 64 GiB floor.
+        // A lane VM: 52 GiB free of 257 GiB was refused by the old 64 GiB floor.
         assert!(above_floor(52 * gib, 257 * gib));
         assert!(above_floor(17 * gib, 257 * gib));
         assert!(!above_floor(16 * gib, 257 * gib));
