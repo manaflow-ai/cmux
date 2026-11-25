@@ -11,8 +11,19 @@ import UIKit
 /// the counters of the screen it hosts (`RenderProbe`): tests run at once and must not count
 /// each other's work.
 @MainActor
-@Suite(.serialized) struct ListWorkCountersR4Tests {
+// A test that hosts a screen and waits for its frames fails after a minute instead of hanging the
+// run (#47189 r7 tip af27658b: the kit tests ran about 40 min and were killed, no result).
+@Suite(.serialized, .timeLimit(.minutes(1))) struct ListWorkCountersR4Tests {
+    init() { HostedTestWatchdog.start() }
+
     static func frame(_ window: UIWindow) async { await ListWorkCountersTests.frame(window) }
+
+    /// The memo's filter landed, or 10 s went by (an issue): never an unbounded wait.
+    static func settled(_ rows: EventInspectorRows) async {
+        let deadline = Date().addingTimeInterval(10)
+        while rows.isFiltering, Date() < deadline { try? await Task.sleep(for: .milliseconds(16)) }
+        if rows.isFiltering { Issue.record("the filter did not land in 10 s") }
+    }
 
     static func window(_ root: some View, probe: RenderProbe) -> UIWindow {
         let host = UIHostingController(rootView: NavigationStack { root }.environment(\.renderProbe, probe))
@@ -42,7 +53,7 @@ import UIKit
         for query in ["t", "to", "too", "tool", "tool_", "tool_call"] {
             let before = probe.inspectorListBodies
             rows.setQuery(query, journal: journal)
-            await rows.settled()
+            await Self.settled(rows)
             await ListWorkCountersTests.settle()
             for _ in 0..<3 { await Self.frame(window) }
             perKeystroke.append(probe.inspectorListBodies - before)

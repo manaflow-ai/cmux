@@ -9,7 +9,10 @@ import UIKit
 /// batch): an update is one apply of the rows that changed, and a row measured once is not
 /// measured again.
 @MainActor
-@Suite(.serialized) struct EventInspectorCollectionTests {
+// A hosted test fails after a minute instead of hanging the run (#47189 r7 tip af27658b).
+@Suite(.serialized, .timeLimit(.minutes(1))) struct EventInspectorCollectionTests {
+    init() { HostedTestWatchdog.start() }
+
     static func journal(_ count: Int, from start: Int = 0) -> AgentEventJournal {
         let journal = AgentEventJournal()
         journal.nextFrame = nil
