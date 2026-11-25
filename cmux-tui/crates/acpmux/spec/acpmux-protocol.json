@@ -1292,6 +1292,14 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/turn_frames",
+      "params": {
+        "$ref": "#/types/TurnFramesParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/customize_run",
       "params": {
         "$ref": "#/types/CustomizeRunParams"
@@ -2697,6 +2705,24 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/trace/spans",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/trace/status",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "agent/credentials.update",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/pair_ticket_new",
       "params": true,
       "result": true
@@ -3003,6 +3029,11 @@
     {
       "kind": "notification",
       "name": "_acpmux/start_mode_changed",
+      "params": true
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/fill",
       "params": true
     },
     {
@@ -6369,6 +6400,7 @@
         "model": true,
         "release": true,
         "reserveHome": true,
+        "shapes": true,
         "wait": true,
         "workspaceId": true
       },
@@ -9649,6 +9681,20 @@
         "level": true,
         "peer": true,
         "sessionId": true
+      },
+      "type": "object"
+    },
+    "TurnFramesParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "index": true,
+        "look": true,
+        "sessionId": true,
+        "sinceSeq": true,
+        "turnId": true
       },
       "type": "object"
     },
