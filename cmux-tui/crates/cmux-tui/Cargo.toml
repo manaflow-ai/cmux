@@ -238,6 +238,7 @@ plist = "1.10"
 cmux-build-identity.workspace = true
 cmux-host-budget.workspace = true
 cmux-remote.workspace = true
+cmux-braid-path.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-wg.workspace = true
 cmux-link.workspace = true
