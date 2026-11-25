@@ -110,6 +110,10 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(AGENT_SESSION_START_CODEX_CREDENTIALS_CAPABILITY);
         // The owner's coming start warmed ahead (agent_session_prewarm.rs, cmux#45953).
         capabilities.push(AGENT_SESSION_PREWARM_CAPABILITY);
+        // With no folder, the chat's own `~/chats/<id>` (agent_session_prewarm.rs).
+        if agent_session_attach::chat_folder_prewarm_on() {
+            capabilities.push(AGENT_SESSION_PREWARM_CHAT_FOLDER_CAPABILITY);
+        }
     }
     #[cfg(unix)]
     if mux.serves_agent_update() {
@@ -121,6 +125,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(agent_transfer::AGENT_TRANSFER_CAPABILITY);
         capabilities.push(agent_transfer::AGENT_TRANSFER_VM_KIND_CAPABILITY);
         capabilities.push(agent_transfer::AGENT_TRANSFER_CONTINUES_CAPABILITY);
+        capabilities.push(agent_transfer::AGENT_TRANSFER_CREDENTIALS_CAPABILITY);
         capabilities.push(agent_transfer::AGENT_TRANSFER_BEGIN_TOKEN_CAPABILITY);
         capabilities.extend_from_slice(agent_transfer::AGENT_TRANSFER_BUNDLE_FILE_CAPABILITIES);
         capabilities.push(agent_transfer::AGENT_TRANSFER_HISTORY_LATER_CAPABILITY);
@@ -416,6 +421,7 @@ pub(super) fn advertised_capabilities(
         conversations::CONVERSATION_TREE_CAPABILITY,
         conversations::CONVERSATION_THREAD_OBJECTS_CAPABILITY,
         conversations::CONVERSATION_INBOX_STATE_CAPABILITY,
+        crate::conversation_inbox_once::CAPABILITY,
         conversations::HOME_INBOX_CAPABILITY,
         conversation_scheduled::CONVERSATION_SCHEDULED_CAPABILITY,
         conversations::HOME_INBOX_SINCE_CAPABILITY,
@@ -442,6 +448,7 @@ pub(super) fn advertised_capabilities(
         TERMINAL_FRONTEND_SHELL_INTEGRATION_CAPABILITY,
         SCREEN_TERMINAL_ENV_CAPABILITY,
         LAUNCH_SNAPSHOT_CAPABILITY,
+        LAUNCH_SNAPSHOT_FLUSH_CAPABILITY,
         LIST_WORKSPACES_KNOWN_CAPABILITY,
         LIST_WORKSPACES_LIMIT_CAPABILITY,
         LIST_WORKSPACES_PAGE_CAPABILITY,
