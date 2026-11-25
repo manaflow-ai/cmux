@@ -941,6 +941,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/surgery",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/task_list/set",
       "params": true,
       "result": true
@@ -1036,6 +1042,12 @@
     {
       "kind": "request",
       "name": "_acpmux/auto_session/wake",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/auto_session/transcript",
       "params": true,
       "result": true
     },
