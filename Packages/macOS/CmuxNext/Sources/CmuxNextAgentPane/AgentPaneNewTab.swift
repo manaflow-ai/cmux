@@ -1,3 +1,4 @@
+public import CmuxNextAgentPanePlacement
 import CmuxNextDesign
 public import CmuxNextSettings
 public import Foundation

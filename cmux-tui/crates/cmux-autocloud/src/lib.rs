@@ -79,6 +79,10 @@ struct ChatArgs {
     /// Exit once the agent finishes a turn and nothing is waiting (with a first prompt).
     #[arg(long)]
     until_idle: bool,
+    /// Another chat to open beside this one, in its own column (repeat for more; Ctrl-N opens a
+    /// new one, Tab moves between them).
+    #[arg(long = "beside", value_name = "SESSION")]
+    beside: Vec<String>,
     /// A first prompt.
     prompt: Vec<String>,
 }
@@ -148,7 +152,16 @@ async fn main_with(cli: Cli) -> Result<()> {
 pub enum AppEvent {
     Link(u64, Inbound),
     Phase(u64, Phase),
-    Connected { generation: u64, link: Arc<Link>, session: String, history: Vec<Value> },
+    Connected {
+        generation: u64,
+        link: Arc<Link>,
+        session: String,
+        history: Vec<Value>,
+    },
+    /// A chat beside the first opened (or re-attached) on the link: its session and history.
+    SideOpened(u64, String, Vec<Value>),
+    /// A side that could not open: said in the first chat, the link stays.
+    SideFailed(String),
     Failed(u64, String),
     Redial(u64),
     Key(Event),
@@ -156,8 +169,21 @@ pub enum AppEvent {
     Tick,
 }
 
+/// A chat beside the first (RFD 0139 "several chats in one view"): on the same link, drawn in its
+/// own column, prompted when it has the focus.
+pub struct Side {
+    pub session: String,
+    pub transcript: Transcript,
+}
+
 pub struct App {
     pub spec: Spec,
+    /// The chats beside the first, in column order.
+    pub sides: Vec<Side>,
+    /// Which chat takes the prompt: 0 the first, `n` the side `n - 1`.
+    pub focus: usize,
+    /// Sessions `--beside` asked for, opened on the first connect.
+    beside: Vec<String>,
     pub readiness: Readiness,
     pub transcript: Transcript,
     pub session: Option<String>,
@@ -198,18 +224,74 @@ impl App {
 
     fn push_prompt(&self, id: &str, text: &str, resend: bool) {
         if let (Some(link), Some(session)) = (&self.link, &self.session) {
-            link.fire(
-                "session/prompt",
-                json!({"sessionId": session, "prompt": [{"type": "text", "text": text}],
-                       "_meta": {"acpmux": {"promptId": id, "resend": resend}}}),
-            );
+            fire_prompt(link, session, id, text, resend);
         }
         // No link: the prompt stays unconfirmed and goes out on the next connect.
+    }
+
+    /// A prompt to the focused chat: the first, or a side.
+    fn prompt_focused(&mut self, text: String) {
+        let Some(side) = self.focus.checked_sub(1) else {
+            self.send_prompt(text);
+            return;
+        };
+        let id = self.prompt_id();
+        if let Some(s) = self.sides.get_mut(side) {
+            s.transcript.echo_prompt(&id, &text);
+            if let Some(link) = &self.link {
+                fire_prompt(link, &s.session, &id, &text, false);
+            }
+        }
+    }
+
+    /// The next chat in the view takes the focus (wrapping).
+    fn focus_next(&mut self) {
+        self.focus = self.focus.saturating_add(1) % self.sides.len().saturating_add(1);
+    }
+
+    /// Takes the focused side out of the view (the chat itself goes on on the machine).
+    fn close_focused(&mut self) {
+        if let Some(side) = self.focus.checked_sub(1)
+            && side < self.sides.len()
+        {
+            self.sides.remove(side);
+            self.focus = side.min(self.sides.len());
+        }
+    }
+
+    /// A side opened or re-attached: added once, its history applied (seq drops a repeat), and
+    /// what it never confirmed sent again under the same id.
+    fn side_opened(&mut self, session: String, history: &[Value]) {
+        let at = match self.sides.iter().position(|s| s.session == session) {
+            Some(at) => at,
+            None => {
+                self.sides.push(Side { session, transcript: Transcript::default() });
+                self.focus = self.sides.len();
+                self.sides.len().saturating_sub(1)
+            }
+        };
+        let Some(side) = self.sides.get_mut(at) else { return };
+        for ev in history {
+            side.transcript.apply_event(ev);
+        }
+        if let Some(link) = &self.link {
+            for (id, text) in side.transcript.unconfirmed().to_vec() {
+                fire_prompt(link, &side.session, &id, &text, true);
+            }
+        }
     }
 
     fn live(&self) -> bool {
         self.readiness.phase == Phase::Replayed
     }
+}
+
+fn fire_prompt(link: &Link, session: &str, id: &str, text: &str, resend: bool) {
+    link.fire(
+        "session/prompt",
+        json!({"sessionId": session, "prompt": [{"type": "text", "text": text}],
+               "_meta": {"acpmux": {"promptId": id, "resend": resend}}}),
+    );
 }
 
 async fn chat(args: ChatArgs) -> Result<()> {
@@ -232,6 +314,9 @@ async fn chat(args: ChatArgs) -> Result<()> {
     let first = args.prompt.join(" ");
     let mut app = App {
         spec: spec.clone(),
+        sides: Vec::new(),
+        focus: 0,
+        beside: args.beside.clone(),
         readiness: Readiness::default(),
         transcript: Transcript::default(),
         session: args.session.clone(),
@@ -340,6 +425,9 @@ async fn run_loop(
                 if let Some(fill) = params.pointer("/_meta/acpmux/fill").and_then(Value::as_u64) {
                     app.readiness.set_fill(fill);
                 }
+                for Side { session, transcript } in &mut app.sides {
+                    transcript.apply_notification(session, &method, &params);
+                }
                 match &app.session {
                     Some(s) if app.live() => {
                         let s = s.clone();
@@ -375,15 +463,28 @@ async fn run_loop(
                 if let Some(p) = app.first_prompt.take() {
                     app.send_prompt(p);
                 }
+                // The chats beside it: re-attached after a drop, and `--beside` the first time.
+                let mut sides: Vec<String> = app.sides.iter().map(|s| s.session.clone()).collect();
+                sides.append(&mut app.beside);
+                for s in sides {
+                    open_side(app, ctx, Some(s));
+                }
             }
+            AppEvent::SideOpened(g, session, history) if g == app.generation => {
+                app.side_opened(session, &history);
+            }
+            AppEvent::SideFailed(why) => app.transcript.items.push(transcript::Item::Note(why)),
             AppEvent::Redial(g) if g == app.generation => dial(app, ctx),
             AppEvent::Key(Event::Key(k)) if k.kind != KeyEventKind::Release => {
                 let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
                 match k.code {
                     KeyCode::Char('c' | 'd') if ctrl => break,
+                    KeyCode::Char('n') if ctrl => open_side(app, ctx, None),
+                    KeyCode::Char('w') if ctrl => app.close_focused(),
+                    KeyCode::Tab => app.focus_next(),
                     KeyCode::Enter if !app.input.trim().is_empty() => {
                         let text = std::mem::take(&mut app.input);
-                        app.send_prompt(text);
+                        app.prompt_focused(text);
                         app.scroll = 0;
                     }
                     KeyCode::Backspace => {
@@ -514,33 +615,129 @@ async fn open(
     let _ = tx.send(AppEvent::Phase(g, Phase::Initialized));
     let session = match session {
         Some(s) => s,
-        None => {
-            let mut meta = serde_json::Map::new();
-            meta.insert("name".to_owned(), json!(args.name));
-            if let Some(m) = &args.model {
-                meta.insert("harness".to_owned(), json!(m));
-            }
-            let meta = Value::Object(meta);
-            let mut params = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
-            if let Some(cwd) = new_chat_cwd(args) {
-                params["cwd"] = json!(cwd);
-            }
-            let r = tokio::time::timeout(deadline, link.request("session/new", params)).await??;
-            match r.get("sessionId").and_then(Value::as_str) {
-                Some(s) => s.to_owned(),
-                None => bail!("session/new answered without a sessionId"),
-            }
-        }
+        None => new_session(link, args, &args.name).await?,
     };
     let _ = tx.send(AppEvent::Phase(g, Phase::ChatOpen));
+    let history = attach(link, &session).await?;
+    Ok((session, history))
+}
+
+/// A side chat on the live link: `session` re-attached, or a new chat when `None`. A failure is
+/// said in the first chat and leaves the link alone.
+fn open_side(app: &App, ctx: &Ctx, session: Option<String>) {
+    let Some(link) = app.link.clone() else { return };
+    let g = app.generation;
+    let tx = ctx.tx.clone();
+    let args = ctx.args.clone();
+    let name = format!("{} {}", args.name, app.sides.len().saturating_add(2));
+    ctx.scope.spawn_until_cancelled("side open", async move {
+        let opened = async {
+            let session = match session {
+                Some(s) => s,
+                None => new_session(&link, &args, &name).await?,
+            };
+            let history = attach(&link, &session).await?;
+            anyhow::Ok((session, history))
+        };
+        let ev = match opened.await {
+            Ok((session, history)) => AppEvent::SideOpened(g, session, history),
+            Err(e) => AppEvent::SideFailed(format!("another chat did not open: {e:#}")),
+        };
+        let _ = tx.send(ev);
+    });
+}
+
+/// `session/new` with the chat's name, harness and folder.
+async fn new_session(link: &Link, args: &ChatArgs, name: &str) -> Result<String> {
+    let deadline = Duration::from_secs(30);
+    let mut meta = serde_json::Map::new();
+    meta.insert("name".to_owned(), json!(name));
+    if let Some(m) = &args.model {
+        meta.insert("harness".to_owned(), json!(m));
+    }
+    let meta = Value::Object(meta);
+    let mut params = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
+    if let Some(cwd) = new_chat_cwd(args) {
+        params["cwd"] = json!(cwd);
+    }
+    let r = tokio::time::timeout(deadline, link.request("session/new", params)).await??;
+    match r.get("sessionId").and_then(Value::as_str) {
+        Some(s) => Ok(s.to_owned()),
+        None => bail!("session/new answered without a sessionId"),
+    }
+}
+
+/// `_acpmux/attach`: the chat's history, then its live records on this link.
+async fn attach(link: &Link, session: &str) -> Result<Vec<Value>> {
+    let deadline = Duration::from_secs(30);
     let r = tokio::time::timeout(
         deadline,
         link.request(
             "_acpmux/attach",
-            json!({"sessionId": session, "limit": 400, "visible": true}),
+            json!({"sessionId": session, "limit": 400, "visible": true, "fill": true}),
         ),
     )
     .await??;
-    let history = r.get("events").and_then(Value::as_array).cloned().unwrap_or_default();
-    Ok((session, history))
+    Ok(r.get("events").and_then(Value::as_array).cloned().unwrap_or_default())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn app() -> App {
+        App {
+            spec: Spec::Local,
+            sides: Vec::new(),
+            focus: 0,
+            beside: Vec::new(),
+            readiness: Readiness::default(),
+            transcript: Transcript::default(),
+            session: Some("first".to_owned()),
+            link_note: String::new(),
+            reconnects: 0,
+            input: String::new(),
+            scroll: 0,
+            ticks: 0,
+            generation: 0,
+            link: None,
+            early: Vec::new(),
+            first_prompt: None,
+            sent_any: false,
+            turns_at_send: 0,
+            failures: 0,
+            next_prompt: 0,
+        }
+    }
+
+    #[test]
+    fn a_side_opens_once_takes_the_focus_and_tab_cycles() {
+        let mut a = app();
+        a.side_opened("s2".to_owned(), &[]);
+        a.side_opened("s3".to_owned(), &[]);
+        // A re-attach after a drop adds nothing.
+        a.side_opened("s2".to_owned(), &[]);
+        assert_eq!(a.sides.iter().map(|s| s.session.as_str()).collect::<Vec<_>>(), ["s2", "s3"]);
+        assert_eq!(a.focus, 2);
+        a.focus_next();
+        assert_eq!(a.focus, 0);
+        a.focus_next();
+        assert_eq!(a.focus, 1);
+    }
+
+    #[test]
+    fn a_prompt_goes_to_the_focused_chat_and_close_keeps_the_first() {
+        let mut a = app();
+        a.side_opened("s2".to_owned(), &[]);
+        a.prompt_focused("to the side".to_owned());
+        assert_eq!(a.sides.first().map(|s| s.transcript.unconfirmed().len()), Some(1));
+        assert!(a.transcript.unconfirmed().is_empty());
+        a.close_focused();
+        assert!(a.sides.is_empty());
+        assert_eq!(a.focus, 0);
+        // The first chat is never closed.
+        a.close_focused();
+        a.prompt_focused("to the first".to_owned());
+        assert_eq!(a.transcript.unconfirmed().len(), 1);
+    }
 }
