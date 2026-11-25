@@ -339,8 +339,8 @@ final class SettingsPageProvider: PageProvider {
             playSound(name)
             return .object([:])
         case "cmux.settings.notification_permission.allow": // Notifications > macOS Notifications (cmux#55600), the person's click
-            if context.userGesture { try await allowNotifications?() }
-            return .object([:])
+            guard context.page == PageDescriptor.settings.id, context.userGesture, let allowNotifications else { throw Self.personOnly }
+            try await allowNotifications(); return .object([:])
         default:
             throw PageError.unknownOp(op)
         }

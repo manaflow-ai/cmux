@@ -119,8 +119,15 @@ package final class DesktopNotifier: NSObject {
     package var playsDefaultSound: (@MainActor () -> Void)?
     /// macOS denies cmux notifications (read at launch, on activation, or the person's answer to the prompt).
     package var onDenied: (@MainActor () -> Void)?
+    /// The one-time denied notice's record (tests pass their own defaults).
+    package var deniedNotice = NotificationDeniedNotice()
     /// The permission ``refreshPermission()`` reads and asks; nil: the system center (tests set one).
     package var permissionCenterOverride: (any NotificationPermissionCenter)?
+    /// False in a showcase capture: the permission is never read, so its card never shows the host Mac's.
+    package var readsPermission = true
+    /// Permission reads started, and the newest one applied: an older read finishing late never overwrites a newer one.
+    private var permissionReads = 0
+    private var appliedPermissionRead = 0
     private var center: UNUserNotificationCenter?
     /// Whether this launch asked for authorization (a banner or `notifications.request`).
     private var askedAuthorization = false
@@ -315,21 +322,37 @@ package final class DesktopNotifier: NSObject {
     /// cmux comes forward (the person may have changed it in System Settings). Not yet asked: asks once
     /// (`asking`, the macOS prompt). Denied: ``onDenied``. A launch that never asks reads nothing.
     package func refreshPermission(asking: Bool = true) async {
-        let center: any NotificationPermissionCenter
-        if let override = permissionCenterOverride {
-            center = override
-        } else {
-            guard let system = try? permission() else { return }
-            center = system
-        }
+        guard readsPermission, let center = permissionCenterOverride ?? statusCenter() else { return }
+        permissionReads += 1
+        var read = permissionReads
         var permission = await center.status()
-        if asking, permission.authorization == "not_determined", !askedAuthorization {
+        // Only a launch that asks shows the prompt; a GUI job still reads, so its banners' sounds follow the real permission.
+        if asking, Self.asksPermission || permissionCenterOverride != nil, permission.authorization == "not_determined", !askedAuthorization {
             askedAuthorization = true
-            permission = (try? await center.request()) ?? permission
+            if let answered = try? await center.request() {
+                permission = answered
+                permissionReads += 1 // the answer is newer than any read started while the prompt waited
+                read = permissionReads
+            }
         }
+        applyPermission(permission, read: read)
+    }
+
+    /// Takes `permission` from read number `read` unless a newer read already landed; a denial tells the person (once),
+    /// and anything else re-arms the one-time notice, so a later denial is told again.
+    package func applyPermission(_ permission: NotificationPermission, read: Int? = nil) {
+        let read = read ?? { permissionReads += 1; return permissionReads }()
+        guard read > appliedPermissionRead else { return }
+        appliedPermissionRead = read
         permissionState.update(permission)
-        // Allowed again re-arms the one-time notice, so a later denial is told again.
-        if permission.isDenied { onDenied?() } else if onDenied != nil { _ = NotificationDeniedNotice().claim(for: permission.authorization) }
+        if permission.isDenied { onDenied?() } else if onDenied != nil { _ = deniedNotice.claim(for: permission.authorization) }
+    }
+
+    /// The system center to read the permission from without prompting: every launch that uses it from the main app bundle,
+    /// GUI jobs included (``permission()`` refuses those, since it also asks).
+    private func statusCenter() -> (any NotificationPermissionCenter)? {
+        guard configuredCenter() != nil else { return nil }
+        return SystemNotificationPermission(bundleID: Bundle.main.bundleIdentifier) { _ in }
     }
 
     /// Reply banners' category: one text field whose Send types into the terminal.

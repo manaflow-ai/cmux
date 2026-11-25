@@ -20,9 +20,13 @@ extension DesktopNotifier {
                                   window: @escaping @MainActor () -> NSWindow?) -> Task<Void, Never> {
         (sounds.player as? NotificationSoundPlayer)?.bannersCarrySound = { [weak self] in self?.permissionState.bannersCarrySound ?? true }
         playsDefaultSound = { [weak sounds] in sounds?.player.play("default", volume: volume(), banner: false) }
-        guard asks else { return Task {} }
+        guard asks else {
+            readsPermission = false // a showcase never reads the host Mac's permission, at launch or on activation
+            return Task {}
+        }
         onDenied = { [weak self] in
-            guard let self, let window = window(), NotificationDeniedNotice().claim(for: self.authorization) else { return }
+            // No window yet: the notice stays unclaimed, so the next read (an activation) shows it.
+            guard let self, let window = window(), self.deniedNotice.claim(for: self.authorization) else { return }
             Self.showDeniedNotice(in: window)
         }
         return Task { [weak self] in await self?.refreshPermission() } // inherits the main actor
@@ -38,7 +42,7 @@ extension DesktopNotifier {
         } else if let url = permission.settingsURL {
             NSWorkspace.shared.openInForeground(url)
         }
-        permissionState.update(permission)
+        applyPermission(permission) // as of now: newer than any read still in flight
     }
 
     /// "macOS is blocking cmux notifications" with Open System Settings, in `window`.

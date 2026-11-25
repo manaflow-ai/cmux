@@ -558,7 +558,7 @@ final class NotificationCenterService {
                 post(notification, tab: nil, workspace: workspace?.id, workspaceName: workspace?.displayName,
                      sound: decision.sound, volume: decision.soundVolume)
             }
-            if !notification.desktop, let sound = decision.sound { soundGate.player.play(sound, volume: decision.soundVolume, banner: false) }
+            soundGate.playWithoutBanner(decision)
             if let mode = decision.bounce { dockAttention.bounce(untilActive: mode == .untilActive) }
             return
         }
@@ -647,7 +647,7 @@ final class NotificationCenterService {
                                                                        table: "NotificationsPanel", bundle: .module.inAppLanguage) },
                  owner: located.tab)
         }
-        if !decision.desktop, let sound = decision.sound { soundGate.player.play(sound, volume: decision.soundVolume, banner: notification.desktop) }
+        soundGate.playWithoutBanner(decision)
         if let kind = desktop.announce(notification, decision: decision, appActive: services?.appActiveSource() ?? false, paneIsViewed: isViewed(located.tab.id),
                                        name: services?.windows.isIncognito(workspace: located.workspace.id) == true ? nil : shownName(of: located.tab)) { note("announced \(kind) tab=\(located.tab.id)") }
         if let seconds = decision.timeout { scheduleTimeout(seconds, tabID: located.tab.id) }
