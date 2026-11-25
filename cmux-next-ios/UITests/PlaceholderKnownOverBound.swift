@@ -17,4 +17,6 @@ enum PlaceholderKnownOverBound {
         "tabgrid.terminal.placeholder": "item 1a (mobile-open-fast), cmux#54985",
         "tabgrid.terminal.unavailable": "item 1a (mobile-open-fast), cmux#54985",
     ]
+    /// Flow -> the item and pull request that brings its layout-shift count to zero.
+    static let layoutShiftFlows: [String: String] = [:]
 }

@@ -1194,6 +1194,8 @@ struct WorkspaceListRow: View, Equatable {
         // Not the List's cell highlight: it stuck on as a gray pill while a
         // swipe was under way. A press fill that ends when the touch moves.
         .buttonStyle(RowPressStyle())
+        // The layout-shift count (ios-placeholder-bounds suite): this row must not move once drawn.
+        .layoutShiftTracked("workspace.\(ws.id)")
         // Last-known rows (live mode) draw at full strength and open while the Mac answers on this link:
         // no dim while the phone reattaches (Leo, 2026-11-24: "the entire thing is somehow grayed out").
         .accessibilityAddTraits(model.isRemembered ? .isSelected : [])

@@ -112,10 +112,36 @@ final class PlaceholderBoundUITests: XCTestCase {
             print("PLACEHOLDER_KNOWN_NOW_WITHIN flow=\(flow) id=\(marker)")
             XCTFail("\(flow): \(marker) is listed in known_over_bound but stayed within its bound: drop it from cmux-next-ios/design/placeholders.json")
         }
+        layoutShifts(app, flow: flow)
         let shot = XCTAttachment(screenshot: app.screenshot())
         shot.name = "\(flow)-end"
         shot.lifetime = .keepAlways
         add(shot)
+    }
+
+    /// The layout-shift count since launch (CmuxMobileDesign/LayoutShift.swift, the web's CLS idea):
+    /// frames after first paint in which a drawn workspace row, tab card or chat row moved or
+    /// resized. Zero is the bound. A flow in `PlaceholderKnownOverBound.layoutShiftFlows` (its item
+    /// and pull request are on the way) passes with shifts and fails once it reaches zero, so the
+    /// list only shrinks. Leo, 2026-11-24: "the loading has layout shifts and placeholder states".
+    @MainActor
+    private func layoutShifts(_ app: XCUIApplication, flow: String) {
+        let probe = app.descendants(matching: .any)["debug.layout-shift"]
+        let text = probe.waitForExistence(timeout: 2) ? probe.label : "{}"
+        let counts = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] ?? [:]
+        let shifts = counts["shiftFrames"] as? Int ?? -1
+        print("LAYOUT_SHIFTS flow=\(flow) shift_frames=\(shifts) shifted_rows=\(counts["shiftedRows"] ?? -1) frames=\(counts["frames"] ?? 0) rows=\(counts["rows"] ?? 0) last=\(counts["lastMoved"] ?? "")")
+        if shifts < 0 {
+            XCTFail("\(flow): no layout-shift count (debug.layout-shift missing or no marked row drawn)")
+        } else if let fix = PlaceholderKnownOverBound.layoutShiftFlows[flow] {
+            if shifts == 0 {
+                XCTFail("\(flow): listed in known_layout_shifts but shifted 0 frames: drop it from cmux-next-ios/design/placeholders.json")
+            } else {
+                print("LAYOUT_SHIFTS_KNOWN flow=\(flow) fix=\(fix)")
+            }
+        } else if shifts > 0 {
+            XCTFail("\(flow): \(shifts) frame(s) after first paint moved or resized a drawn row (last: \(counts["lastMoved"] ?? ""))")
+        }
     }
 
     /// `placeholder.<id>.<ms>` -> `<id>`.

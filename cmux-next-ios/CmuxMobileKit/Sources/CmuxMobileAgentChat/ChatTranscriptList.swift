@@ -1505,6 +1505,8 @@ final class ChatRowLookup {
         cell.contentConfiguration = UIHostingConfiguration {
             ChatRowTop {
                 ChatRowView(row: row, context: context)
+                    // The layout-shift count: a drawn row must not move or resize (UIKit list: window space).
+                    .layoutShiftTracked("chat.\(id)", in: .window)
 
                     // VoiceOver hears which row holds Find in Chat's current match.
                     .accessibilityAddTraits(marked ? .isSelected : [])

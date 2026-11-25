@@ -450,5 +450,6 @@
       "text": "Text(\"Preparing the summary…\").font(.footnote).foregroundStyle(.secondary)",
       "reason": "work the person asked for (an agent writing a continuation summary), not content on its way: progress, not a placeholder"
     }
-  ]
+  ],
+  "known_layout_shifts": []
 }

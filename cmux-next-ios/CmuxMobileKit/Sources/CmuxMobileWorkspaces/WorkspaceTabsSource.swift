@@ -1121,6 +1121,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     public func card(for kit: TabsKitTab) -> some View {
         WorkspaceTabCard(source: self, tabID: kit.id, insets: lastInsets)
+            // The layout-shift count: a drawn card must not move or resize while the grid settles.
+            .layoutShiftTracked("tabcard.\(kit.id)", in: .window)
     }
 
     /// A card is one accessibility element ("build, tab"), so its split map's
