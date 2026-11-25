@@ -11113,6 +11113,30 @@
      },
      "presence": "required",
      "nullable": true
+    },
+    "last_person_attach_at_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": true
+    },
+    "echo_input_at_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": true
+    },
+    "echo_at_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": true
     }
    },
    "additional_properties": false,
@@ -11121,6 +11145,8 @@
     "live_agents counts agents whose state is working or blocked.",
     "last_user_input_at_ms is the wall-clock time of the newest keyboard, paste or mouse input from an attached client; null until the first.",
     "last_agent_action_at_ms is the wall-clock time of the newest agent hook commit or agent state report; null until the first.",
+    "last_person_attach_at_ms is the wall-clock time a person's client (tui, web, mac or frontend) last attached; absent from daemons without the vm-activity-echo-v1 capability, null until the first.",
+    "echo_input_at_ms and echo_at_ms pair the first person input after that attach with the first terminal output that followed it on the same terminal (input-to-echo timing); null until measured, reset by the next person attach.",
     "Times and counts only: no content and no surface ids."
    ]
   },
@@ -24820,6 +24846,14 @@
        "name": "JsonValue"
       },
       "presence": "required",
+      "nullable": true
+     },
+     "op_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
       "nullable": true
      }
     },
