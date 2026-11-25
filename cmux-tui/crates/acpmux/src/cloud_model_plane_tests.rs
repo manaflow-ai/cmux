@@ -118,10 +118,34 @@ fn a_spawn_gets_the_route_only_where_nothing_else_set_it() {
     );
 }
 
-/// A resumed machine's resolver is not up for its first moments (cmux-platform#2128): a "no" must
-/// not outlive them, a "yes" may be reused for a burst.
+/// A resumed machine's resolver is not up for its first moments (cmux-platform#2128): the spawn
+/// keeps asking, with backoff, and gets the route once the resolver answers.
 #[test]
-fn a_no_answer_is_reused_briefly_so_a_resumed_machine_gets_its_route_back() {
-    assert!(reuse_for(false) <= Duration::from_secs(5), "a no is retried within seconds");
-    assert!(reuse_for(true) > reuse_for(false), "a yes is reused longer");
+fn a_resolver_that_fails_n_times_then_answers_still_gives_the_route() {
+    let plane = validate(parse(BAKED)).unwrap();
+    let mut calls = 0;
+    let mut slept = Duration::ZERO;
+    let kept = where_resolves(plane.clone(), |_| {
+        let (ok, tries) = resolve_with_retries(
+            || {
+                calls += 1;
+                calls > 4
+            },
+            |d| slept += d,
+            RETRY_BUDGET,
+        );
+        assert_eq!(tries, 5);
+        ok
+    });
+    assert_eq!(kept, plane, "the spawn got the route");
+    assert!(slept < RETRY_BUDGET, "inside the budget");
+}
+
+#[test]
+fn a_resolver_that_never_answers_is_given_up_on_within_the_budget() {
+    let mut slept = Duration::ZERO;
+    let (ok, tries) = resolve_with_retries(|| false, |d| slept += d, RETRY_BUDGET);
+    assert!(!ok);
+    assert!(tries > 3, "retried: {tries}");
+    assert_eq!(slept, RETRY_BUDGET, "the budget, no more");
 }

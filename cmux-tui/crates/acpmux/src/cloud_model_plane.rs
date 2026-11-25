@@ -171,41 +171,84 @@ fn origin_host(url: &str) -> &str {
 const RESOLVE_WAIT: Duration = Duration::from_secs(5);
 /// How long a "resolves" answer is reused, so a burst of spawns asks the resolver once.
 const ANSWER_REUSE: Duration = Duration::from_secs(60);
-/// How long "does not resolve" (or "the resolver did not answer") is reused. Short on purpose: a
-/// machine resumed from a pause asks before its network and resolver are back, and a 60 s "no"
-/// there left the next turn without the route ("Claude is not signed in here", cmux-platform#2128).
-/// Where the host never resolves (staging, production) the lookup is a fast NXDOMAIN, so asking
-/// again every few seconds costs little.
+/// How long an exhausted "does not resolve" is reused, so a burst of spawns on a machine where the
+/// host never resolves (staging, production) shares one retry budget, not one each.
 const NO_ANSWER_REUSE: Duration = Duration::from_secs(2);
+/// The most one spawn spends retrying a failed lookup before it starts without the route. A
+/// machine resumed from a pause has no network or resolver for its first moments, and the turn
+/// after resume must not start Claude unsigned for that (cmux-platform#2128; the image roll's
+/// edge-rule smoke saw the same lookup fail, resolver rc=2).
+const RETRY_BUDGET: Duration = Duration::from_secs(5);
+/// The first pause between retries; each pause doubles.
+const RETRY_FIRST_PAUSE: Duration = Duration::from_millis(100);
 
-/// The cache's rule: the reuse time for an answer.
-fn reuse_for(ok: bool) -> Duration {
-    if ok { ANSWER_REUSE } else { NO_ANSWER_REUSE }
+/// `lookup` asked until it says yes or `budget` is spent, pausing `RETRY_FIRST_PAUSE`, doubled each
+/// time, via `pause`. Returns the answer and how many lookups ran.
+pub(crate) fn resolve_with_retries(
+    mut lookup: impl FnMut() -> bool,
+    mut pause: impl FnMut(Duration),
+    budget: Duration,
+) -> (bool, u32) {
+    let mut spent = Duration::ZERO;
+    let mut next = RETRY_FIRST_PAUSE;
+    let mut tries = 0;
+    loop {
+        tries += 1;
+        if lookup() {
+            return (true, tries);
+        }
+        if spent >= budget {
+            return (false, tries);
+        }
+        let wait = next.min(budget - spent);
+        pause(wait);
+        spent += wait;
+        next *= 2;
+    }
 }
 
-/// Whether `host` resolves here, from a short cache. The lookup asks for the same target as
-/// `codex_cloud_auth::host_resolves`; this one is blocking (spawns fill their env synchronously),
-/// so it runs on its own thread and gives up after [`RESOLVE_WAIT`] (unreachable).
-pub(crate) fn plane_host_resolves(host: &str) -> bool {
-    static CACHE: Mutex<Option<(String, Instant, bool)>> = Mutex::new(None);
-    let cache = || CACHE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    if let Some((cached, until, ok)) = cache().as_ref()
-        && cached == host
-        && Instant::now() < *until
-    {
-        return *ok;
-    }
+/// One lookup of `host` on its own thread, giving up after [`RESOLVE_WAIT`] (unreachable).
+fn resolve_once(host: &str) -> bool {
     let target = crate::codex_cloud_auth::lookup_target(host.to_owned());
     let (tx, rx) = std::sync::mpsc::channel();
     let lookup = std::thread::Builder::new().name("model-plane-resolve".into()).spawn(move || {
         let ok = target.to_socket_addrs().is_ok_and(|mut addrs| addrs.next().is_some());
         let _ = tx.send(ok);
     });
-    if lookup.is_err() {
+    lookup.is_ok() && rx.recv_timeout(RESOLVE_WAIT).unwrap_or(false)
+}
+
+/// Whether `host` resolves here. A yes is reused for [`ANSWER_REUSE`]. A no is never taken on the
+/// first lookup: the lookup is retried with backoff for up to [`RETRY_BUDGET`], and only then is
+/// the machine started without its route, with the cause on stderr (the daemon log) rather than
+/// silently. Spawns fill their env synchronously, so this blocks.
+pub(crate) fn plane_host_resolves(host: &str) -> bool {
+    static CACHE: Mutex<Option<(String, Instant, bool)>> = Mutex::new(None);
+    let cache = || CACHE.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some((cached, until, ok)) = cache().as_ref()
+        && cached == host
+        && Instant::now() < *until
+        && *ok
+    {
+        return true;
+    }
+    // A cached no inside its short window is the verdict of a spent budget just now.
+    if let Some((cached, until, false)) = cache().as_ref()
+        && cached == host
+        && Instant::now() < *until
+    {
         return false;
     }
-    let ok = rx.recv_timeout(RESOLVE_WAIT).unwrap_or(false);
-    *cache() = Some((host.to_owned(), Instant::now() + reuse_for(ok), ok));
+    let started = Instant::now();
+    let (ok, tries) = resolve_with_retries(|| resolve_once(host), std::thread::sleep, RETRY_BUDGET);
+    if !ok {
+        eprintln!(
+            "acpmux: model route host {host} did not resolve after {tries} lookups over {} ms; starting the agent without the model route (Claude will report it is not signed in)",
+            started.elapsed().as_millis()
+        );
+    }
+    let reuse = if ok { ANSWER_REUSE } else { NO_ANSWER_REUSE };
+    *cache() = Some((host.to_owned(), Instant::now() + reuse, ok));
     ok
 }
 
