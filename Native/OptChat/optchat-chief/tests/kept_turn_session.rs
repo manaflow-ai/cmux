@@ -299,7 +299,7 @@ fn a_turn_the_chief_ends_with_its_own_stop_keeps_its_session_for_the_next_turn()
         h.connect();
         h.say("user_local", "one");
         while h.agents.inner.lock().unwrap().prompts.is_empty() {
-            h.step();
+            h.poll_step();
         }
         let sp = tools(&h);
         run_beside(&mut h, move || {
