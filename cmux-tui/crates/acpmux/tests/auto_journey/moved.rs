@@ -21,15 +21,15 @@ use super::world::{World, device, vm};
 const MOVED: &str = "This chat moved to another machine";
 
 /// How it starts when the move did not happen.
-const STAYED: &str = "This chat did not move";
+pub const STAYED: &str = "This chat did not move";
 
 /// How many continuations of a moved turn the log holds as prompts.
-fn moves(log: &[EventRecord]) -> usize {
+pub fn moves(log: &[EventRecord]) -> usize {
     prompts(log).iter().filter(|text| text.starts_with(MOVED)).count()
 }
 
 /// Whether the log's `nth` moved-turn continuation ran to its end.
-fn went_on(log: &[EventRecord], nth: usize) -> bool {
+pub fn went_on(log: &[EventRecord], nth: usize) -> bool {
     let continued = |event: &&EventRecord| {
         event.kind == "user_message"
             && event.msg["text"].as_str().is_some_and(|text| text.starts_with(MOVED))
@@ -40,12 +40,12 @@ fn went_on(log: &[EventRecord], nth: usize) -> bool {
 
 /// The prompt whose turn runs a tool's shell until it is stopped: the shell appends "start"
 /// to `out` once, so a turn that ran twice shows there.
-fn build(out: &Path) -> String {
+pub fn build(out: &Path) -> String {
     format!("auto-run: {}", out.display())
 }
 
 /// Waits until the tool's shell of a `build` turn runs; its pid.
-async fn shell_runs(out: &Path) -> u32 {
+pub async fn shell_runs(out: &Path) -> u32 {
     let pid_file = PathBuf::from(format!("{}.pid", out.display()));
     until("the tool's shell runs", || pid_file.exists() && lines(out) == ["start"]).await;
     std::fs::read_to_string(&pid_file).unwrap().trim().parse().unwrap()

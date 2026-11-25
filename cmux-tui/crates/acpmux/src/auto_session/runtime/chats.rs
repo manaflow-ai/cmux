@@ -157,6 +157,10 @@ pub(super) fn record_of(tracked: &Tracked, old: Option<AutoRecord>) -> Option<Au
     if let Some(view) = view {
         record.keep_in_cloud = view.keep_in_cloud;
     }
+    // Moving: this holder is giving the chat, or the store still tells the wish.
+    let wished = view.and_then(|view| view.moving.as_ref()).map(|wish| wish.to);
+    record.moving = chat.moving().or(wished).filter(|_| record.auto);
+    record.local_wanted &= record.auto;
     record.anchor = tracked.anchor.clone();
     (!record.spent()).then_some(record)
 }

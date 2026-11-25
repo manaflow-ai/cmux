@@ -162,7 +162,10 @@ impl<C: AutoCloud + 'static> Loop<C> {
             Command::Listed { result } => self.listed(result).await,
             Command::Assigned(assignment) => self.assigned(*assignment).await,
             Command::Away { id, post, reply } => self.away(&id, post, reply),
-            Command::Copied { id, copy, result } => self.copied(&id, copy, result).await,
+            Command::Copied { id, copy, result } => {
+                self.copied(&id, copy, result).await;
+                self.leave_when_home(&id).await;
+            }
             Command::Imported { id, epoch, result } => self.imported(&id, epoch, result).await,
             Command::Leftover { id, result } => self.leftover_written(&id, result),
             Command::Registered { id, request, result } => {
@@ -173,6 +176,11 @@ impl<C: AutoCloud + 'static> Loop<C> {
             Command::LaneDone { id, drained } => self.lane_done(&id, drained),
             Command::TurnStopped { id, stop, needs_run } => {
                 self.turn_stopped(&id, stop, needs_run).await;
+            }
+            Command::Move { id, to, reply } => self.move_chat(&id, to, false, reply),
+            Command::Local { id, reply } => self.go_local(&id, reply).await,
+            Command::Moved { id, to, leave, result, reply } => {
+                self.moved(&id, (to, leave), result, reply).await;
             }
         }
     }

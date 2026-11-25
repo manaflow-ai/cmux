@@ -105,7 +105,13 @@ impl<C: AutoCloud + 'static> Loop<C> {
                 self.step(id, Event::AutoOn).await;
                 self.read_work(id, None);
             }
-            (true, true) => self.keep(id, keep, reply),
+            (true, true) => {
+                // Auto asked for again: the chat is no longer set to this machine only.
+                self.hub.update_auto_record(&session, |old| {
+                    old.map(|record| AutoRecord { local_wanted: false, ..record })
+                });
+                self.keep(id, keep, reply);
+            }
             (false, false) => answer(reply, Ok(row(&self.hub, id))),
             (false, true) => {
                 if let (Some(tracked), Some(reply)) = (self.chats.get_mut(id), reply) {
