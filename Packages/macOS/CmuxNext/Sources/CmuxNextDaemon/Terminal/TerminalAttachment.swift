@@ -219,7 +219,8 @@ public actor TerminalAttachment: TerminalByteChannel {
             snapshotVersion: identity.supports(Self.snapshotCapability) ? snapshotVersion : nil,
             snapshotLocalHistory: localHistory && identity.supports(DaemonCapability.terminalSnapshotLocalHistory.rawValue)
         )
-        // The reply carries the replay (up to 32 MiB): a longer, still bounded deadline.
+        // The reply carries the replay (up to 32 MiB): 10 s of silence, not 10 s in all. A replay still arriving over a
+        // slow link keeps going (``TransportProgress``); a daemon that sends nothing for 10 s fails the attach.
         let response = try await DaemonConnection.perform(request, on: transport, timeout: .seconds(10))
         #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed {

@@ -57,10 +57,7 @@ struct WorkspaceHoverCardContent: Equatable {
         /// reply): it reads in the primary ink. Every other row is metadata in the secondary ink,
         /// under the title (Claude desktop's session card: a title, muted metadata, the message).
         var isMessage: Bool { Self.messageKinds.contains(kind) }
-        static let messageKinds: Set<String> = ["needsInput", "notification", "task", "description", summaryKind, lastReplyKind]
-        /// The agent chat's rolling summary; its next action follows it (``nextActionKind``).
-        static let summaryKind = "summary"
-        static let nextActionKind = "nextAction"
+        static let messageKinds: Set<String> = ["needsInput", "notification", "task", "description", lastReplyKind]
         /// The agent chat's last reply, the card's last line.
         static let lastReplyKind = "lastReply"
     }
@@ -280,15 +277,6 @@ struct WorkspaceHoverCardContent: Equatable {
                 facts.append(Fact(icon: .taskStatusTodo, text: Strings.taskNext(step), lines: 2, kind: "taskNext"))
             }
         }
-        // Where the chat stands and what comes next (acpmux's rolling summary): it says more than
-        // the raw last reply, which then does not show (`lastReply`).
-        if let summary = summaryText(detail.summary) {
-            facts.append(Fact(icon: .agentChatList, text: summary, lines: 3, kind: Fact.summaryKind))
-        }
-        // The task list's own next step is the more exact one: then the card names one next, not two.
-        if workspace.taskProgress?.next == nil, let next = summaryText(detail.nextAction) {
-            facts.append(Fact(icon: .actionGo, text: Strings.summaryNext(next), lines: 2, kind: Fact.nextActionKind))
-        }
         // What its agents run below their turns now: how many subagents and commands, and which
         // (Leo 2026-11-01: "being able to see the # of associated subagents and whatnot").
         facts += WorkspaceHoverCardWork.facts(detail)
@@ -372,9 +360,8 @@ struct WorkspaceHoverCardContent: Equatable {
     }
 
     /// The facts the history-first layouts (`log`, `minimal`) keep above it: why the workspace
-    /// waits, what changed since the person looked, and where its chat stands with its next action.
-    static let keptOverHistory: Set<String> = ["needsInput", usageWarningKind, mutedKind, needsYouKind, sinceLookedKind, Fact.summaryKind,
-                                                Fact.nextActionKind]
+    /// waits and what changed since the person looked.
+    static let keptOverHistory: Set<String> = ["needsInput", usageWarningKind, mutedKind, needsYouKind, sinceLookedKind]
     /// A usage rule acpmux found broken (`SidebarWorkspace.usageWarnings`), one fact each.
     static let usageWarningKind = "usageWarning"
     /// The workspace's notifications are muted.
@@ -400,15 +387,9 @@ struct WorkspaceHoverCardContent: Equatable {
         return reason
     }
 
-    /// A rolling summary's line, trimmed; a blank one is none.
-    static func summaryText(_ text: String?) -> String? {
-        guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
-        return text
-    }
-
-    /// The agent chat's last reply worth a line: none while a task or the rolling summary says more.
+    /// The agent chat's last reply worth a line: none while a task says more.
     private static func lastReply(_ workspace: SidebarWorkspace) -> String? {
-        guard workspace.detail.task == nil, summaryText(workspace.detail.summary) == nil, let message = workspace.lastMessage?.trimmingCharacters(in: .whitespacesAndNewlines),
+        guard workspace.detail.task == nil, let message = workspace.lastMessage?.trimmingCharacters(in: .whitespacesAndNewlines),
               !message.isEmpty else { return nil }
         return message
     }

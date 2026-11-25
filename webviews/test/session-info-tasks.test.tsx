@@ -176,7 +176,7 @@ test("no section before the first background process; then running ones with ela
     "1m 16s",
     "1h 2m 3s",
   ]);
-  expect(tasks.querySelector(".acpmux-session-info-section__meta")?.textContent).toBe("2 running");
+  expect(tasks.querySelector(".acpmux-session-info-section__meta")?.textContent).toBe("2");
 
   // The finished ones fold behind their count; open, each with how long it ran and how it ended.
   const fold = tasks.querySelector<HTMLButtonElement>("button.acpmux-session-info-fold")!;
@@ -210,7 +210,7 @@ test("a dev server heads Background tasks: the globe, its address, its command; 
   );
   // One section for every background command, a dev server's included (no Servers card of its own).
   const servers = section(container, "tasks")!;
-  expect(servers.querySelector(".acpmux-session-info-section__meta")?.textContent).toBe("1 running");
+  expect(servers.querySelector(".acpmux-session-info-section__meta")?.textContent).toBe("1");
   expect(servers.querySelectorAll('.acpmux-session-info-task[data-kind="server"]')).toHaveLength(1);
   expect(servers.querySelectorAll('.acpmux-session-info-task:not([data-kind="server"])')).toHaveLength(0);
   const row = servers.querySelector<HTMLButtonElement>('[data-kind="server"] button.acpmux-session-info-task__open')!;
@@ -419,7 +419,7 @@ test("a background Bash only the transcript knows is a running task, without Sto
     // No start time: it says it runs.
     ["make docs", "Running", false],
   ]);
-  expect(meta(section(container, "tasks"))).toBe("2 running");
+  expect(meta(section(container, "tasks"))).toBe("2");
   // One that finished folds under the count with how it ended.
   await renderSessionInfo(container, { transcriptTasks: [task("call-r", "cargo test", "failed", 1_000)] });
   const tasks = section(container, "tasks")!;
