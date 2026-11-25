@@ -7,6 +7,13 @@
 //   (app/api/cron/apple-notifications/health) that the ledger recorded it.
 // - api: the key authenticates and a known subscription has a status.
 //
+// Until the app's first App Store release, Apple's Production host answers a
+// bodyless 401 for a key the Sandbox accepts (productionAccess.ts). The
+// Production delivery check then probes the Sandbox with the same key: if it
+// answers, the night reports a neutral note instead of a failure, until an
+// operator records the release (repo variable APPLE_IAP_PRODUCTION_RELEASED=1),
+// after which the same 401 is red. A Sandbox 401 is always a credential error.
+//
 // Every dependency is injected, including the clock, so the tests drive the
 // whole wait without Apple, a network or real time.
 
@@ -62,6 +69,18 @@ export type DeliveryReport = {
   readonly processedAt: string | null;
   readonly elapsedMs: number;
   readonly failure: string | null;
+  /** Production answered 401 while the Sandbox accepts the key and no release is recorded. */
+  readonly lockedUntilRelease: boolean;
+  /** A neutral note for the summary (the locked state), or null. */
+  readonly note: string | null;
+};
+
+/** How a Production 401 is told apart from a bad key. */
+export type ProductionLockCheck = {
+  /** Whether the Sandbox accepts the same key for the same bundle; throws when it cannot tell. */
+  sandboxAccepts(): Promise<boolean>;
+  /** An operator recorded the first App Store release (APPLE_IAP_PRODUCTION_RELEASED=1). */
+  readonly released: boolean;
 };
 
 export type ServerApiReport = {
@@ -79,6 +98,59 @@ function describeError(error: unknown): string {
     return `App Store Server API HTTP ${error.httpStatusCode}${code}${error.errorMessage ? `: ${error.errorMessage}` : ""}`;
   }
   return error instanceof Error ? error.message : String(error);
+}
+
+function isUnauthorized(error: unknown): boolean {
+  return error instanceof APIException && error.httpStatusCode === 401;
+}
+
+/**
+ * The Sandbox probe: reads the last hour of notification history (an empty
+ * answer is fine). True when Apple answered, false on its 401; any other
+ * failure throws, since it says nothing about the key.
+ */
+export async function sandboxAcceptsKey(
+  api: { getNotificationHistory(paginationToken: string | null, request: { startDate: number; endDate: number }): Promise<unknown> },
+  nowMs: number,
+): Promise<boolean> {
+  try {
+    await api.getNotificationHistory(null, { startDate: nowMs - 60 * 60 * 1000, endDate: nowMs });
+    return true;
+  } catch (error) {
+    if (isUnauthorized(error)) return false;
+    throw error;
+  }
+}
+
+/**
+ * Explains a 401 from requesting the Production TEST notification: null for a
+ * failure as before, or the locked state. Never hides a Sandbox 401.
+ */
+async function explainProductionUnauthorized(
+  error: unknown,
+  environment: string,
+  lock: ProductionLockCheck | undefined,
+): Promise<{ readonly failure: string | null; readonly note: string | null } | null> {
+  if (environment !== "Production" || !lock || !isUnauthorized(error)) return null;
+  let accepted: boolean;
+  try {
+    accepted = await lock.sandboxAccepts();
+  } catch (probeError) {
+    return { failure: `Production answered HTTP 401 and the Sandbox probe failed: ${describeError(probeError)}`, note: null };
+  }
+  if (!accepted) {
+    return { failure: "Production answered HTTP 401 and the Sandbox refused the key too: the In-App Purchase key is wrong or revoked", note: null };
+  }
+  if (lock.released) {
+    return {
+      failure: "Production answered HTTP 401 although APPLE_IAP_PRODUCTION_RELEASED=1 says the app is released; the Sandbox accepts the key, so check the key's access to the released app",
+      note: null,
+    };
+  }
+  return {
+    failure: null,
+    note: "Production answered HTTP 401 and the Sandbox accepts the key: Apple locks the Production App Store Server API until the app's first App Store release. Not a failure until APPLE_IAP_PRODUCTION_RELEASED=1 is set.",
+  };
 }
 
 /** Adapts the library client: Apple's "not found yet" and rate limits become empty polls. */
@@ -250,6 +322,8 @@ export async function checkAppleDelivery(input: {
   /** How long the ledger may take to show it once Apple delivered (default 1 min). */
   readonly ledgerTimeoutMs?: number;
   readonly intervalMs?: number;
+  /** Tells a Production 401 before the first release from a bad key; without it every 401 fails. */
+  readonly productionLock?: ProductionLockCheck;
 }): Promise<DeliveryReport> {
   const { client, readHealth, clock, environment } = input;
   const intervalMs = input.intervalMs ?? 10_000;
@@ -262,18 +336,22 @@ export async function checkAppleDelivery(input: {
     receivedAt: null,
     processedAt: null,
   };
-  const report = (failure: string | null): DeliveryReport => ({
+  const report = (failure: string | null, note: string | null = null): DeliveryReport => ({
     ok: failure === null,
     environment,
     ...state,
     elapsedMs: clock.now() - started,
     failure,
+    lockedUntilRelease: failure === null && note !== null,
+    note,
   });
 
   let token: string;
   try {
     token = await client.requestTestNotification();
   } catch (error) {
+    const locked = await explainProductionUnauthorized(error, environment, input.productionLock);
+    if (locked) return report(locked.failure, locked.note);
     return report(`requesting a TEST notification failed: ${describeError(error)}`);
   }
   const deliveryFailure = await waitForAppleDelivery(
@@ -299,4 +377,127 @@ export async function checkServerApi(input: {
   } catch (error) {
     return { ok: false, status: null, failure: `subscription status lookup failed: ${describeError(error)}` };
   }
+}
+
+/** Notifications Apple returns for the last day of Production history (one page). */
+export async function historyCount(
+  api: { getNotificationHistory(paginationToken: string | null, request: { startDate: number; endDate: number }): Promise<{ notificationHistory?: readonly unknown[] }> },
+  nowMs: number,
+): Promise<number> {
+  const response = await api.getNotificationHistory(null, { startDate: nowMs - 24 * 60 * 60 * 1000, endDate: nowMs });
+  return response.notificationHistory?.length ?? 0;
+}
+
+export type PostReleaseStep = {
+  readonly name: "delivery" | "stored" | "history" | "cursor";
+  readonly ok: boolean;
+  readonly detail: string;
+};
+
+export type PostReleaseReport = {
+  readonly ok: boolean;
+  readonly steps: readonly PostReleaseStep[];
+};
+
+type CursorAnswer = { readonly status: number; readonly body: unknown };
+type CursorBody = { found?: unknown; position?: unknown; retryableRuns?: unknown; nextStartAt?: unknown; updatedAt?: unknown };
+
+function cursorPosition(answer: CursorAnswer): { readonly position: string | null } | null {
+  if (answer.status !== 200) return null;
+  const body = answer.body as CursorBody | null;
+  return { position: body?.found === true && typeof body.position === "string" ? body.position : null };
+}
+
+/**
+ * Waits until the Production backfill cursor's position differs from the
+ * first good read (a new window or page, or a first cursor where there was
+ * none). Only a configuration answer (bad token, bad query) stops the wait;
+ * a retryable 503 or a network error is read again. The cron runs every 30
+ * minutes, so the default wait is 35.
+ */
+async function waitForCursorMove(
+  readCursor: () => Promise<CursorAnswer>,
+  baseline: CursorAnswer,
+  clock: NightlyClock,
+  timeoutMs: number,
+  intervalMs: number,
+): Promise<PostReleaseStep> {
+  const deadline = clock.now() + timeoutMs;
+  let start = cursorPosition(baseline);
+  let last = baseline;
+  for (;;) {
+    if (isConfigurationAnswer(last.status, last.body)) {
+      return { name: "cursor", ok: false, detail: `the cursor read answered HTTP ${last.status} ${JSON.stringify(last.body)}` };
+    }
+    const now = cursorPosition(last);
+    if (now && start && now.position !== null && now.position !== start.position) {
+      const body = last.body as CursorBody;
+      return { name: "cursor", ok: true, detail: `moved (next start ${String(body.nextStartAt)}, saved ${String(body.updatedAt)})` };
+    }
+    start ??= now;
+    if (!(await pauseUntil(clock, deadline, intervalMs))) {
+      const body = last.body as CursorBody | null;
+      return {
+        name: "cursor",
+        ok: false,
+        detail: `did not move within ${Math.round(timeoutMs / 60_000)} min (last read HTTP ${last.status}, found ${String(body?.found)}, retryable stalls ${String(body?.retryableRuns ?? 0)})`,
+      };
+    }
+    last = await readCursor().catch((error: unknown) => ({ status: 0, body: { error: describeError(error) } }));
+  }
+}
+
+/**
+ * The check to run once the app has its first App Store release, all in
+ * Production and with no lock fallback: a TEST notification Apple delivers,
+ * cmux.com stores it, a notification-history call answers, and the backfill
+ * cursor moves. Every step runs and reports, so one failure does not hide
+ * the others.
+ */
+export async function checkPostRelease(input: {
+  readonly client: NightlyAppleClient;
+  readonly readHealth: HealthReader;
+  readonly readCursor: () => Promise<CursorAnswer>;
+  readonly productionHistory: () => Promise<number>;
+  readonly clock: NightlyClock;
+  readonly timeoutMs?: number;
+  readonly intervalMs?: number;
+  readonly cursorTimeoutMs?: number;
+  readonly cursorIntervalMs?: number;
+}): Promise<PostReleaseReport> {
+  const baseline = await input.readCursor().catch((error: unknown) => ({ status: 0, body: { error: describeError(error) } }));
+  const delivery = await checkAppleDelivery({
+    client: input.client,
+    readHealth: input.readHealth,
+    clock: input.clock,
+    environment: "Production",
+    timeoutMs: input.timeoutMs,
+    intervalMs: input.intervalMs,
+  });
+  const steps: PostReleaseStep[] = [
+    {
+      name: "delivery",
+      ok: delivery.appleDelivered,
+      detail: delivery.appleDelivered
+        ? `Apple delivered ${delivery.notificationUuid ?? "the TEST notification"} (${delivery.attempts.map((a) => a.result).join(", ")})`
+        : delivery.failure ?? "Apple did not deliver",
+    },
+    {
+      name: "stored",
+      ok: delivery.recorded,
+      detail: delivery.recorded
+        ? `cmux.com stored it, received ${delivery.receivedAt}, processed ${delivery.processedAt ?? "not yet"}`
+        : delivery.appleDelivered ? delivery.failure ?? "not recorded" : "not checked: Apple did not deliver",
+    },
+  ];
+  try {
+    const count = await input.productionHistory();
+    steps.push({ name: "history", ok: true, detail: `Production notification history answered with ${count} notification(s) for the last day` });
+  } catch (error) {
+    steps.push({ name: "history", ok: false, detail: `Production notification history failed: ${describeError(error)}` });
+  }
+  steps.push(await waitForCursorMove(
+    input.readCursor, baseline, input.clock, input.cursorTimeoutMs ?? 35 * 60_000, input.cursorIntervalMs ?? 60_000,
+  ));
+  return { ok: steps.every((step) => step.ok), steps };
 }

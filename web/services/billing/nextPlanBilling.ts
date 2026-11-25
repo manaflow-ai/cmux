@@ -17,6 +17,7 @@ import {
   NEXT_PLAN_METADATA_KEY,
   higherNextPlanId,
   nextPlanId,
+  nextPlanRank,
   type NextPlanId,
 } from "./nextPlans";
 import {
@@ -36,19 +37,39 @@ export async function activeNextPlanForUser(
   const rows = await db
     .select({ plan: stripeSubscriptions.plan })
     .from(stripeSubscriptions)
-    .where(
-      and(
-        eq(stripeSubscriptions.stackUserId, stackUserId),
-        isNull(stripeSubscriptions.stackTeamId),
-        eq(stripeSubscriptions.scope, "user"),
-        inArray(stripeSubscriptions.plan, NEXT_PLAN_IDS),
-        inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
-      ),
-    )
+    .where(activeNextRows(stackUserId))
     .limit(10);
   let best: NextPlanId | null = null;
   for (const row of rows) best = higherNextPlanId(best, nextPlanId(row.plan));
   return best;
+}
+
+/** The user's best active NEXT subscription with its Stripe ids (the one an upgrade switches), or null. */
+export async function activeNextSubscriptionForUser(
+  db: NextPlanBillingDb,
+  stackUserId: string,
+): Promise<{ plan: NextPlanId; id: string; customerId: string } | null> {
+  const rows = await db
+    .select({ plan: stripeSubscriptions.plan, id: stripeSubscriptions.id, customerId: stripeSubscriptions.customerId })
+    .from(stripeSubscriptions)
+    .where(activeNextRows(stackUserId))
+    .limit(10);
+  type Active = { plan: NextPlanId; id: string; customerId: string };
+  const active = rows.flatMap((row): Active[] => {
+    const plan = nextPlanId(row.plan);
+    return plan ? [{ plan, id: row.id, customerId: row.customerId }] : [];
+  });
+  return active.reduce<Active | null>((best, row) => (best === null || nextPlanRank(row.plan) > nextPlanRank(best.plan) ? row : best), null);
+}
+
+function activeNextRows(stackUserId: string) {
+  return and(
+    eq(stripeSubscriptions.stackUserId, stackUserId),
+    isNull(stripeSubscriptions.stackTeamId),
+    eq(stripeSubscriptions.scope, "user"),
+    inArray(stripeSubscriptions.plan, NEXT_PLAN_IDS),
+    inArray(stripeSubscriptions.status, ACTIVE_STRIPE_PRO_STATUSES),
+  );
 }
 
 /**
