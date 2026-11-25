@@ -476,6 +476,14 @@ pub enum ResourceOperation {
     SettingsResetAll,
     #[serde(rename = "settings.edit")]
     SettingsEdit,
+    #[serde(rename = "settings.history")]
+    SettingsHistory,
+    #[serde(rename = "settings.undo")]
+    SettingsUndo,
+    #[serde(rename = "settings.restore")]
+    SettingsRestore,
+    #[serde(rename = "settings.reset_group")]
+    SettingsResetGroup,
     #[serde(rename = "keybindings.get")]
     KeybindingsGet,
     #[serde(rename = "keybindings.set")]
@@ -584,6 +592,8 @@ pub enum ResourceOperation {
     ThemeSchemeExport,
     #[serde(rename = "theme.scheme.from_image")]
     ThemeSchemeFromImage,
+    #[serde(rename = "theme.slots.resolve")]
+    ThemeSlotsResolve,
     #[serde(rename = "stash.create")]
     StashCreate,
     #[serde(rename = "stash.list")]

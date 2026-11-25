@@ -32,8 +32,6 @@ extension SidebarListViewComponents {
             target = SidebarGroup.hostMachine(id).map { .section(.machine($0)) } ?? .group(id)
         case let .section(id)?, let .emptySection(id)?, let .folder(id, _)?:
             target = .section(id)
-        case let .doneFold(fold)? where fold.kind == .archive:
-            target = .background // the Archive row belongs to no list
         case let .doneFold(fold)? where fold.kind == .settled:
             target = .background // the sidebar's menu, with Archive Settled Chats
         case let .showMore(fold)? where fold.kind == .projects:

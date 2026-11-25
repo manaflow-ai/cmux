@@ -3,7 +3,7 @@ use serde_json::json;
 use super::*;
 
 /// The section the cloud service writes (cmux-platform `sccacheGuestEnv`), values shortened.
-fn platform_section() -> serde_json::Value {
+fn platform_section() -> Value {
     json!({"env": {
         "RUSTC_WRAPPER": "sccache",
         "SCCACHE_BUCKET": "cmux-sccache",
@@ -64,8 +64,7 @@ fn malformed_sections_are_refused_without_showing_values() {
         let why = parse_section(&case).unwrap_err();
         assert!(!why.contains("token-value"), "{why}");
     }
-    let many: serde_json::Map<String, serde_json::Value> =
-        (0..33).map(|i| (format!("SCCACHE_V{i}"), json!("1"))).collect();
+    let many: Map<String, Value> = (0..33).map(|i| (format!("SCCACHE_V{i}"), json!("1"))).collect();
     assert!(parse_section(&json!({"env": many})).is_err());
     assert!(parse_file("not json").is_err());
 }

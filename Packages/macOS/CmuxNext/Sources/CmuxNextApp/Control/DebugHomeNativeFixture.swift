@@ -59,7 +59,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     }
 
     /// `debug.home.drive` {action: focus | type | send | tapback | video | scroll
-    /// | chat_colors | menu | geometry | link | texts | typing | rows | seed | resize | nudge | list | presence | live | agent_messages (notes, open, group, step, pill) | faces | chief_name (close) | chief_tab (tab), text, steps, elapsed, dx, dy, trims, rows, mine, tab, prefix, limit}: drives the shown Home through its own entry points (the
+    /// | chat_colors | menu | geometry | link | texts | typing | rows | seed | resize | nudge | list | presence | live | agent_messages (notes, open, group, step, pill) | faces | chief_name (close) | chief_tab (profile), text, steps, elapsed, dx, dy, trims, rows, mine, tab, prefix, limit}: drives the shown Home through its own entry points (the
     /// field's text system, Return's send, the tapback picker's react, the
     /// scroll view) for screenshots and recordings on a window that is
     /// never key. `tab` (a key from `debug.home` page.tabs) drives that Home tab.
@@ -158,8 +158,8 @@ final class DebugHomeNativeFixture: InternalPageProvider {
                 return .object(["error": .string("no Home host view")])
             }
             if params["action"]?.stringValue == "chief_name" { return .object(["ok": .bool(host.debugEditChiefName(close: params["close"]?.boolValue == true))]) }
-            // chief_tab: the profile opens at `tab` (details, settings or computer), as the pet's Chief Pet Settings… opens it.
-            if params["action"]?.stringValue == "chief_tab" { return .object(["ok": .bool(HomeChiefProfileTab(rawValue: params["tab"]?.stringValue ?? "").map(host.openProfile) ?? false)]) }
+            // chief_tab: the profile opens at `profile` (details, settings or computer; `tab` names a Home tab), as the pet's Chief Pet Settings… opens it.
+            if params["action"]?.stringValue == "chief_tab" { return .object(["ok": .bool(HomeChiefProfileTab(rawValue: params["profile"]?.stringValue ?? "").map(host.openProfile) ?? false)]) }
             if params["action"]?.stringValue == "chief_control" { return .object(["ok": .bool(true), "named": host.debugNamedChief.map { .string($0) } ?? .null]) }
             guard let key = params["key"]?.stringValue else { return .object(["error": .string("engine_set needs key")]) }
             host.debugPickEngine(key, params["value"]?.stringValue)

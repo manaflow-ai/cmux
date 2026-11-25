@@ -1,5 +1,9 @@
 
+import CmuxEgress
 public import Foundation
+#if canImport(FoundationNetworking)
+public import FoundationNetworking
+#endif
 
 /// One open text WebSocket.
 public protocol DeviceHubSocketConnection: Sendable {
@@ -26,7 +30,7 @@ public struct URLSessionDeviceHubConnector: DeviceHubSocketConnector {
 
     public func connect() async throws -> any DeviceHubSocketConnection {
         let handshake = try await client.userSocketHandshake()
-        let task = session.webSocketTask(with: handshake.request)
+        let task = CmuxEgress.websocket(session, with: handshake.request, site: "CmuxDeviceHub.DeviceHubSocket")
         task.maximumMessageSize = 1 << 20
         task.resume()
         return URLSessionSocketConnection(task: task)
