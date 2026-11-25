@@ -292,61 +292,13 @@ extension AgentPaneRequest {
         case "attachment.sourceIcon":
             if let bundleId = params?["bundleId"] as? String, AttachmentSource.isBundleId(bundleId) { self = .attachmentSourceIcon(bundleId) }
             else { self = .unsupported(method) }
-        case "workspace.useFolder":
-            // Any text: a path that is not an existing absolute folder is refused by the host
-            // (`transport.path_invalid`), so the page never takes it for an older host.
-            if let cwd = params?["cwd"] as? String, cwd.utf8.count <= Self.maximumOpenTabText {
-                self = .useFolder(cwd, confirm: params?["confirm"] as? Bool == true)
-            } else {
-                self = .unsupported(method)
-            }
-        case "project.list":
-            let query = (params?["query"] as? String).map { String($0.prefix(512)) }
-            self = .listProjects(query)
-        case "agent.avatar", "agent.avatar.set", "agent.avatar.remove":
-            // A session id is short; anything else never names a stored avatar.
-            if let session = params?["sessionId"] as? String, !session.isEmpty, session.utf8.count <= 256 {
-                self = method == "agent.avatar" ? .agentAvatar(session) : method == "agent.avatar.set" ? .setAgentAvatar(session) : .removeAgentAvatar(session)
-            } else { self = .unsupported(method) }
-        case "agent.mini":
-            self = .miniSubject
-        case "agent.mini.show":
-            // A session id is short; null (or absent) is the Chief.
-            if let session = params?["sessionId"] as? String {
-                self = !session.isEmpty && session.utf8.count <= 256 ? .showInMini(session) : .unsupported(method)
-            } else { self = .showInMini(nil) }
-        case "chief.face":
-            // A Chief's participant id (acpmux `fromChief`): `agent_` and a short token.
-            if let chief = params?["chief"] as? String, chief.hasPrefix("agent_"), (7...64).contains(chief.utf8.count),
-               chief.utf8.allSatisfy({ $0 == UInt8(ascii: "_") || $0 == UInt8(ascii: "-") || (0x30...0x39).contains($0) || (0x41...0x5A).contains($0) || (0x61...0x7A).contains($0) }) {
-                self = .chiefFace(chief)
-            } else { self = .unsupported(method) }
         case "harness.symbol":
             if let name = params?["name"] as? String, HarnessSymbolImages.isSymbolName(name) { self = .harnessSymbol(name) }
             else { self = .unsupported(method) }
         case "folder.complete":
             if let path = params?["path"] as? String, AgentPaneFolderCompletion.isWellFormed(path) { self = .completeFolder(path) }
             else { self = .unsupported(method) }
-        case "project.icon":
-            if let cwd = params?["cwd"] as? String, cwd.hasPrefix("/"), cwd.utf8.count <= 4096 { self = .projectIcon(cwd) }
-            else { self = .unsupported(method) }
-        case "chats.open":
-            if let key = params?["key"] as? String, key.contains(":"), key.count <= 512 { self = .openChat(key) }
-            else { self = .unsupported(method) }
-        case "chats.resume":
-            if let ref = params?["ref"] as? String, !ref.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, ref.utf8.count <= 4096 {
-                self = .resumeChat(ref)
-            } else { self = .unsupported(method) }
-        case "chats.openInTerminal":
-            if let key = params?["key"] as? String, key.contains(":"), key.count <= 512 { self = .openChatInTerminal(key) }
-            else { self = .unsupported(method) }
-        case "chats.watch":
-            if let key = params?["key"] as? String, key.contains(":"), key.count <= 512 { self = .watchChat(key) }
-            else { self = .unsupported(method) }
         case "chats.page": self = .chatsPage(AgentPaneChatsQuery(params: params))
-        case "app.action":
-            if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128 { self = .appAction(id) }
-            else { self = .unsupported(method) }
         case "pane.action":
             if params?["id"] as? String == AgentPaneModel.previewAction {
                 self = Self.preview(params, method: method)
@@ -360,13 +312,6 @@ extension AgentPaneRequest {
                 } else {
                     self = .paneAction(id, cwd: cwd, toggle: toggle)
                 }
-            } else {
-                self = .unsupported(method)
-            }
-        case "pane.moveToMachine":
-            if let machine = params?["machine"] as? String, !machine.isEmpty, machine.count <= 256,
-               let session = params?["session"] as? String, !session.isEmpty, session.count <= 256 {
-                self = .moveToMachine(machine, session: session)
             } else {
                 self = .unsupported(method)
             }
@@ -541,19 +486,6 @@ extension AgentPaneRequest {
         case "transport.ack":
             if let connection = params?["connection"] as? Int, let seq = params?["seq"] as? Int {
                 self = .transportAck(connection: connection, seq: seq, inputPending: params?["inputPending"] as? Bool ?? false)
-            } else {
-                self = .unsupported(method)
-            }
-        case "externalAccess.openSettings":
-            if let params, let raw = params["kind"] as? String, let kind = AgentPaneExternalAccessKind(rawValue: raw),
-               Set(params.keys) == ["kind"] {
-                self = .externalAccessOpenSettings(kind)
-            } else {
-                self = .unsupported(method)
-            }
-        case "dictation.openSettings":
-            if let raw = params?["permission"] as? String, let permission = DictationPermission(rawValue: raw) {
-                self = .dictation(.openSettings(permission))
             } else {
                 self = .unsupported(method)
             }

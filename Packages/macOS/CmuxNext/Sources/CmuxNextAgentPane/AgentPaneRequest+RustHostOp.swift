@@ -1,4 +1,5 @@
 public import CmuxNextDaemon
+import CmuxNextDictation
 import CmuxNextWindowRules
 import Foundation
 import os
@@ -41,6 +42,23 @@ extension AgentPaneRequest {
         var github: GitHub?
         var pane: Pane?
         var host: Host?
+        var chat: Chat?
+    }
+
+    /// A chat list or agent ask (`chats::ChatCall`): `op` names it.
+    private nonisolated struct Chat: Decodable {
+        var op: String
+        var cwd: String?
+        var confirm: Bool?
+        var query: String?
+        var session: String?
+        var chief: String?
+        var key: String?
+        var reference: String?
+        var id: String?
+        var machine: String?
+        var kind: String?
+        var permission: String?
     }
 
     /// One of the host's own small asks (`host::HostCall`): `op` names it.
@@ -144,6 +162,8 @@ extension AgentPaneRequest {
             return op.pane.flatMap(pane)
         case "host":
             return op.host.flatMap(host)
+        case "chat":
+            return op.chat.flatMap(chat)
         default:
             return nil
         }
@@ -272,6 +292,33 @@ extension AgentPaneRequest {
         case "jump":
             guard let target = h.target.flatMap(AgentPaneJumpTarget.init(rawValue:)), let id = h.id else { return nil }
             return .jump(target, id: id)
+        default: return nil
+        }
+    }
+
+    private nonisolated static func chat(_ c: Chat) -> AgentPaneRequest? {
+        switch c.op {
+        case "useFolder": return c.cwd.map { .useFolder($0, confirm: c.confirm ?? false) }
+        case "listProjects": return .listProjects(c.query)
+        case "projectIcon": return c.cwd.map(AgentPaneRequest.projectIcon)
+        case "agentAvatar": return c.session.map(AgentPaneRequest.agentAvatar)
+        case "setAgentAvatar": return c.session.map(AgentPaneRequest.setAgentAvatar)
+        case "removeAgentAvatar": return c.session.map(AgentPaneRequest.removeAgentAvatar)
+        case "miniSubject": return .miniSubject
+        case "showInMini": return .showInMini(c.session)
+        case "chiefFace": return c.chief.map(AgentPaneRequest.chiefFace)
+        case "openChat": return c.key.map(AgentPaneRequest.openChat)
+        case "resumeChat": return c.reference.map(AgentPaneRequest.resumeChat)
+        case "openChatInTerminal": return c.key.map(AgentPaneRequest.openChatInTerminal)
+        case "watchChat": return c.key.map(AgentPaneRequest.watchChat)
+        case "appAction": return c.id.map(AgentPaneRequest.appAction)
+        case "moveToMachine":
+            guard let machine = c.machine, let session = c.session else { return nil }
+            return .moveToMachine(machine, session: session)
+        case "externalAccessOpenSettings":
+            return c.kind.flatMap(AgentPaneExternalAccessKind.init(rawValue:)).map(AgentPaneRequest.externalAccessOpenSettings)
+        case "dictationOpenSettings":
+            return c.permission.flatMap(DictationPermission.init(rawValue:)).map { .dictation(.openSettings($0)) }
         default: return nil
         }
     }
