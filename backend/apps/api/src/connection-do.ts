@@ -20,7 +20,7 @@ import * as ghTokens from "./integrations/github-tokens.ts"
 import * as ghUser from "./integrations/github-user-tokens.ts"
 import { createConfigurePageTable, githubConnectTarget, installationConfigureUrl, type GithubConnectTarget } from "./integrations/github-connect.ts"
 import { addListener, createListenerTable, githubChangeOf, GithubPushCoalescer, listeners, removeListener, type IntegrationChangedFrame } from "./integrations/github-push.ts"
-import { github, githubScopesOf, ProviderError, providerForOp, providers, scopesToRequest, type Credential, type Http } from "./integrations/providers.ts"
+import { github, githubAppSlug, githubScopesOf, ProviderError, providerForOp, providers, scopesToRequest, type Credential, type Http } from "./integrations/providers.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import type { DeliverResult, TargetItem } from "./do-outbox.ts"
 import { claimGitHubDelivery, createGitHubDeliveryTable, finishGitHubDelivery } from "./ingress/github-deliveries.ts"
@@ -288,7 +288,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     const configureUrl = c?.account && installation !== undefined && github.configured(this.env)
       ? await installationConfigureUrl(this.ctx.storage.sql, this.env, this.http, installation, c.account.name, Date.now())
       : null
-    return ghTokens.githubStatus(this.env, state, principal, configureUrl)
+    return ghTokens.githubStatus(this.env, state, principal, configureUrl, await githubAppSlug(this.env))
   }
 
   /** integration.connect with a repo: which GitHub page to open (github-connect.ts), asked with this object's injectable HTTP. */
