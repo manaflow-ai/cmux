@@ -20,7 +20,7 @@ pub(super) fn descriptors() -> Vec<Value> {
             "name": LIST,
             "title": "List cmux API tokens",
             "description": "The person's cmux API tokens (cmux token list), and the team's for team admins: each one's id, name, display form (cmux_pat_AbCd…wXyZ, never the secret), scopes, expiry, last use and owner.",
-            "inputSchema": {"type": "object", "additionalProperties": false, "properties": {"team": team}},
+            "inputSchema": {"type": "object", "properties": {"team": team}},
             "annotations": {"readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": true},
         }),
         json!({
@@ -29,7 +29,6 @@ pub(super) fn descriptors() -> Vec<Value> {
             "description": "Make a cmux API token (cmux token create) for a script, a CI job or another computer: CMUX_TOKEN=<token> then runs any cmux Cloud command with no app. Answers {token, tokenInfo} once; the token is never shown again, so hand it to the person or put it straight where it goes (a CI secret). Scopes: machines (start, stop, list), chats (start, send, read), usage (read); default all three. expires: 30d, 90d (default), 1y or never.",
             "inputSchema": {
                 "type": "object",
-                "additionalProperties": false,
                 "required": ["name"],
                 "properties": {
                     "name": {"type": "string", "minLength": 1, "maxLength": 64},
@@ -48,7 +47,6 @@ pub(super) fn descriptors() -> Vec<Value> {
             "description": "Revoke a cmux API token now (cmux token revoke), by its id or its name. Whatever used it stops working.",
             "inputSchema": {
                 "type": "object",
-                "additionalProperties": false,
                 "required": ["token"],
                 "properties": {
                     "token": {"type": "string", "minLength": 1, "maxLength": 64, "description": "The token's id or name from api_tokens_list."},
