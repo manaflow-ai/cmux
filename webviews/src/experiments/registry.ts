@@ -74,6 +74,7 @@ import { stoppedTurnLook } from "../agent-session/acpmux/conversation/stoppedTur
 import { chromiumGlassUnderlay } from "../ui/glass/chromiumUnderlay.experiment";
 import { glassEngine } from "../ui/glass/engine/glassEngine.experiment";
 import { hoverLook } from "../ui/hoverLook.experiment";
+import { textRollLook } from "../ui/motion/textRoll.experiment";
 import { questionPreviewLayout } from "../agent-session/acpmux/question/previewLayout.experiment";
 import { trayPanelLook, trayRowLook, trayStopLook } from "../agent-session/acpmux/subagents/trayPanel.experiment";
 import { trayMotionLook } from "../agent-session/acpmux/subagents/trayMotion.experiment";
@@ -87,7 +88,6 @@ import { hatHeaderLook } from "../agent-session/acpmux/subagents/hatHeader.exper
 import { goalHatPlace } from "../agent-session/acpmux/goalHat.experiment";
 import { customizeBarPlace } from "../agent-session/acpmux/customizeBar/customizeBar.experiment";
 import { trayHeadLook } from "../agent-session/acpmux/subagents/trayHead.experiment";
-import { trayColumnLook } from "../agent-session/acpmux/subagents/trayColumn.experiment";
 import { trayFoldHeadLook } from "../agent-session/acpmux/subagents/trayFoldHead.experiment";
 import { trayKindLineLook } from "../agent-session/acpmux/subagents/trayKindLine.experiment";
 import { trayHeadClockLook } from "../agent-session/acpmux/subagents/trayHeadClock.experiment";
@@ -133,6 +133,7 @@ import { menuStyleV2 } from "../ui/menuStyleV2.experiment";
 import { menuRowStates } from "../ui/menuRowStates.experiment";
 import { jumpLatestPlace } from "../agent-session/acpmux/jumpPlace.experiment";
 import { hatPillPlace } from "../agent-session/acpmux/hatPillPlace.experiment";
+import { earlierPlanHat } from "../agent-session/acpmux/subagents/earlierPlanHat.experiment";
 import { dockBand } from "../agent-session/acpmux/dockBand.experiment";
 import { draftFoot } from "../agent-session/acpmux/draftFoot.experiment";
 import { outcomeAsk } from "../agent-session/acpmux/outcomeAsk.experiment";
@@ -227,6 +228,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   trayMotionLook,
   composerHatLook,
   hatCountMotion,
+  textRollLook,
   hatQuestionsLook,
   hatOpenLook,
   subagentForkChipsLook,
@@ -235,7 +237,6 @@ export const EXPERIMENTS: readonly Experiment[] = [
   customizeBarPlace,
   hatDoneLook,
   trayHeadLook,
-  trayColumnLook,
   trayFoldHeadLook,
   trayHeadKindsLook,
   trayKindLineLook,
@@ -281,6 +282,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   holdToApproveDuration,
   jumpLatestPlace,
   hatPillPlace,
+  earlierPlanHat,
   dockBand,
   draftFoot,
   outcomeAsk,
