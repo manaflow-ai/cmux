@@ -307,7 +307,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         openedURLs.start { [weak self] in self?.routeReadyURL($0) }
         // Work the launch window does not draw: one step per main turn after the first frame (Chromium's crash-loop border and
         // the glass look too). Cloud and Home at once (the front may be Home's Chief); the rest after the front chat drew.
-        let stop: @MainActor () -> Bool = { [weak services] in services?.windows.isTerminating ?? true }, mark = { DebugTimings.markLaunch($0) }
+        let stop: @MainActor () -> Bool = { [weak services] in services?.windows.isTerminating ?? true }, mark: @MainActor @Sendable (String) -> Void = { DebugTimings.markLaunch($0) }
         firstFrame.afterOpen(stop: stop, mark: mark, ["cloud": { [weak self, weak services] in self?.cloudContext = services?.startCloud() }, "home": { [weak services] in services?.home.start() }])
         FrontChatPaintGate.make(after: firstFrame).afterOpen(stop: stop, mark: mark, [
             "harness_icons": { [weak services] in services?.harnessIcons.start() },
