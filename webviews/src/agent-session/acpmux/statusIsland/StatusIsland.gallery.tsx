@@ -2,7 +2,8 @@
 // Agent status island (StatusIsland.tsx, experiment `agent-status-island`, off by default): the
 // floating pill at the top of the chat, compact with nothing running, compact with three agents
 // running (the dot and 3, no word), and morphed into its card for a pending approval (Allow and Deny, through Needs you's
-// answer) and for an agent that stopped on an error. Every variant builds the island's state from
+// answer), for four long choices (also in a narrow, short pane, where the card scrolls), for another
+// computer's chat waiting on the person (no Open Chat), and for an agent that stopped on an error. Every variant builds the island's state from
 // the real derivations (needsYouItems, islandState) over sample sessions and asks. Press the pill
 // or the card's chevron to watch the morph; light and dark come from the gallery's appearance control.
 import { componentEntry } from "../../../gallery/format";
@@ -105,14 +106,27 @@ const choiceAsk: WatchedAsk = {
   permission: { permissionId: "ask-auth", pending: true, options, question: longChoices },
 };
 
+// Another computer's chat waiting on the person: its prompt reaches this pane only as the session's
+// indicator, so it is an ask with no one-click answer, and Open Chat could go nowhere.
+const peerWaiting = session({
+  sessionId: "s-peer",
+  title: "Rebuild the release notes",
+  host: "studio",
+  peer: "studio",
+  indicator: "input",
+  updatedAt: ago(1),
+});
+
 const stateOf = (sessions: AcpmuxSessionEntry[], asks: WatchedAsk[] = []) =>
   islandState({ sessions, items: needsYouItems({ sessions, asks }) });
 
-const actions: StatusIslandActions = {
+// As the app (App.tsx): Open Chat goes nowhere for another computer's chat.
+const actionsFor = (sessions: AcpmuxSessionEntry[]): StatusIslandActions => ({
   answer: async () => undefined,
   goTo: () => undefined,
   openSession: () => undefined,
-};
+  canOpen: (sessionId) => !sessions.some((entry) => entry.sessionId === sessionId && entry.peer),
+});
 
 type Props = { sessions: AcpmuxSessionEntry[]; asks?: WatchedAsk[] };
 
@@ -130,7 +144,7 @@ export default componentEntry<Props>({
         function Stage({ sessions, asks }: Props) {
           return (
             <div className="acpmux-shell" style={{ position: "relative", height: "100vh" }}>
-              <StatusIsland state={stateOf(sessions, asks)} actions={actions} />
+              <StatusIsland state={stateOf(sessions, asks)} actions={actionsFor(sessions)} />
             </div>
           );
         },
@@ -155,6 +169,15 @@ export default componentEntry<Props>({
     "expanded-long-choices": {
       note: "A question with four long choices: one per row across the card, each label wrapping, every choice visible and clickable.",
       props: { sessions: [...running, choosing], asks: [choiceAsk] },
+    },
+    "expanded-long-choices-short-pane": {
+      note: "The same four long choices in a narrow, short split pane: the card stops at the pane's foot and scrolls, so the last choice is still reachable.",
+      height: 220,
+      props: { sessions: [...running, choosing], asks: [choiceAsk] },
+    },
+    "expanded-peer-input": {
+      note: "Another computer's chat waits on the person: its card names the chat and offers no Open Chat, since that chat opens only on its own computer.",
+      props: { sessions: [running[0]!, peerWaiting] },
     },
     "expanded-error": {
       note: "An agent stopped on an error: its card says so, with the error and Open Chat.",
