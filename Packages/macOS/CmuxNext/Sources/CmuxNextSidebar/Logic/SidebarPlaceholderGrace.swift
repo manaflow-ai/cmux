@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import CmuxNextWakeups
 
 /// The wait before a connecting machine's section shows its placeholder bars
@@ -10,6 +11,13 @@ public final class SidebarPlaceholderGrace {
     /// The wait before one list names "Connecting…": the shared connection quiet time
     /// (``QuietHold/connectionDelay``: the daemon's startup deadline, which the store's drop grace uses too).
     public static let connectingDelay: Duration = QuietHold.connectionDelay
+    /// Settings > Advanced > Experiments > Quiet Connections (`experiments.quietConnect`, off by
+    /// default; Leo, 2026-11-24: "don't unilaterally MERGE ui stuff yet ... having people be able to
+    /// easily toggle" it). On, a resuming Cloud machine is held like a connecting one. Read each pass from
+    /// ``DesignSettings/experiments`` (the settings applier's copy of every switch turned on).
+    var quietConnect: Bool { quietConnectOverride ?? DesignSettings.shared.experiment("quietConnect") }
+    /// This grace's own answer for `quietConnect` (a test's); nil reads the switch.
+    public var quietConnectOverride: Bool?
 
     /// Runs when a section's wait ends (the bridge runs its rows pass again).
     public var onEnd: (@MainActor () -> Void)?
@@ -66,7 +74,7 @@ public final class SidebarPlaceholderGrace {
         keep(Set(sections.map(\.id)))
         return sections.map { section in
             guard var machine = section.machine else { return section }
-            guard Self.healsOnItsOwn(machine.status) else {
+            guard Self.healsOnItsOwn(machine.status, quietResume: quietConnect) else {
                 reset(section.id)
                 return section
             }
@@ -81,10 +89,12 @@ public final class SidebarPlaceholderGrace {
     /// A link state that ends without anyone acting: coming up, redialing after a drop, out of
     /// reach until the network answers again, or a paused Cloud machine resuming for an attach (its
     /// link comes up right after, under the same wait): a resume of a second or two read "Resuming…"
-    /// with a spinner from the first frame. A resume that lasts past the wait says so then.
-    nonisolated static func healsOnItsOwn(_ status: SidebarMachine.Status) -> Bool {
+    /// with a spinner from the first frame. A resume that lasts past the wait says so then. The resume
+    /// is held only with `quietResume` (the Quiet Connections experiment); off, it says so at once.
+    nonisolated static func healsOnItsOwn(_ status: SidebarMachine.Status, quietResume: Bool) -> Bool {
         switch status {
-        case .connecting, .reconnecting, .unreachable, .offline, .resuming: true
+        case .connecting, .reconnecting, .unreachable, .offline: true
+        case .resuming: quietResume
         case .connected, .updateAvailable, .updateRequired, .installRequired, .installing, .authFailed, .failed,
              .disconnected, .paused, .pausedIdle, .pausing, .deleting: false
         }

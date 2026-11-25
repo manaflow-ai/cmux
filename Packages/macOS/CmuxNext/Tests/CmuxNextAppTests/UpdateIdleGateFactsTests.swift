@@ -4,8 +4,8 @@ import CmuxUpdater
 import Foundation
 import Testing
 
-/// Update When Idle reads drafts and background work only from an acpmux that serves them: a session
-/// summary omits `hasDraft` and `workingBelow` when false, and an older acpmux omits them always, so a
+/// Update When Idle reads drafts only from an acpmux that serves them: a session
+/// summary omits `hasDraft` when false, and an older acpmux omits them always, so a
 /// census from a daemon without `session-idle-facts-v1` is unknown and the install holds (review of
 /// #47272 at 5c4026fb: "Fail closed on missing facts").
 struct UpdateIdleGateFactsTests {
@@ -31,24 +31,21 @@ struct UpdateIdleGateFactsTests {
         #expect(UpdateIdleGate.agentFacts(census: census(known: true), blockers: .empty, newChatDrafts: nil) == nil)
     }
 
-    @Test func knownFactsCountTurnsBackgroundWorkAndDrafts() throws {
-        let facts = try #require(UpdateIdleGate.agentFacts(
-            census: census(drafts: 1, workingBelow: 2, inTurn: 1, known: true), blockers: .empty, newChatDrafts: 3))
-        #expect(facts.runningTurns == 3)
-        #expect(facts.unsentDrafts == 4)
+    @Test func knownFactsCountDrafts() {
+        #expect(UpdateIdleGate.agentFacts(
+            census: census(drafts: 1, known: true), blockers: .empty, newChatDrafts: 3) == 4)
     }
 
-    @Test func aKnownQuietCensusIsClear() throws {
-        let facts = try #require(UpdateIdleGate.agentFacts(census: census(known: true), blockers: .empty, newChatDrafts: 0))
-        #expect(facts.runningTurns == 0)
-        #expect(facts.unsentDrafts == 0)
+    @Test func aKnownQuietCensusIsClear() {
+        #expect(UpdateIdleGate.agentFacts(census: census(known: true), blockers: .empty, newChatDrafts: 0) == 0)
     }
 
-    @Test func theTabMirrorsTurnsWinWhenHigher() throws {
-        let facts = try #require(UpdateIdleGate.agentFacts(
-            census: census(known: true), blockers: UpdateRelaunchBlockers(busyAgentCount: 2, runningCommandCount: 0),
-            newChatDrafts: 0))
-        #expect(facts.runningTurns == 2)
+    /// Leo, 2026-11-22: "auto be de facto able to click the restart button". A running turn, background work
+    /// or a busy tab does not hold the away relaunch: they carry across it (acpmux `route_switch.rs`).
+    @Test func turnsAndBackgroundWorkDoNotCount() {
+        #expect(UpdateIdleGate.agentFacts(
+            census: census(workingBelow: 2, inTurn: 1, known: true),
+            blockers: UpdateRelaunchBlockers(busyAgentCount: 2, runningCommandCount: 0), newChatDrafts: 0) == 0)
     }
 }
 

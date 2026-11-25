@@ -177,7 +177,7 @@ public final class CloudAutomationsModel {
             let message = Self.message(error)
             if automations.isEmpty {
                 phase = .failed(message)
-            } else if AccountCloud.isUnreachable(error) {
+            } else if AccountCloud.isUnreachable(error), CmuxMobilePreferences.quietCloudConnect() {
                 unreached = message
                 unreachedQuiet.update(down: true)
             } else {

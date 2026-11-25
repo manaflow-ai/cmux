@@ -349,7 +349,7 @@ public final class CloudMachinesModel {
             let message = Self.message(error)
             if machines.isEmpty {
                 phase = .failed(message)
-            } else if AccountCloud.isUnreachable(error) {
+            } else if AccountCloud.isUnreachable(error), CmuxMobilePreferences.quietCloudConnect() {
                 unreached = message
                 unreachedQuiet.update(down: true)
             } else {

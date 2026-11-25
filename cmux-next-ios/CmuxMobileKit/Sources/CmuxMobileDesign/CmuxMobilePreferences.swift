@@ -16,6 +16,8 @@ public enum CmuxMobilePreferences {
         /// Settings → Terminal → Jump to Bottom Button (CMUX-10): off removes the
         /// terminal's Jump to bottom row above the composer.
         public static let terminalJumpToBottom = "cmuxMobile.settings.terminalJumpToBottom"
+        /// The terminal composer's Autocorrect toggle (its + menu, Settings → Terminal).
+        public static let terminalComposerAutocorrect = "cmuxMobile.settings.terminalComposerAutocorrect"
         /// Settings → Terminal → Terminal and Chat Toggle (off by default; Leo, 2026-11-17: "the
         /// toggle js just so a** rn it needs more baking tiem"): on, a Claude Code or Codex tab's
         /// page menu offers Show Chat / Show Terminal where both faces work.
@@ -29,6 +31,12 @@ public enum CmuxMobilePreferences {
         /// Codex or opencode terminal comes as the cells that changed, not its PTY bytes.
         /// Read at each terminal attach (`DaemonTerminalSession.agentCLIHybridDefaultsKey`).
         public static let agentCLIHybrid = "cmuxMobile.settings.agentCLIHybrid"
+        /// Settings → Transport → Quiet Cloud Connections (off by default; Leo, 2026-11-24: "don't
+        /// unilaterally MERGE ui stuff yet ... having people be able to easily toggle" it): on, a Cloud
+        /// list or machine that answers within ``QuietStatusGate/threshold`` never shows its wait, and
+        /// a short outage behind cached Cloud rows shows no alert (Leo, 2026-11-14: "i also want all our
+        /// connectivity stuff to shut the fuck up and load faster/percievably load faster").
+        public static let quietCloudConnect = "cmuxMobile.settings.quietCloudConnect"
         public static let dismissKeyboardAfterSend = "cmuxMobile.settings.dismissKeyboardAfterSend"
         /// Settings → Composer → Swipe Down to Collapse (off by default; `ComposerReturnTextView`).
         public static let swipeDownCollapsesComposer = "cmuxMobile.settings.swipeDownCollapsesComposer"
@@ -51,7 +59,11 @@ public enum CmuxMobilePreferences {
     public static let defaultPredictiveEcho = true
     public static let defaultTerminalFitToPhone = false
     public static let defaultTerminalJumpToBottom = true
+    /// Off: a shell line is not prose. On for talking to an agent CLI in
+    /// prose (Leo, 2026-11-24: "an autocorect toggle in the terminal composer").
+    public static let defaultTerminalComposerAutocorrect = false
     public static let defaultTerminalChatToggle = false
+    public static let defaultQuietCloudConnect = false
     public static let defaultDismissKeyboardAfterSend = true
     /// Off until Leo picks it up (2026-11-24: "don't unilaterally MERGE ui stuff yet ... having people be able to
     /// easily toggle" it).
@@ -73,6 +85,12 @@ public enum CmuxMobilePreferences {
         defaults.object(forKey: Key.keyClicks) as? Bool ?? defaultKeyClicks
     }
 
+    public static func terminalComposerAutocorrect(_ defaults: UserDefaults = .standard) -> Bool {
+        // `bool(forKey:)` also reads a launch argument's "NO"/"YES" string.
+        defaults.object(forKey: Key.terminalComposerAutocorrect) == nil
+            ? defaultTerminalComposerAutocorrect : defaults.bool(forKey: Key.terminalComposerAutocorrect)
+    }
+
     public static func terminalJumpToBottom(_ defaults: UserDefaults = .standard) -> Bool {
         // `bool(forKey:)` also reads a launch argument's "NO"/"YES" string.
         defaults.object(forKey: Key.terminalJumpToBottom) == nil
@@ -84,6 +102,14 @@ public enum CmuxMobilePreferences {
         // `bool(forKey:)` also reads a launch argument's "NO"/"YES" string.
         defaults.object(forKey: Key.terminalChatToggle) == nil
             ? defaultTerminalChatToggle : defaults.bool(forKey: Key.terminalChatToggle)
+    }
+
+    /// Whether Cloud waits and short Cloud outages stay quiet until they last (on), or show at once
+    /// (off, the default). Read each time a Cloud wait starts or a Cloud refresh fails.
+    public static func quietCloudConnect(_ defaults: UserDefaults = .standard) -> Bool {
+        // `bool(forKey:)` also reads a launch argument's "NO"/"YES" string.
+        defaults.object(forKey: Key.quietCloudConnect) == nil
+            ? defaultQuietCloudConnect : defaults.bool(forKey: Key.quietCloudConnect)
     }
 
     /// Typed characters show at once over a slow link, underlined until the

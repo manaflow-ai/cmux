@@ -16,9 +16,10 @@ struct CloudHeaderQuietTimelineTests {
 
     /// What the header says over `segments` (each status held for its length, then the next):
     /// the time words or a spinner show.
-    static func exposure(_ segments: [(Status, Duration)]) async throws -> Duration {
+    static func exposure(_ segments: [(Status, Duration)], quietResume: Bool = true) async throws -> Duration {
         let clock = ManualClock()
         let grace = SidebarPlaceholderGrace(wait: SidebarPlaceholderGrace.connectingDelay, clock: clock)
+        grace.quietConnectOverride = quietResume
         var exposed: Duration = .zero
         for (status, length) in segments {
             let section = SidebarSection(kind: .machine(SidebarMachine(id: MachineID("vm-cloud"), name: "Cloud", kind: .cloud, status: status)), nodes: [])
@@ -68,9 +69,10 @@ struct CloudHeaderQuietTimelineTests {
     @Test func aCloudHeaderSaysNothingOnAFastOrShortConnect() async throws {
         var measured: [String: Int] = [:]
         for scenario in Self.scenarios {
+            let before = Self.ms(try await Self.exposure(scenario.segments, quietResume: false))
             let shown = Self.ms(try await Self.exposure(scenario.segments))
             measured[scenario.name] = shown
-            print("QUIET-CLOUD scenario=\"\(scenario.name)\" label_exposure_ms=\(shown)")
+            print("QUIET-CLOUD scenario=\"\(scenario.name)\" switch_off_ms=\(before) label_exposure_ms=\(shown)")
         }
         #expect(measured["cloud connect 0.8 s (launch)"] == 0)
         #expect(measured["cloud reconnect 6 s"] == 0)
@@ -78,6 +80,13 @@ struct CloudHeaderQuietTimelineTests {
         #expect(measured["cloud resume from pause 6 s"] == 0, "a resume under the hold said Resuming…")
         // A resume that lasts past the hold says so honestly from the hold on (15 s - 10 s).
         #expect(measured["cloud resume from pause 15 s"] == 5_000)
+    }
+
+    /// With Quiet Cloud Resume off (the default), a resume says "Resuming…" from its first frame, as
+    /// before; the connect that follows is still held.
+    @Test func withTheSwitchOffAResumeIsSaidAtOnce() async throws {
+        let shown = Self.ms(try await Self.exposure([(.resuming, .seconds(5)), (.connecting, .seconds(1)), (.connected, .seconds(1))], quietResume: false))
+        #expect(shown == 5_000)
     }
 
     /// A state a person must act on is said at once, never held.

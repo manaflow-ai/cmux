@@ -36,6 +36,27 @@
           ]
         },
         {
+          "key": "experiments.composerButtonsVisible",
+          "title": {
+            "key": "settings.experiments.composerButtonsVisible",
+            "text": "Always Show Composer Buttons"
+          },
+          "help": {
+            "key": "settings.experiments.composerButtonsVisible.help",
+            "text": "Keep Send, attachment removal, and queued message actions visible in agent chats."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "composer",
+            "buttons",
+            "send",
+            "attachments",
+            "queue",
+            "hover"
+          ]
+        },
+        {
           "key": "experiments.composerV2",
           "note": "Taste prototype: the agent chat composer as a glass panel with an edge light on focus, mode and scope chips in a row inside it (only the active one raised), inline @mention chips, the model picker left and + and Send right, and a round Send dimmed until there is text (webviews useExperimentSwitch(\"composerV2\"), composerV2.css). Off by default; off keeps today's composer.",
           "title": {
@@ -81,6 +102,31 @@
             "hover",
             "card",
             "glass"
+          ]
+        },
+        {
+          "key": "experiments.seeThroughDock",
+          "note": "Leo, 2026-11-17 (ask-cbb09912f6): the agent chat's \"Needs your input\" stack and the notice lines above the composer (switch notice, managed banner, host line, host-error cards, dictation, ui-notice) hide only what they draw, so the conversation stays visible beside and between them (webviews experimentSwitchOn(\"seeThroughDock\"), conversation/useBesideStack.ts, besideStack.ts bandMask). Off by default; off keeps today's mask, which ends the rows at the stack's top.",
+          "title": {
+            "key": "settings.experiments.seeThroughDock",
+            "text": "See-Through Dock"
+          },
+          "help": {
+            "key": "settings.experiments.seeThroughDock.help",
+            "text": "The conversation stays visible behind the notices and the Needs your input row above the composer."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "dock",
+            "notice",
+            "input",
+            "dismiss",
+            "transcript",
+            "mask"
           ]
         },
         {
@@ -209,6 +255,31 @@
           ]
         },
         {
+          "key": "experiments.terminalHistoryFind",
+          "note": "Cmd-F in a terminal searches the daemon's whole history (Rust cmux-terminal-find, the daemon's terminal-find command), newest first and streamed, with case, whole-word and regex options; a match far up in scrollback is scrolled to and selected (TerminalSession.init, DesignSettings.experiment(\"terminalHistoryFind\")). Off by default (Leo's UI merge hold, 2026-11-24); off keeps Ghostty's own screen search, unchanged. Applies to terminals opened after the switch.",
+          "title": {
+            "key": "settings.experiments.terminalHistoryFind",
+            "text": "Terminal History Find"
+          },
+          "help": {
+            "key": "settings.experiments.terminalHistoryFind.help",
+            "text": "Cmd-F in a terminal searches its whole history, with case, whole-word and regex options."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "terminal",
+            "find",
+            "search",
+            "history",
+            "scrollback",
+            "regex"
+          ]
+        },
+        {
           "key": "experiments.chatWidgets",
           "note": "Agent chat draws an installed extension's chat widget (cmux.chat.widget/1, the daemon's apps.chat_widgets.route) as a card under a finished tool call (webviews ToolWidget.tsx, useExperimentSwitch(\"chatWidgets\")). Off by default; off makes no route call and draws no card, so the chat is unchanged.",
           "title": {
@@ -257,6 +328,30 @@
             "image",
             "loading",
             "chip"
+          ]
+        },
+        {
+          "key": "experiments.quietConnect",
+          "note": "Taste prototype: quiet connections (Leo, 2026-11-14: \"i also want all our connectivity stuff to shut the fuck up and load faster/percievably load faster\"). A paused Cloud machine resuming for an attach shows no \"Resuming…\" in its sidebar header until the resume lasts past the shared connection quiet time (SidebarPlaceholderGrace.quietConnect, from DesignSettings.experiments). Off by default (Leo's UI merge hold, 2026-11-24); off says \"Resuming…\" at once, as before.",
+          "title": {
+            "key": "settings.experiments.quietConnect",
+            "text": "Quiet Connections"
+          },
+          "help": {
+            "key": "settings.experiments.quietConnect.help",
+            "text": "Hide Resuming… and connection waits that end within 10 seconds."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "experiments",
+            "experimental",
+            "connection",
+            "connecting",
+            "resuming",
+            "quiet",
+            "cloud"
           ]
         }
       ]
