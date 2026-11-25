@@ -2510,7 +2510,7 @@ jobs:
         id: web-bundle-key
         run: echo "key=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
 
-      # Why: docs/ci/cmux-next-workflow-notes.md#note-558
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-web-bundles-r2-first
       - name: Look up the web bundles in R2
         id: web-bundle-r2
         continue-on-error: true
@@ -2532,7 +2532,7 @@ jobs:
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
           enableCrossOsArchive: true
 
-      # Why: docs/ci/cmux-next-workflow-notes.md#note-558
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-web-bundles-r2-first
       - name: Setup Bun
         if: steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2

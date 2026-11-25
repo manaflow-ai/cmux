@@ -5086,7 +5086,7 @@ the service down, or a base reader without the phase) is `unavailable` and fails
 other than 0, 1 or 75 did. A check the fleet still holds queued (`pending`) is a warning, as exit 75 was. swift-canary-fleet does the same for a pull request; any non-pass still lets the Mac
 canary run, and a push keeps its tip-check read and gateway compile.
 
-## note-558
+## note-web-bundles-r2-first
 
 Above `web-bundles: Look up the web bundles in R2` and `web-bundles: Setup Bun` in `.github/workflows/cmux-next.yml`.
 
