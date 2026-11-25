@@ -1156,6 +1156,13 @@ public protocol ChannelHandleProtocol: AnyObject, Sendable {
     
     func send(data: Data) async throws 
     
+    /**
+     * Payload bytes this channel has queued for the transport so far. It moves while a long
+     * write is taken by the link and stops when the link stalls: a request's deadline reads it
+     * as progress, not a wall clock (`DaemonClient` on iOS).
+     */
+    func sentBytes()  -> UInt64
+    
 }
 /**
  * One multiplexed channel.
@@ -1276,6 +1283,19 @@ open func send(data: Data)async throws   {
             liftFunc: { $0 },
             errorHandler: FfiConverterTypeCmuxMobileError_lift
         )
+}
+    
+    /**
+     * Payload bytes this channel has queued for the transport so far. It moves while a long
+     * write is taken by the link and stops when the link stalls: a request's deadline reads it
+     * as progress, not a wall clock (`DaemonClient` on iOS).
+     */
+open func sentBytes() -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_channelhandle_sent_bytes(
+            self.uniffiCloneHandle(),$0
+    )
+})
 }
     
 
@@ -4168,6 +4188,26 @@ public func FfiConverterTypeTerminalPrediction_lower(_ value: TerminalPrediction
 public protocol TerminalProjectionProtocol: AnyObject, Sendable {
     
     /**
+     * A vertical pan of `rows` (positive: toward older content) over the
+     * alternate screen: within the rows the app scrolled off, the phone
+     * paints them and nothing is sent; past them, for an app that asked for
+     * the mouse, on the primary screen or with nothing held, the wheel goes
+     * to the Mac as before.
+     */
+    func altPan(rows: Double)  -> ProjectionAltPan
+    
+    /**
+     * A key or a tap: bytes that show the app's live screen again (empty
+     * when the surface already shows it).
+     */
+    func altReturnLive()  -> Data
+    
+    /**
+     * How many held rows back the surface shows the alternate screen.
+     */
+    func altRowsBack()  -> UInt32
+    
+    /**
      * The program's bytes. `paint` false: taken, painted at the next feed.
      */
     func feed(bytes: Data, paint: Bool)  -> [ProjectionSegment]
@@ -4176,6 +4216,8 @@ public protocol TerminalProjectionProtocol: AnyObject, Sendable {
      * Paints what unpainted feeds changed, once (nothing on the alternate screen).
      */
     func flush()  -> [ProjectionSegment]
+    
+    func held()  -> ProjectionHeld
     
     func isAlternate()  -> Bool
     
@@ -4292,6 +4334,45 @@ public convenience init(hostCols: UInt32, hostRows: UInt32) {
 
     
     /**
+     * A vertical pan of `rows` (positive: toward older content) over the
+     * alternate screen: within the rows the app scrolled off, the phone
+     * paints them and nothing is sent; past them, for an app that asked for
+     * the mouse, on the primary screen or with nothing held, the wheel goes
+     * to the Mac as before.
+     */
+open func altPan(rows: Double) -> ProjectionAltPan  {
+    return try!  FfiConverterTypeProjectionAltPan_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_alt_pan(
+            self.uniffiCloneHandle(),
+        FfiConverterDouble.lower(rows),$0
+    )
+})
+}
+    
+    /**
+     * A key or a tap: bytes that show the app's live screen again (empty
+     * when the surface already shows it).
+     */
+open func altReturnLive() -> Data  {
+    return try!  FfiConverterData.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_alt_return_live(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * How many held rows back the surface shows the alternate screen.
+     */
+open func altRowsBack() -> UInt32  {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_alt_rows_back(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
      * The program's bytes. `paint` false: taken, painted at the next feed.
      */
 open func feed(bytes: Data, paint: Bool) -> [ProjectionSegment]  {
@@ -4310,6 +4391,14 @@ open func feed(bytes: Data, paint: Bool) -> [ProjectionSegment]  {
 open func flush() -> [ProjectionSegment]  {
     return try!  FfiConverterSequenceTypeProjectionSegment.lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_flush(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+open func held() -> ProjectionHeld  {
+    return try!  FfiConverterTypeProjectionHeld_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_held(
             self.uniffiCloneHandle(),$0
     )
 })
@@ -4927,6 +5016,12 @@ public struct ConnectOptions: Equatable, Hashable {
      */
     public var blockUdp: Bool
     /**
+     * Debug "Relay via cmux (HTTPS) only": WireGuard sends no plain UDP and
+     * takes no TURN allocation; it joins cmux's WebSocket relay at once and
+     * rides it (path `HttpsRelay`). WebRTC ignores it.
+     */
+    public var forceRelay: Bool
+    /**
      * Debug: do not offer the media lane, so browser video rides its
      * reliable channel on either transport (the comparison baseline).
      */
@@ -4960,6 +5055,11 @@ public struct ConnectOptions: Equatable, Hashable {
          * TLS on 443 (path `TurnTls`). WebRTC ignores it.
          */blockUdp: Bool = false, 
         /**
+         * Debug "Relay via cmux (HTTPS) only": WireGuard sends no plain UDP and
+         * takes no TURN allocation; it joins cmux's WebSocket relay at once and
+         * rides it (path `HttpsRelay`). WebRTC ignores it.
+         */forceRelay: Bool = false, 
+        /**
          * Debug: do not offer the media lane, so browser video rides its
          * reliable channel on either transport (the comparison baseline).
          */noVideoLane: Bool = false, 
@@ -4976,6 +5076,7 @@ public struct ConnectOptions: Equatable, Hashable {
          */ultra: String = "auto") {
         self.relayOnly = relayOnly
         self.blockUdp = blockUdp
+        self.forceRelay = forceRelay
         self.noVideoLane = noVideoLane
         self.noWebrtcMedia = noWebrtcMedia
         self.ultra = ultra
@@ -4999,6 +5100,7 @@ public struct FfiConverterTypeConnectOptions: FfiConverterRustBuffer {
             try ConnectOptions(
                 relayOnly: FfiConverterBool.read(from: &buf), 
                 blockUdp: FfiConverterBool.read(from: &buf), 
+                forceRelay: FfiConverterBool.read(from: &buf), 
                 noVideoLane: FfiConverterBool.read(from: &buf), 
                 noWebrtcMedia: FfiConverterBool.read(from: &buf), 
                 ultra: FfiConverterString.read(from: &buf)
@@ -5008,6 +5110,7 @@ public struct FfiConverterTypeConnectOptions: FfiConverterRustBuffer {
     public static func write(_ value: ConnectOptions, into buf: inout [UInt8]) {
         FfiConverterBool.write(value.relayOnly, into: &buf)
         FfiConverterBool.write(value.blockUdp, into: &buf)
+        FfiConverterBool.write(value.forceRelay, into: &buf)
         FfiConverterBool.write(value.noVideoLane, into: &buf)
         FfiConverterBool.write(value.noWebrtcMedia, into: &buf)
         FfiConverterString.write(value.ultra, into: &buf)
@@ -5207,6 +5310,121 @@ public func FfiConverterTypeKeychainLeftover_lift(_ buf: RustBuffer) throws -> K
 #endif
 public func FfiConverterTypeKeychainLeftover_lower(_ value: KeychainLeftover) -> RustBuffer {
     return FfiConverterTypeKeychainLeftover.lower(value)
+}
+
+
+/**
+ * One resolved address of a discovered ad, as the platform prints it: `192.168.1.5`,
+ * `fe80::1%en0` or `fe80::1%awdl0` (a scope is an interface name or its index).
+ */
+public struct LocalEndpoint: Equatable, Hashable {
+    public var host: String
+    public var port: UInt16
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(host: String, port: UInt16) {
+        self.host = host
+        self.port = port
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension LocalEndpoint: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLocalEndpoint: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LocalEndpoint {
+        return
+            try LocalEndpoint(
+                host: FfiConverterString.read(from: &buf), 
+                port: FfiConverterUInt16.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: LocalEndpoint, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.host, into: &buf)
+        FfiConverterUInt16.write(value.port, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLocalEndpoint_lift(_ buf: RustBuffer) throws -> LocalEndpoint {
+    return try FfiConverterTypeLocalEndpoint.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLocalEndpoint_lower(_ value: LocalEndpoint) -> RustBuffer {
+    return FfiConverterTypeLocalEndpoint.lower(value)
+}
+
+
+/**
+ * One TXT pair of a discovered ad (`id`, `v`, `k`).
+ */
+public struct LocalTxt: Equatable, Hashable {
+    public var key: String
+    public var value: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(key: String, value: String) {
+        self.key = key
+        self.value = value
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension LocalTxt: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLocalTxt: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LocalTxt {
+        return
+            try LocalTxt(
+                key: FfiConverterString.read(from: &buf), 
+                value: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: LocalTxt, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.key, into: &buf)
+        FfiConverterString.write(value.value, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLocalTxt_lift(_ buf: RustBuffer) throws -> LocalTxt {
+    return try FfiConverterTypeLocalTxt.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLocalTxt_lower(_ value: LocalTxt) -> RustBuffer {
+    return FfiConverterTypeLocalTxt.lower(value)
 }
 
 
@@ -5647,6 +5865,128 @@ public func FfiConverterTypePredictionLayout_lift(_ buf: RustBuffer) throws -> P
 #endif
 public func FfiConverterTypePredictionLayout_lower(_ value: PredictionLayout) -> RustBuffer {
     return FfiConverterTypePredictionLayout.lower(value)
+}
+
+
+/**
+ * What a vertical pan over a full-screen app does: bytes the phone's
+ * surface paints itself (nothing sent), then rows of wheel for the app on
+ * the Mac (0: nothing goes).
+ */
+public struct ProjectionAltPan: Equatable, Hashable {
+    public var paint: Data
+    /**
+     * Rows of wheel, positive toward older content.
+     */
+    public var forwardRows: Double
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(paint: Data, 
+        /**
+         * Rows of wheel, positive toward older content.
+         */forwardRows: Double) {
+        self.paint = paint
+        self.forwardRows = forwardRows
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ProjectionAltPan: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeProjectionAltPan: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ProjectionAltPan {
+        return
+            try ProjectionAltPan(
+                paint: FfiConverterData.read(from: &buf), 
+                forwardRows: FfiConverterDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ProjectionAltPan, into buf: inout [UInt8]) {
+        FfiConverterData.write(value.paint, into: &buf)
+        FfiConverterDouble.write(value.forwardRows, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProjectionAltPan_lift(_ buf: RustBuffer) throws -> ProjectionAltPan {
+    return try FfiConverterTypeProjectionAltPan.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProjectionAltPan_lower(_ value: ProjectionAltPan) -> RustBuffer {
+    return FfiConverterTypeProjectionAltPan.lower(value)
+}
+
+
+/**
+ * Rows held for a pan over a full-screen app, and their bytes.
+ */
+public struct ProjectionHeld: Equatable, Hashable {
+    public var rows: UInt64
+    public var bytes: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(rows: UInt64, bytes: UInt64) {
+        self.rows = rows
+        self.bytes = bytes
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ProjectionHeld: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeProjectionHeld: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ProjectionHeld {
+        return
+            try ProjectionHeld(
+                rows: FfiConverterUInt64.read(from: &buf), 
+                bytes: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ProjectionHeld, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.rows, into: &buf)
+        FfiConverterUInt64.write(value.bytes, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProjectionHeld_lift(_ buf: RustBuffer) throws -> ProjectionHeld {
+    return try FfiConverterTypeProjectionHeld.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProjectionHeld_lower(_ value: ProjectionHeld) -> RustBuffer {
+    return FfiConverterTypeProjectionHeld.lower(value)
 }
 
 
@@ -7336,6 +7676,11 @@ public enum LinkPath: Equatable, Hashable {
      */
     case turnTls
     /**
+     * Through cmux's own WebSocket relay over HTTPS (neither UDP nor TURN
+     * gets through: a network that allows only cmux's hosts, or only HTTPS).
+     */
+    case httpsRelay
+    /**
      * No working route at the moment.
      */
     case noPath
@@ -7366,7 +7711,9 @@ public struct FfiConverterTypeLinkPath: FfiConverterRustBuffer {
         
         case 3: return .turnTls
         
-        case 4: return .noPath
+        case 4: return .httpsRelay
+        
+        case 5: return .noPath
         
         default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -7388,8 +7735,12 @@ public struct FfiConverterTypeLinkPath: FfiConverterRustBuffer {
             writeInt(&buf, Int32(3))
         
         
-        case .noPath:
+        case .httpsRelay:
             writeInt(&buf, Int32(4))
+        
+        
+        case .noPath:
+            writeInt(&buf, Int32(5))
         
         }
     }
@@ -8114,6 +8465,30 @@ fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionData: FfiConverterRustBuffer {
+    typealias SwiftType = Data?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterData.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterData.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeLinkObserver: FfiConverterRustBuffer {
     typealias SwiftType = LinkObserver?
 
@@ -8351,6 +8726,56 @@ fileprivate struct FfiConverterSequenceTypeKeychainLeftover: FfiConverterRustBuf
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeKeychainLeftover.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeLocalEndpoint: FfiConverterRustBuffer {
+    typealias SwiftType = [LocalEndpoint]
+
+    public static func write(_ value: [LocalEndpoint], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeLocalEndpoint.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [LocalEndpoint] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [LocalEndpoint]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeLocalEndpoint.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeLocalTxt: FfiConverterRustBuffer {
+    typealias SwiftType = [LocalTxt]
+
+    public static func write(_ value: [LocalTxt], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeLocalTxt.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [LocalTxt] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [LocalTxt]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeLocalTxt.read(from: &buf))
         }
         return seq
     }
@@ -8835,6 +9260,16 @@ public func setKeepaliveAlignment(on: Bool)  {try! rustCall() {
 }
 }
 /**
+ * What the phone's terminal declares in `set-client-info` for the lean stream
+ * (`cmux_mobile_link::names::TERMINAL_LEAN_STREAM`).
+ */
+public func terminalLeanStreamCapabilities() -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_terminal_lean_stream_capabilities($0
+    )
+})
+}
+/**
  * Whether this launch should run the cleanup: the marker is missing, not a
  * number, or from an older version of the rules.
  */
@@ -8885,6 +9320,98 @@ public func linkOpenSide(url: String) -> LinkOpenSide  {
     return try!  FfiConverterTypeLinkOpenSide_lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_func_link_open_side(
         FfiConverterString.lower(url),$0
+    )
+})
+}
+/**
+ * Dial Mac `mac_device_id` from this phone (`device_id`) through its local hub at `endpoints`
+ * (what the browser resolved; best first is decided here), with no service involved. The
+ * everyday dial (`connect`) already takes this path by itself when the Mac is nearby; this is the
+ * explicit form, for a caller that holds the addresses.
+ */
+public func connectLocal(deviceId: String, macDeviceId: String, endpoints: [LocalEndpoint], transport: Transport, observer: LinkObserver?)async throws  -> LinkHandle  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_func_connect_local(FfiConverterString.lower(deviceId),FfiConverterString.lower(macDeviceId),FfiConverterSequenceTypeLocalEndpoint.lower(endpoints),FfiConverterTypeTransport_lower(transport),FfiConverterOptionTypeLinkObserver.lower(observer)
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_u64,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_u64,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_u64,
+            liftFunc: FfiConverterTypeLinkHandle_lift,
+            errorHandler: FfiConverterTypeCmuxMobileError_lift
+        )
+}
+/**
+ * Whether the ad with TXT `txt` is Mac `mac_device_id` (and the key `identity_public_key`, when
+ * both the ad and the caller carry one). For a browser that wants to filter before it resolves.
+ */
+public func localLinkMatches(txt: [LocalTxt], macDeviceId: String, identityPublicKey: Data?) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_local_link_matches(
+        FfiConverterSequenceTypeLocalTxt.lower(txt),
+        FfiConverterString.lower(macDeviceId),
+        FfiConverterOptionData.lower(identityPublicKey),$0
+    )
+})
+}
+/**
+ * Whether Mac `mac_device_id` is nearby now (its ad is live and matches).
+ */
+public func localLinkNearby(macDeviceId: String) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_local_link_nearby(
+        FfiConverterString.lower(macDeviceId),$0
+    )
+})
+}
+/**
+ * The browser resolved (or refreshed) service `instance`. Returns whether it is a cmux ad with an
+ * address the phone can dial (anything else is ignored).
+ */
+public func localLinkObserve(instance: String, txt: [LocalTxt], endpoints: [LocalEndpoint]) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_local_link_observe(
+        FfiConverterString.lower(instance),
+        FfiConverterSequenceTypeLocalTxt.lower(txt),
+        FfiConverterSequenceTypeLocalEndpoint.lower(endpoints),$0
+    )
+})
+}
+/**
+ * The phone paired with Mac `mac_device_id`, whose identity public key is `identity_public_key`
+ * (nil: forget the key). Its ad is then trusted only with the key tag of that key. The key is the
+ * bytes the Mac hashes for its tag: its X9.63 identity key as lowercase hex (`MacPins`), so a
+ * phone hands over exactly what it pinned. Device ids compare without case, as the pins do.
+ */
+public func localLinkPair(macDeviceId: String, identityPublicKey: Data?)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_local_link_pair(
+        FfiConverterString.lower(macDeviceId),
+        FfiConverterOptionData.lower(identityPublicKey),$0
+    )
+}
+}
+/**
+ * The browser saw service `instance` go away.
+ */
+public func localLinkRemove(instance: String)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_local_link_remove(
+        FfiConverterString.lower(instance),$0
+    )
+}
+}
+/**
+ * Whether the browser should resolve service `instance` (ad TXT `txt`) now. Resolving opens a
+ * connection to the Mac's hub, so it is worth it only for the ad of a Mac this phone paired with,
+ * carrying the tag of the key it pinned, and not again while that instance's addresses are still
+ * live (a TXT refresh of the same ad changes nothing). Another phone's Mac is never touched.
+ */
+public func localLinkWantsResolve(instance: String, txt: [LocalTxt]) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_local_link_wants_resolve(
+        FfiConverterString.lower(instance),
+        FfiConverterSequenceTypeLocalTxt.lower(txt),$0
     )
 })
 }
@@ -9125,6 +9652,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_set_keepalive_alignment() != 23404) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_lean_stream_capabilities() != 31447) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_classic_cleanup_due() != 41191) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -9138,6 +9668,27 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_link_open_side() != 2441) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_connect_local() != 37246) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_local_link_matches() != 16597) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_local_link_nearby() != 37142) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_local_link_observe() != 50449) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_local_link_pair() != 8011) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_local_link_remove() != 50001) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_local_link_wants_resolve() != 31019) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_pair_requests_answer_args() != 5979) {
@@ -9195,6 +9746,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_channelhandle_send() != 33874) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_channelhandle_sent_bytes() != 4104) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_close() != 25269) {
@@ -9485,10 +10039,22 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprediction_tick() != 43253) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_alt_pan() != 43197) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_alt_return_live() != 60034) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_alt_rows_back() != 12910) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_feed() != 63739) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_flush() != 56682) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_held() != 8249) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_is_alternate() != 62553) {

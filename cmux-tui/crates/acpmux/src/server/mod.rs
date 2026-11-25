@@ -1344,6 +1344,21 @@ pub async fn serve_ws_until(
     auth: WsAuth,
     shutdown: WsShutdown,
 ) -> Result<()> {
+    serve_ws_gated(hub, listener, token, auth, shutdown, None).await
+}
+
+/// [`serve_ws_until`] with an admission gate: the tailnet listener (`tailnet_carrier.rs`) reads
+/// no byte of a connection whose source `whois` does not name a node of this person, and treats
+/// one it admits as it does the end of an `ssh -W` tunnel (a loopback source: the peer token is
+/// proven over it). Without a gate every connection is as before.
+pub async fn serve_ws_gated(
+    hub: Arc<Hub>,
+    listener: TcpListener,
+    token: String,
+    auth: WsAuth,
+    shutdown: WsShutdown,
+    gate: Option<Arc<crate::tailnet_carrier::Gate>>,
+) -> Result<()> {
     let (shutdown, _draining) = shutdown.listener();
     anyhow::ensure!(!token.is_empty(), "the acpmux web listener needs a token");
     if shutdown.is_requested() {
@@ -1398,9 +1413,20 @@ pub async fn serve_ws_until(
         let local_app = auth.local_app.clone();
         let peer_auth = auth.peer.clone();
         let shutdown = shutdown.clone();
+        let gate = gate.clone();
         connections.spawn(async move {
             let _handshake_slot = handshake_slot;
             let mut stream = stream;
+            let peer = match &gate {
+                Some(gate) if gate.admits(peer).await => {
+                    std::net::SocketAddr::new(std::net::Ipv4Addr::LOCALHOST.into(), peer.port())
+                }
+                Some(_) => {
+                    tracing::debug!(peer = %peer, "tailnet connection refused: not this person's node");
+                    return;
+                }
+                None => peer,
+            };
             // The whole head routes the request (`ws_peek.rs`). Each path checks it: serve_http
             // as it reads, tungstenite as it parses it again for the callback.
             let mut probed = false;
@@ -2116,6 +2142,9 @@ async fn serve_connection_from(
     };
     let notification_worker =
         spawn_notification_worker(notification_rx, notification_handler.clone());
+    // A channel's frames, one at a time in the order they came (`channels.rs`): the worker above
+    // runs notifications side by side, which would reorder a byte stream.
+    let (channel_tx, channel_worker) = channels::spawn_worker(hub.clone(), conn.clone());
     let cancel_worker = spawn_notification_worker(cancel_rx, notification_handler);
 
     let notification_waiters = Arc::new(Semaphore::new(NOTIFICATION_WAIT_LIMIT));
@@ -2420,6 +2449,13 @@ async fn serve_connection_from(
                     requests::cancel_on_connection(&hub, &conn, params.as_ref());
                 }
             }
+            // A full channel queue holds this reader: backpressure on the sender, never a
+            // dropped or reordered frame.
+            Message::Notification { method: m, params } if channels::takes(&m) => {
+                if channel_tx.send((m, params.unwrap_or(Value::Null))).await.is_err() {
+                    break;
+                }
+            }
             Message::Notification { method: m, params } => {
                 let params = params.unwrap_or(Value::Null);
                 if m == method::SESSION_CANCEL {
@@ -2463,6 +2499,8 @@ async fn serve_connection_from(
         }
     }
     conn.ended.send_replace(true);
+    // Its listeners go and its channels close on their other side (`channels.rs`).
+    channels::conn_ended(&hub, &conn).await;
     // The link's v2 connection ends with it.
     drop(link_v2);
     let preparations: Vec<_> =
@@ -2481,6 +2519,8 @@ async fn serve_connection_from(
     }
     drop(cancel_tx);
     let _ = cancel_worker.await;
+    drop(channel_tx);
+    let _ = channel_worker.await;
 
     let deadline = tokio::time::Instant::now() + WORK_BACKPRESSURE_WAIT;
     let mut waiters = notification_waits.into_iter();
@@ -2733,7 +2773,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         if rec.dir == "mux" && is_permission_ask(&rec.kind) {
             conn.send(&Message::notification(
                 method::MUX_PERMISSION_PENDING,
-                routed(permission_pending(&ev.session_id, rec, "attach")),
+                routed(permission_pending(&ev.session_id, rec, "attach", ev.remote.is_none())),
             ));
         }
         if let Some(following) = &sub.rows
@@ -2865,7 +2905,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             conn.send_row(
                 &Message::notification(
                     method::MUX_PERMISSION_PENDING,
-                    permission_pending(&ev.session_id, rec, "watch"),
+                    permission_pending(&ev.session_id, rec, "watch", ev.remote.is_none()),
                 ),
                 outbound::Row::After(row_key()),
             );
@@ -2897,6 +2937,8 @@ mod cancel_classes_tests;
 #[cfg(test)]
 #[path = "cancel_prompt_tests.rs"]
 mod cancel_prompt_tests;
+/// Agent byte channels (design A1, RFD 0164 B9).
+pub(crate) mod channels;
 #[cfg(test)]
 #[path = "chatgpt_import_tests.rs"]
 mod chatgpt_import_tests;
@@ -2993,7 +3035,8 @@ pub(crate) mod queue_gauge;
 mod review_queue;
 mod run_elsewhere;
 mod sign_in_follow;
-mod ssh_carry;
+pub(crate) mod ssh_carry;
+mod surgery;
 mod task_list;
 pub use pairing::serve_connection_device;
 mod chat_place;
