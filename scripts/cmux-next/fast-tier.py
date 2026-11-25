@@ -539,10 +539,13 @@ def main():
         for entry in entries:
             print(f"RUN {entry['name']}: " + describe(*command(entry)))
         return 0
-    if not build_packages(root, build_entries, False, builds):
+    run_entries = entries
+    entries = build_entries
+    if not build_packages(root, entries, False, builds):
         write_receipt(args.receipt, status="fail", started_wall=started_wall, builds=builds, results=[],
                       total_seconds=time.monotonic() - started, kinds=args.kind)
         return 1
+    entries = run_entries
     # cmux-next.yml's fast-tier job checks the generated files on this build (its step output `built`),
     # even when an entry fails below.
     if os.environ.get("GITHUB_OUTPUT"):

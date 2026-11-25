@@ -900,8 +900,8 @@ jobs:
       # Why: note-93
       tree_fetch_key: ${{ steps.tree-final.outputs.tree_fetch_key || steps.tree.outputs.tree_fetch_key }}
       tree_reason: ${{ steps.marker-upload.outcome == 'failure' && 'the tree wait marker was not uploaded, so no publish would start the tree jobs; re-run this run' || steps.tree-final.outputs.tree_reason || steps.tree.outputs.tree_reason }}
-      # Why: note-12
-      generated_host: ${{ steps.route.outputs.generated != 'true' && 'none' || inputs.base_tier == true && 'generated-files' || github.event_name == 'push' && steps.route.outputs.daemon == 'true' && (steps.marker-upload.outcome == 'failure' && 'failed' || steps.tree-final.outputs.tree_state || steps.tree.outputs.tree_state) == 'ready' && 'daemon-test' || !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) && steps.route.outputs.swift == 'true' && steps.route.outputs.swift_targets != '' && 'swift-test' || steps.route.outputs.daemon == 'true' && (steps.marker-upload.outcome == 'failure' && 'failed' || steps.tree-final.outputs.tree_state || steps.tree.outputs.tree_state) == 'ready' && 'daemon-test' || 'generated-files' }}
+      # The generated files check follows the package build that already runs. Same-repository PR fast-tier builds own the check when no Swift or daemon host does.
+      generated_host: ${{ steps.route.outputs.generated != 'true' && 'none' || inputs.base_tier == true && 'generated-files' || github.event_name == 'push' && steps.route.outputs.daemon == 'true' && (steps.marker-upload.outcome == 'failure' && 'failed' || steps.tree-final.outputs.tree_state || steps.tree.outputs.tree_state) == 'ready' && 'daemon-test' || !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && steps.route.outputs.swift == 'true' && steps.route.outputs.swift_targets != '' && 'swift-test' || steps.route.outputs.daemon == 'true' && (steps.marker-upload.outcome == 'failure' && 'failed' || steps.tree-final.outputs.tree_state || steps.tree.outputs.tree_state) == 'ready' && 'daemon-test' || github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository && steps.route.outputs.macos != 'false' && steps.route.outputs.fast_tier != 'false' && 'fast-tier' || 'generated-files' }}
     steps:
       # Why: note-469
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -3357,11 +3357,14 @@ jobs:
       # Why: 2026-11-24-fast-tier-1.md
       actions: read
       contents: read
-    # Why: note-39
-    timeout-minutes: ${{ (contains(fromJSON('["success","failure","cancelled"]'), needs.fast-tier-fleet-mac.result) && needs.fast-tier-fleet-mac.outputs.verdict != 'queued' || contains(fromJSON('["success","failure","cancelled"]'), needs.fast-tier-fleet.result) && needs.fast-tier-fleet.outputs.verdict != 'queued' && needs.fast-tier-fleet.outputs.verdict != 'unavailable') && 5 || (needs.fast-tier-fleet-mac.outputs.verdict || needs.fast-tier-fleet.outputs.verdict) == 'queued' && 60 || needs.path_route.outputs.ffi_repin == 'true' && 50 || 120 }}
+    # With generated files folded into a local fast-tier build, allow enough time for that check.
+    timeout-minutes: ${{ contains(fromJSON('["success","failure","cancelled"]'), needs.fast-tier-fleet.result) && needs.fast-tier-fleet.outputs.verdict != 'queued' && 5 || needs.path_route.outputs.generated_host == 'fast-tier' && 40 || needs.fast-tier-fleet.outputs.verdict == 'queued' && 35 || needs.path_route.outputs.ffi_repin == 'true' && 50 || 120 }}
+    outputs:
+      generated_files: ${{ steps.reuse.outputs.hit == 'true' && 'fresh' || steps.generated-files-verdict.outputs.verdict }}
     env:
-      # Why: note-197
-      CMUX_FAST_TIER_FLEET: ${{ (contains(fromJSON('["success","failure","cancelled"]'), needs.fast-tier-fleet-mac.result) && needs.fast-tier-fleet-mac.outputs.verdict != 'queued' || contains(fromJSON('["success","failure","cancelled"]'), needs.fast-tier-fleet.result) && needs.fast-tier-fleet.outputs.verdict != 'queued' && needs.fast-tier-fleet.outputs.verdict != 'unavailable') && 'report' || '' }}
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-197
+      CMUX_FAST_TIER_FLEET: ${{ contains(fromJSON('["success","failure","cancelled"]'), needs.fast-tier-fleet.result) && needs.fast-tier-fleet.outputs.verdict != 'queued' && 'report' || '' }}
+      CMUX_NEXT_FOLD_GENERATED: ${{ needs.path_route.outputs.generated_host == 'fast-tier' && (needs.fast-tier-fleet.result == 'skipped' || needs.fast-tier-fleet.outputs.verdict == 'queued') }}
     steps:
       # Why: note-198
       - name: Report the build fleet's fast tier verdict
@@ -3466,6 +3469,7 @@ jobs:
         run: |
           python3 -I scripts/ci/job_input_fingerprint.py fast-tier \
             --extra "suite_scope=${{ needs.path_route.outputs.ffi_repin == 'true' && 'handlers' || 'all' }}" \
+            --extra "generated_base=$([[ "$CMUX_NEXT_FOLD_GENERATED" != true ]] || git rev-parse HEAD^1)" \
             --extra "xcode=$(xcodebuild -version | tr '\n' ' ')" \
             --extra "macos=$(sw_vers -productVersion)" \
             --extra "macos_build=$(sw_vers -buildVersion)" \
@@ -3577,7 +3581,48 @@ jobs:
           if [[ "$FFI_REPIN" == true ]]; then selected=(--only "app handler coverage"); fi
           python3 -I scripts/cmux-next/fast-tier.py --root "${{ steps.spm-root.outputs.root || github.workspace }}" --kind swift ${selected[@]+"${selected[@]}"} --receipt "$RUNNER_TEMP/cmux-next-fast-tier.json"
 
-      # Why: note-204
+      - name: Check generated action catalog, surfaces and inventory
+        id: actions
+        if: ${{ env.CMUX_NEXT_FOLD_GENERATED == 'true' && env.CMUX_FAST_TIER_FLEET != 'report' && !cancelled() && steps.fast-tier-run.outputs.built == 'true' && steps.reuse.outputs.hit != 'true' }}
+        continue-on-error: true
+        working-directory: ${{ steps.spm-root.outputs.root || github.workspace }}/Packages/macOS/CmuxNext
+        env:
+          CMUX_ACTION_SURFACES_SKIP_BUILD: "1"
+        run: ../../../scripts/cmux-next/judge-action-exports.sh "$PWD"
+
+      - name: Check the settings exports
+        id: settings
+        if: ${{ env.CMUX_NEXT_FOLD_GENERATED == 'true' && env.CMUX_FAST_TIER_FLEET != 'report' && !cancelled() && steps.fast-tier-run.outputs.built == 'true' && steps.reuse.outputs.hit != 'true' }}
+        continue-on-error: true
+        working-directory: ${{ steps.spm-root.outputs.root || github.workspace }}
+        run: scripts/cmux-next/check-settings-exports.sh
+
+      - name: Regenerate stale files
+        id: regenerate
+        if: ${{ !cancelled() && (steps.actions.outcome == 'failure' || steps.settings.outcome == 'failure') && steps.reuse.outputs.hit != 'true' }}
+        working-directory: ${{ steps.spm-root.outputs.root || github.workspace }}
+        run: scripts/cmux-next/collect-regenerated-files.sh "${{ steps.actions.outcome }}"
+
+      - name: Upload the regenerated files
+        if: ${{ !cancelled() && steps.regenerate.outputs.patch == 'true' && steps.reuse.outputs.hit != 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-generated-patch
+          path: ${{ runner.temp }}/generated/files
+          include-hidden-files: true
+          retention-days: 3
+
+      - name: Give the generated files verdict
+        id: generated-files-verdict
+        if: ${{ !cancelled() && env.CMUX_NEXT_FOLD_GENERATED == 'true' && steps.reuse.outputs.hit != 'true' }}
+        env:
+          ACTIONS: ${{ steps.actions.outcome }}
+          CATALOG: ${{ steps.actions.outputs.catalog }}
+          SETTINGS: ${{ steps.settings.outcome }}
+          AUTOFIXED_OK: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_PR_AUTOFIX_PUSH == '1' }}
+        run: scripts/cmux-next/generated-files-verdict.sh
+
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-204
       - name: Stop this job's acpmux daemons and remove its home
         if: ${{ env.CMUX_FAST_TIER_FLEET != 'report' && (always() && steps.reuse.outputs.hit != 'true') }}
         continue-on-error: true
@@ -3600,13 +3645,13 @@ jobs:
 
       # Why: note-42
       - name: Record this pass for the same inputs
-        if: ${{ success() && steps.reuse-key.outputs.key != '' && steps.reuse.outputs.hit != 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        if: ${{ success() && steps.reuse-key.outputs.key != '' && steps.reuse.outputs.hit != 'true' && (env.CMUX_NEXT_FOLD_GENERATED != 'true' || steps.generated-files-verdict.outputs.verdict == 'fresh') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         run: |
           mkdir -p "$RUNNER_TEMP/ci-job-pass"
           printf '%s\n' "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT" "$GITHUB_SHA" > "$RUNNER_TEMP/ci-job-pass/pass.txt"
 
       - name: Save the pass
-        if: ${{ success() && steps.reuse-key.outputs.key != '' && steps.reuse.outputs.hit != 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        if: ${{ success() && steps.reuse-key.outputs.key != '' && steps.reuse.outputs.hit != 'true' && (env.CMUX_NEXT_FOLD_GENERATED != 'true' || steps.generated-files-verdict.outputs.verdict == 'fresh') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -3971,13 +4016,13 @@ jobs:
 
       # Why: note-45
       - name: Record this pass for the same inputs
-        if: ${{ success() && steps.reuse-key.outputs.key != '' && steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        if: ${{ success() && steps.reuse-key.outputs.key != '' && steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' && (env.CMUX_NEXT_FOLD_GENERATED != 'true' || steps.generated-files-verdict.outputs.verdict == 'fresh') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         run: |
           mkdir -p "$RUNNER_TEMP/ci-job-pass"
           printf '%s\n' "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT" "$GITHUB_SHA" > "$RUNNER_TEMP/ci-job-pass/pass.txt"
 
       - name: Save the pass
-        if: ${{ success() && steps.reuse-key.outputs.key != '' && steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        if: ${{ success() && steps.reuse-key.outputs.key != '' && steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' && (env.CMUX_NEXT_FOLD_GENERATED != 'true' || steps.generated-files-verdict.outputs.verdict == 'fresh') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -3989,9 +4034,9 @@ jobs:
 
   # Why: note-373
   swift-test:
-    needs: [path_route, macos-placement, push-head-preflight, web-bundles]
+    needs: [path_route, macos-placement, push-head-preflight, web-bundles, generated-files-base-red]
     # Why: note-46
-    if: ${{ (!(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') && (!cancelled() && (needs.web-bundles.result == 'success' || needs.web-bundles.result == 'skipped') && needs.path_route.outputs.swift == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (!(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') && (!cancelled() && (needs.web-bundles.result == 'success' || needs.web-bundles.result == 'skipped') && needs.path_route.outputs.swift == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'full-ci') }}
     name: cmux-next swift test
     continue-on-error: false
     # Why: note-443
@@ -4493,29 +4538,7 @@ jobs:
       - name: Regenerate stale files
         id: regenerate
         if: ${{ !cancelled() && (steps.actions.outcome == 'failure' || steps.settings.outcome == 'failure') && steps.reuse.outputs.hit != 'true' }}
-        run: |
-          set -euo pipefail
-          if [[ "${{ steps.actions.outcome }}" == failure ]]; then
-            scripts/cmux-next/regenerate-action-contracts.sh
-          fi
-          # Why: note-454
-          python3 scripts/ci/defaults_guard.py snapshot
-          # Why: 2026-11-24-swift-test-13.md
-          out="$RUNNER_TEMP/generated/files"
-          mkdir -p "$out"
-          generated=('plans/cmux-next/*.json' 'plans/cmux-next/*.md'
-            schemas/settings/settings-schema.json 'docs/mdm/*' schemas/defaults/cmux-next.json)
-          git add -N -- "${generated[@]}"
-          git diff --name-only -- "${generated[@]}" > "$RUNNER_TEMP/generated/paths.txt"
-          git diff --stat
-          while IFS= read -r path; do
-            mkdir -p "$out/$(dirname "$path")"
-            cp "$path" "$out/$path"
-          done < "$RUNNER_TEMP/generated/paths.txt"
-          cp "$RUNNER_TEMP/generated/paths.txt" "$out/.paths"
-          if [[ -s "$RUNNER_TEMP/generated/paths.txt" ]]; then
-            echo "patch=true" >> "$GITHUB_OUTPUT"
-          fi
+        run: scripts/cmux-next/collect-regenerated-files.sh "${{ steps.actions.outcome }}"
 
       - name: Upload the regenerated files
         if: ${{ !cancelled() && steps.regenerate.outputs.patch == 'true' && steps.reuse.outputs.hit != 'true' }}
@@ -4609,9 +4632,9 @@ jobs:
 
   # Why: note-55
   daemon-test:
-    needs: [path_route, macos-placement, push-head-preflight, web-bundles]
+    needs: [path_route, macos-placement, push-head-preflight, web-bundles, generated-files-base-red]
     # Why: note-240
-    if: ${{ (inputs.same_tree_origin != 'push' && !cancelled() && (needs.web-bundles.result == 'success' || needs.web-bundles.result == 'skipped') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci')) && ((inputs.same_tree_sha == '' && needs.path_route.outputs.daemon == 'true' && needs.push-head-preflight.outputs.current == 'true' && needs.path_route.outputs.tree_state == 'ready') || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready' && contains(inputs.same_tree_tiers, 'daemon')))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ (inputs.same_tree_origin != 'push' && !cancelled() && (needs.web-bundles.result == 'success' || needs.web-bundles.result == 'skipped') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci')) && ((inputs.same_tree_sha == '' && needs.path_route.outputs.daemon == 'true' && needs.push-head-preflight.outputs.current == 'true' && needs.path_route.outputs.tree_state == 'ready') || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready' && contains(inputs.same_tree_tiers, 'daemon')))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'full-ci') }}
     name: cmux-next daemon tests
     # Why: note-443
     concurrency:
@@ -4931,29 +4954,7 @@ jobs:
       - name: Regenerate stale files
         id: regenerate
         if: ${{ !cancelled() && (steps.actions.outcome == 'failure' || steps.settings.outcome == 'failure') }}
-        run: |
-          set -euo pipefail
-          if [[ "${{ steps.actions.outcome }}" == failure ]]; then
-            scripts/cmux-next/regenerate-action-contracts.sh
-          fi
-          # Why: note-454
-          python3 scripts/ci/defaults_guard.py snapshot
-          # Why: 2026-11-24-swift-test-13.md
-          out="$RUNNER_TEMP/generated/files"
-          mkdir -p "$out"
-          generated=('plans/cmux-next/*.json' 'plans/cmux-next/*.md'
-            schemas/settings/settings-schema.json 'docs/mdm/*' schemas/defaults/cmux-next.json)
-          git add -N -- "${generated[@]}"
-          git diff --name-only -- "${generated[@]}" > "$RUNNER_TEMP/generated/paths.txt"
-          git diff --stat
-          while IFS= read -r path; do
-            mkdir -p "$out/$(dirname "$path")"
-            cp "$path" "$out/$path"
-          done < "$RUNNER_TEMP/generated/paths.txt"
-          cp "$RUNNER_TEMP/generated/paths.txt" "$out/.paths"
-          if [[ -s "$RUNNER_TEMP/generated/paths.txt" ]]; then
-            echo "patch=true" >> "$GITHUB_OUTPUT"
-          fi
+        run: scripts/cmux-next/collect-regenerated-files.sh "${{ steps.actions.outcome }}"
 
       - name: Upload the regenerated files
         if: ${{ !cancelled() && steps.regenerate.outputs.patch == 'true' }}
@@ -5053,9 +5054,9 @@ jobs:
 
   # Why: note-59
   generated-files:
-    needs: [path_route, macos-placement, push-head-preflight, web-bundles, generated-files-base-red]
-    # Why: note-265
-    if: ${{ !cancelled() && needs.generated-files-base-red.outputs.base_red != 'true' && ((needs.web-bundles.result == 'success' || needs.web-bundles.result == 'skipped') && needs.path_route.outputs.generated == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci')) && needs.path_route.outputs.generated_host == 'generated-files') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    needs: [path_route, macos-placement, push-head-preflight, web-bundles, generated-files-base-red, fast-tier-fleet]
+    # Why: docs/ci/cmux-next-workflow-notes.md#note-265
+    if: ${{ !cancelled() && needs.generated-files-base-red.outputs.base_red != 'true' && ((needs.web-bundles.result == 'success' || needs.web-bundles.result == 'skipped') && needs.path_route.outputs.generated == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (needs.path_route.outputs.generated_host == 'generated-files' || needs.path_route.outputs.generated_host == 'fast-tier' && needs.fast-tier-fleet.result != 'skipped' && needs.fast-tier-fleet.outputs.verdict != 'queued')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'full-ci') }}
     name: cmux-next generated files
     # Why: note-266
     concurrency:
@@ -5427,30 +5428,7 @@ jobs:
       - name: Regenerate stale files
         id: regenerate
         if: ${{ (steps.actions.outcome == 'failure' || steps.settings.outcome == 'failure') && steps.reuse.outputs.hit != 'true' }}
-        working-directory: ${{ steps.spm-root.outputs.root || github.workspace }}
-        run: |
-          set -euo pipefail
-          if [[ "${{ steps.actions.outcome }}" == failure ]]; then
-            scripts/cmux-next/regenerate-action-contracts.sh
-          fi
-          # Why: note-454
-          python3 scripts/ci/defaults_guard.py snapshot
-          # Why: 2026-11-24-swift-test-13.md
-          out="$RUNNER_TEMP/generated/files"
-          mkdir -p "$out"
-          generated=('plans/cmux-next/*.json' 'plans/cmux-next/*.md'
-            schemas/settings/settings-schema.json 'docs/mdm/*' schemas/defaults/cmux-next.json)
-          git add -N -- "${generated[@]}"
-          git diff --name-only -- "${generated[@]}" > "$RUNNER_TEMP/generated/paths.txt"
-          git diff --stat
-          while IFS= read -r path; do
-            mkdir -p "$out/$(dirname "$path")"
-            cp "$path" "$out/$path"
-          done < "$RUNNER_TEMP/generated/paths.txt"
-          cp "$RUNNER_TEMP/generated/paths.txt" "$out/.paths"
-          if [[ -s "$RUNNER_TEMP/generated/paths.txt" ]]; then
-            echo "patch=true" >> "$GITHUB_OUTPUT"
-          fi
+        run: scripts/cmux-next/collect-regenerated-files.sh "${{ steps.actions.outcome }}"
 
       - name: Upload the regenerated files
         if: ${{ (steps.regenerate.outputs.patch == 'true') && steps.reuse.outputs.hit != 'true' }}
@@ -5470,33 +5448,7 @@ jobs:
           CATALOG: ${{ steps.actions.outputs.catalog }}
           SETTINGS: ${{ steps.settings.outcome }}
           AUTOFIXED_OK: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_PR_AUTOFIX_PUSH == '1' }}
-        run: |
-          if [[ "$ACTIONS" == failure && "$CATALOG" == failure ]]; then
-            {
-              echo "### The action catalog checks fail: a catalog failure, not stale files"
-              echo
-              echo "Fresh exports fail the same checks, so regenerating changes nothing. The step \"Check generated action catalog, surfaces and inventory\" names the failing test."
-              [[ "$SETTINGS" != failure ]] || echo "- settings exports are also stale: scripts/cmux-next/regenerate-settings-exports.sh"
-            } | tee -a "$GITHUB_STEP_SUMMARY"
-            echo "::error::The action catalog checks fail with fresh exports too: a catalog failure, not stale files."
-            exit 1
-          fi
-          if [[ "$AUTOFIXED_OK" == true ]] && why="$(scripts/cmux-next/generated-autofixable.sh)"; then
-            echo "### Generated cmux-next files are stale: autofixed ($why)" | tee -a "$GITHUB_STEP_SUMMARY"
-            echo "::notice title=cmux-next generated files (autofixed)::Generated cmux-next files are stale only from this pull request's own changes: $why"
-            echo "autofixed=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          {
-            echo "### Generated cmux-next files are stale"
-            echo
-            [[ "$ACTIONS" != failure ]] || echo "- action catalog, surfaces or inventory: scripts/cmux-next/regenerate-action-contracts.sh"
-            [[ "$SETTINGS" != failure ]] || echo "- settings exports: scripts/cmux-next/regenerate-settings-exports.sh"
-            echo
-            echo "The cmux-next-generated-patch artifact holds the regenerated files at their repository paths."
-          } | tee -a "$GITHUB_STEP_SUMMARY"
-          echo "::error::Generated cmux-next files are stale. Regenerate them as the step summary says."
-          exit 1
+        run: scripts/cmux-next/generated-files-verdict.sh --fail
 
       # Why: 2026-11-24-swift-test-14.md, note-278
       - name: Stop this job's acpmux daemons and remove its home
@@ -5530,8 +5482,8 @@ jobs:
 
   # Why: note-63
   generated-verdict:
-    needs: [path_route, swift-test, daemon-test]
-    if: ${{ !cancelled() && ((needs.path_route.outputs.generated_host == 'swift-test' && needs.swift-test.result != 'skipped' || needs.path_route.outputs.generated_host == 'daemon-test' && needs.daemon-test.result != 'skipped')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    needs: [path_route, swift-test, daemon-test, fast-tier, fast-tier-fleet]
+    if: ${{ !cancelled() && ((needs.path_route.outputs.generated_host == 'swift-test' && needs.swift-test.result != 'skipped' || needs.path_route.outputs.generated_host == 'daemon-test' && needs.daemon-test.result != 'skipped' || needs.path_route.outputs.generated_host == 'fast-tier' && needs.fast-tier.result != 'skipped' && (needs.fast-tier-fleet.result == 'skipped' || needs.fast-tier-fleet.outputs.verdict == 'queued'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'full-ci') }}
     name: cmux-next generated files (shared build)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
@@ -5540,8 +5492,8 @@ jobs:
       - name: Read the generated files verdict of the shared build
         env:
           HOST: ${{ needs.path_route.outputs.generated_host }}
-          HOST_RESULT: ${{ needs.path_route.outputs.generated_host == 'swift-test' && needs.swift-test.result || needs.daemon-test.result }}
-          VERDICT: ${{ needs.path_route.outputs.generated_host == 'swift-test' && needs.swift-test.outputs.generated_files || needs.daemon-test.outputs.generated_files }}
+          HOST_RESULT: ${{ needs.path_route.outputs.generated_host == 'swift-test' && needs.swift-test.result || needs.path_route.outputs.generated_host == 'fast-tier' && needs.fast-tier.result || needs.daemon-test.result }}
+          VERDICT: ${{ needs.path_route.outputs.generated_host == 'swift-test' && needs.swift-test.outputs.generated_files || needs.path_route.outputs.generated_host == 'fast-tier' && needs.fast-tier.outputs.generated_files || needs.daemon-test.outputs.generated_files }}
         run: |
           superseded_push() {  # scripts/ci/needs_verdict.py SUPERSEDED_RULE, copied verbatim (tests/test_needs_verdict.py)
             local what=$1 head bound=()
