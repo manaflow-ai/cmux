@@ -196,6 +196,8 @@ struct Entry {
     /// Failures in a row since the last write that took.
     failures: u32,
     not_before: Option<Instant>,
+    /// When the write now under way began (to know what a failed one took).
+    write_started: Option<Instant>,
 }
 
 impl Entry {
@@ -331,6 +333,7 @@ impl PromptOutbox {
             attempts: 0,
             failures: 0,
             not_before: None,
+            write_started: None,
         };
         let index =
             self.entries.iter().position(|e| e.tapped > tapped).unwrap_or(self.entries.len());
@@ -400,6 +403,7 @@ impl PromptOutbox {
         entry.state = State::Writing;
         entry.attempts = entry.attempts.saturating_add(1);
         entry.not_before = None;
+        entry.write_started = Some(now);
         let attachments = entry
             .slots
             .iter()
@@ -428,9 +432,22 @@ impl PromptOutbox {
         }
     }
 
-    /// The prompt's write failed (the link did not take it): it goes again after a backoff, its
-    /// wait unchanged.
+    /// The prompt's write failed (the link did not take it): it goes again after a backoff. The
+    /// window counts only time without a usable link, never the tap, an upload or a slow write
+    /// (a write on a ready link can take longer than the hold, and would bounce at once as
+    /// unreachable though the Mac was there). So the first failure ages its wait from `now`, and
+    /// a later one moves the wait on by what the failed write took, never restarts it: a write
+    /// that fails at once on a link that still says ready keeps its age and comes back after
+    /// the hold instead of being held for good.
     pub fn write_failed(&mut self, id: &str, now: Instant) {
+        if let Some(entry) = self.entry_mut(id) {
+            let took = entry
+                .write_started
+                .map_or(Duration::ZERO, |at| now.saturating_duration_since(at));
+            let moved = if entry.failures == 0 { now } else { entry.waiting_since + took };
+            entry.waiting_since = moved.min(now);
+            entry.write_started = None;
+        }
         self.requeue(id, now, false);
     }
 
@@ -548,6 +565,7 @@ impl PromptOutbox {
             attempts: 0,
             failures: 0,
             not_before: None,
+            write_started: None,
         };
         self.entries.insert(index + 1, replacement);
         Some(EditStep::Replaced { remove: id.to_owned(), cancel_uploads })

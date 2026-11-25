@@ -267,20 +267,110 @@ fn written_prompts_wait_for_their_answers_past_the_hold() {
 }
 
 #[test]
-fn a_prompt_sent_while_the_link_is_up_waits_from_its_tap_and_a_held_one_from_its_hold() {
+fn a_prompt_sent_while_the_link_is_up_waits_from_its_tap_until_a_write_fails_and_a_held_one_from_its_hold() {
     let t0 = Instant::now();
     let mut outbox = outbox();
-    // An upload took 3 s: tapped at t0, pushed at t0+3s, link up and nothing ahead: from the tap.
+    // An upload took 3 s: tapped at t0, pushed at t0+3s, link up and nothing ahead: from the tap
+    // (a prompt never written is aged by its tap) ...
+    outbox.push("a", "a", vec![], false, t0, t0 + ms(3_000));
+    assert_eq!(outbox.expire(t0 + ms(10_000)).len(), 1);
+
+    // ... but once a write fails, from the failure, never the tap (#52384).
+    let mut outbox = outbox();
     outbox.push("a", "a", vec![], false, t0, t0 + ms(3_000));
     outbox.next_request(t0 + ms(3_000)).unwrap();
     outbox.write_failed("a", t0 + ms(3_000));
-    assert_eq!(outbox.expire(t0 + ms(10_000)).len(), 1);
+    assert!(outbox.expire(t0 + ms(12_999)).is_empty());
+    assert_eq!(outbox.expire(t0 + ms(13_000)).len(), 1);
 
     let mut outbox = PromptOutbox::new(DEFAULT_HOLD, 1);
     // Link down at the push: from the push.
     outbox.push("b", "b", vec![], false, t0, t0 + ms(3_000));
     assert!(outbox.expire(t0 + ms(12_999)).is_empty());
     assert_eq!(outbox.expire(t0 + ms(13_000)).len(), 1);
+}
+
+// HeldPromptSlowWriteTests (a): a write that took longer than the hold and then failed is held
+// from its failure, not bounced as unreachable.
+#[test]
+fn a_write_longer_than_the_hold_that_fails_is_held_from_its_failure() {
+    let t0 = Instant::now();
+    let mut outbox = outbox();
+    outbox.push("a", "a", vec![], false, t0, t0);
+    outbox.next_request(t0).unwrap();
+    // The write ran 25 s (a big attachment on a slow link) and failed.
+    let failed = t0 + Duration::from_secs(25);
+    outbox.write_failed("a", failed);
+    assert!(outbox.expire(failed).is_empty(), "not bounced the moment it failed");
+    assert!(outbox.expire(failed + ms(9_999)).is_empty());
+    // The link comes back within the hold: it goes, nothing was given back.
+    outbox.set_link(false, failed + ms(1_000));
+    outbox.set_link(true, failed + ms(2_000));
+    assert_eq!(outbox.next_request(failed + ms(2_000)).unwrap().id, "a");
+}
+
+// HeldPromptSlowWriteTests (b): writes that keep timing out on a ready link say nothing within
+// the hold; a hold with no write getting through gives the draft back.
+#[test]
+fn writes_that_time_out_again_and_again_come_back_once_a_whole_hold_passes_without_a_write() {
+    let t0 = Instant::now();
+    let mut outbox = outbox();
+    outbox.push("a", "a", vec![], false, t0, t0);
+    let mut now = t0;
+    for _ in 0..3 {
+        outbox.next_request(now).unwrap();
+        now += Duration::from_secs(25);
+        outbox.write_failed("a", now);
+        assert!(outbox.expire(now).is_empty(), "a slow failed write is not an outage");
+        now += ms(2_000);
+    }
+    // A whole hold with no write under way: it comes back.
+    let given = outbox.expire(now + DEFAULT_HOLD);
+    assert_eq!(given.len(), 1);
+    assert_eq!(given[0].id, "a");
+}
+
+// HeldPromptSlowWriteTests (b2): a write that fails at once on a link that still says ready,
+// again and again, is aged from the first failure and moved on only by what each write took
+// (nothing): its wait is never restarted, so the hold runs out.
+#[test]
+fn a_write_that_fails_at_once_again_and_again_still_runs_out_its_hold() {
+    let t0 = Instant::now();
+    let mut outbox = outbox();
+    outbox.push("a", "a", vec![], false, t0, t0 + ms(5_000));
+    let mut now = t0 + ms(5_000);
+    let mut given = Vec::new();
+    for _ in 0..40 {
+        if let Some(request) = outbox.next_request(now) {
+            assert_eq!(request.id, "a");
+            outbox.write_failed("a", now);
+        }
+        given = outbox.expire(now);
+        if !given.is_empty() {
+            break;
+        }
+        now += ms(1_000);
+    }
+    assert_eq!(given.len(), 1, "the hold ran out");
+    // Aged from the first failure (t0+5s), not the tap (t0), and not restarted by later failures.
+    assert!(now >= t0 + ms(15_000) && now <= t0 + ms(16_000), "gave back at {:?}", now - t0);
+}
+
+// ... and a write's time is added to the wait, not counted from the failure again.
+#[test]
+fn a_later_failed_write_moves_the_wait_on_by_what_it_took() {
+    let t0 = Instant::now();
+    let mut outbox = outbox();
+    outbox.push("a", "a", vec![], false, t0, t0);
+    outbox.next_request(t0).unwrap();
+    outbox.write_failed("a", t0); // first failure: waits from t0
+    let again = t0 + RETRY_CAP;
+    outbox.next_request(again).unwrap();
+    // This write took 4 s: the wait moves on by those 4 s (to t0+4s), not to the failure
+    // (t0+12s): the time between the writes still counts against the hold.
+    outbox.write_failed("a", again + ms(4_000));
+    assert!(outbox.expire(again + ms(4_000) + ms(1_999)).is_empty());
+    assert_eq!(outbox.expire(t0 + ms(4_000) + DEFAULT_HOLD).len(), 1);
 }
 
 #[test]

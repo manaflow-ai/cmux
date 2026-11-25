@@ -66,6 +66,8 @@ public final class AcpmuxHub {
     /// How long a read may go unanswered before the channel counts as stalled and is replaced.
     @ObservationIgnored var stallAfter: Duration = AcpmuxHub.defaultStallAfter
     @ObservationIgnored var steadyClock: any Clock<Duration> = ContinuousClock()
+    /// The fixed part of a prompt write's bound (``AcpmuxConnection/writeBound(bytes:base:)``; tests shorten it).
+    @ObservationIgnored var writeBase: Duration = AcpmuxConnection.writeBase
     /// Callers of `waitUntilReady` (a Feed answer whose Mac's link is opening).
     @ObservationIgnored private var readyWaiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
     @ObservationIgnored private var pumpTask: Task<Void, Never>?
@@ -381,7 +383,7 @@ public final class AcpmuxHub {
     /// never retried (a submit is a send).
     public func submit(_ method: String, _ params: JSONValue) async throws -> (AcpmuxConnection, Int) {
         let connection = try await readyConnection()
-        return (connection, try await connection.submit(method, params))
+        return (connection, try await connection.submit(method, params, base: writeBase))
     }
 
     public func notify(_ method: String, _ params: JSONValue) async throws {
@@ -1091,8 +1093,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// happened (none went after an earlier one that did not).
     private func promptsGaveUp(_ done: [ChatPromptDone]) {
         guard !done.isEmpty else { return }
-        let seconds = max(1, Int(heldPromptWindow.components.seconds))
-        let reason = "Not sent: \(summary.macName) was unreachable for more than \(seconds) seconds. Send again when it's back."
+        // Short, with nothing to decode: the draft is back in the composer and Send is the action
+        // (Leo 2026-11-23: the old copy was "way too long and unactionable").
+        let reason = "Not sent: \(summary.macName) is offline."
         log.notice("\(done.count, privacy: .public) held prompt(s) of \(self.sessionID, privacy: .public) not sent: the link was down past the window")
         for prompt in done {
             guard let held = promptPayloads.removeValue(forKey: prompt.promptId) else { continue }
