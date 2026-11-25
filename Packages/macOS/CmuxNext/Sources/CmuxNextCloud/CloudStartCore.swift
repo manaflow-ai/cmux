@@ -55,6 +55,18 @@ public nonisolated struct CloudStartCore: Sendable {
         return reply.refusal
     }
 
+    /// Whether a Cloud start that fronts in place keeps the Mac tab's page (`true`: re-homed onto the Cloud
+    /// machine, one renderer from Enter to the end) or draws the Cloud tab its own page that replaces it
+    /// (cmux-cloud-start-core `one_pane`). On by default; `CMUX_CLOUD_ONE_PANE=0` keeps the swap, as does an
+    /// FFI that does not answer.
+    public func keepsPage(inPlace: Bool, pageLive: Bool, cloudPageFree: Bool,
+                          killSwitch: String? = ProcessInfo.processInfo.environment["CMUX_CLOUD_ONE_PANE"]) -> Bool {
+        struct Request: Encodable { var inPlace: Bool, pageLive: Bool, cloudPageFree: Bool, killSwitch: String? }
+        struct Reply: Decodable { var shown: String }
+        let request = Request(inPlace: inPlace, pageLive: pageLive, cloudPageFree: cloudPageFree, killSwitch: killSwitch)
+        return call("cloud_one_pane", request, as: Reply.self)?.shown == "rehome"
+    }
+
     /// The account a send began in as cmux-tui keeps its sends: its user and team, `/`-joined.
     public func accountText(_ account: [String?]) -> String {
         struct Request: Encodable { var account: [String?] }
