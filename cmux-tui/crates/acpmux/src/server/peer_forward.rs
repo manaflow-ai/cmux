@@ -301,10 +301,6 @@ pub(super) fn trust_peer<'a>(m: &str, params: &'a Value) -> Result<Option<&'a st
     Ok(Some(peer))
 }
 
-/// How long a file upload for a peer's chat waits for that peer's link to come back before it is
-/// refused. The app gives each upload call 120 s (`AcpmuxStatusClient.putFile`).
-pub(super) const UPLOAD_LINK_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
-
 /// How long a prompt for a peer's chat waits for that peer's link before it is refused as
 /// unreachable, for a sender that keeps such a message itself: a peer daemon's forward (its own
 /// outbox tries it again) and the acpmux CLI, which queues a refused send in this daemon's outbox
@@ -376,6 +372,30 @@ pub(super) async fn await_link(peer: &crate::peer::Peer, within: std::time::Dura
         }
     }
     peer.ready() && !*stopped.borrow()
+}
+
+/// A file upload for a chat on `peer`, whose link is down, waits for the link as a held prompt
+/// does: asking for the peer again every [`PROMPT_LINK_REINFORCE`] (`await_link` wants it, so the
+/// reconnects keep coming within `Backoff::WANTED_CAP`), up to [`PROMPT_HOLD_FOR`]. The caller
+/// races it with the client's connection, so the client's own call deadline (the app gives each
+/// upload call 120 s, `AcpmuxStatusClient.putFile`) or its cancel ends it. Before, a fixed 30 s
+/// refused the upload while the app was still waiting and the link was still coming back (Leo,
+/// 2026-11-24: "if it's making good progress, it shiukd be allowed to keep going?"). A peer
+/// removed or replaced ends it at once (`Peer::stopped`): false.
+async fn hold_upload_for_link(peer: &crate::peer::Peer) -> bool {
+    let until = tokio::time::Instant::now() + PROMPT_HOLD_FOR;
+    loop {
+        let left = until.saturating_duration_since(tokio::time::Instant::now());
+        if left.is_zero() {
+            return false;
+        }
+        if await_link(peer, PROMPT_LINK_REINFORCE.min(left)).await {
+            return true;
+        }
+        if *peer.stopped().borrow() {
+            return false;
+        }
+    }
 }
 
 pub(super) async fn forward(
@@ -804,10 +824,11 @@ async fn forward_inner(
         if m == method::MUX_KILL && crate::hub::stop_if_idle::StopCondition::asked(params) {
             return Err(crate::hub::stop_if_idle::remote_refusal(&peer.name));
         }
-        // An upload waits for a link that is reconnecting; the client that leaves stops the wait.
+        // An upload waits for a link that is reconnecting for as long as its client waits
+        // (`hold_upload_for_link`); the client that leaves stops the wait.
         if waits_for_link(m) && !peer.ready() {
             let ready = tokio::select! {
-                ready = await_link(&peer, UPLOAD_LINK_WAIT) => ready,
+                ready = hold_upload_for_link(&peer) => ready,
                 () = conn.closed() => return Err(RpcError::internal("the client closed the connection")),
             };
             // The old peer instance may have been removed or replaced while
@@ -1641,6 +1662,27 @@ mod tests {
                 .unwrap();
             assert!(!result, "stopped peer was reported ready");
         }
+    }
+
+    /// An upload for a peer whose link is down keeps waiting past one reinforce interval (the
+    /// old fixed 30 s refused it there while the app still waited), and ends at once, refused,
+    /// when the peer is removed.
+    #[tokio::test(start_paused = true)]
+    async fn an_upload_holds_for_the_link_past_one_reinforce_until_the_peer_goes() {
+        let (notices, _receiver) = tokio::sync::mpsc::channel(1);
+        let peer = crate::peer::Peer::new("down", "ws://127.0.0.1:9", None, None, notices);
+        let held = tokio::spawn({
+            let peer = peer.clone();
+            async move { hold_upload_for_link(&peer).await }
+        });
+        tokio::time::sleep(PROMPT_LINK_REINFORCE * 3).await;
+        assert!(!held.is_finished(), "the upload gave up while its client still waited");
+        peer.stop();
+        let ready = tokio::time::timeout(std::time::Duration::from_secs(1), held)
+            .await
+            .expect("a removed peer left its upload waiting")
+            .unwrap();
+        assert!(!ready, "a removed peer was reported ready");
     }
 
     /// A message for a down peer's session wakes the peer whoever sent it, a peer daemon's

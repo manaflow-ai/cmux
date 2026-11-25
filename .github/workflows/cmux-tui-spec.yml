@@ -546,6 +546,8 @@ jobs:
       - name: Restore the base's last test log
         if: ${{ steps.tree.outputs.hit != 'true' && github.event_name == 'pull_request' }}
         uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
         with:
           path: ${{ runner.temp }}/acpmux-base-run
           key: acpmux-tests-base-log-${{ steps.scope.outputs.base || 'none' }}
