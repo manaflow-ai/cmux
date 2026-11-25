@@ -381,7 +381,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
         // While it is hidden it is dormant: a change on the page (the toolbar collapsing, a
         // tab's title) does not re-run it (`DormantGate`).
         let hidden = zoomState.phase == .overview ? (staticCardID == activeID || gridDrawsActive ? nil : activeID) : (zoomTabId ?? activeID)
-        DormantGate(dormant: !overviewVisible) {
+        DormantGate(dormant: !overviewVisible, size: size) {
         TabOverview(source: source, layout: overviewLayout, shown: overviewShown, chrome: zoomDriver.chrome, swipes: cardSwipes,
                     // On the settled grid the page layer draws the active
                     // tab's card live (the same view as the page); on the
@@ -414,16 +414,18 @@ struct TabsScreen<Source: TabsDataSource>: View {
     // MARK: Page
 
     private var contentContext: TabsKitContentContext {
-        let barInset = ToolbarLayout.barInset(metrics: theme.metrics, size: size, safeTop: safeTop, safeBottom: safeBottom)
-        let top = theme.metrics.barEdge == .top
         let chrome = chrome, theme = theme
+        let insets = ToolbarLayout.pageInsets(metrics: theme.metrics, size: size, safeTop: safeTop, safeBottom: safeBottom,
+                                              bar: chrome.bar)
         return TabsKitContentContext(
             pageSize: size,
-            safeAreaInsets: EdgeInsets(top: top ? barInset : safeTop, leading: 0, bottom: top ? safeBottom : barInset, trailing: 0),
+            safeAreaInsets: EdgeInsets(top: insets.resting.top, leading: 0, bottom: insets.resting.bottom, trailing: 0),
+            chromeInsets: EdgeInsets(top: insets.live.top, leading: 0, bottom: insets.live.bottom, trailing: 0),
             isInteractive: zoomState.pageInteractive && !chrome.swiping && !chrome.editing && !chrome.menuOpen,
             isOnPage: zoomState.pageInteractive,
             isZoomGestureActive: zoomPinchActive,
             isToolbarCollapsed: chrome.bar == .collapsed,
+            toolbarEdge: theme.metrics.barEdge,
             onScroll: { dy in chrome.pageDragged(dy, theme) })
     }
 
@@ -964,9 +966,28 @@ struct TabsScreen<Source: TabsDataSource>: View {
 /// The grid's own observation (its tabs, its cards' content) still applies.
 struct DormantGate<Content: View>: View, Equatable {
     let dormant: Bool
+    /// The size the content is laid out at. While dormant the body does not
+    /// run again, so the content keeps the size it last had: a rotation with
+    /// the grid hidden no longer lays the whole grid out again at the new
+    /// size in the turn's main-thread pass (ios-rotate, optimum ledger row
+    /// 8); it takes the new size as it wakes, before it shows.
+    /// None: the content takes whatever it is offered.
+    var size: CGSize?
     @ViewBuilder let content: Content
 
-    var body: some View { content }
+    init(dormant: Bool, size: CGSize? = nil, @ViewBuilder content: () -> Content) {
+        self.dormant = dormant
+        self.size = size
+        self.content = content()
+    }
+
+    @ViewBuilder var body: some View {
+        if let size {
+            content.frame(width: size.width, height: size.height, alignment: .topLeading)
+        } else {
+            content
+        }
+    }
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool { lhs.dormant && rhs.dormant }
 }

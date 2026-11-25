@@ -142,6 +142,71 @@ struct PageWebViewChromiumTests {
         #expect(page.visibility.last == true, "adopted on screen, it shows")
     }
 
+    /// A page out of sight that never paints (a New Tab spare whose renderer hung, or whose document never painted)
+    /// used to report visible for as long as it stayed parked, keeping the GPU process drawing it and out of reach of
+    /// the hidden hung page bound. It draws ``PageAwayDrawing/unpaintedBound`` at most, then reports hidden; a hold
+    /// draws it again, and shown on screen it shows with the bound reset.
+    @Test func anUnpaintedPageOutOfSightReportsHiddenPastItsBound() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let view = try makeView(hosting)
+        view.chromiumClock = PageTestClock.never
+        view.awayDrawing.clock = PageTestClock.immediate
+        await view.chromiumStart?.value
+        let page = try #require(hosting.made.first)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: .borderless,
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { view.close(); window.close() }
+        let host = try #require(window.contentView)
+        let parking = PageOffscreenParking()
+        host.addSubview(parking)
+        parking.fit(to: NSSize(width: 400, height: 300))
+        view.frame = parking.bounds
+        parking.addSubview(view)
+        view.layoutSubtreeIfNeeded()
+        #expect(!view.hasPainted)
+        #expect(await Self.settles { page.visibility.last == false }, "an unpainted page out of sight stops drawing past its bound")
+        #expect(view.awayDrawing.unpaintedExpired)
+
+        #expect(view.holdAwayDrawing())
+        #expect(page.visibility.last == true, "a frame wait or picture draws it again")
+        view.releaseAwayDrawing()
+        #expect(page.visibility.last == false)
+
+        view.removeFromSuperview()
+        view.frame = NSRect(x: 0, y: 0, width: 500, height: 300)
+        host.addSubview(view)
+        view.layoutSubtreeIfNeeded()
+        #expect(page.visibility.last == true, "adopted on screen, it shows")
+        #expect(!view.awayDrawing.unpaintedExpired, "shown, the next stay out of sight gets the whole bound")
+    }
+
+    /// The bound's clock that never ends: the unpainted page keeps drawing out of sight (the behavior before the bound).
+    @Test func anUnpaintedPageOutOfSightDrawsWithinItsBound() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let view = try makeView(hosting)
+        view.chromiumClock = PageTestClock.never
+        view.awayDrawing.clock = PageTestClock.never
+        await view.chromiumStart?.value
+        let page = try #require(hosting.made.first)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: .borderless,
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { view.close(); window.close() }
+        let host = try #require(window.contentView)
+        let parking = PageOffscreenParking()
+        host.addSubview(parking)
+        parking.fit(to: NSSize(width: 400, height: 300))
+        view.frame = parking.bounds
+        parking.addSubview(view)
+        view.layoutSubtreeIfNeeded()
+        #expect(page.visibility.last == true, "a spare paints before it is adopted")
+        #expect(view.awayDrawing.unpaintedTimer.isScheduled, "its bound runs while it draws unpainted out of sight")
+        #expect(!view.awayDrawing.unpaintedExpired)
+    }
+
     /// The visibility the fake page had when a call reached it.
     @MainActor private final class VisibilityAtCall {
         var visible: Bool?
