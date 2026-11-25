@@ -224,8 +224,10 @@ dependencies = [
 name = "cmux-browser-rules"
 version = "0.1.0"
 dependencies = [
+ "cmux-url-input",
  "serde",
  "serde_json",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -634,6 +636,10 @@ version = "0.1.0"
 dependencies = [
  "libc",
 ]
+
+[[package]]
+name = "cmux-url-input"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-wallpaper"

@@ -55,3 +55,32 @@ fn browser_rules_refuse_a_request_that_is_not_their_json() {
     let (code, _) = call("browser_rules_link_action", br#"{"gesture": "wave"}"#);
     assert_eq!(code, ERR_INVALID);
 }
+
+#[test]
+fn browser_rules_omnibar_ops_answer_through_the_c_abi() {
+    let request = json!({"url": "https://www.github.com/a/b?c=1", "home": "/Users/someone"});
+    let (code, body) =
+        call("browser_rules_omnibar_display_text", &serde_json::to_vec(&request).unwrap());
+    assert_eq!(code, OK);
+    assert_eq!(body, json!("github.com/a/b?c=1"));
+
+    let request = json!({
+        "row": {"kind": {"history": {}}, "title": "T", "detail": "", "url": "https://www.github.com/a",
+                "score": 1.0, "inlineCompletable": true},
+        "typed": "git", "home": "/Users/someone",
+    });
+    let (code, body) =
+        call("browser_rules_omnibar_inline_completion", &serde_json::to_vec(&request).unwrap());
+    assert_eq!(code, OK);
+    assert_eq!(body, json!("hub.com/a"));
+
+    let request =
+        json!({"selection": {"location": 9223372036854775807i64, "length": 0}, "length": 4});
+    let (code, body) =
+        call("browser_rules_omnibar_clamped", &serde_json::to_vec(&request).unwrap());
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"location": 4, "length": 0}));
+
+    let (code, _) = call("browser_rules_omnibar_fill_text", b"{}");
+    assert_eq!(code, ERR_INVALID);
+}
