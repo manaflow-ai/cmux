@@ -3,6 +3,10 @@
 //! fork), `permissions` (agent requests and policy), `turns` (prompt, cancel, config), `transfer`
 //! (export, import), `views` (summaries), `handoff` (a reviewed first message to another harness),
 //! `adoption` (resuming a harness's own session), `models_view` (the picker's model lists).
+//!
+//! The `mod` declarations stay together, sorted by name, each with its own comment and attributes
+//! directly above it, so two branches that each add a module rarely touch the same lines
+//! (`scripts/merge-insertions.py` merges a branch from before the sort into this order).
 
 mod account_usage;
 mod activity;
