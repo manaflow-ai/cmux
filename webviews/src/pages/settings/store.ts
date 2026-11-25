@@ -49,12 +49,11 @@ import {
   newIdempotencyKey,
   wireError,
   type AccountsRun,
-  type AllotmentSet,
-  type AllotmentView,
   type AccountsState,
   type AgentsRun,
   type AgentsState,
   type AppUpdateAction,
+  type PreviousBuild,
   type ChannelsState,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
@@ -92,11 +91,6 @@ import {
   type AgentToolsCardState,
   type McpServersRun,
   type McpServersState,
-  type HubRun,
-  type HubState,
-  type AutocloudAction,
-  type AutocloudAnswer,
-  type AutocloudState,
   type RowNoteData,
   type AgentSkillsRun,
   type AgentSkillsState,
@@ -106,11 +100,21 @@ import {
   type AgentHooksState,
   type AgentConfigAnswer,
   type AgentConfigRun,
+  type AllotmentSet,
+  type AllotmentView,
+  type HubRun,
+  type HubState,
   type AccountsRunReply,
   type DoctorReport,
   type DoctorRun,
   type ConnectionsRun,
   type ConnectionsState,
+  type Checklist,
+  type ChecklistFact,
+  type TailnetVMReply,
+  type AutocloudAction,
+  type AutocloudAnswer,
+  type AutocloudState,
   type ArchivedRun,
   type ArchivedState,
 } from "./ops";
@@ -197,7 +201,7 @@ export type NativeTarget = "cmuxJSON";
 /** `appearance.background`, which the picker's host ops set. */
 const BACKGROUND = "appearance.background";
 
-const emptyDomains: Domains = { themes: [], font_families: [], sounds: [], recent_fonts: [] };
+const emptyDomains: Domains = { themes: [], font_families: [], ui_font_families: [], sounds: [], recent_fonts: [] };
 
 /** The page's state from the cache and the UI state (one function for hooks and getSnapshot). */
 export function composeState(ui: UiState, cache: CacheView): SettingsState {
@@ -747,6 +751,18 @@ export class SettingsStore {
     return reply.ok;
   }
 
+  /** Updates > App Update's Go Back to Previous Build row; null when nothing is kept or the host has no updater. */
+  async previousBuild(): Promise<PreviousBuild | null> {
+    const reply = await this.request("cmux.settings.app_update.previous", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** That row's Go Back: the app restarts into the kept build; else the host's reason. */
+  async goBackToPreviousBuild(build: string): Promise<string | null> {
+    const reply = await this.request("cmux.settings.app_update.rollback", { build });
+    return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
+  }
+
   /** Updates > Web UI: Check Now or Roll Back, then re-read the host lists; false when the host refused. */
   async runWebUpdates(action: "check" | "rollback"): Promise<boolean> {
     const reply = await this.request(`cmux.settings.web_updates.${action}` as const, {});
@@ -1127,6 +1143,13 @@ export class SettingsStore {
     return { library: answer.library ?? null, refusal };
   }
 
+  /** Settings > General > Customize cmux: the checklist and progress, with `has` the connections the
+   * page knows of; null when the host has no CLI or did not answer. */
+  async customizeChecklist(has: ChecklistFact[]): Promise<Checklist | null> {
+    const reply = await this.request("cmux.settings.customize.checklist", { has });
+    return reply.ok ? (reply.value?.checklist ?? null) : null;
+  }
+
   /** Personalization > Customization Problems: one `cmux customize doctor` verb (or `doctor-open`,
    * which the host runs). Answers the report after it (null when the host has no CLI, did not answer
    * one, or for `doctor-open`), the CLI's refusal in its own words (an unknown id, a fix it does not
@@ -1180,6 +1203,18 @@ export class SettingsStore {
   async tailnet(verb: "state" | "start" | "login" | "logout"): Promise<TailnetState | null> {
     const reply = await this.request(`cmux.settings.tailnet.${verb}`, {});
     return reply.ok ? reply.value : null;
+  }
+
+  /** Adds one Cloud machine to the person's tailnet. The key is sent once and the page drops it after this call. */
+  async joinTailnetVM(params: SettingsOps["cmux.settings.tailnet.joinVM"][0]): Promise<TailnetVMReply> {
+    const reply = await this.request("cmux.settings.tailnet.joinVM", params);
+    return reply.ok ? reply.value : { ok: false, error: userMessage(reply.error, SETTINGS_SENTENCES) };
+  }
+
+  /** Removes one Cloud machine from the person's tailnet. */
+  async leaveTailnetVM(vm: string): Promise<TailnetVMReply> {
+    const reply = await this.request("cmux.settings.tailnet.leaveVM", { vm });
+    return reply.ok ? reply.value : { ok: false, error: userMessage(reply.error, SETTINGS_SENTENCES) };
   }
 
   /** Revokes each share in `ids` in turn (one for Revoke, every live one for Revoke All); the first
@@ -1513,6 +1548,14 @@ export class SettingsStore {
 
   playSound(name: string): void {
     void this.request("cmux.settings.sound.play", { name });
+  }
+
+  /** Custom Sound…: the host asks for an audio file, keeps a copy in cmux's sounds folder and sets
+   * it as `key`'s sound. */
+  async importSound(key: string): Promise<void> {
+    const reply = await this.request("cmux.settings.sound.import", { key });
+    if (!reply.ok) this.setError(key, rowError(reply.error));
+    else if (reply.value.name !== null) await this.refresh();
   }
 
   /**

@@ -15,7 +15,9 @@ public nonisolated final class RemoteRdSession {
     public let carrier: RemoteRdCore.Carrier
     private let handle: OpaquePointer
 
-    /// Nil only when the core cannot allocate a session.
+    /// `deadlineMicros` caps the wait for a NACKed frame; the core sizes the wait from the
+    /// measured round trip (two windows of RTT plus 10 ms). Nil only when the core cannot
+    /// allocate a session.
     public init?(carrier: RemoteRdCore.Carrier, deadlineMicros: UInt64 = 200_000, nackAfterMicros: UInt64 = 5_000) {
         guard let handle = cmux_rd_session_new(carrier.raw, deadlineMicros, nackAfterMicros) else { return nil }
         self.carrier = carrier

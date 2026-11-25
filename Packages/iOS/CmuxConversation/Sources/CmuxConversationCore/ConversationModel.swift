@@ -321,6 +321,10 @@ public struct ConversationMessage: Sendable, Hashable, Codable, Identifiable {
     /// Markdown as its words ("Table: Before / After", "2 images"), made where the
     /// Markdown is read. Nil when the quote is `text`.
     public var previewText: String?
+    /// Local only: how much of a sending message's attachments has uploaded
+    /// (0...1), while ``ConversationUploadProgress`` reports it. Nil when
+    /// nothing reported (a text send, or a backend without progress).
+    public var uploadProgress: Double?
 
     public init(
         id: String,
