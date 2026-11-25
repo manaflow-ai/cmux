@@ -1736,6 +1736,13 @@
       ]
     },
     {
+      "agent": "destructive",
+      "why": "An agent must not turn off the sandbox it runs in.",
+      "keys": [
+        "sessions.sandbox"
+      ]
+    },
+    {
       "agent": "userOnly",
       "why": "On, every agent gets tools that start child chats: the person turns that on.",
       "keys": [
