@@ -6505,6 +6505,7 @@
         "_meta": {
           "$ref": "#/types/RequestMeta"
         },
+        "keepAs": true,
         "secretId": true,
         "sessionId": true,
         "value": true

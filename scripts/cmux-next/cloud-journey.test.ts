@@ -8,7 +8,7 @@ import { ensureBenchCommand, ensureBenchMarkdown, parseEnsureBench } from "./clo
 import { execProbe, execProbeCommand, execProbeHop, execProbeMarkdown, machineStopFields, markRanOnGuest, EXEC_PROBE_NONCES, type ExecProbeRun } from "./cloud-journey";
 import { Api, clientPlatformOrigin, Journey, preclaimDeployFields, preclaimGuestFacts, preclaimHoldMinutes, preclaimMetMarkdown, preclaimRefillImage, preclaimRefillToReady, runPreclaimBurst, runPreclaimChat, warmSpareRefusal } from "./cloud-journey";
 import { claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPathAfterClaim, loginPrograms, MODEL_PLANE_PLACEHOLDER, startsOnLaunchCredential, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
-import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
+import { oidcSignIn, waitOwnerKind, waitPreflight, CODEX_STUB_CONFIG, OWNER_KIND_PROGRAM, PREFLIGHT_PROBE } from "./cloud-journey";
 import { directExec, settleBackground, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
@@ -505,6 +505,21 @@ describe("cloud journey: login preflight", () => {
     expect(await waitPreflight(late, "pre", "owner", 90_000, 0, noPause)).toMatchObject({ tries: 3 });
     const never = async (command: string) => ({ code: command === PREFLIGHT_PROBE ? 0 : 1, stdout: command === PREFLIGHT_PROBE ? "vm-kind= agent-auth.sh=yes user=cmux\n" : "", stderr: "" });
     await expect(waitPreflight(never, "pre", "owner", 0, 0, noPause)).rejects.toThrow(/preflight exit 1 after 1 tries .*not an owner machine with the image's launchers \(vm-kind= agent-auth.sh=yes user=cmux\)/);
+  });
+
+  test("a launch-credential start waits for the claimed spare's kind record to read owner (run 45276109812 shard 30-0)", async () => {
+    const noPause = async () => {};
+    const kinds = ["team", "team", "owner"];
+    const seen: string[] = [];
+    const late = async (command: string) => { seen.push(command); return { code: 0, stdout: `vm-kind=${kinds.shift() ?? "owner"}\n`, stderr: "" }; };
+    expect(await waitOwnerKind(late, 90_000, 0, noPause)).toMatchObject({ tries: 3, first: "team" });
+    expect(seen.every((c) => c === OWNER_KIND_PROGRAM)).toBe(true);
+    // The program nudges the image's sync (root) before it reads the record again, and never needs a password.
+    expect(OWNER_KIND_PROGRAM).toContain("sudo -n /usr/local/bin/cmux-vm-kind-sync");
+    const never = async () => ({ code: 0, stdout: "vm-kind=team\n", stderr: "" });
+    await expect(waitOwnerKind(never, 0, 0, noPause)).rejects.toThrow(/vm-kind reads team after 1 tries .*team mode \(CodeRouter\)/);
+    const unread = async () => ({ code: 255, stdout: "", stderr: "" });
+    await expect(waitOwnerKind(unread, 0, 0, noPause)).rejects.toThrow(/reads unread \(exit 255\)/);
   });
 });
 

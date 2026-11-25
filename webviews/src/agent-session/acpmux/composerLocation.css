@@ -1956,9 +1956,6 @@
   font-weight: inherit;
   line-height: 16px;
 }
-/* The GitHub group's placeholder while its repositories load (FolderPopover GITHUB_LOADING): a row of
-   a repository's height in the muted ink, so the repositories take its place with no jump. */
-.acpmux-location-row[data-github-loading] { color: var(--agent-muted); }
 /* A machine's ⌥⌘ key, and Other devices' count of machines a chat can start on now: quiet, before the check or chevron. */
 .acpmux-env-row :is(.acpmux-env-key, .acpmux-env-count) {
   flex: none;
