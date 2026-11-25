@@ -41,9 +41,9 @@ async fn set_goal(session: &Session, goal: Value) {
         host_incarnation: None,
         persisted: None,
     };
-    session.inbound_tx.send(item).await.unwrap();
+    session.inbound_tx().send(item).await.unwrap();
     let (done, applied) = tokio::sync::oneshot::channel();
-    session.inbound_tx.send(Inbound::Barrier(done)).await.unwrap();
+    session.inbound_tx().send(Inbound::Barrier(done)).await.unwrap();
     applied.await.unwrap();
 }
 
@@ -116,12 +116,12 @@ async fn a_pending_loop_timer_keeps_its_machine_up_until_it_fires() {
     set_goal(&session, wakeup(due)).await;
     let child = session.child.lock().await.clone().unwrap();
     session
-        .inbound_tx
+        .inbound_tx()
         .send(Inbound::Exited { pid: child.pid, code: None, host_seq: None })
         .await
         .unwrap();
     let (done, applied) = tokio::sync::oneshot::channel();
-    session.inbound_tx.send(Inbound::Barrier(done)).await.unwrap();
+    session.inbound_tx().send(Inbound::Barrier(done)).await.unwrap();
     applied.await.unwrap();
     assert_eq!(hub.pending_timer(&session, start), None, "a timer outlived its agent");
     assert!(cloud_reads(&hub, start).0);
