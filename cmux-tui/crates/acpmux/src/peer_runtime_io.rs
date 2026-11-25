@@ -294,6 +294,7 @@ impl Peer {
                 return;
             }
         }
+        self.watch_tailnet();
         let mut immediate_redial = false;
         while !self.stop.load(Ordering::SeqCst) {
             crate::gauges::bump(&crate::gauges::links().link_dials);
@@ -857,6 +858,13 @@ impl Peer {
                     ids.iter().any(|id| id.as_str() == Some(crate::capabilities::SESSION_MESSAGES))
                 });
             me.session_messages.store(messages, Ordering::SeqCst);
+            let channels = init
+                .pointer("/_meta/acpmux/capabilities")
+                .and_then(Value::as_array)
+                .is_some_and(|ids| {
+                    ids.iter().any(|id| id.as_str() == Some(crate::server::channels::CAPABILITY))
+                });
+            me.agent_channels.store(channels, Ordering::SeqCst);
             let follows =
                 init.pointer("/_meta/acpmux/capabilities").and_then(Value::as_array).is_some_and(
                     |ids| ids.iter().any(|id| id.as_str() == Some(crate::hub::row_log::CAPABILITY)),

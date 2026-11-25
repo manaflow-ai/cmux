@@ -1073,6 +1073,12 @@ pub(super) async fn handle_request(
     if m == method::MUX_V2 {
         return Err(RpcError::method_not_found(method::MUX_V2));
     }
+    // The person is here (the app's pane or a proven person on this machine, never a script, an
+    // agent or a remote client): a spare that idled out while they were away starts again now,
+    // before their next new chat (`hub/pool/spare.rs`).
+    if person_asks(conn) && !conn.origin.web_class() && !conn.agent_side() {
+        hub.spare_on_person_request();
+    }
     if matches!(
         m,
         method::TRIGGER_CHAT_ENSURE | method::TRIGGER_CHAT_SEND | method::TRIGGER_CHAT_STATUS
@@ -1965,8 +1971,8 @@ async fn dispatch_request_with_identity(
             // (`remote_guard::owner_control`, cmux#50026): no remote start rule, no asking-mode
             // settle, the mode it asks as this machine's own start. A VM-boundary start stays one.
             let remote_start = conn.origin.web_class()
-                && !(super::remote_guard::owner_control(conn.origin, conn.auth, &params)
-                    && !crate::hub::vm_boundary::asked(
+                && (!super::remote_guard::owner_control(conn.origin, conn.auth, &params)
+                    || crate::hub::vm_boundary::asked(
                         conn.auth,
                         super::remote_guard::control_of(conn.origin, conn.auth, &params),
                         &params,
