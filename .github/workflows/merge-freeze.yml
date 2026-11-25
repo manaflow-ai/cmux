@@ -59,6 +59,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/gh_budget_wait.sh
             scripts/ci/gh_budget_wait.cjs
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Wait through GitHub API rate limits and 5xx in this job
         working-directory: ${{ github.workspace }}
@@ -72,6 +73,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/merge_freeze.py
             scripts/ci/api_call_log
+            .gitmodules
           sparse-checkout-cone-mode: false
       # The manaflow-glaeda-route App's token, so these reads draw on the App's own budget
       # rather than the GITHUB_TOKEN budget every workflow shares (it ran out on 2026-10-21).
@@ -184,6 +186,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/merge_freeze.py
             scripts/ci/api_call_log
+            .gitmodules
           sparse-checkout-cone-mode: false
       # The manaflow-glaeda-route App's token, so these reads draw on the App's own budget
       # rather than the GITHUB_TOKEN budget every workflow shares (it ran out on 2026-10-21).

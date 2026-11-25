@@ -97,7 +97,9 @@ jobs:
         with:
           ref: ${{ env.TOOLING_REF }}
           persist-credentials: false
-          sparse-checkout: scripts/ci
+          sparse-checkout: |
+            scripts/ci
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       # The newest build Nightly apps are offered (nightly_next_launch_smoke.py pick):
@@ -181,6 +183,7 @@ jobs:
             scripts/ci/nightly_next_launch_smoke.py
             scripts/ci/frame-pacing/console-session.sh
             scripts/ci/lib/signing-runtime-guard.sh
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - name: Download the feed's DMG
@@ -293,6 +296,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/gh_budget_wait.sh
             scripts/ci/gh_budget_wait.cjs
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Wait through GitHub API rate limits and 5xx in this job
         working-directory: ${{ github.workspace }}
@@ -302,7 +306,9 @@ jobs:
         with:
           ref: ${{ env.TOOLING_REF }}
           persist-credentials: false
-          sparse-checkout: scripts/ci/nightly_next_launch_smoke.py
+          sparse-checkout: |
+            scripts/ci/nightly_next_launch_smoke.py
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
