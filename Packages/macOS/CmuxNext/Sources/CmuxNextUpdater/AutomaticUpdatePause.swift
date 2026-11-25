@@ -4,6 +4,7 @@
 /// and `updates.installWhenIdle` keep their values and apply again once this is false.
 public struct AutomaticUpdatePause {
     public init() {}
-    /// The app's updater (AppServices). Tests build theirs unpaused unless they pass it.
+    /// The app's updater (AppServices), except in a restart loop, which still fetches its fix (LaunchRecovery).
+    /// Tests build theirs unpaused unless they pass it.
     public static let app = true
 }
