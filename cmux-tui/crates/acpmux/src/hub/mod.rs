@@ -334,6 +334,8 @@ pub(crate) use route_switch::route_error;
 pub(crate) use turn_errors::is_limit_error;
 mod elevation;
 mod git_watch;
+// The dynamic CPU class's controller (`cpu_class/pressure.rs`).
+mod cpu_pressure;
 mod github_owner;
 mod harness_sandbox;
 mod key_store;
@@ -1493,6 +1495,8 @@ pub struct Hub {
     pub(super) settings_changes: tokio::sync::watch::Sender<u64>,
     /// The HEAD of each attached session's folder, watched for a checkout (`git_watch.rs`).
     pub(super) git_watch: git_watch::GitWatchState,
+    /// Whether `dynamic` sessions yield the CPU now (`cpu_pressure.rs`).
+    pub(super) cpu_pressure: StdMutex<crate::cpu_class::pressure::Controller>,
     pub catalog: Arc<crate::catalog::CatalogService>,
     /// Sign in with ChatGPT: its attempts and per-account refresh locks (`crate::chatgpt`).
     pub chatgpt: Arc<crate::chatgpt::Service>,
@@ -1924,6 +1928,7 @@ impl Hub {
             settings_watch: Default::default(),
             settings_changes: tokio::sync::watch::channel(0).0,
             git_watch: Default::default(),
+            cpu_pressure: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
             chatgpt: Arc::new(crate::chatgpt::Service::default()),
             health: Arc::new(crate::harness_health::HealthService::new()),
@@ -2591,6 +2596,7 @@ impl Hub {
             subagents: Default::default(),
             fork_replay: Default::default(),
             harness_turn: AtomicBool::new(false),
+            awaiting_reply: AtomicBool::new(false),
             logged_init: StdMutex::new(Default::default()),
             update_repeats: StdMutex::new(Default::default()),
             background_turns: Default::default(),

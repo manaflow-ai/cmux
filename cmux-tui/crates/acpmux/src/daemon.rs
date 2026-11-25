@@ -852,6 +852,9 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // Idle chats off this machine while it stays over budget: only with `autoEvacuate.enabled`
     // (off by default); off runs no timer (`hub/auto_evacuate.rs`).
     hub.start_auto_evacuate().await;
+    // `dynamic` sessions yield the CPU only while the Mac is contended (`hub/cpu_pressure.rs`);
+    // ACPMUX_CPU_PRESSURE=off keeps every one at normal class.
+    hub.start_cpu_pressure();
     // The host's sender token, which our own tools present to be named verified
     // (`sender_token.rs`): made once, kept across restarts. Without it no send is verified by it,
     // as before, so a failure is only logged.

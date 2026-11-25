@@ -3,21 +3,18 @@
 //! and a busy Mac makes a dragged pane's page trail it (cmuxterm-hq#4947: p95 55 ms with 14 busy
 //! processes at the default class, 6 ms with the same load at background class).
 //!
-//! `normal` (the default) runs the harness and every tool it starts as a shell in a terminal runs
-//! them: the daemon's CPU priority (never above nice 0) and the default disk tier. acpmux lowers
-//! nothing. `background` (opt-in) puts the harness in `PRIO_DARWIN_BG`, as cmux-git starts its
-//! git children (`cmux-git` `run.rs`): the lowest CPU priority, throttled disk I/O and
-//! background-class new sockets.
+//! `dynamic` (the default, `cpu_class/pressure.rs`) runs the harness and what it starts at the
+//! agent tier's nice (+11 on macOS, the utility clamp's base priority) with normal disk I/O, and
+//! puts the whole tree in `PRIO_DARWIN_BG` only while the Mac is contended: the interactive
+//! thread wakes late and the CPUs are busy. It takes it out again within seconds once that clears,
+//! and never while the person waits on the chat's turn. A static background class starved: on
+//! 2026-11-25 Lucas's Claude Code tool calls ran at background class for 87 minutes, and stayed
+//! there after his CPU fell to 80% (Leo: "we ought to have more dynamic stuff").
 //!
-//! `background` was the default until 2026-11-24, and it made NEXT agents slower than terminal
-//! agents: every tool a turn ran (git, tests, builds) inherited throttled disk I/O and waited on
-//! the disk whenever the Mac was busy. Over 130 sessions in 21 days on one Mac, tests took 37 s at
-//! the median against 11 s in a terminal, `git push` 79 s against 43 s, and the slowest tenth of
-//! builds 220 s against 52 s. The same `git grep` took 6 s at normal class and 61 s at background
-//! class, and 32 s against 962 s on another run. A 1-commit rebase took 87 minutes at 0% CPU, and a
-//! task with an 11-minute change took 3 h 55 min. The model's and the hooks' time per call were
-//! the same in both apps. The app's own main thread already runs at the frontmost app's priority
-//! (`qos.rs`), so the GUI does not need the agents' tools lowered below a terminal's.
+//! `background` (by name only) puts the harness and every process it already started in
+//! `PRIO_DARWIN_BG` for good, as cmux-git starts its git children (`cmux-git` `run.rs`): the
+//! lowest CPU priority, efficiency cores only, throttled disk I/O and background-class new
+//! sockets. `normal` is the agent tier's nice and never background class.
 //!
 //! The start never runs at background class. A caller may retain a real hazard bound, and a
 //! background harness can miss it on a busy disk: on 2026-10-30 (load 125 on 18 cores, `du` and
@@ -32,24 +29,24 @@
 //!    clears one set on its starter by the starter itself (an agent host under
 //!    `ACPMUX_QOS=background`, [`start_at_normal`]), and right after the spawn the daemon clears
 //!    one that another process set ([`clear_running`]; a process cannot clear that one itself).
-//!    The exec and the harness's own start run at normal CPU class. Its disk I/O goes back to the
-//!    default tier at its exec (`qos::default_disk_io`): its agent host's `IOPOL_UTILITY` is
-//!    throttled behind any default-tier disk work, and a terminal's shell does not take it.
+//!    The exec and the harness's own start run at normal CPU class. Disk I/O stays at the
+//!    host's `IOPOL_UTILITY` (`qos.rs`): utility, not throttled.
 //! 2. Once the session's start is over (its `initialize` and `session/new` or `session/load`
 //!    answered, `hub/lifecycle.rs` `ensure_child`), the daemon puts the running harness in its
-//!    class ([`CpuClass::enter`]): `setpriority(PRIO_DARWIN_PROCESS, pid, PRIO_DARWIN_BG)`, which
-//!    macOS allows on another process of the same user, with its whole process group at the agent
-//!    tier's nice (`qos::AGENT_NICE`: +11 on macOS, the utility clamp's base priority) in one
-//!    `setpriority(PRIO_PGRP)`: the processes it started during its start, its MCP servers and a
-//!    launcher's agent. A `normal` harness is left as it started on macOS; on Linux it goes to
-//!    nice +5 and its host's session group with it. Every process a `background` harness starts after
-//!    that inherits it, so the builds and tests of its turns run below the GUI. A process it
-//!    started during its start keeps the class it started at: an MCP server, and the real agent
-//!    of a harness that is only a launcher (a script or adapter that starts the agent as a child
-//!    and waits for it), whose turns then run at normal class. acpmux does not list processes
-//!    (`scripts/cmux-next/check-no-process-scan.py`), so only the harness itself is reniced, once.
-//!    So a Claude Code launcher defaults to `normal` ([`default_for`]): lowering it cannot reach
-//!    its agent's tools, and it can carry the agent's stream. So does Codex's `app-server`: it
+//!    class ([`CpuClass::enter`]). Every class first goes to the agent tier's nice
+//!    (`qos::AGENT_NICE`: +11 on macOS, the utility clamp's base priority; +5 on Linux, and its
+//!    host's session group), with its whole process group in one `setpriority(PRIO_PGRP)`: the
+//!    processes it started during its start, its MCP servers and a launcher's agent. That nice
+//!    is mild and permanent (an unprivileged daemon cannot raise a nice again). Background class
+//!    is the reversible part: `setpriority(PRIO_DARWIN_PROCESS, pid, PRIO_DARWIN_BG)` on the
+//!    harness and on every process under it ([`set_tree_background`], the harness's own
+//!    descendants read with `proc_listchildpids`, at most [`CLASS_TREE_MAX`]), which macOS allows
+//!    on another process of the same user and undoes with the same call and 0. `background`
+//!    does it once, here; `dynamic` does it and undoes it as contention comes and goes
+//!    (`hub/cpu_pressure.rs`), re-applying it every tick while demoted so a process forked during
+//!    a walk is reached on the next. Every process the harness starts while it is in background
+//!    class inherits it. A Claude Code launcher defaults to `normal` ([`default_for`]): it can
+//!    carry the agent's stream. So does Codex's `app-server`: it
 //!    holds its model websocket in its own process and reads the macOS trust settings again on
 //!    every connect (`rustls-native-certs`). At background class on a busy Mac (2026-11-15,
 //!    load 217 on 15 cores) that read failed (`native_root_error_count=1`), the connect failed
@@ -77,13 +74,14 @@
 //! The class, first set wins: the profile's env `ACPMUX_SESSION_CPU_CLASS` as the harness gets it
 //! (its `${env:…}` references resolved; one build-heavy profile can opt out), the daemon's env
 //! `ACPMUX_SESSION_CPU_CLASS`, config `session.cpuClass`
-//! (`acpmux config --set session.cpu_class=background`), then [`default_for`] the harness:
-//! `normal` ([`DEFAULT`]), and `normal` for a Claude Code launcher and Codex's `app-server` even
-//! if [`DEFAULT`] changes. Linux sessions get their
+//! (`acpmux config --set session.cpu_class=normal`), then [`default_for`] the harness:
+//! `dynamic`, or `normal` for a Claude Code launcher or a Codex app-server. Linux sessions get their
 //! CPU share from their cgroup scope's `CPUWeight` instead (`session_scope.rs`), and other
 //! platforms start harnesses as before: there the class is read and ignored.
 
 use serde::{Deserialize, Serialize};
+
+pub mod pressure;
 
 /// The knob, in a profile's env or the daemon's.
 pub const ENV: &str = "ACPMUX_SESSION_CPU_CLASS";
@@ -92,15 +90,18 @@ pub const ENV: &str = "ACPMUX_SESSION_CPU_CLASS";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CpuClass {
-    /// Its starter's class: acpmux lowers nothing.
+    /// The agent tier's nice, never background class.
     #[default]
     Normal,
-    /// `PRIO_DARWIN_BG` on macOS, from the end of its start on.
+    /// The agent tier's nice; background class (`PRIO_DARWIN_BG`) only while the host is
+    /// contended and nobody waits on its turn (`cpu_class/pressure.rs`).
+    Dynamic,
+    /// `PRIO_DARWIN_BG` on macOS, from the end of its start on, for good (by name only).
     Background,
 }
 
 /// The class a session runs at when nothing names one, and its harness is no launcher.
-pub const DEFAULT: CpuClass = CpuClass::Normal;
+pub const DEFAULT: CpuClass = CpuClass::Dynamic;
 
 /// Where Claude Code's installers keep its files (as `harness_health/channel.rs` lists them). A
 /// path into one of them is Claude Code under another name: the native installer's `claude` is a
@@ -129,12 +130,22 @@ pub fn default_for(kind: crate::config::HarnessKind, argv: &[String]) -> CpuClas
 }
 
 impl CpuClass {
-    /// `normal` or `background` (any case, trimmed); None for anything else.
+    /// `normal`, `dynamic` or `background` (any case, trimmed); None for anything else.
     pub fn parse(value: &str) -> Option<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
             "normal" => Some(Self::Normal),
+            "dynamic" => Some(Self::Dynamic),
             "background" => Some(Self::Background),
             _ => None,
+        }
+    }
+
+    /// Its name, as `parse` reads it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Normal => "normal",
+            Self::Dynamic => "dynamic",
+            Self::Background => "background",
         }
     }
 
@@ -175,7 +186,9 @@ impl CpuClass {
             let value = value?;
             let class = Self::parse(value);
             if class.is_none() {
-                tracing::warn!("{source} {ENV}={value:?} names no CPU class (normal, background)");
+                tracing::warn!(
+                    "{source} {ENV}={value:?} names no CPU class (normal, dynamic, background)"
+                );
             }
             class
         };
@@ -186,39 +199,35 @@ impl CpuClass {
     }
 
     /// Puts the running harness `pid` in this class once its session's start is over, and only
-    /// lowers. `Background`: its process group at the agent tier's nice value (`qos::AGENT_NICE`)
-    /// unless `ACPMUX_QOS=off`, then the harness in background class (macOS). `Normal`: nothing on
-    /// macOS, where it keeps a terminal shell's priority (module docs); on Linux the agent tier's
-    /// nice (its host's session too) unless `ACPMUX_QOS=off`. The start itself ran at the daemon's tier (`qos.rs`). `pid` must
-    /// be a harness its caller holds (a direct child not reaped yet, or one its agent host reports
-    /// alive): a pid that another process took would be lowered instead. True when it was lowered.
+    /// lowers: its process group at the agent tier's nice value (`qos::AGENT_NICE`; on Linux its
+    /// host's session too) unless `ACPMUX_QOS=off`, then for `Background` the harness and every
+    /// process under it in background class (macOS). `Dynamic` takes background class later, from
+    /// the controller (`hub/cpu_pressure.rs`). The start itself ran at the daemon's tier
+    /// (`qos.rs`). `pid` must be a harness its caller holds (a direct child not reaped yet, or one
+    /// its agent host reports alive): a pid that another process took would be lowered instead.
+    /// True when it was lowered.
     pub fn enter(self, pid: u32) -> bool {
-        // On Linux the agent tier is all the lowering there is (it has no background class); on
-        // macOS a background harness takes the processes it started during its start (its MCP
-        // servers) with it, as the utility clamp did.
-        let tier = || crate::qos::enabled() && imp::to_agent_tier(pid);
+        // Every class leaves the start's priority for the agent tier: on Linux that is all the
+        // lowering there is (it has no background class), and on macOS it takes the processes the
+        // harness started during its start (its MCP servers) with it, as the utility clamp did.
+        let tier = crate::qos::enabled() && imp::to_agent_tier(pid);
         match self {
-            Self::Background => {
-                let tier = tier();
-                imp::set_background(pid, true) || tier
-            }
-            Self::Normal => cfg!(target_os = "linux") && tier(),
+            Self::Background => set_tree_background(pid, true) > 0 || tier,
+            Self::Normal | Self::Dynamic => tier,
         }
     }
 }
 
-/// The class a session's harness takes at its exec: its starter's, without a background class or
-/// a utility disk tier it would inherit (macOS; elsewhere `cmd` is unchanged). Every harness start uses it: each has a
+/// The class a session's harness takes at its exec: its starter's, without a background class it
+/// would inherit (macOS; elsewhere `cmd` is unchanged). Every harness start uses it: each has a
 /// deadline (module docs, item 1).
 pub fn start_at_normal(cmd: &mut tokio::process::Command) {
-    // The disk tier only under acpmux's own policy: with `ACPMUX_QOS=off` its host took no utility
-    // tier, and a starter's own (`taskpolicy -d`) is kept. Read here: the hook reads no env.
     #[cfg(target_os = "macos")]
     let reset_disk = crate::qos::enabled();
     #[cfg(target_os = "macos")]
-    // SAFETY: the hook runs in the child between fork and exec and makes one setpriority(2) and
-    // at most one setiopolicy_np(3) call on itself: no allocation, no lock, async-signal-safe. It
-    // never fails the spawn: a harness whose class could not be cleared starts as before.
+    // SAFETY: the hook runs in the child between fork and exec and makes one setpriority(2) call
+    // and at most one setiopolicy_np(3) call on itself: no allocation, no lock, async-signal-safe.
+    // It never fails the spawn: a harness whose class could not be cleared starts as before.
     unsafe {
         cmd.pre_exec(move || {
             libc::setpriority(libc::PRIO_DARWIN_PROCESS, 0, 0);
@@ -248,6 +257,26 @@ pub fn start_at_normal(cmd: &mut tokio::process::Command) {
 /// applies to `pid`. True when the call succeeded.
 pub fn clear_running(pid: u32) -> bool {
     imp::set_background(pid, false)
+}
+
+/// The most processes of one harness's tree a class change reaches: a turn's build forks many
+/// compilers, and each pass costs a few microseconds per process.
+pub const CLASS_TREE_MAX: usize = 1024;
+
+/// Puts the harness `pid` and every process under it in background class (`on`) or takes them
+/// out (macOS; elsewhere nothing): a class change reaches what the harness already started, not
+/// only what it starts next (module docs, item 2). Its descendants are read from the kernel one
+/// parent at a time, at most [`CLASS_TREE_MAX`]; none is found any other way. The same caution
+/// as [`CpuClass::enter`] applies to `pid`. Answers how many processes took the change.
+pub fn set_tree_background(pid: u32, on: bool) -> usize {
+    imp::tree_pids(pid, CLASS_TREE_MAX).into_iter().filter(|p| imp::set_background(*p, on)).count()
+}
+
+/// Whether another process put `pid` in background class (macOS's external
+/// `PRIO_DARWIN_PROCESS` attribute, as [`set_tree_background`] sets it); None when it cannot be
+/// read (ended, another user's, or not macOS).
+pub fn is_background(pid: u32) -> Option<bool> {
+    imp::is_background(pid)
 }
 
 /// What a harness was doing when its start missed its deadline or failed, read from the kernel
@@ -494,17 +523,46 @@ mod imp {
     /// with the process that started it (`root`'s own is 0). Only the descendants of a harness
     /// acpmux spawned and holds: no other process is listed.
     fn tree(root: libc::c_int) -> Vec<(libc::c_int, libc::c_int)> {
+        tree_bounded(root, TREE_MAX)
+    }
+
+    /// `pid` and every process under it, at most `max` (a class change, `set_tree_background`).
+    pub(super) fn tree_pids(pid: u32, max: usize) -> Vec<u32> {
+        let Some(root) = libc::c_int::try_from(pid).ok().filter(|p| *p > 0) else {
+            return Vec::new();
+        };
+        tree_bounded(root, max).into_iter().filter_map(|(p, _)| u32::try_from(p).ok()).collect()
+    }
+
+    pub(super) fn is_background(pid: u32) -> Option<bool> {
+        let id: libc::id_t = pid;
+        if id == 0 {
+            return None;
+        }
+        // SAFETY: the calling thread's errno.
+        let errno = || unsafe { libc::__error() };
+        // SAFETY: plain syscall; `getpriority` answers -1 for an error, which errno tells apart.
+        unsafe {
+            *errno() = 0;
+            let v = libc::getpriority(libc::PRIO_DARWIN_PROCESS, id);
+            (*errno() == 0).then_some(v != 0)
+        }
+    }
+
+    /// [`tree`] with its bound `max`.
+    fn tree_bounded(root: libc::c_int, max: usize) -> Vec<(libc::c_int, libc::c_int)> {
+        let max = max.max(1);
         let mut all = vec![(root, 0)];
         let mut next = 0;
-        while next < all.len() && all.len() < TREE_MAX {
+        let mut kids = vec![0 as libc::c_int; max];
+        while next < all.len() && all.len() < max {
             let parent = all[next].0;
-            let mut kids = [0 as libc::c_int; TREE_MAX];
-            let bytes = libc::c_int::try_from(std::mem::size_of_val(&kids)).unwrap_or(0);
+            let bytes = libc::c_int::try_from(std::mem::size_of_val(kids.as_slice())).unwrap_or(0);
             // SAFETY: the buffer holds `bytes` bytes of pids, which the kernel fills.
             let n = unsafe { libc::proc_listchildpids(parent, kids.as_mut_ptr().cast(), bytes) };
-            let n = usize::try_from(n).unwrap_or(0).min(TREE_MAX);
+            let n = usize::try_from(n).unwrap_or(0).min(max);
             for kid in kids[..n].iter().copied() {
-                if all.len() == TREE_MAX {
+                if all.len() == max {
                     break;
                 }
                 if kid > 0 && !all.iter().any(|(p, _)| *p == kid) {
@@ -615,6 +673,15 @@ mod imp {
 
     pub(super) fn set_background(_pid: u32, _on: bool) -> bool {
         false
+    }
+
+    /// Linux has no background class: nothing to walk.
+    pub(super) fn tree_pids(_pid: u32, _max: usize) -> Vec<u32> {
+        Vec::new()
+    }
+
+    pub(super) fn is_background(_pid: u32) -> Option<bool> {
+        None
     }
 
     /// The harness's process group at [`crate::qos::AGENT_NICE`] ([`super::lower_group`]), and
@@ -808,6 +875,14 @@ mod imp {
         false
     }
 
+    pub(super) fn tree_pids(_pid: u32, _max: usize) -> Vec<u32> {
+        Vec::new()
+    }
+
+    pub(super) fn is_background(_pid: u32) -> Option<bool> {
+        None
+    }
+
     pub(super) fn to_agent_tier(_pid: u32) -> bool {
         false
     }
@@ -828,7 +903,7 @@ mod tests {
 
     /// `sr2 claude` is the case that starved (module docs, item 2).
     #[test]
-    fn a_claude_launcher_is_normal_whatever_the_default_and_claude_itself_takes_the_default() {
+    fn a_claude_launcher_defaults_to_normal_and_claude_itself_to_background() {
         let default = |kind, program: &str| default_for(kind, &[program.to_owned()]);
         for launcher in ["/Users/me/.local/bin/claude-sr2", "/Users/me/bin/sr", "sr2", "python3"] {
             assert_eq!(default(HarnessKind::ClaudeStdio, launcher), CpuClass::Normal, "{launcher}");
@@ -882,7 +957,7 @@ mod tests {
         let bg = Some(CpuClass::Background);
         let normal = Some(CpuClass::Normal);
         let resolve = |profile, daemon, config| CpuClass::resolve(profile, daemon, config, DEFAULT);
-        assert_eq!(resolve(None, None, None), CpuClass::Normal);
+        assert_eq!(resolve(None, None, None), CpuClass::Dynamic);
         assert_eq!(resolve(None, None, normal), CpuClass::Normal);
         // The daemon's env overrides config; the profile overrides both.
         assert_eq!(resolve(None, Some("normal".into()), bg), CpuClass::Normal);
@@ -890,12 +965,142 @@ mod tests {
         assert_eq!(resolve(Some(" Normal "), None, bg), CpuClass::Normal);
         // A value that names no class is skipped.
         assert_eq!(resolve(Some("utility"), Some("normal".into()), bg), CpuClass::Normal);
-        assert_eq!(resolve(Some(""), None, None), CpuClass::Normal);
+        assert_eq!(resolve(Some(""), None, None), CpuClass::Dynamic);
+        assert_eq!(resolve(Some("Dynamic"), None, bg), CpuClass::Dynamic);
         // What the harness defaults to comes last: any named class wins over it.
         let launcher = |profile, config| CpuClass::resolve(profile, None, config, CpuClass::Normal);
         assert_eq!(launcher(None, None), CpuClass::Normal);
         assert_eq!(launcher(Some("background"), None), CpuClass::Background);
         assert_eq!(launcher(None, bg), CpuClass::Background);
+    }
+
+    use super::pressure::{
+        CLEAR_BUSY, Controller, DEMOTE_AFTER, Demotion, PROMOTE_AFTER, PROMOTE_AFTER_MAX, Sample,
+        wants_background,
+    };
+
+    const HOT: Sample = Sample { busy: 1.0, late_ms: 6.0 };
+    /// Lucas's Mac once it came down: 80% busy, the interactive thread still a little late.
+    const EIGHTY: Sample = Sample { busy: 0.80, late_ms: 1.0 };
+
+    /// Feeds `samples` one second apart from `t` (ms); the decision after each.
+    fn feed(c: &mut Controller, t: &mut u64, samples: &[Sample]) -> Vec<bool> {
+        samples
+            .iter()
+            .map(|s| {
+                *t += 1_000;
+                c.observe(Some(*s), *t)
+            })
+            .collect()
+    }
+
+    /// Leo, 2026-11-25: "even when his cpu went down to 80% the background priority stayed". A
+    /// demoted session is promoted within a few seconds of pressure clearing, and nothing sticks.
+    #[test]
+    fn a_demoted_session_is_promoted_when_pressure_clears() {
+        let (mut c, mut t) = (Controller::default(), 0);
+        // One or two hot seconds are a blip: nothing yields.
+        assert_eq!(feed(&mut c, &mut t, &[HOT, HOT, EIGHTY, HOT]), [false; 4]);
+        let hot = vec![HOT; DEMOTE_AFTER as usize];
+        assert_eq!(feed(&mut c, &mut t, &hot).last(), Some(&true));
+        // Still contended: it stays demoted however long.
+        assert!(feed(&mut c, &mut t, &[HOT; 60]).iter().all(|d| *d));
+        // The CPU falls to 80%: back to normal within PROMOTE_AFTER seconds.
+        let clear = feed(&mut c, &mut t, &[EIGHTY; 10]);
+        assert_eq!(clear.iter().position(|d| !d), Some(PROMOTE_AFTER as usize - 1), "{clear:?}");
+        assert!(clear[PROMOTE_AFTER as usize..].iter().all(|d| !d));
+        // A busy CPU whose interactive thread wakes on time is clear too.
+        let busy_but_fine = Sample { busy: 0.99, late_ms: 0.1 };
+        assert!(busy_but_fine.clear() && !busy_but_fine.pressured());
+        assert!(EIGHTY.busy < CLEAR_BUSY);
+        // No reading (the sampler stopped, or not macOS) never holds a session down.
+        let (mut c, mut t) = (Controller::default(), 0);
+        feed(&mut c, &mut t, &[HOT; 5]);
+        assert!(c.demoting());
+        assert!(!c.observe(None, t + 1_000));
+    }
+
+    /// Hysteresis: a demotion that comes right back after a promotion (the agents were the load)
+    /// needs twice the clear seconds next time, up to a cap; after a calm spell it starts over.
+    #[test]
+    fn a_flapping_host_backs_off_and_a_calm_one_starts_over() {
+        let (mut c, mut t) = (Controller::default(), 0);
+        let mut needed = Vec::new();
+        for _ in 0..8 {
+            feed(&mut c, &mut t, &[HOT; DEMOTE_AFTER as usize]);
+            assert!(c.demoting());
+            needed.push(c.needed());
+            feed(&mut c, &mut t, &vec![EIGHTY; c.needed() as usize]);
+            assert!(!c.demoting());
+        }
+        assert_eq!(needed[..4], [PROMOTE_AFTER, PROMOTE_AFTER * 2, PROMOTE_AFTER * 4, 24]);
+        assert_eq!(needed[7], PROMOTE_AFTER_MAX);
+        // A minute of calm, then pressure again: the first promotion is quick again.
+        feed(&mut c, &mut t, &[EIGHTY; 60]);
+        feed(&mut c, &mut t, &[HOT; DEMOTE_AFTER as usize]);
+        assert_eq!(c.needed(), PROMOTE_AFTER);
+    }
+
+    /// The person's own turn, before its first token or tool result, runs at normal class
+    /// whatever the load; `normal` never yields and `background` (by name) always does.
+    #[test]
+    fn a_waited_on_turn_is_never_demoted() {
+        for demoting in [false, true] {
+            assert!(!wants_background(CpuClass::Dynamic, demoting, true));
+            assert!(!wants_background(CpuClass::Normal, demoting, false));
+            assert!(wants_background(CpuClass::Background, demoting, false));
+        }
+        assert!(wants_background(CpuClass::Dynamic, true, false));
+        assert!(!wants_background(CpuClass::Dynamic, false, false));
+    }
+
+    /// `session info`'s `cpuClass` counts every spell, the open one included.
+    #[test]
+    fn a_demotion_record_counts_its_time_and_spells() {
+        let d = Demotion::default();
+        assert!(d.mark(true, 1_000));
+        assert!(!d.mark(true, 1_500), "the same class again is no change");
+        assert_eq!(d.demoted_ms(4_000), 3_000);
+        assert!(d.mark(false, 5_000));
+        assert!(d.take_recheck() && !d.take_recheck(), "a promotion clears once more, once");
+        d.mark(true, 10_000);
+        let view = d.view(CpuClass::Dynamic, 12_000);
+        assert_eq!(view["class"], "dynamic");
+        assert_eq!(view["now"], "background");
+        assert_eq!(view["demotedMs"], 6_000);
+        assert_eq!(view["demotions"], 2);
+        assert_eq!(view["demotedForMs"], 2_000);
+    }
+
+    /// A class change reaches the processes the harness already started, not only its next ones.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_class_change_reaches_existing_children() {
+        use std::io::BufRead;
+        // The harness (`sh`) starts a tool that starts its own child, then says so.
+        let mut harness = std::process::Command::new("/bin/sh")
+            .args(["-c", "/bin/sh -c 'sleep 60 & echo $!; wait' & wait"])
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .expect("spawn the harness");
+        let mut line = String::new();
+        let stdout = harness.stdout.take().expect("its stdout");
+        std::io::BufReader::new(stdout).read_line(&mut line).expect("the grandchild's pid");
+        let grandchild: u32 = line.trim().parse().expect("a pid");
+        let root = harness.id();
+        let reached = |on| {
+            [root, grandchild].map(|p| is_background(p).unwrap_or_else(|| panic!("read {p}")))
+                == [on, on]
+        };
+        assert!(reached(false), "the tree started in background class");
+        assert!(set_tree_background(root, true) >= 3, "the harness, its tool and the tool's child");
+        assert!(reached(true), "the tree did not all go to background class");
+        assert!(set_tree_background(root, false) >= 3);
+        assert!(reached(false), "the tree did not all come back");
+        // SAFETY: signals processes this test started.
+        unsafe { libc::kill(grandchild as i32, libc::SIGKILL) };
+        let _ = harness.kill();
+        let _ = harness.wait();
     }
 
     /// The 2026-11-04 stall: `sr2 claude` waits on its `claude`, which does the work. A launcher
