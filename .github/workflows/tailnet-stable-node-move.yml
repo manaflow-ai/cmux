@@ -21,6 +21,8 @@ on:
       - cmux-tui/crates/cmux-tailnet-front/testing/move_probe.py
       - scripts/cmux-next/tailnet-move-vms.ts
       - .github/workflows/tailnet-stable-node-move.yml
+      - cmux-tui/crates/cmux-tailnet-join/**
+      - cmux-tui/crates/cmux-tui/src/cli/vm_tailnet.rs
 
 permissions:
   contents: read
@@ -62,7 +64,7 @@ jobs:
           go-version-file: cmux-tui/crates/cmux-tailnet/go-version
           cache: ${{ !contains(runner.name, '-glaeda') }}
           cache-dependency-path: cmux-tui/crates/cmux-tailnet/build.rs
-      - name: Build acpmux --features tailnet
+      - name: Build acpmux --features tailnet and the cmux CLI
         id: build
         env:
           CARGO_NET_RETRY: "10"
@@ -78,6 +80,11 @@ jobs:
           bin="$(cd cmux-tui && echo "${CARGO_TARGET_DIR:-$PWD/target}")/debug/acpmux"
           test -x "$bin"
           echo "acpmux=$bin" >> "$GITHUB_OUTPUT"
+          # The cmux CLI (cmux-tui) mints VM B's key from a headscale API key (`cmux vm tailnet mint-key`).
+          (cd cmux-tui && cargo build -p cmux-tui --locked --bin cmux-tui)
+          cli="$(dirname "$bin")/cmux-tui"
+          test -x "$cli"
+          echo "cmux=$cli" >> "$GITHUB_OUTPUT"
       - name: Move the stable node's placement between two staging VMs
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
@@ -87,7 +94,7 @@ jobs:
           OUT: ${{ runner.temp }}/tailnet-move/rows.txt
         run: |
           mkdir -p "$RUNNER_TEMP/tailnet-move"
-          bash cmux-tui/crates/cmux-tailnet-front/testing/stable-node-vm-move.sh "${{ steps.build.outputs.acpmux }}"
+          bash cmux-tui/crates/cmux-tailnet-front/testing/stable-node-vm-move.sh "${{ steps.build.outputs.acpmux }}" "${{ steps.build.outputs.cmux }}"
       - name: Log out and delete this run's VMs (again, if the script died first)
         if: always()
         continue-on-error: true
