@@ -675,6 +675,10 @@ path = "tests/test_ci_fetch_complexity_base.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_red_autofix.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_guard_workflow_structure.py"
 lane = "linux-guard"
 
@@ -2432,4 +2436,16 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_shed_retired_route.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cloud_journey_prod_schedule_rows.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_required_gate_never_skips_into_main.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_shed_superseded_runs.py"
 lane = "linux-guard"

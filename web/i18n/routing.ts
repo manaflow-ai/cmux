@@ -25,6 +25,11 @@ export const locales = [
 
 export type Locale = (typeof locales)[number];
 
+/** The text direction of a locale: right to left for Arabic, else left to right. */
+export function localeDirection(locale: string): "ltr" | "rtl" {
+  return locale === "ar" ? "rtl" : "ltr";
+}
+
 export const localeNames: Record<Locale, string> = {
   en: "English",
   ja: "日本語",
