@@ -27,6 +27,9 @@ import Testing
         var started: [String] = []
         var cancelled: [String] = []
         var states: [String: UploadStage] = [:]
+        /// Each finished upload's result: a `wait` that starts after it ends gets it at once,
+        /// as the engine's does (its result is a watch channel, attachment_upload.rs).
+        private var results: [String: Result<String, any Error>] = [:]
         private var waiters: [String: [CheckedContinuation<String, any Error>]] = [:]
 
         func start(_ attachment: ComposerAttachment) -> String? {
@@ -43,7 +46,7 @@ import Testing
         }
 
         func wait(_ uploadID: String) async throws -> String {
-            if states[uploadID] == .done { return "/mac/\(uploadID)" }
+            if let result = results[uploadID] { return try result.get() }
             return try await withCheckedThrowingContinuation { waiters[uploadID, default: []].append($0) }
         }
 
@@ -57,6 +60,7 @@ import Testing
         func finish(_ uploadID: String, _ result: Result<String, any Error>) {
             if case .success = result { states[uploadID] = .done }
             if case .failure = result, states[uploadID] != .cancelled { states[uploadID] = .failed }
+            results[uploadID] = result
             for waiter in waiters.removeValue(forKey: uploadID) ?? [] { waiter.resume(with: result) }
         }
     }
