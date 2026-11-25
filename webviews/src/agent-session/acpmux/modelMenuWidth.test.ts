@@ -85,6 +85,11 @@ test("a size kept under a retired key is dropped once; the new key keeps the nex
     fresh.set(420);
     expect(items.get("new.width")).toBe("420");
     expect(sizeStore("new.width", 260, ["old.width"]).get()).toBe(420);
+    // A size kept under a floor raised since opens at the floor.
+    items.set("new.width", "270");
+    expect(sizeStore("new.width", 318).get()).toBe(318);
+    items.set("new.width", "junk");
+    expect(sizeStore("new.width", 318).get()).toBeUndefined();
   } finally {
     if (saved) Object.defineProperty(globalThis, "localStorage", saved);
     else delete (globalThis as { localStorage?: unknown }).localStorage;

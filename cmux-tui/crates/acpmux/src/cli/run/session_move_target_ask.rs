@@ -44,6 +44,11 @@ pub(super) fn manifest(id: &str, info: &Value) -> Value {
     if let Some(epoch) = info.get("ownershipEpoch").and_then(Value::as_u64) {
         manifest.set("epoch", json!(epoch + 1));
     }
+    // The agent its harness runs, when the chat's info says: the target names its own harness
+    // for the same agent in a refusal, and checks `--as` against it.
+    if let Some(family) = info.get("family").and_then(Value::as_str).filter(|f| !f.is_empty()) {
+        manifest.set("harnessFamily", json!(family));
+    }
     manifest
 }
 
@@ -57,8 +62,18 @@ pub(super) enum Answer {
 }
 
 /// Asks the target. `Err`: its refusal, as `transfer_receive` would give it.
-pub(super) async fn ask(dst: &Client, id: &str, info: &Value) -> Result<Answer> {
-    match dst.request("_acpmux/transfer_preflight", json!({"manifest": manifest(id, info)})).await {
+/// `as_harness`: the move's `--as`, which the target checks as `transfer_receive` will.
+pub(super) async fn ask(
+    dst: &Client,
+    id: &str,
+    info: &Value,
+    as_harness: Option<&str>,
+) -> Result<Answer> {
+    let mut params = json!({"manifest": manifest(id, info)});
+    if let Some(name) = as_harness {
+        params.set("asHarness", json!(name));
+    }
+    match dst.request("_acpmux/transfer_preflight", params).await {
         Ok(_) => Ok(Answer::Takes),
         Err(e) if unasked(&e) => Ok(Answer::Unasked),
         Err(e) => Err(e),

@@ -1,0 +1,20 @@
+[package]
+name = "cmux-terminal-host-protocol"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The terminal host's wire: frames, the capability handshake and host identities, and WebSocket keepalive. Out of cmux-tui-core so cmux-remote, and acpmux through it, do not rebuild on a cmux-tui-core edit."
+
+[lints]
+workspace = true
+
+[dependencies]
+cmux-pty.workspace = true
+getrandom.workspace = true
+serde.workspace = true
+socket2.workspace = true
+
+[dev-dependencies]
+anyhow.workspace = true

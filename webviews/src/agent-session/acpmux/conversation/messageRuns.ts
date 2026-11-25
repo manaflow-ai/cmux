@@ -109,6 +109,7 @@ function readMember(row: AcpmuxRow): Member | undefined {
         group.type === "agentCall" ||
         group.type === "dispatch" ||
         group.type === "whoElse" ||
+        group.type === "forum" ||
         (group.type === "subsession" && group.call.tool !== "send"),
     )
   )
