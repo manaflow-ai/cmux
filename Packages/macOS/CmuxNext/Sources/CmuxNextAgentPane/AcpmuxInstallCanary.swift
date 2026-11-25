@@ -1,3 +1,4 @@
+import CmuxEgress
 import Foundation
 import Network
 
@@ -54,7 +55,7 @@ public nonisolated struct AcpmuxInstallCanary {
         if let refusal = relayRefusal() { return .refused(refusal, retryable: false) }
         let connection: NWConnection
         do {
-            connection = NWConnection(to: try AcpmuxStatusClient.unixEndpoint(socketPath), using: .tcp)
+            connection = CmuxEgress.connection(to: try AcpmuxStatusClient.unixEndpoint(socketPath), using: .tcp, site: "CmuxNextAgentPane.AcpmuxInstallCanary")
         } catch {
             return .inconclusive(String(describing: error))
         }
