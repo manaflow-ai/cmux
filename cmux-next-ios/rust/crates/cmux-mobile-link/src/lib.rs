@@ -15,6 +15,7 @@
 //! - [`local`], [`local_hub`]: nearby links with no internet (mDNS ad policy, the Mac's local hub).
 //! - [`route_literals`]: the IP literals each dialed host last resolved to (a dial needs no DNS).
 //! - [`reconnect`]: the reconnect decision as one pure step (a port of `LinkMachine.swift`).
+//! - [`viewport`]: viewport state sync's VT rendering and the phone's datagram receiver.
 
 // A test function that lost its `#[test]` in a merge is dead code: fail the
 // test build on it instead of skipping the test with a warning nobody reads.
@@ -30,6 +31,7 @@ pub mod hub;
 pub mod hybrid;
 pub mod keepalive;
 pub mod key_echo;
+pub mod lan;
 pub mod link;
 pub mod link_stat;
 mod liveness;
@@ -49,9 +51,10 @@ pub mod signaling;
 #[cfg(feature = "testing")]
 pub mod testing;
 pub mod timing;
+pub mod viewport;
 
 pub use build_space::BuildSpace;
-pub use dial::{Connected, DialError, DialOptions, LinkPath, TransportKind, UltraSetting};
+pub use dial::{Connected, DialError, DialOptions, LinkPath, Overlay, TransportKind, UltraSetting};
 pub use link::{
     Accepted, Channel, ChannelEvent, ChannelResume, CloseInfo, IncomingChannel, KEEPALIVE_TIMEOUT, Lane,
     LaneState, Link, LinkConfig, LinkError, ResumeReport, Role,
