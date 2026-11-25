@@ -461,9 +461,12 @@ def main() -> int:
                 spec["skip"] = "clean build failed"
         chosen = {k: s for k, s in chosen.items() if not s.get("skip")}
 
-    for k, spec in chosen.items():
-        dt, rc, comp = cargo(spec, targets[k], TEST, out / f"{targets[k].name}.log")
-        rec(k, "baseline-test", dt, rc, comp, 0)
+    # The baseline test run only serves the test_only scenario; others skip it (an acpmux test
+    # that hangs would otherwise eat the whole budget before the first timed edit).
+    if "test_only" in scen:
+        for k, spec in chosen.items():
+            dt, rc, comp = cargo(spec, targets[k], TEST, out / f"{targets[k].name}.log")
+            rec(k, "baseline-test", dt, rc, comp, 0)
 
     # --load N: N busy processes beside the timed edit rounds (the dev loop under load).
     load = [subprocess.Popen([sys.executable, "-c", "while True: pass"], stdout=subprocess.DEVNULL,
