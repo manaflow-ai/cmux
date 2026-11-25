@@ -70,6 +70,10 @@ pub struct RelayEndpoint {
     /// This side's device id: the relay admits the two devices of the
     /// session.
     pub device_id: String,
+    /// How a join leaves this device: the system's proxy for the service
+    /// (`CONNECT`, PAC included) and the OS trust store, as signaling. The
+    /// dial sets it from [`super::DialOptions::egress`].
+    pub egress: crate::egress::Egress,
     token: Arc<dyn Fn() -> TokenFuture + Send + Sync>,
 }
 
@@ -90,7 +94,13 @@ impl RelayEndpoint {
         device_id: impl Into<String>,
         token: impl Fn() -> TokenFuture + Send + Sync + 'static,
     ) -> Self {
-        Self { base_url: base_url.into(), build_space, device_id: device_id.into(), token: Arc::new(token) }
+        Self {
+            base_url: base_url.into(),
+            build_space,
+            device_id: device_id.into(),
+            egress: crate::egress::Egress::default(),
+            token: Arc::new(token),
+        }
     }
 
     /// An endpoint with one fixed token (the phone's dial carries a fresh one).
@@ -139,9 +149,12 @@ pub enum RelayFailure {
     NoToken,
     /// The service answered and refused (`401` a token, `403`
     /// `not_in_session`, `404` an older service without the relay, `503`
-    /// `relay_off`), or something between answered with this status (a
-    /// proxy's `403`).
+    /// `relay_off`), or the system's proxy needs a sign-in (`407`).
     Refused { status: u16, code: String },
+    /// The system's proxy would not carry the join (its policy, or the
+    /// network needs a proxy and none is set). Not final: the proxy
+    /// settings can change with the network.
+    ProxyRefused { detail: String },
     /// The TLS handshake failed: a certificate this side does not trust,
     /// as a TLS-inspecting proxy presents.
     TlsRejected { detail: String },
@@ -158,6 +171,7 @@ impl RelayFailure {
             Self::NoToken => "no access token".into(),
             Self::Refused { status, code } if code.is_empty() => format!("refused ({status})"),
             Self::Refused { status, code } => format!("refused ({status} {code})"),
+            Self::ProxyRefused { detail } => format!("proxy refused: {detail}"),
             Self::TlsRejected { detail } => format!("TLS rejected: {detail}"),
             Self::Unreachable { detail } => format!("unreachable: {detail}"),
             Self::Timeout => format!("no answer in {} s", JOIN_WAIT.as_secs()),
@@ -168,6 +182,26 @@ impl RelayFailure {
     /// service): retrying in this session does not help.
     pub fn is_final(&self) -> bool {
         matches!(self, Self::Refused { status: 404 | 503, .. } | Self::Refused { status: 403, .. })
+    }
+}
+
+/// A failed join as a [`RelayFailure`]: a proxy that wants a sign-in is a
+/// `407`; one that refused by policy is [`RelayFailure::ProxyRefused`].
+fn classify_websocket(error: crate::egress::WebSocketError) -> RelayFailure {
+    use crate::egress::{EgressError, WebSocketError};
+    match error {
+        WebSocketError::Upgrade(error) => classify(error),
+        WebSocketError::Tls(detail) => RelayFailure::TlsRejected { detail },
+        WebSocketError::BadUrl(detail) => RelayFailure::Unreachable { detail },
+        WebSocketError::Egress(error @ EgressError::Io(_)) => {
+            RelayFailure::Unreachable { detail: error.to_string() }
+        }
+        WebSocketError::Egress(
+            error @ (EgressError::ProxyAuthMissing { .. }
+            | EgressError::ProxyAuthRefused { .. }
+            | EgressError::ProxyAuthUnsupported { .. }),
+        ) => RelayFailure::Refused { status: 407, code: error.to_string() },
+        WebSocketError::Egress(error) => RelayFailure::ProxyRefused { detail: error.to_string() },
     }
 }
 
@@ -296,10 +330,16 @@ impl RelayCarrier {
         if let Some(space) = &endpoint.build_space {
             headers.insert(crate::build_space::HEADER, header(space.as_str())?);
         }
-        let (socket, _) = tokio::time::timeout(JOIN_WAIT, tokio_tungstenite::connect_async(request))
-            .await
-            .map_err(|_| RelayFailure::Timeout)?
-            .map_err(classify)?;
+        let host = request.uri().host().unwrap_or_default().trim_matches(['[', ']']).to_owned();
+        let (socket, via) =
+            tokio::time::timeout(JOIN_WAIT, crate::egress::connect_websocket(request, &endpoint.egress))
+                .await
+                .map_err(|_| RelayFailure::Timeout)?
+                .map_err(classify_websocket)?;
+        let path = crate::egress::PathKind::of(&via, &host);
+        if path != crate::egress::PathKind::Direct {
+            tracing::info!(path = path.as_str(), host, "relay joined through the proxy");
+        }
         let expected = uuid::Uuid::parse_str(peer_device).ok().map(|id| PeerId(*id.as_bytes()));
         Ok(Self::run(socket, expected))
     }
@@ -562,6 +602,8 @@ mod tests {
         assert!(!refused(401, "unauthorized").is_final());
         assert!(!refused(502, "").is_final());
         assert!(!RelayFailure::Timeout.is_final());
+        // A proxy's policy can change with the network: the join is tried again.
+        assert!(!RelayFailure::ProxyRefused { detail: "proxy said 403".into() }.is_final());
         assert_eq!(refused(503, "relay_off").describe(), "refused (503 relay_off)");
     }
 
