@@ -287,7 +287,7 @@ def apply(repo: Path, packet: dict, answer: dict) -> dict:
     macos: dict[tuple[str, str], list[dict]] = {}
     applied, rejected = 0, []
     for item in translations:
-        row = rows.get(item.get("id")) if isinstance(item, dict) else None
+        row = rows.get(str(item.get("id"))) if isinstance(item, dict) else None
         if row is None:
             continue
         if row["kind"] == "web":

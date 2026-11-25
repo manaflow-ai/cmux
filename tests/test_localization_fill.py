@@ -103,7 +103,7 @@ class LocalizationFillTests(unittest.TestCase):
         packet = MODULE.gaps(self.repo, self.repo / "packet.json", None, 100)
         ids = {(row["locale"], row["key"]): row["id"] for row in packet["entries"]}
         answer = {"translations": [
-            {"id": ids[("de", "nav.blog")], "value": "Blog"},
+            {"id": int(ids[("de", "nav.blog")]), "value": "Blog"},  # the answer schema asks for integers
             {"id": ids[("de", "nav.docs")], "value": "Doku"},
             {"id": ids[("de", "close")], "value": "%@ schließen"},
             {"id": ids[("fr", "close")], "value": "Fermer"},  # drops the placeholder: rejected
