@@ -112,6 +112,11 @@ struct Source {
     continues: bool,
     /// The `interrupt` of each begin, in order.
     interrupts: Vec<Value>,
+    /// Serves `agent-transfer-begin-token-v1`: keeps a begin's `begin_token` with its move and
+    /// hands it back in a `transfer.moving` refusal (else an older daemon).
+    keeps_token: bool,
+    /// The token the move in `moving` was begun with.
+    moving_token: Option<String>,
     /// Serves `agent-transfer-history-later-v1` and its acpmux can.
     later: bool,
     /// Tail first: the staged last turns, and the history that follows.
@@ -144,10 +149,19 @@ impl Source {
             };
         }
         match cmd {
-            "identify" if self.later => Reply::Data(json!({"capabilities":
-                ["agent-transfer-v1", "agent-transfer-history-later-v1"]})),
-            "identify" if self.continues => Reply::Data(json!({"capabilities":
-                ["agent-transfer-v1", "agent-transfer-continues-v1"]})),
+            "identify" => {
+                let mut capabilities = vec!["agent-transfer-v1"];
+                if self.later {
+                    capabilities.push("agent-transfer-history-later-v1");
+                }
+                if self.continues {
+                    capabilities.push("agent-transfer-continues-v1");
+                }
+                if self.keeps_token {
+                    capabilities.push("agent-transfer-begin-token-v1");
+                }
+                Reply::Data(json!({"capabilities": capabilities}))
+            }
             "agent-transfer-history-ready" => Reply::Data(json!({"history_later": self.later})),
             "agent-transfer-prepare" => {
                 assert!(self.moving.is_none(), "a prepare runs before the freeze");
@@ -160,7 +174,6 @@ impl Source {
                 Reply::Data(json!({"prepare_id": "pre_h", "through_seq": 7,
                                    "manifest": prefix_manifest("pre_h", &self.history)}))
             }
-            "identify" => Reply::Data(json!({"capabilities": ["agent-transfer-v1"]})),
             "agent-transfer-source" => {
                 let session = self.rebound.clone().unwrap_or_else(|| SESSION.to_string());
                 Reply::Data(json!({"session": session}))
@@ -173,17 +186,26 @@ impl Source {
                     return Reply::Error("agent_transfer.unknown_tab", "closed".into());
                 }
                 if let Some(moving) = &self.moving {
+                    let mut details = json!({"transfer_id": moving});
+                    if let Some(token) = &self.moving_token {
+                        details["begin_token"] = json!(token);
+                    }
                     return Reply::Detailed(
                         "agent_transfer.refused",
                         "acpmux refused the request: transfer.moving: this chat is already \
                          being moved"
                             .into(),
-                        json!({"transfer_id": moving}),
+                        details,
                     );
                 }
                 self.begun += 1;
                 let id = format!("xfer_{}", self.begun);
                 self.moving = Some(id.clone());
+                self.moving_token = if self.keeps_token {
+                    request["begin_token"].as_str().map(str::to_string)
+                } else {
+                    None
+                };
                 if std::mem::take(&mut self.lose_begin_answer) {
                     return Reply::Drop;
                 }
@@ -223,10 +245,12 @@ impl Source {
                                    "eof": end == bytes.len()}))
             }
             "agent-transfer-commit" if transfer.is_some() && transfer == self.moving => {
+                self.moving_token = None;
                 self.committed = self.moving.take();
                 Reply::Data(json!({"committed": true}))
             }
             "agent-transfer-abort" if transfer.is_some() && transfer == self.moving => {
+                self.moving_token = None;
                 self.aborted.extend(self.moving.take());
                 Reply::Data(json!({"aborted": true}))
             }
@@ -960,6 +984,42 @@ mod agent_move {
         assert!(source.moving.is_none());
     }
 
+    /// The kill-mid-move drill (`move_kill_drill.rs`, `after-begin:off-src`): the source went
+    /// away right after it froze the chat, so the begin answer was lost. The rerun's begin is
+    /// refused as `transfer.moving` with the token this command began that move with: it is
+    /// this command's own and no target was ever asked to receive it, so the rerun gives it back
+    /// and moves the chat at once instead of leaving it frozen for the source's lease.
+    #[test]
+    fn a_rerun_after_a_lost_begin_answer_ends_its_own_move_and_moves_the_chat_at_once() {
+        let world = World::new(Target::default());
+        {
+            let mut source = world.source.lock().unwrap();
+            source.keeps_token = true;
+            source.lose_begin_answer = true;
+        }
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("move_unresolved"), "{answer}");
+        let token = world.source.lock().unwrap().moving_token.clone();
+        assert!(token.as_deref().is_some_and(|t| t.len() >= 32), "a random token: {token:?}");
+        assert_eq!(world.source.lock().unwrap().moving.as_deref(), Some("xfer_1"));
+
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 0, "{answer}");
+        assert_eq!(answer["transfer_id"], json!("xfer_2"));
+        let source = world.source.lock().unwrap();
+        assert_eq!(source.aborted, ["xfer_1"]);
+        assert_eq!(source.committed.as_deref(), Some("xfer_2"));
+        drop(source);
+        assert_eq!(world.count("target:agent-transfer-receive"), 1);
+        assert!(
+            world.first("source:agent-transfer-abort")
+                < world.first("target:agent-transfer-receive")
+        );
+    }
+
+    /// A source that keeps no begin token (an older daemon): nothing tells the lost move is
+    /// this command's, so it waits out the source's lease, as before.
     #[test]
     fn a_lost_begin_answer_waits_for_the_source_lease_then_moves_the_chat() {
         let world = World::new(Target::default());
@@ -989,22 +1049,31 @@ mod agent_move {
 
     #[test]
     fn another_clients_move_after_a_lost_begin_answer_is_never_aborted() {
-        let world = World::new(Target::default());
-        world.source.lock().unwrap().lose_begin_answer = true;
-        let (code, _) = world.run_move();
-        assert_eq!(code, 1);
-        {
-            // The lease ended that move; another client moved the chat since.
-            let mut source = world.source.lock().unwrap();
-            source.moving = Some("xfer_theirs".into());
+        // An older source, a source that keeps tokens with another client's token on the move,
+        // and one whose move carries none.
+        for (keeps_token, theirs) in [(false, None), (true, Some("tok_theirs")), (true, None)] {
+            let world = World::new(Target::default());
+            {
+                let mut source = world.source.lock().unwrap();
+                source.keeps_token = keeps_token;
+                source.lose_begin_answer = true;
+            }
+            let (code, _) = world.run_move();
+            assert_eq!(code, 1);
+            {
+                // The lease ended that move; another client moved the chat since.
+                let mut source = world.source.lock().unwrap();
+                source.moving = Some("xfer_theirs".into());
+                source.moving_token = theirs.map(str::to_string);
+            }
+            let (code, answer) = world.run_move();
+            assert_eq!(code, 1);
+            assert_eq!(answer["error_code"], json!("move_unresolved"), "{answer}");
+            assert_eq!(answer["transfer_id"], json!("xfer_theirs"));
+            assert_eq!(world.count("source:agent-transfer-abort"), 0);
+            assert_eq!(world.count("source:agent-transfer-commit"), 0);
+            assert_eq!(world.source.lock().unwrap().moving.as_deref(), Some("xfer_theirs"));
         }
-        let (code, answer) = world.run_move();
-        assert_eq!(code, 1);
-        assert_eq!(answer["error_code"], json!("move_unresolved"), "{answer}");
-        assert_eq!(answer["transfer_id"], json!("xfer_theirs"));
-        assert_eq!(world.count("source:agent-transfer-abort"), 0);
-        assert_eq!(world.count("source:agent-transfer-commit"), 0);
-        assert_eq!(world.source.lock().unwrap().moving.as_deref(), Some("xfer_theirs"));
     }
 
     #[test]
