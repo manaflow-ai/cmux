@@ -54,6 +54,7 @@ fn rig_config(base_url: String, dir: &std::path::Path) -> HostConfig {
             chief_socket: None,
             browser: crate::browser::BrowserConfig::new(None, 1),
             surface: crate::surface::SurfaceConfig::new(None, 1),
+            viewport_sync: None,
         },
     }
 }

@@ -18,7 +18,6 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { build } from "esbuild";
-// @ts-expect-error: a build script, with no types
 import { classicScript } from "../scripts/agent-pane/classicScript.mjs";
 
 const root = realpathSync(mkdtempSync(path.join(tmpdir(), "agent-pane-classic-")));
