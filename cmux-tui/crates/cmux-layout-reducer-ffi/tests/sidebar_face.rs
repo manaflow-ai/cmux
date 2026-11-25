@@ -150,6 +150,7 @@ fn sidebar_face_abi_one_call_maps_every_changed_row() {
     assert_eq!((chat.front, chat.label, chat.face, chat.agent), (0, 1, 1, 1));
     assert_eq!(chat.work, 0, "the shell is the newest work");
     assert_eq!(chat.front_chat, 1, "the idle shell is no chat: the first chat");
+    assert_eq!(chat.agent_in_terminal, 0, "the mark's agent is a chat");
     assert_eq!(chat.kind, 2, "harness");
     assert_eq!(chat.row_kind, 3, "mixed");
     assert_eq!(read(reply, chat.directory), None, "the idle shell's ~ does not label the row");

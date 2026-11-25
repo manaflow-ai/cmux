@@ -13,6 +13,7 @@ import { PrefixFlatCache } from "../conversation/prefixFlatMap";
 import type { AcpmuxAgentPair, AcpmuxPermission, AcpmuxRow, QueuedPrompt } from "../model";
 import { hasPreviews, questionSummary, type AgentQuestion } from "../question/model";
 import type { AcpmuxSessionEntry } from "../sessionList";
+import type { HarnessIconSpec } from "../../shared/harnessIcons";
 import { sessionIndex } from "../sessionIndex";
 import type { AttentionTab } from "./attentionTabs";
 
@@ -27,7 +28,8 @@ export type NeedsYouKind = "approval" | "decision" | "verify" | "held" | "input"
 export type NeedsYouAnswer = { id: string; label: string; tone: "allow" | "deny" | "choice" };
 
 /// Who asked: the chat's title and agent, whether it is the Chief, and the chat that started it.
-export type NeedsYouWho = { name: string; harness?: string; chief: boolean; via?: string };
+/// `icon`: the icon the chat set (acpmux `icon`), drawn over its harness mark.
+export type NeedsYouWho = { name: string; harness?: string; icon?: HarnessIconSpec; chief: boolean; via?: string };
 
 export type NeedsYouItem = {
   /// Stable while the ask is open: `acpmux:<permissionId>` (the Feed's key for the same prompt),
@@ -262,6 +264,7 @@ function who(
   return {
     name,
     ...(session?.harness ? { harness: session.harness } : {}),
+    ...(session?.icon ? { icon: session.icon } : {}),
     chief: isChief(session),
     ...(parent ? { via: parent.displayTitle ?? parent.name ?? parent.sessionId } : {}),
   };

@@ -243,7 +243,7 @@ if [[ "$vz" == 1 ]]; then
   done
   printf '{"step": "disk", "disk_img_apparent_mb": %s, "disk_img_allocated_mb": %s, "free_after_clones": "%s"}\n' \
     "$(( $(stat -f %z "${dirs[0]}/disk.img") >> 20 ))" "$(du -m "${dirs[0]}/disk.img" | awk '{print $1}')" "$(df -h "$lume_home" | tail -1 | awk '{print $4}')" >>"$out/vz.jsonl"
-  perl -e 'alarm 2400; exec @ARGV' "$b/cudvz" cycle "$vz_mem" 4 "$lume_home/tmp/$tag-state" "${dirs[@]}" >>"$out/vz.jsonl" 2>"$out/vz.err" &
+  perl -e 'alarm 2400; exec @ARGV' "$b/cudvz" cycle "$vz_mem" 4 "$lume_home/tmp/$tag-state" ${dirs[@]+"${dirs[@]}"} >>"$out/vz.jsonl" 2>"$out/vz.err" &
   vz_pid=$!
   while kill -0 "$vz_pid" 2>/dev/null; do sleep 30; note "vz: $(tail -1 "$out/vz.jsonl" | cut -c1-200)"; done
   wait "$vz_pid"
@@ -283,8 +283,11 @@ if [[ $booted != 1 ]]; then
   } >"$out/guest-unreachable.txt" 2>&1
   tail -20 "$out/run.log"
   cat "$out/guest-unreachable.txt"
+  # The probe of our own lume run (its recorded PID) stays apart from the count of the host's VM processes, which is
+  # only read, never signalled.
+  run_state=$(kill -0 "$run_pid" 2>/dev/null && echo alive || echo exited)
   vms=$(pgrep -f com.apple.Virtualization.VirtualMachine 2>/dev/null | wc -l | tr -d ' ')
-  finish "the guest's SSH never answered: lume run $(kill -0 "$run_pid" 2>/dev/null && echo alive || echo exited), $vms VM process(es) on the host (guest-unreachable.txt, run.log)"
+  finish "the guest's SSH never answered: lume run $run_state, $vms VM process(es) on the host (guest-unreachable.txt, run.log)"
   exit 4
 fi
 note "guest $vm answered lume ssh $(( $(date +%s) - t0 )) s after clone"

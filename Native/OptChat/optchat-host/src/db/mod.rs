@@ -185,6 +185,10 @@ impl ReadOnly {
         search(&self.0, query, limit)
     }
 
+    pub fn recall(&self, query: &str, limit: usize, all_kinds: bool) -> io::Result<Vec<Recalled>> {
+        recall(&self.0, query, limit, all_kinds)
+    }
+
     pub fn export_text(&self, dir: &Path) -> io::Result<ExportStats> {
         export_text(&self.0, dir)
     }
@@ -707,6 +711,97 @@ pub enum Hit {
         node: NodeId,
         snippet: String,
     },
+}
+
+/// One `recall` hit: a logged message, best match first.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Recalled {
+    pub id: u64,
+    pub kind: String,
+    /// Its stored ISO time.
+    pub date: String,
+    /// The matching part, the hit words in `[` `]`.
+    pub snippet: String,
+}
+
+/// Words a recall query drops: they match nearly every message.
+const RECALL_STOP: &[&str] = &[
+    "a", "an", "and", "are", "as", "at", "be", "but", "by", "can", "did", "do", "does", "for",
+    "from", "had", "has", "have", "he", "her", "his", "how", "i", "if", "in", "is", "it", "its",
+    "me", "my", "no", "not", "of", "on", "or", "our", "she", "so", "that", "the", "their", "them",
+    "then", "there", "they", "this", "to", "u", "us", "was", "we", "were", "what", "when", "where",
+    "which", "who", "why", "will", "with", "you", "your", "again", "about", "said", "say", "told",
+    "tell", "remember", "ago", "back", "earlier",
+];
+
+/// `text` as an FTS5 query for `recall`: every word that carries meaning,
+/// any of them (OR), so a question finds the message that answers it; a
+/// word of 4 or more letters also matches longer forms (`vcpu*` finds
+/// vCPUs). bm25 ranks messages holding more of the words, and rarer ones,
+/// first. Empty when no word is left.
+pub fn recall_query(text: &str) -> String {
+    let mut seen = std::collections::BTreeSet::new();
+    text.split(|c: char| !(c.is_alphanumeric() || c == '.' || c == '-' || c == '_'))
+        .map(|w| {
+            w.trim_matches(|c: char| !c.is_alphanumeric())
+                .to_lowercase()
+        })
+        .filter(|w| w.chars().count() > 1 && !RECALL_STOP.contains(&w.as_str()))
+        .filter(|w| seen.insert(w.clone()))
+        .map(|w| {
+            let quoted = format!("\"{}\"", w.replace('"', "\"\""));
+            // A prefix only for plain words: "1.64.1"* would match 1.64.10.
+            if w.chars().count() >= 4 && w.chars().all(char::is_alphanumeric) {
+                format!("{quoted}*")
+            } else {
+                quoted
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" OR ")
+}
+
+/// Full-text recall over the messages (never the summaries: a message is
+/// the ground truth a summary lost): the best `limit` matches for any word
+/// of `text` (`recall_query`), with their dates. `all_kinds` false leaves
+/// out tool calls and their results (`tool`, `echo`), which outnumber the
+/// conversation and bury it.
+pub fn recall(
+    conn: &Connection,
+    text: &str,
+    limit: usize,
+    all_kinds: bool,
+) -> io::Result<Vec<Recalled>> {
+    let query = recall_query(text);
+    if query.is_empty() {
+        return Ok(Vec::new());
+    }
+    let kinds = if all_kinds {
+        ""
+    } else {
+        "AND m.kind NOT IN ('tool', 'echo') "
+    };
+    let sql_text = format!(
+        "SELECT m.id, m.kind, m.date, snippet(messages_fts, 0, '[', ']', '...', 24) \
+         FROM messages_fts JOIN messages m ON m.id = messages_fts.rowid \
+         WHERE messages_fts MATCH ?1 {kinds}ORDER BY bm25(messages_fts), m.id DESC LIMIT ?2"
+    );
+    let mut stmt = conn.prepare(&sql_text).map_err(sql)?;
+    let rows = stmt
+        .query_map(params![query, limit as i64], |r| {
+            Ok(Recalled {
+                id: r.get::<_, i64>(0)? as u64,
+                kind: r.get(1)?,
+                date: r.get(2)?,
+                snippet: r.get(3)?,
+            })
+        })
+        .map_err(sql)?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row.map_err(sql)?);
+    }
+    Ok(out)
 }
 
 /// `text` as an FTS5 query that matches rows holding every word: each word

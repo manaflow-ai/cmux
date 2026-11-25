@@ -6,6 +6,7 @@
 //!   cargo run --example chief_eval -- [--cases DIR] [--only PREFIX] [--out DIR]
 //!       [--jobs N] [--model M] [--effort E] [--judge-model M] [--compactor api|fake]
 //!       [--repeat N] [--min-pass F] [--baseline SUMMARY_JSON_OR_DIR]
+//!   chief_eval diff BEFORE_DIR AFTER_DIR   (two runs' diff, rescored)
 //!   chief_eval shim NAME ARGS...   (the stubs on a turn's PATH call this)
 //!
 //! What a turn sends is what a production Chief turn on a Claude harness
@@ -120,6 +121,26 @@ struct Case {
     /// false: the first turn starts while the compactor still works on the
     /// history (a Chief whose summaries lag, as the Cloud Chief's did).
     settle: Option<bool>,
+    /// The case's clock (RFC 3339 with the person's offset): the first turn's
+    /// messages are dated then, each later turn 2 minutes on. History items
+    /// carry their own `at`.
+    now: Option<String>,
+    /// A memory to start from (a copy of a Chief's `memory.sqlite3`, path
+    /// absolute or under the cases directory): the case's history and turns
+    /// go after its messages. For private replays of a real Chief.
+    memory: Option<String>,
+    /// The person profile from a file (absolute or under the cases
+    /// directory) instead of `person`.
+    person_path: Option<String>,
+    /// The view's byte budget (default the Chief's, 128 KB): a small one
+    /// makes a short history summarize as a long one does.
+    budget: Option<usize>,
+    /// Memory files to start from (a copy of a Chief's
+    /// `memory-files.sqlite3`, path absolute or under the cases directory).
+    memory_files: Option<String>,
+    /// Run the nightly memory review (dream.rs) over the history before the
+    /// turns, as a Chief that reviewed last night.
+    dream: bool,
     turns: Vec<Turn>,
 }
 
@@ -133,6 +154,8 @@ struct Item {
     conv: Option<String>,
     author: Option<String>,
     author_kind: Option<String>,
+    /// When it was said (RFC 3339): `date(id)` and the summaries see it.
+    at: Option<String>,
 }
 
 #[derive(Deserialize, Clone, Default)]
@@ -144,6 +167,9 @@ struct Turn {
     also: Vec<Item>,
     /// Per-turn state after the delta (`Subagents at work now: a12.`).
     tail: Option<String>,
+    /// The turn is the host's check-in wake (check_in.rs): its text is the
+    /// `[check-in]` note over the case's open loops at that time.
+    check_in: bool,
     checks: Vec<Check>,
 }
 
@@ -169,6 +195,10 @@ struct Check {
     n: Option<usize>,
     path: Option<String>,
     rubric: Option<String>,
+    /// `due`: the wake time a `sleep` (or `follow_up`) of the turn must ask
+    /// for (RFC 3339), within `minutes` (default 20).
+    at: Option<String>,
+    minutes: Option<i64>,
 }
 
 // ------------------------------------------------------------------ shims
@@ -249,6 +279,30 @@ impl CompactModel for ApiCompactor {
     }
 }
 
+/// The nightly review on the Messages API, Claude Code shaped.
+struct ApiDream(Model, String);
+
+impl optchat_chief::dream::DreamModel for ApiDream {
+    fn ask(&self, system: &str, prompt: &str) -> Result<(String, Option<f64>), String> {
+        let body = json!({
+            "model": self.1, "max_tokens": 32000,
+            "system": [{"type": "text", "text": CLAUDE_CODE}, {"type": "text", "text": system}],
+            "messages": [{"role": "user", "content": prompt}],
+        });
+        let v = send_retry(&self.0, &body)?;
+        Ok((
+            v["content"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|b| b["type"] == "text")
+                .filter_map(|b| b["text"].as_str())
+                .collect(),
+            None,
+        ))
+    }
+}
+
 // ------------------------------------------------------------------ run state
 
 #[derive(Clone)]
@@ -263,6 +317,11 @@ struct Opts {
     /// The reply ledger as the brain had it before 2026-10-26 (`--ledger
     /// pre`): a tapback answers nothing and stop is never refused.
     ledger_pre: bool,
+    /// The nightly review's model (`--dream-model`).
+    dream_model: String,
+    /// Where the case files are (a case's `memory` and `person_path` are
+    /// relative to it).
+    cases_dir: PathBuf,
     /// The reply length gate's limit (`--max-words`, 0: off), as the host's
     /// send tool applies it (chief_kernel::replies).
     max_words: usize,
@@ -297,6 +356,10 @@ struct TurnResult {
     unanswered: Option<(u64, String)>,
     /// `[no reply]` retry turns the reply ledger started after this turn.
     retry_turns: u32,
+    /// The wake time the turn's last sleep or follow_up asked for.
+    due: Option<String>,
+    /// When the turn's message was said (the case's clock).
+    at: Option<String>,
 }
 
 fn label(item: &Item) -> String {
@@ -369,9 +432,36 @@ struct CaseRun<'a> {
     open: Mutex<Option<(u64, String)>>,
     /// The conversation as the transcript tool shows it: (author, text).
     transcript: Mutex<Vec<(String, String)>>,
+    /// The memory files the turns read and write.
+    files: Arc<optchat_chief::memory_files::MemoryFiles>,
+    /// The case's clock (`Case::now`) and the turns run so far.
+    now: Option<chrono::DateTime<chrono::FixedOffset>>,
+    turn_no: Mutex<i64>,
 }
 
 impl CaseRun<'_> {
+    /// When the running turn's messages were said: the case's clock, 2
+    /// minutes on per turn (None: real time).
+    fn turn_time(&self) -> Option<chrono::DateTime<chrono::FixedOffset>> {
+        let k = *self.turn_no.lock().unwrap();
+        self.now.map(|t| t + chrono::TimeDelta::minutes(2 * k))
+    }
+
+    /// Logs one message of the running turn, dated by the case's clock.
+    fn log_turn_message(&self, kind: Kind, text: &str) -> u64 {
+        match self.turn_time() {
+            Some(t) => {
+                let date = t.to_rfc3339_opts(chrono::SecondsFormat::Millis, false);
+                let m = optchat_host::NewMessage {
+                    date: Some(&date),
+                    ..optchat_host::NewMessage::new(kind, text)
+                };
+                self.chat.append_with(&[m], |_| Vec::new()).unwrap().ids[0]
+            }
+            None => self.chat.append(kind, text).unwrap(),
+        }
+    }
+
     fn bash(&self, command: &str) -> (String, bool) {
         let bin = self.dir.join("bin");
         let out_path = self.dir.join("bash.out");
@@ -386,6 +476,8 @@ impl CaseRun<'_> {
                 format!("{}:/usr/local/bin:/usr/bin:/bin", bin.display()),
             )
             .env("HOME", self.dir.join("home"))
+            // The person's Mac answers `date` in their zone: so does the eval.
+            .env("TZ", std::env::var("TZ").unwrap_or_else(|_| "UTC".into()))
             .env("CHIEF_EVAL_DIR", &self.dir)
             .env("TERM", "dumb")
             .stdin(std::process::Stdio::null())
@@ -445,7 +537,7 @@ impl CaseRun<'_> {
         let n = |k: &str| input[k].as_u64();
         match name {
             // The memory tools parse as production does (tools::Call).
-            "zoom" | "date" => match optchat_chief::tools::Call::parse(name, input) {
+            "zoom" | "date" | "recall" => match optchat_chief::tools::Call::parse(name, input) {
                 Ok(optchat_chief::tools::Call::Zoom { id, n }) => match self.chat.zoom(id, n) {
                     Ok(t) => (t, false),
                     Err(e) => (format!("{e:?}"), true),
@@ -456,6 +548,9 @@ impl CaseRun<'_> {
                         .unwrap_or_else(|| "no such message".into()),
                     false,
                 ),
+                Ok(call @ optchat_chief::tools::Call::Recall { .. }) => {
+                    (call.answer(self.chat.as_ref()), false)
+                }
                 Ok(_) => ("no subagent by that id".into(), true),
                 Err(e) => (e, true),
             },
@@ -546,6 +641,22 @@ impl CaseRun<'_> {
                 }
                 ("outcome: done. reacted".into(), false)
             }
+            "memory_read" | "memory_write" | "memory_forget" => {
+                match optchat_chief::tools::Call::parse(name, input) {
+                    Ok(optchat_chief::tools::Call::MemoryFile(call)) => {
+                        match call.answer(
+                            &self.files,
+                            "turn:eval",
+                            optchat_chief::memory_files::Trust::Person,
+                        ) {
+                            Ok(t) => (t, false),
+                            Err(e) => (e, true),
+                        }
+                    }
+                    Ok(_) => ("not a memory file call".into(), true),
+                    Err(e) => (e, true),
+                }
+            }
             // As the real tool: the line goes into the person's profile.
             "remember" => {
                 let p = self.dir.join("home/optchat/person.md");
@@ -583,6 +694,45 @@ impl CaseRun<'_> {
                     false,
                 )
             }
+            "nothing" if !self.opts.ledger_pre && self.open.lock().unwrap().is_some() => (
+                "nothing: refused, the user's message has no reply yet; reply first".into(),
+                true,
+            ),
+            "nothing" => {
+                *self.ended.lock().unwrap() = true;
+                (
+                    "outcome: done. nothing is posted; the turn ends now".into(),
+                    false,
+                )
+            }
+            "ask" => {
+                posted.push(format!(
+                    "**Needs you:** {}",
+                    input["question"].as_str().unwrap_or("")
+                ));
+                *self.open.lock().unwrap() = None;
+                *self.ended.lock().unwrap() = true;
+                ("outcome: done. sent; the turn ends now".into(), false)
+            }
+            "follow_up" => {
+                let now = self
+                    .turn_time()
+                    .unwrap_or_else(|| chrono::Local::now().fixed_offset());
+                match optchat_chief::check_in::follow_up_due(
+                    now,
+                    input["at"].as_str(),
+                    input["in"].as_str(),
+                ) {
+                    Ok(t) => (
+                        format!(
+                            "outcome: done. follow-up set for {}; your turn goes on",
+                            t.format("%a %Y-%m-%d %H:%M")
+                        ),
+                        false,
+                    ),
+                    Err(e) => (e, true),
+                }
+            }
             "stop" => {
                 *self.ended.lock().unwrap() = true;
                 (
@@ -599,19 +749,35 @@ impl CaseRun<'_> {
     }
 
     fn run_turn(&self, turn: &Turn) -> TurnResult {
-        let mut r = TurnResult::default();
+        if turn.check_in {
+            let loops: Vec<String> = self
+                .files
+                .loops()
+                .iter()
+                .map(optchat_chief::memory_files::index_line)
+                .collect();
+            let slot = self
+                .turn_time()
+                .map(|t| t.format("%Y-%m-%d %H:%M").to_string())
+                .unwrap_or_default();
+            let mut t = turn.clone();
+            t.check_in = false;
+            t.item.text = optchat_chief::check_in::note(&loops, &slot);
+            return self.run_turn(&t);
+        }
+        let mut r = TurnResult {
+            at: self.turn_time().map(|t| t.to_rfc3339()),
+            ..TurnResult::default()
+        };
         let calls_before = read_calls(&self.dir).len();
         *self.tail.lock().unwrap() = turn.tail.clone().unwrap_or_default();
         *self.ended.lock().unwrap() = false;
         *self.length_refused.lock().unwrap() = false;
         let wake = Instant::now();
         // As the brain does: log the new messages, then take the turn input.
-        let first_new = self
-            .chat
-            .append(kind_of(&turn.item.kind), &label(&turn.item))
-            .unwrap();
+        let first_new = self.log_turn_message(kind_of(&turn.item.kind), &label(&turn.item));
         for item in &turn.also {
-            self.chat.append(kind_of(&item.kind), &label(item)).unwrap();
+            self.log_turn_message(kind_of(&item.kind), &label(item));
         }
         // A person's message of the Chief conversation (not a group chat,
         // a report or a note) joins the reply ledger.
@@ -647,16 +813,36 @@ impl CaseRun<'_> {
                 .map(|d| d.matches(optchat_core::PLACEHOLDER).count())
                 .sum::<usize>();
         r.view_bytes = input.view.len();
+        // As turns.rs: the person's clock line first, then the turn's state.
+        let now = match self.turn_time() {
+            Some(t) => {
+                // The case's own offset; this host's zone name could contradict it.
+                chief_kernel::prompt::now_line(t, None)
+            }
+            None => optchat_chief::prompt::now_line_here(),
+        };
+        let memory = self.files.block();
+        let tail: Vec<&str> = std::iter::once(now.as_str())
+            .chain(memory.as_deref())
+            .chain(turn.tail.as_deref())
+            .collect();
         let layout = input_layout(
             &self.system,
             &input.view,
             &input.delta,
             prev_end,
             &[],
-            turn.tail.as_deref().unwrap_or(""),
+            &tail.join("\n\n"),
             Some(CacheTtl::FiveMinutes),
         );
         let mut messages = vec![json!({"role": "user", "content": layout.blocks})];
+        // Claude Code tells its session the date (no time, no zone) in a
+        // system reminder; a production turn has it, so a clocked case does.
+        let mut system = vec![json!({"type": "text", "text": CLAUDE_CODE})];
+        if let Some(t) = self.turn_time() {
+            system.push(json!({"type": "text", "text": format!("Today's date is {}.", t.format("%Y-%m-%d"))}));
+        }
+        system.push(json!({"type": "text", "text": self.system, "cache_control": CacheTtl::FiveMinutes.cache_control()}));
         let tools = tool_list();
         let mut posted = Vec::new();
         let mut last_text = String::new();
@@ -665,7 +851,7 @@ impl CaseRun<'_> {
                 "model": self.opts.model,
                 "max_tokens": 32000,
                 "stream": true,
-                "system": [{"type": "text", "text": CLAUDE_CODE}, {"type": "text", "text": self.system, "cache_control": CacheTtl::FiveMinutes.cache_control()}],
+                "system": system,
                 "tools": tools,
                 "messages": messages,
                 "output_config": {"effort": self.opts.effort},
@@ -695,14 +881,14 @@ impl CaseRun<'_> {
                     Some("text") => {
                         let t = block["text"].as_str().unwrap_or("").trim();
                         if !t.is_empty() {
-                            let _ = self.chat.append(Kind::Talk, t);
+                            self.log_turn_message(Kind::Talk, t);
                             last_text = t.to_owned();
                         }
                     }
                     Some("tool_use") => {
                         let name = block["name"].as_str().unwrap_or("");
                         let input = &block["input"];
-                        let _ = self.chat.append(Kind::Tool, &format!("{name} {input}"));
+                        self.log_turn_message(Kind::Tool, &format!("{name} {input}"));
                         let (text, err) = if name == "bash" {
                             if input["restart"].as_bool() == Some(true) {
                                 ("restarted".into(), false)
@@ -722,7 +908,7 @@ impl CaseRun<'_> {
                                 "(no output)".into()
                             };
                         }
-                        let _ = self.chat.append(
+                        self.log_turn_message(
                             Kind::Echo,
                             &if err {
                                 format!("error: {text}")
@@ -774,8 +960,130 @@ impl CaseRun<'_> {
             .into_iter()
             .skip(calls_before)
             .collect();
+        r.due = self.due_of(&r.calls);
+        *self.turn_no.lock().unwrap() += 1;
         r
     }
+
+    /// The wake time the turn's last `sleep`, `follow_up` or one-time
+    /// `cmux automation create` asked for.
+    fn due_of(&self, calls: &[Call]) -> Option<String> {
+        let at = self.turn_time()?;
+        let local = |text: &str| {
+            chrono::NaiveDateTime::parse_from_str(text, "%Y-%m-%d %H:%M")
+                .or_else(|_| chrono::NaiveDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M"))
+                .ok()
+                .and_then(|n| n.and_local_timezone(*at.offset()).single())
+                .or_else(|| chrono::DateTime::parse_from_rfc3339(text).ok())
+        };
+        calls.iter().rev().find_map(|c| {
+            if c.cmd == "cmux" && c.argv.contains("automation create") {
+                // --at "YYYY-MM-DD HH:MM" (the argv is joined by spaces), or
+                // a one-day cron "M H D Mo *".
+                if let Some(rest) = c.argv.split("--at ").nth(1) {
+                    let words: Vec<&str> = rest.split_whitespace().take(2).collect();
+                    return local(&words.join(" "))
+                        .or_else(|| words.first().and_then(|w| local(w)))
+                        .map(|t| t.to_rfc3339());
+                }
+                if let Some(rest) = c.argv.split("--cron ").nth(1) {
+                    let f: Vec<&str> = rest.split_whitespace().take(5).collect();
+                    if let [m, h, d, mo, _] = f.as_slice() {
+                        let text = format!("{}-{mo:0>2}-{d:0>2} {h:0>2}:{m:0>2}", at.format("%Y"));
+                        return local(&text).map(|t| t.to_rfc3339());
+                    }
+                }
+                return None;
+            }
+            let v: Value = serde_json::from_str(&c.argv).ok()?;
+            match c.cmd.as_str() {
+                "sleep" => Some(at + chrono::TimeDelta::seconds(v["seconds"].as_i64()?)),
+                "follow_up" => {
+                    if let Some(due) = v["at"].as_str() {
+                        chrono::DateTime::parse_from_rfc3339(due).ok().or_else(|| {
+                            chrono::NaiveDateTime::parse_from_str(due, "%Y-%m-%dT%H:%M")
+                                .ok()
+                                .and_then(|n| n.and_local_timezone(*at.offset()).single())
+                        })
+                    } else {
+                        let text = v["in"].as_str()?;
+                        let (cut, _) = text.char_indices().last()?;
+                        let (n, unit) = text.split_at(cut);
+                        let n: i64 = n.trim().parse().ok()?;
+                        let secs = match unit {
+                            "m" => 60,
+                            "h" => 3600,
+                            "d" => 86400,
+                            _ => return None,
+                        };
+                        Some(at + chrono::TimeDelta::seconds(n * secs))
+                    }
+                }
+                _ => None,
+            }
+            .map(|t| t.to_rfc3339())
+        })
+    }
+}
+
+/// A failed run is infra when a failed check is a route error.
+fn route_failed(turns: &[Value]) -> bool {
+    turns.iter().any(|t| {
+        t["checks"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|c| c["pass"] == false && route_error(c["why"].as_str().unwrap_or("")))
+    })
+}
+
+/// A run's summary.json with its per-case results recounted from its
+/// rows.jsonl under this runner's infra rule, so a run written by an older
+/// runner (no `infra` field) is scored like a new one.
+fn rescored_summary(dir: &Path) -> Result<Value, String> {
+    let read = |name: &str| {
+        std::fs::read_to_string(dir.join(name))
+            .map_err(|e| format!("{}: {e}", dir.join(name).display()))
+    };
+    let mut summary: Value =
+        serde_json::from_str(&read("summary.json")?).map_err(|e| e.to_string())?;
+    let rows: Vec<Value> = read("rows.jsonl")?
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str(l).map_err(|e| e.to_string()))
+        .collect::<Result<_, _>>()?;
+    let rows: Vec<Value> = rows
+        .into_iter()
+        .map(|mut r| {
+            let infra = r["pass"] != true
+                && route_failed(r["turns"].as_array().map_or(&[][..], |t| t.as_slice()));
+            r["infra"] = json!(infra);
+            r
+        })
+        .collect();
+    let cases = case_counts(&rows);
+    summary["case_results"] = cases
+        .iter()
+        .map(|(id, (g, p, n, i))| {
+            (
+                id.clone(),
+                json!({"group": g, "passed": p, "runs": n, "infra": i}),
+            )
+        })
+        .collect::<serde_json::Map<_, _>>()
+        .into();
+    summary["infra_runs"] = json!(cases.values().map(|c| c.3).sum::<u32>());
+    Ok(summary)
+}
+
+/// A check failure that is the model route's, not Chief's: the turn's or the
+/// judge's request ended in HTTP 429 or 5xx (send's retryable statuses).
+fn route_error(why: &str) -> bool {
+    let why = why.strip_prefix("judge failed: ").unwrap_or(why);
+    why.strip_prefix("HTTP ")
+        .and_then(|r| r.get(..3))
+        .and_then(|c| c.parse::<u16>().ok())
+        .is_some_and(|c| c == 429 || c >= 500)
 }
 
 fn send_retry(model: &Model, body: &Value) -> Result<Value, String> {
@@ -902,6 +1210,23 @@ fn grade(run: &CaseRun, turn: &Turn, r: &mut TurnResult, history: &str) {
                 let re = Regex::new(c.re.as_deref().unwrap_or("")).unwrap();
                 (re.is_match(&text), format!("{} lacks it", path.display()))
             }
+            "due" => {
+                let want =
+                    c.at.as_deref()
+                        .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
+                        .expect("due needs `at` (RFC 3339)");
+                match r
+                    .due
+                    .as_deref()
+                    .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
+                {
+                    Some(got) => (
+                        (got - want).num_minutes().abs() <= c.minutes.unwrap_or(20),
+                        format!("due {got}, wanted {want}"),
+                    ),
+                    None => (false, "no sleep or follow_up".into()),
+                }
+            }
             "judge" => judge(run, c.rubric.as_deref().unwrap_or(""), history, turn, r),
             other => (false, format!("unknown check {other}")),
         };
@@ -926,9 +1251,14 @@ fn judge(
         .collect();
     let prompt = format!(
         "You grade one turn of an AI assistant (\"Chief\") that works for one person.\n\
-Rubric: {rubric}\n\n<history>\n{history}\n</history>\n\n<new_message>\n{}\n</new_message>\n\n\
+Rubric: {rubric}\n\n<history>\n{history}\n</history>\n\n{}<new_message>\n{}\n</new_message>\n\n\
 <tool_calls>\n{}\n</tool_calls>\n\n<posted_replies>\n{}\n</posted_replies>\n\n\
 Answer with exactly one line: PASS or FAIL, a colon, and one short reason.",
+        r.at.as_deref()
+            .map(|t| format!(
+                "The new message was sent at {t} (the person's local time and offset).\n"
+            ))
+            .unwrap_or_default(),
         label(&turn.item),
         calls.join("\n"),
         r.posted.join("\n---\n")
@@ -994,9 +1324,22 @@ fn run_case(case: &Case, opts: &Opts, root: &Path) -> Value {
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
         std::fs::write(p, text).unwrap();
     }
-    let person = case.person.clone().unwrap_or_else(|| {
-        std::fs::read_to_string(opts.evals_dir.join("person.md")).unwrap_or_default()
-    });
+    let under_cases = |p: &str| {
+        let p = PathBuf::from(p);
+        if p.is_absolute() {
+            p
+        } else {
+            opts.cases_dir.join(p)
+        }
+    };
+    let person = match (&case.person, &case.person_path) {
+        (Some(text), _) => text.clone(),
+        (None, Some(path)) => std::fs::read_to_string(under_cases(path))
+            .unwrap_or_else(|e| panic!("{}: person_path {path}: {e}", case.id)),
+        (None, None) => {
+            std::fs::read_to_string(opts.evals_dir.join("person.md")).unwrap_or_default()
+        }
+    };
     let profile_path = dir.join("home/optchat/person.md");
     std::fs::create_dir_all(profile_path.parent().unwrap()).unwrap();
     if !profile_path.exists() {
@@ -1029,6 +1372,7 @@ fn run_case(case: &Case, opts: &Opts, root: &Path) -> Value {
         reporter: Arc::new(|_| {}),
         base_url: opts.base_url.clone(),
         api_key: opts.key.clone(),
+        budget: case.budget.unwrap_or(optchat_core::VIEW),
         ..Config::default()
     };
     let compactor: Arc<dyn CompactModel> = match opts.compactor.as_str() {
@@ -1049,19 +1393,62 @@ fn run_case(case: &Case, opts: &Opts, root: &Path) -> Value {
     let _ = std::fs::remove_dir_all(&chat_dir);
     std::fs::create_dir_all(&chat_dir).unwrap();
     let _ = std::os::unix::fs::symlink(&chat_dir, dir.join("chat"));
+    if let Some(memory) = &case.memory {
+        std::fs::copy(under_cases(memory), chat_dir.join(optchat_host::DB_FILE))
+            .unwrap_or_else(|e| panic!("{}: memory {memory}: {e}", case.id));
+    }
     let chat =
         Arc::new(OptChat::open_with(&chat_dir, config, compactor, Arc::new(SystemClock)).unwrap());
+    let files_path = dir
+        .join("home/optchat")
+        .join(optchat_chief::memory_files::FILE);
+    if let Some(snapshot) = &case.memory_files {
+        std::fs::copy(under_cases(snapshot), &files_path)
+            .unwrap_or_else(|e| panic!("{}: memory_files {snapshot}: {e}", case.id));
+    }
+    let files = Arc::new(optchat_chief::memory_files::MemoryFiles::open(&files_path).unwrap());
     let mut history = String::new();
     for item in &case.history {
         let text = label(item);
-        chat.append(kind_of(&item.kind), &text).unwrap();
-        history.push_str(&format!("{}: {}\n", item.kind, text));
+        let m = optchat_host::NewMessage {
+            date: item.at.as_deref(),
+            ..optchat_host::NewMessage::new(kind_of(&item.kind), &text)
+        };
+        chat.append_with(&[m], |_| Vec::new()).unwrap();
+        match &item.at {
+            Some(at) => history.push_str(&format!("[{at}] {}: {}\n", item.kind, text)),
+            None => history.push_str(&format!("{}: {}\n", item.kind, text)),
+        }
     }
     let settle = Instant::now();
     if case.settle != Some(false) {
         chat.wait_idle(None, Some(Duration::from_secs(120)));
     }
     let settle_ms = settle.elapsed().as_millis() as u64;
+    let mut dream_ms = 0;
+    if case.dream {
+        let began = Instant::now();
+        let now = case
+            .now
+            .as_deref()
+            .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
+            .unwrap_or_else(|| chrono::Local::now().fixed_offset());
+        let model = ApiDream(
+            Model::new(&opts.base_url, opts.key.clone()),
+            opts.dream_model.clone(),
+        );
+        if let Err(e) = optchat_chief::dream::run(
+            &model,
+            &opts.dream_model,
+            &files,
+            &chat.db_path(),
+            Some(&person),
+            now,
+        ) {
+            eprintln!("{}: dream failed: {e}", case.id);
+        }
+        dream_ms = began.elapsed().as_millis() as u64;
+    }
     let run = CaseRun {
         case,
         opts,
@@ -1093,6 +1480,12 @@ fn run_case(case: &Case, opts: &Opts, root: &Path) -> Value {
                 })
                 .collect(),
         ),
+        files: files.clone(),
+        now: case.now.as_deref().map(|t| {
+            chrono::DateTime::parse_from_rfc3339(t)
+                .unwrap_or_else(|e| panic!("{}: now {t}: {e}", case.id))
+        }),
+        turn_no: Mutex::new(0),
     };
     let mut turns = Vec::new();
     let mut pass = true;
@@ -1124,6 +1517,7 @@ fn run_case(case: &Case, opts: &Opts, root: &Path) -> Value {
             r.cache_read += again.cache_read;
             r.cache_write += again.cache_write;
             r.error = r.error.or(again.error);
+            r.due = again.due.or(r.due);
         }
         grade(&run, turn, &mut r, &history);
         history.push_str(&format!("user: {}\n", label(&turn.item)));
@@ -1134,14 +1528,95 @@ fn run_case(case: &Case, opts: &Opts, root: &Path) -> Value {
         turns.push(serde_json::to_value(&r).unwrap());
         chat.wait_idle(None, Some(Duration::from_secs(60)));
     }
+    let memory_files: Vec<String> = files
+        .list()
+        .unwrap_or_default()
+        .iter()
+        .map(|r| format!("{}: {}", r.path, r.description))
+        .collect();
+    // A failed run whose turn or judge the model route refused (429, 5xx:
+    // an exhausted account pool, a gateway outage) says nothing about Chief:
+    // it is infra, counted in neither the pass rate nor a baseline diff.
+    let infra = !pass && route_failed(&turns);
     json!({"id": case.id, "group": case.group, "owner": case.owner, "about": case.about,
-           "pass": pass, "settle_ms": settle_ms, "turns": turns})
+           "pass": pass, "infra": infra, "settle_ms": settle_ms, "dream_ms": dream_ms,
+           "memory_files": memory_files, "turns": turns})
 }
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().map(String::as_str) == Some("shim") {
         shim(&args[1], &args[2..]);
+    }
+    // `dream MEMORY_DB FILES_DB PERSON_MD NOW [MODEL]`: the nightly review
+    // (a backfill when FILES_DB has none) of a memory copy, for cases that
+    // start from a reviewed Chief (`memory_files`).
+    if args.first().map(String::as_str) == Some("dream") {
+        let [_, db, files, person, now, rest @ ..] = args.as_slice() else {
+            eprintln!("usage: chief_eval dream MEMORY_DB FILES_DB PERSON_MD NOW [MODEL]");
+            std::process::exit(2)
+        };
+        let config = Config::default();
+        let model_name = rest
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "claude-opus-5-5".into());
+        let files = optchat_chief::memory_files::MemoryFiles::open(Path::new(files)).unwrap();
+        let profile = std::fs::read_to_string(person).ok();
+        let now = chrono::DateTime::parse_from_rfc3339(now).expect("NOW is RFC 3339");
+        let model = ApiDream(
+            Model::new(&config.base_url, config.api_key.clone()),
+            model_name.clone(),
+        );
+        match optchat_chief::dream::run(
+            &model,
+            &model_name,
+            &files,
+            Path::new(db),
+            profile.as_deref(),
+            now,
+        ) {
+            Ok(a) => {
+                println!(
+                    "written {:?}\ndeleted {:?}\ndropped {:?}",
+                    a.written, a.deleted, a.dropped
+                );
+                std::process::exit(0)
+            }
+            Err(e) => {
+                eprintln!("dream: {e}");
+                std::process::exit(1)
+            }
+        }
+    }
+    // `diff BEFORE_DIR AFTER_DIR`: the baseline diff of two finished runs,
+    // both rescored by this runner (scripts/measure/chief-evals.sh runs it
+    // with the harness's build, so refs older than a scoring rule still get
+    // it). Writes AFTER_DIR/diff.json and diff.md.
+    if args.first().map(String::as_str) == Some("diff") {
+        let [_, before, after] = args.as_slice() else {
+            eprintln!("usage: chief_eval diff BEFORE_DIR AFTER_DIR");
+            std::process::exit(2)
+        };
+        let (before, after) = (Path::new(before), Path::new(after));
+        match (rescored_summary(before), rescored_summary(after)) {
+            (Ok(base), Ok(now)) => {
+                let d = baseline_diff(&now, &base);
+                let md = diff_markdown(&d, &before.join("summary.json").display().to_string());
+                std::fs::write(
+                    after.join("diff.json"),
+                    serde_json::to_string_pretty(&d).unwrap(),
+                )
+                .unwrap();
+                std::fs::write(after.join("diff.md"), &md).unwrap();
+                println!("{md}");
+                std::process::exit(0)
+            }
+            (Err(e), _) | (_, Err(e)) => {
+                eprintln!("diff: {e}");
+                std::process::exit(1)
+            }
+        }
     }
     // One short call: does the model route answer? (CI skips the model
     // cases, with a warning, when it does not.)
@@ -1187,6 +1662,8 @@ fn main() {
         key: config.api_key.clone(),
         evals_dir: here.clone(),
         ledger_pre: flag("--ledger").as_deref() == Some("pre"),
+        cases_dir: cases_dir.clone(),
+        dream_model: flag("--dream-model").unwrap_or_else(|| "claude-opus-5-5".into()),
         max_words: flag("--max-words")
             .and_then(|n| n.parse().ok())
             .unwrap_or(0),
@@ -1314,7 +1791,7 @@ fn summarize(rows: &[Value], wall: f64, opts: &Opts) -> Value {
     let (read, write, input) = (sum("cache_read"), sum("cache_write"), sum("input"));
     let cases = case_counts(rows);
     let mut groups: BTreeMap<String, (u32, u32)> = BTreeMap::new();
-    for (group, p, n) in cases.values() {
+    for (group, p, n, _) in cases.values() {
         let g = groups.entry(group.clone()).or_default();
         g.0 += p;
         g.1 += n;
@@ -1336,7 +1813,9 @@ fn summarize(rows: &[Value], wall: f64, opts: &Opts) -> Value {
         "groups": groups.iter().map(|(k, (p, n))| (k.clone(), json!(format!("{p}/{n}")))).collect::<serde_json::Map<_, _>>(),
         "group_pass_rate": groups.iter().map(|(k, (p, n))| (k.clone(), json!(rate(*p, *n)))).collect::<serde_json::Map<_, _>>(),
         // Per case (repeats folded into one id): what --baseline diffs.
-        "case_results": cases.iter().map(|(id, (g, p, n))| (id.clone(), json!({"group": g, "passed": p, "runs": n}))).collect::<serde_json::Map<_, _>>(),
+        "case_results": cases.iter().map(|(id, (g, p, n, i))| (id.clone(), json!({"group": g, "passed": p, "runs": n, "infra": i}))).collect::<serde_json::Map<_, _>>(),
+        // Runs the model route refused (429, 5xx): in no pass rate.
+        "infra_runs": cases.values().map(|c| c.3).sum::<u32>(),
     })
 }
 
@@ -1348,15 +1827,21 @@ fn rate(p: u32, n: u32) -> f64 {
     }
 }
 
-/// Case id (a `--repeat` suffix `#k` dropped) -> (group, passed, runs).
-fn case_counts(rows: &[Value]) -> BTreeMap<String, (String, u32, u32)> {
-    let mut cases: BTreeMap<String, (String, u32, u32)> = BTreeMap::new();
+/// Case id (a `--repeat` suffix `#k` dropped) -> (group, passed, runs,
+/// infra). An infra run (the model route refused it) is in `infra`, not in
+/// `runs`: a case whose every run was infra has runs 0 and is unscored.
+fn case_counts(rows: &[Value]) -> BTreeMap<String, (String, u32, u32, u32)> {
+    let mut cases: BTreeMap<String, (String, u32, u32, u32)> = BTreeMap::new();
     for r in rows {
         let id = r["id"].as_str().unwrap_or("");
         let id = id.split_once('#').map_or(id, |(base, _)| base);
         let c = cases
             .entry(id.into())
-            .or_insert_with(|| (r["group"].as_str().unwrap_or("").into(), 0, 0));
+            .or_insert_with(|| (r["group"].as_str().unwrap_or("").into(), 0, 0, 0));
+        if r["infra"] == true {
+            c.3 += 1;
+            continue;
+        }
         c.1 += u32::from(r["pass"] == true);
         c.2 += 1;
     }
@@ -1403,11 +1888,14 @@ fn baseline_diff(now: &Value, base: &Value) -> Value {
         now["case_results"].as_object(),
         base["case_results"].as_object(),
     ) {
+        let scored = |m: &serde_json::Map<String, Value>, id: &str| {
+            m.get(id).is_some_and(|c| c["runs"].as_u64() != Some(0))
+        };
         if let Some(m) = now_common["case_results"].as_object_mut() {
-            m.retain(|id, _| b.contains_key(id));
+            m.retain(|id, _| scored(b, id) && scored(n, id));
         }
         if let Some(m) = common["case_results"].as_object_mut() {
-            m.retain(|id, _| n.contains_key(id));
+            m.retain(|id, _| scored(b, id) && scored(n, id));
         }
     }
     let (gn, gb) = (summary_groups(&now_common), summary_groups(&common));
@@ -1445,11 +1933,22 @@ fn baseline_diff(now: &Value, base: &Value) -> Value {
         .keys()
         .filter(|g| !all_now.contains_key(*g))
         .collect();
+    // A case with no scored run on a side (every run infra) is compared on
+    // neither side: it is `unscored`, never regressed or improved.
+    let unscored: Vec<String> = [now, base]
+        .iter()
+        .flat_map(|s| s["case_results"].as_object().into_iter().flatten())
+        .filter(|(_, c)| c["runs"].as_u64() == Some(0))
+        .map(|(id, _)| id.clone())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
     let cases = |s: &Value| -> BTreeMap<String, (String, f64)> {
         s["case_results"]
             .as_object()
             .into_iter()
             .flatten()
+            .filter(|(id, _)| !unscored.contains(id))
             .map(|(id, c)| {
                 let (p, n) = (
                     c["passed"].as_u64().unwrap_or(0),
@@ -1481,6 +1980,8 @@ fn baseline_diff(now: &Value, base: &Value) -> Value {
         "total": {"baseline": side(Some(&tb)), "now": side(Some(&tn)), "delta": delta(&tb, &tn)},
         "groups": groups, "groups_not_run": not_run,
         "regressed": worse, "improved": better, "added": added, "removed": removed,
+        "unscored": unscored,
+        "infra_runs": {"baseline": base["infra_runs"], "now": now["infra_runs"]},
         "baseline_model": base["model"], "model": now["model"],
     })
 }
@@ -1547,6 +2048,10 @@ fn diff_markdown(d: &Value, baseline: &str) -> String {
     out.push_str(&list("added", "New cases"));
     out.push_str(&list("removed", "Cases not in this run"));
     out.push_str(&list("groups_not_run", "Groups not in this run"));
+    out.push_str(&list(
+        "unscored",
+        "Unscored (the model route refused every run on a side: no verdict)",
+    ));
     if d["baseline_model"] != d["model"] {
         out.push_str(&format!(
             "\nModel changed: {} -> {}\n",
@@ -1629,6 +2134,9 @@ mod tests {
             key: String::new(),
             evals_dir: PathBuf::new(),
             ledger_pre: false,
+            cases_dir: PathBuf::new(),
+            dream_model: String::new(),
+            max_words: 0,
         };
         summarize(rows, 1.0, &opts)
     }
@@ -1642,7 +2150,7 @@ mod tests {
         ]);
         assert_eq!(
             s["case_results"]["links-a"],
-            json!({"group": "links", "passed": 1, "runs": 2})
+            json!({"group": "links", "passed": 1, "runs": 2, "infra": 0})
         );
         assert_eq!(s["groups"]["links"], "1/2");
         assert_eq!(s["group_pass_rate"]["links"], 0.5);
@@ -1697,6 +2205,85 @@ mod tests {
         assert!(md.contains("Regressed: links-a (100% -> 0%)"), "{md}");
         assert!(md.contains("New cases: links-f, tone-d"), "{md}");
         assert!(md.contains("Groups not in this run: memory"), "{md}");
+    }
+
+    fn infra_row(id: &str, group: &str) -> Value {
+        json!({"id": id, "group": group, "pass": false, "infra": true, "turns": []})
+    }
+
+    #[test]
+    fn route_errors_are_the_routes_not_chiefs() {
+        assert!(route_error(
+            "HTTP 503: no non-exhausted claude accounts available"
+        ));
+        assert!(route_error("judge failed: HTTP 529: overloaded"));
+        assert!(route_error("HTTP 429: rate limited"));
+        assert!(!route_error("HTTP 400: bad request"));
+        assert!(!route_error("no match"));
+        assert!(!route_error("judge failed: FAIL: never spawned"));
+    }
+
+    #[test]
+    fn infra_runs_are_unscored_never_regressed_or_improved() {
+        // Before: a route outage refused links-a and links-b; links-c passed.
+        let base = summary(&[
+            infra_row("links-a", "links"),
+            infra_row("links-b", "links"),
+            row("links-c", "links", true),
+        ]);
+        let now = summary(&[
+            row("links-a", "links", true),
+            row("links-b", "links", false),
+            row("links-c", "links", false),
+        ]);
+        assert_eq!(base["infra_runs"], 2);
+        assert_eq!(base["case_results"]["links-a"]["runs"], 0);
+        let d = baseline_diff(&now, &base);
+        // links-c is the only case both sides scored.
+        assert_eq!(
+            d["regressed"],
+            json!([{"id": "links-c", "baseline": 1.0, "now": 0.0}])
+        );
+        assert_eq!(d["improved"], json!([]));
+        assert_eq!(d["unscored"], json!(["links-a", "links-b"]));
+        assert_eq!(d["total"]["baseline"]["runs"], 1);
+        let md = diff_markdown(&d, "base/summary.json");
+        assert!(md.contains("Unscored (the model route refused every run on a side: no verdict): links-a, links-b"), "{md}");
+        assert!(!md.contains("Improved"), "{md}");
+    }
+
+    #[test]
+    fn rescoring_marks_an_older_runners_route_failures_infra() {
+        let dir = std::env::temp_dir().join(format!("chief-eval-rescore-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let failed = |why: &str| {
+            json!({"id": "links-a", "group": "links", "pass": false,
+            "turns": [{"checks": [{"type": "turn", "pass": false, "why": why}]}]})
+        };
+        let rows = [
+            failed("HTTP 503: no non-exhausted claude accounts available"),
+            json!({"id": "links-b", "group": "links", "pass": false,
+                "turns": [{"checks": [{"type": "judge", "pass": false, "why": "FAIL: no link"}]}]}),
+        ];
+        std::fs::write(
+            dir.join("rows.jsonl"),
+            rows.iter().map(|r| format!("{r}\n")).collect::<String>(),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("summary.json"),
+            r#"{"model": "m", "case_results": {}}"#,
+        )
+        .unwrap();
+        let s = rescored_summary(&dir).unwrap();
+        assert_eq!(s["infra_runs"], 1);
+        assert_eq!(
+            s["case_results"]["links-a"],
+            json!({"group": "links", "passed": 0, "runs": 0, "infra": 1})
+        );
+        assert_eq!(s["case_results"]["links-b"]["runs"], 1);
+        assert_eq!(s["model"], "m");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

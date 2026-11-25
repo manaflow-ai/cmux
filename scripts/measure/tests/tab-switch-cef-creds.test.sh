@@ -6,15 +6,17 @@
 # never needs them; the environment, the HOME env file and the account's env file each pass, and the file
 # found is exported for the build.
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../cmux-next/tests/lib/git-fixture.sh"  # drops inherited GIT_DIR/GIT_CONFIG redirects; turns off background maintenance
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 script="$here/../tab-switch.sh"
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/tab-switch-cef-creds.XXXXXX")"
-trap 'rm -rf -- "$tmp"' EXIT
+git_fixture_trap_exit 'rm -rf -- "$tmp"'
 
 repo="$tmp/repo"
 mkdir -p "$repo/scripts/measure" "$tmp/bin" "$tmp/home" "$tmp/account/.secrets" "$tmp/empty"
 cp "$script" "$repo/scripts/measure/tab-switch.sh"
-git -C "$repo" init -q
+git_fixture_init "$repo"
 # Stops the script at its first mktemp (right after the check), saying which env file the build would read.
 cat >"$tmp/bin/mktemp" <<'SH'
 #!/usr/bin/env bash

@@ -389,7 +389,7 @@ extension CloudHandlers {
                 }
             }
             try checkScope(session)
-            try await WorkspaceCreation.create(key, name: folder.map { URL(fileURLWithPath: $0.root).lastPathComponent }, on: connection, repair: session.emptyWorkspaces) { _ = try await WorkspaceCreation.firstTerminal(in: $0, cwd: cwd, on: connection) }
+            try await WorkspaceCreation.create(key, name: folder.map { ($0.root as NSString).lastPathComponent }, on: connection, repair: session.emptyWorkspaces) { _ = try await WorkspaceCreation.firstTerminal(in: $0, cwd: cwd, on: connection) }
             return key.rawValue
         }
         return .started

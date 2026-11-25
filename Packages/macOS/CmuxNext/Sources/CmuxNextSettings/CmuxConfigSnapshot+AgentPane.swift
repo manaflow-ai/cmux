@@ -5,5 +5,7 @@ nonisolated extension CmuxConfigSnapshot {
     static func parseAgentPane(_ root: JSONValue, into snapshot: inout CmuxConfigSnapshot) {
         snapshot.agentPaneEditedFiles = AgentPaneEditedFilesSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.agentPaneComposer = AgentPaneComposerSetting.parse(root, diagnostics: &snapshot.diagnostics)
+        // A Developer Tools row, not an agentPane key, carried by the composer event.
+        snapshot.agentPaneComposer.showOverloadNotice = HostOverloadNoticeSetting().value(in: root)
     }
 }
