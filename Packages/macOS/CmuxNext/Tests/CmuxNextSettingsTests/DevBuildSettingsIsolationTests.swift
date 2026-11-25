@@ -48,10 +48,11 @@ import Testing
     @Test func aDevBuildsLaunchFileIsItsOwn() throws {
         let home = FileManager.default.temporaryDirectory.appending(path: "cn-dev-launch-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: home) }
-        let shared = home.appending(path: ".config/cmux")
+        let shared = home.appending(path: ".config/cmux-next"), classic = home.appending(path: ".config/cmux")
         try FileManager.default.createDirectory(at: shared, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: classic, withIntermediateDirectories: true)
         try Data(#"{"mobile": {"allowIPhoneConnections": false}}"#.utf8).write(to: shared.appending(path: "cmux-next.json"))
-        try Data(#"{"theme": "classic"}"#.utf8).write(to: shared.appending(path: "cmux.json"))
+        try Data(#"{"theme": "classic"}"#.utf8).write(to: classic.appending(path: "cmux.json"))
         let dev = BuildStatePaths(build: BuildIdentity(bundleID: "com.cmuxterm.app.debug.my-tag", bundledTag: nil), userHome: home,
                                   applicationSupport: home.appending(path: "Library/Application Support"),
                                   caches: home.appending(path: "Library/Caches"))

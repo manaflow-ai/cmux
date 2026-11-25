@@ -244,16 +244,16 @@ import Testing
     @Test func restingHeightFollowsWhatShows() {
         let metrics = TerminalDockMetrics()
         let line: CGFloat = 20.29
-        // SF body: 20.29 + 2 x (3 + 6) = 38.3 -> the 40 pt circles win.
-        #expect(metrics.restingComposerHeight(lineHeight: line) == 40)
+        // SF body: 20.29 + 2 x 2 = 24.3 -> the chat card's 48 pt (a 44 pt row) wins.
+        #expect(metrics.restingComposerHeight(lineHeight: line) == 48)
         // At rest the keyboard is down, so the key row is never counted: the
         // PTY keeps its rows when the keyboard and the row come and go.
-        #expect(metrics.restingStackHeight(lineHeight: line, visibility: TerminalDockVisibility()) == 40)
-        #expect(metrics.restingStackHeight(lineHeight: line, visibility: TerminalDockVisibility(softKeyboard: .shown)) == 40)
+        #expect(metrics.restingStackHeight(lineHeight: line, visibility: TerminalDockVisibility()) == 48)
+        #expect(metrics.restingStackHeight(lineHeight: line, visibility: TerminalDockVisibility(softKeyboard: .shown)) == 48)
         #expect(metrics.restingStackHeight(lineHeight: line, visibility: TerminalDockVisibility(composerPresented: false)) == 0)
         #expect(metrics.restingStackHeight(lineHeight: line, visibility: TerminalDockVisibility(chromeHidden: true)) == 0)
         // Larger text: taller, but still fixed for that size.
-        #expect(metrics.restingComposerHeight(lineHeight: 40) == 58)
+        #expect(metrics.restingComposerHeight(lineHeight: 50) == 54)
     }
 }
 
