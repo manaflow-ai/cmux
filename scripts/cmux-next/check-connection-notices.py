@@ -130,6 +130,8 @@ BOUND_COPIES: tuple[tuple[str, str, int], ...] = (
 # A person action on the same unit.
 PERSON_ACTIONS = re.compile(
     r"(\bonClick\s*=|\bonPress\s*=|<Button\b|<button\b|\bonAction\b|\bprimaryAction\b"  # web
+    # A web component the unit draws whose name says it is a button (`<ConnectButton onConnect={...} />`).
+    r"|<[A-Z]\w*Button\b"
     r"|\bButton\s*[({]|\bNSButton\b|\.onTapGesture\b|\baddAction\b|#selector\(|\bUIAction\b|\.swipeActions\b"  # Swift
     r"|\baction:\s*\{|\bactions:\s*\[|\baction:\s*\."
     # A Swift model that names the person's action for its state (`var action: Action?`), drawn by a view.
@@ -343,11 +345,22 @@ def member_at(unit: Unit, index: int) -> str | None:
     if not unit.path.endswith(".swift"):
         m = MAP_PROP.match(unit.lines[index])
         return m.group(1) if m else None
+    # A `let` or `var` statement may be a local inside the member (`let state = isLive ? "…on" : "…off"` in
+    # `liveTooltip`): it is the member only if no declaration indented less encloses it. Read as the member `state`,
+    # which no view names, the words stayed on the strings type and failed there (cmux#53574's Live tooltip).
+    local: tuple[str, int] | None = None
     for back in range(index, -1, -1):
-        m = SWIFT_MEMBER.search(unit.lines[back])
-        if m and m.group(1) != unit.name:
-            return m.group(1)
-    return None
+        line = unit.lines[back]
+        m = SWIFT_MEMBER.search(line)
+        if not m or m.group(1) == unit.name:
+            continue
+        indent = len(line) - len(line.lstrip())
+        if line.lstrip().startswith(("let ", "var ")):
+            if local is None or indent < local[1]:
+                local = (m.group(1), indent)
+            continue
+        return local[0] if local is not None and indent >= local[1] else m.group(1)
+    return local[0] if local is not None else None
 
 
 def module_of(path: str) -> str:

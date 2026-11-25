@@ -377,6 +377,21 @@ pub(super) fn detail_code(detail: &str) -> Option<String> {
         return Some(if token { code } else { "other".into() });
     }
     let word = [
+        // The session's own resume errors (`ConnectionError`, `SessionError`):
+        // a resume that ends on one names it, not `other`.
+        ("reconnect deadline expired", "resume_deadline"),
+        ("stale connection generation", "stale_generation"),
+        ("connection generation changed", "generation_changed"),
+        ("generation exhausted", "generation_exhausted"),
+        ("no longer has the requested logical session", "session_gone"),
+        ("too many connected clients", "daemon_full"),
+        ("replay buffer is full", "replay_full"),
+        ("delivery window is full", "window_full"),
+        ("outbound queue is full", "queue_full"),
+        ("sequence gap", "sequence_gap"),
+        ("frame belongs to another session", "wrong_session"),
+        ("outbound scheduler closed", "scheduler_closed"),
+        ("invalid session frame", "invalid_frame"),
         ("ssh bootstrap failed", "ssh_bootstrap"),
         ("does not support", "unsupported_auth"),
         ("no reconnect routes", "no_routes"),
@@ -533,6 +548,7 @@ pub(super) fn routes_line_on(
 /// is its [`detail_code`], after the route it failed on when the route
 /// runner named one ([`route_of`]). A captured ssh
 /// stderr tail is left out: it has its own quoted field.
+#[cfg(test)]
 pub(super) fn why_codes(detail: &str) -> Option<String> {
     why_codes_on(detail, None)
 }

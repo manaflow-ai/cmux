@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.cloud.agentMemory.follow.help" : {
+      "comment" : "Help for the agent memory toggle: names what travels and who controls it.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your CLAUDE.md, AGENTS.md, agents, commands, skills and Claude's memory notes follow you to Cloud machines. Never credentials or settings files. Agents' changes wait for you in Session Info; only you can change this. Off deletes your copy in the cloud and stops every push."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تنتقل معك ملفات CLAUDE.md وAGENTS.md والوكلاء والأوامر والمهارات وملاحظات ذاكرة Claude إلى الأجهزة السحابية. لا تُنقل بيانات الاعتماد أو ملفات الإعدادات أبدًا. تنتظرك تغييرات الوكلاء في Session Info، وأنت وحدك من يمكنه تغيير هذا. الإيقاف يحذف نسختك في السحابة ويوقف كل دفع."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vaši CLAUDE.md, AGENTS.md, agenti, komande, vještine i Claudeove bilješke memorije prate vas na Cloud mašine. Nikad akreditivi ni fajlovi postavki. Izmjene agenata čekaju vas u Session Info; samo vi ovo možete promijeniti. Isključivanje briše vašu kopiju u oblaku i zaustavlja svako slanje."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dine CLAUDE.md, AGENTS.md, agenter, kommandoer, færdigheder og Claudes hukommelsesnoter følger dig til Cloud-maskiner. Aldrig loginoplysninger eller indstillingsfiler. Agenters ændringer venter på dig i Session Info; kun du kan ændre dette. Fra sletter din kopi i skyen og stopper al overførsel."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Deine CLAUDE.md, AGENTS.md, Agenten, Befehle, Skills und Claudes Gedächtnisnotizen folgen dir auf Cloud-Maschinen. Niemals Zugangsdaten oder Einstellungsdateien. Änderungen von Agenten warten in Session Info auf dich; nur du kannst dies ändern. Aus löscht deine Kopie in der Cloud und stoppt jede Übertragung."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tus CLAUDE.md, AGENTS.md, agentes, comandos, habilidades y notas de memoria de Claude te siguen a las máquinas en la nube. Nunca credenciales ni archivos de configuración. Los cambios de los agentes te esperan en Session Info; solo tú puedes cambiar esto. Desactivarlo borra tu copia en la nube y detiene todo envío."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vos CLAUDE.md, AGENTS.md, agents, commandes, compétences et notes de mémoire de Claude vous suivent sur les machines Cloud. Jamais d'identifiants ni de fichiers de réglages. Les modifications des agents vous attendent dans Session Info ; vous seul pouvez changer ce réglage. Désactivé, votre copie dans le cloud est supprimée et tout envoi s'arrête."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "I tuoi CLAUDE.md, AGENTS.md, agenti, comandi, skill e note di memoria di Claude ti seguono sulle macchine Cloud. Mai credenziali o file di impostazioni. Le modifiche degli agenti ti aspettano in Session Info; solo tu puoi cambiare questa opzione. Disattivarla elimina la tua copia nel cloud e interrompe ogni invio."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "CLAUDE.md、AGENTS.md、エージェント、コマンド、スキル、Claude のメモリノートがクラウドマシンでも使えます。認証情報や設定ファイルは送りません。エージェントによる変更は Session Info であなたの確認を待ちます。この設定を変えられるのはあなただけです。オフにするとクラウド上のコピーを削除し、すべての送信を止めます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "CLAUDE.md, AGENTS.md, ភ្នាក់ងារ, ពាក្យបញ្ជា, ជំនាញ និងកំណត់ចំណាំអង្គចងចាំរបស់ Claude តាមអ្នកទៅម៉ាស៊ីន Cloud។ មិនដែលបញ្ជូនព័ត៌មានសម្ងាត់ ឬឯកសារការកំណត់ឡើយ។ ការផ្លាស់ប្តូររបស់ភ្នាក់ងាររង់ចាំអ្នកនៅក្នុង Session Info; មានតែអ្នកទេដែលអាចផ្លាស់ប្តូររឿងនេះ។ ការបិទនឹងលុបច្បាប់ចម្លងរបស់អ្នកនៅលើ cloud និងបញ្ឈប់ការបញ្ជូនទាំងអស់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "CLAUDE.md, AGENTS.md, 에이전트, 명령, 스킬, Claude의 메모리 노트가 클라우드 머신에서도 함께합니다. 자격 증명이나 설정 파일은 절대 보내지 않습니다. 에이전트의 변경 사항은 Session Info에서 확인을 기다리며, 이 설정은 본인만 바꿀 수 있습니다. 끄면 클라우드의 사본을 삭제하고 모든 전송을 멈춥니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dine CLAUDE.md, AGENTS.md, agenter, kommandoer, ferdigheter og Claudes minnenotater følger deg til Cloud-maskiner. Aldri påloggingsinformasjon eller innstillingsfiler. Endringer fra agenter venter på deg i Session Info; bare du kan endre dette. Av sletter kopien din i skyen og stopper all overføring."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Twoje CLAUDE.md, AGENTS.md, agenci, polecenia, umiejętności i notatki pamięci Claude'a podążają za Tobą na maszyny Cloud. Nigdy dane logowania ani pliki ustawień. Zmiany agentów czekają na Ciebie w Session Info; tylko Ty możesz to zmienić. Wyłączenie usuwa Twoją kopię w chmurze i zatrzymuje każde wysyłanie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Seus CLAUDE.md, AGENTS.md, agentes, comandos, habilidades e notas de memória do Claude acompanham você nas máquinas na nuvem. Nunca credenciais ou arquivos de configuração. As mudanças dos agentes esperam por você em Session Info; só você pode alterar isso. Desligar apaga sua cópia na nuvem e interrompe todo envio."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ваши CLAUDE.md, AGENTS.md, агенты, команды, навыки и заметки памяти Claude следуют за вами на облачные машины. Никогда — учётные данные или файлы настроек. Изменения агентов ждут вас в Session Info; изменить это можете только вы. Выключение удаляет вашу копию в облаке и останавливает любую отправку."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "CLAUDE.md, AGENTS.md, เอเจนต์, คำสั่ง, ทักษะ และบันทึกหน่วยความจำของ Claude จะตามคุณไปยังเครื่อง Cloud ไม่ส่งข้อมูลรับรองหรือไฟล์การตั้งค่าเด็ดขาด การเปลี่ยนแปลงของเอเจนต์จะรอคุณใน Session Info มีเพียงคุณที่เปลี่ยนการตั้งค่านี้ได้ การปิดจะลบสำเนาของคุณบนคลาวด์และหยุดการส่งทั้งหมด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "CLAUDE.md, AGENTS.md, ajanlarınız, komutlarınız, becerileriniz ve Claude'un bellek notları sizinle Cloud makinelerine gelir. Kimlik bilgileri veya ayar dosyaları asla gönderilmez. Ajanların değişiklikleri Session Info'da sizi bekler; bunu yalnızca siz değiştirebilirsiniz. Kapatmak buluttaki kopyanızı siler ve tüm gönderimi durdurur."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ваші CLAUDE.md, AGENTS.md, агенти, команди, навички та нотатки пам'яті Claude супроводжують вас на хмарних машинах. Ніколи — облікові дані чи файли налаштувань. Зміни агентів чекають на вас у Session Info; змінити це можете лише ви. Вимкнення видаляє вашу копію в хмарі й зупиняє будь-яке надсилання."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "CLAUDE.md, AGENTS.md, tác tử, lệnh, kỹ năng và ghi chú bộ nhớ của Claude theo bạn sang máy Cloud. Không bao giờ gửi thông tin đăng nhập hay tệp cài đặt. Thay đổi của tác tử chờ bạn trong Session Info; chỉ bạn mới có thể thay đổi mục này. Tắt sẽ xóa bản sao của bạn trên đám mây và dừng mọi lần gửi."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你的 CLAUDE.md、AGENTS.md、智能体、命令、技能和 Claude 的记忆笔记会随你来到云端机器。绝不包括凭据或设置文件。智能体的更改会在 Session Info 中等你确认；只有你能更改此项。关闭会删除你在云端的副本并停止所有推送。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "你的 CLAUDE.md、AGENTS.md、代理程式、指令、技能和 Claude 的記憶筆記會隨你來到雲端機器。絕不包括憑證或設定檔。代理程式的變更會在 Session Info 中等你確認；只有你能變更此項。關閉會刪除你在雲端的副本並停止所有推送。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
