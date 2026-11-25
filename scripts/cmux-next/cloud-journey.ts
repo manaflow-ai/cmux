@@ -2654,7 +2654,7 @@ async function cleanupTagMode(tag: string, backend: Backend, email: string | und
   secrets.push(s.access, s.refresh);
   const api = new Api(backend.api, team);
   api.bearer = s.access;
-  const names = new Set([`cloud journey auto ${tag}`, `cloud journey auto ${tag} gateway`]);
+  const names = new Set([false, true].flatMap((long) => [autoMachineName(tag, long), `${autoMachineName(tag, long)} gateway`]));
   // --kept: also the machine a --keep run with this tag made (`cloud journey TAG`), once its operator is done with it.
   if (kept) names.add(`cloud journey ${tag}`).add(`cloud journey ${tag} gateway`);
   const rows = await listAllMachines((params) => api.read("cloud.machine.list", params));
@@ -3574,10 +3574,22 @@ export function machineIds(rows: any[]): string[] {
 
 /**
  * How old a journey's own machine must be before a later run may sweep it: well past the longest job that runs a
- * journey (the resume matrix's 3600 s cell runs up to 330 min; cloud-journey.test.ts checks every timeout-minutes in
- * a workflow that runs it to be at most half of this), so a journey that is still running never loses its machine.
+ * journey (up to 90 min; cloud-journey.test.ts checks every timeout-minutes in a workflow that runs it to be at most
+ * half of this), so a journey that is still running never loses its machine. A long run (--resume-matrix,
+ * --wake-echo) names its machines `cloud journey auto jr-<tag> long…` and gets LONG_JOURNEY_MS instead.
  */
-export const STALE_JOURNEY_MS = 11 * 3_600_000;
+export const STALE_JOURNEY_MS = 3 * 3_600_000;
+/**
+ * The bound for a long run's machines (the resume matrix's 3600 s cell runs up to 330 min, wake-echo up to 150; the
+ * test checks those workflows against this). It applied to every journey machine from #54761, so a short run's leaks
+ * sat 11 h: the staging test team's 300-machine cap filled with 5 h old ones (cloud.quota.vm_limit, 2026-11-25,
+ * backend run 45572634999) while every sweep deleted 0. Installs keep it too (a long run still uses its install).
+ */
+export const LONG_JOURNEY_MS = 11 * 3_600_000;
+/** The machine name of a run that deletes its machine at the end: ` long` marks a run that may outlast STALE_JOURNEY_MS. */
+export function autoMachineName(tag: string, long: boolean): string {
+  return `cloud journey auto ${tag}${long ? " long" : ""}`;
+}
 /** And idle this long: a machine with activity since then is in use, whatever its age (a hand run has no timeout). */
 export const IDLE_JOURNEY_MS = 60 * 60_000;
 export interface StaleMachine { id: string; name: string; status: string; created: string }
@@ -3587,24 +3599,25 @@ export interface StaleMachine { id: string; name: string; status: string; create
  * named `cloud journey auto jr-<tag>`, or that name with any suffix (` gateway`, ` cold`, ` move B`: every machine a
  * run makes under its auto name; the old suffix list missed the ` move B` machines of 2026-11-23's runs, which helped fill the
  * staging test team to its 300-machine cap, cloud.quota.vm_limit on 2026-11-25), a name only a run that deletes its
- * machine gives, whose tag (`Date.now().toString(36)`, the run's start) is more than `maxAgeMs` old, with no activity
+ * machine gives, whose tag (`Date.now().toString(36)`, the run's start) is more than `maxAgeMs` old (`longMs` for a
+ * long run's `jr-<tag> long…`), with no activity
  * in the last IDLE_JOURNEY_MS (`last_active_at`, when the row has it), and not deleted.
  * Ownership is the name, never age or state: a --keep run's `cloud journey jr-<tag>`, any other name, and a tag that
  * does not read as a time are never picked.
  */
-export function staleJourneyMachines(rows: any[], nowMs: number, maxAgeMs = STALE_JOURNEY_MS): StaleMachine[] {
+export function staleJourneyMachines(rows: any[], nowMs: number, maxAgeMs = STALE_JOURNEY_MS, longMs = LONG_JOURNEY_MS): StaleMachine[] {
   const out: StaleMachine[] = [];
   for (const r of rows) {
     if (!r || r.status === "deleted" || r.status === "deleting") continue;
     const name = typeof r.name === "string" ? r.name : "";
     // A start bench's machines (runStartBench) are the sweep's too: only a run that deletes them names them so.
     // So are the Auto mode journey's (auto-journey.ts `auto journey aj-<tag>`): it always deletes its machine.
-    const m = /^cloud journey auto jr-([0-9a-z]+)(?: \S.*)?$/.exec(name) ?? /^cloud start bench jr-([0-9a-z]+) (?:source|(?:spare|cold|snapshot) \d+)$/.exec(name) ?? /^auto journey aj-([0-9a-z]+)$/.exec(name);
+    const m = /^cloud journey auto jr-([0-9a-z]+)( long)?(?: \S.*)?$/.exec(name) ?? /^cloud start bench jr-([0-9a-z]+) (?:source|(?:spare|cold|snapshot) \d+)$/.exec(name) ?? /^auto journey aj-([0-9a-z]+)$/.exec(name);
     if (!m) continue;
     const started = parseInt(m[1], 36);
     // A real tag is a millisecond time after 2020 and not in the future.
     if (!Number.isFinite(started) || started < Date.UTC(2020, 0, 1) || started > nowMs) continue;
-    if (nowMs - started <= maxAgeMs) continue;
+    if (nowMs - started <= (m[2] ? longMs : maxAgeMs)) continue;
     if (typeof r.last_active_at === "number" && nowMs - r.last_active_at <= IDLE_JOURNEY_MS) continue;
     const id = String(r.id ?? r.machine_id ?? "");
     const created = typeof r.created_at === "number" ? new Date(r.created_at).toISOString() : new Date(started).toISOString();
@@ -3621,7 +3634,7 @@ export function staleJourneyMachines(rows: any[], nowMs: number, maxAgeMs = STAL
  * the staging account's state: install.register answered owner.state_full, 1500285 of 1500000 bytes (2026-11-16).
  * Ownership is the name, as for machines: any other name, and a tag that does not read as a time, are never picked.
  */
-export function staleJourneyInstalls(installs: any[], nowMs: number, maxAgeMs = STALE_JOURNEY_MS): string[] {
+export function staleJourneyInstalls(installs: any[], nowMs: number, maxAgeMs = LONG_JOURNEY_MS): string[] {
   const out: string[] = [];
   for (const i of installs) {
     if (!i || i.revoked_at !== null || i.kind !== "cli") continue;
@@ -4454,7 +4467,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // A run that deletes its machine at the end names it "cloud journey auto jr-...": only those names are the sweep's
   // (the run meant to delete them). A --keep run keeps the plain "cloud journey jr-..." name, as every run used before
   // the sweep existed, and the sweep never matches it, so a kept machine is never deleted.
-  const machineName = keep ? `cloud journey ${tag}` : `cloud journey auto ${tag}`;
+  const machineName = keep ? `cloud journey ${tag}` : autoMachineName(tag, resumePauses.length > 0 || wakeEchoN > 0);
   const J = new Journey(backend, outDir, { tag, team: team ?? "(personal)", agent, exec: cmux ? `cmux CLI ${cmux}` : "client session", model: modelStub ? "stub (on the machine)" : "real" }, preclaim);
   if (password) J.secrets.push(password);
   if (claudeLogin) J.secrets.push(claudeLogin);
