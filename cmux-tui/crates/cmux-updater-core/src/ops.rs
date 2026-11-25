@@ -4,7 +4,11 @@
 
 use serde::{Deserialize, Serialize};
 
+use std::collections::BTreeMap;
+
 use crate::appcast::{self, AppcastItem};
+use crate::numeric;
+use crate::rollback::{self, Kept, Refusal, RingReturn};
 use crate::select::{self, Candidate, Outcome};
 use crate::system_version::SystemVersion;
 use crate::version;
@@ -80,6 +84,84 @@ pub fn system_versions(request: &SystemVersionRequest) -> SystemVersionReply {
     }
 }
 
+/// `updater_numeric_compare`: the numeric order (kept builds, channel tracks) of each pair.
+pub fn numeric_compare(request: &CompareRequest) -> CompareReply {
+    CompareReply {
+        orders: request.pairs.iter().map(|(a, b)| numeric::compare(a, b) as i8).collect(),
+    }
+}
+
+/// `updater_rollback`: the target of a rollback, or why it does not run.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RollbackRequest {
+    pub kept: Vec<Kept>,
+    #[serde(default)]
+    pub build: Option<String>,
+    #[serde(default)]
+    pub running: Option<String>,
+    #[serde(default)]
+    pub stored: BTreeMap<String, i64>,
+    #[serde(default)]
+    pub team_id: Option<String>,
+    /// Only the previous build of `running` (`RollbackDecision.previous`), no checks.
+    #[serde(default)]
+    pub previous_only: bool,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+pub struct RollbackReply {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refusal: Option<Refusal>,
+}
+
+pub fn rollback(request: &RollbackRequest) -> RollbackReply {
+    if request.previous_only {
+        let target = request
+            .running
+            .as_deref()
+            .and_then(|running| rollback::previous(&request.kept, running));
+        return RollbackReply { target, refusal: None };
+    }
+    match rollback::decide(
+        &request.kept,
+        request.build.as_deref(),
+        request.running.as_deref(),
+        &request.stored,
+        request.team_id.as_deref(),
+    ) {
+        Ok(target) => RollbackReply { target: Some(target), refusal: None },
+        Err(refusal) => RollbackReply { target: None, refusal: Some(refusal) },
+    }
+}
+
+/// `updater_ring_return`.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RingReturnRequest {
+    pub installed_build: String,
+    pub offered: Vec<String>,
+    #[serde(default)]
+    pub promoted: Vec<String>,
+    #[serde(default)]
+    pub pulled: Vec<String>,
+    /// Kept builds, newest first.
+    #[serde(default)]
+    pub kept: Vec<String>,
+}
+
+pub fn ring_return(request: &RingReturnRequest) -> RingReturn {
+    rollback::ring_return(
+        &request.installed_build,
+        &request.offered,
+        &request.promoted,
+        &request.pulled,
+        &request.kept,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -120,6 +202,47 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(select(&request), Outcome::UpdateAvailable { item: 1 });
+    }
+
+    #[test]
+    fn rollback_answers_a_target_or_a_refusal() {
+        let request: RollbackRequest = serde_json::from_value(json!({
+            "kept": [{"build": "1205", "storeSchemas": {"tabs": 3}, "teamId": "T", "keptAt": 2.0},
+                     {"build": "1200", "storeSchemas": {"tabs": 3}, "teamId": "T", "keptAt": 1.0}],
+            "running": "1210", "stored": {"tabs": 4}, "teamId": "T",
+        }))
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(rollback(&request)).unwrap(),
+            json!({"refusal": {"kind": "storeTooNew", "store": "tabs", "stored": 4, "readable": 3, "kept": 0}})
+        );
+        let request: RollbackRequest = serde_json::from_value(json!({
+            "kept": [{"build": "1205", "keptAt": 1.0}, {"build": "1200", "keptAt": 2.0}],
+            "running": "1210", "previousOnly": true,
+        }))
+        .unwrap();
+        assert_eq!(serde_json::to_value(rollback(&request)).unwrap(), json!({"target": 1}));
+    }
+
+    #[test]
+    fn ring_return_reads_the_app_request() {
+        let request: RingReturnRequest = serde_json::from_value(json!({
+            "installedBuild": "1210", "offered": ["1200"], "promoted": ["1205"], "kept": ["1205"],
+        }))
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(ring_return(&request)).unwrap(),
+            json!({"kind": "goBack", "kept": 0})
+        );
+    }
+
+    #[test]
+    fn numeric_compare_answers_each_pair() {
+        let request: CompareRequest = serde_json::from_value(
+            json!({"pairs": [["999", "1204"], ["1.10", "1.9"], ["7", "7"]]}),
+        )
+        .unwrap();
+        assert_eq!(numeric_compare(&request), CompareReply { orders: vec![-1, 1, 0] });
     }
 
     #[test]

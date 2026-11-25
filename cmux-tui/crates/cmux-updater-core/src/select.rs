@@ -59,18 +59,19 @@ pub fn select(candidates: &[Candidate], current_build: &str, system: SystemVersi
     let newest_any = newest(candidates.iter().enumerate());
     let newest_compatible =
         newest(candidates.iter().enumerate().filter(|(_, item)| item.supports(system)));
-    if let Some((index, item)) = newest_compatible {
-        if is_older(current_build, &item.version) {
-            return Outcome::UpdateAvailable { item: index };
-        }
+    if let Some((index, item)) = newest_compatible
+        && is_older(current_build, &item.version)
+    {
+        return Outcome::UpdateAvailable { item: index };
     }
-    if let Some((index, item)) = newest_any {
-        if is_older(current_build, &item.version) && !item.supports(system) {
-            return Outcome::RequiresNewerSystem {
-                item: index,
-                required: item.minimum_system_version.unwrap_or(system),
-            };
-        }
+    if let Some((index, item)) = newest_any
+        && is_older(current_build, &item.version)
+        && !item.supports(system)
+    {
+        return Outcome::RequiresNewerSystem {
+            item: index,
+            required: item.minimum_system_version.unwrap_or(system),
+        };
     }
     Outcome::UpToDate { latest: newest_compatible.map(|(index, _)| index) }
 }

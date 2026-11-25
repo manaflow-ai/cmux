@@ -87,3 +87,23 @@ fn a_malformed_request_is_invalid() {
     let (code, _) = call(c"updater_appcast_select", &json!({"items": 3}));
     assert_eq!(code, ERR_INVALID);
 }
+
+#[test]
+fn rollback_and_ring_return_answer() {
+    let (code, body) = call(
+        c"updater_rollback",
+        &json!({"kept": [{"build": "1205", "storeSchemas": {"tabs": 3}, "teamId": "T"}],
+                "running": "1210", "stored": {"tabs": 3}, "teamId": "T"}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"target": 0}));
+    let (code, body) = call(
+        c"updater_ring_return",
+        &json!({"installedBuild": "1210", "offered": ["1200"], "kept": ["1209"]}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"kind": "waits"}));
+    let (code, body) = call(c"updater_numeric_compare", &json!({"pairs": [["999", "1204"]]}));
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"orders": [-1]}));
+}

@@ -7,8 +7,8 @@
 
 use std::collections::HashMap;
 
-use quick_xml::Reader;
 use quick_xml::events::{BytesStart, Event};
+use quick_xml::{Reader, XmlVersion};
 use serde::{Deserialize, Serialize};
 
 use crate::system_version::SystemVersion;
@@ -121,7 +121,10 @@ impl State {
                     let attribute = attribute.map_err(invalid)?;
                     let key =
                         String::from_utf8(attribute.key.as_ref().to_vec()).map_err(invalid)?;
-                    let value = attribute.unescape_value().map_err(invalid)?.into_owned();
+                    let value = attribute
+                        .normalized_value(XmlVersion::Implicit1_0)
+                        .map_err(invalid)?
+                        .into_owned();
                     attributes.insert(key, value);
                 }
                 self.enclosure = Some(attributes);
@@ -138,11 +141,12 @@ impl State {
             b"sparkle:deltas" => self.delta_depth -= 1,
             b"item" => self.finish_item(),
             _ => {
-                if self.delta_depth == 0 && !value.is_empty() {
-                    if let Some(fields) = self.fields.as_mut() {
-                        let name = String::from_utf8(name.to_vec()).map_err(invalid)?;
-                        fields.insert(name, value);
-                    }
+                if self.delta_depth == 0
+                    && !value.is_empty()
+                    && let Some(fields) = self.fields.as_mut()
+                {
+                    let name = String::from_utf8(name.to_vec()).map_err(invalid)?;
+                    fields.insert(name, value);
                 }
             }
         }
@@ -258,10 +262,8 @@ pub fn parse(xml: &str) -> Result<Vec<AppcastItem>, ParseError> {
                     state.text.push_str(&resolved);
                 }
             }
-            Event::CData(data) => {
-                if depth > 0 {
-                    state.text.push_str(&String::from_utf8_lossy(&data));
-                }
+            Event::CData(data) if depth > 0 => {
+                state.text.push_str(&String::from_utf8_lossy(&data));
             }
             Event::Eof => break,
             _ => {}

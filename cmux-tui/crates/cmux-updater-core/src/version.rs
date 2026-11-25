@@ -98,7 +98,7 @@ impl Part {
         for unit in &self.units {
             match unit {
                 0x30..=0x39 => {
-                    value = value.saturating_mul(10).saturating_add(i64::from(unit - 0x30))
+                    value = value.saturating_mul(10).saturating_add(i64::from(unit - 0x30));
                 }
                 _ => break,
             }
