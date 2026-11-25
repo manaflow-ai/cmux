@@ -135,15 +135,18 @@ fn a_chat_stays_on_its_side() {
     }
 }
 
-/// SIGCONT only goes to a tree this laptop stopped, and never with a kill. A stopped tree that
-/// may run again was continued, or killed for a chat that starts over from what it kept.
+/// SIGCONT only goes to a tree this laptop stopped, and never with a kill. The chat may run
+/// after it, or is given in that same step: its turn is stopped as a running one is, so
+/// nothing of the chat starts here before the give. A stopped tree that may run again was
+/// continued, or killed for a chat that starts over from what it kept.
 #[test]
 fn a_tree_is_continued_only_from_stopped_and_never_killed_too() {
     for (from, event, before, after, effects) in every_pair() {
         if has(&effects, "continue_tree") {
             assert!(matches!(before.state, State::Stopped { .. }), "{from} {event}");
             assert!(!has(&effects, "kill_tree"), "{from} {event}");
-            assert!(after.may_run(), "{from} {event}");
+            let given = has(&effects, "stop_turn") && after.moving().is_some();
+            assert!(after.may_run() || given, "{from} {event}");
         }
         if matches!(before.state, State::Stopped { .. }) && after.may_run() {
             let continued = has(&effects, "continue_tree");
@@ -192,13 +195,16 @@ fn a_machine_kill_keeps_a_leftover_patch_unless_everything_is_copied() {
     }
 }
 
-/// A give starts with the turn's stop, the store is asked only once it has the chat's newest
-/// copy, and nothing of the chat runs here in between.
+/// A give starts with the turn's stop, on a chat that runs or on one whose stopped tree is
+/// continued in that step. The store is asked only once it has the chat's newest copy, and
+/// nothing of the chat runs here in between.
 #[test]
 fn a_give_stops_the_turn_then_copies_then_asks() {
     for (from, event, before, after, effects) in every_pair() {
         if has(&effects, "stop_turn") {
-            assert!(before.may_run(), "{from} {event}");
+            let continued = matches!(before.state, State::Stopped { .. })
+                && effects.first() == Some(&Effect::ContinueTree);
+            assert!(before.may_run() || continued, "{from} {event}");
             let step = after.state.giving().map(|(step, _)| step);
             assert_eq!(step, Some(GiveStep::Stopping), "{from} {event}");
         }
