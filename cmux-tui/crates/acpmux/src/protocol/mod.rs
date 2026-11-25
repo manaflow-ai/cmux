@@ -20,6 +20,7 @@ pub mod permission;
 pub mod presence;
 pub mod process;
 pub mod session;
+pub mod sync;
 #[cfg(test)]
 mod tests;
 
@@ -235,6 +236,8 @@ pub fn registry() -> Vec<MethodDecl> {
         request::<presence::TypingParams, events::Done>(method::MUX_TYPING),
         request::<here::HereBeatParams, here::HereBeatDone>(method::MUX_HERE_BEAT),
         request::<here::HereParams, here::HereResult>(method::MUX_HERE),
+        request::<sync::SyncPullParams, sync::SyncPullResult>(method::MUX_SYNC_PULL),
+        request::<sync::SyncPushParams, sync::SyncPushDone>(method::MUX_SYNC_PUSH),
         request::<events::MarkUnreadParams, events::Done>(method::MUX_MARK_UNREAD),
         request::<events::SessionRef, events::Done>(method::MUX_MARK_READ),
         request::<events::SeenParams, events::SeenDone>(method::MUX_SEEN),
@@ -345,6 +348,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_RETENTION, Request),
         untyped(method::MUX_COLD_ARCHIVE, Request),
         untyped(method::MUX_AUTO_SESSION_SET, Request),
+        untyped(method::MUX_CHAT_MOVE, Request),
         untyped(method::MUX_AUTO_SESSION_LEFTOVER, Request),
         untyped(method::MUX_AUTO_SESSION_WAKE, Request),
         untyped(method::MUX_AUTO_SESSION_TRANSCRIPT, Request),
@@ -371,6 +375,7 @@ pub fn registry() -> Vec<MethodDecl> {
         request::<events::EventsParams, events::EventsResult>(method::MUX_EVENTS),
         keyed::<params::AttachmentParams>(method::MUX_ATTACHMENT, Request),
         keyed::<params::TurnShotsParams>(method::MUX_TURN_SHOTS, Request),
+        keyed::<params::TurnFramesParams>(method::MUX_TURN_FRAMES, Request),
         keyed::<params::CustomizeRunParams>(method::MUX_CUSTOMIZE_RUN, Request),
         request::<MailSendParams, MailSendResult>(method::MUX_MAIL_SEND),
         request::<MailReadParams, MailPageResult>(method::MUX_MAIL_READ),
@@ -601,6 +606,9 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/peer_snapshots_clear", Request),
         untyped("_acpmux/journal_restore", Request),
         untyped("_acpmux/attachments_held", Request),
+        untyped(crate::perf_trace::METHOD_SPANS, Request),
+        untyped(crate::perf_trace::METHOD_STATUS, Request),
+        untyped(crate::agent_credentials::UPDATE_METHOD, Request),
         untyped(method::MUX_PAIR_TICKET_NEW, Request),
         untyped(method::MUX_PAIR_LIST, Request),
         untyped(method::MUX_PAIR_REVOKE, Request),
@@ -655,6 +663,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_CONTROL, Notification),
         untyped(method::MUX_HARNESS_INVENTORY, Notification),
         untyped(method::MUX_START_MODE_CHANGED, Notification),
+        untyped(method::MUX_FILL, Notification),
         untyped(method::MUX_PROMPT_ACCEPTED, Notification),
         untyped(method::MUX_CANCEL_REFUSED, Notification),
         untyped(method::MUX_UNSENT, Notification),
