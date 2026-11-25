@@ -915,7 +915,8 @@ export function SessionInfo({
       title={t("summary.backgroundTasks")}
       open={state.tasks}
       onOpenChange={fold("tasks")}
-      meta={running > 0 ? value(t("rail.running", { count: running })) : undefined}
+      // The number of what runs, no word (Leo, 2026-11-23: ""running" doesn't need text"), as Also here's count.
+      meta={running > 0 ? value(String(running)) : undefined}
     >
       {workflows.length > 0 && (
         <WorkflowTasks

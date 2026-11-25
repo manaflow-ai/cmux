@@ -493,6 +493,8 @@ type Props = {
   noProject?: boolean;
   sourceRepository?: { cwd: string; name: string };
   cloningRepository?: string;
+  /// A GitHub repository picked with This Mac picked, checked out when Return sends (cmux#53226).
+  pendingRepository?: string;
   /// A started chat's Choose folder…: the host's folder panel (see ComposerContext).
   onBrowseFolder?(): Promise<string | undefined>;
   /// The location row's SSH… and New Cloud Machine rows open the host's connect flows.
@@ -788,6 +790,7 @@ function ComposerFrame({
   noProject,
   sourceRepository,
   cloningRepository,
+  pendingRepository,
   onBrowseFolder,
   onConnect,
   onOffload,
@@ -2800,6 +2803,7 @@ function ComposerFrame({
       noProject={noProject}
       sourceRepository={sourceRepository}
       cloningRepository={cloningRepository}
+      {...(pendingRepository ? { pendingRepository } : {})}
       onBrowseFolder={onBrowseFolder}
       onConnect={onConnect}
       {...(onOffload ? { onOffload } : {})}

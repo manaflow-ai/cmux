@@ -197,6 +197,33 @@ fn a_rewritten_log_is_packed_whole_again() {
     assert_eq!(again.stats.kept_segments, 2, "{:?}", again.stats);
 }
 
+/// A seal that failed is not trusted: the next one packs whole and re-verifies, it does not try
+/// the same extension again.
+#[test]
+fn a_failed_seal_is_followed_by_a_whole_pack() {
+    let root = tempfile::tempdir().unwrap();
+    let sessions = root.path().join("sessions");
+    let hub = hub(&sessions);
+    let id = "pack-grows-c";
+    let session = chat(&hub, id);
+    let mut text = Text(11);
+    grow(&hub, &session, &sessions, (4 << 20) + (1 << 20), &mut text);
+    assert!(!hub.seal_pack(id).unwrap().unwrap().extended);
+    grow(&hub, &session, &sessions, (8 << 20) + (1 << 20), &mut text);
+    assert!(hub.seal_pack(id).unwrap().unwrap().extended);
+    // The manifest cannot be read, so the extension fails.
+    let path = hub.pack_store(id).unwrap().root().join("sessions").join(format!("{id}.json"));
+    let good = std::fs::read(&path).unwrap();
+    std::fs::write(&path, b"{ not a manifest").unwrap();
+    grow(&hub, &session, &sessions, (9 << 20) + (512 << 10), &mut text);
+    assert!(hub.seal_pack(id).is_err());
+    assert!(!hub.pack_checked.lock().unwrap().contains_key(id), "a failed seal is forgotten");
+    std::fs::write(&path, good).unwrap();
+    let again = hub.seal_pack(id).unwrap().unwrap();
+    assert!(!again.extended, "the seal after a failed one is whole");
+    assert_eq!(again.stats.kept_segments, 2, "{:?}", again.stats);
+}
+
 /// The duress number (`--ignored`, prints): each append's time through the hub on a chat whose
 /// log grows to 56 MB, with no pack worker and with it sealing every 4 MiB.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

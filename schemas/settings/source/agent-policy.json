@@ -532,7 +532,8 @@
         "experiments.menuStyleV2",
         "experiments.menuRowStates",
         "experiments.toastsV2",
-        "experiments.cloudToggle"
+        "experiments.cloudToggle",
+        "experiments.terminalHistoryFind"
       ]
     },
     {
