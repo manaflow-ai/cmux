@@ -196,7 +196,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // App-scoped Ghostty actions (quit, toggle_visibility, ...) arrive with no surface.
         TerminalHooks(services: services).install()
         DebugTimings.markLaunch("dfl.bind")
-        startSettingsAndControl(services: services, launch: settingsRead, bare: launch.kind == .bare)
+        startSettingsAndControl(services: services, launch: settingsRead)
         services.newTabSpares.prewarm() // the first agent page loads while the windows build (cx-z9kz0)
         DebugTimings.markLaunch("dfl.settings")
         if services.crashRecovery.recovery.startsUpdaterBeforeWindows { services.updater.start() } // a restart loop: before the daemon and windows, so a build that ends before its first frame can still fetch its fix
@@ -305,19 +305,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // A launch whose first window never draws (no window, a daemon that never answers) still
         // starts the work waiting for that frame.
         openedURLs.start { [weak self] in self?.routeReadyURL($0) }
-        // Work the launch window does not draw: each step in its own main turn after the first frame.
-        // Chromium's crash-loop border (observeBorders) and the glass look follow the first frame too.
-        firstFrame.afterOpen(stop: { [weak services] in services?.windows.isTerminating ?? true }, [
-            { [weak self, weak services] in self?.cloudContext = services?.startCloud() },
-            { [weak services] in services?.home.start() },
-            { [weak services] in services?.harnessIcons.start() },
-            { [weak services] in if let services { services.bookmarks.start(directory: profilesDirectory, importStore: services.onboarding.importStore) } },
-            { [weak services] in services?.history.start(supportDirectory: profilesDirectory.deletingLastPathComponent()) },
-            { [weak services] in services?.observeBorders(); services?.observeGlass() },
-            { [weak services] in if let services { services.updateFeedObservation = UpdateFeedPosting.follow(services) } },
-            { [weak self] in self?.ghosttyConfigLiveReload = GhosttyConfigLiveReload(); self?.ghosttyConfigLiveReload?.start() },
-            { [weak services] in if let services { NSApp.servicesProvider = CmuxServicesProvider(open: services.externalOpen) } },
-            { [weak services] in services?.startLaterTabWarmups() },
+        // Work the launch window does not draw: one step per main turn after the first frame (Chromium's crash-loop border and
+        // the glass look too). Cloud and Home at once (the front may be Home's Chief); the rest after the front chat drew.
+        let stop: @MainActor () -> Bool = { [weak services] in services?.windows.isTerminating ?? true }, mark: @MainActor @Sendable (String) -> Void = { DebugTimings.markLaunch($0) }
+        firstFrame.afterOpen(stop: stop, mark: mark, ["cloud": { [weak self, weak services] in self?.cloudContext = services?.startCloud() }, "home": { [weak services] in services?.home.start() }])
+        FrontChatPaintGate.make(after: firstFrame).afterOpen(stop: stop, mark: mark, [
+            "harness_icons": { [weak services] in services?.harnessIcons.start() },
+            "bookmarks": { [weak services] in if let services { services.bookmarks.start(directory: profilesDirectory, importStore: services.onboarding.importStore) } },
+            "history": { [weak services] in services?.history.start(supportDirectory: profilesDirectory.deletingLastPathComponent()) },
+            "borders_glass": { [weak services] in services?.observeBorders(); services?.observeGlass() },
+            "update_feed": { [weak services] in if let services { services.updateFeedObservation = UpdateFeedPosting.follow(services) } },
+            "ghostty_reload": { [weak self] in self?.ghosttyConfigLiveReload = GhosttyConfigLiveReload(); self?.ghosttyConfigLiveReload?.start() },
+            "services_provider": { [weak services] in if let services { NSApp.servicesProvider = CmuxServicesProvider(open: services.externalOpen) } },
+            "tab_warmups": { [weak services] in services?.startLaterTabWarmups() },
         ])
         firstFrame.armBackstop(after: .seconds(3))
     }
@@ -331,7 +331,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// cmux-next.json settings and the tagged control socket (`action.list/describe/run`) over the same registry.
-    private func startSettingsAndControl(services: AppServices, launch: SettingsController.LaunchRead, bare: Bool) {
+    private func startSettingsAndControl(services: AppServices, launch: SettingsController.LaunchRead) {
         // Start the web OTA launch check before any restored or prewarmed page can
         // request its entry document. Otherwise the entry can come from the app
         // bundle while later chunks come from the kept update tree.
@@ -409,7 +409,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Agent-launched builds never take system-wide keys from the person's app, nor a menu bar item.
         if !environment.noActivate { services.globalHotKeys.start(); services.menuBarExtra.follow(settings, background: services.background) }
         services.cache.browserTabs.preference.follow(settings)
-        if settings.snapshot.browserDefaultEngine == .chromium, AgentPaneTunables.chromium.value, !services.crashRecovery.recovery.isSafeRestart { services.cache.cef.initializeAfter(launchReads.chromium.initializeGate(firstFrame)); if !bare { services.cache.cef.preload() } } // bare (nothing restored): no page asks yet, so no framework map at launch (piece 8). A restored chat's page starts Chromium as the window builds: map its framework now, off main; CefInitialize waits for the first frame unless the last quit left a page on screen (CMUX-571)
+        if settings.snapshot.browserDefaultEngine == .chromium, AgentPaneTunables.chromium.value, !services.crashRecovery.recovery.isSafeRestart { services.cache.cef.initializeAfter(launchReads.chromium.initializeGate(firstFrame)); services.cache.cef.preload() } // map the framework now, off main, on every launch: a restored chat's page starts Chromium as the window builds, and a bare launch (piece 8) shows Home, whose Chief page is a Chromium page too (skipping the map there left Home's pane blank about 270 ms longer, mapping after the first frame: NIGHTLY 4557245517201, cef.step.start_called 4112 ms, map_done 4381 ms, first page pixels 5281 ms). CefInitialize still waits for the first frame unless the last quit left a page on screen (CMUX-571)
         BrowserLinkClickPreference.follow(settings, webKit: services.cache.webKit, cef: services.cache.cef)
         WorkspaceAutoNameWiring(services: services).start(settings: settings) // `workspaces.autoName.variant` persist (hq#1957)
         BrowserOmnibarPreference.follow(settings, cache: services.cache)
