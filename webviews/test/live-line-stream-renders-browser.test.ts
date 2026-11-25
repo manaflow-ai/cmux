@@ -66,29 +66,43 @@ await requireBrowserLane("live-line-stream-renders-browser.test.ts", async () =>
 
   test("a streamed reply draws the live line when it moves or its clock ticks, not once a chunk", async () => {
     const page = await openChat();
-    // Each change of the line's place, read once a frame: the reply above it grows a line and pushes
-    // it down, which its frame draws (its `top`).
+    // Each change of the line's place as committed: the reply above it grows a line and pushes it
+    // down, which its frame draws (its `top`). Every committed `top`, not one per painted frame: a
+    // reply's row draws alone (streamingRow.ts), and its new line reaches the transcript through the
+    // row observer, which places the rows before paint and again until they hold, so two places can
+    // land in one task before the frame paints (a +1px settle after a line). Each is a draw of the
+    // line's frame for its place, never for a chunk.
     await page.evaluate(() => {
-      const probe = { moves: 0, top: undefined as number | undefined, on: true };
+      const probe = { moves: 0, top: undefined as string | undefined, observer: undefined as unknown };
       (window as any).__lineMoves = probe;
-      const look = () => {
-        const line = document.querySelector<HTMLElement>('.acpmux-row[data-row-id="thinking-live"]');
-        const top = line?.offsetTop;
-        if (top !== undefined && probe.top !== undefined && top !== probe.top) probe.moves += 1;
-        if (top !== undefined) probe.top = top;
-        // raf-read: it counts changes of the line's place frame to frame, not what one frame paints;
-        // offsetTop forces the pending layout, so a move is counted in the frame it is laid out.
-        if (probe.on) requestAnimationFrame(look);
-      };
-      requestAnimationFrame(look);
+      const topOf = (style: string | null) => /(?:^|;)\s*top:\s*([^;]+)/.exec(style ?? "")?.[1];
+      const observer = new MutationObserver((records) => {
+        records.forEach((record, index) => {
+          const line = record.target as HTMLElement;
+          if (line.dataset?.rowId !== "thinking-live") return;
+          // What this mutation set: the next one's old value on the same node, or the node's now.
+          const later = records.slice(index + 1).find((next) => next.target === line);
+          const top = topOf(later ? later.oldValue : line.getAttribute("style"));
+          if (top !== undefined && probe.top !== undefined && top !== probe.top) probe.moves += 1;
+          if (top !== undefined) probe.top = top;
+        });
+      });
+      observer.observe(document.body, {
+        subtree: true,
+        attributes: true,
+        attributeFilter: ["style"],
+        attributeOldValue: true,
+      });
+      probe.observer = observer;
     });
     const run = (await page.evaluate(
       (seconds) => (window as any).cmuxAcpmuxDebug.loadRun({ seconds, chunk_ms: 16, tool_every: 0, scroll_speed: 0 }),
       SECONDS,
     )) as { renders?: Record<string, number>; seconds?: number; error?: string };
     const moves = (await page.evaluate(() => {
-      (window as any).__lineMoves.on = false;
-      return (window as any).__lineMoves.moves;
+      const probe = (window as any).__lineMoves;
+      probe.observer.disconnect();
+      return probe.moves;
     })) as number;
     await page.close();
     expect(run.error).toBeUndefined();
@@ -98,6 +112,9 @@ await requireBrowserLane("live-line-stream-renders-browser.test.ts", async () =>
     // clock may tick each second; the chunks themselves draw nothing.
     expect(moves).toBeGreaterThan(0);
     expect(drawn.frame).toBeLessThanOrEqual(moves + SECONDS * 2 + 4);
+    // Nor its content: a chunk the reply's row draws without the transcript reaches the line through
+    // the transcript's pulse (VirtualTranscript `lineDrawnNow`), never as a newer row to draw.
+    expect(drawn.content).toBeLessThanOrEqual(moves + SECONDS * 2 + 4);
   });
 
   test("a command's output lines draw the live line about once a second, not once a line", async () => {
