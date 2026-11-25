@@ -1226,7 +1226,7 @@ async fn post_tools(
 /// `message` for server `name` of a chat's tool servers: its params' `_meta` names it
 /// ([`crate::tools_mcp::SERVER_META`]) as the `cmux` server's request would, whatever the
 /// harness put there.
-fn for_server(message: &mut Value, name: &str) {
+pub(crate) fn for_server(message: &mut Value, name: &str) {
     let Some(fields) = message.as_object_mut() else { return };
     let params = fields.entry("params").or_insert_with(|| json!({}));
     if !params.is_object() {
