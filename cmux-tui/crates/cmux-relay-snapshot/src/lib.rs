@@ -43,6 +43,8 @@ use p256::elliptic_curve::sec1::ToEncodedPoint;
 use p256::{PublicKey, SecretKey};
 use sha2::{Digest, Sha256};
 
+pub mod delta;
+
 /// The HKDF info prefix (the seal's context string).
 pub const CONTEXT_DOMAIN: &str = "cmux-relay-snapshot-v1";
 /// The signature's domain, so the signature means nothing in any other message.
