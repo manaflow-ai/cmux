@@ -441,13 +441,14 @@ pub(super) fn run(args: &[String]) -> i32 {
                     let local = args.folder.as_deref().or(positional.first().map(String::as_str));
                     if let Some(remote) = attach::answered_folder(at, folder_remote) {
                         let local = Path::new(local.unwrap_or(remote.as_str()));
-                        match attach::attach(socket, session, &remote, local) {
-                            Ok(attached) => answered.set("attached", attached),
-                            Err(failure) => answered.set(
+                        let (key, value) = match attach::attach(socket, session, &remote, local) {
+                            Ok(attached) => ("attached", attached),
+                            Err(failure) => (
                                 "attach_error",
                                 json!({"error": failure.error, "error_code": failure.code}),
                             ),
-                        }
+                        };
+                        answered.set(key, value);
                     }
                 }
                 answered
