@@ -77,6 +77,28 @@ class Pick(unittest.TestCase):
         dedicated, _, calls = self.pick([[runner(busy=True)], [runner(busy=True)], [runner()]])
         self.assertEqual((dedicated, calls), (LABEL, 3))
 
+    def test_several_minis_take_the_first_idle_in_order(self) -> None:
+        # Leo, 2026-11-25: "Don't we have freed up Mac capacity?" The variable lists every
+        # trusted builder, preferred first; a busy or offline first mini hands on to the next.
+        other = "glaeda-runner-cmux23-ios-internal"
+        both = f"{LABEL}, {other}"
+        self.assertEqual(self.pick([[runner(), runner(label=other)]], label=both)[0], LABEL)
+        dedicated, why, calls = self.pick([[runner(busy=True), runner(label=other)]], label=both)
+        self.assertEqual((dedicated, calls), (other, 1))
+        self.assertIn(f"`{other}` is online and idle", why)
+        self.assertEqual(self.pick([[runner(label=other)]], label=both)[0], other)
+        dedicated, why, _ = self.pick([[runner("offline"), runner("offline", label=other)]], label=both)
+        self.assertEqual(dedicated, "")
+        self.assertIn(f"`{LABEL}` is offline, `{other}` is offline", why)
+        dedicated, why, calls = self.pick([[runner(busy=True)]], label=both)
+        self.assertEqual(dedicated, "")
+        self.assertIn("stayed busy", why)
+        self.assertGreater(calls, 1)
+
+    def test_labels_split_on_commas_and_spaces_and_drop_repeats(self) -> None:
+        self.assertEqual(picker.labels_of("a,b  c,,a\n"), ["a", "b", "c"])
+        self.assertEqual(picker.labels_of(" , "), [])
+
     def test_main_never_fails_and_writes_the_attempt(self) -> None:
         import os
         import tempfile
@@ -153,10 +175,37 @@ class Workflow(unittest.TestCase):
         self.assertIn("needs.pick-archive-runner.outputs.attempt == format('{0}', github.run_attempt) && "
                       "needs.pick-archive-runner.outputs.dedicated != '' && "
                       "needs.pick-archive-runner.outputs.dedicated || ", runs_on)
-        self.assertTrue(runs_on.rstrip("} ").endswith("|| fromJSON(vars.RUNNER_POOLS).macos_26"))
+        # The fallback must land on an Xcode 27 Mac: plain cmux-mac took 26.6-only Macs.
+        self.assertTrue(runs_on.rstrip("} ").endswith(
+            "|| vars.CI_OVERFLOW_MAC || fromJSON('[\"cmux-mac\",\"xcode-27.0\"]')"), runs_on)
         self.assertEqual(archive["needs"], "pick-archive-runner")
         self.assertIn("!cancelled()", archive["if"])
         self.assertIn("vars.CI_IOS_INTERNAL_RUNNER", jobs["pick-archive-runner"]["steps"][-1]["env"]["DEDICATED_LABEL"])
+
+
+class StoreSdk(unittest.TestCase):
+    """ITMS-90725 (2026-11-22): every INTERNAL upload built with Xcode 26.6 (iOS 26.5 SDK)
+    mailed the team. The archive and the signer pin a released Xcode 27 before Select Xcode,
+    and the archive refuses an app whose DTSDKName is below iphoneos27."""
+
+    def steps(self, job: str) -> list[dict]:
+        return yaml.safe_load(WORKFLOW.read_text())["jobs"][job]["steps"]
+
+    def test_archive_and_signer_pin_xcode_27_before_select_xcode(self) -> None:
+        for job in ("archive", "upload"):
+            with self.subTest(job=job):
+                names = [s.get("name", "") for s in self.steps(job)]
+                pin = names.index("Pin Xcode 27 (iOS 27 SDK) for App Store Connect")
+                self.assertEqual(names[pin + 1], "Select Xcode")
+                run = self.steps(job)[pin]["run"]
+                self.assertIn("CMUX_CI_XCODE_APP=$pick", run)
+                self.assertIn("--sdk iphoneos --show-sdk-version", run)
+                self.assertIn("*[Bb]eta*", run)
+
+    def test_archive_refuses_an_sdk_below_ios_27(self) -> None:
+        run = next(s["run"] for s in self.steps("archive") if s.get("name") == "App Store review rules (built app)")
+        self.assertIn("Print :DTSDKName", run)
+        self.assertIn("iphoneos27*", run)
 
 
 if __name__ == "__main__":

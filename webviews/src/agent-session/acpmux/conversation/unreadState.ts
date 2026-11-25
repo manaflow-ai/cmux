@@ -16,7 +16,25 @@ export type UnreadSide = "in" | "above" | "below";
 /// their own move (`sinceDone`, #40065): the banner has done its job for this mark.
 /// `read`: Mark read, or seen and then the latest message reached: the line fades (no row moves).
 /// `hidden`: the banner's ×/Mark read, until the next mark.
-export type UnreadView = { mark: string; side: UnreadSide; seen: boolean; read: boolean; hidden: boolean };
+/// `quiet`: nothing new to read under the line (the transcript's `sinceNews`: only status lines,
+/// such as a subagent's "started working", and the person's own prompts came since). A quiet mark
+/// draws no line, no banner and no Jump up target (Leo, 2026-11-22: "it shouldnt just do this like
+/// this when there's nothing"). Unknown until the transcript says, which a lone line (the gallery)
+/// never does: it draws.
+/// `placed`: the line's observer answered once, so where it first showed is known.
+/// `count`: the messages under the line ("157 new messages", sinceNews.ts `sinceCount`), kept current
+/// while the line is unread and frozen once it is read, so a dissipating label never changes under
+/// the eye. Unknown (the label reads "New") until the transcript counts.
+export type UnreadView = {
+  mark: string;
+  side: UnreadSide;
+  seen: boolean;
+  read: boolean;
+  hidden: boolean;
+  quiet?: boolean;
+  placed?: boolean;
+  count?: number;
+};
 
 /// How the banner shows, the `agentPane.display.unreadBanner` setting (chatDisplay.ts): expanded
 /// (the count, the time, Jump and Mark read), collapsed (a small pill), or off.
@@ -35,7 +53,10 @@ function publish(next: UnreadView): void {
     now.side === next.side &&
     now.seen === next.seen &&
     now.read === next.read &&
-    now.hidden === next.hidden
+    now.hidden === next.hidden &&
+    now.quiet === next.quiet &&
+    now.placed === next.placed &&
+    now.count === next.count
   )
     return;
   view = next;
@@ -54,9 +75,45 @@ export const subscribeUnread = (listener: () => void): (() => void) => {
 export const readUnread = (): UnreadView | undefined => view;
 
 /// The line's observer: where the line is now. On screen once, it is seen.
-export function noteUnreadSide(mark: string, side: UnreadSide): void {
+/// `inPlace`: the line marks a return to a chat that stayed on screen (the reader's hand came back
+/// to the pane, not a chat picked), so a line on screen at its first answer sits over rows that
+/// were already in front of them: it is read at once and never draws (Leo, 2026-11-22).
+export function noteUnreadSide(mark: string, side: UnreadSide, inPlace = false): void {
   const now = of(mark);
-  publish({ ...now, side, seen: now.seen || side === "in" });
+  const first = !now.placed;
+  const readNow = first && inPlace && side === "in";
+  publish({
+    ...now,
+    side,
+    seen: now.seen || side === "in",
+    read: now.read || readNow,
+    placed: true,
+  });
+}
+
+/// Whether there is anything new to read under the line (the transcript's `sinceNews`). News that
+/// comes under a quiet line while that line is on screen arrives in front of the reader: the line
+/// is read and never draws.
+export function noteUnreadNews(mark: string, news: boolean): void {
+  const now = of(mark);
+  const live = news && now.quiet === true && now.side === "in";
+  publish({ ...now, quiet: !news, read: now.read || live });
+}
+
+/// How many messages came under the line for `mark` (the transcript's `sinceCount`; Leo, 2026-11-15,
+/// of the terminal's "157 new messages" rule: "we needto properly do somthing like this in the gui
+/// somehow"). Only the label's words change: the row takes no height either way. Frozen once read.
+export function noteUnreadCount(mark: string, count: number | undefined): void {
+  const now = of(mark);
+  if (now.read || count === undefined) return;
+  publish({ ...now, count });
+}
+
+/// The line was on screen to a reader at the pane for the dwell (SinceDivider.tsx `useDissipate`):
+/// it has done its job and fades. The banner goes with it.
+export function dissipateUnread(mark: string): void {
+  const now = of(mark);
+  publish({ ...now, seen: true, read: true });
 }
 
 /// The line came into the DOM for `mark` (its row mounted): a new mark starts its view.
@@ -94,16 +151,22 @@ export function bannerShown(
   if (mark === undefined || mode === "off") return false;
   const mine = current?.mark === mark ? current : undefined;
   if (!mine) return true;
-  return !mine.hidden && !mine.seen && !mine.read && mine.side !== "in";
+  return !mine.hidden && !mine.seen && !mine.read && !mine.quiet && mine.side !== "in";
 }
 
 /// Whether the line for `mark` is read (it fades).
 export const unreadRead = (mark: string, current: UnreadView | undefined): boolean =>
   current?.mark === mark && current.read;
 
-/// Whether Jump up should take the reader to the line: there is one, and it is not read yet.
+/// Whether the line for `mark` draws: there is something new under it and it is not read. A line
+/// that does not draw is only transparent: its row takes no height either way (SinceDivider.tsx).
+export const unreadShows = (mark: string, current: UnreadView | undefined): boolean =>
+  !(current?.mark === mark && (current.read || current.quiet === true));
+
+/// Whether Jump up should take the reader to the line: there is one, with something new under it,
+/// and it is not read yet.
 export const unreadPending = (mark: string | undefined, current: UnreadView | undefined): boolean =>
-  mark !== undefined && !(current?.mark === mark && current.read);
+  mark !== undefined && unreadShows(mark, current);
 
 /// Test seam: forget every mark.
 export function resetUnreadForTest(): void {

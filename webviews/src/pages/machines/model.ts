@@ -147,13 +147,12 @@ export function joinedCaption(
  * reached through the mesh alone. */
 export const isLinked = (row: MachineRow) => !row.joined || row.id !== `joined:${row.joined.id}`;
 
-/** Whether New Workspace on the row asks the other Mac first (`openJoined`): a joined Mac the app
- * reaches only through the hub, online. Its person allows it there, once, on the consent card
- * (Leo, 2026-11-14, hq#11046). A Linux machine has no card to answer, so it keeps needing a link. */
-export const asksFirst = (row: MachineRow) =>
-  !isLinked(row) &&
-  row.joined?.state === "online" &&
-  ["macos", "darwin"].includes(row.joined.platform?.toLowerCase() ?? "");
+/** Whether New Workspace on the row asks the other machine first (`openJoined`): an online joined
+ * machine the app reaches only through the hub, Mac or Linux. A Mac signed in on itself allows it
+ * there, once, on its consent card (Leo, 2026-11-14, hq#11046); a machine joined by a line or a pair
+ * code made from another device counts that join as the consent (acpmux `session_service.rs`), so a
+ * Linux box opens with no card. Whatever it refuses, the row says (`dialText`). */
+export const asksFirst = (row: MachineRow) => !isLinked(row) && row.joined?.state === "online";
 
 /** The words a row shows instead of its caption while its New Workspace on the other Mac is under way
  * or stopped (`name`: that Mac). */
@@ -170,6 +169,19 @@ export type SectionItem =
   | { type: "header"; key: string; title: string; first: boolean }
   | { type: "row"; key: string; row: MachineRow; afterHeader: boolean }
   | { type: "add"; key: string; gap: boolean };
+
+/** A new snapshot with each row that did not change kept as the previous object. */
+export function keptSnapshot(previous: MachinesSnapshot | undefined, next: MachinesSnapshot): MachinesSnapshot {
+  if (!previous) return next;
+  const rows = new Map(previous.rows.map((row) => [row.id, row]));
+  return {
+    ...next,
+    rows: next.rows.map((row) => {
+      const old = rows.get(row.id);
+      return old && JSON.stringify(old) === JSON.stringify(row) ? old : row;
+    }),
+  };
+}
 
 /** The section's lines: each group's header, then its rows, then Add Machine…. */
 export function sectionItems(

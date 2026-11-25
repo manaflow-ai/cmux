@@ -73,6 +73,58 @@ import Testing
         #expect(exitStatus == 0)
     }
 
+    /// The one Computer Use worker: off until the daemon's switch is on and the app's policy came
+    /// (`computer_use.config`), never for mode "off", and `computer_use.endpoint` says why. A worker
+    /// with no libcmux_computer_use beside it (this test's bare executable) reports unavailable
+    /// with the reason, instead of serving or crash-looping.
+    @Test(.timeLimit(.minutes(2))) func computerUseFollowsTheSwitchAndThePolicy() throws {
+        let host = try Self.start()
+        defer {
+            kill(host.child.pid, SIGKILL)
+            close(host.daemonListener)
+        }
+        let daemon = try Self.hello(host)
+        #expect(try Self.call(daemon, "computer_use.endpoint")["state"] as? String == "off")
+
+        // The switch alone starts nothing: the policy is not known yet.
+        _ = try Self.call(daemon, "config", ["computer_use": true])
+        let waiting = try Self.call(daemon, "computer_use.endpoint")
+        #expect(waiting["state"] as? String == "starting")
+        #expect((waiting["reason"] as? String)?.contains("settings") == true, "\(waiting)")
+
+        // Mode off: still nothing runs.
+        let off = try Self.call(daemon, "computer_use.config", ["config": ["mode": "off"]])
+        let offWorker = (off["workers"] as? [String: Any])?["computer-use"] as? [String: Any]
+        #expect(offWorker?["state"] as? String == "off")
+        #expect(offWorker?["mode"] as? String == "off")
+        #expect(try Self.call(daemon, "computer_use.endpoint")["state"] as? String == "off")
+
+        // Full access: one worker starts; without the engine library it says so.
+        _ = try Self.call(daemon, "computer_use.config", ["config": ["mode": "fullAccess", "showCursor": false]])
+        let endpoint = try Self.call(daemon, "computer_use.endpoint")
+        #expect(endpoint["state"] as? String == "unavailable", "\(endpoint)")
+        #expect((endpoint["reason"] as? String)?.contains("libcmux_computer_use") == true, "\(endpoint)")
+        let status = try Self.call(daemon, "status")
+        let worker = try #require((status["workers"] as? [String: Any])?["computer-use"] as? [String: Any])
+        #expect(worker["state"] as? String == "unavailable")
+        #expect(worker["pid"] is Int)
+        #expect(worker["restarts"] as? Int == 0)
+
+        // Approvals need a running engine.
+        let id = 77
+        daemon.write(RemoteWire.line(["id": id, "method": "computer_use.approvals", "params": ["action": "list"]]))
+        var answer: [String: Any]?
+        while answer == nil, let line = daemon.readObject() {
+            if line["id"] as? Int == id { answer = line }
+        }
+        #expect(answer?["ok"] as? Bool == false)
+        #expect((answer?["error"] as? [String: Any])?["code"] as? String == "worker_unavailable")
+
+        // The switch off stops the worker.
+        _ = try Self.call(daemon, "config", ["computer_use": false])
+        #expect(try Self.call(daemon, "computer_use.endpoint")["state"] as? String == "off")
+    }
+
     @Test(.timeLimit(.minutes(1))) func aLaunchWithoutTheDaemonsBootstrapExitsAtOnce() throws {
         let built = try #require(Self.executable(), "the built cmux-remote")
         let directory = try Self.temporaryDirectory()

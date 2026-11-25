@@ -16,6 +16,12 @@
 //! commands) hold no registry or state lock, because each of them already
 //! called a registry or state locker of its own before this change. Rings
 //! change only under the feed lock, together with the items they follow.
+//!
+//! One caller keeps a decided post, and so the feed lock, across more than
+//! the registry: the agent report of a hook that also notifies
+//! (`agent_reports.rs`). It decides the post first, then takes the registry,
+//! the state and the agent records' lock for the one commit of both. No
+//! holder of one of those 3 takes the feed lock.
 
 use cmux_feed_core::{
     Actor, Changes, Context as FeedContext, Feed, FeedError, Item, ListFilter, Notice,
@@ -67,6 +73,25 @@ pub(crate) fn refused_json(refused: &[FeedError]) -> Value {
     )
 }
 
+/// A local `feed.post` that is decided on a copy of the feed and not
+/// committed yet. It holds the feed lock, so no other post comes between the
+/// decision and the commit.
+pub(super) struct PendingFeedPost<'a> {
+    feed: MutexGuard<'a, Feed>,
+    next: Feed,
+    /// The item that took the notice when it now shows the notice's own text (not an echo
+    /// folded into an agent's item): the Feed texts the announcement keeps go on it too.
+    shown_by: Option<String>,
+}
+
+impl PendingFeedPost<'_> {
+    /// The copy replaces the live feed.
+    fn install(self) {
+        let Self { mut feed, next, .. } = self;
+        *feed = next;
+    }
+}
+
 impl Mux {
     /// The local owner's items matching `filter`, oldest first.
     pub fn feed_local_list(&self, filter: &ListFilter) -> Vec<Item> {
@@ -90,45 +115,7 @@ impl Mux {
         notification: &ResourceNotification,
         numeric_id: u64,
     ) -> anyhow::Result<u64> {
-        let notice = self.feed_notice(notification, actor);
-        let item_id = notice.id.clone();
-        let mut feed = lock(&self.feed_local);
-        let mut next = (*feed).clone();
-        // The item that took the notice (its own, or the one it coalesced
-        // into); the folded set records it so the ledger pass never posts
-        // the notice again.
-        let mut folded_into = None;
-        let changes = match next.post(notice) {
-            Ok((outcome, changes)) => {
-                folded_into = Some(outcome.item().id.clone());
-                changes
-            }
-            Err(error) => {
-                // The notification still commits; the feed keeps its old copy.
-                eprintln!("cmux-tui: local feed post of item {item_id} refused: {error}");
-                self.report_internal_diagnostic(format!(
-                    "local feed post of item {item_id} refused: {}",
-                    error.code()
-                ));
-                next = (*feed).clone();
-                Changes::default()
-            }
-        };
-        // The feed rows ride the receipt's transaction (a journal writer
-        // SAVEPOINT, or one request-side transaction when the writer is not
-        // running), so they commit together or not at all.
-        let notification_id = notification.id.as_str().to_string();
-        let created_at_ms = notification.created_at_ms;
-        let write: crate::workspace_registry::OwnedTransactionWrite =
-            Box::new(move |tx: &rusqlite::Transaction<'_>| {
-                write_feed_local_changes(tx, &changes)?;
-                match &folded_into {
-                    Some(item) => {
-                        record_feed_local_folded(tx, &notification_id, item, created_at_ms)
-                    }
-                    None => Ok(()),
-                }
-            });
+        let (post, write) = self.decide_feed_post(actor, notification);
         let mut registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
         let (intent, finish) = registry.prepare_effect_outcome_intent_with(
             idempotency_key,
@@ -152,19 +139,118 @@ impl Mux {
                     .downcast_ref::<crate::journal_ingress::JournalCommitIndeterminate>()
                     .is_some()
                 {
-                    *feed = next;
+                    post.install();
                 }
                 return Err(error);
             }
         };
-        *feed = next;
-        // The ring goes up with the item, under the feed lock: a read or a
-        // tab ack holds this lock while it clears rings, so it sees both the
-        // ring and the unread item, or neither.
-        let ring = self.raise_notification_ring(notification, numeric_id);
-        drop(feed);
+        let (ring, shown_by) = self.install_feed_post(post, notification, numeric_id);
         self.state.lock().unwrap_or_else(PoisonError::into_inner).resource_revision = revision;
         drop(registry);
+        let session = notification
+            .terminal_id
+            .as_ref()
+            .filter(|_| notification.source == NotificationSource::Agent)
+            .and_then(|terminal| {
+                lock(&self.agent_records)
+                    .get(terminal)
+                    .and_then(|record| record.agent_session_id.clone())
+            });
+        self.announce_notification(notification, numeric_id, ring, session, shown_by.as_deref());
+        Ok(revision)
+    }
+
+    /// Decide the local `feed.post` of `notification` on a copy of the feed
+    /// (B7), before its commit. Returns the post, which holds the feed lock
+    /// until it is installed or dropped, and the feed rows that go into the
+    /// transaction of the commit. The caller holds neither the registry nor
+    /// the state lock.
+    pub(super) fn decide_feed_post(
+        &self,
+        actor: &crate::Actor,
+        notification: &ResourceNotification,
+    ) -> (PendingFeedPost<'_>, crate::workspace_registry::OwnedTransactionWrite) {
+        let notice = self.feed_notice(notification, actor);
+        let item_id = notice.id.clone();
+        let feed = lock(&self.feed_local);
+        let mut next = (*feed).clone();
+        // The item that took the notice (its own, or the one it coalesced
+        // into); the folded set records it so the ledger pass never posts
+        // the notice again.
+        let mut folded_into = None;
+        // Whether this notice's text is what the item now shows (an echo folded into an agent's
+        // item leaves the agent's, `cmux_feed_core` `is_terminal_echo`).
+        let mut shows_notice = false;
+        let (notice_source, notice_title) = (notice.source.clone(), notice.title.clone());
+        let changes = match next.post(notice) {
+            Ok((outcome, changes)) => {
+                let item = outcome.item();
+                shows_notice = item.source == notice_source && item.title == notice_title;
+                folded_into = Some(item.id.clone());
+                changes
+            }
+            Err(error) => {
+                // The notification still commits; the feed keeps its old copy.
+                eprintln!("cmux-tui: local feed post of item {item_id} refused: {error}");
+                self.report_internal_diagnostic(format!(
+                    "local feed post of item {item_id} refused: {}",
+                    error.code()
+                ));
+                next = (*feed).clone();
+                Changes::default()
+            }
+        };
+        // The feed rows ride the receipt's transaction (a journal writer
+        // SAVEPOINT, or one request-side transaction when the writer is not
+        // running), so they commit together or not at all.
+        // The item that took it, for the Feed texts the announcement keeps (the write takes
+        // `folded_into`).
+        let shown_by = folded_into.clone().filter(|_| shows_notice);
+        let notification_id = notification.id.as_str().to_string();
+        let created_at_ms = notification.created_at_ms;
+        let write: crate::workspace_registry::OwnedTransactionWrite =
+            Box::new(move |tx: &rusqlite::Transaction<'_>| {
+                write_feed_local_changes(tx, &changes)?;
+                match &folded_into {
+                    Some(item) => {
+                        record_feed_local_folded(tx, &notification_id, item, created_at_ms)
+                    }
+                    None => Ok(()),
+                }
+            });
+        (PendingFeedPost { feed, next, shown_by }, write)
+    }
+
+    /// The copy of a committed post replaces the live feed, and the ring goes
+    /// up with the item, under the feed lock: a read or a tab ack holds this
+    /// lock while it clears rings, so it sees both the ring and the unread
+    /// item, or neither. True when a ring went up, with the item that now shows the notice's
+    /// own text (`PendingFeedPost::shown_by`).
+    pub(super) fn install_feed_post(
+        &self,
+        post: PendingFeedPost<'_>,
+        notification: &ResourceNotification,
+        numeric_id: u64,
+    ) -> (bool, Option<String>) {
+        let PendingFeedPost { mut feed, next, shown_by } = post;
+        *feed = next;
+        let ring = self.raise_notification_ring(notification, numeric_id);
+        drop(feed);
+        (ring, shown_by)
+    }
+
+    /// The `notification` event of a committed notification, then the tree
+    /// and resource events. `session` is the agent session that the
+    /// terminal's record held when the notification committed. The caller
+    /// holds no lock.
+    pub(super) fn announce_notification(
+        &self,
+        notification: &ResourceNotification,
+        numeric_id: u64,
+        ring: bool,
+        session: Option<String>,
+        shown_by: Option<&str>,
+    ) {
         // An agent's banner takes the reply its hook kept beside the event (memory only): the
         // banner its folded 200-character preview, the phone's Feed the whole message and the
         // prompt of the turn it ends.
@@ -179,15 +265,37 @@ impl Mux {
         let prompt = agent_terminal
             .and_then(|terminal| self.agent_feed_prompt(terminal))
             .map(|prompt| prompt.to_string());
-        let session = agent_terminal.and_then(|terminal| {
-            lock(&self.agent_records)
-                .get(terminal)
-                .and_then(|record| record.agent_session_id.clone())
-        });
         // A question hook's notification takes its question; the terminal keeps it while the
         // agent waits (`list-notifications`).
         let question = agent_terminal
             .and_then(|terminal| self.take_agent_question(terminal, notification.id.as_str()));
+        // An approval hook's notification takes its approval the same way (the phone's Allow /
+        // Deny card, `list-notifications` `approval`).
+        if let Some(terminal) = agent_terminal {
+            self.take_agent_approval(terminal, notification.id.as_str());
+        }
+        // What the agent said stays for a Feed that reads later (memory only, `FeedTexts`):
+        // the ledger row and the feed item that took it show it.
+        let detail = question
+            .as_deref()
+            .and_then(crate::agent_hook_question::question_text)
+            .or_else(|| message.clone());
+        if let Some(detail) = detail {
+            let mut keys = vec![notification.id.as_str()];
+            keys.extend(shown_by);
+            self.keep_agent_feed_texts(
+                &keys,
+                agent_prompts::FeedTexts {
+                    message: message.as_deref().map(Arc::from),
+                    prompt: prompt.as_deref().map(Arc::from),
+                    detail: Arc::from(detail),
+                },
+            );
+        } else if let Some(item) = shown_by {
+            // The item now shows this notice, which said nothing more: an earlier notice's
+            // texts no longer belong to it.
+            self.forget_agent_feed_texts(item);
+        }
         self.emit(MuxEvent::Notification(NotificationEvent {
             id: Some(notification.id.as_str().to_owned()),
             message,
@@ -210,7 +318,6 @@ impl Mux {
             self.emit(MuxEvent::TreeChanged);
         }
         self.publish_resource_event();
-        Ok(revision)
     }
 
     /// Set the unread marker of a committed notification: on its terminal
@@ -257,7 +364,7 @@ impl Mux {
         // same transaction and its ring clears, as `ack-tab-notifications`
         // would do.
         let unread_left = |matches: &dyn Fn(&Item) -> bool| {
-            next.items().iter().any(|item| item.is_unread() && matches(item))
+            next.items().any(|item| item.is_unread() && matches(item))
         };
         let mut terminals: Vec<TerminalPublicId> = Vec::new();
         let mut tabs: Vec<String> = Vec::new();
@@ -426,7 +533,7 @@ impl Mux {
         let mut feed = lock(&self.feed_local);
         let selection = resolve();
         let matches = |item: &Item| matches(&selection, item);
-        if !feed.items().iter().any(|item| item.is_unread() && matches(item)) {
+        if !feed.items().any(|item| item.is_unread() && matches(item)) {
             commit(&selection, None, &feed)?;
             return Ok(false);
         }
@@ -520,7 +627,7 @@ impl Mux {
         let (changes, refused) = next.read_where(now_ms(), of_tab);
         // Rings follow unread items (9.1 rule 6): an item another owner holds
         // stays unread here, and so does its ring.
-        let unread_left = next.items().iter().any(|item| item.is_unread() && of_tab(item));
+        let unread_left = next.items().any(|item| item.is_unread() && of_tab(item));
         let write = |tx: &rusqlite::Transaction<'_>| write_feed_local_changes(tx, &changes);
         let extra: Option<crate::workspace_registry::RegistryTransactionWrite<'_>> =
             (!changes.is_empty()).then_some(&write);

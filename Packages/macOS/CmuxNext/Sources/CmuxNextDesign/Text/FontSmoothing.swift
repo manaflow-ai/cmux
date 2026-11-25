@@ -7,9 +7,9 @@
 /// the same mode draw the same pixels. On a Mac with the default settings ``auto`` and ``subpixel``
 /// look the same; they differ only where the person turned smoothing off for every app.
 public nonisolated enum FontSmoothing: String, Sendable, CaseIterable, Codable {
-    /// No override, the look cmux had before this setting: native text follows the Mac's own
-    /// smoothing (the `AppleFontSmoothing` global default) and each web page keeps its own CSS (the
-    /// chat's text is `antialiased`). The default.
+    /// The Mac's own smoothing (the `AppleFontSmoothing` global default) for native text, and web
+    /// pages draw as native text does (``WebTheme/pageSmoothing(_:native:)``: `subpixel` where the
+    /// Mac smooths, `antialiased` where it does not), so web and native text match. The default.
     case auto
     /// Thin grayscale strokes with no stem darkening, native and web
     /// (`-webkit-font-smoothing: antialiased` on every element).

@@ -8,6 +8,7 @@ use cmux_json::JsonSet as _;
 mod auxiliary;
 mod browser_engine;
 pub(crate) mod browser_import;
+mod chat_column;
 mod chats;
 mod close_value;
 mod config;
@@ -55,8 +56,6 @@ use mouse::{validate_browser_mouse, validate_terminal_mouse};
 mod catalog_validation;
 use catalog_validation::*;
 pub(crate) use catalog_validation::{validate_operation_error, validate_operation_outcome};
-
-const CATALOG_JSON: &str = include_str!("../../../spec/resource-operations-v2.json");
 
 /// Resolve a live terminal path or an unscoped durable terminal receipt.
 /// Nested selectors keep normal topology containment, so a detached receipt
@@ -257,11 +256,11 @@ fn parse_resource_envelope(message: &str) -> Result<RequestEnvelope, ResourceErr
 /// Envelope rules and the operation's catalog params, on an envelope that
 /// is already parsed (it is moved into the request, never parsed again).
 pub(crate) fn validate_resource_envelope(
-    envelope: RequestEnvelope,
+    mut envelope: RequestEnvelope,
     actor: crate::workspace_registry::Actor,
 ) -> Result<ParsedResourceRequest, ResourceError> {
     envelope.validate()?;
-    let (selectors, fields) = validate_catalog_params(envelope.operation, &envelope.params)?;
+    let (selectors, fields) = validate_catalog_params(envelope.operation, &mut envelope.params)?;
     Ok(ParsedResourceRequest { envelope, selectors, fields, actor })
 }
 
@@ -274,6 +273,11 @@ fn dispatch_resource_request(
     browser_engine::route_to_frontend(mux, &mut request)?;
     browser_engine::refuse_without_provider(mux, &request)?;
     crate::debug_spans::mark("router.provider_checked");
+    // A terminal for a workspace that holds only an agent chat: a new
+    // column on the chat's right, never a tab among the chat's own.
+    if let Some(created) = chat_column::dispatch(mux, &request)? {
+        return Ok(created);
+    }
     match operation_owner(operation) {
         OperationOwner::Session => session::dispatch(mux, request),
         OperationOwner::Content => content::dispatch(mux, request),

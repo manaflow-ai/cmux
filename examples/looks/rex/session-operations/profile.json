@@ -1,0 +1,9 @@
+{
+  "cmuxProfile": 1,
+  "name": "rex-session-operations",
+  "description": "Cycle between grouped workspaces, return to the last used workspace, rename, or close from a focused terminal.",
+  "settings": {},
+  "files": {
+    "keybindings.json": "[\n  {\n    \"key\": \"ctrl+opt+cmd+j n\",\n    \"command\": \"nextSidebarTabInGroup\",\n    \"when\": \"terminalFocused && !paletteOpen\"\n  },\n  {\n    \"key\": \"ctrl+opt+cmd+j p\",\n    \"command\": \"prevSidebarTabInGroup\",\n    \"when\": \"terminalFocused && !paletteOpen\"\n  },\n  {\n    \"key\": \"ctrl+opt+cmd+j l\",\n    \"command\": \"workspace.selectLastUsed\",\n    \"when\": \"terminalFocused && !paletteOpen\"\n  },\n  {\n    \"key\": \"ctrl+opt+cmd+j r\",\n    \"command\": \"renameWorkspace\",\n    \"when\": \"terminalFocused && !paletteOpen\"\n  },\n  {\n    \"key\": \"ctrl+opt+cmd+j w\",\n    \"command\": \"closeWorkspace\",\n    \"when\": \"terminalFocused && !paletteOpen\"\n  }\n]\n"
+  }
+}

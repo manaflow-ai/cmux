@@ -84,9 +84,18 @@ pub struct AppLine {
     /// `serve` only, first: each display's size in pixels, `[width, height]`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub displays: Option<Vec<(u32, u32)>>,
+    /// `serve` only, with `displays`: the windows the viewer may share one of (the setup
+    /// line's `window`), `[{"id":..,"title":"..","width":..,"height":..}]`. A reader that
+    /// predates it ignores the key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub windows: Option<Vec<LineWindow>>,
     /// The index in `displays` of the display the session shows first.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current: Option<usize>,
+    /// `serve` only, macOS: each display's CGDirectDisplayID, in `displays` order, so a viewer
+    /// opened from a run's screen link can tell whether that run's display is still there.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_ids: Option<Vec<u32>>,
     /// Why the displays could not be read (with an empty `displays`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
@@ -97,6 +106,16 @@ pub struct AppLine {
     /// to show; `{"status":{"state":"waiting_for_consent","message":".."}}`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<LineStatus>,
+}
+
+/// One window a viewer may share: its id (an X window id on Linux, a CGWindowID on macOS),
+/// title and size in pixels.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LineWindow {
+    pub id: u32,
+    pub title: String,
+    pub width: u32,
+    pub height: u32,
 }
 
 /// One capture setup state: a stable `state` code and a sentence for the person.
@@ -194,6 +213,17 @@ mod tests {
             AppLine {
                 displays: Some(vec![(3024, 1964), (2560, 1440)]),
                 current: Some(1),
+                ..AppLine::default()
+            },
+            AppLine {
+                displays: Some(vec![(1920, 1080)]),
+                windows: Some(vec![LineWindow {
+                    id: 0x2a0_0007,
+                    title: "Terminal — ~/src".into(),
+                    width: 800,
+                    height: 600,
+                }]),
+                current: Some(0),
                 ..AppLine::default()
             },
             AppLine {
