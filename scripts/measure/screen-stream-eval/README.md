@@ -485,8 +485,13 @@ launcher's Screen Recording grant, signs in to the device hub, turns sharing on,
 session; it tells the viewer half its path through the peer server (a file under `/tmp` named by the run
 token's hash). Both apps sign in with `CMUX_STAGE_TABLE_AUTH_FILE`, else the Mac's
 `~/rd-hub-rig/private/creds.env` (the Mac Screen rig's agent test-account file), else
-`~/.secrets/cmuxterm-dev.env` (the CI dev account the pair e2e signs in with). Without any of them on
-either Mac, or when a build or sign-in fails, the run keeps Apple's leg and the cmux rows end at decode, and
+`~/.secrets/cmuxterm-dev.env` (the CI dev account the pair e2e signs in with). With none of those files,
+a half sent with `cmux-ci run --sign-in agent` signs its app in from the step's own agent session
+(`CMUX_CI_SIGNIN_FILE`): `stage-signin.py` writes the session's refresh token into the app's own token
+store before launch, as `scripts/ci/cmux_next_pair_e2e.py` does, and the store is removed when the step
+ends. Send both halves with `--sign-in agent` (the viewer half without `--vnc-login`: a step takes one, and
+it reads the fleet login from its keychain); only a submitter that holds the agent account can send it.
+Without a file or a session on either Mac, or when a build or sign-in fails, the run keeps Apple's leg and the cmux rows end at decode, and
 a `SCREEN-STREAM-EVAL-STAGE ... no app viewer` line says why. A shaped leg
 (`wifi-away`) needs `sudo -n` on the host for mac-holds.sh; without it that leg fails and the table
 holds the rest. Trust as above, except that this server runs any command it is handed, so the token
