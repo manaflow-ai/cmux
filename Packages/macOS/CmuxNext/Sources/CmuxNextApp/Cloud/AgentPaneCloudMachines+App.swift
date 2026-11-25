@@ -27,8 +27,7 @@ extension AgentPaneCloudMachines {
         recoveryList = { await inventory(.zero) }
         // The facts the typing prewarm and wake on intent (hidden `cloud.wakeOnIntent`) give their Rust rules.
         let facts: @MainActor (String) -> [String: Any] = { [weak services] id in guard let services else { return [:] }
-            let cloud = services.cloud, status = services.machines.cloud.first(where: { $0.machineID == id })?.effectiveStatus
-            let allowed = !services.registry.disabledFeatures.contains(.cloud) && cloud.mayCallCloud && cloud.unavailableReason == nil
+            let cloud = services.cloud, status = services.machines.cloud.first(where: { $0.machineID == id })?.effectiveStatus, allowed = !services.registry.disabledFeatures.contains(.cloud) && cloud.mayCallCloud && cloud.unavailableReason == nil
             var facts: [String: Any] = ["enabled": CloudTunables.wakeOnIntent.value, "allowed": allowed && cloud.isSignedIn, "loaded": cloud.hasLoadedCurrentMachines]
             if let status { facts["status"] = status.rawValue }
             return facts
