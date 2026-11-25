@@ -87,7 +87,7 @@ public enum SettingsDeviceRows {
     /// The Mac rows. With a device service (`hasService`), the service's list
     /// with live presence from `liveMacs` laid over it, or nil while it has not
     /// loaded. Without one, every Mac the phone knows (`liveMacs`, each once).
-    /// `teamOf`: each live Mac's team (the fallback's rows carry it for ``otherBuilds(_:)``).
+    /// `teamOf`: each live Mac's team (the fallback's rows carry it).
     public static func macs(service: [SettingsDevice]?, hasService: Bool, liveMacs: [MacDevice],
                             teamOf: [String: String]? = nil) -> [SettingsDevice]? {
         guard hasService else {
@@ -108,28 +108,6 @@ public enum SettingsDeviceRows {
             next.machineID = device.machineID ?? mac.machineID
             return next
         }
-    }
-
-    /// The Mac rows that are another cmux build on a computer whose most
-    /// recently active build Workspaces lists (``MacRoster``, per team, as
-    /// each team's Workspaces groups them): Settings still lists them, so each
-    /// can be removed, and says what they are. Every row is the caller's own.
-    /// `picked`: each team's picked Mac (``Team/pickedMacID``, by team id), listed for its computer as
-    /// Workspaces lists it, so Settings calls the other build the other build.
-    public static func otherBuilds(_ macs: [SettingsDevice], picked: [String: String] = [:]) -> Set<String> {
-        Dictionary(grouping: macs, by: { $0.teamID ?? "" }).reduce(into: Set<String>()) { hidden, entry in
-            let (teamID, team) = entry
-            let devices = team.map {
-                MacDevice(id: $0.id, name: $0.name, isOnline: $0.online == true, lastSeenAt: $0.lastSeenAt, machineID: $0.machineID)
-            }
-            let pick = picked[teamID].flatMap { id in team.first { $0.ids.contains(id) }?.id }
-            hidden.formUnion(MacRoster(devices, preferring: pick).hiddenIDs)
-        }
-    }
-
-    /// Each team's picked Mac by team id (``Team/pickedMacID``), for ``otherBuilds(_:picked:)``.
-    public static func picks(_ teams: [Team]) -> [String: String] {
-        teams.reduce(into: [:]) { out, team in if let pick = team.pickedMacID { out[team.id] = pick } }
     }
 
     /// Terminal sizing keeps team Macs, including another member's, and fills in this
