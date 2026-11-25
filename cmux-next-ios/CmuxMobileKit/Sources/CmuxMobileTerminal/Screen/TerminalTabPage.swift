@@ -113,6 +113,17 @@ public struct TerminalTabPage: View {
         self.isInteractive = isInteractive
     }
 
+    /// How far above the page's bottom inset its rows end now: the dock at rest (key row
+    /// and one-line composer) over the keyboard when it is up (``TerminalConnectingView``).
+    private var rowsLift: CGFloat {
+        let model = host.model
+        let stack = TerminalDockMetrics().restingStackHeight(
+            lineHeight: UIFont.preferredFont(forTextStyle: .body).lineHeight,
+            visibility: TerminalDockVisibility(chromeHidden: model.chromeHidden, composerPresented: model.composerPresented))
+        let keyboard = model.keyboardVisible ? TerminalKeyboardHeight.shared.height : 0
+        return max(0, keyboard - insets.bottom) + stack + TerminalDocumentLayout.composerGap
+    }
+
     public var body: some View {
         @Bindable var model = host.model
         EmbeddedTerminalControllerView(host: host, insets: insets, chromeTop: chromeTop, isInteractive: isInteractive)
@@ -152,8 +163,10 @@ public struct TerminalTabPage: View {
                     if Self.showsCover(attached: model.connectionState.isAttached, seeded: model.seeded,
                                        drewLiveOutput: model.drewLiveOutput, heldFrame: model.coldFrame != nil) {
                         // Once attached the cover stays until the live rows are drawn, then
-                        // goes in one frame: a cut, never a fade over live rows (R3-4).
-                        TerminalConnectingView(topInset: insets.top, screenText: model.cardScreenText)
+                        // goes in one frame: a cut, never a fade over live rows (R3-4). Its
+                        // rows are laid out for the page as it is now (keyboard up or down).
+                        TerminalConnectingView(topInset: insets.top, screenText: model.cardScreenText,
+                                               rowsLift: rowsLift, rows: model.coldFrameRows, rowsMeasured: model.coldFrameMeasured)
                             .ignoresSafeArea()
                             .padding(.bottom, insets.bottom)
                             .transition(.identity)
