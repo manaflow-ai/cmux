@@ -1487,6 +1487,9 @@ impl Hub {
         let person = super::prompt_sender::person_turn(&run, provenance.as_ref());
         // Only a person's own turn makes a recap worth asking for (`away_recap.rs`).
         self.recap_turn_started(session, person);
+        // A person waits on this turn's tools: out of background class until it ends
+        // (`cpu_class.rs`, item 6).
+        let lifted = person && child.person_turn(true).await;
         let params = if resumed {
             // The turn the process resumed by itself: adopted, nothing written (`carry.rs`).
             json!({"sessionId": agent_sid, "prompt": [], "_meta": {"carried": true}})
@@ -1529,6 +1532,9 @@ impl Hub {
             },
         )
         .await;
+        if lifted {
+            child.person_turn(false).await;
+        }
         // The account behind this harness is exhausted: move the session
         // onto its fallback profile (the subrouter pool for Claude), which
         // resumes the same agent session, and run the prompt once more.
@@ -1821,6 +1827,10 @@ impl Hub {
             _ => None,
         };
         self.schedule_auto_resume(session, &turn_id, cut);
+        // A turn that ended well says the pool answers again (`auto_resume/capacity_gate.rs`).
+        if result.is_ok() && !detached {
+            self.capacity_gate_answered(session);
+        }
         // A turn that ended well on a capacity fallback puts the chat's own model back
         // (`auto_resume/capacity_failover.rs`).
         if !detached
@@ -3106,6 +3116,8 @@ impl Hub {
             deleted.map_err(|e| RpcError::internal(e.to_string()))?;
             // An earlier run's caller token proves a purged session no more (`caller_registry.rs`).
             self.caller_registry.forget(&session.id);
+            // Its chat secrets go with it (`chat_secrets.rs`).
+            crate::chat_secrets::clear(&session.id);
             #[cfg(test)]
             {
                 let seam = self.purge_seam.lock().unwrap_or_else(|e| e.into_inner()).take();

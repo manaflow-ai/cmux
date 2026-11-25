@@ -212,6 +212,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_step_table.py
 
+      - name: Validate CDN readers name their client
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_cdn_user_agent.py
+
       - name: Validate the CI timing readout
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_timing_readout.py
