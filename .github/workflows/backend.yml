@@ -161,7 +161,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Restore the Bun package cache (the test job saves it)
         timeout-minutes: 5
         continue-on-error: true
@@ -171,26 +171,55 @@ jobs:
           key: bun-backend-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('backend/bun.lock', 'scripts/cmux-next/release/bun.lock') }}
           restore-keys: |
             bun-backend-${{ runner.os }}-${{ runner.arch }}-
-      # vitest-pool-workers and node:sqlite need a current Node.
+      # vitest-pool-workers and node:sqlite need a current Node. An exact pin, restored from the CI cache bucket on
+      # every runner first (TOOLCHAIN_R2_ALL), so setup-node finds it in the tool cache and neither reads GitHub's
+      # version manifest (refused when the installation's hour runs dry) nor copies a fresh download into the tool
+      # cache, which on a packed cmux-linux host ran past this step's 5 min (5 shards of run 45606215566, cmux#56511).
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        shell: bash
+        timeout-minutes: 3
+        continue-on-error: true
+        env:
+          TOOLCHAIN_R2_ALL: "1"
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         timeout-minutes: 5
         with:
-          node-version: "24"
+          node-version: "24.22.1"
       - run: bun install --frozen-lockfile
       - name: API Worker tests (workerd), shard ${{ matrix.shard }} of 12
         working-directory: backend/apps/api
-        # A packed cmux-linux runner shares its VM's vCPUs with up to 3 others (#48644) but nproc still reports all
-        # 16, so vitest's default (one worker per vCPU) started 15 workerd isolates per job, 60 on 16 CPUs: imports took
-        # 40 to 100 s and 0.5 s cases ran past their 20 s bound (runs 45159322542, 45166603179, 45168037835,
-        # 45172851459). Measured on shard 2/6 pinned to 4 CPUs, 2026-11-23: 15 workers: 416 s, 2 files failed;
-        # 4 workers: 451 s, 228/228 passed. Even at 4, 6 shards still hit start and hook timeouts (45172479573), so:
-        # 12 shards of at most 3 workers. A load timeout on a busy VM is not the code's: the shard runs once more and
-        # that run decides; a real failure fails both, and the first run's log stays above.
+        # Worker count, the rerun of a shard's failed files and why: scripts/ci/api-workerd-shard.sh. The `test` job
+        # runs the same script for a shard whose job died before this step answered (cmux#56511).
+        id: shard
+        env:
+          API_WORKERD_NO_VERDICT_FILE: ${{ runner.temp }}/api-workerd-no-verdict
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/api-workerd-shard.sh" ${{ matrix.shard }} 12
+      # The test step's answer, for the `test` gate: a shard with no recorded verdict died before its tests answered
+      # and the gate reruns it (scripts/ci/api_workerd_infra_shards.py). An artifact, not a REST read of the run's
+      # jobs, which the repository's GITHUB_TOKEN hour refuses when CI is busiest.
+      - name: Record the shard's test verdict
+        if: ${{ !cancelled() && (steps.shard.outcome == 'success' || steps.shard.outcome == 'failure') }}
+        working-directory: backend
+        # "<outcome> <attempt>": artifacts belong to the run, so after "Re-run failed jobs" the gate tells this
+        # attempt's answer from an older one's.
+        # The shard script marks "every test passed, errors outside them" as no verdict: nothing is recorded, and the
+        # gate reruns the shard.
         run: |
-          n=$(nproc); [ "$n" -gt 3 ] && n=3
-          bun run test --shard=${{ matrix.shard }}/12 --maxWorkers="$n" && exit 0
-          echo "::warning::api-workerd shard ${{ matrix.shard }}/12 failed once; running it again (a load timeout on a packed runner, or a real failure that fails again)"
-          bun run test --shard=${{ matrix.shard }}/12 --maxWorkers="$n"
+          mkdir -p "$RUNNER_TEMP/api-workerd-verdict"
+          if [ -e "$RUNNER_TEMP/api-workerd-no-verdict" ]; then echo "no test verdict (see the test step); the gate reruns this shard"; exit 0; fi
+          echo "${{ steps.shard.outcome }} ${{ github.run_attempt }}" > "$RUNNER_TEMP/api-workerd-verdict/${{ matrix.shard }}"
+      - name: Upload the shard's test verdict
+        if: ${{ !cancelled() && (steps.shard.outcome == 'success' || steps.shard.outcome == 'failure') }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: api-workerd-verdict-${{ matrix.shard }}
+          path: ${{ runner.temp }}/api-workerd-verdict/${{ matrix.shard }}
+          # As long as the run can still be re-run: a passing shard is not rerun, and its verdict must still be here.
+          retention-days: 30
+          overwrite: true
+          if-no-files-found: ignore
 
   test:
     # Runs after the API Worker shards whatever they end with, and fails on a red shard (its last step), so the
@@ -201,7 +230,8 @@ jobs:
     # 2026-11-20 LINUX_RUNNER was blacksmith-4vcpu (serving) while linux_8 was blacksmith-8vcpu, and this job alone
     # skipped LINUX_RUNNER: staging's test sat queued 25+ min (run 44637914493 attempt 3) with no 8 vCPU job running.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    timeout-minutes: 55
+    # 55 for its own steps, plus up to 40 to rerun API Worker shards whose runner died (see that step).
+    timeout-minutes: 95
     services:
       postgres:
         image: postgres:17@sha256:2d2b8998d31037bf721cfdf764d76ba74171b4fab3431b7f72c27c56ddbdf9e3
@@ -230,7 +260,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       # The Bun package cache for backend/ and the release rails. Only this job saves it (it holds
       # no secrets); the secret-bearing jobs below only restore it.
       - name: Cache Bun package cache
@@ -252,11 +282,21 @@ jobs:
           key: bun-backend-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('backend/bun.lock', 'scripts/cmux-next/release/bun.lock') }}
           restore-keys: |
             bun-backend-${{ runner.os }}-${{ runner.arch }}-
-      # vitest-pool-workers and node:sqlite need a current Node.
+      # vitest-pool-workers and node:sqlite need a current Node. An exact pin, restored from the CI cache bucket on
+      # every runner first (TOOLCHAIN_R2_ALL), so setup-node finds it in the tool cache and neither reads GitHub's
+      # version manifest (refused when the installation's hour runs dry) nor copies a fresh download into the tool
+      # cache, which on a packed cmux-linux host ran past this step's 5 min (5 shards of run 45606215566, cmux#56511).
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        shell: bash
+        timeout-minutes: 3
+        continue-on-error: true
+        env:
+          TOOLCHAIN_R2_ALL: "1"
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         timeout-minutes: 5
         with:
-          node-version: "24"
+          node-version: "24.22.1"
       - run: bun install --frozen-lockfile
       # The type check reports its red and keeps going, so the tests and builds after it still run on a
       # tree with a type error; the last step fails the job on it (Leo, 2026-11-19: "the CI doesn't
@@ -326,12 +366,55 @@ jobs:
         run: |
           echo "::error title=type check::the type check failed; see its step. The steps after it ran anyway."
           exit 1
+      # A shard whose job died before its tests answered is rerun here instead of failing the gate (cmux#56511).
+      # Of 35 completed feat-cmux-next runs (2026-11-24 20:54 to 2026-11-25 11:50 UTC), 10 had a shard that never
+      # reached a verdict: a pool runner lost mid-job (failure, no step finished, no log), setup-node or the Bun cache
+      # restore past its 5 min bound, bun install failing, or the 45 min job limit on a slow cmux-runner-pool-h* host
+      # (reported as cancelled). Each shard uploads its test step's answer (api-workerd-verdict-<shard>), and
+      # scripts/ci/api_workerd_infra_shards.py sorts them: a shard that recorded `failure` already had its own rerun of
+      # the failed files, so it stays a red; every shard with no recorded verdict runs again here, through the same
+      # script, on this job's runner. More than 4 such shards is a
+      # pool outage, not a hiccup, and stays red rather than holding this runner for an hour. The reruns are serial on
+      # this job's runner: on a slow h* host 2 or more of them can pass the step's 40 min, which stays red too.
+      - name: Download the API Worker shards' test verdicts
+        if: ${{ !cancelled() && (needs.api-workerd.result == 'failure' || needs.api-workerd.result == 'cancelled') }}
+        continue-on-error: true
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: api-workerd-verdict-*
+          path: ${{ runner.temp }}/api-workerd-verdict
+          merge-multiple: true
+      - name: Rerun API Worker shards that died without a test verdict
+        id: shard-rerun
+        if: ${{ !cancelled() && (needs.api-workerd.result == 'failure' || needs.api-workerd.result == 'cancelled') }}
+        timeout-minutes: 40
+        working-directory: backend/apps/api
+        env:
+          MAX_INFRA_SHARDS: "4"
+        run: |
+          verdicts=$(python3 "$GITHUB_WORKSPACE/scripts/ci/api_workerd_infra_shards.py" --verdict-dir "$RUNNER_TEMP/api-workerd-verdict" --attempt "$GITHUB_RUN_ATTEMPT") || { echo "::warning::could not sort the api-workerd shards; the gate keeps their result"; exit 0; }
+          infra=$(sed -n 's/^infra=//p' <<< "$verdicts"); fail=$(sed -n 's/^fail=//p' <<< "$verdicts")
+          if [ -n "$fail" ]; then
+            echo "::error title=API Worker tests::shard(s) $fail failed their tests (after their own rerun of the failed files); see those api-workerd jobs."
+            exit 0
+          fi
+          read -r -a shards <<< "$infra"
+          if [ "${#shards[@]}" -eq 0 ]; then echo "no api-workerd shard died without a verdict"; exit 0; fi
+          if [ "${#shards[@]}" -gt "$MAX_INFRA_SHARDS" ]; then
+            echo "::error title=API Worker tests::${#shards[@]} shards (${infra}) died without a test verdict, more than ${MAX_INFRA_SHARDS}: the runner pool is down; rerun the failed jobs once it is back."
+            exit 0
+          fi
+          for shard in "${shards[@]}"; do
+            echo "::warning::api-workerd shard ${shard}/12 died without a test verdict (runner or setup, see its job); running it here"
+            bash "$GITHUB_WORKSPACE/scripts/ci/api-workerd-shard.sh" "$shard" 12 || { echo "::error title=API Worker tests::shard ${shard}/12 failed its tests when rerun here"; exit 0; }
+          done
+          echo "verdict=pass" >> "$GITHUB_OUTPUT"
       - name: Fail on the API Worker shards
-        if: ${{ !cancelled() && needs.api-workerd.result != 'success' && !(needs.api-workerd.result == 'skipped' && needs.workerd-changes.outputs.run == 'false') }}
+        if: ${{ !cancelled() && needs.api-workerd.result != 'success' && steps.shard-rerun.outputs.verdict != 'pass' && !(needs.api-workerd.result == 'skipped' && needs.workerd-changes.outputs.run == 'false') }}
         env:
           SHARDS: ${{ needs.api-workerd.result }}
         run: |
-          echo "::error title=API Worker tests::the API Worker tests (workerd) ended ${SHARDS}; see the api-workerd jobs."
+          echo "::error title=API Worker tests::the API Worker tests (workerd) ended ${SHARDS}; see the api-workerd jobs and the rerun step above."
           exit 1
 
   # Development is shared by previews and holds no real data, so the PR's own runner may
@@ -365,7 +448,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Restore the Bun package cache (the test job saves it)
         timeout-minutes: 5
         continue-on-error: true
@@ -401,7 +484,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Restore the Bun package cache (the test job saves it)
         timeout-minutes: 5
         continue-on-error: true
@@ -440,7 +523,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Restore the Bun package cache (the test job saves it)
         timeout-minutes: 5
         continue-on-error: true
@@ -507,7 +590,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Cloud journey (preview-${{ github.event.pull_request.number }})
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
@@ -558,7 +641,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Restore the Bun package cache (the test job saves it)
         timeout-minutes: 5
         continue-on-error: true
@@ -648,7 +731,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Restore the Bun package cache (the test job saves it)
         timeout-minutes: 5
         continue-on-error: true
@@ -856,7 +939,7 @@ jobs:
         if: steps.changed.outputs.deploy == 'true'
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Restore the Bun package cache (the test job saves it)
         timeout-minutes: 5
         continue-on-error: true
@@ -956,7 +1039,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Cloud journey (staging)
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
@@ -1013,7 +1096,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Restore the Bun package cache (the test job saves it)
         timeout-minutes: 5
         continue-on-error: true
@@ -1159,7 +1242,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Restore the Bun package cache (the test job saves it)
         timeout-minutes: 5
         continue-on-error: true
@@ -1263,7 +1346,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Restore the Bun package cache (the test job saves it)
         timeout-minutes: 5
         continue-on-error: true
@@ -1362,7 +1445,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Restore the Bun package cache (the test job saves it)
         timeout-minutes: 5
         continue-on-error: true
@@ -1419,7 +1502,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Restore the Bun package cache (the test job saves it)
         timeout-minutes: 5
         continue-on-error: true
@@ -1516,7 +1599,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Restore the Bun package cache (the test job saves it)
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -1633,7 +1716,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Cloud journey after the promote (model stub)
         id: stub
         if: needs.promote-production.result == 'success'
