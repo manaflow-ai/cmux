@@ -17,3 +17,23 @@
   margin: 0 0 12px;
   color: var(--cmux-text-secondary, GrayText);
 }
+
+/* glass-*: a glass dialog (.ui-glass, popupSurface.css THE SHEET ROLE) lays out like the demo one. */
+.dialog-gallery-glass {
+  box-sizing: border-box;
+  padding: var(--ui-dialog-padding, 16px);
+  color: var(--cmux-text, CanvasText);
+}
+/* glass-host-busy: transcript-like text filling the stage under the dialog. */
+.dialog-gallery-glass-stage {
+  position: relative;
+}
+.dialog-gallery-busy {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: var(--ds-space-4);
+  overflow: hidden;
+  color: var(--cmux-text-secondary, GrayText);
+  font: var(--weight-regular) var(--text-body) / var(--text-body--line-height) var(--font-ui);
+}

@@ -185,3 +185,44 @@ test("Escape still closes an alert dialog", async () => {
   await escape(doc);
   expect(closes).toEqual(["close"]);
 });
+
+const sheetGlassOf = (doc: Document) => doc.querySelector(".ui-dialog")?.getAttribute("data-host-glass-role") ?? null;
+const glassDialog = (className = "ui-glass ui-glass-floats") => (
+  <Dialog open onOpenChange={() => {}} label="Share" className={className}>
+    <button type="button">Done</button>
+  </Dialog>
+);
+
+test("a glass dialog draws on the page's own glass by default (experiments.dialogGlass off)", async () => {
+  const doc = render(glassDialog());
+  await settle();
+  expect(sheetGlassOf(doc)).toBeNull();
+  expect(doc.querySelector(".ui-dialog")?.hasAttribute("data-host-glass")).toBe(false);
+});
+
+test("experiments.dialogGlass (arm host) puts a glass dialog on the App's sheet glass", async () => {
+  const savedArms = globalThis.cmuxExperiments;
+  globalThis.cmuxExperiments = { "dialog-glass": "host" };
+  try {
+    const doc = render(glassDialog());
+    await settle();
+    const popup = doc.querySelector(".ui-dialog")!;
+    expect(sheetGlassOf(doc)).toBe("sheet");
+    expect(popup.getAttribute("data-host-glass")).toBe("popover");
+    expect(popup.hasAttribute("data-host-glass-cover")).toBe(true);
+  } finally {
+    globalThis.cmuxExperiments = savedArms;
+  }
+});
+
+test("a dialog with no glass of its own asks the App for none, even with the arm on", async () => {
+  const savedArms = globalThis.cmuxExperiments;
+  globalThis.cmuxExperiments = { "dialog-glass": "host" };
+  try {
+    const doc = render(glassDialog("image-viewer"));
+    await settle();
+    expect(doc.querySelector(".ui-dialog")?.hasAttribute("data-host-glass")).toBe(false);
+  } finally {
+    globalThis.cmuxExperiments = savedArms;
+  }
+});

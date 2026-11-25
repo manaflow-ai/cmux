@@ -4,8 +4,61 @@ import { componentEntry } from "../gallery/format";
 import type { Play } from "../gallery/play";
 import { Dialog, DialogDescription, DialogTitle } from "./Dialog";
 
-function DialogGallery({ titled = false, alert = false }: { titled?: boolean; alert?: boolean }) {
+// The dialog's glass (hq RFD "Native or our own web view, per surface", build item 4; the dialog-glass
+// experiment, ui/dialogGlass.experiment.ts). Shipped: `page`, the page's own sheet veil and blur
+// (popupSurface.css, THE SHEET ROLE). `host`, behind `experiments.dialogGlass` (off by default): the App's
+// own sheet glass under the page where the App draws it, the native dialog card's. A browser gallery has no
+// App, so the two look alike here: the App's capture shows them.
+type Glass = "host" | "page";
+// Transcript-like text under the dialog: the glass has to keep it legible over busy content.
+const BUSY_TEXT =
+  "Read 14 files in webviews/src/ui. The shared dialog portals above the pane, so a confirm never pushes the " +
+  "transcript or the composer when it opens. Ran the gallery capture for ui.dialog in light and dark; every " +
+  "variant matched its last approved image except the dialogs the change is about. ".repeat(4);
+
+function GlassDialog({ glass, busy = false }: { glass: Glass; busy?: boolean }) {
   const [open, setOpen] = useState(false);
+  return (
+    <div className="menu-gallery-stage dialog-gallery-glass-stage">
+      {busy && (
+        <p className="dialog-gallery-busy" aria-hidden="true">
+          {BUSY_TEXT}
+        </p>
+      )}
+      <button type="button" className="menu-gallery-trigger" onClick={() => setOpen(true)}>
+        Open demo dialog
+      </button>
+      <Dialog
+        open={open}
+        onOpenChange={setOpen}
+        className="ui-glass ui-glass-floats dialog-gallery-glass"
+        hostGlass={glass === "host"}
+      >
+        <DialogTitle className="dialog-gallery-title">Delete this chat?</DialogTitle>
+        <DialogDescription className="dialog-gallery-description">
+          Its messages and files go too. This cannot be undone.
+        </DialogDescription>
+        <button type="button" className="menu-gallery-trigger" onClick={() => setOpen(false)}>
+          Cancel
+        </button>
+      </Dialog>
+    </div>
+  );
+}
+
+function DialogGallery({
+  titled = false,
+  alert = false,
+  glass,
+  busy,
+}: {
+  titled?: boolean;
+  alert?: boolean;
+  glass?: Glass;
+  busy?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  if (glass) return <GlassDialog glass={glass} busy={busy} />;
   if (titled)
     return (
       <div className="menu-gallery-stage">
@@ -74,6 +127,21 @@ export default componentEntry({
         await ctx.waitFor(() => ctx.find({ role: "alertdialog" }));
       },
       note: "alert: role alertdialog; a press outside does not dismiss it, Escape does.",
+    },
+    "glass-page": {
+      props: { glass: "page" },
+      play: open,
+      note: "Shipped (the default): a glass dialog on the page's own sheet veil and blur, today's dialog.",
+    },
+    "glass-host": {
+      props: { glass: "host" },
+      play: open,
+      note: "experiments.dialogGlass (off by default): the dialog on the App's own sheet glass under the page (data-host-glass, role sheet).",
+    },
+    "glass-host-busy": {
+      props: { glass: "host", busy: true },
+      play: open,
+      note: "experiments.dialogGlass, over busy transcript text: the glass keeps the dialog legible.",
     },
   },
 });

@@ -237779,6 +237779,270 @@
         }
       }
     },
+    "settings.experiments.dialogGlass": {
+      "comment": "Settings > Experimental row title: dialogs and sheets in chats drawn on the app's own glass.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "زجاج مربعات الحوار"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Staklo dijaloga"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dialogglas"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dialogglas"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dialog Glass"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cristal de diálogos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verre des dialogues"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vetro delle finestre di dialogo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダイアログのガラス"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កញ្ចក់ប្រអប់សន្ទនា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대화상자 글래스"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dialogglass"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Szkło okien dialogowych"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vidro das caixas de diálogo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стекло диалогов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กระจกของกล่องโต้ตอบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İletişim Kutusu Camı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скло діалогів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kính của hộp thoại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "对话框玻璃"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "對話框玻璃"
+          }
+        }
+      }
+    },
+    "settings.experiments.dialogGlass.help": {
+      "comment": "Settings > Experimental > Dialog Glass help: dialogs in chats use the same glass material as the app's native dialogs.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تظهر مربعات الحوار في المحادثات على الزجاج نفسه الذي تستخدمه مربعات الحوار في التطبيق."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dijalozi u razgovorima stoje na istom staklu kao i dijalozi same aplikacije."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dialoger i chats ligger på det samme glas som appens egne dialoger."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dialoge in Chats liegen auf demselben Glas wie die Dialoge der App."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dialogs in chats sit on the same glass as the app's own dialogs."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los diálogos de los chats se muestran sobre el mismo cristal que los diálogos de la propia app."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les dialogues des discussions reposent sur le même verre que les dialogues de l'app."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le finestre di dialogo nelle chat poggiano sullo stesso vetro di quelle dell'app."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャット内のダイアログが、アプリ自身のダイアログと同じガラスの上に表示されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រអប់សន្ទនាក្នុងការជជែក ស្ថិតនៅលើកញ្ចក់ដូចគ្នានឹងប្រអប់សន្ទនារបស់កម្មវិធីផ្ទាល់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅의 대화상자가 앱 자체 대화상자와 같은 글래스 위에 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dialoger i chatter ligger på det samme glasset som appens egne dialoger."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Okna dialogowe w czatach leżą na tym samym szkle co okna dialogowe aplikacji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As caixas de diálogo nos chats ficam sobre o mesmo vidro das caixas de diálogo do próprio app."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Диалоги в чатах лежат на том же стекле, что и диалоги самого приложения."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กล่องโต้ตอบในแชทวางอยู่บนกระจกเดียวกับกล่องโต้ตอบของแอปเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbetlerdeki iletişim kutuları, uygulamanın kendi iletişim kutularıyla aynı camın üzerinde durur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Діалоги в чатах лежать на тому самому склі, що й діалоги самої програми."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hộp thoại trong cuộc trò chuyện nằm trên cùng lớp kính với hộp thoại của chính ứng dụng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天中的对话框与应用自身的对话框使用同一层玻璃。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天中的對話框與應用程式本身的對話框使用同一層玻璃。"
+          }
+        }
+      }
+    },
     "settings.experiments.menuRowStates": {
       "comment": "Settings > Experimental row title: menu rows show why they are unavailable and the progress of work they start.",
       "extractionState": "manual",

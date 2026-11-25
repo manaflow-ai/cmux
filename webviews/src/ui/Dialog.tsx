@@ -10,6 +10,8 @@ import { AlertDialog as BaseAlertDialog } from "@base-ui/react/alert-dialog";
 import { Dialog as BaseDialog } from "@base-ui/react/dialog";
 import { usePortalContainer } from "./UiProvider";
 import { cx } from "./cx";
+import { dialogGlass } from "./dialogGlass.experiment";
+import { useExperimentArm } from "../experiments/useExperimentArm";
 
 export interface DialogProps {
   open: boolean;
@@ -27,8 +29,16 @@ export interface DialogProps {
   /** Keys of the dialog's own content. The popup takes focus when a press inside lands on no
    * focusable element, so a handler on an inner element would miss them. */
   onKeyDown?: (event: React.KeyboardEvent<HTMLElement>) => void;
+  /** A glass dialog's glass is the App's sheet glass under the page (glass/hostGlass.ts, role `sheet`, the
+   * native dialog card's), where the App draws it; false keeps the page's own veil and blur
+   * (popupSurface.css, THE SHEET ROLE). Default the dialog-glass experiment's arm (`experiments.dialogGlass`,
+   * off by default: the page's). Only a `.ui-glass` popup takes it: a dialog with no glass of its own (an
+   * image viewer) asks the App for none. */
+  hostGlass?: boolean;
   children: ReactNode;
 }
+
+const GLASS_CLASS = /(?:^|\s)ui-glass(?:\s|$)/;
 
 export function Dialog({
   open,
@@ -40,9 +50,15 @@ export function Dialog({
   style,
   initialFocus,
   onKeyDown,
+  hostGlass: hostGlassOverride,
   children,
 }: DialogProps) {
   const container = usePortalContainer();
+  const glassArm = useExperimentArm(dialogGlass);
+  // A dialog over its surface is a `floating` surface (design-system-decisions B1): the App's sheet glass
+  // under the page where the App draws it (hq RFD "Native or our own web view, per surface"), else the
+  // page's own veil. glass.css (HOST GLASS) drops the page's blur and veil once the App has drawn it.
+  const floats = (hostGlassOverride ?? glassArm === "host") && GLASS_CLASS.test(className ?? "");
   useEffect(() => {
     if (!open) return;
     const guardChordEscape = (event: KeyboardEvent) => {
@@ -61,6 +77,9 @@ export function Dialog({
         <BaseDialog.Popup
           className={cx("ui-dialog", className)}
           data-surface-role="sheet"
+          data-host-glass={floats ? "popover" : undefined}
+          data-host-glass-role={floats ? "sheet" : undefined}
+          data-host-glass-cover={floats ? "" : undefined}
           aria-label={label}
           style={style}
           initialFocus={initialFocus}
