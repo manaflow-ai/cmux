@@ -2262,11 +2262,19 @@ async fn dispatch_request_with_identity(
                 == crate::hub::Control::Web;
             // The uploads this prompt names as its own (`attach::blocks_for` uploaded them for it
             // alone): a refusal before the session sees it deletes them, so none is left behind.
-            let mut owned = crate::attach::OwnedUploads(if web {
-                Vec::new()
+            let mut owned = if web {
+                crate::attach::OwnedUploads(Vec::new())
             } else {
-                crate::prompt_uploads::owned(&s.id, &blocks).await
-            });
+                match tokio::time::timeout_at(
+                    admission.answer_due(),
+                    crate::prompt_uploads::owned_guard(&s.id, &blocks),
+                )
+                .await
+                {
+                    Ok(owned) => owned,
+                    Err(_) => return Err(crate::hub::auto_resume::retry_turn::busy()),
+                }
+            };
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
             // An `@computer-use` / `@browser-use` the person wrote gets acpmux's fixed note for the
             // agent, from any origin: its text is acpmux's, not the client's (`tool_mentions.rs`).
@@ -2605,7 +2613,7 @@ async fn dispatch_request_with_identity(
             let on_accepted = super::felt::time_ack(felt_started, on_accepted);
             let mut opts = crate::hub::PromptOptions {
                 race_guard: None,
-                admission: Some(admission),
+                admission: Some(admission.clone()),
                 cloud_turn,
                 prompt_id,
                 message_id,
@@ -2677,7 +2685,14 @@ async fn dispatch_request_with_identity(
             let agent_message = opts.provenance.is_some()
                 && !crate::prompt_provenance::is_unverified(opts.provenance.as_ref())
                 && !person_message;
-            super::agent_messages::person_prompt(hub, conn, &s, agent_message).await;
+            // Pairing a local person's peers reads their logs. Keep that bookkeeping from
+            // holding prompt admission past the delivery deadline. The prompt can continue
+            // without the pair refresh, which the next prompt retries.
+            let _ = tokio::time::timeout_at(
+                admission.answer_due(),
+                super::agent_messages::person_prompt(hub, conn, &s, agent_message),
+            )
+            .await;
             // The person's own `acpmux send` names the machine it ran on (`cli/sender.rs`): the
             // recorded client says it (`acpmux-cli#…@big-red`), and the transcript shows "via CLI on
             // big-red" under their prompt. An agent's message names its sender instead.

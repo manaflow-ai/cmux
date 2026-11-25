@@ -208,6 +208,21 @@ impl Unanswered {
         if let Some(guard) = &opts.race_guard {
             return Some(Self::Guarded(guard.clone()));
         }
+        // Queue replay carries durable prompt fields. Live routing or reply contracts stay on
+        // the original request and are retried while still local to that request.
+        if opts.interrupt
+            || opts.interrupt_turn.is_some()
+            || opts.steer_now
+            || opts.send_now
+            || opts.thread.is_some()
+            || opts.reply_reader.is_some()
+            || opts.wake_or_fail
+            || (opts.inbox
+                && super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref())
+                    .is_some())
+        {
+            return Some(Self::Busy);
+        }
         let prompt_id =
             opts.prompt_id.get_or_insert_with(|| uuid::Uuid::now_v7().to_string()).clone();
         let on_accepted = Arc::new(StdMutex::new(opts.on_accepted.take()));
@@ -296,9 +311,13 @@ impl Hub {
             Err(_) => QueueLimits::defaults(),
         };
         let turn_id = uuid::Uuid::now_v7().to_string();
-        // A restore must not start between our check and the queued journal entry.
-        // Its writer can still be finishing the last page after releasing its lease.
-        let admit = session.admit.lock().unwrap_or_else(|e| e.into_inner());
+        // A restore owns the journal order until its last page. Do not append beside it, and do
+        // not wait on its writer after the delivery deadline.
+        let _admit = match session.admit.try_lock() {
+            Ok(guard) => guard,
+            Err(std::sync::TryLockError::Poisoned(error)) => error.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => return Err(restore_deadline()),
+        };
         if session.restoring.load(Ordering::SeqCst)
             || session.restore_token.load(Ordering::SeqCst) != 0
         {
@@ -319,7 +338,9 @@ impl Hub {
                 .push((row.prompt_id.clone(), row.turn_id.clone()));
             outcome
         })?;
-        drop(admit);
+        // The journal admission only protects the enqueue transaction. Do not carry its
+        // process-local mutex guard into the answer wait, which must remain spawn-safe.
+        drop(_admit);
         let mut answer = outcome.subscribe();
         tracing::warn!(session = %session.id, prompt = %d.prompt_id, stage, position, "prompt unanswered in time: queued");
         let accepted = json!({"sessionId": session.id, "promptId": d.prompt_id, "turnId": turn_id, "queued": true, "state": "queued", "position": position, "deferred": true});

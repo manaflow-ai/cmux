@@ -1394,6 +1394,10 @@ enum Next {
 }
 
 impl Hub {
+    pub(in crate::hub) fn page_rule_lists(&self, name: &str) -> bool {
+        self.page_rule_sessions.lock().unwrap_or_else(|e| e.into_inner()).contains(name.trim())
+    }
+
     /// Whether a prompt goes into the inbox ([`takes`]): its sender and class when it does. Out
     /// of line, so the prompt's future holds no sender lookup.
     #[inline(never)]
@@ -1470,7 +1474,9 @@ impl Hub {
         let wakes_before_rule = (surge_on && fire_notice(provenance.and_then(|p| p.get("notice"))))
             || wakes_as(&meta_now, class, is_report(provenance), waited, sender_session.as_deref());
         // A chat on the coordinator list wakes only for a page (`inbox_page_rule.rs`).
-        let page_rule_on = page_rule::listed(&*self.config.read().await, &meta_now.name);
+        // Reload publishes page-rule names while holding the config writer, so inbox admission
+        // never guesses during a write and never waits on it.
+        let page_rule_on = self.page_rule_lists(&meta_now.name);
         let continuing = self.continuation_pending(session);
         // It would sit in an idle chat's inbox until a flush: said in its acceptance, and a
         // sender that waits for it is refused at once (`not_woken`).

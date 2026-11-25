@@ -201,6 +201,8 @@ impl Hub {
             // The next person's prompt to an idle chat reads it (`person_hold.rs`).
             current.person_hold = person_hold;
             // The next message to a coordinator's inbox reads it (`inbox_page_rule.rs`).
+            let names = super::inbox::page_rule::session_names(page_rule.as_ref());
+            *self.page_rule_sessions.lock().unwrap_or_else(|e| e.into_inner()) = names;
             current.page_rule = page_rule;
             current.mcp_store = mcp_store;
             current.hold_agent_starts_to_starter = hold_agent_starts_to_starter;

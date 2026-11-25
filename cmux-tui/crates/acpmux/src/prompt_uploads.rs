@@ -63,18 +63,24 @@ fn upload_of(block: &Value) -> Option<&Value> {
 /// it matches. Deleted when the prompt is refused (`attach::Saved`), so none is left behind; a
 /// reference to anyone else's upload names none. Each token is read off the runtime.
 pub async fn owned(session: &str, blocks: &[Value]) -> Vec<std::path::PathBuf> {
+    owned_guard(session, blocks).await.take()
+}
+
+pub(crate) async fn owned_guard(session: &str, blocks: &[Value]) -> crate::attach::OwnedUploads {
     let refs = owned_refs(blocks);
     if refs.is_empty() {
-        return Vec::new();
+        return crate::attach::OwnedUploads(Vec::new());
     }
     let session = session.to_owned();
     tokio::task::spawn_blocking(move || {
-        refs.iter()
-            .filter_map(|(id, token)| crate::hub::file_uploads::owned_dir(&session, id, token))
-            .collect()
+        crate::attach::OwnedUploads(
+            refs.iter()
+                .filter_map(|(id, token)| crate::hub::file_uploads::owned_dir(&session, id, token))
+                .collect(),
+        )
     })
     .await
-    .unwrap_or_default()
+    .unwrap_or_else(|_| crate::attach::OwnedUploads(Vec::new()))
 }
 
 /// Each `(uploadId, owner token)` `blocks` name ([`owned`]).
