@@ -1102,7 +1102,7 @@ pub(super) async fn handle_request(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
     m: &str,
-    mut params: Value,
+    params: Value,
     sender_token: Option<crate::sender_token::Presented>,
 ) -> Result<Value, RpcError> {
     // Freed memory goes back to the system once requests stop (malloc_quiet_trim.rs).
@@ -1146,6 +1146,64 @@ pub(super) async fn handle_request(
     if m == crate::agent_credentials::UPDATE_METHOD {
         return agent_credentials_update(hub, conn, &params).await;
     }
+    let received = tokio::time::Instant::now();
+    let checks = prepare_request(hub, conn, m, params, sender_token);
+    let (m, params, resolved, verdict) =
+        if matches!(m, method::SESSION_PROMPT | method::MUX_SEND_QUEUE) {
+            prompt_preparation(
+                received + crate::hub::prompt_admission::ANSWER_BOUND,
+                "prompt sender and access checks",
+                checks,
+            )
+            .await??
+        } else {
+            checks.await?
+        };
+    let key = super::session_key(&params).ok().map(str::to_owned);
+    // Audited on arrival, once every gate above took it: a `session/prompt`'s reply comes only
+    // when its turn ends, which may be minutes (2026-11-05: a message between two lane machines
+    // was in the receiver's log 186 s after it arrived). A refusal after this is its own line.
+    let crossing = cross_host_prompt(conn.origin, m, &params);
+    if let Some(fields) = &crossing {
+        crate::xhost_audit::record("received", fields.clone());
+    }
+    let mut reply = if verdict == crate::hub::person::PersonVerdict::PeerOnly {
+        // The check saw a peer's prompt: only the peer decides it. If the
+        // name no longer names a peer's session (renamed, killed, a new
+        // local session with that prefix), refuse; never handle it here.
+        match super::peer_forward::forward(hub, conn, m, &params).await {
+            Some(reply) => reply,
+            None => Err(crate::hub::person::person_required(
+                "answering a prompt whose session moved between this check and its forward",
+            )),
+        }
+    } else {
+        heap(|| dispatch_request_with_identity(hub, conn, m, params, resolved, None, received))
+            .await
+    };
+    // A session only the hub reaches, for a verb the hub does not carry: said so, never
+    // `no session` (`mesh_read.rs`).
+    super::mesh_relay::read::explain_no_session(hub, conn, m, key.as_deref(), &mut reply);
+    super::remote_guard::after(hub, conn.origin, m, key.as_deref(), &mut reply);
+    if let (Some(mut fields), Err(e)) = (crossing, &reply) {
+        // Never the error's text, which may quote the message: its code only.
+        fields.set("error", json!(e.code));
+        crate::xhost_audit::record("refused", fields);
+    }
+    reply
+}
+
+/// Resolve and verify the caller before dispatch. A timed-out check cannot forward or run a prompt.
+async fn prepare_request<'m>(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    m: &'m str,
+    mut params: Value,
+    sender_token: Option<crate::sender_token::Presented>,
+) -> Result<
+    (&'m str, Value, Option<Arc<crate::hub::Session>>, crate::hub::person::PersonVerdict),
+    RpcError,
+> {
     // A bare name or prefix on this machine's socket names the one live session here or on a
     // peer; every check below reads the route it found (`hub/key_route.rs`).
     if conn.origin == Origin::Local {
@@ -1281,37 +1339,7 @@ pub(super) async fn handle_request(
             hub.stamp_bridged_sender(prompt, pid, outbox, conn.caller().is_some()).await;
         }
     }
-    let key = super::session_key(&params).ok().map(str::to_owned);
-    // Audited on arrival, once every gate above took it: a `session/prompt`'s reply comes only
-    // when its turn ends, which may be minutes (2026-11-05: a message between two lane machines
-    // was in the receiver's log 186 s after it arrived). A refusal after this is its own line.
-    let crossing = cross_host_prompt(conn.origin, m, &params);
-    if let Some(fields) = &crossing {
-        crate::xhost_audit::record("received", fields.clone());
-    }
-    let mut reply = if verdict == crate::hub::person::PersonVerdict::PeerOnly {
-        // The check saw a peer's prompt: only the peer decides it. If the
-        // name no longer names a peer's session (renamed, killed, a new
-        // local session with that prefix), refuse; never handle it here.
-        match super::peer_forward::forward(hub, conn, m, &params).await {
-            Some(reply) => reply,
-            None => Err(crate::hub::person::person_required(
-                "answering a prompt whose session moved between this check and its forward",
-            )),
-        }
-    } else {
-        heap(|| dispatch_request(hub, conn, m, params, resolved)).await
-    };
-    // A session only the hub reaches, for a verb the hub does not carry: said so, never
-    // `no session` (`mesh_read.rs`).
-    super::mesh_relay::read::explain_no_session(hub, conn, m, key.as_deref(), &mut reply);
-    super::remote_guard::after(hub, conn.origin, m, key.as_deref(), &mut reply);
-    if let (Some(mut fields), Err(e)) = (crossing, &reply) {
-        // Never the error's text, which may quote the message: its code only.
-        fields.set("error", json!(e.code));
-        crate::xhost_audit::record("refused", fields);
-    }
-    reply
+    Ok((m, params, resolved, verdict))
 }
 
 /// The cross-host audit line's fields (`xhost_audit.rs`) for a message request that crossed
@@ -1351,7 +1379,18 @@ pub(super) async fn dispatch_request(
     params: Value,
     resolved: Option<Arc<crate::hub::Session>>,
 ) -> Result<Value, RpcError> {
-    heap(|| dispatch_request_with_identity(hub, conn, m, params, resolved, None)).await
+    heap(|| {
+        dispatch_request_with_identity(
+            hub,
+            conn,
+            m,
+            params,
+            resolved,
+            None,
+            tokio::time::Instant::now(),
+        )
+    })
+    .await
 }
 
 /// `_acpmux/rename`: a chat's name, or its spoken handle (`newHandle`).
@@ -1428,6 +1467,7 @@ async fn dispatch_request_with_identity(
     params: Value,
     resolved: Option<Arc<crate::hub::Session>>,
     fixed_id: Option<String>,
+    received: tokio::time::Instant,
 ) -> Result<Value, RpcError> {
     // The Chief reads a paired machine's harnesses before placing a task there.
     // Only this machine's own clients may select a peer; send no caller params
@@ -2236,7 +2276,8 @@ async fn dispatch_request_with_identity(
                 .with_data(json!({"reason": "stale_generation", "retryable": false})));
             }
             // Ordered by the chat's prompt admission from here (`hub/prompt_admission.rs`), bounded.
-            let admission = crate::hub::prompt_admission::admit(&s, &hub.scope).await;
+            let admission = crate::hub::prompt_admission::admit(&s, &hub.scope, received).await;
+            let answer_due = admission.answer_due();
             attach(hub, conn, &s.id);
             if person_asks(conn) {
                 super::lane_parent::person_wrote(hub, &s);
@@ -2266,7 +2307,7 @@ async fn dispatch_request_with_identity(
                 Vec::new()
             } else {
                 prompt_preparation(
-                    admission.answer_due(),
+                    answer_due,
                     "prompt_uploads::owned",
                     crate::prompt_uploads::owned(&s.id, &blocks),
                 )
@@ -2507,19 +2548,14 @@ async fn dispatch_request_with_identity(
             // the owner only: a person's prompt neither replaces nor is replaced.
             let supersede = crate::hub::supersede_key(&params)?.filter(|_| !person_message);
             let supersede_set = supersede.is_some();
-            let inbox_on = match prompt_preparation(
-                admission.answer_due(),
-                "hub.config.read",
-                hub.config.read(),
-            )
-            .await
-            {
-                Ok(config) => config.agent_inbox(),
-                Err(error) => {
-                    preserve_owned_uploads_for_retry(&mut owned);
-                    return Err(error);
-                }
-            };
+            let inbox_on =
+                match prompt_preparation(answer_due, "hub.config.read", hub.config.read()).await {
+                    Ok(config) => config.agent_inbox(),
+                    Err(error) => {
+                        preserve_owned_uploads_for_retry(&mut owned);
+                        return Err(error);
+                    }
+                };
             // Files uploaded first and named in the prompt get their bytes back here, before
             // anything reads them (`prompt_uploads.rs`). A prompt id the chat took already goes on
             // to `prompt_with`, which answers with its first run even once its uploads are gone
@@ -2537,7 +2573,9 @@ async fn dispatch_request_with_identity(
                         result => result.map(|()| blocks),
                     }
                 });
-                blocks = match prompt_preparation(admission.answer_due(), "prompt_uploads::resolve", resolved).await {
+                blocks = match prompt_preparation(answer_due, "prompt_uploads::resolve", resolved)
+                    .await
+                {
                     Ok(result) => result.map_err(|e| RpcError::internal(e.to_string()))??,
                     Err(error) => {
                         preserve_owned_uploads_for_retry(&mut owned);
@@ -2555,13 +2593,14 @@ async fn dispatch_request_with_identity(
                 let received = tokio::task::spawn_blocking(move || {
                     crate::attach::receive(&id, web, &mut blocks).map(|saved| (blocks, saved))
                 });
-                (blocks, saved) = match prompt_preparation(admission.answer_due(), "attach::receive", received).await {
-                    Ok(result) => result.map_err(|e| RpcError::internal(e.to_string()))??,
-                    Err(error) => {
-                        preserve_owned_uploads_for_retry(&mut owned);
-                        return Err(error);
-                    }
-                };
+                (blocks, saved) =
+                    match prompt_preparation(answer_due, "attach::receive", received).await {
+                        Ok(result) => result.map_err(|e| RpcError::internal(e.to_string()))??,
+                        Err(error) => {
+                            preserve_owned_uploads_for_retry(&mut owned);
+                            return Err(error);
+                        }
+                    };
             }
             // Where the send came from, as its harness says and the daemon checked: a record of
             // its own beside the prompt, written once the prompt is kept, never part of who sent
@@ -2691,7 +2730,7 @@ async fn dispatch_request_with_identity(
                 && !crate::prompt_provenance::is_unverified(opts.provenance.as_ref())
                 && !person_message;
             if let Err(error) = prompt_preparation(
-                admission.answer_due(),
+                answer_due,
                 "agent_messages::person_prompt",
                 super::agent_messages::person_prompt(hub, conn, &s, agent_message),
             )
