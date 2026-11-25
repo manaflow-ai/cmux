@@ -295,6 +295,7 @@ private struct ProtoComposer: View {
             .buttonStyle(.cmuxPressFill)
             .disabled(text.trimmingCharacters(in: .whitespaces).isEmpty)
             .accessibilityLabel(Text("Send"))
+            .accessibilityIdentifier("proto.send")
         }
         .padding(.leading, 16)
         .padding(.trailing, 6)
@@ -1125,10 +1126,13 @@ private struct ProtoHomeFirst: View {
             }
             .padding(16)
             setupRow("laptopcomputer", "Connect your Mac", "So your agents have somewhere to run", done: macDone) { sheet = .mac }
+                .accessibilityIdentifier("proto.setup.mac")
             Divider().padding(.leading, 62)
             setupRow("bell", "Turn on notifications", "Know when an agent needs you", done: notificationsDone) { sheet = .notifications }
+                .accessibilityIdentifier("proto.setup.notifications")
             Divider().padding(.leading, 62)
             setupRow("sparkles", "Give Chief a first task", "Type it below", done: taskDone) { composerFocused = true }
+                .accessibilityIdentifier("proto.setup.task")
         }
         .background(theme.colors.surface, in: .rect(cornerRadius: theme.metrics.groupRadius, style: .continuous))
     }
@@ -1273,6 +1277,7 @@ private struct ProtoHomeFirst: View {
                     finishIfDone()
                 }
             }
+            .accessibilityIdentifier("proto.notifications.allow")
         }
         .padding(.horizontal, theme.metrics.sideMargin)
         .padding(.bottom, 12)
