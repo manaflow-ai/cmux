@@ -147,6 +147,17 @@ fn points_at_inbox(provenance: Option<&Value>) -> bool {
     super::inbox::is_notice(provenance) || super::digest::inbox_digest::is_digest(provenance)
 }
 
+const RESTORED_WAIT: &str = "session_held.restored_queue";
+
+pub(super) fn restore_waits(error: &RpcError) -> bool {
+    error.data.as_ref().and_then(|d| d["reason"].as_str()) == Some(RESTORED_WAIT)
+}
+
+pub(super) fn restore_wait_error() -> RpcError {
+    RpcError::invalid_params("restored queue waits for the held chat to be released")
+        .with_data(json!({"reason": RESTORED_WAIT}))
+}
+
 impl Hub {
     pub(crate) fn fleet_hold(&self) -> FleetHold {
         self.fleet_hold.lock().unwrap_or_else(|e| e.into_inner()).get()

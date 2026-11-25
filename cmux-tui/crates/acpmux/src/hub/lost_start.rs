@@ -99,6 +99,8 @@ impl Unstarted {
                     .collect();
                 self.settle(slots)
             }
+            // Its restart sent it straight to the inbox, with no turn of its own.
+            "inbox" if e.dir == "mux" => self.settle(self.of_prompt(prompt_id)),
             // Refused, withdrawn, or queued again under a new turn id.
             "prompt_refused" | "queue_removed" | "queued" => self.settle(self.of_prompt(prompt_id)),
             // A daemon that put it back moved or held it (an edit only changes its record): it

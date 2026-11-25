@@ -550,9 +550,18 @@ impl Hub {
         }
         // A held chat keeps what is not the person's in its inbox, with no turn
         // (`session_hold.rs`); else the surge may hold it.
-        let held = match self.hold_for_session_hold(session, &prompt_id, client, &blocks, &opts)? {
-            Some(receipt) => Some(receipt),
-            None => self.hold_surge_message(session, &prompt_id, client, &blocks, &opts)?,
+        let held = if opts.restoring_queue {
+            // It already owns a place in the queue. Apply its current edit, stop and approval
+            // there, instead of admitting it to a second destination after every restart.
+            if self.session_held(session) {
+                return Err(super::session_hold::restore_wait_error());
+            }
+            None
+        } else {
+            match self.hold_for_session_hold(session, &prompt_id, client, &blocks, &opts)? {
+                Some(receipt) => Some(receipt),
+                None => self.hold_surge_message(session, &prompt_id, client, &blocks, &opts)?,
+            }
         };
         if let Some(receipt) = held {
             if let Some(accept) = opts.on_accepted.take() {

@@ -853,6 +853,9 @@ pub struct PromptOptions {
     /// Admission guard acquired by the RPC layer before it resolves prompt uploads.
     #[doc(hidden)]
     pub prompt_admission: Option<tokio::sync::OwnedMutexGuard<()>>,
+    /// This prompt is already admitted to the queue. Preserve that admission route on restart.
+    #[doc(hidden)]
+    pub restoring_queue: bool,
     /// Native-prepared Cloud turn capability; held in memory until claim/finish only.
     pub cloud_turn: Option<crate::cloud_rewind::CloudTurnEnvelope>,
     /// Client-chosen id (`_meta.acpmux.promptId`); generated when absent.
