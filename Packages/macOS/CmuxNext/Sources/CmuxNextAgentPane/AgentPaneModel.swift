@@ -78,6 +78,9 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onFramePacing: (([Double]) -> [String: Any])?
     /// Applies the page's adaptive rendering decision.
     @ObservationIgnored public var onRenderRate: ((Bool) -> Void)?
+    /// Every `pane.painted` report, the first one too, after ``markPainted()``: a page that loaded again
+    /// (a reload, a crash retry) reports its first frame here (``AgentPaneDocumentCover``).
+    @ObservationIgnored var onPaintReport: (() -> Void)?
     /// The new tab page this pane shows until it has a session (cleared then), nil for a plain chat.
     public private(set) var newTab: AgentPaneNewTab? { didSet { if (oldValue == nil) != (newTab == nil) { onNewTabChange?() } } }
     @ObservationIgnored var onNewTabChange: (() -> Void)? // it became or left a New Tab page (the view's bar on top)
@@ -169,6 +172,9 @@ public final class AgentPaneModel {
         cloudReserveOut?.dropped = true
         AgentPaneCloudReservationRequest.log.notice("cloud reserve: the Send went without it (the page stopped waiting); it is released as it answers")
     }
+    /// The person pressed Send with Cloud picked: the page reserved that Send's gesture, before its speculative lease settles and
+    /// ``onCloudStartChat`` runs (up to `RESERVATION_SEND_WAIT_MS`). Its tab reads as a Cloud chat from now (cmux#51000).
+    @ObservationIgnored public var onCloudSendGesture: (@MainActor () -> Void)?
     /// A new chat's first send with Cloud picked (``AgentPaneCloudStart``); nil: no Cloud chats here.
     @ObservationIgnored public var onCloudStartChat: (@MainActor (AgentPaneCloudStart) async -> [String: Any])?
     /// Signs into the app's Cloud account for inline first-send recovery; nil when Cloud is unavailable.
@@ -269,6 +275,8 @@ public final class AgentPaneModel {
     public private(set) var tabRowTools: [PaneTabRowTool] = []
     @ObservationIgnored public var onTabRowToolInvoked: ((String, String?) -> Void)?
     @ObservationIgnored public var onTabRowToolMenuRequested: ((String, String?) -> Void)?
+    /// Pops the app's Customizations menu at a point of the page (AgentPaneView); false when there is none.
+    @ObservationIgnored public var onCustomizationsMenuRequested: ((CGPoint) -> Bool)?
     /// Gets the composer's dictation requests (the pane's mic).
     @ObservationIgnored public var onDictation: ((AgentPaneDictationCommand) -> Void)?
     /// Takes back a long recording the pane's dictation gave the page, for chat `session`
@@ -655,6 +663,7 @@ public final class AgentPaneModel {
                 pageReportedPaint = true
             }
             markPainted()
+            onPaintReport?()
             let reloadWaiters = reloadPaintWaiters
             for waiter in reloadWaiters { waiter(fromKeptTail || settled) }
             // The chat on screen is the live one: acpmux's settled view, or the page's attach to the chat
@@ -693,8 +702,9 @@ public final class AgentPaneModel {
             return AgentPaneReply.success()
         case .attentionOpen where !transport.gestures.consume(): return Self.transportFailure(.gestureRequired)
         case .attentionOpen(let tab): return attentionTabs?.open(tab) == true ? AgentPaneReply.success() : Self.unsupported("chat.attention.open")
-        case .runAction(let id, let session, let environment, let handoff, let app, let repo, let returnTo):
-            return runAction(id, session: session, environment: environment, handoff: handoff, app: app, repo: repo, returnTo: returnTo)
+        case .runAction(let id, let session, let environment, let handoff, let app, let repo, let returnTo, let mode, let queued, let hasDraft, let sessions):
+            return runAction(id, session: session, environment: environment, handoff: handoff, app: app, repo: repo, returnTo: returnTo,
+                             mode: mode, queued: queued, hasDraft: hasDraft, sessions: sessions)
         case .editorsList: return onEditorsList.map { AgentPaneReply.success($0()) } ?? Self.unsupported("editors.list")
         case .jump(let target, let id): guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }; onJump(target, id); return AgentPaneReply.success()
         case .chooseFolder where remoteChat: return Self.unsupported("workspace.chooseFolder")
@@ -929,7 +939,7 @@ public final class AgentPaneModel {
             } catch {
                 return AgentPaneReply.failure(code: "btw_failed", message: "Inline side question failed")
             }
-        case .paneAction, .moveToMachine, .diffTurn, .diffPatch, .preview, .setQuickActions, .tabState, .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .sessionInfo, .sessionInfoOverlays, .sessionInfoPinch, .hostGlass, .toastAvoidance, .toast, .copyText, .sideChat, .subagentPane, .subagentShown, .processTerminal, .chatTab, .offerOpen, .asksOpen, .asksAnswer, .newChatHere: return await respondToHeader(request)
+        case .paneAction, .moveToMachine, .diffTurn, .diffPatch, .preview, .setQuickActions, .tabState, .tabRowTools, .tabRowToolsSet, .tabRowToolsOpenMenu, .customizationsMenu, .sessionInfo, .sessionInfoOverlays, .sessionInfoPinch, .hostGlass, .toastAvoidance, .toast, .copyText, .sideChat, .subagentPane, .subagentShown, .processTerminal, .chatTab, .offerOpen, .asksOpen, .asksAnswer, .newChatHere: return await respondToHeader(request)
         case .appAction(let id):
             // A row the page lists, never a person-only action (``AgentPaneOmnibar/Action/pageMayRun(_:)``): checked again here.
             guard AgentPaneOmnibar.Action.pageMayRun(id), let shown = newTab?.omnibar.actions.first(where: { $0.id == id }), let onAppAction else { return Self.unsupported("app.action") }
