@@ -1,7 +1,7 @@
 # Every on-disk format a cmux-tui build leaves for the next build to read, and how an update crosses it.
 #
 # Leo, 2026-11-24 06:03Z (ask-1f9e8b7422): "we need to make sure in the future these kinds of cutovers always have
-# proper migrations. in the future." The update that prompted it (cosmic-gray's NIGHTLY, 05:34Z) lost live work:
+# proper migrations. in the future." The update that prompted it (the NIGHTLY on Leo's Mac, 05:34Z) lost live work:
 # the old build wrote the state and started the processes, and the new build has to adopt them.
 #
 # scripts/ci/persisted_formats.py checks this file on every pull request that touches cmux-tui (ci/steps.toml
