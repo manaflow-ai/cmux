@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 @testable import CmuxNextAgentPane
+import CmuxNextCloud
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import CmuxNextTabs
@@ -41,7 +42,12 @@ struct CloudStartKeepsOnePageTests {
         defer { tabs.views[cloud] = nil; tabs.views[mac] = nil }
 
         #expect(CloudStartCore().keepsPage(inPlace: true, pageLive: true, cloudPageFree: true, killSwitch: nil))
+        // The Cloud start that ran from this page holds it (AgentPaneHandOff `held`): no start or open goes.
+        #expect(page.model.transport.replacements.beginSandbox(replacingOpened: true))
+        #expect(!page.model.transport.replacements.sending(method: "session/new", connection: 1))
         #expect(tabs.rehomePage(from: mac, to: cloud))
+        // Re-homed, the page's own start is the Cloud chat's: it goes (it was refused, cmux#55519).
+        #expect(page.model.transport.replacements.sending(method: "session/new", connection: 2))
         // As `CloudStartChat.front`: the Mac tab is released and shows the Cloud chat.
         tabs.release(mac.key, machine: mac.machine)
         tabs.frontedChats.front(mac, with: .init(machine: cloud.machine, key: cloud.key, workspace: "cloud-ws"))

@@ -478,6 +478,21 @@ export class ChatClient {
     await this.attach(undefined);
   }
 
+  /**
+   * `start`, then, when it started a session, the attach the app makes before its first send: the daemon refuses
+   * `agent-session-prompt` on a tab with no attachment on this connection (`agent_session.not_attached`,
+   * agent_session_attach.rs), so a prompt right after a bare start never reaches the chat. The start's answer is
+   * returned as it came, a refusal unattached.
+   */
+  async startAttached(harness: string): Promise<any> {
+    const reply = await this.start(harness);
+    const session = reply?.ok === true ? String(reply?.data?.session ?? "") : "";
+    if (!session) return reply;
+    this.session = session;
+    await this.attach(undefined);
+    return reply;
+  }
+
   /** Dial and make the chat tab for `harness`, as the app does for a new Cloud chat, before any start. */
   async openTab(harness: string): Promise<void> {
     this.dial.start();
