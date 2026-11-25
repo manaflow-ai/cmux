@@ -107,6 +107,8 @@ import {
   agentToolsDaemonEnv,
   agentToolsFiles,
   agentToolsLinkCommand,
+  browserChromiumPath,
+  imageToolsSmokeCommand,
   browserRoleBakePhases,
   daemonEnvLines,
   RD_SOCKET,
@@ -1005,7 +1007,8 @@ async function installAgentTools(ctx: Ctx): Promise<void> {
   const files = agentToolsFiles(lock);
   for (const phase of browserRoleBakePhases(lock)) await L.step(vm, phase.name, phase.command);
   for (const file of files) await writeGuestFile(vm, file.path, file.text, file.mode);
-  ctx.result.agentTools = (await L.step(vm, "agent-tools-link", `sh -n ${AGENT_TOOLS_PROFILE} && ${agentToolsLinkCommand()}`)).trim().split("\n").at(-2);
+  ctx.result.agentTools = (await L.step(vm, "agent-tools-link", `sh -n ${AGENT_TOOLS_PROFILE} && ${agentToolsLinkCommand(browserChromiumPath(lock))}`)).trim().split("\n").at(-2);
+  await L.step(vm, "image-tools-smoke", imageToolsSmokeCommand());
   await L.step(vm, "agent-tools-desktop", rdSetupCommand());
 }
 

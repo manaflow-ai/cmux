@@ -1002,3 +1002,15 @@ describe("refusedFirstUsePackages", () => {
     expect(refused).toEqual(all.filter((name) => !(name in closures.browser) && !(name in closures["display-wm"])));
   });
 });
+
+describe("image tools (bc, browser on PATH)", () => {
+  test("the profile exports the baked browser and the bake links and runs it headless", async () => {
+    const m = await import("../scripts/cmux-vm-image/agent-tools");
+    expect(m.agentToolsProfileScript("/opt/x/chrome")).toContain("export CHROME_BIN=/opt/x/chrome");
+    expect(m.agentToolsProfileScript()).not.toContain("CHROME_BIN");
+    const cmd = m.browserLinkCommand("/opt/x/chrome");
+    for (const l of m.BROWSER_LINKS) expect(cmd).toContain(l);
+    expect(cmd).toContain("--headless=new");
+    expect(m.imageToolsSmokeCommand()).toContain("bc");
+  });
+});
