@@ -11,6 +11,7 @@
 
 pub mod auth;
 pub mod events;
+pub mod here;
 pub mod inventory;
 pub mod mailbox;
 pub mod params;
@@ -232,6 +233,8 @@ pub fn registry() -> Vec<MethodDecl> {
         request::<events::SessionRef, events::Done>(method::MUX_DETACH),
         request::<events::ViewParams, events::ViewDone>(method::MUX_VIEW),
         request::<presence::TypingParams, events::Done>(method::MUX_TYPING),
+        request::<here::HereBeatParams, here::HereBeatDone>(method::MUX_HERE_BEAT),
+        request::<here::HereParams, here::HereResult>(method::MUX_HERE),
         request::<events::MarkUnreadParams, events::Done>(method::MUX_MARK_UNREAD),
         request::<events::SessionRef, events::Done>(method::MUX_MARK_READ),
         request::<events::SeenParams, events::SeenDone>(method::MUX_SEEN),
@@ -259,7 +262,10 @@ pub fn registry() -> Vec<MethodDecl> {
         // Forum announcements (`server/forum.rs`).
         untyped(method::MUX_FORUM_ACK, Request),
         untyped(method::MUX_FORUM_ANNOUNCE, Request),
+        untyped(method::MUX_FORUM_POST, Request),
+        untyped(method::MUX_FORUM_REPLY, Request),
         keyed::<params::ForumRulesParams>(method::MUX_FORUM_RULES, Request),
+        untyped(method::MUX_FORUM_SEARCH, Request),
         keyed::<params::SetToolsParams>(method::MUX_SET_TOOLS, Request),
         untyped(method::MUX_SET_DIRECTORIES, Request),
         untyped(method::MUX_PROJECT_NEW, Request),
@@ -336,6 +342,10 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_WORKTREE_RESTORE, Request),
         untyped(method::MUX_RETENTION, Request),
         untyped(method::MUX_COLD_ARCHIVE, Request),
+        untyped(method::MUX_AUTO_SESSION_SET, Request),
+        untyped(method::MUX_AUTO_SESSION_LEFTOVER, Request),
+        untyped(method::MUX_AUTO_SESSION_WAKE, Request),
+        untyped(method::MUX_AUTO_SESSION_TRANSCRIPT, Request),
         untyped(method::MUX_PROCESS_UPDATE, Notification),
         keyed::<params::KillParams>(method::MUX_KILL, Request),
         untyped(method::MUX_PAUSE, Request),
@@ -647,6 +657,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_UNSENT, Notification),
         untyped("_acpmux/lagged", Notification),
         untyped(method::MUX_MACHINE_JOIN_PROGRESS, Notification),
+        untyped(method::MUX_ADMISSION_WAITING, Notification),
         untyped(method::MUX_DISCONNECTED, ClientLocal),
     ]
 }
