@@ -20,7 +20,7 @@ afterEach(resetSectionOrderForTests);
 
 test("built-in order is unchanged without installed apps", () => {
   expect(sectionOrder([])).toEqual([...DEFAULT_ORDER]);
-  expect(sectionOrder([]).slice(5, 9)).toEqual(["sources", "outputs", "alsoHere", MORE_LINE]);
+  expect(sectionOrder([]).slice(4, 8)).toEqual(["sources", "outputs", "alsoHere", MORE_LINE]);
 });
 
 test("new app sections follow Sources, above the Show more line, and never tuck", () => {
