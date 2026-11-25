@@ -623,7 +623,7 @@ impl Supervisor {
             Ok(space) => space,
             Err(error) => return HubEnd::Final(TunnelStatus::Failed(error.to_string())),
         };
-        let client = match reqwest::Client::builder()
+        let client = match cmux_egress::client_builder("cmux_tui::carrier::tunnel")
             .default_headers(space)
             .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(30))

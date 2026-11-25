@@ -11,7 +11,9 @@
 //!   its checks pass, not when its turn ends (`server/requests.rs`); one this daemon then
 //!   refuses is a `refused` line with the error's code.
 //!
-//! Writing it never fails a send: an error is said on stderr once and the message goes on.
+//! Writing it never fails a send: an error is said on stderr once and the message goes on. Past
+//! [`CAP`] it moves to `cross-host-audit.jsonl.1` (replacing the one before), so the home keeps
+//! at most two logs' worth.
 
 use serde_json::{Value, json};
 use std::io::Write;
@@ -19,6 +21,14 @@ use std::path::PathBuf;
 
 /// The log's file name under the acpmux home.
 pub const FILE: &str = "cross-host-audit.jsonl";
+
+/// The size past which the next line starts a new log, the old one kept as [`previous`].
+const CAP: u64 = 4 << 20;
+
+/// The log's previous copy, beside it.
+pub(crate) fn previous(path: &std::path::Path) -> PathBuf {
+    path.with_extension("jsonl.1")
+}
 
 /// Where the log is: `ACPMUX_HOME` (or the default home)'s [`FILE`].
 pub fn path() -> PathBuf {
@@ -49,10 +59,26 @@ fn append(line: &Value) -> anyhow::Result<()> {
 }
 
 fn append_to(path: &std::path::Path, line: &Value) -> anyhow::Result<()> {
+    append_capped(path, line, CAP)
+}
+
+/// [`append_to`], moving the log to [`previous`] first when it is past `cap` bytes, as
+/// `daemon/log_cap.rs` does `daemon.log`: the home keeps at most two logs' worth (it grew by
+/// 2 MB in 10 days on a lane, and nothing cut it).
+pub(crate) fn append_capped(path: &std::path::Path, line: &Value, cap: u64) -> anyhow::Result<()> {
+    // One writer at a time: two that both found it past the cap would each move it aside, the
+    // second over the first's copy.
+    static WRITING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _one = WRITING.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some(dir) = path.parent() {
         crate::config::private_state_dir(dir)?;
     }
     let mut file = crate::config::private_state_append(path)?;
+    if file.metadata()?.len() > cap {
+        drop(file);
+        crate::home_fs::rename(path, previous(path))?;
+        file = crate::config::private_state_append(path)?;
+    }
     let mut text = line.to_string();
     text.push('\n');
     file.write_all(text.as_bytes())?;
@@ -89,13 +115,16 @@ pub fn prompt_fields(params: &Value) -> Value {
     })
 }
 
-/// The lines of this home's log, oldest first (tests and `acpmux` diagnostics).
+/// The lines of this home's log, its previous copy's first, oldest first (tests and `acpmux`
+/// diagnostics).
 pub fn read() -> Vec<Value> {
-    std::fs::read_to_string(path())
-        .unwrap_or_default()
-        .lines()
-        .filter_map(|l| serde_json::from_str(l).ok())
-        .collect()
+    read_at(&path())
+}
+
+fn read_at(path: &std::path::Path) -> Vec<Value> {
+    let mut text = std::fs::read_to_string(previous(path)).unwrap_or_default();
+    text.push_str(&std::fs::read_to_string(path).unwrap_or_default());
+    text.lines().filter_map(|l| serde_json::from_str(l).ok()).collect()
 }
 
 #[cfg(test)]
@@ -133,6 +162,37 @@ mod tests {
         std::os::unix::fs::symlink(&elsewhere, &log).unwrap();
         assert!(append_to(&log, &json!({"dir": "sent"})).is_err());
         assert_eq!(std::fs::read_to_string(&elsewhere).unwrap(), "");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The log stays under two caps' worth however many messages cross: past its cap it moves to
+    /// its previous copy, the one before that goes.
+    #[cfg(unix)]
+    #[test]
+    fn the_log_is_cut_past_its_cap_and_keeps_its_previous_copy() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("amx-xa-cap-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let log = dir.join(FILE);
+        let line = json!({"dir": "sent", "to": "lane-2/chat", "from": "lane-1/perf", "bytes": 5});
+        let cap = 4096;
+        for _ in 0..2000 {
+            append_capped(&log, &line, cap).unwrap();
+        }
+        let len = |p: &std::path::Path| std::fs::metadata(p).map_or(0, |m| m.len());
+        let one = line.to_string().len() as u64 + 1;
+        assert!(len(&log) <= cap + one, "{}", len(&log));
+        assert!(len(&previous(&log)) <= cap + one, "{}", len(&previous(&log)));
+        assert_eq!(
+            std::fs::read_dir(&dir).unwrap().count(),
+            2,
+            "the log and one previous copy, nothing else"
+        );
+        let lines = read_at(&log);
+        assert!(lines.len() as u64 > cap / one, "{}", lines.len());
+        assert_eq!(std::fs::metadata(&log).unwrap().permissions().mode() & 0o777, 0o600);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

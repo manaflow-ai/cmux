@@ -42,6 +42,7 @@ export default componentEntry<Props>({
     "agent-session/acpmux/summary/WorkflowCard.tsx",
     "agent-session/acpmux/summary/workflowDots.css",
     "agent-session/acpmux/subagents/runningTray.ts",
+    "agent-session/acpmux/summary/LiveCount.tsx",
   ],
   load: async () => GalleryWorkflowCard,
   variants: {
@@ -58,7 +59,7 @@ export default componentEntry<Props>({
       props: { stage: "running", presentation: "phases" },
     },
     "selected-parallel": {
-      note: "Two phases at once, 25 minutes in (Leo's 2026-11-05 screenshot): the card names both running phases, counts 2 done · 5 running rather than a 2/7 that reads as the total while Latency plan and Swarm synthesis have not spawned, shows one clock, says what the most recently active agent does in words (named, so five running agents never read as one) rather than its shell command, and names both running phases and the workflow's model on its last row.",
+      note: "Two phases at once, 25 minutes in (Leo's 2026-11-05 screenshot): the card names both running phases, counts 2 done and the five that run as the subagents' mark and 5, no word (Leo, 2026-11-23: \"running\" doesn't need text; summary/LiveCount.tsx), rather than a 2/7 that reads as the total while Latency plan and Swarm synthesis have not spawned, shows one clock, says what the most recently active agent does in words (named, so five running agents never read as one) rather than its shell command, and names both running phases and the workflow's model on its last row.",
       props: { stage: "parallel", presentation: "selected" },
     },
     "selected-finished": {

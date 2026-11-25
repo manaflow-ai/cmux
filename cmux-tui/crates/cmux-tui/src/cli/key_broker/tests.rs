@@ -479,3 +479,140 @@ fn a_dev_builds_audit_is_its_own() {
         PathBuf::from("/h/.config/cmux/keys.json")
     );
 }
+
+/// The Mac's broker: its Keychain holds a bootstrap whose bytes the test looks for everywhere the
+/// key goes.
+const MAC_BOOTSTRAP: &str = "cfat_BOOTSTRAP_kept_on_the_mac_0123456789";
+
+struct MacSinks(FakeSinks);
+
+impl Sinks for MacSinks {
+    fn provider_token(&self, _: &str) -> Result<Zeroizing<String>, String> {
+        Ok(Zeroizing::new(MAC_BOOTSTRAP.into()))
+    }
+    fn save_provider_token(&self, account: &str, token: &str) -> Result<(), String> {
+        self.0.save_provider_token(account, token)
+    }
+    fn read_bootstrap(&self) -> Result<Zeroizing<String>, String> {
+        Ok(Zeroizing::new(MAC_BOOTSTRAP.into()))
+    }
+    fn put(&self, store: &Store, name: &str, value: &str) -> Result<(), String> {
+        self.0.put(store, name, value)
+    }
+}
+
+/// The peer link: what the Linux machine's ask carries and what comes back, recorded byte for byte.
+struct Link<'a> {
+    mac: &'a Paths,
+    http: &'a FakeCloudflare,
+    sinks: &'a MacSinks,
+    crossed: RefCell<Vec<String>>,
+}
+
+impl PeerBroker for Link<'_> {
+    fn mint(&self, ask: Value) -> Result<Value, String> {
+        self.crossed.borrow_mut().push(ask.to_string());
+        // What the Mac's acpmux runs for a peer's ask (keys_relay.rs `MintAsk::argv`).
+        let mut words = vec![
+            "mint".to_owned(),
+            "cloudflare-r2".to_owned(),
+            "--bucket".to_owned(),
+            ask["bucket"].as_str().unwrap().to_owned(),
+            if ask["access"] == "rw" { "--rw" } else { "--ro" }.to_owned(),
+            "--ttl".to_owned(),
+            ask["ttl"].as_str().unwrap().to_owned(),
+        ];
+        words.extend(["--reply-to-machine".to_owned(), "lane-vm".to_owned()]);
+        let Command::MintR2(mint) = parse(&words).map_err(|e| e.0)? else { panic!("not a mint") };
+        let answer = run(
+            Command::MintR2(mint),
+            self.mac,
+            self.http,
+            self.sinks,
+            &local::tests::MemoryVault::default(),
+        )?;
+        self.crossed.borrow_mut().push(answer.to_string());
+        Ok(answer)
+    }
+}
+
+#[test]
+fn a_linux_machine_gets_a_scoped_key_from_the_macs_broker_and_never_the_bootstrap() {
+    let mac_dir = tempfile::tempdir().unwrap();
+    let mac = connected(&mac_dir);
+    let http = FakeCloudflare::new(true);
+    let mac_sinks = MacSinks(FakeSinks::default());
+    let link =
+        Link { mac: &mac, http: &http, sinks: &mac_sinks, crossed: RefCell::new(Vec::new()) };
+
+    let linux_dir = tempfile::tempdir().unwrap();
+    let linux = Paths { audit: linux_dir.path().join("keys.json") };
+    let linux_sinks = FakeSinks::default();
+    let Command::MintR2(mint) = parse(&words(
+        "mint cloudflare-r2 --bucket handoff --ro --ttl 30d --via leo-mac --store vault:CI_R2",
+    ))
+    .unwrap() else {
+        panic!()
+    };
+    assert_eq!(mint.via.as_deref(), Some("leo-mac"));
+    let answer = mint_via(mint, &linux, &link, &linux_sinks).unwrap();
+
+    // The Mac minted with its bootstrap: a read-only key on the one bucket, 30 days.
+    let calls = http.calls.borrow();
+    let (_, _, bearer, body) =
+        calls.iter().find(|(m, p, _, _)| m == "POST" && p.ends_with("/tokens")).unwrap();
+    assert_eq!(bearer, MAC_BOOTSTRAP);
+    assert_eq!(body.as_ref().unwrap()["policies"][0]["permission_groups"][0]["id"], "g-read");
+
+    // The Linux machine stored the scoped pair in its own vault.
+    let expected_secret: String =
+        Sha256::digest(b"key-id-value").iter().map(|b| format!("{b:02x}")).collect();
+    let put = linux_sinks.put.borrow();
+    assert_eq!(put.len(), 2);
+    assert_eq!((put[0].1.as_str(), put[0].2.as_str()), ("CI_R2_ACCESS_KEY_ID", "key-id"));
+    assert_eq!(
+        (put[1].1.as_str(), put[1].2.as_str()),
+        ("CI_R2_SECRET_ACCESS_KEY", expected_secret.as_str())
+    );
+    // The Mac stored nothing of its own; its audit says where the key went.
+    assert!(mac_sinks.0.put.borrow().is_empty());
+    let mac_audit = std::fs::read_to_string(&mac.audit).unwrap();
+    assert!(mac_audit.contains("machine:lane-vm"), "{mac_audit}");
+
+    // The bootstrap's bytes never crossed the link either way, and are nowhere on the Linux machine:
+    // not in its answer, its audit or its stores. Nor the raw token value (only its SHA-256 is the
+    // S3 secret).
+    let crossed = link.crossed.borrow();
+    assert_eq!(crossed.len(), 2, "one ask, one answer");
+    let linux_audit = std::fs::read_to_string(&linux.audit).unwrap();
+    let stored: Vec<String> = put.iter().map(|(_, n, v)| format!("{n}={v}")).collect();
+    for (place, text) in [
+        ("the ask", crossed[0].clone()),
+        ("the answer", crossed[1].clone()),
+        ("the Linux reply", answer.to_string()),
+        ("the Linux audit", linux_audit.clone()),
+        ("the Linux stores", stored.join("\n")),
+    ] {
+        assert!(!text.contains(MAC_BOOTSTRAP), "the bootstrap reached {place}: {text}");
+        assert!(!text.contains("key-id-value"), "the raw token reached {place}: {text}");
+    }
+    // The pair crossed only in the answer; the Linux reply and audit never show it.
+    assert!(crossed[1].contains(&expected_secret));
+    assert!(!answer.to_string().contains(&expected_secret));
+    assert!(!linux_audit.contains(&expected_secret));
+    assert!(
+        linux_audit.contains("\"via\":\"leo-mac\"") || linux_audit.contains("\"via\": \"leo-mac\"")
+    );
+}
+
+#[test]
+fn reply_to_machine_takes_no_store_and_via_needs_one() {
+    for bad in [
+        "mint cloudflare-r2 --bucket handoff --ro --reply-to-machine m --store vault:X",
+        "mint cloudflare-r2 --bucket handoff --ro --reply-to-machine m --via n",
+        "mint cloudflare-r2 --bucket handoff --ro --via leo-mac",
+    ] {
+        assert!(parse(&words(bad)).is_err(), "{bad}");
+    }
+    assert!(parse(&words("mint cloudflare-r2 --bucket handoff --ro --reply-to-machine m")).is_ok());
+}

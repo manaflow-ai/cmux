@@ -270,9 +270,10 @@ impl ResourceStream {
                         ));
                     }
                     let result = super::client::decode_response(envelope, &request_id)?;
-                    if result.as_object().is_none_or(|result| !result.is_empty()) {
+                    // Fields a newer daemon adds to the result are ignored, not refused.
+                    if !result.is_object() {
                         return Err(Error::UnexpectedEnvelope(
-                            "stream cancel result must be an empty object".to_string(),
+                            "stream cancel result must be an object".to_string(),
                         ));
                     }
                     response_seen = true;
@@ -486,23 +487,7 @@ impl ResourceStream {
             ));
         }
         validate_stream_id(object, &self.id)?;
-        let mut unknown = object
-            .keys()
-            .filter(|field| {
-                !matches!(
-                    field.as_str(),
-                    "protocol" | "type" | "stream_id" | "sequence" | "cursor" | "item"
-                )
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-        unknown.sort();
-        if !unknown.is_empty() {
-            return Err(Error::UnexpectedEnvelope(format!(
-                "stream item contains unknown fields: {}",
-                unknown.join(", ")
-            )));
-        }
+        // Fields a newer daemon adds are ignored, not refused.
         let sequence = wire::parse_decimal(
             object.get("sequence").ok_or_else(|| {
                 Error::UnexpectedEnvelope("stream item sequence is required".to_string())
@@ -540,23 +525,7 @@ impl ResourceStream {
             ));
         }
         validate_stream_id(object, &self.id)?;
-        let mut unknown = object
-            .keys()
-            .filter(|field| {
-                !matches!(
-                    field.as_str(),
-                    "protocol" | "type" | "stream_id" | "reason" | "cursor" | "error" | "recovery"
-                )
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-        unknown.sort();
-        if !unknown.is_empty() {
-            return Err(Error::UnexpectedEnvelope(format!(
-                "stream end contains unknown fields: {}",
-                unknown.join(", ")
-            )));
-        }
+        // Fields a newer daemon adds are ignored, not refused.
         let reason = object
             .get("reason")
             .and_then(Value::as_str)
@@ -577,20 +546,7 @@ impl ResourceStream {
                 let object = error.as_object().ok_or_else(|| {
                     Error::UnexpectedEnvelope("stream error must be an object".to_string())
                 })?;
-                let mut unknown = object
-                    .keys()
-                    .filter(|field| {
-                        !matches!(field.as_str(), "code" | "message" | "details" | "retryable")
-                    })
-                    .cloned()
-                    .collect::<Vec<_>>();
-                unknown.sort();
-                if !unknown.is_empty() {
-                    return Err(Error::UnexpectedEnvelope(format!(
-                        "stream error contains unknown fields: {}",
-                        unknown.join(", ")
-                    )));
-                }
+                // Fields a newer daemon adds are ignored, not refused.
                 Ok(super::model::ProtocolFailure {
                     code: object
                         .get("code")

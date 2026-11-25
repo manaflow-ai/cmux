@@ -1,0 +1,8 @@
+# Traced inputs of static-checks-group-menus (scripts/ci/traced_inputs.py; cmuxterm-hq RFD 0148 rows 9, 34). Generated:
+# python3 scripts/ci/traced_inputs.py export --check static-checks-group-menus --manifest M --out THIS; do not edit.
+# 2 files read, 1 directories listed, 2 paths probed absent; traced at fda4b173fff8.
+* blob plans/cmux-next/action-surfaces.json
+* blob scripts/ci/receipt-inputs/static-checks-group-menus.txt
+* blob scripts/cmux-next/check-group-menus.py
+* exists scripts
+* names scripts/cmux-next

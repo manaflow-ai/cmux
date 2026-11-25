@@ -43,6 +43,8 @@ struct WorkspaceHoverCardContent: Equatable {
         var isPreview = false
         /// The machine a machine row names: its icon draws that machine's color pick, if any.
         var machine: String?
+        /// What a click on the row opens in a browser tab of the workspace (a port link's "http://localhost:5173/").
+        var link: String?
 
         /// The row the shared hover card row draws (`HoverCardRowView`).
         var row: HoverCardRowContent {
@@ -55,10 +57,7 @@ struct WorkspaceHoverCardContent: Equatable {
         /// reply): it reads in the primary ink. Every other row is metadata in the secondary ink,
         /// under the title (Claude desktop's session card: a title, muted metadata, the message).
         var isMessage: Bool { Self.messageKinds.contains(kind) }
-        static let messageKinds: Set<String> = ["needsInput", "notification", "task", "description", summaryKind, lastReplyKind]
-        /// The agent chat's rolling summary; its next action follows it (``nextActionKind``).
-        static let summaryKind = "summary"
-        static let nextActionKind = "nextAction"
+        static let messageKinds: Set<String> = ["needsInput", "notification", "task", "description", lastReplyKind]
         /// The agent chat's last reply, the card's last line.
         static let lastReplyKind = "lastReply"
     }
@@ -81,6 +80,12 @@ struct WorkspaceHoverCardContent: Equatable {
     var stats: String?
     /// The options the card was made with (its layout picks the card's width and history height).
     var options = WorkspaceHoverCardOptions()
+    /// The ports the workspace's terminals serve, one row each ("localhost:5173", `WorkspacePortLinks`): shown under
+    /// the tab list with details open or not, so a port opens with one click on the card. A workspace on another
+    /// machine opens the same address; its browser tab reaches that machine's localhost through the Remote carrier.
+    var ports: [Fact] = []
+    /// The `ports` entry the port rows come from, for the user's card (`cardFacts`).
+    var portsText: String?
 
     /// CPU of at least half a core, or memory of at least 1 GB, is worth a line.
     static let notableCPU = 0.5
@@ -102,7 +107,8 @@ struct WorkspaceHoverCardContent: Equatable {
     /// home folder, which is no fact.
     static func make(_ workspace: SidebarWorkspace, machine: SidebarMachine?, now: Date,
                      options: WorkspaceHoverCardOptions, timeline: [SidebarTimelineEntry], looked: Date? = nil,
-                     pullRequests: SidebarPullRequestBadge? = nil, home: String = NSHomeDirectory()) -> Self {
+                     pullRequests: SidebarPullRequestBadge? = nil, home: String = NSHomeDirectory(),
+                     portLinks: (String) -> [WorkspacePortLinks.Link]? = { WorkspacePortLinks().links($0) }) -> Self {
         var card = facts(workspace, machine: machine, now: now, pullRequests: pullRequests, home: home, showsGit: options.showsGit)
         // Keep the hover card in step with the row: a local host plus the same
         // session title is metadata without information and gets no fact row.
@@ -119,7 +125,11 @@ struct WorkspaceHoverCardContent: Equatable {
             timeline[0].text = needsInputReason(workspace)
         }
         if !options.showsGit { card.facts.removeAll { $0.kind == "branch" || $0.kind == "pullRequest" } }
-        if options.showsPorts, let ports = workspace.ports, !ports.isEmpty {
+        if options.showsPorts, let ports = workspace.ports, !ports.isEmpty, let links = portLinks(ports), !links.isEmpty {
+            card.ports = links.map { Fact(icon: .network, text: $0.label, kind: "ports", link: $0.url) }
+            card.portsText = ports
+        } else if options.showsPorts, let ports = workspace.ports, !ports.isEmpty {
+            // No port to open in the entry (a hook's words), or no answer: the entry reads as before.
             let at = card.facts.firstIndex { $0.kind == "machine" || $0.kind == "status" || $0.kind == "more" || $0.isPreview }
             card.facts.insert(Fact(icon: .network, text: ports, kind: "ports"), at: at ?? card.facts.count)
         }
@@ -267,15 +277,6 @@ struct WorkspaceHoverCardContent: Equatable {
                 facts.append(Fact(icon: .taskStatusTodo, text: Strings.taskNext(step), lines: 2, kind: "taskNext"))
             }
         }
-        // Where the chat stands and what comes next (acpmux's rolling summary): it says more than
-        // the raw last reply, which then does not show (`lastReply`).
-        if let summary = summaryText(detail.summary) {
-            facts.append(Fact(icon: .agentChatList, text: summary, lines: 3, kind: Fact.summaryKind))
-        }
-        // The task list's own next step is the more exact one: then the card names one next, not two.
-        if workspace.taskProgress?.next == nil, let next = summaryText(detail.nextAction) {
-            facts.append(Fact(icon: .actionGo, text: Strings.summaryNext(next), lines: 2, kind: Fact.nextActionKind))
-        }
         // What its agents run below their turns now: how many subagents and commands, and which
         // (Leo 2026-11-01: "being able to see the # of associated subagents and whatnot").
         facts += WorkspaceHoverCardWork.facts(detail)
@@ -359,9 +360,8 @@ struct WorkspaceHoverCardContent: Equatable {
     }
 
     /// The facts the history-first layouts (`log`, `minimal`) keep above it: why the workspace
-    /// waits, what changed since the person looked, and where its chat stands with its next action.
-    static let keptOverHistory: Set<String> = ["needsInput", usageWarningKind, mutedKind, needsYouKind, sinceLookedKind, Fact.summaryKind,
-                                                Fact.nextActionKind]
+    /// waits and what changed since the person looked.
+    static let keptOverHistory: Set<String> = ["needsInput", usageWarningKind, mutedKind, needsYouKind, sinceLookedKind]
     /// A usage rule acpmux found broken (`SidebarWorkspace.usageWarnings`), one fact each.
     static let usageWarningKind = "usageWarning"
     /// The workspace's notifications are muted.
@@ -387,15 +387,9 @@ struct WorkspaceHoverCardContent: Equatable {
         return reason
     }
 
-    /// A rolling summary's line, trimmed; a blank one is none.
-    static func summaryText(_ text: String?) -> String? {
-        guard let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else { return nil }
-        return text
-    }
-
-    /// The agent chat's last reply worth a line: none while a task or the rolling summary says more.
+    /// The agent chat's last reply worth a line: none while a task says more.
     private static func lastReply(_ workspace: SidebarWorkspace) -> String? {
-        guard workspace.detail.task == nil, summaryText(workspace.detail.summary) == nil, let message = workspace.lastMessage?.trimmingCharacters(in: .whitespacesAndNewlines),
+        guard workspace.detail.task == nil, let message = workspace.lastMessage?.trimmingCharacters(in: .whitespacesAndNewlines),
               !message.isEmpty else { return nil }
         return message
     }
@@ -404,7 +398,8 @@ struct WorkspaceHoverCardContent: Equatable {
     var cardFacts: SidebarCardFacts {
         SidebarCardFacts(
             title: title, status: Strings.activity(activity), statusSinceMs: activitySince.map { $0.timeIntervalSince1970 * 1000 },
-            age: age, facts: facts.map { .init(kind: $0.kind, text: $0.text, sinceMs: $0.since.map { $0.timeIntervalSince1970 * 1000 }) })
+            age: age, facts: facts.map { .init(kind: $0.kind, text: $0.text, sinceMs: $0.since.map { $0.timeIntervalSince1970 * 1000 }) }
+                + (portsText.map { [.init(kind: "ports", text: $0, sinceMs: nil)] } ?? []))
     }
 
     /// The icon of what an agent is doing (`SidebarPresence.Activity`).
