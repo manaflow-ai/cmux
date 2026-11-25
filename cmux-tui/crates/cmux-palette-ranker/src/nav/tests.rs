@@ -725,3 +725,29 @@ fn restart_keeps_the_selection_until_its_batch() {
     reducer.reduce(&mut state, batch);
     assert_eq!(state.levels[0].selection.as_deref(), Some("c"));
 }
+
+#[test]
+fn the_handle_answers_search_tabs_rows_and_keeps_its_state() {
+    let mut nav = Nav::new(Reducer::default());
+    nav.call(br#"{"op":"reduce","events":[{"type":"open"}]}"#).unwrap();
+    let answer: Value = serde_json::from_slice(
+        &nav.call(
+            json!({"op": "tabSearchRows", "style": "recent", "strings": {"current": "current"},
+                   "entries": [{"id": "a", "kind": "terminal", "title": "A", "isCurrent": true, "lastUsed": 1.0},
+                               {"id": "b", "kind": "browser", "title": "B", "host": "github.com", "lastUsed": 0.5},
+                               {"id": "x", "kind": "other", "title": "X", "isClosed": true, "lastUsed": 2.0,
+                                "closedText": "now"}]})
+            .to_string()
+            .as_bytes(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(answer["emptyQuerySelection"], 1);
+    assert_eq!(answer["rows"][0]["entry"], 0);
+    assert_eq!(answer["rows"][0]["accessory"], "current");
+    assert_eq!(answer["rows"][1]["subtitle"], "github.com");
+    assert_eq!(answer["rows"][2]["section"]["id"], "tabSearch.closed");
+    assert_eq!(answer["rows"][2]["accessory"], "now");
+    assert!(nav.state.is_open);
+}

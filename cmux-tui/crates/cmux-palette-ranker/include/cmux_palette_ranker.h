@@ -53,7 +53,8 @@ int32_t cmux_palette_ranker_rank(
  * "op": "graph" {root, scopes, install} answers the registered graph and its problems; "config"
  * {config} answers it normalized; "reduce" {events, full} applies the events and answers
  * {effects, state}, whose levels carry "rows" only when they changed since the last answer (all
- * of them when "full"); "state" {full} answers the state. Return codes are the ranker's; the
+ * of them when "full"); "state" {full} answers the state; "tabSearchRows" {entries, style,
+ * strings} answers Search Tabs rows (src/tab_search.rs) and leaves the state alone. Return codes are the ranker's; the
  * response bytes stay valid until the next call on `nav`. A handle is not thread-safe. */
 typedef struct CmuxPaletteNav CmuxPaletteNav;
 

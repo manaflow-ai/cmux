@@ -891,6 +891,8 @@ pub enum Request {
         #[serde(default)]
         full: bool,
     },
+    /// Answers Search Tabs rows (`crate::tab_search`); the handle's state is untouched.
+    TabSearchRows(crate::tab_search::Request),
 }
 
 #[derive(Serialize)]
@@ -925,6 +927,9 @@ impl Nav {
                 serde_json::to_vec(&ReduceResponse { effects, state: self.snapshot(full) })
             }
             Request::State { full } => serde_json::to_vec(&self.snapshot(full)),
+            Request::TabSearchRows(request) => {
+                serde_json::to_vec(&crate::tab_search::answer(&request))
+            }
         };
         bytes.map_err(|error| error.to_string())
     }
