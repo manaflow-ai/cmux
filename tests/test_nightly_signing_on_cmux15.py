@@ -198,12 +198,9 @@ class SigningOnCmux15Test(unittest.TestCase):
                 self.assertEqual(evaluate(parse_expression(source.strip().removeprefix("${{").removesuffix("}}").strip()),
                                           context), want)
 
-    def test_promote_keeps_its_earlier_route(self) -> None:
+    def test_promote_uses_isolated_linux(self) -> None:
         self.assertEqual(manaflow_route("promote-nightly-next").strip(),
-                         "${{  vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_SIGN_RUNNER || "
-                         "github.event_name == 'push' && github.ref == 'refs/heads/nightly-next' && "
-                         "vars.CI_NIGHTLY_SIGN_RUNNER || "
-                         "'glaeda-nightly-std-xcode-26.6' }}")
+                         "${{  'cmux-gcp-nightly-jit-x64' }}")
 
 
 if __name__ == "__main__":

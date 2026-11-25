@@ -33,7 +33,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_nightly_never_blacksmith import JOBS, evaluate, parse_expression, sample  # noqa: E402
 from test_nightly_owned_minis_only import (HOSTED_LOOP_JOBS, HOSTED_PREFLIGHT_JOBS, HOSTED_TAIL_JOBS,  # noqa: E402
-                                           JIT_LABEL, NIGHTLY_NEXT_ONLY_OWNED, NIGHTLY_PINNED_JOBS, hosted_route)
+                                           JIT_LABEL, NIGHTLY_NEXT_ONLY_OWNED, NIGHTLY_PINNED_JOBS, hosted_route,
+                                           CMUX_LINUX_JOBS, EPHEMERAL_CONTROL_JOBS, EPHEMERAL_PUBLISHER_JOBS)
 import workflow_jobs  # noqa: E402
 
 MINI, BUILDER, SIGN = "glaeda-nightly-mini", "glaeda-nightly-mini-builder", "glaeda-trusted-next-signing"
@@ -44,9 +45,7 @@ SIGNING = {"promote-nightly-next", "build-sign-notarize-nightly", "recover-night
            "promote-nightly-next-acked", "keep-published-dsyms", "republish-nightly-deltas", "nightly-next-one",
            "sign-live-code-variant"}
 VISUAL_GATE = {"route-visual-gate-nightly"}
-LINUX_POOL_JOBS = {"resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-cli-helper",
-                   "prepare-nightly-variant-primary", "prepare-nightly-variant", "await-nightly-tree-marker",
-                   "check-nightly-app-store-shelf", "published-build"}
+LINUX_POOL_JOBS = set(CMUX_LINUX_JOBS)
 # RFD 0021: the essential ones (test_nightly_owned_minis_only.NIGHTLY_PINNED_JOBS) take the nightly's reserved Linux
 # label on a first push, schedule or dispatch attempt, and cmux-linux on a rerun or loop retry, in this mode too.
 PINNED_LINUX = "cmux-gcp-nightly-x64"
@@ -63,6 +62,8 @@ NIGHTLY_CALLER = "manaflow-ai/cmux/.github/workflows/nightly.yml@refs/heads/nigh
 def want(name: str, ref: str = "refs/heads/nightly-next", attempt: object = 2, first: bool = False) -> str:
     if name in NIGHTLY_NEXT_ONLY_OWNED and ref != "refs/heads/nightly-next":
         return EPHEMERAL  # classic and RC: their rate-limit waits must not hold the mini
+    if name in EPHEMERAL_CONTROL_JOBS + EPHEMERAL_PUBLISHER_JOBS:
+        return JIT_LABEL
     if name in SIGNING:
         return SIGN
     if name == "build-nightly-app":

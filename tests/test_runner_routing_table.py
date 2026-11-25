@@ -74,6 +74,11 @@ class RoutingTableTests(unittest.TestCase):
         # Regression: CI_NIGHTLY_MINI sent Python, web, Go cross-builds and
         # GitHub API control jobs back onto signing Macs.
         portable = (
+            'promote-nightly-next',
+            'promote-nightly-next-acked',
+            'publish-nightly',
+            'keep-published-dsyms',
+            'republish-nightly-deltas',
             'runner-preflight',
             'decide',
             'await-release-surface-ack',

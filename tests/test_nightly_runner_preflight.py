@@ -217,9 +217,8 @@ class Wiring(unittest.TestCase):
         self.assertEqual(self.JOBS["decide"]["needs"], "runner-preflight")
         self.assertEqual(job["if"], self.JOBS["decide"]["if"], "the preflight runs exactly when decide would")
         runs_on = workflow_jobs.single_runs_on(job)
-        # decide's own route, never GitHub-hosted: the org-wide hosted queue held it 1h25m+ on 2026-11-18 (run
-        # 44207617943). In one-mini mode it stays on vars.CI_NIGHTLY_MINI with the rest of the run
-        # (tests/test_nightly_one_mini.py), so it never waits longer than decide would.
+        # Both controls hold credentials (preflight has an issue-write token), so
+        # they use isolated Linux VMs rather than waiting on the Macs they judge.
         self.assertEqual(runs_on, workflow_jobs.single_runs_on(self.JOBS["decide"]))
         self.assertEqual(job["permissions"], {"issues": "write"})  # the failure incident only
         # 3 minutes with the one-mini mode off; on, glaeda's capacity wait gets 120 more
@@ -236,8 +235,8 @@ class Wiring(unittest.TestCase):
         self.assertEqual(step_env["NIGHTLY_SCHEDULE"], "${{ github.event.schedule }}")
 
     def test_the_judged_labels_match_decides_route(self) -> None:
-        self.assertIn("vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || "
-                      f"'{preflight.DEDICATED}'", workflow_jobs.single_runs_on(self.JOBS["decide"]))
+        self.assertEqual(workflow_jobs.single_runs_on(self.JOBS["decide"]),
+                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-nightly-jit-x64' }}")
         self.assertIn("vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI_BUILDER", workflow_jobs.single_runs_on(self.JOBS["build-nightly-app"]))
 
 
