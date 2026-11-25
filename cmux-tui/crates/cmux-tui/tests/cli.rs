@@ -3825,6 +3825,9 @@ mod git_write;
 #[cfg(unix)]
 #[path = "cli/home_inbox.rs"]
 mod home_inbox;
+#[cfg(unix)]
+#[path = "cli/hub.rs"]
+mod hub;
 #[path = "cli/icon_assets.rs"]
 mod icon_assets;
 #[path = "cli/launch_credential.rs"]
