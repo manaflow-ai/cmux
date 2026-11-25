@@ -6,6 +6,7 @@ checkout, 285 s of a ~350 s build phase on an AWS M4 Pro, though the FFI's input
 1846 feat-cmux-next commits over three days. Run: python3 -I THIS.
 """
 import json
+import re
 import os
 import pathlib
 import subprocess
@@ -106,6 +107,7 @@ class FFICacheTest(unittest.TestCase):
         manifest = json.loads((entry / "manifest.json").read_text())
         self.assertEqual(manifest["key"], key)
         self.assertEqual(manifest["trusted"]["branch"], "feat-cmux-next")
+        self.assertIs(manifest["landed"], True)
         # A later step on the same sources: a hit installs exactly the stored build.
         sh(self.checkout, "git", "checkout", "-q", "--", ".")
         sh(self.checkout, "rm", "-rf", "cmux-next-ios/CmuxMobileKit/Frameworks")
@@ -135,15 +137,38 @@ class FFICacheTest(unittest.TestCase):
         p = self.run_helper("key", str(self.checkout), str(self.work / "inputs.json"))
         self.assertEqual(p.returncode, 3)
 
-    def test_pull_request_that_changes_the_ffi_stores_nothing(self):
-        write(self.checkout / "cmux-tui/crates/cmux-wg/src/lib.rs", "pub fn evil() {}\n")
-        self.commit(self.checkout, "pr")
+    def test_branch_build_is_stored_under_its_own_key_and_serves_only_its_inputs(self):
+        landed_key = self.key()
+        write(self.checkout / "cmux-tui/crates/cmux-wg/src/lib.rs", "pub fn branch() {}\n")
+        self.commit(self.checkout, "branch")
         key = self.key()
-        self.build("pr")
+        self.assertNotEqual(key, landed_key)
+        self.build("branch")
         p = self.probe_and_store()
-        self.assertIn("not stored", p.stdout)
+        self.assertIn("stored %s (branch build, inputs differ from feat-cmux-next" % key[:12], p.stdout,
+                      p.stdout + p.stderr)
         self.assertIn("cmux-tui/crates/cmux-wg", p.stdout)
-        self.assertFalse((self.cache / "ios-ffi" / key).exists())
+        entry = self.cache / "ios-ffi" / key
+        manifest = json.loads((entry / "manifest.json").read_text())
+        self.assertIs(manifest["landed"], False)
+        self.assertIsNone(manifest["trusted"])
+        # The same branch rebuilt: a hit installs the branch's own build.
+        sh(self.checkout, "rm", "-rf", "cmux-next-ios/CmuxMobileKit/Frameworks")
+        sh(self.checkout, "git", "checkout", "-q", "--", ".")
+        self.assertEqual(self.key(), key)
+        p = self.run_helper("restore", str(self.checkout), key)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual((self.checkout / XCF / "ios-arm64-simulator/F.framework/F").read_text(), "branch")
+        # Other inputs (the landed ones) never get the branch's build: their key misses.
+        self.assertEqual(self.run_helper("restore", str(self.checkout), landed_key).returncode, 1)
+
+    def test_branch_build_without_a_tip_is_still_stored(self):
+        key = self.key()
+        self.build()
+        p = self.run_helper("store", str(self.checkout), str(self.work / "inputs.json"), str(self.work / "no-tip.json"))
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("stored %s (branch build, no feat-cmux-next tip" % key[:12], p.stdout)
+        self.assertIs(json.loads((self.cache / "ios-ffi" / key / "manifest.json").read_text())["landed"], False)
 
     def test_failed_publish_is_an_error_not_a_quiet_success(self):
         key = self.key()
@@ -246,8 +271,9 @@ class FFICacheTest(unittest.TestCase):
         root.mkdir(parents=True)
         now = __import__("time").time()
         ages = {}
-        for i in range(9):
-            name = ("%x" % (i + 1)) * 64
+        keep = int(re.search(r"^KEEP_ENTRIES = (\d+)", HELPER.read_text(), re.M).group(1))
+        for i in range(keep + 3):
+            name = "%064x" % (i + 1)
             entry = root / name[:64]
             (entry / "payload").mkdir(parents=True)
             (entry / "manifest.json").write_text("{}")
@@ -273,8 +299,8 @@ class FFICacheTest(unittest.TestCase):
         self.assertIn(key, left)
         self.assertIn(busy.name, left)
         self.assertNotIn(stale.name, left)
-        # The new entry, the busy one, and the four most recently used of the rest.
-        newest = sorted(ages, key=ages.get)[:4]
+        # The new entry, the busy one, and the KEEP_ENTRIES - 2 most recently used of the rest.
+        newest = sorted(ages, key=ages.get)[:keep - 2]
         self.assertEqual(sorted(left), sorted([key, busy.name] + newest))
 
     def test_simulator_step_uses_the_cache(self):
@@ -336,12 +362,16 @@ class FFICacheTest(unittest.TestCase):
         self.assertIn("restore reported a hit but left no", summary)
 
     def test_failed_probe_is_loud(self):
-        helper = ("import sys\nif sys.argv[1] == 'key': print('a' * 64)\n"
-                  "elif sys.argv[1] == 'probe': sys.exit(1)\nelse: sys.exit(1)\n")
+        helper = ("import os, sys\nif sys.argv[1] == 'key': print('a' * 64)\n"
+                  "elif sys.argv[1] == 'probe': sys.exit(1)\n"
+                  "elif sys.argv[1] == 'store': open(os.environ['OUT'], 'a').write('store %s\\n' % os.path.exists(sys.argv[4]))\n"
+                  "else: sys.exit(1)\n")
         p, calls, summary = self.run_block(helper)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn("built", calls)
-        self.assertIn("probe of the feat-cmux-next tip failed", summary)
+        self.assertIn("probe of the feat-cmux-next tip failed, stored as a branch build", summary)
+        # The build is still stored, with no tip file: the helper records it as a branch build.
+        self.assertIn("store False", calls)
 
     def test_dropped_entry_and_tool_failure_are_loud(self):
         for code, word in ((6, "restore failed (exit 6)"), (4, "key failed (exit 4)")):
