@@ -716,6 +716,7 @@
       "size": 160727443,
       "format": "tar.gz",
       "bin": { "codex": "bin/codex" },
+      "companions": ["bin/codex-code-mode-host"],
       "versionArgs": ["--version"],
       "expect": "0.160.0"
     },
@@ -774,6 +775,25 @@
       "bin": { "grok": "grok" },
       "versionArgs": ["--version"],
       "expect": "1.0.77"
+    },
+    {
+      "name": "agy",
+      "version": "1.5.17",
+      "url": "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.17-4823843970351104/linux-x64/cli_linux_x64.tar.gz",
+      "sha256": "6304b4f592ae97e59231cfb1b365ee29c155750c9a881f0cc8efe5f5281077cf",
+      "size": 102886235,
+      "format": "tar.gz",
+      "bin": { "agy": "antigravity" },
+      "versionArgs": ["--version"],
+      "expect": "1.5.17",
+      "otherArches": {
+        "aarch64": {
+          "url": "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.17-4823843970351104/linux-arm/cli_linux_arm64.tar.gz",
+          "sha256": "d6d2b88493e6e02854da478b215cd1dd98fd8cf985b6be37829dacadea4ffc07",
+          "size": 93662528
+        }
+      },
+      "source": "Antigravity CLI 1.5.17 from the official installer's release manifests (https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/linux_amd64.json and linux_arm64.json, read 2026-11-25). Each archive holds one file, `antigravity`, linked here as `agy`. The manifests' sha512 values matched the downloads: x64 71a967aa16e0ab5d87196bcd6772130bdab55b2fd768cd24d21b1da401ff9f60280b976cad3dc14a2d646233b0eaf8caf87c490eed73044d54550cbb3d8d67d2, arm64 e4f086d0730b325cfd438ea90396ee78eb23a3110ef7f792824c8817b8d0432462b7b5f91b3d933fc1932a6f4ba73de505e2e96f44448c9fb2427292ead716f7. The sha256 values and sizes are those downloads'. `agy install`, which edits shell profiles, is never run."
     },
     {
       "name": "workerd",
