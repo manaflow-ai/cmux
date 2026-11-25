@@ -114,7 +114,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `OWNER/REPO` and the chat's own link, each dropped when malformed.
     case runAction(String, session: String? = nil, environment: String? = nil, handoff: String? = nil, app: String? = nil,
                    repo: String? = nil, returnTo: String? = nil, org: String? = nil, mode: String? = nil,
-                   queued: Int? = nil, hasDraft: Bool? = nil, sessions: [String]? = nil)
+                   queued: Int? = nil, hasDraft: Bool? = nil, sessions: [String]? = nil, priority: String? = nil)
     /// `editors.list`: the code editors installed on this Mac, the default first (the page's Open In ▸ submenus).
     case editorsList
     /// The new-tab project picker asked for the explicit Browse… fallback.
