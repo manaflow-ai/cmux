@@ -3,13 +3,24 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  /* The transcript's own geometry (cmux#55540): the started chat's page takes this view's place, so
+     the message and the status line sit where its first rows will. The column and its inset are the
+     thread's (`.acpmux-thread`: --cv-inset, 16px above the first row), rows start --cv-lead in (less
+     the narrow outset, as `.acpmux-row`), and the bubble's right edge is the column's. A column of its
+     own (720px less 16px of padding) put the bubble 24px left of the composer's edge and the line
+     17px right of the transcript's, and both jumped when the chat's page showed. */
+  --cv-lead-outset: clamp(
+    0px,
+    calc((297.5px - (100% - var(--cv-inset, 16px) - var(--cv-inset-end, var(--cv-inset, 16px)))) * 1000),
+    8px
+  );
   width: 100%;
-  max-width: var(--acpmux-column, 720px);
   /* Keep the message, status line and disclosure in the same shell footprint while the
      native handoff swaps this view for the live transcript. */
   min-height: calc(4 * var(--grid-row));
-  margin: 24px auto 0;
-  padding: 0 16px;
+  margin: 16px 0 0;
+  padding: 0 var(--cv-inset-end, var(--cv-inset, 16px)) 0
+    calc(var(--cv-inset, 16px) + var(--cv-lead, 0px) - var(--cv-lead-outset));
   box-sizing: border-box;
   color: var(--agent-muted);
   font-size: var(--text-caption);
@@ -239,9 +250,9 @@
 .acpmux-cloud-start__stage .cv-worked { min-width: 0; }
 /* In a narrow pane the stage keeps its words and the wait gives way, ending in an ellipsis. */
 .acpmux-cloud-start__stage .cv-shimmer__row { flex-shrink: 0; }
-.acpmux-cloud-start__stage .acpmux-cloud-start__eta { flex: 0 1 auto; min-width: 0; overflow: hidden; }
-.acpmux-cloud-start__eta > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.acpmux-cloud-start__eta-line { color: var(--cv-text-dim, var(--agent-muted)); }
+.acpmux-cloud-start__stage .acpmux-cloud-start__progress { flex: 0 1 auto; min-width: 0; overflow: hidden; }
+.acpmux-cloud-start__progress > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acpmux-cloud-start__progress-line { color: var(--cv-text-dim, var(--agent-muted)); }
 .acpmux-cloud-start__hint { display: flex; gap: 4px; width: 120px; }
 .acpmux-cloud-start__hint > span { flex: 1; height: 0; border-top: 2px solid color-mix(in srgb, var(--agent-muted) 30%, transparent); transition: border-color var(--cmux-motion-quick) var(--cmux-ease-out); }
 .acpmux-cloud-start__hint > span[data-step="done"] { border-top-color: color-mix(in srgb, var(--agent-muted) 70%, transparent); }

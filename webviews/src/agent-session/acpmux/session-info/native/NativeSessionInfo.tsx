@@ -11,6 +11,7 @@ import { usePaneLanguage, useT } from "../../i18n";
 import { useConnectionQuiet } from "../../../../ui/lasting";
 import type { AcpmuxRow } from "../../model";
 import { planDone, type SessionInfoPlan } from "../progressSectionModel";
+import { planStepParts } from "../../conversation/planStepText";
 import { postNative } from "../../native";
 import { screenSharingKind, useScreenSharing } from "../screenSharing";
 import { opensProcessTerminal } from "../../processTerminal";
@@ -60,6 +61,7 @@ import { byUsage, compactingUsage, type UsageSort } from "../../usageStats";
 import { sourcesSection } from "./sources";
 import { subagentsSection } from "./subagents";
 import { tasksSection, useNativeWorkflowPhases } from "./tasks";
+import type { AgentSideRow } from "../agentSide";
 import { CloudRepositoryPicker } from "../CloudRepositoryPicker";
 import { chatMachine, type ChatPlace } from "../../chatMachine";
 import { useCloudRepositories } from "./useCloudRepositories";
@@ -123,6 +125,8 @@ export type NativeSessionInfoProps = {
   processes: readonly SessionInfoProcess[];
   listed: boolean;
   transcriptTasks: readonly SummaryBackgroundTask[];
+  /// What waits on the agent's side (agentSide.ts), at the foot of Background tasks.
+  agentSide?: readonly AgentSideRow[];
   sessions: readonly StartedSession[];
   workflows: readonly WorkflowSummary[];
   agent?: Subagent;
@@ -345,9 +349,12 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
             : entry.status === "in_progress"
               ? "circle"
               : "circle.dashed";
+        // A multi-line step: its first line the row's title, the rest its second line, the whole its tooltip.
+        const { title, detail } = planStepParts(entry.content);
         return {
           id: `progress:${index}`,
-          title: entry.content,
+          title,
+          ...(detail ? { subtitle: detail, help: entry.content } : {}),
           ...(symbol ? { symbol } : {}),
           tone: entry.status === "completed" ? "muted" : working ? "running" : "waiting",
           working,
@@ -517,6 +524,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
           open: state.sections.tasks,
           processes: props.processes,
           transcriptTasks: props.transcriptTasks,
+          agentSide: props.agentSide,
           listed: props.listed,
           scheduled: props.made?.scheduled ?? NO_SCHEDULED,
           language,

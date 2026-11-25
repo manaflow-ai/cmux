@@ -61,6 +61,10 @@ nonisolated extension AcpmuxPaneMethods {
                         "over": .list(.string),
 
                     ]),
+                    // AutoCloud (RFD 0172): whether its owner enrolled it, whether it takes work now,
+                    // and its capability words (`macos`, `xcode`) for the picker's badges. The
+                    // owner's policy (team and agent names, hours) stays out of the page.
+                    "autoCloud": .object(["enrolled": .bool, "accepting": .bool, "ownerIdle": .bool, "caps": .list(.string)]),
                 ]),
             ])),
         ]),
