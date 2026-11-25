@@ -244,12 +244,22 @@ impl PeerSnapshots {
 }
 
 impl Store {
+    /// What each copy of peer `peer` covers, and how far each copy a bound evicted covered
+    /// ([`Store::evicted`]): a chat that has not moved past it is not read again only to be
+    /// evicted again; one that moved is read from there, a page that starts a small copy.
     pub(super) fn covers(&self, peer: &str) -> HashMap<String, (Option<u64>, u64)> {
-        self.copies
+        let evicted = self
+            .evicted
             .iter()
             .filter(|(k, _)| k.0 == peer)
-            .map(|(k, c)| (k.1.clone(), (c.head.generation, c.head.last_seq)))
-            .collect()
+            .map(|(k, (generation, last))| (k.1.clone(), (Some(*generation), *last)));
+        let kept = self
+            .copies
+            .iter()
+            .filter(|(k, _)| k.0 == peer)
+            .map(|(k, c)| (k.1.clone(), (c.head.generation, c.head.last_seq)));
+        // A copy kept wins over an older eviction of the same session.
+        evicted.chain(kept).collect()
     }
 }
 
