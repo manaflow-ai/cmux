@@ -781,7 +781,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // simulator it can also stay at the bottom under a docked keyboard
         // (after a rotation the keyboard covered the dock). Away from the
         // bottom the stack rests at the chrome's line instead.
-        keyboardDock = MobileKeyboardDock(view: view, usesBottomSafeArea: false, keyboard: keyboardTracker)
+        keyboardDock = MobileKeyboardDock(view: view, usesBottomSafeArea: false, keyboard: keyboardTracker, followsVerifiedKeyboardGuide: true)
         keyboardDock.trackInteractiveDismissal(of: scrollView)
         let guide = keyboardDock.guide
         keyRowCollapsed = keyBarClip.heightAnchor.constraint(equalToConstant: 0)
