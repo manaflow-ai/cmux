@@ -819,6 +819,13 @@ impl Peer {
                     ids.iter().any(|id| id.as_str() == Some(crate::capabilities::SESSION_MESSAGES))
                 });
             me.session_messages.store(messages, Ordering::SeqCst);
+            let channels = init
+                .pointer("/_meta/acpmux/capabilities")
+                .and_then(Value::as_array)
+                .is_some_and(|ids| {
+                    ids.iter().any(|id| id.as_str() == Some(crate::server::channels::CAPABILITY))
+                });
+            me.agent_channels.store(channels, Ordering::SeqCst);
             let follows =
                 init.pointer("/_meta/acpmux/capabilities").and_then(Value::as_array).is_some_and(
                     |ids| ids.iter().any(|id| id.as_str() == Some(crate::hub::row_log::CAPABILITY)),
@@ -965,6 +972,7 @@ impl Peer {
         }
         let mut frame_gap = Duration::ZERO;
         let budget = timings.send;
+        let wrote = heard.as_ref().map(Heard::wrote);
         let mut ping = tokio::time::interval_at(
             tokio::time::Instant::now() + timings.ping_every,
             timings.ping_every,
@@ -1127,7 +1135,7 @@ impl Peer {
                         // Bounded like any frame: a peer that asks and never reads cannot hold
                         // this loop.
                         let refusal = Frame::Text(Message::err(id, e).to_value().to_string().into());
-                        match tokio::time::timeout(budget, sink.send(refusal)).await {
+                        match write_within(sink.send(refusal), budget, None, wrote).await.ok_or(()) {
                             Ok(Ok(())) => {}
                             Ok(Err(e)) => break $link Err(e.to_string()),
                             Err(_) => break $link Err(stopped_reading(budget)),
@@ -1276,9 +1284,8 @@ impl Peer {
                         self.with_link(Link::overdue);
                     }
                     check_wake!();
-                    let until = write_deadline(tokio::time::Instant::now(), budget, wake_probe);
                     // Stamped, so its pong measures this path's round trip (`peer_paths.rs`).
-                    match tokio::time::timeout_at(until, sink.send(Frame::Ping(carriers::ping_stamp().into()))).await {
+                    match write_within(sink.send(Frame::Ping(carriers::ping_stamp().into())), budget, wake_probe, wrote).await.ok_or(()) {
                         Ok(Ok(())) => {
                             ping_out.get_or_insert_with(tokio::time::Instant::now);
                         }
@@ -1496,7 +1503,7 @@ impl Peer {
                             let refusal = Frame::Text(
                                 Message::err(id, RpcError::method_not_found("client-side request")).to_value().to_string().into(),
                             );
-                            match tokio::time::timeout(budget, sink.send(refusal)).await {
+                            match write_within(sink.send(refusal), budget, None, wrote).await.ok_or(()) {
                                 Ok(Ok(())) => {}
                                 Ok(Err(e)) => break Err(e.to_string()),
                                 Err(_) => break Err(stopped_reading(budget)),
@@ -1523,8 +1530,9 @@ impl Peer {
                     let text = line.trim_end_matches('\n').to_owned();
                     // While this path is in doubt the frame goes on another path too.
                     let text = self.dual_copy(text, prompt_key.map(String::as_str), link);
-                    let until = write_deadline(tokio::time::Instant::now(), budget, wake_probe);
-                    match tokio::time::timeout_at(until, sink.send(Frame::Text(text.into()))).await {
+                    // A large frame on a slow uplink keeps going while its bytes move
+                    // (`write_within`): only `budget` with no byte taken drops the link.
+                    match write_within(sink.send(Frame::Text(text.into())), budget, wake_probe, wrote).await.ok_or(()) {
                         Ok(Ok(())) => {
                             // Once the prompt frame reaches the socket, the remote may have
                             // accepted it even if its acceptance notification is still queued

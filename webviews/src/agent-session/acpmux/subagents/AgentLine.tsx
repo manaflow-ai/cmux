@@ -56,6 +56,7 @@ export function AgentLine({
   icon = "agent.session",
   mark,
   tone,
+  plainMark = false,
   iconSize = ROW_ICON,
   depth = 0,
   current = false,
@@ -102,6 +103,8 @@ export function AgentLine({
   /// Its stable color (agentTones.ts `agentTone`), for the icon when no harness mark replaces it, so
   /// lines without a mark still tell apart (Leo, 2026-10-29: "you can just randomize the colors").
   tone?: number;
+  /// The provider's mark alone, no session badge over it (the composer hat's lines; Leo 2026-11-23 on the hat's rows, a colored badge on every Claude mark: "weird and bad and unncessary").
+  plainMark?: boolean;
   iconSize?: number;
   /// How far it sits under the agent that spawned it.
   depth?: number;
@@ -200,7 +203,7 @@ export function AgentLine({
       >
         {working && !timed ? (
           <Spinner size={iconSize} loading />
-        ) : tone !== undefined ? (
+        ) : tone !== undefined && !plainMark ? (
           // An agent or a chat: its sender icon, its family's mark with its badge in its tone.
           <SenderIcon harness={mark} tone={tone} size={iconSize} fallback={icon} />
         ) : brand ? (
