@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseRepoSeed, repoSeedDetail, repoSeedRuns, repoSeedScript } from "./cloud-journey-repo-seed.ts";
+import { parseRepoSeed, repoSeedDetail, repoSeedRuns, repoSeedScripts } from "./cloud-journey-repo-seed.ts";
 
 describe("repo seed probe", () => {
   test("runs are opt-in and bounded", () => {
@@ -10,12 +10,15 @@ describe("repo seed probe", () => {
     expect(repoSeedRuns("40")).toBe(5);
   });
 
-  test("the script times the clone and the borrow and cleans up its own folder", () => {
-    const s = repoSeedScript();
-    expect(s).toContain("git clone -q --filter=blob:none --no-checkout");
-    expect(s).toContain("objects/info/alternates");
-    expect(s).toContain("extensions.partialClone origin");
-    expect(s).toContain("trap 'rm -rf \"$w\"' EXIT");
+  test("the clone and the borrow are two scripts on one folder, and the borrow cleans it up", () => {
+    const s = repoSeedScripts("/tmp/cmux-seed-probe-1-1");
+    expect(s.clone).toContain("git clone -q --filter=blob:none --no-checkout");
+    expect(s.clone).toContain("w='/tmp/cmux-seed-probe-1-1'");
+    expect(s.clone).not.toContain("trap");
+    expect(s.borrow).toContain("objects/info/alternates");
+    expect(s.borrow).toContain("extensions.partialClone origin");
+    expect(s.borrow).toContain("trap 'rm -rf \"$w\"' EXIT");
+    expect(s.cleanup).toBe("rm -rf '/tmp/cmux-seed-probe-1-1'");
   });
 
   test("a full run reads back as one detail line", () => {

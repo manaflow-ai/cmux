@@ -127,7 +127,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { appStartDetail } from "./cloud-chat-matrix.ts";
 import { collectGuestDiagnostics, type GuestDiagnostics } from "./cloud-journey-guest-diagnostics.ts";
-import { parseRepoSeed, REPO_SEED_STEP, repoSeedDetail, repoSeedRuns, repoSeedScript } from "./cloud-journey-repo-seed.ts";
+import { parseRepoSeed, REPO_SEED_STEP, repoSeedDetail, repoSeedRuns, repoSeedScripts } from "./cloud-journey-repo-seed.ts";
 import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
 import { awaitPaused, runWakeEcho, setupProbe, startWithRetry, wakeEchoMarkdown, summarize as wakeEchoSummary, type WakeCycle } from "./cloud-wake-echo.ts";
 import { FAIL_STREAK, parseServerTiming, RESUME_ARMS, type ResumeArm, resumeMarkdown, resumeRouteCall, type ResumeSample, type ResumeStop, runProviderArm, runResumeMatrix, syncRunning } from "./cloud-resume-matrix.ts";
@@ -4996,9 +4996,21 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const seedRuns = repoSeedRuns(process.env.CMUX_JOURNEY_REPO_SEED_RUNS);
       for (let run = 1; run <= seedRuns; run++) {
         await J.step(seedRuns > 1 ? `${REPO_SEED_STEP} ${run}/${seedRuns}` : REPO_SEED_STEP, async () => {
-          const r = await exec(repoSeedScript(), 300_000);
-          console.log(r.stdout.split("\n").filter((l) => l.startsWith("@@seed")).join("\n"));
-          const { ok, detail } = repoSeedDetail(parseRepoSeed(r.stdout));
+          // Clone and borrow as two execs, each with the exec route's whole 300 s (cloud-journey-repo-seed.ts).
+          const s = repoSeedScripts(`/tmp/cmux-seed-probe-${process.pid}-${run}`);
+          const c = await exec(s.clone, 300_000);
+          let r = c;
+          let out = c.stdout;
+          try {
+            if (parseRepoSeed(c.stdout).clone?.code === "0") {
+              r = await exec(s.borrow, 300_000);
+              out += `\n${r.stdout}`;
+            }
+          } finally {
+            await exec(s.cleanup, 60_000).catch(() => undefined);
+          }
+          console.log(out.split("\n").filter((l) => l.startsWith("@@seed")).join("\n"));
+          const { ok, detail } = repoSeedDetail(parseRepoSeed(out));
           if (!ok) throw new Error(`exit ${r.code} ${detail} ${r.stderr.slice(-200)}`);
           return { value: null, detail };
         });

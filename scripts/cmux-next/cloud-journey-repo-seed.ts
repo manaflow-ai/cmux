@@ -21,20 +21,22 @@ export function repoSeedRuns(value: string | undefined): number {
   return Number.isInteger(n) && n > 0 ? Math.min(n, 5) : 0;
 }
 
-/** The guest script: `@@seed key=value ...` lines, one per fact or phase. */
-export function repoSeedScript(url = REPO_SEED_URL, mirrors = REPO_SEED_DEFAULT_MIRRORS): string {
-  return [
-    "set -u",
-    `url='${url}'`,
-    "rx() { awk 'NR>2 && $1 != \"lo:\" { s += $2 } END { printf \"%.0f\", s }' /proc/net/dev; }",
-    "now() { date +%s%3N; }",
+/**
+ * The guest scripts, `@@seed key=value ...` lines, one per fact or phase. The clone and the borrow run as two execs,
+ * each under the exec route's own 300 s cap (cloud-journey.ts directExec): in run 45597236105 the clone alone took
+ * 171 s of one shared cap and the borrow never printed. `dir` is the run's folder: the clone leaves it for the borrow,
+ * the borrow removes it on exit, and `cleanup` removes it when the borrow never ran.
+ */
+export function repoSeedScripts(dir: string, url = REPO_SEED_URL, mirrors = REPO_SEED_DEFAULT_MIRRORS): { clone: string; borrow: string; cleanup: string } {
+  const head = ["set -u", `url='${url}'`, `w='${dir}'`, "rx() { awk 'NR>2 && $1 != \"lo:\" { s += $2 } END { printf \"%.0f\", s }' /proc/net/dev; }", "now() { date +%s%3N; }"];
+  const clone = [
+    ...head,
     "pid=$(systemctl show -p MainPID --value cmux-host.service 2>/dev/null)",
     "env_mirrors=$( { cat /proc/$pid/environ 2>/dev/null || sudo -n cat /proc/$pid/environ 2>/dev/null; } | tr '\\0' '\\n' | sed -n 's/^CMUX_SEED_MIRRORS=//p')",
     `[ -d '${mirrors}/manaflow-ai/cmux.git' ] && dm=yes || dm=no`,
     "[ -d /home/cmux/cmux/.git ] && dt=yes || dt=no",
     'echo "@@seed facts git=$(git --version | cut -d" " -f3) env_mirrors=${env_mirrors:-unset} default_mirror=$dm dev_tree=$dt free_kb=$(df -k --output=avail /tmp | tail -1 | tr -d " ")"',
-    "w=$(mktemp -d /tmp/cmux-seed-probe.XXXXXX)",
-    "trap 'rm -rf \"$w\"' EXIT",
+    'rm -rf "$w" && mkdir -p "$w"',
     // clone, as run.rs clone_or_fetch
     "r0=$(rx); t0=$(now)",
     'git clone -q --filter=blob:none --no-checkout -- "$url" "$w/clone" 2>"$w/err"; c=$?',
@@ -43,7 +45,12 @@ export function repoSeedScript(url = REPO_SEED_URL, mirrors = REPO_SEED_DEFAULT_
     'git -C "$w/clone" checkout -q --detach "$base" 2>>"$w/err"; k=$?',
     "t2=$(now); r2=$(rx)",
     'echo "@@seed clone code=$c checkout_code=$k clone_ms=$((t1-t0)) checkout_ms=$((t2-t1)) ms=$((t2-t0)) rx=$((r2-r0)) git_bytes=$(du -sb "$w/clone/.git" | cut -f1) err=$(tail -c 200 "$w/err" | tr -s "\\n " "  ")"',
-    '[ "$c" = 0 ] && [ "$k" = 0 ] || exit 0',
+    '[ "$c" = 0 ] && [ "$k" = 0 ] || rm -rf "$w"',
+  ].join("\n");
+  const borrow = [
+    ...head,
+    "trap 'rm -rf \"$w\"' EXIT",
+    'base=$(git -C "$w/clone" rev-parse HEAD 2>/dev/null) || exit 0',
     // borrow, as borrow.rs borrow_clone(): init, alternates, origin a promisor, fetch what the mirror lacks, then the checkout
     "r0=$(rx); t0=$(now)",
     'git init -q -- "$w/borrow" && printf "%s\\n" "$w/clone/.git/objects" > "$w/borrow/.git/objects/info/alternates"',
@@ -57,6 +64,7 @@ export function repoSeedScript(url = REPO_SEED_URL, mirrors = REPO_SEED_DEFAULT_
     "t2=$(now); r2=$(rx)",
     'echo "@@seed borrow code=$k missing=$miss setup_ms=$((t1-t0)) checkout_ms=$((t2-t1)) ms=$((t2-t0)) rx=$((r2-r0)) git_bytes=$(du -sb "$w/borrow/.git" | cut -f1) err=$(tail -c 200 "$w/err" | tr -s "\\n " "  ")"',
   ].join("\n");
+  return { clone, borrow, cleanup: `rm -rf '${dir}'` };
 }
 
 export type RepoSeedLine = Record<string, string>;
