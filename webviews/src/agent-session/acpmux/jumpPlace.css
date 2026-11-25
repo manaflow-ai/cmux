@@ -8,11 +8,14 @@
    insets conversation.css centers it with), so it goes with the card in the frames Session Info
    pushes the column or the computer use preview takes its end. Its fade stays in place: switching
    arms changes the anchor, never a transition, so no frame draws it between two places.
-   - end (ships): at the card's end edge, the arrow's center over the card's last button (the mic or
+   Leo, 2026-11-22, after `end` shipped (#48658): "why'd the jump to bottom move to the right ... the
+   composer hat hidden bit was the one to move to the right. or left." `center` ships again and the
+   hat's pill moves aside (hatPillPlace.experiment.ts, jumpPlace.ts hatSide).
+   - end (#48658): at the card's end edge, the arrow's center over the card's last button (the mic or
      Send, whichever ends the row).
    - start: over the attach button's column.
    - corner: its edge on the card's end edge, a step lower, still a gap clear of the card's top.
-   - center (before): conversation.css's centered rule, untouched.
+   - center (ships): conversation.css's centered rule, untouched.
    Token only (scripts/check-design-tokens.ts TOKEN_ONLY_FILES). */
 .acpmux-main {
   /* The arrow's center over the end and start buttons' centers: the composer's inline padding plus
@@ -39,4 +42,33 @@
   bottom: calc(
     var(--ds-space-2) + var(--acpmux-dock-space, 0px) + var(--ds-control-primary) + var(--ds-space-2)
   );
+}
+
+/* The tucked hat's pill back on the center line with the disc (hatPillPlace.experiment.ts `middle-*`,
+   PaneBody.tsx data-hat-pill, set only while the pill shows). Leo, 2026-11-24: "you guys need to move
+   it back to the middle... adn we need to think of good ways to depict it. prebiously it looked
+   [weird] with [the thing] at the top": the disc stood 12px over the pill (`middle-tight`), two
+   floating controls stacked on one column. Each arm draws the pair another way; none moves the pill.
+   - middle (ships): the whole stack (Jump up, Jump to latest, the Needs you pill) stands a step
+     higher, so a 24px gap, most of a disc, parts the two and each reads on its own. `translate`, not
+     `bottom`, so it adds to every member's own `bottom` and to the fade's `transform` untouched.
+   - middle-quiet: the pill loses its glass slab (TrayPullTab `quiet`, subagents.css), so it reads as
+     a notch in the composer's line and the disc is the only floating thing; the disc keeps its place.
+   - middle-yield: one control on the center line at a time. While Jump to latest shows
+     (App.tsx data-jump-latest) the pill fades out on the composer's motion clock and takes no
+     clicks, and the line's gap under it closes, so no hole is left in the line. */
+.acpmux-main[data-jump-place="center"][data-hat-pill="middle"] .acpmux-jump-latest {
+  translate: 0 calc(-1 * var(--ds-space-3));
+}
+.acpmux-main[data-hat-pill="middle-yield"] .acpmux-tray-pull__tab {
+  transition: opacity var(--agent-motion-move) var(--agent-ease-out);
+}
+.acpmux-main[data-jump-place="center"][data-hat-pill="middle-yield"][data-jump-latest] .acpmux-tray-pull__tab {
+  opacity: 0;
+  pointer-events: none;
+}
+.acpmux-main[data-jump-place="center"][data-hat-pill="middle-yield"][data-jump-latest] .acpmux-tray-pull + .acpmux-composer {
+  --acpmux-tray-pull-control-width: 0px;
+  --acpmux-tray-pull-gap-pad: 0px;
+  --acpmux-tray-pull-gap-digits: 0;
 }

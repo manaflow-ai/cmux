@@ -8,7 +8,7 @@ whoever holds it now, read from the live sessions at push time, in this order:
 1. a live session tagged `owns=` with the row's workstream (`acpmux session tag SESSION owns=PL-acpmux`; a comma list holds
    several): a holder takes a workstream by tagging itself, and gives it up by ending;
 2. a live lane the row's role names: `lanes tabs-refine,tab-strip-*` (fnmatch globs on the session's short name, commas
-   between them; `|` would split the OWNERS.md table cell), the most recently active one. A role outlives every session that fills it, so a row written
+   between them; `|` would split the OWNERS.md table cell), the most recently active one (never a PR finisher, `finish-REPO-N-...`, which holds one PR). A role outlives every session that fills it, so a row written
    `lanes ...` does not go dead when one lane ends (2026-11-23: seven rows named ended sessions, cmux-b6, cmux-4f,
    a590, and their pushes went to the coordinator);
 3. the session the cell names (`session cmux-4f`), if it is live;
@@ -46,6 +46,10 @@ DEAD = {"closed", "stopped", "failed", "dead", "disconnected", "retired"}
 WORKSTREAM = re.compile(r"\bPL-[A-Za-z0-9][\w-]*")
 SESSION = re.compile(r"\bsessions? ([A-Za-z0-9][\w./-]*[A-Za-z0-9])")
 LANES = re.compile(r"\blanes ([A-Za-z0-9*?\[\]][\w*?\[\]./,-]*)")
+# A PR finisher the stall dispatcher starts (`finish-cmux-52161-sidebar`) holds one pull request, not an area: its
+# name carries the PR's area word, so a role glob like `*sidebar*` matched it and every sidebar push went to it
+# (2026-11-23: ~25 notices to finish-cmux-52161-sidebar). Role globs skip it; an `owns=` tag still counts.
+FINISHER = re.compile(r"^finish-[\w.-]*?-\d+(?:-|$)")
 LEAD = "PL-lead"
 COORDINATOR = "coordinator"
 
@@ -139,7 +143,8 @@ def holder(cell: str, rows: list[dict], coordinator: str | None = None) -> tuple
             return _name(tagged[0]), f"holds owns={w}"
     globs = cell_lanes(cell)
     if globs:
-        lanes = sorted((r for r in live if any(fnmatch.fnmatchcase(_short(_name(r)), g) for g in globs)),
+        lanes = sorted((r for r in live if not FINISHER.match(_short(_name(r)))
+                        and any(fnmatch.fnmatchcase(_short(_name(r)), g) for g in globs)),
                        key=lambda r: -(r.get("updatedAt") or 0))
         if lanes:
             return _name(lanes[0]), f"a lane of {','.join(globs)}"
