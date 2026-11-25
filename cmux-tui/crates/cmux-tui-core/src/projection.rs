@@ -483,10 +483,10 @@ fn serve_dial<R: Read, W: Write + Send + 'static, F: Write + Send + 'static>(
     let projected = match attach(first, &mut reader, roots) {
         Ok((projected, mut data)) => {
             // The Mac packs its answers (and writes binary lines) once it reads this.
-            if wants_wire(first)
-                && let Some(object) = data.as_object_mut()
-            {
-                object.insert("wire".into(), json!(WIRE));
+            if wants_wire(first) {
+                if let Some(object) = data.as_object_mut() {
+                    object.insert("wire".into(), json!(WIRE));
+                }
             }
             if send_line(&mut writer, &json!({"id": id, "ok": true, "data": data})).is_err() {
                 return;
@@ -1085,10 +1085,10 @@ fn attach(
     let state = state_of(&line.name)?;
     let projected =
         mount(&line.name, manifest, &state, &at, digest, line.head, line.from.as_deref())?;
-    if let (Some(dir), Some(home)) = (state.parent(), std::env::var_os("HOME"))
-        && let Err(error) = git_stat::keep(dir, Path::new(&home), &at)
-    {
-        eprintln!("cmux-tui: projection {}: git settings: {error}", line.name);
+    if let (Some(dir), Some(home)) = (state.parent(), std::env::var_os("HOME")) {
+        if let Err(error) = git_stat::keep(dir, Path::new(&home), &at) {
+            eprintln!("cmux-tui: projection {}: git settings: {error}", line.name);
+        }
     }
     let data = json!({
         "at": at,
