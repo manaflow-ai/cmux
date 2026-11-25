@@ -2295,8 +2295,10 @@ function shapeTurn(
     // A stretch before a steer whose only work was compacting the conversation draws no "Worked
     // for" of its own: its note stays in place, and the turn's one fold is the work after the steer
     // (Leo, 2026-11-25: "the worked for for collapsing the compaction and then the next worked for
-    // + thinking is weird. layout shifts and awkward looking animations").
-    const compactOnly = !final && said === undefined && onlyCompaction(work);
+    // + thinking is weird. layout shifts and awkward looking animations"). A /compact alone ends the
+    // same way: its note ("Compacted · 152k → 18k") stays in the place its live "Compacting" line
+    // held, never shut inside a "Worked for 1s" that hides what it did.
+    const compactOnly = said === undefined && onlyCompaction(work);
     const unlabeled =
       compactOnly ||
       (previous === undefined &&
@@ -2507,7 +2509,12 @@ function shapeTurn(
   // The hint is only rendered for a settled retry target. Avoid scanning the turn body on each
   // live snapshot/token while the turn is still running.
   const changedFiles = (retryable || retryTarget) && !live ? turnChangedFiles(body) : false;
-  const work = live ? undefined : turnWork(body);
+  // The summary is in, so the body's work is settled. A turn still `live` here is the last one with a
+  // prompt just sent behind it (not accepted yet, so it sorts into this turn) or a background run in
+  // its tail: its footer keeps its Timeline then. Dropping it for that window and putting it back when
+  // the prompt was accepted moved the footer's Read aloud by one button on every send. One pass over
+  // the body, as turnCopyParts below.
+  const work = turnWork(body);
   const copyParts = turnCopyParts(body);
   const stoppedQuietly = isStopped(summary) && !turnCopySaid(copyParts);
   // The chat's last turn, ended, whose GitHub call found no connection for this chat: its footer
@@ -2520,7 +2527,7 @@ function shapeTurn(
     // The footer's Copy copies the whole turn (turnCopy.ts): its replies and tool lines in order. A
     // stopped turn that only ran calls keeps no band: it resumes from the composer (ContinueAfterStop).
     turnCopy: stoppedQuietly ? undefined : copyParts,
-    // Its timed calls, for the footer's Timeline (waterfallSpans.ts); a live turn's footer has none.
+    // Its timed calls, for the footer's Timeline (waterfallSpans.ts).
     ...(work && { turnWork: work }),
     ...(resumable && { resumable }),
     ...(retryable && { retryable }),
