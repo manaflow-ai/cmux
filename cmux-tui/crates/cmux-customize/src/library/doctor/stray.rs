@@ -165,7 +165,11 @@ impl Customize {
                 Vec::new(),
             );
         }
-        // Random JSON at the top of the config folder that nothing reads.
+        // Random JSON at the top of the config folder that nothing reads. A record cmux keeps
+        // beside the settings file (`cmux-next.json.defaults-forgotten.json`,
+        // `cmux-next.json.defaults-restored.json`: CmuxConfigFile.writeBeside names each one
+        // `<settings file>.<suffix>`) is cmux's own, not stray.
+        let beside = format!("{}.", super::file_name(&self.roots().settings_file));
         for name in dir_names(&config) {
             let path = config.join(&name);
             let lower = name.to_lowercase();
@@ -175,6 +179,7 @@ impl Customize {
             if !config_like
                 || !path.is_file()
                 || KNOWN_TOP_FILES.contains(&name.as_str())
+                || name.starts_with(&beside)
                 || secret_name(&name)
                 || path == self.roots().settings_file
                 || looks_like_theme(&path)

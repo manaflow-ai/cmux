@@ -380,7 +380,19 @@ fn json_outside_the_usual_settings_names_what_it_sets_and_random_json_is_named_u
     home.write("cmux.json", "{ \"agents\": { \"harnesses\": { \"old-claude\": {} } } }\n");
     home.write("leftover-settings.json", "{ \"appearance\": { \"density\": \"compact\" } }\n");
     home.write("server.json", "{ \"token\": \"secret\" }\n");
+    // The records cmux itself keeps beside cmux-next.json are not stray (the toast called them
+    // "not a cmux file").
+    home.write("cmux-next.json.defaults-forgotten.json", "{ \"forgotten\": [] }\n");
+    home.write("cmux-next.json.defaults-restored.json", "{ \"restored\": [] }\n");
     let report = home.customize().doctor(&at(NOW));
+    assert!(
+        report
+            .findings
+            .iter()
+            .all(|f| !f.id.contains("defaults-forgotten") && !f.id.contains("defaults-restored")),
+        "{:#?}",
+        report.findings.iter().map(|f| &f.id).collect::<Vec<_>>()
+    );
     let daemon = find(&report, "override:cmux-tui.json");
     assert_eq!(daemon.title, "cmux-tui.json sets chrome, theme");
     find(&report, "override:harnesses");
