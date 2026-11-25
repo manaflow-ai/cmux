@@ -1053,7 +1053,6 @@ Object.assign(variants, {
       ...host,
       machines: autoCloudMachines({
         on: true,
-        busy: false,
         error: null,
         accepting: true,
         owner_idle: true,
@@ -1069,7 +1068,6 @@ Object.assign(variants, {
       ...host,
       machines: autoCloudMachines({
         on: true,
-        busy: false,
         error: null,
         accepting: false,
         owner_idle: false,
@@ -1089,7 +1087,6 @@ Object.assign(variants, {
       ...host,
       machines: autoCloudMachines({
         on: false,
-        busy: false,
         error: "Studio Mac did not answer.",
       }),
     },
