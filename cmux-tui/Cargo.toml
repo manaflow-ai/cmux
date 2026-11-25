@@ -17,6 +17,7 @@ workspace = true
 resolver = "2"
 members = [
     "crates/acpmux",
+    "crates/cmux-egress",
     "crates/desktop-lease",
     "crates/acpmux-core",
     "crates/acpmux-client",
@@ -153,6 +154,7 @@ members = [
     "crates/cmux-cookie-sync",
     "crates/cmux-browser-import",
     "crates/cmux-terminal-prediction",
+    "crates/cmux-felt",
     "crates/cmux-terminal-projection",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
@@ -163,6 +165,7 @@ members = [
     "crates/cmux-cloud-wire",
     "crates/cmux-tab-snapshots",
     "crates/cmux-palette-ranker",
+    "crates/cmux-terminal-find",
     "crates/cmux-palette-eval",
     "crates/cmux-backdrop-gen",
     "crates/cmux-action-catalog",
@@ -296,6 +299,7 @@ default-members = [
     "crates/cmux-cookie-sync",
     "crates/cmux-browser-import",
     "crates/cmux-terminal-prediction",
+    "crates/cmux-felt",
     "crates/cmux-terminal-projection",
     "crates/cmux-link",
     "crates/cmux-pane-protocol",
@@ -305,6 +309,7 @@ default-members = [
     "crates/cmux-mobile-ffi",
     "crates/cmux-cloud-wire",
     "crates/cmux-palette-ranker",
+    "crates/cmux-terminal-find",
     "crates/cmux-palette-eval",
     "crates/cmux-action-catalog",
     "crates/cmux-host-budget",
@@ -358,6 +363,7 @@ await_holding_refcell_ref = "deny"
 # Evaluated and dropped: needless_pass_by_value causes signature churn across cmux-tui-core call sites.
 
 [workspace.dependencies]
+cmux-egress = { path = "crates/cmux-egress" }
 chrono = "0.4"
 chrono-tz = "0.10"
 cmux-coderouter = { path = "crates/cmux-coderouter" }
@@ -406,6 +412,7 @@ cmux-daemon-conn-core = { path = "crates/cmux-daemon-conn-core" }
 acpmux-hot = { path = "crates/acpmux-hot" }
 cmux-chat-index = { path = "crates/cmux-chat-index" }
 cmux-palette-ranker = { path = "crates/cmux-palette-ranker" }
+cmux-terminal-find = { path = "crates/cmux-terminal-find" }
 cmux-theme-tokens = { path = "crates/cmux-theme-tokens" }
 cmux-theme-pack = { path = "crates/cmux-theme-pack" }
 cmux-image-linear = { path = "crates/cmux-image-linear" }
@@ -425,6 +432,7 @@ cmux-hub-host = { path = "crates/cmux-hub-host" }
 cmux-signed-bundle = { path = "crates/cmux-signed-bundle" }
 cmux-scope = { path = "crates/cmux-scope" }
 cmux-flow-trace = { path = "crates/cmux-flow-trace" }
+cmux-felt = { path = "crates/cmux-felt" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-conversation = { path = "crates/cmux-conversation" }
 cmux-message-preview = { path = "crates/cmux-message-preview" }
