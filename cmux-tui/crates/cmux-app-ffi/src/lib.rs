@@ -67,6 +67,9 @@
 //! draws it already placed (cmux-layout-cache, include/cmux_layout_cache.h).
 //! `background_ready` owns the background ready copy's decisions (app.backgroundReady;
 //! cmux-background-ready, include/cmux_background_ready.h).
+//! `screen_stream` is the screen stream's protocol and policy without WebRTC: data channel
+//! messages, quality settings, the viewer's demand, image paste and cursor shapes
+//! (cmux-screen-stream, include/cmux_screen_stream.h).
 //! `agent_client` is the no-I/O agent list client (acpmux-client,
 //! include/acpmux_client.h); the app owns and drives its byte connection.
 
@@ -111,6 +114,7 @@ pub use cmux_layout_reducer_ffi as layout_reducer;
 pub use cmux_palette_ranker::ffi as palette_ranker;
 pub use cmux_pane_pictures::ffi as pane_pictures;
 pub use cmux_rd_ffi as rd;
+pub use cmux_screen_stream::ffi as screen_stream;
 pub use cmux_screenshots::ffi as screenshots;
 pub use cmux_sdk_ffi as sdk;
 pub use cmux_terminal_prediction::ffi as terminal_prediction;

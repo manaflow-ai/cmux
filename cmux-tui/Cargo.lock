@@ -3003,6 +3003,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-screen-stream"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-screenshots"
 version = "0.1.0"
 dependencies = [

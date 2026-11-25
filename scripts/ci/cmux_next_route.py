@@ -186,6 +186,7 @@ SWIFT_JOB_INPUTS = (
     "cmux-tui/crates/cmux-chat-markdown/",
     "cmux-tui/crates/cmux-acpmux-remote-wire/",
     "cmux-tui/crates/cmux-screenshots/",
+    "cmux-tui/crates/cmux-screen-stream/",
     "cmux-tui/crates/cmux-local-auth/",
     "cmux-tui/crates/cmux-imessage/",
     "cmux-tui/crates/cmux-layout-reducer/",

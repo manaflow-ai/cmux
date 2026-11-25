@@ -245,6 +245,7 @@ dependencies = [
  "cmux-pane-pictures",
  "cmux-process",
  "cmux-rd-ffi",
+ "cmux-screen-stream",
  "cmux-screenshots",
  "cmux-sdk-ffi",
  "cmux-sign-clone-sweep",
@@ -679,6 +680,15 @@ dependencies = [
 name = "cmux-remote-browser"
 version = "0.1.0"
 dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-screen-stream"
+version = "0.1.0"
+dependencies = [
+ "base64",
  "serde",
  "serde_json",
 ]
