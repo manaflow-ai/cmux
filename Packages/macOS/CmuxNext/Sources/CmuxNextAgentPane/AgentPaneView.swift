@@ -127,6 +127,8 @@ public final class AgentPaneView: NSView {
     private var uiScaleObservation: Task<Void, Never>?
     /// Hands the old host's document `app.language` on every change (``observeLanguage()``).
     var languageObservation: Task<Void, Never>?
+    /// Tells the page each time this app's acpmux answers a lookup (``observeAcpmuxAnswers()``).
+    var acpmuxAnswerObservation: Task<Void, Never>?
     /// The indicator while Computer use can act as me is on; it has no pill until the grant is on (``showActAsMe(_:)``).
     let actAsMePill = AgentPaneActAsMePill()
     public var zoom: Double = 1 {
@@ -414,6 +416,7 @@ public final class AgentPaneView: NSView {
         observeUIScale()
         observeIconFamily()
         observeLanguage()
+        observeAcpmuxAnswers()
         sessionStatusObservation = AgentPaneSessionStatus.follow(self)
         model.onCloudTeamChange = { [weak self] in self?.evaluateScript(AgentPaneCloudMachines.teamChangeScript) }
         installSessionInfo()
@@ -491,6 +494,7 @@ public final class AgentPaneView: NSView {
         MainActor.assumeIsolated {
             uiScaleObservation?.cancel()
             languageObservation?.cancel()
+            acpmuxAnswerObservation?.cancel()
             gitHubChangeObservation?.cancel()
             actAsMePill.stop()
             sessionStatusObservation?.cancel()
@@ -595,6 +599,8 @@ public final class AgentPaneView: NSView {
         iconFamilyObservation = nil
         languageObservation?.cancel()
         languageObservation = nil
+        acpmuxAnswerObservation?.cancel()
+        acpmuxAnswerObservation = nil
         sessionStatusObservation?.cancel()
         model.sessionInfo.hostObservation?.cancel()
         model.sessionInfo.hostObservation = nil
