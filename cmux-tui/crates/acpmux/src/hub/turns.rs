@@ -537,7 +537,9 @@ impl Hub {
         let Some(unanswered) = unanswered else {
             return setup.await;
         };
-        admission.listen();
+        if matches!(unanswered, Unanswered::Defer(_)) {
+            admission.listen();
+        }
         tokio::select! {
             biased;
             answer = &mut setup => return answer,
@@ -553,10 +555,6 @@ impl Hub {
         admission.release();
         match unanswered {
             Unanswered::Defer(deferral) => self.defer_unanswered(session, deferral, stage).await,
-            Unanswered::Guarded(guard) => {
-                guard()?;
-                Err(super::auto_resume::retry_turn::busy())
-            }
             Unanswered::Busy => Err(super::auto_resume::retry_turn::busy()),
             Unanswered::SteerUnavailable => Err(super::turn_cap::steer_unavailable(false)),
         }
@@ -714,8 +712,7 @@ impl Hub {
             super::inbox::Route::Plain => None,
             super::inbox::Route::Inbox(agent, class) => {
                 admission.enter("inbox");
-                // `inbox_accept` reads the shared config before it calls `accept`, which commits
-                // the admission. Until then the prompt can still be deferred and answered.
+                admission.commit();
                 return Box::pin(self.inbox_accept(
                     session,
                     &blocks,
@@ -849,6 +846,7 @@ impl Hub {
             // Steer setup can still wait on the child or family gate. Its first write and
             // acceptance happen together, and the acceptance callback commits the admission.
             admission.enter("steer");
+            admission.commit();
             let opts = PromptOptions { prompt_id: Some(prompt_id), on_accepted: None, ..opts };
             // Boxed: the steer's future stays out of this one, which every prompt's caller holds
             // on its stack (a debug build's test thread has little room).
