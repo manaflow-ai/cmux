@@ -818,6 +818,9 @@ def main(argv: list[str] | None = None) -> int:
         started = time.monotonic()
         results = run_steps(steps, args.jobs, environ)
         write_run_summary(results, time.monotonic() - started, args.summary, sys.stdout)
+        if args.github_output:  # each step's own outcome is skipped now: tooling_reuse.py record reads these
+            with args.github_output.open("a", encoding="utf-8") as stream:
+                stream.write("passed= " + " ".join(r.step.key for r in results if r.code == 0) + " \n")
         return 1 if any(r.code for r in results) else 0
     if args.command == "verify":
         problems = verify(Path(args.root), args.workflow, args.job, args.step)

@@ -504,6 +504,13 @@ class GreenReuse(FixtureRepo):
         data = json.loads(out.read_text(encoding="utf-8"))
         self.assertEqual(data["tree"], self.before)
 
+    def test_record_keeps_the_steps_the_side_by_side_runner_passed(self):
+        import json
+        steps = {"setup-tooling-run": {"outcome": "failure", "outputs": {"ran": "true", "passed": " tt-b "}},
+                 "tt-a": {"outcome": "skipped"}, "tt-b": {"outcome": "skipped"}, "tt-c": {"outcome": "skipped"}}
+        out = self.root / "out" / "tooling-passed.json"
+        self.assertEqual(self.reuse.record(WORKFLOW, "tooling-tests", self.root, json.dumps(steps), out, "1"), ["tt-b"])
+
     def test_audit_is_stable_per_run_and_near_its_percent(self):
         self.assertEqual(self.reuse.audited("123", 10), self.reuse.audited("123", 10))
         hits = sum(self.reuse.audited(str(n), 10) for n in range(2000))
@@ -576,7 +583,8 @@ class RealWorkflow(unittest.TestCase):
         self.assertIn('--github-output "$GITHUB_OUTPUT"', step["run"])
         tt = [i for i, s in enumerate(steps) if str(s.get("id") or "").startswith("tt-")]
         self.assertLess(index, min(tt))
-        self.assertTrue(all("run" in s for s in steps[index:]), "every setup action comes before the runner")
+        last_tt = max(tt)  # after the steps, only post-run actions (tooling_reuse's upload) may be actions
+        self.assertTrue(all("run" in s for s in steps[index:last_tt + 1]), "every setup action comes before the runner")
         for other in (steps[i] for i in tt):  # an expression env reaches the runner as the same expression
             for key, value in (other.get("env") or {}).items():
                 if "${{" in str(value):
@@ -695,7 +703,7 @@ class SideBySide(unittest.TestCase):
         args = ["run", "--root", str(self.root), "--workflow", "w.yml", "--job", "t", "--selection", str(sel)]
         sel.write_text("tooling_steps= tt-slow-b \ntooling_all=false\n", encoding="utf-8")
         self.assertEqual(tooling_steps.main([*args, "--github-output", str(out)]), 0)
-        self.assertEqual(out.read_text(encoding="utf-8"), "ran=true\n")
+        self.assertEqual(out.read_text(encoding="utf-8"), "ran=true\npassed= tt-slow-b \n")
         sel.write_text("tooling_steps= tt-fails \ntooling_all=false\n", encoding="utf-8")
         self.assertEqual(tooling_steps.main(args), 1)
 
