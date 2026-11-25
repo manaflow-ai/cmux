@@ -449,17 +449,30 @@ public final class RemoteLocalhostService {
             "accepted": stats.accepted, "unauthorized": stats.unauthorized, "tunnels": stats.tunnels,
             "direct": stats.direct, "refused_local": stats.refusedLocal, "failures": stats.failures, "open": stats.open,
         ]
-        return .object([
-            "ports": .object(proxy.machinePorts.mapValues { .number(Double($0)) }),
+        let ports: [String: JSONValue] = proxy.machinePorts.mapValues { .number(Double($0)) }
+        let proxyCounters: [String: JSONValue] = counters.mapValues { .number(Double($0)) }
+        let debugSocketValue: JSONValue = debugSocket.map(JSONValue.string) ?? .null
+        // Tabs bound to a chat's machine (a Cloud chat's sign-in page): tab id to that machine's name.
+        var bound: [String: JSONValue] = [:]
+        for (tab, binding) in boundTabs {
+            guard let machine = binding.machine else {
+                bound[tab] = .null
+                continue
+            }
+            let name: String = machines.daemon(machine: machine).map(machineName(of:)) ?? machine
+            bound[tab] = .string(name)
+        }
+        let fields: [String: JSONValue] = [
+            "ports": .object(ports),
             "enabled": .bool(setting.enabled),
             "machines": .number(Double(clients.count + debugClients.count)),
-            "debug_socket": debugSocket.map(JSONValue.string) ?? .null,
-            "proxy": .object(counters.mapValues { .number(Double($0)) }),
+            "debug_socket": debugSocketValue,
+            "proxy": .object(proxyCounters),
             "recent": .array(proxy.recentEvents.map(JSONValue.string)),
             "plans": .object(plans.mapValues(JSONValue.string)),
-            // Tabs bound to a chat's machine (a Cloud chat's sign-in page): tab id to that machine's name.
-            "bound": .object(boundTabs.mapValues { binding in .string(machines.daemon(machine: binding.machine).map(machineName(of:)) ?? binding.machine) }),
-        ])
+            "bound": .object(bound),
+        ]
+        return .object(fields)
     }
 
     /// Closes the forwarding connection of a machine that left the registry:
