@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.customizeDoctor.restoreBody" : {
+      "comment" : "Customization Problems: under the restore question.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux moves the broken text aside and keeps it, so nothing is lost."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ينقل cmux النص المعطوب جانبًا ويحتفظ به، فلا يضيع شيء."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux premješta pokvareni tekst u stranu i čuva ga, pa se ništa ne gubi."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux flytter den ødelagte tekst til side og gemmer den, så intet går tabt."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux legt den fehlerhaften Text beiseite und behält ihn, es geht also nichts verloren."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux aparta el texto roto y lo guarda, así que no se pierde nada."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux met le texte cassé de côté et le garde : rien n'est perdu."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux sposta da parte il testo danneggiato e lo conserva, quindi non si perde nulla."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux は壊れたテキストを別の場所に移して残すので、何も失われません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux ផ្លាស់អត្ថបទដែលខូចទៅដាក់ឡែក ហើយរក្សាវាទុក ដូច្នេះគ្មានអ្វីបាត់ទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux가 깨진 텍스트를 옆으로 옮겨 보관하므로 아무것도 잃지 않습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux flytter den ødelagte teksten til side og beholder den, så ingenting går tapt."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux odsuwa uszkodzony tekst na bok i go zachowuje, więc nic nie przepada."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O cmux move o texto quebrado para o lado e o guarda, então nada se perde."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux убирает повреждённый текст в сторону и сохраняет его, так что ничего не потеряется."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux จะย้ายข้อความที่เสียไปเก็บไว้ จึงไม่มีอะไรหาย"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux bozuk metni kenara taşır ve saklar, böylece hiçbir şey kaybolmaz."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux переносить пошкоджений текст убік і зберігає його, тож нічого не загубиться."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux chuyển phần văn bản hỏng sang một bên và giữ lại, nên không mất gì."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux 会把损坏的文本移到一旁并保留，不会丢失任何内容。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux 會把損壞的文字移到一旁並保留，不會遺失任何內容。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
