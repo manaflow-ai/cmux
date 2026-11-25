@@ -90,7 +90,8 @@ export function FolderPopover({
   const cloudFolders = sources?.cloudFolders;
   const cloud = cloudFolders !== undefined;
   const github = sources?.github;
-  // The repositories whose worktrees are open under their row, by group key.
+  // The repositories whose worktrees are open under their row, by their folders: a repository whose details arrive
+  // while it is open (its GitHub origin, so a new group key) stays open (`openKeys`).
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const [searchCollapsed, setSearchCollapsed] = useState<ReadonlySet<string>>(() => new Set());
   // A click on a worktree count holds the menu's height while the pointer stays in it, so the rows under the
@@ -129,7 +130,11 @@ export function FolderPopover({
     () => projectSuffixes(groups.map((group) => ({ cwd: group.lead.id, label: group.name }))),
     [groups],
   );
-  const rows = useMemo(() => shownRepoRows(groups, query, expanded), [groups, query, expanded]);
+  const openKeys = useMemo(
+    () => new Set(groups.filter((group) => group.members.some((member) => expanded.has(member.id))).map((g) => g.key)),
+    [groups, expanded],
+  );
+  const rows = useMemo(() => shownRepoRows(groups, query, openKeys), [groups, query, openKeys]);
   // Each shown folder's row: a repository's (`group` only) or a worktree's under it.
   const shown = useMemo(() => {
     const byValue = new Map<
@@ -138,7 +143,7 @@ export function FolderPopover({
     >();
     for (const { group, worktrees } of rows) {
       const count = typed ? worktrees.length : group.members.length - 1;
-      const open = typed ? count > 0 && !searchCollapsed.has(group.key) : expanded.has(group.key);
+      const open = typed ? count > 0 && !searchCollapsed.has(group.key) : openKeys.has(group.key);
       const hasAction = !typed && group.key === worktreeActionGroup;
       byValue.set(group.lead.id, { group, disclosure: count > 0 || hasAction ? { count, open } : undefined });
       if (hasAction && open) {
@@ -147,17 +152,28 @@ export function FolderPopover({
       if (open) for (const worktree of worktrees) byValue.set(worktree.id, { group, worktree });
     }
     return byValue;
-  }, [expanded, rows, searchCollapsed, typed, worktreeActionGroup]);
+  }, [openKeys, rows, searchCollapsed, typed, worktreeActionGroup]);
   const disclosureLabel = ({ count, open }: { count: number; open: boolean }) =>
     open ? t("project.hideWorktrees") : count ? t("project.showWorktrees", { n: count }) : t("project.newWorktree");
-  const toggle = (key: string, open: boolean) => {
-    const setKeys = typed ? setSearchCollapsed : setExpanded;
-    const include = typed ? !open : open;
-    setKeys((before) => {
-      if (before.has(key) === include) return before;
+  const toggle = (group: (typeof groups)[number], open: boolean) => {
+    if (typed) {
+      setSearchCollapsed((before) => {
+        if (before.has(group.key) === !open) return before;
+        const next = new Set(before);
+        if (open) next.delete(group.key);
+        else next.add(group.key);
+        return next;
+      });
+      return;
+    }
+    setExpanded((before) => {
+      const ids = group.members.map((member) => member.id);
+      if (ids.some((id) => before.has(id)) === open) return before;
       const next = new Set(before);
-      if (include) next.add(key);
-      else next.delete(key);
+      for (const id of ids) {
+        if (open) next.add(id);
+        else next.delete(id);
+      }
       return next;
     });
   };
@@ -282,7 +298,7 @@ export function FolderPopover({
           current,
           "main",
         ).find((group) => group.members.some((member) => member.id === current));
-        if (opening && opening.lead.id !== current) setExpanded(new Set([opening.key]));
+        if (opening && opening.lead.id !== current) setExpanded(new Set(opening.members.map((member) => member.id)));
       }
     }
     if (!next) {
@@ -479,7 +495,7 @@ export function FolderPopover({
                 setHeldHeight(Math.round(menuBox.getBoundingClientRect().height));
                 menuBox.addEventListener("pointerleave", () => setHeldHeight(undefined), { once: true });
               }
-              toggle(group.key, !disclosure.open);
+              toggle(group, !disclosure.open);
             }}
           >
             <BranchIcon />
@@ -500,7 +516,7 @@ export function FolderPopover({
     if (!place?.disclosure) return false;
     const open = key === "ArrowRight";
     if (place.disclosure.open === open) return false;
-    toggle(place.group.key, open);
+    toggle(place.group, open);
     return true;
   };
 
@@ -715,12 +731,14 @@ function shownRows(blocks: readonly RowBlock[], folds: unknown): ShownRows {
 /// The list as `kept` showed it, while the menu stays open with nothing typed (cmux#53226: rows moved under the
 /// pointer as chats, folders and repositories arrived or re-sorted, and the menu grows up from its chip, so even a row
 /// added at the end moved every row above it). Each block keeps its place and its rows, found by its folders, so a
-/// repository whose details arrive late is the same block, and its lead row is always the live one (a main checkout
-/// that arrives under listed worktrees leads it, with its disclosure). A block that arrives later waits for the next
+/// repository whose details arrive late is the same block. Its lead row is always the live one: a main checkout that
+/// arrives under an open repository's listed worktrees leads it, with its disclosure, and the rows under it move down
+/// one (the repository's row is the main checkout's, cmux#53226); its other rows keep their shown order. A block that arrives later waits for the next
 /// open, except the current folder's (listed after the kept ones); a block that went away leaves.
 export function keptRows(kept: ShownRows, blocks: readonly RowBlock[], current: string | undefined): string[] {
   const placed: { at: number; rows: string[] }[] = [];
   const late: string[] = [];
+  const keptOrder = new Map([...kept.rows].map((row, index) => [row, index]));
   blocks.forEach((block) => {
     let at: number | undefined;
     for (const id of block.ids) {
@@ -731,7 +749,10 @@ export function keptRows(kept: ShownRows, blocks: readonly RowBlock[], current: 
       if (current !== undefined && block.ids.includes(current)) late.push(...block.rows);
       return;
     }
-    placed.push({ at, rows: block.rows.filter((row, index) => index === 0 || kept.rows.has(row)) });
+    // The live lead first (it carries the repository's disclosure), then the other rows as they were shown.
+    const [lead, ...rest] = block.rows;
+    const others = rest.filter((row) => keptOrder.has(row)).sort((a, b) => keptOrder.get(a)! - keptOrder.get(b)!);
+    placed.push({ at, rows: lead === undefined ? others : [lead, ...others] });
   });
   placed.sort((left, right) => left.at - right.at);
   return [...placed.flatMap((block) => block.rows), ...late];

@@ -1645,6 +1645,59 @@ test("a Cloud machine's heading stays on its first shown folder when a folder ar
   }
 });
 
+test("an open repository keeps its worktrees' order and stays open when its GitHub details arrive (cmux#53226)", async () => {
+  const gh = host({ "github.status": status("not_connected") });
+  type Choice = { cwd: string; label: string; repo?: { root: string; name: string; branch?: string; github?: string } };
+  const API = "/Users/me/src/api";
+  const main = (github?: string): Choice => ({
+    cwd: API,
+    label: "api",
+    repo: { name: "api", root: API, branch: "main", ...(github ? { github } : {}) },
+  });
+  const worktree = (name: string, github?: string): Choice => ({
+    cwd: `/Users/me/.cmux/worktrees/api/${name}`,
+    label: `worktrees/${name}`,
+    repo: { name: "api", root: API, branch: name, ...(github ? { github } : {}) },
+  });
+  let setChoices: (choices: Choice[]) => void = () => {};
+  function Tray() {
+    const github = useGitHubPicker(gh.store);
+    const [choices, set] = useState<Choice[]>([main(), worktree("blue"), worktree("green")]);
+    setChoices = set;
+    return (
+      <ComposerContext
+        summary={{ sessionId: "", cwd: FOLDER }}
+        projectChoices={choices}
+        onProject={() => {}}
+        onNoProject={() => {}}
+        localName="This Mac"
+        runMode={{ mode: "persistent", onMode: () => {} }}
+        github={github}
+      />
+    );
+  }
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  await act(async () => root.render(<Tray />));
+  try {
+    await openFolderMenu();
+    await press(doc().querySelector<HTMLButtonElement>("button[aria-label^='Show']")!);
+    const rows = () => labels(".ui-combobox-scroll [role=option]");
+    const first = rows();
+    expect(first).toEqual(expect.arrayContaining(["blue", "green"]));
+    // green is used: the host lists it first. Before: green jumped above blue under the pointer.
+    await act(async () => setChoices([main(), worktree("green"), worktree("blue")]));
+    await settle();
+    expect(rows()).toEqual(first);
+    // The host names api's GitHub origin (a new repository key). Before: the repository folded, its worktrees gone.
+    await act(async () => setChoices([main("acme/api"), worktree("green", "acme/api"), worktree("blue", "acme/api")]));
+    await settle();
+    expect(rows()).toEqual(first);
+    expect(doc().querySelector("button[aria-label='Hide worktrees']")).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 test("the folder chip draws GitHub's mark only for a repository picked as one, never for a folder of this Mac (cmux#53226)", async () => {
   const gh = host({ "github.status": ready, "github.repos.list": installed });
   const chipIcon = () =>
