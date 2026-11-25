@@ -216,6 +216,24 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
             return try await self.op(op, idempotencyKey: draft.clientMessageID)
         }
 
+        /// One chunk, tried up to ``ChiefUpload/attempts`` times while the Mac's reply times out
+        /// (each try is bounded by the link's own deadline). The last timeout names the chunk.
+        func chunkRetrying(index: Int, of count: Int, _ send: () async throws -> Void) async throws {
+            var attempt = 1
+            while true {
+                do {
+                    return try await send()
+                } catch let error as LinkError where error.isTimeout {
+                    guard attempt < ChiefUpload.attempts else {
+                        let hop = String(format: String(localized: "chunk %1$d of %2$d to the Mac"), index, count)
+                        throw ConversationBackendError(code: -32000, message: ChiefUpload.Failure.timedOut(
+                            hop: hop, seconds: Int(DaemonClient.defaultDeadline.components.seconds)).message)
+                    }
+                    attempt += 1
+                }
+            }
+        }
+
         func upload(_ data: Data, mimeType: String, name: String, width: Int?, height: Int?, file: ConversationFileInfo?) async throws -> ConversationAttachment {
             let id = try await resolve()
             let hash = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
@@ -225,19 +243,30 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
             ]
             if let width, width > 0 { begin["width"] = width }
             if let height, height > 0 { begin["height"] = height }
+            ConversationUploadProgress.send(0)
             let started = try await call("conversation-attachment-upload", begin)
             if let upload = started["upload"] as? String {
                 var offset = 0
+                let total = Double(max(1, data.count))
+                let chunks = (data.count + Self.chunkBytes - 1) / Self.chunkBytes
                 repeat {
+                    try Task.checkCancellation()
                     let piece = data.subdata(in: offset..<min(data.count, offset + Self.chunkBytes))
-                    _ = try await call("conversation-attachment-upload", [
-                        "op": "chunk", "upload": upload, "piece": "original", "offset": offset,
-                        "data": piece.base64EncodedString(),
-                    ])
+                    let encoded = piece.base64EncodedString()
+                    let at = offset
+                    // A chunk names its offset, so sending it again is safe: a reply lost to the
+                    // link's deadline is tried again instead of failing the whole video.
+                    try await chunkRetrying(index: offset / Self.chunkBytes + 1, of: chunks) {
+                        _ = try await self.call("conversation-attachment-upload", [
+                            "op": "chunk", "upload": upload, "piece": "original", "offset": at, "data": encoded,
+                        ])
+                    }
                     offset += piece.count
+                    ConversationUploadProgress.send(Double(offset) / total)
                 } while offset < data.count
                 _ = try await call("conversation-attachment-upload", ["op": "commit", "upload": upload])
             }
+            ConversationUploadProgress.send(1)
             attachmentBytes[hash] = data
             var part: [String: Any] = [
                 "type": "attachment", "hash": hash, "name": name, "mime_type": mimeType, "byte_count": data.count,
