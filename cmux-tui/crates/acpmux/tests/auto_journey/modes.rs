@@ -185,6 +185,13 @@ async fn a_move_home_to_a_laptop_that_does_not_stand_by_says_so_and_changes_noth
     let laptop = world.start_laptop();
     let id = auto_chat(&world, &laptop, None).await;
     in_the_cloud(&world, &laptop, &id).await;
+    // The laptop's row says where the chat stands as the store last answered it, which can be
+    // from before the machine acked its assignment. One more renewal and it says what the
+    // store says now: a refused move brings the store's newest view with it, and the row must
+    // not differ below for that alone.
+    a_period_passes(&world).await;
+    until("the laptop's row says the Cloud has the chat", || laptop.row(&id)["state"] == "cloud")
+        .await;
 
     // The store has not heard from the laptop for longer than a lease: it no longer counts
     // as standing by, so there is no laptop to move the chat to.
