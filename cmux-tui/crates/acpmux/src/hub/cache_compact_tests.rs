@@ -55,7 +55,8 @@ fn the_default_trigger_fires_under_the_autocompact_cap_whatever_the_window() {
     }
     assert!(over((DEFAULT_MIN_TOKENS, 1_000_000), t), "60K of a 1M window compacts");
     assert!(!over((DEFAULT_MIN_TOKENS - 1, 1_000_000), t), "under both bars");
-    assert!(over((60_000, 200_000), t) && over((59_999, 199_999), t), "30% of 200K trips first");
+    assert!(over((30_000, 100_000), t), "on a 100K window 30% trips first");
+    assert!(!over((29_999, 100_000), t), "under both bars");
 }
 
 #[test]
