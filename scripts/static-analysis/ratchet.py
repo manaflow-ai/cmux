@@ -114,7 +114,8 @@ def has_commit(rev: str) -> bool:
 def fetch_commit(sha: str) -> None:
     """A depth-1 checkout lacks the base; its trees come now and its blobs on demand (partial clone)."""
     if not has_commit(sha):
-        git("fetch", "--quiet", "--no-tags", "--depth=1", "--filter=blob:none", "origin", sha)
+        shallow = git("rev-parse", "--is-shallow-repository") == "true"
+        git("fetch", "--quiet", "--no-tags", *(["--depth=1"] if shallow else []), "--filter=blob:none", "origin", sha)
 
 
 def resolve_base(head: str) -> str | None:
