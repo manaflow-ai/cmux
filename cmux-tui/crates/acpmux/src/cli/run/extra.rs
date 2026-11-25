@@ -1122,6 +1122,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         }
         // This machine's own key file or ssh agent; no daemon.
         Command::Host(PeerCmd::Key { create }) => crate::cli::host_ssh_key::run(create, json_out),
+        // Its own socket, a fresh daemon connection per client: none held here.
+        #[cfg(unix)]
+        Command::Host(PeerCmd::BrokerForward { owner, socket }) => {
+            crate::cli::host_broker_forward::run(owner, socket).await
+        }
+        #[cfg(not(unix))]
+        Command::Host(PeerCmd::BrokerForward { .. }) => {
+            Err(anyhow!("machine broker-forward needs unix sockets"))
+        }
         Command::Host(PeerCmd::Join {
             ticket,
             name,
@@ -1615,7 +1624,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 | PeerCmd::Tunnel { .. }
                 | PeerCmd::Vault { .. }
                 | PeerCmd::Deps { .. }
-                | PeerCmd::Key { .. } => {
+                | PeerCmd::Key { .. }
+                | PeerCmd::BrokerForward { .. } => {
                     return Err(anyhow!(
                         "host join, leave, consent, vault and deps are handled before daemon connection"
                     ));
