@@ -1,7 +1,7 @@
 use super::*;
 
 /// A DEV build's `cmux mcp serve` keeps its tool lists in the build's own caches
-/// (`CMUX_NEXT_MCP_UPSTREAMS_DIR`, BuildStatePaths), never in `~/.cache/cmux`, which NIGHTLY shares.
+/// (`CMUX_NEXT_MCP_UPSTREAMS_DIR`, BuildStatePaths), never in `~/.cache/<NEXT_DIR>`, which NIGHTLY shares.
 #[test]
 fn dev_build_own_mcp_upstreams_dir() {
     let env = |name: &str| match name {
@@ -11,13 +11,19 @@ fn dev_build_own_mcp_upstreams_dir() {
     };
     assert_eq!(dir_from(env), Some(PathBuf::from("/tmp/dev-build/mcp-upstreams")));
     let shared = |name: &str| (name == "HOME").then(|| "/Users/me".into());
-    assert_eq!(dir_from(shared), Some(PathBuf::from("/Users/me/.cache/cmux/mcp-upstreams")));
+    assert_eq!(
+        dir_from(shared),
+        Some(PathBuf::from(format!("/Users/me/.cache/{}/mcp-upstreams", cmux_config::NEXT_DIR)))
+    );
     let blank = |name: &str| match name {
         "HOME" => Some("/Users/me".into()),
         "CMUX_NEXT_MCP_UPSTREAMS_DIR" => Some("".into()),
         _ => None,
     };
-    assert_eq!(dir_from(blank), Some(PathBuf::from("/Users/me/.cache/cmux/mcp-upstreams")));
+    assert_eq!(
+        dir_from(blank),
+        Some(PathBuf::from(format!("/Users/me/.cache/{}/mcp-upstreams", cmux_config::NEXT_DIR)))
+    );
 }
 
 fn spec(command: &Path, token: &str) -> Spec {

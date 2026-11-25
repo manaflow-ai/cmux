@@ -38,13 +38,14 @@ pub(super) fn default_dir() -> Option<PathBuf> {
 }
 
 /// The folder for the environment `env`: a DEV build's own (`CMUX_NEXT_MCP_UPSTREAMS_DIR`, which the Mac app
-/// sets: BuildStatePaths), else the person's, `~/.cache/cmux/mcp-upstreams`, which NIGHTLY and stable share.
+/// sets: BuildStatePaths), else the person's, `~/.cache/<NEXT_DIR>/mcp-upstreams`, which NIGHTLY and stable
+/// share: `~/.cache/cmux-next` on macOS, never Classic's `~/.cache/cmux` there.
 pub(super) fn dir_from(env: impl Fn(&str) -> Option<std::ffi::OsString>) -> Option<PathBuf> {
     if let Some(own) = env(DIR_ENV).filter(|dir| !dir.is_empty()) {
         return Some(PathBuf::from(own));
     }
     let home = env("HOME").filter(|h| !h.is_empty())?;
-    Some(Path::new(&home).join(".cache").join("cmux").join("mcp-upstreams"))
+    Some(Path::new(&home).join(".cache").join(cmux_config::NEXT_DIR).join("mcp-upstreams"))
 }
 
 /// A file’s identity for a key: its real path, size and modification time.

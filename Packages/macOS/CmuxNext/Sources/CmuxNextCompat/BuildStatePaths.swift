@@ -172,7 +172,7 @@ public nonisolated struct BuildStatePaths: Sendable, Equatable {
     }
 
     /// The tool lists `cmux mcp serve` keeps of a chat's other MCP servers (cmux-tui `upstream_listing`), instead of
-    /// `~/.cache/cmux/mcp-upstreams`: in the DEV build's own caches; nil for every other build.
+    /// `~/.cache/cmux-next/mcp-upstreams`: in the DEV build's own caches; nil for every other build.
     public var mcpUpstreamsCache: URL? { ownCaches?.appendingPathComponent("mcp-upstreams", isDirectory: true) }
 
     /// The installed mux plugins (cmux-tui `plugin_manager`), instead of `~/.local/share/cmux/mux-plugins`; nil for
