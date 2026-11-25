@@ -278,7 +278,7 @@ describe("design token --fix", () => {
   const standardSeconds = `.${ms("--cmux-motion-standard") / 10}s`;
   const settle = `${ms("--cmux-motion-standard")}ms`;
 
-  test("a motion step becomes its token, keeping the literal as fallback; px literals stay", () => {
+  test("a motion step becomes its token, its fallback written as the scale writes it; px literals stay", () => {
     const sheet = [
       `.row { transition: opacity ${micro} ease, transform ${standardSeconds} ease-out; }`,
       ".card { border-radius: 10px; }",
@@ -289,7 +289,7 @@ describe("design token --fix", () => {
     const { text, swaps } = fixStylesheet(sheet);
     expect(swaps).toBe(2);
     expect(text.split("\n")).toEqual([
-      `.row { transition: opacity var(--cmux-motion-micro, ${micro}) ease, transform var(--cmux-motion-standard, ${standardSeconds}) ease-out; }`,
+      `.row { transition: opacity var(--cmux-motion-micro, ${micro}) ease, transform var(--cmux-motion-standard, ${designTokenValue("--cmux-motion-standard")}) ease-out; }`,
       ".card { border-radius: 10px; }",
       `.settle { transition: transform ${settle} var(--cmux-ease-settle); }`,
       `.gap { gap: 10px; transition: opacity var(--x, ${micro}) ease; }`,
