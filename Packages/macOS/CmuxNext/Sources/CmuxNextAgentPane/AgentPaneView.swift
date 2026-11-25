@@ -586,6 +586,14 @@ public final class AgentPaneView: NSView {
         DictationMicrophone.shared.stopListening()
     }
 
+    /// This page carries a Cloud chat started from it, in place (``AgentPaneModel/rehome(onto:seed:)``): its
+    /// socket closes, and the page's own reconnect (the React tree stays mounted, its transcript, composer and
+    /// scroll with it) asks `host`, which starts the chat there from `seed`. One page from Enter to the end.
+    public func rehome(onto host: any AgentPaneHostProviding, seed: AgentPaneSeedSource?) {
+        model.rehome(onto: host, seed: seed)
+        if let connection = model.transport.connection { model.transport.close(connection: connection) }
+    }
+
     /// Stops the page (and its WebSocket) for good; call when the tab closes.
     public func close() {
         model.pageClosed = true // it leaves the live pages (``AgentPageLiveness``)

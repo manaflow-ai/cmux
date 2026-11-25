@@ -165,7 +165,9 @@ _timebase = macos_libs.timebase_of(_libsystem, _Timebase())
 
 
 def usage(pid: int):
-    """(resident, footprint, lifetime max footprint, cpu ns, wakeups), or None once the pid is gone."""
+    """(resident, footprint, lifetime max footprint, cpu ns, wakeups, package-idle wakeups), or None once the pid is
+    gone. wakeups is package-idle plus interrupt wakeups; a busy Mac's package is never idle, so under load the first
+    kind reads near 0 for the same wakes."""
     buf = (ctypes.c_uint64 * 64)()
     if _libproc.proc_pid_rusage(ctypes.c_int(pid), ctypes.c_int(4), ctypes.byref(buf)) != 0:
         return None
@@ -173,7 +175,7 @@ def usage(pid: int):
     # idle wakeups, interrupt wakeups, pageins, wired (7), resident (8),
     # phys_footprint (9), ... ri_lifetime_max_phys_footprint (30).
     cpu_ns = (buf[2] + buf[3]) * _timebase.numer // _timebase.denom
-    return buf[8], buf[9], buf[30], cpu_ns, buf[4] + buf[5]
+    return buf[8], buf[9], buf[30], cpu_ns, buf[4] + buf[5], buf[4]
 
 
 class _TaskInfo(ctypes.Structure):
