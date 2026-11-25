@@ -249,10 +249,10 @@ public nonisolated struct LaunchTimesRecord: Codable, Equatable, Sendable {
         "launch_snapshot_applied", "launch_snapshot_shown", "window.make_start", "window.init_done", "window.ordered_front",
         "dfl.windows", "did_finish_launching_end", "window.restore_wait_start", "window.restore_wait_end",
         "frame.commit_start", "daemon_snapshot_loaded", "connecting_view_shown", "connecting_view_left", "workspace_content_shown",
-        "sidebar_rows_shown", "first_window_flushed", "agent_pane.launch_image_shown",
+        "sidebar_rows_shown", "first_window_flushed", "pages.deferred_until_frame", "agent_pane.launch_image_shown",
         "first_terminal_surface_created", "first_terminal_content", "first_terminal_content_applied", "first_terminal_frame",
         "cef.initialize_start", "chromium_page.make_start", "chromium_page.browser_created", "home.page_host_made",
-        "cef.ready", "first_page.navigation_start", "first_page.dom_content_loaded", "first_page.first_contentful_paint", "agent_pane.view_created", "agent_pane.transport_open",
+        "pages.created", "cef.ready", "first_page.navigation_start", "first_page.dom_content_loaded", "first_page.first_contentful_paint", "agent_pane.view_created", "agent_pane.transport_open",
         "first_key_down", "terminal_input_accepted", "terminal_echo", "reveal.sidebar", "reveal.home",
     ]
 }

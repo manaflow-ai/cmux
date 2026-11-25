@@ -51,6 +51,16 @@ fn page_ids_are_opaque_and_questions_are_bounded() {
 }
 
 #[test]
+fn a_driver_opens_more_than_sixteen_sids() {
+    let mut driver = ListDriver::new();
+    for n in 0..40 {
+        let request = OpenRequest { sid: format!("s{n}"), view: ListView::All };
+        assert_eq!(driver.open(request), Ok(format!("s{n}")), "sid {n}");
+    }
+    assert_eq!(driver.slots.len(), 40);
+}
+
+#[test]
 fn wrong_taken_does_not_release_batch() {
     let mut driver = ListDriver::new();
     driver.held = Some(HeldBatch { number: 4, changes: Vec::new() });
