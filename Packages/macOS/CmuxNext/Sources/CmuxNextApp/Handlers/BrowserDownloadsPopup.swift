@@ -91,7 +91,7 @@ final class BrowserDownloadsPopup {
         model.list = list
         model.registry = registry
         if !popup.isShown { model.shows += 1 }
-        model.colors = anchor.performWithTheme { BrowserDownloadsPopupColors.resolve() }
+        model.colors = anchor.performWithTheme { PopupCardColors.resolve() }
         model.onShowFolder = { [weak self] in
             self?.close()
             showFolder()
@@ -177,7 +177,7 @@ final class BrowserDownloadsPopupModel {
     var list: BrowserDownloadList?
     /// Runs the rows of a download's menu (`BrowserDownloadsMenu`).
     @ObservationIgnored weak var registry: ActionRegistry?
-    var colors = BrowserDownloadsPopupColors()
+    var colors = PopupCardColors()
     /// The pointer went into the popup: it no longer closes by itself.
     var entered = false
     /// Bumped by every show: the rows are built again, so no row keeps the
@@ -203,25 +203,6 @@ final class BrowserDownloadsPopupModel {
         entered = true
         onEnter()
     }
-}
-
-/// The popup's colors from the toolbar's theme scope (as `BookmarkPageColors`), inks fit to its glass (`GlassMenuMaterial.ink`).
-struct BrowserDownloadsPopupColors: Equatable {
-    var primary = ThemeTokens.unresolved.textPrimary.swiftUIColor
-    var secondary = ThemeTokens.unresolved.textSecondary.swiftUIColor
-    var hover = ThemeTokens.unresolved.hoverFill.swiftUIColor
-    var separator = Color(nsColor: Borders.color(ThemeTokens.unresolved.separator.nsColor))
-    var danger = ThemeTokens.unresolved.danger.swiftUIColor
-
-    /// Call inside `performWithTheme`. theme-scoped
-    static func resolve() -> BrowserDownloadsPopupColors {
-        BrowserDownloadsPopupColors(primary: glass(\.textPrimary), secondary: glass(\.textSecondary),
-                                    hover: fixed(Palette.hoverFill), separator: fixed(Palette.separator),
-                                    danger: fixed(Palette.danger))
-    }
-
-    private static func fixed(_ color: NSColor) -> Color { Color(nsColor: color.usingColorSpace(.sRGB) ?? color) }
-    private static func glass(_ ink: KeyPath<ThemeTokens, ThemeRGB>) -> Color { GlassMenuMaterial.ink(ink).swiftUIColor }
 }
 
 struct BrowserDownloadsPopupView: View {
@@ -355,7 +336,7 @@ private struct BrowserDownloadPopupRow: View {
 private struct BrowserDownloadsFooterRow: View {
     let symbol: String
     let title: String
-    let colors: BrowserDownloadsPopupColors
+    let colors: PopupCardColors
     let action: () -> Void
     @State private var hovered = false
 

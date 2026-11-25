@@ -95,7 +95,7 @@ struct TabTitleResolver {
 
     /// `incognito`: the tab's answer when the caller knows (a sidebar row's workspace: no tab list read, F6).
     func title(_ tab: TabModel, incognito: Bool?) -> String {
-        if let shown = fronted(tab) { return title(shown, incognito: false) }
+        if let shown = fronted(tab) { return cloudStarts?.title(of: tab, showing: shown, untitled: AgentPaneModel.tabTitle) ?? title(shown, incognito: false) }
         if let page = page(tab) { return page.title }
         if let incognito = incognitoTitle(tab, incognito) { return incognito ?? Strings.untitledBrowser }
         return TabItemMapping.shared.title(tab, fallbackTitle: untitled(tab))

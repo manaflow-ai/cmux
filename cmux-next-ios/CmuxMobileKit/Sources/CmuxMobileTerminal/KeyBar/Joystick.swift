@@ -36,7 +36,6 @@ final class JoystickEngine {
 
     @ObservationIgnored private var repeatTask: Task<Void, Never>?
     @ObservationIgnored private let clock: any Clock<Duration>
-    @ObservationIgnored private let impact = UIImpactFeedbackGenerator(style: .light)
 
     init(clock: any Clock<Duration> = ContinuousClock()) {
         self.clock = clock
@@ -121,8 +120,11 @@ final class JoystickEngine {
 
     private func fire(_ direction: JoystickDirection) {
         keysSent += 1
+        // No haptic: an arrow is a key press, and the system keyboard's own
+        // haptic setting (which no app can read) decides whether keys tick.
+        // Leo, 2026-11-23: "dont inject haptic noise when i havent asked for
+        // it. ever."
         send(direction)
-        impact.impactOccurred(intensity: 0.6)
     }
 
     /// One arrow already went; held, it repeats after 400 ms at the rate
@@ -190,7 +192,7 @@ struct Joystick: View {
     let engine: JoystickEngine
 
     var body: some View {
-        // Classic cmux iOS's arrow nub: a 28 pt circle with a 12 pt dot.
+        // Classic cmux iOS's arrow nub, at the key row's 44 pt: a circle with a 12 pt dot.
         let size = JoystickGeometry.circle
         Circle()
             .fill(Color.white.opacity(0.9))

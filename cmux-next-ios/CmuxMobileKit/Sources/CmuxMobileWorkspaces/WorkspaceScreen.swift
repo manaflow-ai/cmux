@@ -101,6 +101,8 @@ public struct WorkspaceScreen: View {
                 Int(overviewColumns(width: Double(proxy.size.width)))
             } action: { columns in
                 overviewColumnCount = columns
+                // Agent cards draw their pictures at the grid's card size.
+                if source.overviewColumns != columns { source.overviewColumns = columns }
             }
             .overlay(alignment: .top) {
                 // Select Tabs puts its Close | More where Back is.
@@ -121,6 +123,9 @@ public struct WorkspaceScreen: View {
             }
             .background(theme.colors.bg.color.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
+            // Its own layer: the Workspaces bar (title, Macs online, Search) never
+            // draws over it through a swipe back (Leo, 2026-11-24).
+            .cmuxMobilePaneLayer()
             .background(InteractivePopEnabler())
             // Search Agent Chats, Screens, Panes and a tab group's pages, and Fork Conversation…'s destinations.
             .modifier(WorkspacePages(source: source))
@@ -135,6 +140,7 @@ public struct WorkspaceScreen: View {
             // The grid's view stays "visible" in the background: its refresh stops here.
             // Inactive (Control Center, the app switcher's first moment) still shows it.
             .onChange(of: scenePhase) { _, phase in source.sceneActiveChanged(phase != .background) }
+            .onDisappear { source.screenDisappeared() }
             #if DEBUG
             .onChange(of: director.serial) { run(director.command) }
             #endif
@@ -146,7 +152,8 @@ public struct WorkspaceScreen: View {
             // New Agent Chat With…: the Mac's agents and models.
             .sheet(isPresented: Binding(get: { source.choosingAgent }, set: { source.choosingAgent = $0 })) {
                 AgentChooser(load: { [source] in try await source.agentCatalog() },
-                             start: { [source] start in source.startAgentChat(start) })
+                             start: { [source] start in source.startAgentChat(start) },
+                             macID: source.workspace?.macID ?? "")
                     .presentationDetents([.medium, .large])
             }
             // + › Screen Sharing: the account's Macs; this workspace's Mac connects at once.
@@ -183,8 +190,7 @@ public struct WorkspaceScreen: View {
                 set: { shown in if !shown { source.renamingTab = nil } }
             )) {
                 TextField(renamePlaceholder, text: $renameText)
-                    // Names and prompts are code-like: no autocorrect, no capitals (full verify D5).
-                    .autocorrectionDisabled()
+                    // Names and prompts are code-like: no capitals (full verify D5); autocorrect stays on, as on every GUI field (Leo, 2026-11-23).
                     .textInputAutocapitalization(.never)
                 Button("Cancel", role: .cancel) {}
                 Button("Rename") {

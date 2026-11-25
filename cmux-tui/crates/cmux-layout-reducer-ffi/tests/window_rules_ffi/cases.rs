@@ -208,6 +208,10 @@ fn panes_terminal_tables_answer_over_the_channel() {
     assert_eq!(body, json!({"kind": "timed out"}));
     let (_, body) = call_json(c"window_panes_shell_quote", &json!({"text": "it's"}));
     assert_eq!(body, json!({"text": "'it'\\''s'"}));
+    let (_, body) = call_json(c"window_panes_go_to_directory", &json!({"text": "~/a b"}));
+    assert_eq!(body, json!({"text": "\u{15}cd -- ~/'a b'\r"}));
+    let (_, body) = call_json(c"window_panes_go_to_directory", &json!({"text": " "}));
+    assert_eq!(body, json!({"text": null}));
     assert_eq!(call(c"window_tabs_nope", b"{}").0, ERR_INVALID);
     assert_eq!(call(c"window_panes_split", b"[").0, ERR_INVALID);
 }
@@ -898,6 +902,24 @@ fn launch_snapshot_verdict_names_another_sessions_snapshot_stale() {
     assert_eq!(call(c"window_launch_snapshot_verdict", b"[").0, ERR_INVALID);
 }
 
+/// cmuxterm-hq#12660: the registry id this home recorded, read through the one Rust reader.
+#[test]
+fn launch_current_registry_reads_this_homes_file() {
+    let root = std::env::temp_dir().join(format!("ffi-launch-registry-{}", std::process::id()));
+    std::fs::create_dir_all(root.join("cmux-next")).expect("temporary folder");
+    std::fs::write(root.join("cmux-next/launch-snapshot-registry.cmux-app"), "9e1f\n")
+        .expect("write");
+    let request = json!({"appSupport": root.to_string_lossy(), "session": "cmux-app"});
+    assert_eq!(
+        call_json(c"window_launch_current_registry", &request),
+        (OK, json!({"registryId": "9e1f"}))
+    );
+    let other = json!({"appSupport": root.to_string_lossy(), "session": "cmux-app-other"});
+    assert_eq!(call_json(c"window_launch_current_registry", &other).1, json!({"registryId": null}));
+    assert_eq!(call(c"window_launch_current_registry", b"{}").0, ERR_INVALID);
+    let _ = std::fs::remove_dir_all(root);
+}
+
 /// Leo ask-b7aac8d3f9: a relaunch lands on the last workspace and tab, a first launch on Home.
 #[test]
 fn launch_landing_reopens_the_last_workspace_and_tab() {
@@ -916,6 +938,23 @@ fn launch_landing_reopens_the_last_workspace_and_tab() {
         json!({"kind": "home", "why": "lastWasHome"})
     );
     assert_eq!(call(c"window_launch_landing", b"[").0, ERR_INVALID);
+}
+
+/// A Home landing that waits for Home's workspace lands in the saved front window, not the active one.
+#[test]
+fn launch_pending_home_waits_then_lands_in_the_front_window() {
+    let waits =
+        json!({"window": "front", "active": "second", "windowOpen": true, "homeReady": false});
+    assert_eq!(call_json(c"window_launch_pending_home", &waits), (OK, json!({"step": "wait"})));
+    let ready =
+        json!({"window": "front", "active": "second", "windowOpen": true, "homeReady": true});
+    assert_eq!(
+        call_json(c"window_launch_pending_home", &ready).1,
+        json!({"step": "land", "window": "front"})
+    );
+    let moved = json!({"window": "front", "windowOpen": true, "homeReady": true, "moved": true});
+    assert_eq!(call_json(c"window_launch_pending_home", &moved).1, json!({"step": "stop"}));
+    assert_eq!(call(c"window_launch_pending_home", b"[").0, ERR_INVALID);
 }
 
 /// Open in Editor: the table the app reads, and the pick with the person's `editor.default`.
@@ -961,4 +1000,14 @@ fn launch_fresh_landing_answers_home_new_tab_or_wait() {
         json!({"kind": "waitForHome"})
     );
     assert_eq!(call(c"window_launch_fresh_landing", b"[").0, ERR_INVALID);
+}
+
+/// Review F1 of #46087: once the person left the restored place, coming back before Home is listed lands nothing.
+#[test]
+fn launch_pending_home_stays_dropped_once_the_person_left() {
+    let back = json!({
+        "window": "front", "active": "front", "windowOpen": true, "homeReady": true,
+        "moved": false, "movedSinceRestore": true
+    });
+    assert_eq!(call_json(c"window_launch_pending_home", &back), (OK, json!({"step": "stop"})));
 }

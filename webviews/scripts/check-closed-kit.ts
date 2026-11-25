@@ -47,7 +47,9 @@ if (open.length > 0) {
     `closed kit: ${open.length} file(s) in a closed directory (tsconfig.closed.json) do not open with the closed runtime's pragma:`,
   );
   for (const file of open)
-    console.error(`  ${file}: first line \`/** @jsxImportSource ${relative(dirname(join(ROOT, file)), CLOSED_RUNTIME)} */\``);
+    console.error(
+      `  ${file}: first line \`/** @jsxImportSource ${relative(dirname(join(ROOT, file)), CLOSED_RUNTIME)} */\``,
+    );
   process.exit(1);
 }
 console.log(`closed kit: every product .tsx in ${closedDirectories().length} closed director(ies) carries the pragma`);

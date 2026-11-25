@@ -5,23 +5,18 @@
 //!   a prompt shell integration marks with the shell in the foreground, so
 //!   it never lands in a program the shell's startup files started;
 //! - else an agent session whose harness is known resumes, started as it was
-//!   (its flags and account directory, `relaunch_store::agent_launch`):
+//!   (its launcher, flags and account directory, `relaunch_store::agent_launch`):
 //!   `CLAUDE_CONFIG_DIR=<dir> claude --resume <id> <flags>`,
+//!   `sr2 claude --resume <id> <flags>` for one a launcher started,
 //!   `CODEX_HOME=<dir> codex resume <id> <flags>` or
-//!   `muse resume <id> <flags>`. It runs (Return after it)
-//!   when all of these hold:
+//!   `muse resume <id> <flags>`. It runs (Return after it), with the flags
+//!   the person started it with, approvals included: a restored agent
+//!   resumes by itself, and a resume opens the session at its prompt and
+//!   starts no turn (https://github.com/manaflow-ai/cmux/issues/55601), when all of these hold:
 //!   - `sessions.resumeAgents` in the settings file is on (the default;
 //!     "Resume Agents After Restart");
 //!   - the new shell is a POSIX shell (sh, bash, zsh, dash, ksh), the
 //!     quoting it is written in;
-//!   - its flags turn no approvals off (`--dangerously-skip-permissions`,
-//!     `--permission-mode bypassPermissions`, codex `--yolo`, `-s
-//!     danger-full-access` or `-a never`, muse `--yolo`, `--disable-approval`,
-//!     `--disable-sandbox` or `--approval-mode never`; a claude settings file
-//!     or agent, a codex profile, and a muse permission profile, preset,
-//!     agent overlay or `-c` setting count too, as they may): a respawn never starts an agent with its
-//!     approvals off by itself (#22292). Such a resume is typed without
-//!     Return instead;
 //!   - when it is written, shell integration itself marks the prompt (OSC
 //!     133), the shell holds the terminal's foreground (no program its
 //!     startup files started, such as tmux or ssh) and nothing was typed on
@@ -221,72 +216,15 @@ fn last_command_prefill(command: &str) -> Option<Prefill> {
     })
 }
 
-/// The agent resume `record` types on its new prompt, if any: only with
-/// `resume_agents` and a POSIX shell; run unless its flags turn approvals off.
+/// The agent resume `record` types and runs on its new prompt, if any: only
+/// with `resume_agents` and a POSIX shell.
 fn agent_prefill(record: &StoredRelaunch, resume_agents: bool) -> Option<Prefill> {
     let text = agent_resume(record)?;
-    let (harness, _) = record.agent.as_ref()?;
-    let flags = record.agent_launch.as_ref().map(|launch| launch.args.as_slice()).unwrap_or(&[]);
-    (resume_agents && posix_shell(&launch::respawn_shell(Some(record)))).then(|| Prefill {
+    (resume_agents && posix_shell(&launch::respawn_shell(Some(record)))).then_some(Prefill {
         kind: Prefilled::Harness,
         text,
-        run: !turns_approvals_off(harness, flags),
+        run: true,
     })
-}
-
-/// Whether `flags` may start `harness` with its approvals off. A codex
-/// profile (`-p`) may set them, so it counts; an unknown harness counts.
-fn turns_approvals_off(harness: &str, flags: &[String]) -> bool {
-    let has = |names: &[&str]| !flag_values(flags, names).is_empty();
-    let has_value = |names: &[&str], value: &str| flag_values(flags, names).contains(&value);
-    match harness {
-        // A settings file or an agent definition can set the permission mode.
-        "claude" => {
-            has(&["--dangerously-skip-permissions", "--settings", "--agent"])
-                || has_value(&["--permission-mode"], "bypassPermissions")
-        }
-        "codex" => {
-            has(&["--dangerously-bypass-approvals-and-sandbox", "--yolo", "-p", "--profile"])
-                || has_value(&["-s", "--sandbox"], "danger-full-access")
-                || has_value(&["-a", "--ask-for-approval"], "never")
-        }
-        // A permission profile, a preset, an agent overlay or a setting can
-        // turn approval or the sandbox off.
-        "muse" => {
-            has(&[
-                "--yolo",
-                "--disable-approval",
-                "--disable-sandbox",
-                "--permission-profile",
-                "--preset",
-                "--agents",
-                "-c",
-                "--config",
-            ]) || has_value(&["--approval-mode"], "never")
-        }
-        _ => true,
-    }
-}
-
-/// The values `flags` give a flag in `names`: `name value`, `name=value`
-/// or, for a short name, `-nvalue` (`relaunch_store::agent_launch` keeps
-/// each form). A flag given without a value counts with an empty one.
-fn flag_values<'a>(flags: &'a [String], names: &[&str]) -> Vec<&'a str> {
-    let mut values = Vec::new();
-    for (index, flag) in flags.iter().enumerate() {
-        for name in names {
-            if flag == name {
-                values.push(flags.get(index + 1).map_or("", String::as_str));
-            } else if let Some(rest) = flag.strip_prefix(name) {
-                if let Some(value) = rest.strip_prefix('=') {
-                    values.push(value);
-                } else if name.len() == 2 && !rest.is_empty() {
-                    values.push(rest);
-                }
-            }
-        }
-    }
-    values
 }
 
 /// What a respawned terminal ran, as its marker line names it.
@@ -318,8 +256,9 @@ fn agent_resume(record: &StoredRelaunch) -> Option<String> {
 }
 
 /// The resume command of a known harness, with how its CLI was started
-/// (`launch`): the account directory as a variable before it, the flags
-/// around the resume words as each CLI takes them.
+/// (`launch`): the account directory as a variable before it, its launcher
+/// words (`sr2`) before the harness's name, the flags around the resume
+/// words as each CLI takes them.
 pub(in crate::mux) fn resume_command(
     harness: &str,
     session_id: &str,
@@ -329,7 +268,9 @@ pub(in crate::mux) fn resume_command(
         return None;
     }
     let flags = launch.map(|launch| launch.args.clone()).unwrap_or_default();
-    let mut argv = vec![harness.to_string()];
+    // A launcher that started the CLI by name (`sr2 claude`) starts it again.
+    let mut argv = launch.map(|launch| launch.wrapper.clone()).unwrap_or_default();
+    argv.push(harness.to_string());
     match harness {
         "claude" => {
             // The session first: no flag can take it as its value.
