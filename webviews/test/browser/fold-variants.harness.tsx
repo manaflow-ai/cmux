@@ -22,7 +22,7 @@ import {
 } from "../../src/agent-session/acpmux/conversation/turnEndFold";
 import { TURN_FOLD_GHOST } from "../../src/agent-session/acpmux/conversation/turnFold";
 import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
-import { fuzzScenario, leoFoldScenario, strayScenario } from "./fold-fuzz.scenario";
+import { fuzzScenario, strayScenario, leoFoldScenario } from "./fold-fuzz.scenario";
 import { defineTranscriptMotion, TRANSCRIPT_MOTION } from "../support/transcriptMotion";
 import { runSimulationAsync } from "../../src/agent-session/acpmux/sim/run";
 import { parseRecords } from "../../src/agent-session/acpmux/sim/sanitize";
@@ -259,6 +259,13 @@ function matrixTurn(cell: MatrixCell): SimScenario {
 async function scenarioNamed(name: string): Promise<SimScenario> {
   if (name.startsWith("fuzz:")) return fuzzScenario(Number(name.slice(5))).scenario;
   if (name.startsWith("stray:")) return strayScenario(Number(name.slice(6))).scenario;
+  // `sim:NAME`: a chat-sim scenario by name (sim/scenarios.ts), such as `sim:notice-no-tool-turn`.
+  if (name.startsWith("sim:")) {
+    const { SCENARIOS } = await import("../../src/agent-session/acpmux/sim/scenarios");
+    const make = SCENARIOS[name.slice(4)];
+    if (!make) throw new Error(`no chat-sim scenario ${name.slice(4)}`);
+    return make();
+  }
   if (name.startsWith("matrix:")) return matrixTurn(JSON.parse(decodeURIComponent(name.slice(7))) as MatrixCell);
   // `url:PATH`: a recorded chat (ndjson) the dev server serves, such as one fetched outside the repo.
   if (name.startsWith("url:")) {
