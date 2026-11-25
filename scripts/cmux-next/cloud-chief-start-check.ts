@@ -48,7 +48,7 @@ async function must(exec: Exec, cmd: string, timeoutMs = 120_000): Promise<strin
 }
 
 /** One cmux-cloud-api call through `--call`: its answer's body, or the refusal as an error. */
-function call(binary: string, request: Record<string, unknown>, timeoutMs: number): Promise<any> {
+function call(binary: string, request: Record<string, unknown>, timeoutMs: number, tail = ""): Promise<any> {
   return new Promise((resolve, reject) => {
     const child = spawn(binary, [], { stdio: ["pipe", "pipe", "pipe"] });
     let out = "";
@@ -67,7 +67,9 @@ function call(binary: string, request: Record<string, unknown>, timeoutMs: numbe
       if (line.ok === true) resolve(line.body);
       else reject(new Error(`${request.call}: ${JSON.stringify(line.error).slice(0, 800)}`));
     });
-    child.stdin.end(JSON.stringify(request));
+    // The tail after the first newline is the owner's Claude credential, as the Mac app sends it (cmux-cloud-api
+    // chief_turn.rs): never in argv or the request JSON.
+    child.stdin.end(tail ? `${JSON.stringify(request)}\n${tail}` : JSON.stringify(request));
   });
 }
 
@@ -140,11 +142,15 @@ async function main(): Promise<number> {
   let machine = "";
   let install = "";
   let chief = "";
+  // The owner's Claude login, sent with chief_start the way the Mac app sends the person's Claude connection.
+  const turnEnv = Object.fromEntries(["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"].filter((n) => process.env[n]).map((n) => [n, process.env[n]!]).slice(0, 1));
+  const turnTail = Object.keys(turnEnv).length ? JSON.stringify({ env: turnEnv }) : "";
+  for (const v of Object.values(turnEnv)) J.secrets.push(v);
   const start = (until?: string) =>
     call(callPath, {
       call: "machine.chief_start", api: backend.api, auth: "owner", credential: api.bearer, ...(team ? { team } : {}),
       args: { key, name: "Check Chief", machine_name: machineName, ...(until ? { until } : {}) },
-    }, 1_500_000);
+    }, 1_500_000, turnTail);
   try {
     await J.step("sign in", async () => {
       const s = await passwordSignIn(STACK[backend.stack], email, password);
@@ -173,7 +179,10 @@ async function main(): Promise<number> {
     await J.step("Chief host on the machine", async () => {
       const r = await exec("command -v optchat-chief || test -x /home/cmux/.local/bin/optchat-chief && echo local || echo absent");
       const found = r.stdout.trim().split("\n").at(-1) ?? "";
-      if (found !== "absent") return { value: null, detail: `image has ${found}` };
+      // An image baked before cmux#56352 has a unit that never reads the turn credential chief_start writes.
+      const unit = await exec("grep -c turn.env /etc/systemd/system/cmux-chief.service 2>/dev/null || echo 0");
+      const reads = (unit.stdout.trim().split("\n").at(-1) ?? "0") !== "0" ? "reads" : "does not read";
+      if (found !== "absent") return { value: null, detail: `image has ${found}; its unit ${reads} /run/cmux-chief/turn.env; credential sent: ${Object.keys(turnEnv).join(",") || "none"}` };
       await upload(api, machine, exec, readFileSync(binaryPath), "/home/cmux/.local/bin/optchat-chief");
       return { value: null, detail: "absent from the image: this run's build in ~/.local/bin" };
     });
