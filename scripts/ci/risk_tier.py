@@ -250,7 +250,7 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # normal (Leo, 2026-10-21, after #22781). UpdateTrack is not here: it decides whether Sparkle runs
     # at all. Parsing, probing, installing and verifying an update stay high below.
     ("normal", "update channel or preference setting", (
-        "Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateRing.swift",
+        "Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/UpdateRing.swift",
         NEXT + "CmuxNextUpdater/UpdatePreferences.swift",
     )),
     # Shipping. A broken updater also breaks the safety net every other tier relies on: nightly

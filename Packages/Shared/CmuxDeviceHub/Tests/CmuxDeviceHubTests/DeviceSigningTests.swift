@@ -1,4 +1,8 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+@preconcurrency import Crypto // swift-crypto marks its key types Sendable only on Apple platforms
+#endif
 @testable import CmuxDeviceHub
 import Foundation
 import Testing
