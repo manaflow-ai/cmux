@@ -3587,6 +3587,8 @@ function TranscriptView({
       near && newWidth ? { ...near, all: true } : near,
       coldOpenRoughAbove(cache, kept, resizing, rows, coldView.current),
     );
+    // LCDBG
+    console.log(`LCDBG t=${performance.now().toFixed(0)} rows=${rows.length} cache=${cache.size} kept=${!!kept} h=${coldView.current.height} rough=${coldOpenRoughAbove(cache, kept, resizing, rows, coldView.current)} newW=${newWidth} near=${!!near} w=${rowWidth}`);
     lastEstimate.current = {
       rows,
       layout,

@@ -859,7 +859,7 @@ function printProfile(): void {
     selfMs,
     30,
   );
-  top("reopen-spare adopt profile, inclusive:", totalMs, 45);
+  top("reopen-spare adopt profile, inclusive:", totalMs, Number(process.env.PROFILE_TOP ?? 45));
   top("reopen-spare adopt profile, built-ins by caller:", nativeByCaller, 20);
 }
 
@@ -1578,6 +1578,14 @@ try {
       const upAt = downUntil;
       wireT0 = Date.now();
       endOpenTurn = OPEN_ENDS_MS > 0;
+      // PROFILE=1: the relaunched page's main thread from navigation to its newest answer drawn.
+      page.on("console", (m) => { if (m.text().startsWith("LCDBG")) console.log(m.text()); });
+      const relaunchCdp = PROFILE ? await page.context().newCDPSession(page) : null;
+      if (relaunchCdp) {
+        await relaunchCdp.send("Profiler.enable");
+        await relaunchCdp.send("Profiler.setSamplingInterval", { interval: 100 });
+        await relaunchCdp.send("Profiler.start");
+      }
       await Promise.all(pages.map((one) => one.goto(url, { waitUntil: "commit" })));
       await page.waitForFunction(() => (window as unknown as BenchWindow).__firstLoad.done, undefined, {
         timeout: windowMs + 60_000,
@@ -1616,6 +1624,11 @@ try {
       });
       if (mode.startsWith("native-ready") && got.readyAnsweredAt < DOWN_MS - 20)
         throw new Error(`native ready delay was not exercised: ${got.readyAnsweredAt}`);
+      if (relaunchCdp) {
+        const { profile } = (await relaunchCdp.send("Profiler.stop")) as { profile: CpuProfile };
+        await relaunchCdp.detach();
+        addProfile(profile, 0, got.liveLatestAt || windowMs);
+      }
       const since = (epoch: number) => (epoch ? epoch - got.origin : null);
       const boundMs = BOUND ? await drawBound(page) : null;
       return {
