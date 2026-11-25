@@ -540,6 +540,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         guard abs(delta) > 0.25 else { return }
         let above = attributes.frame.minY < readerTop - 0.5
         ledger.sized(item: attributes.indexPath.item, by: delta, aboveReader: above)
+        if updating { lastUpdateSized += abs(delta) }
         note(above ? "m" : "m_", delta)
     }
 
@@ -639,6 +640,8 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
         stillQuerying = false
         querying -= 1
         updating = true
+        lastUpdateMove = 0
+        lastUpdateSized = 0
         // No diff animation: a page lands out of view, or under a reader who stays put; rows that
         // arrive at the newest end slide in on the list's spring below.
         dataSource.apply(snapshot, animatingDifferences: false)
@@ -777,8 +780,22 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
     private func restore(_ anchor: Anchor, shiftedBy shift: CGFloat = 0, deliberate: Bool = false) -> Anchor.Row? {
         let survivors = anchor.rows.dropFirst(anchor.straddles ? 1 : 0).compactMap { row in dataSource.indexPath(for: row.id).map { (row, $0.item) } }
         guard !survivors.isEmpty else { return nil }
-        guard let pick = PagedListAnchorPick.pick(survivors.map { PagedListAnchorPick.Row(oldIndex: $0.0.index, newIndex: $0.1) }).map({ survivors[$0].0 }),
-              let now = windowY(of: pick.id, bottom: anchor.fromBottom) else { return nil }
+        // Each survivor's move on screen in the update, at the anchor's own point (top, or bottom).
+        let rows = survivors.map { survivor in
+            PagedListAnchorPick.Row(oldIndex: survivor.0.index, newIndex: survivor.1,
+                                    moved: windowY(of: survivor.0.id, bottom: anchor.fromBottom).map { $0 - survivor.0.windowY } ?? 0)
+        }
+        guard var at = PagedListAnchorPick.pick(rows) else { return nil }
+        // The guard (inside an update, where its own offset move is known): a pick whose correction is
+        // larger than that move plus the update's size changes left its place; another row in place
+        // that moved least is kept instead (never a row the run excluded). Noted "g" with the rejected
+        // correction.
+        if updating, let instead = PagedListAnchorPick.guarded(rows, pick: at, updateMove: lastUpdateMove, sized: lastUpdateSized) {
+            note("g", rows[at].moved)
+            at = instead
+        }
+        let pick = survivors[at].0
+        guard let now = windowY(of: pick.id, bottom: anchor.fromBottom) else { return nil }
         let delta = now - (pick.windowY + shift)
         note(pick.id == anchor.rows.first?.id ? "r" : "r'", delta)
         guard abs(delta) > 0.25 else { return pick }
@@ -856,6 +873,11 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
 
     /// A move that cancels a shift (putting the reader back): not explained, so a correction that
     /// misses shows up in the measure.
+    /// UIKit's own offset move inside the current update's apply (the trail's `U`), for the anchor guard.
+    private var lastUpdateMove: CGFloat = 0
+    /// The rows' size changes rowSized saw in the current update, for the anchor guard.
+    private var lastUpdateSized: CGFloat = 0
+
     private func correctOffset(by delta: CGFloat) {
         corrections += 1
         collectionView.contentOffset.y += delta
@@ -1367,6 +1389,7 @@ final class PagedListController<Item: Identifiable & Equatable, Row: View>: NSOb
             // Inside an update or a layout pass: the layout's or UIKit's own move (a row above
             // that sized itself, a batch update), never the finger or a fling, which move the
             // offset between passes.
+            if updating { lastUpdateMove += delta }
             note(updating ? "U" : collectionView.laying > 0 ? "L" : "S", delta)
         } else if ledger.pays(delta) {
             // The layout's own correction for a row above that changed height (UIKit may apply

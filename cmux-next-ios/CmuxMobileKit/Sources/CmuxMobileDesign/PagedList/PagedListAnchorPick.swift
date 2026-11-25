@@ -18,15 +18,22 @@ enum PagedListAnchorPick {
     /// is not preferred). The first anchored row in place is kept: the row being read when it kept
     /// its place, whatever arrived or left next to it (rows inserted right under it no longer make it
     /// skipped); a row moved elsewhere (moveToNewest, a re-sort) is never kept.
-    /// The guard on a pick (inside an update): `rows` and the pick as for ``pick(_:)``, the update's own
-    /// offset move and its rows' size changes. Returns the row to keep instead, or nil to keep the
-    /// pick. Today: never overrides.
+    /// The guard on a pick (inside an update): a correction larger than the update's own offset move
+    /// plus its rows' size changes means the pick left its place. Then the row to keep instead is
+    /// another row IN PLACE that moved least, never a row the run excluded (the reader included: it
+    /// may have moved far, 6c578603: falling back to it shifted 45,969 pt). nil keeps the pick.
     static func guarded(_ rows: [Row], pick: Int, updateMove: CGFloat, sized: CGFloat) -> Int? {
-        nil
+        guard rows.indices.contains(pick), abs(rows[pick].moved) > abs(updateMove) + abs(sized) + 0.5 else { return nil }
+        let inPlace = inPlace(rows)
+        let others = rows.indices.filter { $0 != pick && inPlace.contains($0) && abs(rows[$0].moved) < abs(rows[pick].moved) }
+        return others.min { abs(rows[$0].moved) < abs(rows[$1].moved) }
     }
 
-    static func pick(_ rows: [Row]) -> Int? {
-        guard !rows.isEmpty else { return nil }
+    /// The rows in place: the longest run that kept its order (sorted by where they were, their new
+    /// places rise along it; on a tie, the run that ends later, so a read row that may have moved is
+    /// not preferred). A row moved elsewhere (moveToNewest, a re-sort) is never in place.
+    static func inPlace(_ rows: [Row]) -> Set<Int> {
+        guard !rows.isEmpty else { return [] }
         let order = rows.indices.sorted { rows[$0].oldIndex < rows[$1].oldIndex }
         var length = [Int](repeating: 1, count: order.count)
         var before = [Int](repeating: -1, count: order.count)
@@ -44,7 +51,24 @@ enum PagedListAnchorPick {
             inPlace.insert(order[a])
             a = before[a]
         }
-        return rows.indices.first { inPlace.contains($0) }
+        return inPlace
+    }
+
+    /// The row to keep still. B's rule: the first anchored row in place (the row being read when it
+    /// kept its place, whatever arrived or left next to it). When indices moved in the update (rows
+    /// came, went or moved), of the rows in place the one that moved least on screen: a row the load
+    /// moved can stay in order with one or two others during a fling, but it travelled. When no index
+    /// moved (edits only) B's rule stands: every row under a grown row moves on screen by design.
+    static func pick(_ rows: [Row]) -> Int? {
+        let inPlace = inPlace(rows)
+        guard !inPlace.isEmpty else { return nil }
+        let candidates = rows.indices.filter { inPlace.contains($0) }
+        let indicesMoved = rows.contains { $0.oldIndex != $0.newIndex }
+        guard indicesMoved else { return candidates.first }
+        return candidates.min { a, b in
+            let ma = abs(rows[a].moved), mb = abs(rows[b].moved)
+            return ma != mb ? ma < mb : a < b
+        }
     }
 }
 #endif
