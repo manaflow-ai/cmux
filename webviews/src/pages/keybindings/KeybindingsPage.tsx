@@ -6,6 +6,7 @@ import { Popover, type UiAnchor, type UiVirtualAnchor } from "../../ui/Popover";
 import type { Strings } from "../shared/i18n";
 import { ConnectionChip } from "../../ui/ConnectionChip";
 import { useConnectionQuiet } from "../../ui/lasting";
+import { keycapLegend } from "../../ui/keycapLegend";
 import {
   canEditWhen,
   displayStrokes,
@@ -77,7 +78,7 @@ function Keycaps({ display }: { display: string }) {
       {displayStrokes(display).map((stroke, index) => (
         // oxlint-disable-next-line react/no-array-index-key
         <kbd key={index} className="keys-cap">
-          {stroke}
+          {keycapLegend(stroke)}
         </kbd>
       ))}
     </span>
@@ -138,7 +139,7 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
               placeholder={t(searchRecording ? "keybindings.page.recordingPlaceholder" : "keybindings.page.search")}
               aria-label={t(searchRecording ? "keybindings.page.recordingKeys" : "keybindings.page.search")}
               value={snap.text}
-              disabled={disconnected}
+              // Search and Conflicts Only filter the list on screen: live while the link comes back (Leo, 2026-11-24 11:57Z).
               // While it records the app takes every key, and the field takes no text of its own; it
               // stays editable so its clear button (the native one) clears the recorded keys.
               onBeforeInput={searchRecording ? (event) => event.preventDefault() : undefined}
@@ -175,7 +176,6 @@ export function KeybindingsPage({ store, strings }: { store: KeybindingsStore; s
             type="button"
             className={`keys-toggle keys-conflicts-only${snap.conflictsOnly ? " on" : ""}`}
             aria-pressed={snap.conflictsOnly}
-            disabled={disconnected}
             onClick={() => store.setConflictsOnly(!snap.conflictsOnly)}
           >
             {t("keybindings.page.conflictsOnly")}
@@ -459,7 +459,7 @@ function Recorder({
             <span key={index} className={`keys-recorder-stroke${group.held ? " held" : ""}`}>
               {group.caps.map((cap) => (
                 <kbd key={cap} className="keys-recorder-cap">
-                  {cap}
+                  {keycapLegend(cap)}
                 </kbd>
               ))}
             </span>
@@ -501,7 +501,7 @@ function Recorder({
               onMouseDown={keepFocus}
               onClick={() => void store.resolveConflict("close")}
             >
-              {withKeys(t("keybindings.page.recorder.closeOnly"), ["Esc"])}
+              {withKeys(t("keybindings.page.recorder.closeOnly"), [keycapLegend("Esc")])}
             </button>
             <button
               type="button"
@@ -510,7 +510,7 @@ function Recorder({
               onMouseDown={keepFocus}
               onClick={() => void store.resolveConflict("overwrite")}
             >
-              {withKeys(t("keybindings.page.recorder.overwrite"), ["↩"])}
+              {withKeys(t("keybindings.page.recorder.overwrite"), [keycapLegend("↩")])}
             </button>
           </span>
         ) : (
@@ -521,7 +521,7 @@ function Recorder({
             onMouseDown={keepFocus}
             onClick={() => store.closeRecording()}
           >
-            {withKeys(t("keybindings.page.recorder.close"), ["Esc", "↩"])}
+            {withKeys(t("keybindings.page.recorder.close"), [keycapLegend("Esc"), keycapLegend("↩")])}
           </button>
         )}
       </div>

@@ -42,14 +42,14 @@ use serde_json::Value;
 
 use crate::profile::{Profile, shareable_settings, valid_name};
 use crate::redact::find_secret;
-use crate::store::LibraryMark;
-use crate::store::{Draft, Generation, Kind};
+use crate::store::{Draft, Generation, Kind, LibraryMark};
 use crate::tree::{self, Part, SETTINGS, Tree};
 use crate::{Customize, Error, validate};
 
 pub mod applies;
 pub mod code;
 mod collection;
+pub mod doctor;
 pub mod expire;
 pub mod keys;
 pub mod overlay;
@@ -69,6 +69,10 @@ use text::{one_line, slug, unique_name};
 /// The collection format version this cmux reads and writes.
 pub const COLLECTION_VERSION: u32 = 1;
 /// The most entries one collection or library holds.
+/// Measured: every change rewrites `library.json` whole (each entry carries its profile's
+/// settings and files) and rescans every entry for the keys it references, and an exported
+/// library must import under MAX_COLLECTION_BYTES (8 MiB): about 16 KiB an entry for 500.
+/// Derived from those bounds, not timed; per-entry storage would lift it.
 pub const MAX_ENTRIES: usize = 500;
 /// The largest collection file import reads.
 pub const MAX_COLLECTION_BYTES: usize = 8 * 1024 * 1024;
@@ -832,6 +836,13 @@ impl Customize {
         origin: &str,
         now_ms: u64,
     ) -> Result<Imported, Error> {
+        // A collection kept from an older cmux names some keys the old way:
+        // they come in under their new names (`Profile::migrated`).
+        let mut collection = collection.clone();
+        for entry in &mut collection.entries {
+            entry.profile = entry.profile.migrated().0;
+        }
+        let collection = &collection;
         self.check_collection(collection)?;
         let mut added = Vec::new();
         let mut already = Vec::new();

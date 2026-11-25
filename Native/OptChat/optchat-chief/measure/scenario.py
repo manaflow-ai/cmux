@@ -427,8 +427,55 @@ def chiefux_turns():
     return t
 
 
+STAGING_DB = "pg-staging-7"
+
+
+def latency_turns():
+    """The Chief latency A/B workload (scripts/measure/chief-latency.sh): the typical asks of
+    Lucas's 2-day Chief trace (shared-briefs chief-latency-plan-lucas-2026-11-23), one of each
+    kind his plan names, ~15 turns, short gaps (the cache stays warm: what changes between two
+    builds is their own cost, not the TTL). Kinds:
+      trivial     a one-word reply
+      remember    a fact to keep, answered with an ack
+      memory      a question answered from what the person said earlier
+      long        a reply over 45 words (REPLY_MAX_WORDS: refused or split today)
+      tool        Chief looks something up itself
+      spawn       an ask that starts a subagent; its report arrives later as a host-started turn
+      followup    a message while that subagent runs
+      rebuild     a paste past DELTA_HARD (32 kB): this turn re-renders (freezes a new view)
+      after-rebuild  the turn right after a view rebuild
+      status      what is running"""
+    t = []
+    def add(tid, gap, kind, text, check=None, **kw):
+        t.append(dict(id=tid, gap=gap, kind=kind, text=text, check=check, **kw))
+    add("l01", 0, "trivial", "Hi! Reply with one word: ready.", ["has", "ready"])
+    add("l02", 10, "remember", f"Remember for later: the staging database is {STAGING_DB}, and I prefer short answers.", None)
+    add("l03", 10, "trivial", "Reply with exactly one word: OK", ["has", "ok"])
+    add("l04", 10, "memory", "Which staging database did I mention? Just the name.", ["has", STAGING_DB])
+    add("l05", 10, "trivial", "What is 17 * 23? Number only.", ["num", 391])
+    add("l06", 10, "long",
+        "Explain in about 120 words, as one paragraph, why a prompt cache makes a repeated model request faster and cheaper.",
+        ["has", "cache"])
+    add("l07", 10, "tool", "Count the lines that contain ERROR in {work}/fixtures/app.log. Reply with the number.", ["num", 17])
+    add("l08", 10, "spawn",
+        "Start a subagent for this: count the functions (lines that start with `def `) in {work}/fixtures/sub/b.py "
+        "and find the longest function name. Tell me its answer when it reports.",
+        ["has", "reconnect_with_backoff"], agents=1)
+    add("l09", 15, "followup", "While that runs: what is the capital of France? One word.", ["has", "paris"], during="l08")
+    add("l10", 10, "rebuild", long_paste(10, kb=36) + "\n\nSummarize the failure in one sentence and name the failing service.",
+        ["has", "ledger-sync"])
+    add("l11", 10, "after-rebuild", "Reply with exactly one word: BACK", ["has", "back"])
+    add("l12", 10, "memory", "Remind me: what was the staging database again?", ["has", STAGING_DB])
+    add("l13", 10, "spawn",
+        "Use two subagents in parallel: one counts the lines that contain TODO in {work}/fixtures/sub2/x.md, the other does the same for {work}/fixtures/sub2/y.md. "
+        "Give each count and the total.", ["all", ["num", 3], ["num", 6], ["num", 9]], agents=2)
+    add("l14", 10, "status", "Is anything still running? One line.", None)
+    add("l15", 10, "trivial", "Thanks, that's all for now. Reply with one word: done.", ["has", "done"])
+    return t
+
+
 def turns(name):
-    return {"smoke": smoke_turns, "soak": soak_turns, "interrupt": interrupt_turns, "codex6": codex6_turns, "import": list, "effort": effort_turns, "warm20": warm20_turns, "refimport": refrecall_turns, "slow3": slow3_turns, "chiefux": chiefux_turns}[name]()
+    return {"smoke": smoke_turns, "soak": soak_turns, "interrupt": interrupt_turns, "codex6": codex6_turns, "import": list, "effort": effort_turns, "warm20": warm20_turns, "refimport": refrecall_turns, "slow3": slow3_turns, "chiefux": chiefux_turns, "latency": latency_turns}[name]()
 
 
 def check(turn, reply):
@@ -458,7 +505,7 @@ def main():
         print(json.dumps({"messages": write_corpus(sys.argv[2])}))
     elif cmd == "check":
         tid, reply_file = sys.argv[2], sys.argv[3]
-        allt = {x["id"]: x for x in smoke_turns() + soak_turns() + interrupt_turns() + codex6_turns() + effort_turns() + warm20_turns() + refrecall_turns() + slow3_turns()}
+        allt = {x["id"]: x for x in smoke_turns() + soak_turns() + interrupt_turns() + codex6_turns() + effort_turns() + warm20_turns() + refrecall_turns() + slow3_turns() + latency_turns()}
         print(json.dumps({"ok": check(allt[tid], open(reply_file).read())}))
     else:
         raise SystemExit(__doc__)

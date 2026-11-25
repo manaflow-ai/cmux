@@ -17,8 +17,10 @@ import QuartzCore
 /// is on screen, the screens awake, the session active, not in Low Power Mode, below a serious
 /// thermal state and with looping motion allowed; otherwise it holds the frame it shows, and on
 /// moving again eases its clock up from still over ``resumeRampSeconds`` (no motion onset). Frames
-/// come from the window's ``FrameScheduler`` (no display link of its own), at most
-/// ``maximumFramesPerSecond``, and one frame is encoded at a time: a slow GPU drops frames, never
+/// come from the window's ``FrameScheduler`` (no display link of its own): ``calmFramesPerSecond``
+/// while nothing answers the pointer, up to ``maximumFramesPerSecond`` while the pointer moves it or
+/// a ring is out, never above ``warmFramesPerSecond`` while the Mac is warm (``framesPerSecond``),
+/// and one frame is encoded at a time: a slow GPU drops frames, never
 /// queues them. The layer is drawn at one pixel per point: the shaders are soft fields, and a
 /// Retina layer would cost four times the fill for nothing visible.
 public final class BackdropShaderView: NSView {
@@ -32,11 +34,28 @@ public final class BackdropShaderView: NSView {
     public var reduceMotionOverride: Bool? { didSet { update() } }
     public var lowPowerOverride: Bool? { didSet { update() } }
     public var visibleOverride: Bool? { didSet { update() } }
+    /// Tests: pins the thermal state for this view instead of the system's.
+    public var thermalOverride: ProcessInfo.ThermalState? { didSet { update() } }
     /// Tests: the pointer in view coordinates, in place of the window's.
     public var pointerOverride: CGPoint?
 
-    /// The most frames a second it draws: smooth, at a quarter of a 120 Hz display's work.
+    /// The most frames a second it draws: smooth, at a quarter of a 120 Hz display's work, while
+    /// the pointer stirs it or a click's ring spreads.
     public static let maximumFramesPerSecond = 60.0
+    /// The frames a second it draws while only its own slow drift moves: drift a few pixels a second
+    /// reads as smooth at 24 to 30, and the clock runs
+    /// on timestamps, so the drift's speed is the same at either rate. Half the GPU and wakeups of
+    /// ``maximumFramesPerSecond`` for the hours a wallpaper spends behind typing.
+    public static let calmFramesPerSecond = 30.0
+    /// Energy under which the pointer no longer moves anything visibly.
+    static let calmEnergy: Float = 0.01
+    /// Seconds a click's ring lives in the shaders (`rings` in ``BackdropShaderSource``).
+    static let ringSeconds: Float = 5
+    /// The most frames a second while the Mac is warm (thermal state fair): half the work, so a
+    /// background never helps push the Mac toward serious, where it stops (motion-backgrounds
+    /// reading, pause rules: "Low Power Mode or thermal fair: drop" the frame rate).
+    public static let warmFramesPerSecond = 30.0
+
     /// Seconds a start or a resume takes to ease the clock from still to full speed. Attention is
     /// caught by motion that starts, not motion already under way (Abrams and Christ 2003), so the
     /// wallpaper never jumps from a held frame to full speed.
@@ -59,6 +78,9 @@ public final class BackdropShaderView: NSView {
     private var uniforms = BackdropShaderUniforms()
     private var lastFrame: CFTimeInterval?
     private var sinceDrawn: Double = .infinity
+    /// The most frames a second the Mac's heat allows now, set on each ``update(redraw:)`` (a thermal
+    /// change calls it): ``warmFramesPerSecond`` while warm, else ``maximumFramesPerSecond``.
+    public private(set) var ceilingFramesPerSecond = BackdropShaderView.maximumFramesPerSecond
     private var lastPointer: CGPoint?
     private var nextRing = 0
     /// Whether the frame client was last told to move, and the seconds of clock since it began to.
@@ -134,8 +156,12 @@ public final class BackdropShaderView: NSView {
     public var moves: Bool {
         let lowPower = lowPowerOverride ?? LowPowerMode.system.isEnabled
         let reduced = reduceMotionOverride ?? !Motion.panes.animatesLoops
-        let hot = ProcessInfo.processInfo.thermalState.rawValue >= ProcessInfo.ThermalState.serious.rawValue
+        let hot = thermalState.rawValue >= ProcessInfo.ThermalState.serious.rawValue
         return onScreen && !lowPower && !hot && !reduced
+    }
+
+    private var thermalState: ProcessInfo.ThermalState {
+        thermalOverride ?? ProcessInfo.processInfo.thermalState
     }
 
     /// Shown in a window that is on screen, with the screens awake and the session active.
@@ -147,6 +173,7 @@ public final class BackdropShaderView: NSView {
     }
 
     private func update(redraw: Bool = false) {
+        ceilingFramesPerSecond = thermalState == .fair ? Self.warmFramesPerSecond : Self.maximumFramesPerSecond
         if moves {
             if !moving { resumed() }
             moving = true
@@ -174,7 +201,7 @@ public final class BackdropShaderView: NSView {
         lastFrame = tick.targetTimestamp
         advance(by: elapsed)
         sinceDrawn += elapsed
-        guard sinceDrawn >= 1 / Self.maximumFramesPerSecond - 0.002 else { return true }
+        guard sinceDrawn >= 1 / framesPerSecond - 0.002 else { return true }
         sinceDrawn = 0
         draw()
         return true
@@ -187,6 +214,7 @@ public final class BackdropShaderView: NSView {
         let target = SIMD2(Float(pointer.x * drawableScale.width), Float(pointer.y * drawableScale.height))
         let previous = lastPointer.map { SIMD2(Float($0.x * drawableScale.width), Float($0.y * drawableScale.height)) } ?? target
         lastPointer = pointer
+        uniforms.pointer = target
         if uniforms.mouse == .zero { uniforms.mouse = target }
         let ease = Float(1 - exp(-elapsed * 9))
         uniforms.mouse += (target - uniforms.mouse) * ease
@@ -195,6 +223,26 @@ public final class BackdropShaderView: NSView {
         let short = Float(max(min(pixelSize.width, pixelSize.height), 1))
         // About a screen's short side a second fills the energy; it falls by half in ~0.35 s.
         uniforms.energy = min(1, uniforms.energy * Float(exp(-elapsed * 2)) + speed / short * Float(elapsed) * 3)
+    }
+
+    /// The rate frames are drawn at now: the full rate while the pointer is answered (its energy, the
+    /// shown pointer still easing toward the real one, a live ring), else the calm rate; never above
+    /// the heat's ``ceilingFramesPerSecond``.
+    public var framesPerSecond: Double {
+        min(ceilingFramesPerSecond, lively ? Self.maximumFramesPerSecond : Self.calmFramesPerSecond)
+    }
+
+    /// Whether the pointer or a click moves the picture now.
+    private var lively: Bool {
+        if uniforms.energy > Self.calmEnergy { return true }
+        if let pointer = lastPointer {
+            let target = SIMD2(Float(pointer.x * drawableScale.width), Float(pointer.y * drawableScale.height))
+            let gap = target - uniforms.mouse
+            if (gap * gap).sum() > 0.25 { return true }
+        }
+        let (a, b, c, d) = uniforms.rings, now = uniforms.time
+        func live(_ r: SIMD4<Float>) -> Bool { r.w > 0.5 && now - r.z < Self.ringSeconds }
+        return live(a) || live(b) || live(c) || live(d)
     }
 
     /// The motion starts again from the frame it held: the clock eases up from still.
@@ -242,6 +290,7 @@ public final class BackdropShaderView: NSView {
         if lastPointer == nil, let pointer = pointerOverride ?? windowPointer() {
             lastPointer = pointer
             uniforms.mouse = SIMD2(Float(pointer.x * drawableScale.width), Float(pointer.y * drawableScale.height))
+            uniforms.pointer = uniforms.mouse
         }
         if !draw() { stillPending = true }
     }
@@ -335,6 +384,8 @@ nonisolated struct BackdropShaderTarget: @unchecked Sendable {
 
 /// Whether a frame is on the renderer's queue: claimed on main, cleared on the queue.
 private nonisolated final class InFlightFrame: Sendable {
+    // carve-out: main claims the slot synchronously in its frame tick and the render queue clears it;
+    // an actor would make the claim an await and let two frames in.
     private let busy = Mutex(false)
 
     /// Claims the slot; false while a frame is still being encoded.

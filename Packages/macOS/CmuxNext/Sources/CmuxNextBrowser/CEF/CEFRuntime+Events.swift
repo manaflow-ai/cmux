@@ -271,6 +271,7 @@ extension CEFRuntime {
         windowRequests.linkClicks.onGesture = { [weak self] browser in
             guard let tab = self?.tabsByBrowser[browser] else { return }
             tab.automaticDownloads.userGesture()
+            tab.refusesDownloadsUntilGesture = false
             tab.pageUserInput?(ProcessInfo.processInfo.systemUptime)
         }
         windowRequests.linkClicks.onPersonInput = { [weak self] browser in self?.tabsByBrowser[browser]?.allowWebAuthnForPerson() }
@@ -280,6 +281,8 @@ extension CEFRuntime {
         tab.attach(browser: browser)
         accessibility.attached(browser)
         signInCallbacks.attached(tab)
+        // A web page live again keeps (or asks back) the web spare window and page.
+        spareWindow.webPagesChanged(runtime: self)
         // An import's unpacked extensions, once the profile has a browser to load them through (after this callback).
         if extensionStores.hasPendingUnpacked(tab.profileID) {
             let profile = tab.profileID
@@ -300,6 +303,8 @@ extension CEFRuntime {
             orphans.closedUnregistered(browser)
             spareWindow.browserClosed(browser)
         }
+        // The last live web page gone (closed or hibernated): the web spare's quiet period starts.
+        if shutdownSequence == nil { spareWindow.webPagesChanged(runtime: self) }
         devToolsCalls.failAll(where: { $0.browser == browser }, with: BrowserTabError.closed)
         unawaitedDevTools = unawaitedDevTools.filter { $0.key.browser != browser }
         siteReplies.failAll(where: { siteReplyBrowsers[$0] == browser }, with: BrowserTabError.closed)

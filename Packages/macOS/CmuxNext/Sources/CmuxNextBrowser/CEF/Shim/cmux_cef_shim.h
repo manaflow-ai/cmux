@@ -206,6 +206,16 @@ typedef enum {
   CMUX_SHIM_DEVTOOLS_CLOSE = 5,
 } cmux_shim_devtools_command_t;
 
+// Chromium's page commands that cmux names in its palette and menus
+// (cmux_shim_page_command). The shim maps each to its Chromium command id
+// (chrome/app/chrome_command_ids.h), so the host names none of them.
+typedef enum {
+  CMUX_SHIM_PAGE_SAVE_AS = 1,    // IDC_SAVE_PAGE: Chromium's Save Page As panel
+  CMUX_SHIM_PAGE_CAST = 2,       // IDC_ROUTE_MEDIA: the Cast dialog
+  CMUX_SHIM_PAGE_QR_CODE = 3,    // IDC_QRCODE_GENERATOR: the QR code bubble for the page
+  CMUX_SHIM_PAGE_TRANSLATE = 4,  // IDC_SHOW_TRANSLATE: the Translate bubble
+} cmux_shim_page_command_t;
+
 
 // Any thread. Swift moves it to the main run loop timer.
 typedef void (*cmux_shim_schedule_fn)(void* ctx, int64_t delay_ms);
@@ -482,6 +492,10 @@ CMUX_SHIM_EXPORT void cmux_shim_set_accessibility(int browser_id, int enabled);
 // File > Print… (CefBrowserHost::Print): Chromium's print preview over the
 // page, as the page's own window.print(). Returns 0 when the browser is gone.
 CMUX_SHIM_EXPORT int cmux_shim_print(int browser_id);
+// Main thread. Runs a cmux_shim_page_command_t on browser_id's page, as the
+// row of Chromium's page menu does. Returns 1 when it ran, 0 when browser_id
+// is gone, the command is unknown or Chromium cannot run it on this page now.
+CMUX_SHIM_EXPORT int cmux_shim_page_command(int browser_id, int command);
 // FIND_RESULT events carry `find_id`.
 CMUX_SHIM_EXPORT void cmux_shim_find(int browser_id, int find_id, const char* text, int forward, int match_case, int find_next);
 CMUX_SHIM_EXPORT void cmux_shim_stop_finding(int browser_id, int clear_selection);

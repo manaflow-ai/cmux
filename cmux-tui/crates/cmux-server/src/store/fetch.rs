@@ -58,7 +58,7 @@ impl HttpsFetcher {
         // reqwest is built without a default crypto provider; the tree
         // already carries ring through rustls.
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let client = reqwest::blocking::Client::builder()
+        let client = cmux_egress::blocking_client_builder("cmux_server::store::fetch")
             .https_only(!allow_http)
             .connect_timeout(Duration::from_secs(20))
             .timeout(Duration::from_secs(30 * 60))

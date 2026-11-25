@@ -26,7 +26,7 @@
   --acpmux-composer-radius: var(--climb-shell-radius);
   border-radius: var(--climb-shell-radius);
 }
-:root:root:root .acpmux-composer.acpmux-composer[data-shell-look]:not([data-shell-look^="stacked-glass"]):has(> .acpmux-composer-queue) > .acpmux-composer-box {
+:root:root:root .acpmux-composer.acpmux-composer[data-shell-look]:not([data-shell-look^="stacked-glass"])[data-queue] > .acpmux-composer-box {
   border-top-left-radius: 0;
   border-top-right-radius: 0;
 }
@@ -84,7 +84,7 @@
   --climb-stack-edge: var(--acpmux-composer-edge);
   --climb-stack-shadow: var(--acpmux-composer-shadow, var(--elevation-1));
 }
-:root:root:root .acpmux-composer.acpmux-composer[data-shell-look^="stacked-glass"]:not([data-shell]):has(> .acpmux-composer-box :focus-visible) {
+:root:root:root .acpmux-composer.acpmux-composer[data-shell-look^="stacked-glass"]:not([data-shell])[data-focused][data-focused] {
   --climb-stack-edge: var(--acpmux-composer-edge-focus);
 }
 :root:root:root .acpmux-composer.acpmux-composer[data-shell-look^="stacked-glass"] > :is(.acpmux-composer-queue, .acpmux-queue-foldbar, .acpmux-composer-box) {
@@ -117,10 +117,10 @@
 }
 /* The card under the hat keeps its four corners and its whole ring (on its ::before layer, as under
    the shipped queue, with no seam cut out of its top). */
-:root:root:root .acpmux-composer.acpmux-composer[data-shell-look^="stacked-glass"]:has(> .acpmux-composer-queue) > .acpmux-composer-box {
+:root:root:root .acpmux-composer.acpmux-composer[data-shell-look^="stacked-glass"][data-queue] > .acpmux-composer-box {
   border-radius: var(--acpmux-composer-radius);
 }
-:root:root:root .acpmux-composer.acpmux-composer[data-shell-look^="stacked-glass"]:has(> .acpmux-composer-queue) > .acpmux-composer-box::before {
+:root:root:root .acpmux-composer.acpmux-composer[data-shell-look^="stacked-glass"][data-queue] > .acpmux-composer-box::before {
   border-radius: inherit;
   -webkit-mask: none;
   mask: none;
@@ -193,7 +193,7 @@
   background: color-mix(in srgb, var(--agent-text) 9%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 10%, transparent);
 }
-:root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="chips"] .acpmux-send {
+:root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="chips"] .acpmux-send:not(.acpmux-resume) {
   border-radius: 50%; /* radius-allow: Send is a true circle (Leo: circles truly round) */
   background: var(--agent-accent);
   color: var(--agent-accent-text, #fff);
@@ -241,7 +241,7 @@
   color: var(--agent-text);
   font-weight: var(--font-weight-emphasis);
 }
-:root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="bold"] .acpmux-send {
+:root:root:root .acpmux-composer.acpmux-composer[data-footer-controls="bold"] .acpmux-send:not(.acpmux-resume) {
   width: var(--acpmux-composer-control);
   height: var(--acpmux-composer-control);
   border-radius: 50%; /* radius-allow: Send is a true circle (Leo: circles truly round) */

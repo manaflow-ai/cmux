@@ -462,10 +462,87 @@ async fn a_full_disk_refuses_changes_at_once_answers_reads_and_never_stops_the_d
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     assert!(reserve.exists(), "the store never left the full state");
+    // The reserve is written just before the store leaves the state.
+    let full = hub.store.durability().unwrap_or_else(|| panic!("a journal store has one")).full;
+    while full().is_some() && Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
     send(&input, Message::request(5, method::MUX_MARK_UNREAD, other)).await;
     let reply = until(&mut outgoing, |line| line["id"] == 5).await;
     assert!(reply.get("error").is_none(), "a change once the disk has room: {reply}");
     assert_eq!(*stop.borrow(), None);
+}
+
+/// RFD 0049 R6, leg `disk`, the bench's wakes: a prompt sent as the disk fills, and each one
+/// after it, is answered within a second, its turn's answer or a typed `disk.full` refusal, even
+/// when the space the reserve freed is gone before the journal's writer retries (another file
+/// took it) and the records appended before the failure never become durable. Before, the
+/// gate held each reply behind those records for good: the store's stall check never stops a
+/// full daemon, and nothing else ended the wait.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn prompts_as_the_disk_fills_are_answered_within_a_second() {
+    const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let home = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let work = tempfile::tempdir().unwrap_or_else(|e| panic!("tempdir: {e}"));
+    let journal = SimStorage::new(66);
+    let mut config: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+        "defaultHarness": "fake",
+        "permissionPolicy": "approve-all",
+    }))
+    .unwrap_or_else(|e| panic!("config: {e}"));
+    config.store.mode = StoreMode::Local;
+    let store = crate::store::open_with_journal(
+        &config.store,
+        home.path(),
+        Arc::new(journal.clone()),
+        journal_config(),
+    )
+    .unwrap_or_else(|e| panic!("open the store: {e:#}"));
+    let hub = crate::hub::Hub::new(config, store);
+    let stop = hub.store.stop_reason().unwrap_or_else(|| panic!("no stop reason"));
+    let (input, mut outgoing) = connect(&hub).await;
+    let new = json!({"cwd": work.path(), "mcpServers": []});
+    send(&input, Message::request(2, method::SESSION_NEW, new)).await;
+    let made = until(&mut outgoing, |line| line["id"] == 2).await;
+    let sid = made["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{made}")).to_owned();
+    let prompt = |text: &str| json!({"sessionId": sid, "prompt": [{"type": "text", "text": text}]});
+    send(&input, Message::request(3, method::SESSION_PROMPT, prompt("hello"))).await;
+    let first = until(&mut outgoing, |line| line["id"] == 3).await;
+    assert!(first.get("error").is_none(), "the first prompt: {first}");
+    // The disk fills, and stays full: the reserve's removal frees nothing the journal gets.
+    crate::store::set_test_free(home.path(), Some(0));
+    journal.fail_all_appends(Some(std::io::ErrorKind::StorageFull));
+    for id in 10..16 {
+        let started = Instant::now();
+        send(&input, Message::request(id, method::SESSION_PROMPT, prompt("hello"))).await;
+        let reply = until(&mut outgoing, |line| line["id"] == id).await;
+        let took = started.elapsed();
+        assert!(took < Duration::from_secs(1), "prompt {id} was answered after {took:?}: {reply}");
+        let answered = reply["result"]["stopReason"].is_string();
+        let refused = reply["error"]["data"]["errorKind"] == "disk.full";
+        assert!(answered || refused, "prompt {id}: neither its answer nor disk.full: {reply}");
+    }
+    // A second connection is answered too: its lines may show the first one's changes, which
+    // never reach the disk here, so each of its replies is its answer or disk.full, at once.
+    let (other, incoming) = mpsc::channel(64);
+    let (output, mut heard) = mpsc::channel(256);
+    tokio::spawn(serve_connection_with(hub.clone(), incoming, output, Origin::Local));
+    let hello = json!({"protocolVersion": 1, "clientCapabilities": {},
+        "clientInfo": {"name": "test", "version": "0"}});
+    let calls = [(1, method::INITIALIZE, hello), (2, method::SESSION_LIST, json!({}))];
+    for (id, call, params) in calls {
+        let started = Instant::now();
+        send(&other, Message::request(id, call, params)).await;
+        let reply = until(&mut heard, |line| line["id"] == id).await;
+        let took = started.elapsed();
+        assert!(took < Duration::from_secs(1), "{call} was answered after {took:?}: {reply}");
+        let refused = reply["error"]["data"]["errorKind"] == "disk.full";
+        assert!(reply.get("error").is_none() || refused, "{call}: {reply}");
+    }
+    assert_eq!(*stop.borrow(), None, "a full disk asked the daemon to stop");
+    journal.fail_all_appends(None);
+    crate::store::set_test_free(home.path(), None);
 }
 
 /// F1, the streaming read: `session/load`'s replay sends each record as it reads it
@@ -690,6 +767,7 @@ async fn the_gauge_counts_the_lines_the_gate_holds_and_the_transport_has_not_rea
         written,
         ask: Arc::new(|_| {}),
         stalled: Arc::new(|_: Duration| false),
+        full: Arc::new(|| None),
     };
     let scope = cmux_scope::Scope::new("durable-gate-test");
     let (transport, mut reader) = mpsc::channel(8);
@@ -723,4 +801,99 @@ async fn the_gauge_counts_the_lines_the_gate_holds_and_the_transport_has_not_rea
     backlog((1, 5)).await;
     assert_eq!(reader.recv().await.as_deref(), Some("three"));
     backlog((0, 0)).await;
+}
+
+/// On a full disk the journal may never reach what a line waits for: a reply waits at most
+/// `FULL_WAIT` and is answered with the store's refusal under its id, typed `disk.full`; a
+/// notification that may show the same change is held aside, not dropped, and goes out once the
+/// journal reaches it, before any later line; the lines after them do not wait again.
+#[tokio::test]
+async fn on_a_full_disk_a_held_reply_is_answered_disk_full_and_a_notification_waits() {
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    let (durable_tx, durable) = tokio::sync::watch::channel(0);
+    let (_written_tx, written) = tokio::sync::watch::channel(0);
+    let disk_full = Arc::new(AtomicBool::new(true));
+    let full = Arc::clone(&disk_full);
+    let durability = crate::store::Durability {
+        acked: Arc::new(AtomicU64::new(1)),
+        durable,
+        kept: Arc::new(AtomicU64::new(0)),
+        written,
+        ask: Arc::new(|_| {}),
+        stalled: Arc::new(|_: Duration| false),
+        full: Arc::new(move || {
+            full.load(Ordering::SeqCst).then(|| {
+                "no space left on device: /x is full; acpmux stores nothing until it has 16 MiB free"
+                    .to_owned()
+            })
+        }),
+    };
+    let scope = cmux_scope::Scope::new("durable-gate-full-test");
+    let (transport, mut reader) = mpsc::channel(8);
+    let (out, gate) = super::super::outbound::start(&scope, Some(durability), transport);
+    let gate = gate.unwrap_or_else(|| panic!("a journal store has a gate"));
+    gate.raise();
+    let update = Message::notification("session/update", json!({"sessionId": "s"})).to_line();
+    let reply = Message::ok(json!(7), json!({"stopReason": "end_turn"})).to_line();
+    let failed = Message::err(json!(8), crate::rpc::RpcError::internal("boom")).to_line();
+    let second = Message::ok(json!(9), json!({"sessions": []})).to_line();
+    let started = Instant::now();
+    for line in [&update, &reply, &failed, &second] {
+        assert!(out.push(line.clone()));
+    }
+    let next = |reader: &mut mpsc::Receiver<String>| {
+        let line = reader.try_recv().ok();
+        line.map(|line| serde_json::from_str::<Value>(&line).unwrap_or_else(|e| panic!("{e}")))
+    };
+    let first = tokio::time::timeout(Duration::from_secs(5), reader.recv())
+        .await
+        .unwrap_or_else(|_| panic!("no answer within 5 s on a full disk"))
+        .unwrap_or_else(|| panic!("the transport closed"));
+    assert!(started.elapsed() < Duration::from_secs(1), "answered in {:?}", started.elapsed());
+    let first: Value = serde_json::from_str(&first).unwrap_or_else(|e| panic!("{e}"));
+    // The notification before it is held aside; the reply is the refusal under its own id.
+    assert_eq!(first["id"], json!(7), "{first}");
+    assert_eq!(first["error"]["data"]["errorKind"], json!("disk.full"), "{first}");
+    assert!(first.get("result").is_none(), "{first}");
+    tokio::task::yield_now().await;
+    let deadline = Instant::now() + Duration::from_secs(1);
+    let mut rest = Vec::new();
+    while rest.len() < 2 && Instant::now() < deadline {
+        match next(&mut reader) {
+            Some(line) => rest.push(line),
+            None => tokio::time::sleep(Duration::from_millis(5)).await,
+        }
+    }
+    // An error stays as it was; the later reply does not wait another FULL_WAIT.
+    assert_eq!(rest.len(), 2, "{rest:?}");
+    assert_eq!(rest[0]["error"]["message"], json!("boom"), "{rest:?}");
+    assert_eq!(rest[1]["id"], json!(9), "{rest:?}");
+    assert_eq!(rest[1]["error"]["data"]["errorKind"], json!("disk.full"), "{rest:?}");
+    assert!(started.elapsed() < Duration::from_secs(1), "all answered in {:?}", started.elapsed());
+    // The notification is still held, and counted: it never went out before its change.
+    tokio::time::sleep(crate::store::FULL_WAIT).await;
+    assert!(next(&mut reader).is_none(), "a notification went out before its change was durable");
+    out.settle();
+    let gauge = out.gauge();
+    assert_eq!(gauge.lines, 1, "the held notification is still queued");
+    // Room again: a new reply waits for the journal as before, behind the held notification.
+    disk_full.store(false, Ordering::SeqCst);
+    gate.raise();
+    assert!(out.push(reply.clone()));
+    tokio::time::sleep(crate::store::FULL_WAIT * 2).await;
+    assert!(next(&mut reader).is_none(), "a reply went out before its change was durable");
+    // Durable: the held notification goes out, then the reply.
+    durable_tx.send(1).unwrap_or_else(|e| panic!("durable: {e}"));
+    let line = |text: Option<String>| -> Value {
+        let text = text.unwrap_or_else(|| panic!("the transport closed"));
+        serde_json::from_str(&text).unwrap_or_else(|e| panic!("{e}"))
+    };
+    let within = Duration::from_secs(5);
+    let held = tokio::time::timeout(within, reader.recv()).await;
+    let held = line(held.unwrap_or_else(|_| panic!("the held notification never went out")));
+    assert_eq!(held["method"], json!("session/update"), "{held}");
+    let after = tokio::time::timeout(within, reader.recv()).await;
+    let after = line(after.unwrap_or_else(|_| panic!("the reply never went out")));
+    assert_eq!(after["id"], json!(7), "{after}");
+    assert!(after.get("result").is_some(), "{after}");
 }

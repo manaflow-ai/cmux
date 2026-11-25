@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextWakeups
+import CmuxVisibleRows
 import QuartzCore
 /// Scrollable document view that renders the sidebar tree.
 ///
@@ -35,6 +36,8 @@ final class SidebarListView: NSView {
     /// Each layout `apply` draws, in order (a test records every frame the list shows, a one-hop glitch too).
     var onApply: ((SidebarLayout) -> Void)?
     var rowViews: [SidebarRowKey: SidebarRowView] = [:]
+    /// The rows this list configured, laid out and walked (the visible-rows contract, `SidebarListView+VisibleRows`).
+    let listWork = ListWorkMeter()
     var workspaces: [WorkspaceID: SidebarWorkspace] = [:]
     var groups: [GroupID: SidebarGroup] = [:]
     /// What placed groups draw in under the gradient palette (`SidebarGroup.drawnTints`), set with `groups`; empty
@@ -172,6 +175,8 @@ final class SidebarListView: NSView {
     var onStuckHeaderChange: ((Bool) -> Void)?
     /// What the stuck header stands on (`SidebarStuckVeilView`), above the rows, under the header.
     let stuckVeil = SidebarStuckVeilView()
+    /// The rows the stuck header covers, out of VoiceOver and the key view loop (`updateVeiledRows`).
+    var veiledRows: Set<SidebarRowKey> = []
     /// Inline rename of a workspace row (a group's name is edited in `groupEditor`).
     let inlineRename = SidebarInlineRename()
     /// The group editor bubble (SidebarListView+GroupEditor) and its App-filled rows.
@@ -202,6 +207,10 @@ final class SidebarListView: NSView {
     var revealedActive: SidebarRowKey?
     /// The row that stands for the selection (`SidebarLayout.selectedRowKey`).
     internal(set) var selectedRowKey: SidebarRowKey?
+    /// The selected row's frame in the window as last reported to the window's chrome (`flush-goo`,
+    /// `reportGooeySelection`), and whether a chrome took the report.
+    var reportedGooeyRow: CGRect?
+    var reportedGooeyLanded = false
     /// The anchor step moves the offset; rows wait for the new layout.
     var isShiftingViewport = false
     /// The clip has had a height (`revealFirstViewport`): the first one goes to the selection before any row is realized.
