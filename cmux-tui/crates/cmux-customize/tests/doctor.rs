@@ -452,6 +452,8 @@ fn json_outside_the_usual_settings_names_what_it_sets_and_random_json_is_named_u
     home.write("agent-pane/layout.json", "{ \"quickActions\": [ }\n");
     home.write("agent-pane/registry.js", "export default {}\n");
     home.write("cmux.json", "{ \"agents\": { \"harnesses\": { \"old-claude\": {} } } }\n");
+    home.write("cmux-next.json", r#"{ "agents": { "harnesses": { "new-agent": {} } } }"#);
+    home.write("classic-ghostty/config.ghostty", "font-size = 17\n");
     home.write("leftover-settings.json", "{ \"appearance\": { \"density\": \"compact\" } }\n");
     home.write("server.json", "{ \"token\": \"secret\" }\n");
     let report = home.customize().doctor(&at(NOW));
@@ -461,8 +463,10 @@ fn json_outside_the_usual_settings_names_what_it_sets_and_random_json_is_named_u
     let layout = find(&report, "broken:agent-pane/layout.json");
     assert_eq!(layout.level, Level::Warning);
     find(&report, "override:agent-pane/registry.js");
-    let classic = find(&report, "override:cmux.json#agents.harnesses");
-    assert!(classic.title.ends_with("old-claude"), "{}", classic.title);
+    let harnesses = find(&report, "override:settings#agents.harnesses");
+    assert!(harnesses.title.ends_with("new-agent"), "{}", harnesses.title);
+    assert!(report.findings.iter().all(|finding| !finding.title.contains("old-claude")));
+    find(&report, "override:ghostty:config.ghostty");
     let random = find(&report, "ignored:leftover-settings.json");
     assert!(random.detail.contains("cmux-next.json"), "{}", random.detail);
     assert!(
