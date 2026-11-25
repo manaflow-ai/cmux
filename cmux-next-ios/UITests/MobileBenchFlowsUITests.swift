@@ -121,11 +121,13 @@ final class MobileBenchFlowsUITests: XCTestCase {
         let app = launch(demo: "disclosure-chat")
         defer { app.terminate() }
         XCTAssertTrue(app.navigationBars.buttons["More"].firstMatch.waitForExistence(timeout: 30), "\(flow): the chat\n\(app.debugDescription)")
-        idle(1.5)
-        // The chat rests on its newest row, so the fling goes back through the history: the
-        // finger moves down the screen fast and lifts with no hold.
-        mark(flow, "stimulus")
+        // Start away from the newest row so the catalogue's upward swipe can move the transcript.
         fling(app)
+        let jump = app.buttons["Jump to bottom"].firstMatch
+        XCTAssertTrue(jump.waitForExistence(timeout: 5), "\(flow): history is scrolled away from the bottom")
+        idle(1.5)
+        mark(flow, "stimulus")
+        fling(app, fromY: 0.8, toY: 0.25)
         mark(flow, "input_done")
         idle(3.0)
         mark(flow, "end")
@@ -433,11 +435,11 @@ final class MobileBenchFlowsUITests: XCTestCase {
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35)).tap()
     }
 
-    /// One fast drag down the transcript, released with no hold (AgentJumpDuringMomentumUITests).
+    /// One fast drag released with no hold (AgentJumpDuringMomentumUITests).
     @MainActor
-    private func fling(_ app: XCUIApplication) {
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
-            .press(forDuration: 0.02, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)),
+    private func fling(_ app: XCUIApplication, fromY: CGFloat = 0.25, toY: CGFloat = 0.8) {
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: fromY))
+            .press(forDuration: 0.02, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: toY)),
                    withVelocity: XCUIGestureVelocity(5000), thenHoldForDuration: 0)
     }
 

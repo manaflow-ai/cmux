@@ -24,8 +24,8 @@ scripts/mobile-bench/compare-mobile composer-grow --ours DIR   # re-measure clip
   manaflow-ai/cmux-design-references at `~/Projects/cmux-design-references` (or `--refs DIR`,
   `CMUX_DESIGN_REFS`). It builds nothing locally; the capture is one `cmux-ci run --class simulator`
   step, about 15 minutes with the queue.
-- Output: the table on stdout, then each clip's path, then `We are slower in: ...`. `OUT/table.md`
-  and `OUT/slower.json` keep them (`--out DIR`, default a temp folder).
+- `OUT/table.md` lists the measurements and flows missing either recording. The verdict covers
+  flows with paired measurements, and `OUT/slower.json` lists slower apps for those flows.
 - A bold cell is worse than the best app by more than 10% and two frames; dropped frames, any more.
 
 ## Before and after for a PR
