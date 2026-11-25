@@ -354,6 +354,9 @@ export function ComposerBox({
       <div
         ref={attachBox}
         className="ui-glass ui-glass-floats ui-glass-material acpmux-composer-box"
+        // The page's glass, at the popups' tokens (composerStates.css, ONE MATERIAL FAMILY), never the App's:
+        // the card animates its height and the App's glass trails a report, and the stack's seams are one rim.
+        data-page-glass="docked composer: animates its height and joins the stack's rim, which the App's glass cannot follow"
         // The compact grid (composerLocation.css): a state attribute, not a :has() on the box.
         data-composer-grid=""
         data-attachment-view={attachmentView}
