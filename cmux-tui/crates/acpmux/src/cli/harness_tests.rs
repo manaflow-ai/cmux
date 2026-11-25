@@ -138,3 +138,26 @@ fn hermes_example_profile_loads_as_an_acp_harness() {
     assert_eq!(profile.argv.last().map(String::as_str), Some("acp"));
     assert_eq!(meta.display_name.as_deref(), Some("Hermes Agent"));
 }
+
+/// `cmux harness add --example cursor` (or `cursor-agent`) writes a profile
+/// that loads as an ACP harness running `cursor-agent acp`, signed in by `cursor-agent login`.
+#[test]
+fn cursor_example_profile_loads_as_an_acp_harness() {
+    let text = example("cursor").expect("a cursor example");
+    assert_eq!(example("cursor-agent"), Some(text));
+    let path = std::path::Path::new("/tmp/cursor.toml");
+    let (id, profile, meta, warnings) = crate::config::profiles::parse_profile_toml(
+        text,
+        path,
+        Some("cursor"),
+        crate::config::ProfileSource::UserFile,
+    )
+    .unwrap();
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(id, "cursor");
+    assert_eq!(profile.kind, crate::config::HarnessKind::Acp);
+    assert_eq!(profile.argv.first().map(String::as_str), Some("cursor-agent"));
+    assert_eq!(profile.argv.last().map(String::as_str), Some("acp"));
+    assert_eq!(meta.display_name.as_deref(), Some("Cursor"));
+    assert_eq!(meta.auth.and_then(|a| a.login).as_deref(), Some("cursor-agent login"));
+}

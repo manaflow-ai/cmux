@@ -751,7 +751,7 @@ struct AgentChatLoadingState: View {
 }
 
 /// Kept rows show while the chat is away from the Mac or catches up with it, and nothing floats
-/// over the composer: its kinds (connecting, updating) do not paint (``ConnectionChip/Kind/paints``;
+/// over the composer: its kind (connecting) does not paint (``ConnectionChip/Kind/paints``;
 /// Leo, 2026-11-24: "all the connecting... indicators ... nah let's not do that"). The view stays
 /// so the store's line keeps one place to land if a state that paints is ever routed here. An overlay, never
 /// in the stack, so it pushes nothing up (Leo, 2026-11-21: "these messages should
@@ -763,7 +763,7 @@ struct AgentChatConnectionLine: View {
     var body: some View {
         Group {
             if let line = store.connectionLine {
-                ConnectionChip(.init(store.summary.status == .disconnected ? .connecting : .updating, sentence: line), downSince: nil) // the store held it (QuietStatusGate)
+                ConnectionChip(.init(.connecting, sentence: line), downSince: nil) // the store held it (QuietStatusGate)
                     .padding(.leading, 20)
                     .alignmentGuide(.top) { $0[.bottom] + 8 }
                     .accessibilityIdentifier("agentChat.connectionLine")
@@ -832,8 +832,6 @@ public struct AgentChatBottomStack: View {
     /// progress, queued prompts) and their spacing.
     @State private var composerOffset: CGFloat = 0
     nonisolated private static let stackSpace = "AgentChatBottomStack"
-    /// The composer field's focus (a UITextView that follows it both ways).
-    @State private var composerFocused = false
     /// The composer has settled into place (`NewChatEntrance`): false only while a new chat's
     /// composer rises in. Typing works throughout; the motion is render only.
     @State private var composerSettled: Bool
@@ -910,7 +908,7 @@ public struct AgentChatBottomStack: View {
                     .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 16)), removal: .opacity))
                 } else {
                     let replying = store.pendingPermission != nil && surface.replyInsteadOfPermission
-                    ChatComposer(store: store, text: $surface.text, attachments: $surface.attachments, focus: $composerFocused, collapsible: store.hasTurns,
+                    ChatComposer(store: store, text: $surface.text, attachments: $surface.attachments, focus: $surface.composerFocused, collapsible: store.hasTurns,
                                  expandOnAppear: surface.replyInsteadOfPermission,
                                  placeholderOverride: replying ? "Tell \(store.summary.agentName) what to do instead" : nil,
                                  denyingPermission: replying,
@@ -931,7 +929,7 @@ public struct AgentChatBottomStack: View {
                         // and the built in keyboard"). The band runs on under the keyboard, which
                         // covers it, so it never shows an edge while the keyboard moves.
                         .background(alignment: .top) {
-                            KeyboardSkirt(shown: composerFocused && GCKeyboard.coalesced == nil)
+                            KeyboardSkirt(shown: surface.composerFocused && GCKeyboard.coalesced == nil)
                         }
                         // After the geometry reader: the entrance is render only, so the stack's
                         // measured place (the transcript's inset, the keyboard pin) is the resting one.
@@ -989,7 +987,7 @@ public struct AgentChatBottomStack: View {
             // drags that start above it).
             .simultaneousGesture(DragGesture(minimumDistance: 14).onChanged { value in
                 let t = value.translation
-                if composerFocused, t.height > 14, t.height > abs(t.width) * 1.5 { composerFocused = false }
+                if surface.composerFocused, t.height > 14, t.height > abs(t.width) * 1.5 { surface.composerFocused = false }
             })
         }
         .padding(.bottom, bottomPadding)
@@ -999,18 +997,12 @@ public struct AgentChatBottomStack: View {
         .onChange(of: store.pendingPermission?.request.id) { _, new in
             surface.replyInsteadOfPermission = false
             // Never pull the composer out from under someone typing.
-            let drafting = composerFocused || !surface.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !surface.attachments.isEmpty
+            let drafting = surface.composerFocused || !surface.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !surface.attachments.isEmpty
             surface.permissionDeferred = new != nil && drafting
         }
-        .onChange(of: surface.composerFocused) { _, focused in if composerFocused != focused { composerFocused = focused } }
-        .task {
-            // Opened focused (a new chat): the field exists once this appears.
-            if surface.composerFocused, !composerFocused { composerFocused = true }
-        }
-        .onChange(of: composerFocused) { _, focused in
-            if surface.composerFocused != focused { surface.composerFocused = focused }
+        .onChange(of: surface.permissionBarHidden ? surface.composerFocused : nil) { previous, focused in
             // Leaving "Reply instead" without typing brings the permission choices back.
-            if !focused, surface.permissionBarHidden, surface.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, surface.attachments.isEmpty {
+            if previous == true, focused == false, surface.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, surface.attachments.isEmpty {
                 withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { surface.showPermissionChoices() }
             }
         }
@@ -1521,7 +1513,7 @@ struct AnswerActionRow: View {
                     withAnimation(.cmuxMobileSnap.unlessReduceMotion) { copied = false }
                 }
             }
-            .sensoryFeedback(.impact(weight: .light, intensity: 0.7), trigger: copied) { _, new in
+            .cmuxMobileSensoryFeedback(.impact(weight: .light, intensity: 0.7), trigger: copied) { _, new in
                 new && CmuxMobileTheme.standard.haptics.isEnabled
             }
             if still {
