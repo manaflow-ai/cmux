@@ -1,5 +1,17 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-24 (lane/no-shift-native-audit): Sidebar-Look: Leo, 2026-11-24: "we need to have more things decoupled from posisble shifts. this is a pattern we need to take care of." An expanded row's title stacks over one detail line's room even while the row has no detail line (`WorkspaceRowView.stackedDetailLines`): the row is always two lines tall, and the title (with the icon and trailing marks that center on its line) used to sit half a line lower until a summary, preview or notification arrived, then jumped up. Now it does not move when the detail arrives or leaves; a third (meta) line grows the row and leaves the title in place. Compact and Comfortable are unchanged. Regression: `SidebarRowLineSpacingTests.anExpandedRowsTitleDoesNotMoveWhenDetailLinesArrive`.
+
+- 2026-11-25 (lane/sidebar-trailing-cloud-ink, ask-f32d868839 audit): Sidebar-Look: Leo, 2026-11-24: "dont have such a dinky cloud icon. increase ityou need to make sure all our icons look the right size". A Cloud row's trailing cloud mark draws in a box grown past the indicator's (`WorkspaceRowView.cloudMarkSide`) so its ink fits the bell-slash's optical size by the leading glyphs' rule (`SidebarOpticalGlyph.fittedExtent`): about 10 x 7 pt at Compact instead of 8 x 6. The audit measured every pack icon's ink (median 18 of 24, centered); leading glyphs and favicons are ink-fitted already, and the cloud was the trailing cluster's outlier. Regression: `SidebarCloudMachineHeaderTests.theTrailingCloudIsNotDinkierThanTheBell`.
+- 2026-11-19 (lane/look-glyph-settings): Sidebar-Look: Leo, 2026-11-19: "the dots and the way it moves changes a
+  lot". A `cmux.sidebar.rows/1` row's `indicator` may be a particles glyph: `{choreography: <cmux.particles/1
+  document>, trigger}`, or `"glyph"` / `{choreography: "glyph", trigger}` for the look's
+  `agentPane.display.thinking.glyph`. While the row is busy or working, `StatusIndicatorView` hides its loading glyph
+  and plays the document in the same cell (`SidebarRowChoreographyView`, the scene renderer's native player on the
+  motion clock, at the document's own size, held when the indicator would not animate). Rows with no such indicator
+  draw as before; nothing changes without a look or a customize app that asks for it. The player and the look's glyph
+  reader are instance members of `StatusIndicatorAppearance`. Regression: `SidebarRowGlyphTests` (CmuxNextAppTests).
+
 - 2026-11-24 (ui/updated-card-slot): Sidebar-Look: Lucas, 2026-11-24: "we also want to fix this interim state after
   you press "Install update" and the old card still shows and overlaps". When another card takes the bottom slot, the
   card that leaves goes in the same frame, also mid-exit (`SidebarCardPresence.hideAtOnce`). Before, the download's
@@ -2879,6 +2891,8 @@ Commits logged without a trailer (the card above):
   pixels its frame draws (SidebarFaviconLegibilityTests: 32 px drawn as 17 pt). The gap test measures a favicon from
   its own square's end: it starts on the glyphs' edge and fills the tab's side, so it ends nearer its title by design.
   Sidebar-Look: no visual change
+- 2026-11-24 (lane/agent-chat-terminal-mark, ask-97938b6c84): Sidebar-Look: Leo, 2026-11-24: "terminal agent chats. can they be demarcated a bit differently/should they? than gui agent chats. both of them rn are just claude icon. but one is terminal one is gui." A workspace hover card's tab row draws a terminal's agent (a hook's report in a terminal or remote terminal tab) on a soft rounded square of the row's tint (`AgentBrandCatalog.templateImage(terminal:)`, the shared `terminalTile*` rule), and an agent chat's mark bare, as the tab strip (`TabIcon.terminalAgentMark`) and the iPhone's avatars (`AgentAvatarHost.terminal`) do. No row layout changes. Gallery: `AATerminalAgentMarkGalleryTests` (tab strip, light and dark).
+- 2026-11-25 (#55277, lane/terminal-agent-mark-default-off, ask-97938b6c84): 86b4688efbd puts the hover card row's terminal tile (entry above) behind `experiments.terminalAgentMark`, off by default: off, the row draws every agent's bare mark as it did before. Same Leo words as above. Gallery: `AATerminalAgentMarkGalleryTests` (strip off and on, light and dark).
 - 2026-11-24 (lane/sidebar-cloud-page-icon-size, ask-f32d868839): Sidebar-Look: Leo, 2026-11-24: "dont have such a
   dinky cloud icon. increase it". A cmux page's own icon in a row's favicon slot (a Cloud desktop's cloud, History's
   clock) drew at the pack glyphs' optical size, 11/16 of the favicon beside it on the next row. It now draws at the

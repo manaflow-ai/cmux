@@ -457,7 +457,12 @@ id `<promptId>~resume-<n>` and `_meta.provenance.kind` `auto_resume`. Stop, clos
 anything else run in it meanwhile cancels it, and a continuation that completes resumes the
 prompts the cut turn held (`hub/auto_resume.rs`). While it waits the session row's `retry` is
 `{attempt, of, reason, nextAt, promptId, turnId}` (`reason` `capacity`, `rate_limit`, `transport`,
-`agent_exited` or `disk`), null otherwise. A turn a full disk cut ("No space left on device")
+`agent_exited` or `disk`), null otherwise. A capacity error, a rate limit and a refused connection
+(`ECONNREFUSED`: the inference gateway is down) never run out of attempts (`untilCapacity: true`
+on their `auto_resume_scheduled`): a capacity error's or a refused connection's waits are the
+configured ones, then the last one doubling, each at most 5 min; a rate limit's are the chat's
+backoff below. Any other connection error stops after the configured attempts
+(`auto_resume_exhausted`). A turn a full disk cut ("No space left on device")
 waits past its delay until the chat's folder has `autoResumeDiskFreeBytes` free (default 16 MiB,
 re-checked every 15 s), then goes on the same way. From the `capacityFallbackAfter`th capacity attempt of one prompt
 on (default 1, `0` never; Settings' `agents.autoRetry.capacityFallbackAfter` when config.json has
@@ -1545,9 +1550,14 @@ opens, so a change applies without a restart (the variable needs the daemon rest
 |---|---|---|---|---|
 | Compact before the cache expires | `agents.cacheCompact.enabled` | `ACPMUX_CACHE_COMPACT=0\|1` | on | on, off |
 | Only above context used (%) | `agents.cacheCompact.minContextPercent` | `ACPMUX_CACHE_COMPACT_MIN_CONTEXT_PERCENT=N` | 30 | 10-95 |
+| Or above context used (tokens) | `agents.cacheCompact.minContextTokens` | `ACPMUX_CACHE_COMPACT_MIN_CONTEXT_TOKENS=N` | 60000 | 10000-500000 |
 | Batch wakes of cold chats | `agents.coldWake.enabled` | `ACPMUX_COLD_WAKE=0\|1` | on | on, off |
 | Compact cold chats before waking (needs batching on) | `agents.coldWake.compact` | `ACPMUX_COLD_WAKE_COMPACT=0\|1` | on | on, off |
-| Compact cold chats above (tokens) | `agents.coldWake.compactAboveTokens` | `ACPMUX_COLD_COMPACT_ABOVE_TOKENS=N` | 50000 | 10000-500000 |
+| Compact cold chats above (tokens) | `agents.coldWake.compactAboveTokens` | `ACPMUX_COLD_COMPACT_ABOVE_TOKENS=N` | 100000 | 10000-500000 |
+
+The warm timer arms at the percent or the token count, whichever a chat reaches first (a
+percent alone sat above Claude Code's autocompact on a 1M-token window). Cold compaction pays
+from about 76K tokens: it costs about the context plus 76K, a plain wake about twice the context.
 
 On/off variables take `1`, `true`, `on` or `0`, `false`, `off`. Context surgery itself (masking old
 tool output instead of `/compact`) is `agents.harnessMagic.surgery.enabled`, off with

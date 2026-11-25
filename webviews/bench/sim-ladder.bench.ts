@@ -257,6 +257,11 @@ async function launchChrome(): Promise<{
       // tabs add no renderer of their own (x1 to x10 added 9 tabs and 7 renderers, x10 to x100 90 and 90) and the low
       // PSS slope read 13.9 MB a tab against 16.4 at the top. Off, each tab's renderer starts with its tab.
       "--disable-features=IntensiveWakeUpThrottling,SpareRendererForSitePerProcess",
+      // Ubuntu 24.04 runners restrict unprivileged user namespaces with AppArmor, so Chrome's sandbox cannot start and
+      // Chrome exits before it prints a DevTools endpoint (web-ui-ladder and web-ui-fidelity's `exit 1` on the perf
+      // cron, run 45408142192). The bench loads only its own local pages; every Playwright launch the other benches
+      // use passes the same flag. (#54319 added it; a conflict resolution in #52348/#54537 dropped it.)
+      "--no-sandbox",
       ...CHROME_ARGS,
       "about:blank",
     ],

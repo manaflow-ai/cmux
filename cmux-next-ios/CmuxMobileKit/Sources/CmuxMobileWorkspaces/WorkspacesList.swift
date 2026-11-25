@@ -426,6 +426,7 @@ public struct WorkspacesList: View {
         ScrollView { SkeletonList(rows: 6, leadingSquare: nil, caption: caption, style: .plainList, captionPlacement: .spoken) }
             .scrollDisabled(true)
             .accessibilityIdentifier("workspaces.loading")
+            .loadProbePlaceholder()
             .placeholderBound("workspaces.skeleton", .milliseconds(2000))
     }
 
@@ -654,6 +655,7 @@ public struct WorkspacesList: View {
                                  style: .plainList, captionPlacement: .spoken)
                 .allowsHitTesting(false)
                 .accessibilityIdentifier("workspaces.loading")
+                .loadProbePlaceholder()
                 .placeholderBound("workspaces.page.skeleton", .milliseconds(2000)))
         }
     }
