@@ -521,7 +521,7 @@ jobs:
       # one head. "on": the pool's verdict is the check, and the simulator step below runs only when the pool gave
       # none (logged "Mac fallback"). Unset: "shadow". "off" (or anything else): as before. This repository only.
       # An owned Mac submits the pool run itself (below); a Blacksmith Mac is no tailnet peer of the controller, so
-      # it only builds and uploads, and the kit-sim-pool job (an owned Linux runner) submits and reports. Every base
+      # it only builds and uploads, and the kit-sim-pool job (the build-fleet gateway runner) submits and reports. Every base
       # kit run of 2026-11-25 07:53-09:10 got a Blacksmith Mac (the owned simulator Macs were full), and the pool ran
       # on none of them.
       - name: Build the iOS simulator tests for the pool
@@ -852,16 +852,22 @@ jobs:
           key: ${{ fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].key }}
 
   # The simulator tests on the fleet pool for a kit run whose Mac is a Blacksmith one (see "Build the iOS simulator
-  # tests for the pool"): waits for that Mac's upload, submits from this owned Linux runner (a tailnet peer of the
-  # controller), and reports the pool's verdict and seconds next to the Mac simulator step's. Advisory in "shadow".
-  kit-sim-pool:
+  # tests for the pool"): kit-sim-wait waits for that Mac's upload on an owned Linux runner, then kit-sim-pool submits
+  # from the build-fleet gateway runner (vars.CI_EVAL_STEP_GATEWAY, a tailnet peer of the controller, as the FFI job
+  # above) and reports the pool's verdict and seconds next to the Mac simulator step's. Advisory in "shadow". The
+  # submit is not on cmux-linux: the GCP pool runners that label lands on are not on the tailnet, so every base run's
+  # submit died on the manifest curl (exit 28, 30 s to the controller; runs 45619310878, 45645075853). The wait is
+  # not on the gateway, so the up-to-50-min wait never holds a gateway slot.
+  kit-sim-wait:
     needs: runner
-    name: CmuxMobileKit iOS simulator tests (fleet pool)
+    name: CmuxMobileKit iOS simulator tests (fleet pool, wait for the build)
     if: ${{ !cancelled() && needs.runner.result == 'success' && github.repository == 'manaflow-ai/cmux' && github.event_name != 'pull_request' && contains(fromJSON('["shadow","on"]'), vars.CMUX_IOS_SIM_LINUX || 'shadow') && contains(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on, 'blacksmith') }}
     runs-on: cmux-linux
-    timeout-minutes: 90
+    timeout-minutes: 60
     permissions:
       actions: read
+    outputs:
+      uploaded: ${{ steps.wait.outputs.uploaded }}
     steps:
       - name: Wait for the Mac's simulator test build
         id: wait
@@ -897,9 +903,18 @@ jobs:
           done
           echo "uploaded=false" >> "$GITHUB_OUTPUT"; echo "no simulator test build within 50 min"
 
+  kit-sim-pool:
+    needs: [runner, kit-sim-wait]
+    name: CmuxMobileKit iOS simulator tests (fleet pool)
+    if: ${{ !cancelled() && needs.kit-sim-wait.outputs.uploaded == 'true' && vars.CI_EVAL_STEP_GATEWAY != '' }}
+    # The literal fallback never schedules: the job's if: skips when the variable is unset.
+    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY || 'cmux-linux' }}
+    timeout-minutes: 60
+    permissions:
+      actions: read
+    steps:
       - name: Fleet pool run
         id: pool
-        if: ${{ steps.wait.outputs.uploaded == 'true' }}
         timeout-minutes: 50
         env:
           CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
