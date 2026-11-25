@@ -679,6 +679,22 @@ pub(crate) fn write(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) -> io::R
     replace_with(path, rewritten_mode(path), |file, tmp| fill(file, tmp, contents.as_ref()))
 }
 
+/// [`write`], made durable: the copy is synced before its rename and the folder after it. The
+/// copy's name is the file's and this process's (`.<name>.tmp-<pid>`), the same on every write,
+/// where a random name (`tempfile::NamedTempFile`) is one more path fseventsd keeps per write
+/// (`dead_temps`).
+pub(crate) fn write_durable(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) -> io::Result<()> {
+    let path = path.as_ref();
+    replace_with(path, rewritten_mode(path), |file, tmp| {
+        fill(file, tmp, contents.as_ref())?;
+        file.sync_all()
+    })?;
+    match path.parent() {
+        Some(dir) if !dir.as_os_str().is_empty() => sync_dir(dir),
+        _ => Ok(()),
+    }
+}
+
 /// `std::fs::File::create(path)`: made 0600 (an existing file narrowed to the owner's bits on
 /// the open descriptor) before it is cut to nothing and handed back to be written.
 pub(crate) fn create_file(path: impl AsRef<Path>) -> io::Result<File> {
@@ -1342,5 +1358,34 @@ mod unix {
         // SAFETY: a stream fdopendir returned, closed once.
         unsafe { libc::closedir(stream) };
         done
+    }
+}
+
+#[cfg(test)]
+mod stable_copy_name_tests {
+    /// Every write of one file by one process goes through the same copy name, and none is left:
+    /// fseventsd keeps every path it is told of until it restarts, so a random name per write
+    /// (`tempfile::NamedTempFile`) grows it by one path per write (RFD 0180).
+    #[test]
+    fn durable_writes_reuse_one_copy_name_and_leave_none() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("state.json");
+        let copy = super::aside(&path).expect("copy name");
+        assert_eq!(copy, super::aside(&path).expect("copy name"), "the copy name is stable");
+        for i in 0..50 {
+            super::write_durable(&path, format!("{{\"n\":{i}}}")).expect("write");
+        }
+        assert_eq!(std::fs::read_to_string(&path).expect("read"), "{\"n\":49}");
+        let names: Vec<_> = std::fs::read_dir(dir.path())
+            .expect("list")
+            .map(|e| e.expect("entry").file_name())
+            .collect();
+        assert_eq!(names, vec![std::ffi::OsString::from("state.json")], "no copy left beside it");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            let mode = std::fs::metadata(&path).expect("meta").permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600);
+        }
     }
 }
