@@ -2262,16 +2262,16 @@ async fn dispatch_request_with_identity(
                 == crate::hub::Control::Web;
             // The uploads this prompt names as its own (`attach::blocks_for` uploaded them for it
             // alone): a refusal before the session sees it deletes them, so none is left behind.
-            let mut owned = crate::attach::OwnedUploads(if web {
-                Vec::new()
+            let mut owned = if web {
+                crate::attach::OwnedUploads(Vec::new())
             } else {
                 prompt_preparation(
                     admission.answer_due(),
                     "prompt_uploads::owned",
-                    crate::prompt_uploads::owned(&s.id, &blocks),
+                    crate::prompt_uploads::owned_guard(&s.id, &blocks),
                 )
                 .await?
-            });
+            };
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
             // An `@computer-use` / `@browser-use` the person wrote gets acpmux's fixed note for the
             // agent, from any origin: its text is acpmux's, not the client's (`tool_mentions.rs`).
@@ -2537,7 +2537,13 @@ async fn dispatch_request_with_identity(
                         result => result.map(|()| blocks),
                     }
                 });
-                blocks = match prompt_preparation(admission.answer_due(), "prompt_uploads::resolve", resolved).await {
+                blocks = match prompt_preparation(
+                    admission.answer_due(),
+                    "prompt_uploads::resolve",
+                    resolved,
+                )
+                .await
+                {
                     Ok(result) => result.map_err(|e| RpcError::internal(e.to_string()))??,
                     Err(error) => {
                         preserve_owned_uploads_for_retry(&mut owned);
@@ -2555,13 +2561,16 @@ async fn dispatch_request_with_identity(
                 let received = tokio::task::spawn_blocking(move || {
                     crate::attach::receive(&id, web, &mut blocks).map(|saved| (blocks, saved))
                 });
-                (blocks, saved) = match prompt_preparation(admission.answer_due(), "attach::receive", received).await {
-                    Ok(result) => result.map_err(|e| RpcError::internal(e.to_string()))??,
-                    Err(error) => {
-                        preserve_owned_uploads_for_retry(&mut owned);
-                        return Err(error);
-                    }
-                };
+                (blocks, saved) =
+                    match prompt_preparation(admission.answer_due(), "attach::receive", received)
+                        .await
+                    {
+                        Ok(result) => result.map_err(|e| RpcError::internal(e.to_string()))??,
+                        Err(error) => {
+                            preserve_owned_uploads_for_retry(&mut owned);
+                            return Err(error);
+                        }
+                    };
             }
             // Where the send came from, as its harness says and the daemon checked: a record of
             // its own beside the prompt, written once the prompt is kept, never part of who sent
