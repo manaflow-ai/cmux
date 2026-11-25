@@ -405,6 +405,8 @@ pub struct OutboxState {
     pub(crate) redelivered_to: StdMutex<HashMap<String, (u64, String)>>,
     /// [`Self::unsettled`]'s last count: what `status` shows while a writer holds the book.
     unsettled_seen: std::sync::atomic::AtomicUsize,
+    /// Where a delivery that ends failed goes (`hub/dead_letters.rs`): set once.
+    failed: std::sync::OnceLock<tokio::sync::mpsc::UnboundedSender<Delivery>>,
     /// Tests only: the next write says it started, then stalls until told to go on, as a full
     /// or hung disk does.
     #[cfg(test)]
@@ -537,6 +539,17 @@ impl OutboxState {
 
     fn book(&self) -> std::sync::MutexGuard<'_, Book> {
         self.deliveries.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Sends every delivery that ends failed to `to` from now on: false when one already does.
+    pub(crate) fn on_failed(&self, to: tokio::sync::mpsc::UnboundedSender<Delivery>) -> bool {
+        self.failed.set(to).is_ok()
+    }
+
+    /// The dead-letter list beside `outbox.json`, when the outbox is on disk.
+    pub(crate) fn dead_letters_path(&self) -> Option<PathBuf> {
+        let path = self.path.lock().unwrap_or_else(|e| e.into_inner()).clone()?;
+        Some(path.with_file_name(crate::hub::dead_letters::FILE))
     }
 
     /// Where delivery `d`'s attachments are kept, when it has any and the outbox is on disk.
@@ -762,11 +775,20 @@ impl OutboxState {
     ) -> Option<(u64, std::thread::Result<()>)> {
         let mut book = self.book();
         let d = book.deliveries.get_mut(id)?;
+        let was = d.state;
         // A closure that panics part way has still changed the delivery: that change is marked
         // and saved like any other before the panic goes on, so memory never holds what no
         // write will take (a restart went back to before it and sent it again).
         let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(d)));
         d.updated_at = crate::store::now_ms();
+        // Failed now: it bounces to its sender and is a dead letter (`hub/dead_letters.rs`).
+        if was != State::Failed
+            && d.state == State::Failed
+            && !d.projection_only()
+            && let Some(failed) = self.failed.get()
+        {
+            let _ = failed.send(d.clone());
+        }
         book.dirty.insert(id.to_owned());
         Some((book.changed(), ran))
     }
