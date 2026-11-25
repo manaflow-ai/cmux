@@ -4,7 +4,8 @@ Moved here from the root CLAUDE.md on 2026-11-20 (docs audit); the root keeps a 
 
 A tagged dev build (Mac and iPhone) never sees or changes another build's backend data, nor nightly's or stable's,
 even when the same person is signed in to all of them. Every dev build sends `X-Cmux-Build-Space: dev:<slug>` (its
-tag's slug) to the cloud API and to cmux-mobile-api; nightly and stable send nothing. A tag must be its own slug (lowercase
+tag's slug) to the cloud API, to cmux-mobile-api and to the device hub (Screen Sharing: one set of devices per space,
+docs/device-hub/PROTOCOL.md "Build spaces"); nightly and stable send nothing. A tag must be its own slug (lowercase
 letters, digits and single inner dashes, at most 64): every build entry point (`reload.sh`, so the fleet's `cmux-ci build`,
 `review.sh`, the simulator hand-off) refuses any other spelling through `cmux_attach_validate_dev_tag`
 (`scripts/lib/mobile-attach.sh`), since `foo_bar`, `foo.bar` and `Foo-Bar` would all be `dev:foo-bar`. It also refuses
@@ -12,7 +13,7 @@ letters, digits and single inner dashes, at most 64): every build entry point (`
 in a backend is keyed by its build space: a per-build Durable Object is named `dev:<slug>|<name>` (only through
 `spacedEnv` and `envForObject` in `backend/apps/api/src/build-space.ts`), and a per-build Postgres or MySQL row
 carries the space and is read filtered by it. Production refuses a dev space (403 `build_space.not_allowed`, the cloud
-API and cmux-mobile-api alike), so a dev build pointed at it fails on its first request instead of reaching real data.
+API, cmux-mobile-api and the device hub alike), so a dev build pointed at it fails on its first request instead of reaching real data.
 Every new Durable Object binding goes in exactly one of `PER_BUILD_BINDINGS` or `ACCOUNT_WIDE_BINDINGS` with the
 reason; account-wide is only for what one person shares across builds (team membership, billing, cloud machines).
 The pre-push gate's "Build spaces" check (`scripts/cmux-next/check-build-spaces.py`) refuses an unlisted binding and an
