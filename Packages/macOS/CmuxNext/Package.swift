@@ -509,6 +509,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDesign",
                 "CmuxNextMobileHost",
                 "CmuxNextSettings",
+                "CmuxNextWindowRules",
             ],
             resources: [
                 .process("Resources"),
@@ -2225,6 +2226,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextSettings",
                 "CmuxNextSidebar",
                 "CmuxNextTabs",
+                "CmuxNextWindowRules",
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
             ],
             swiftSettings: uiSwiftSettings

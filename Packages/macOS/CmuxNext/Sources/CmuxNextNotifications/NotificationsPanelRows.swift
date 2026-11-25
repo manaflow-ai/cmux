@@ -1,5 +1,6 @@
 public import CmuxNextDaemon
 import CmuxNextSettings
+import CmuxNextWindowRules
 public import Foundation
 
 /// One row of the notifications panel: a daemon ledger entry
@@ -75,25 +76,30 @@ public struct NotificationsPanelRow: Hashable, Identifiable {
 
 /// Keyboard selection in the panel: moves with the arrows, stays on the
 /// same notification across reloads, and falls back to the nearest row
-/// when that one leaves.
+/// when that one leaves. The rules are Rust's (cmux-window-rules
+/// `notifications_panel`, ops `window_notifications_panel_move` and `_panel_reconcile`).
 public struct NotificationsPanelSelection: Equatable {
     public private(set) var id: String?
 
     public init() {}
 
     public mutating func move(by offset: Int, in rows: [NotificationsPanelRow]) {
-        guard !rows.isEmpty else { id = nil; return }
-        let current = id.flatMap { id in rows.firstIndex { $0.id == id } }
-        let next = current.map { min(max($0 + offset, 0), rows.count - 1) } ?? (offset < 0 ? rows.count - 1 : 0)
-        id = rows[next].id
+        struct Request: Encodable { var selected: String?, offset: Int, rows: [String] }
+        struct Reply: Decodable { var selected: String? }
+        // An FFI without the op answers nothing: the selection stays where it is.
+        guard let reply = WindowRules().call("window_notifications_panel_move", Request(selected: id, offset: offset, rows: rows.map(\.id)),
+                                             as: Reply.self) else { return }
+        id = reply.selected
     }
 
     /// Keeps the selection on its row, or the row now at its old index.
     public mutating func reconcile(old: [NotificationsPanelRow], new: [NotificationsPanelRow]) {
         guard let id else { return }
-        if new.contains(where: { $0.id == id }) { return }
-        guard !new.isEmpty, let index = old.firstIndex(where: { $0.id == id }) else { self.id = nil; return }
-        self.id = new[min(index, new.count - 1)].id
+        struct Request: Encodable { var selected: String?, old: [String], new: [String] }
+        struct Reply: Decodable { var selected: String? }
+        let request = Request(selected: id, old: old.map(\.id), new: new.map(\.id))
+        // An FFI without the op answers nothing: the selection is cleared rather than left on a row that went.
+        self.id = WindowRules().call("window_notifications_panel_reconcile", request, as: Reply.self)?.selected
     }
 
     public func index(in rows: [NotificationsPanelRow]) -> Int? {

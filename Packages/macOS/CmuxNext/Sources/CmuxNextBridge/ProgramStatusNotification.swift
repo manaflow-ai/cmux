@@ -1,5 +1,6 @@
 public import CmuxNextDaemon
 public import CmuxNextDesign
+import CmuxNextWindowRules
 
 /// A `terminal` notification the session host posted for an OSC 7501 record
 /// (cmux-tui-core `program_status::raise_alert`): when a record starts
@@ -8,7 +9,9 @@ public import CmuxNextDesign
 /// record's message as the body, `warning` for a wait, `error` for a failure,
 /// `info` for done. The app finds the record again in the terminal's
 /// `extra.program_status` for the banner's badge and the done-visibility
-/// rule (cx-kxa2). Pure.
+/// rule (cx-kxa2). The rules are Rust's (cmux-window-rules `status_alerts`,
+/// ops `window_notifications_program_alert`, `_looks_like_alert`,
+/// `_alert_notifies`); this keeps the badge each reason draws.
 public struct ProgramStatusNotification: Hashable, Sendable {
     /// Why the program notified: the banner's reason line and badge.
     public enum Reason: String, Hashable, Sendable, CaseIterable {
@@ -45,15 +48,15 @@ public struct ProgramStatusNotification: Hashable, Sendable {
     /// several matches the newest report wins.
     public static func match(title: String, body: String, level: NotificationLevel,
                              records: [ProgramStatusRecord]) -> ProgramStatusNotification? {
-        records
-            .filter { record in
-                guard let reason = reason(record), level == Self.level(reason) else { return false }
-                let name = record.title ?? record.app ?? "A program"
-                return clipped("\(name) \(verb(reason))", to: titleLimit) == title
-                    && clipped(record.msg ?? "", to: bodyLimit) == body
-            }
-            .max { $0.updatedSeq < $1.updatedSeq }
-            .flatMap { record in reason(record).map { ProgramStatusNotification(record: record, reason: $0) } }
+        guard !records.isEmpty else { return nil }
+        struct Request: Encodable { var title: String, body: String, level: String, records: [RecordWire] }
+        struct Found: Decodable { var index: Int, reason: String }
+        struct Reply: Decodable { var alert: Found? }
+        let request = Request(title: title, body: body, level: level.rawValue, records: records.map(RecordWire.init))
+        // An FFI without the op answers nothing: no record, so the notification shows as any terminal one.
+        guard let found = WindowRules().call("window_notifications_program_alert", request, as: Reply.self)?.alert,
+              records.indices.contains(found.index), let reason = Reason(rawValue: found.reason) else { return nil }
+        return ProgramStatusNotification(record: records[found.index], reason: reason)
     }
 
     /// Whether a `terminal` notification reads like an OSC 7501 alert ("<name>
@@ -61,58 +64,34 @@ public struct ProgramStatusNotification: Hashable, Sendable {
     /// the session events stream can deliver the record after the
     /// notification, so the app waits briefly for it before the banner.
     public static func looksLikeAlert(title: String, level: NotificationLevel) -> Bool {
-        Reason.allCases.contains { reason in
-            let suffix = " " + verb(reason)
-            return Self.level(reason) == level && title.hasSuffix(suffix) && title.count > suffix.count
-        }
-    }
-
-    /// The daemon's notification text limits (terminal_metadata.rs).
-    static let titleLimit = 256
-    static let bodyLimit = 1024
-
-    static func clipped(_ text: String, to limit: Int) -> String {
-        text.count > limit ? String(text.prefix(limit)) : text
-    }
-
-    /// The daemon's wording (program_status.rs `raise_alert`).
-    static func verb(_ reason: Reason) -> String {
-        switch reason {
-        case .permission: "needs approval"
-        case .question: "asks a question"
-        case .auth: "needs sign-in"
-        case .input: "needs input"
-        case .failed: "failed"
-        case .done: "is done"
-        }
+        struct Request: Encodable { var title: String, level: String }
+        struct Reply: Decodable { var looksLikeAlert: Bool }
+        // An FFI without the op answers nothing: no wait, the banner shows at once.
+        return WindowRules().call("window_notifications_looks_like_alert", Request(title: title, level: level.rawValue),
+                                  as: Reply.self)?.looksLikeAlert ?? false
     }
 
     /// Whether it shows at all: `done` only for a terminal the user cannot
     /// see (Lawrence, cx-kxa2); the rest follow the normal notification rules.
     public func notifies(visibility: TerminalVisibility) -> Bool {
-        reason != .done || !visibility.isVisible
+        struct Request: Encodable { var reason: String, visibility: TerminalVisibility.Wire }
+        struct Reply: Decodable { var notifies: Bool }
+        let request = Request(reason: reason.rawValue, visibility: TerminalVisibility.Wire(visibility))
+        // An FFI without the op answers nothing: it follows the normal notification rules.
+        return WindowRules().call("window_notifications_alert_notifies", request, as: Reply.self)?.notifies ?? true
     }
 
-    static func reason(_ record: ProgramStatusRecord) -> Reason? {
-        switch record.state {
-        case .blocked:
-            switch record.kind {
-            case .permission?: .permission
-            case .question?: .question
-            case .auth?: .auth
-            case nil: .input
-            }
-        case .error: .failed
-        case .done: .done
-        case .working, .idle: nil
-        }
-    }
+    /// An OSC 7501 record as cmux-window-rules `status_alerts::Record` reads it.
+    struct RecordWire: Encodable {
+        var state: String, kind: String?, app: String?, title: String?, msg: String?, updatedSeq: UInt64
 
-    static func level(_ reason: Reason) -> NotificationLevel {
-        switch reason {
-        case .permission, .question, .auth, .input: .warning
-        case .failed: .error
-        case .done: .info
+        init(_ record: ProgramStatusRecord) {
+            state = record.state.rawValue
+            kind = record.kind?.rawValue
+            app = record.app
+            title = record.title
+            msg = record.msg
+            updatedSeq = record.updatedSeq
         }
     }
 }
