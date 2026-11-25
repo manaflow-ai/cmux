@@ -15,7 +15,14 @@ Opt-in: it calls a model, so it never runs in PR CI. It needs:
     after the manifest and build pass; `--no-daemon-ok` counts that as a pass of those two phases.
 
   python3 scripts/cmux-next/ext-recipe-cold-model.py [--recipe section] [--model haiku]
-      [--no-daemon-ok] [--keep] [--json]
+      [--no-daemon-ok] [--headless] [--keep] [--json]
+
+`--prompts` checks the copy-paste prompts (skills/cmux-extension-author/prompts) instead: the model
+gets only the page's prompt, as a person would paste it, and finds the rest with
+`cmux customize docs`; the page's `<!-- prompt-check: shows "..." -->` names the words.
+`--headless` checks with `cmux ext dev --once --headless --json`, which loads and renders in this
+process, so it needs no running cmux (the scheduled customize-prompts-cold-model workflow runs
+`--prompts --headless` on a Linux runner).
 
 Exit 0 when every page passes, 1 when one fails, 2 when a tool is missing.
 """
@@ -33,7 +40,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 RECIPES = ROOT / "skills" / "cmux-extension-author" / "recipes"
-SHOWS = re.compile(r'<!-- recipe-check: shows "([^"]+)" -->')
+PROMPTS = ROOT / "skills" / "cmux-extension-author" / "prompts"
+SHOWS = re.compile(r'<!-- (?:recipe|prompt)-check: shows "([^"]+)" -->')
+PROMPT_BLOCK = re.compile(r"```text\n(.*?)\n```", re.S)
 TIMEOUT_S = 600
 
 PROMPT = """You are in an empty folder. Build the cmux extension this page describes, in this folder,
@@ -46,11 +55,13 @@ tried five times. Do not install packages. Reply with one line: done, or what st
 """
 
 
-def run_model(page: str, folder: Path, model: str) -> tuple[int, str]:
+def run_model(prompt: str, folder: Path, model: str) -> tuple[int, str]:
     argv = [
-        "claude", "-p", PROMPT.format(page=page),
+        "claude", "-p", prompt,
         "--model", model,
-        "--allowedTools", "Read,Write,Edit,Bash(cmux ext dev:*),Bash(mkdir:*),Bash(ls:*)",
+        "--allowedTools",
+        "Read,Write,Edit,Bash(cmux ext dev:*),Bash(cmux customize docs:*),Bash(cmux customize prompts:*),"
+        "Bash(mkdir:*),Bash(ls:*)",
         "--max-turns", "30",
     ]
     try:
@@ -60,9 +71,11 @@ def run_model(page: str, folder: Path, model: str) -> tuple[int, str]:
     return done.returncode, (done.stdout or done.stderr).strip()[-2000:]
 
 
-def check(folder: Path, shows: str | None, no_daemon_ok: bool) -> dict:
+def check(folder: Path, shows: str | None, no_daemon_ok: bool, headless: bool) -> dict:
+    argv = ["cmux", "ext", "dev", "--once", "--json"]
+    argv += ["--headless"] if headless else ["--no-install", "--remove-on-exit"]
     done = subprocess.run(
-        ["cmux", "ext", "dev", "--once", "--json", "--no-install", "--remove-on-exit"],
+        argv,
         cwd=folder, capture_output=True, text=True, timeout=300,
     )
     try:
@@ -84,7 +97,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--recipe", action="append", help="a page's name (section, widget, ...); default every page")
     parser.add_argument("--model", default="haiku")
+    parser.add_argument("--prompts", action="store_true", help="check the copy-paste prompts, not the recipes")
     parser.add_argument("--no-daemon-ok", action="store_true")
+    parser.add_argument("--headless", action="store_true", help="check with ext dev --once --headless (no cmux)")
     parser.add_argument("--keep", action="store_true", help="keep each page's folder and print it")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
@@ -93,13 +108,14 @@ def main() -> int:
         if not shutil.which(tool):
             print(f"ext-recipe-cold-model: {tool} is not on PATH", file=sys.stderr)
             return 2
-    pages = sorted(RECIPES.glob("*.md"))
+    pages = sorted(p for p in (PROMPTS if args.prompts else RECIPES).glob("*.md") if p.stem != "README")
     if args.recipe:
         wanted = {name.removesuffix(".md") for name in args.recipe}
         pages = [p for p in pages if p.stem in wanted]
         missing = wanted - {p.stem for p in pages}
         if missing:
-            print(f"ext-recipe-cold-model: no recipe {', '.join(sorted(missing))}", file=sys.stderr)
+            kind = "prompt" if args.prompts else "recipe"
+            print(f"ext-recipe-cold-model: no {kind} {', '.join(sorted(missing))}", file=sys.stderr)
             return 2
 
     report = []
@@ -107,9 +123,17 @@ def main() -> int:
         text = page.read_text(encoding="utf-8")
         match = SHOWS.search(text)
         folder = Path(tempfile.mkdtemp(prefix=f"cold-{page.stem}-"))
-        model_exit, said = run_model(text, folder, args.model)
+        if args.prompts:
+            block = PROMPT_BLOCK.search(text)
+            if not block:
+                print(f"ext-recipe-cold-model: {page.name} has no ```text prompt", file=sys.stderr)
+                return 2
+            prompt = block.group(1) + "\nDo not install packages. End with one line: done, or what stopped you.\n"
+        else:
+            prompt = PROMPT.format(page=text)
+        model_exit, said = run_model(prompt, folder, args.model)
         row = {"recipe": page.stem, "model": args.model, "modelExit": model_exit, "said": said}
-        row.update(check(folder, match.group(1) if match else None, args.no_daemon_ok))
+        row.update(check(folder, match.group(1) if match else None, args.no_daemon_ok, args.headless))
         if args.keep:
             row["folder"] = str(folder)
         else:
