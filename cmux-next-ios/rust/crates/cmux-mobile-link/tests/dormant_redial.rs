@@ -352,11 +352,12 @@ async fn input_across_a_fresh_dial_racing_a_dormant_resume_arrives_once_in_order
         let ticket = dormant::ticket(&pair.mac_id);
         assert!(ticket.is_some(), "round {round}: a dormant tunnel to resume");
         // No head start: the full dial and the resume race.
+        let dial_options = options();
         let full = dial::connect(
             &pair.phone,
             &pair.mac_id,
             TransportKind::WireGuard,
-            &options(),
+            &dial_options,
             LinkConfig::default(),
         );
         let won =
