@@ -26,6 +26,8 @@ const ALLOWED: &[&str] = &[
     method::MUX_ATTACH,
     method::MUX_DETACH,
     method::MUX_INFO,
+    // A row this client missed, whole again (`server/session_patch.rs`).
+    method::MUX_SESSION_RESYNC,
     method::MUX_EVENTS,
     method::MUX_ATTACHMENT,
     method::MUX_TURN_SHOTS,
