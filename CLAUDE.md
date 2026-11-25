@@ -10,7 +10,7 @@ Rules for every session; detail is on the linked pages ([map](#where-the-rest-li
 
 ## The loop: use it first, then test
 
-Put it in your running cmux and use it (screenshot, video, click) before compile, CI, suites. Before asking for a dev build: `cmux app try .` (a nightly clone with your web UI and daemon Rust; `--stop` deletes it).
+Put it in your running cmux and use it (screenshot, video, click) before compile, CI, suites. Before asking for a dev build: `cmux app try .` in your checkout: it clones your nightly beside the person's cmux and swaps your web UI and daemon Rust in (`--stop` deletes the clone).
 - Web: `cmux customize use pr:N|branch:NAME|sha:SHA|dir:PATH [--watch]`; off: `cmux customize library off NAME`. Hot reload: `cmux live start --worktree <checkout>`.
 - Daemon/acpmux Rust (`cmux-tui/`): `scripts/cmux-next/hot-apply.py plan|apply SHA`, `rollback`; from checkout: `cmux live start --rust`.
 - Whole PR/branch/sha: `cmux app try <ref>`, `cmux app try undo`. Swift in function bodies: `cmux live start --swift` on a Debug base ([live code](docs/cmux-next/live-code.md)).
@@ -27,7 +27,7 @@ Put it in your running cmux and use it (screenshot, video, click) before compile
 - Before every push: `scripts/cmux-next/prepush-gate.py` (the hook runs it), web: `scripts/web-lint.sh`. `--no-verify`/`CMUX_NEXT_CHECKS_SKIP_REASON` only for failures in files you didn't touch, said so ([code rules](docs/cmux-next/code-rules.md), [pushing](skills/cmux-dev-workflow/references/pushing.md)).
 - Classic is frozen: never change [`.github/classic-frozen.txt`](.github/classic-frozen.txt) files (Leo, 2026-11-04); `ios/` is retired, use `cmux-next-ios/`.
 - New logic is Rust; Swift/React only where [`.github/language-boundaries.toml`](.github/language-boundaries.toml) says (Lawrence via Leo, 2026-11-10; check `language-boundaries`).
-- Mac/iOS parity: each new macOS feature works in `cmux-next-ios/`, one file per row in [parity-mac/](cmux-next-ios/verify/parity-mac/README.md) (old [parity-mac.md](cmux-next-ios/verify/parity-mac.md) frozen: never edit it); exceptions (Mac-only chrome, what [SECURITY.md](cmux-next-ios/SECURITY.md) forbids a phone) are recorded there. New phone trust policy: one decision to Leo first, with a recommendation.
+- Mac/iOS parity: each new macOS feature works in `cmux-next-ios/`, one file per row in [parity-mac/](cmux-next-ios/verify/parity-mac/README.md) (the old table, [parity-mac.md](cmux-next-ios/verify/parity-mac.md), is frozen: two PRs never edit one line); exceptions (Mac-only chrome, what [SECURITY.md](cmux-next-ios/SECURITY.md) forbids a phone) are recorded there. New phone trust policy: one decision to Leo first, with a recommendation.
 - A tagged dev build (Mac, iPhone) never touches another build's backend data or local state, nightly's or stable's, nor reuses NIGHTLY's sign-in (gate checks; [dev build spaces](skills/cmux-dev-workflow/references/dev-build-spaces.md)).
 - Agents may add CI gates, perf-gate rows, jobs, tests (Aziz, 2026-11-18); perf never blocks push, merge or nightly. Every fix gets a regression test.
 - Nightlies: no Blacksmith, one signing Mac, never cancelled (Lawrence, 2026-10-30, 2026-11-04; [landing](docs/ci/landing.md#ci-runners-and-nightlies)).
