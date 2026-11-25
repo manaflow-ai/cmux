@@ -28,6 +28,7 @@
 // second only while something runs and the pane shows (SubagentGroup.tsx `useNow`), and stops
 // with the panel.
 import { Button } from "../../../ui/Button";
+import { LiveCount } from "../summary/LiveCount";
 import {
   createContext,
   Fragment,
@@ -314,8 +315,15 @@ function Section({
         onClick={() => setOpen(!open)}
       >
         <Disclosure open={open} />
-        <span>{t(id === "running" ? "backgroundTasks.section.running" : "backgroundTasks.section.finished")}</span>
-        <span className="acpmux-bg__section-count">{count}</span>
+        {/* Running is its mark and its count, no word (Leo, 2026-11-23: ""running" doesn't need text"). */}
+        {id === "running" ? (
+          <LiveCount n={count} label={t("summary.subagents.running", { n: count })} />
+        ) : (
+          <>
+            <span>{t("backgroundTasks.section.finished")}</span>
+            <span className="acpmux-bg__section-count">{count}</span>
+          </>
+        )}
       </Button>
       {open && children}
     </div>

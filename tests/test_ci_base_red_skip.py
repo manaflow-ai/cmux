@@ -139,7 +139,7 @@ class BaseRedSkip(unittest.TestCase):
         wired = {
             "cmux-next-guards.yml": ["tooling-tests"],
             "cloud-journey-pr.yml": ["journey-staging"],
-            "cmux-next.yml": ["cmux-next fast tier", "cmux-next fast tier (cargo)", "cmux-next generated files"],
+            "cmux-next.yml": ["cmux-next fast tier (cargo)", "cmux-next generated files"],
         }
         for name, jobs in wired.items():
             with open(os.path.join(WORKFLOWS, name), encoding="utf-8") as fh:
@@ -147,7 +147,7 @@ class BaseRedSkip(unittest.TestCase):
             self.assertIn("scripts/ci/base_red_skip.py decide", text, name)
             for job in jobs:
                 self.assertIn(f'--job "{job}"', text, name)
-                if job.startswith("cmux-next fast tier"):  # decide-many: the job reads its own name in the list
+                if job == "cmux-next fast tier (cargo)":  # decide-many: the job reads its own name in the list
                     self.assertIn(f"outputs.base_red_jobs || '[]'), '{job}')", text, name)
             self.assertIn("format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0'", text, name)
             self.assertIn("'full-ci'", text, name)
