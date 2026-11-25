@@ -2,6 +2,7 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextTabs
+import AppKit
 import CoreGraphics
 
 /// Hover-card thumbnails: a live snapshot while the tab has a surface, else
@@ -27,6 +28,14 @@ final class TabPreviewSource: TabPreviewProvider {
                                    maxPixelSize: maxPixelSize) { await cache.previewImage(for: key, maxPixelSize: maxPixelSize) }
         }
         return await Self.shown(image, key: tab.rawValue, cache: cache)
+    }
+
+    /// The workspace view `content` is about to hide (a switch to another workspace or a top page): each chat it shows
+    /// is pictured now, while it is still on screen. The pane's own leave (`TabContentCache.onConceal`) comes only
+    /// after the workspace hid, when a chat can no longer be pictured, so a chat left by a workspace switch had no
+    /// picture and the sidebar card's tile showed only its title (#56159).
+    func willHide(_ content: NSView, chats views: AgentTabMap<AgentPaneView>) {
+        for entry in views.entries where entry.value.isDescendant(of: content) { chats.willLeaveScreen(entry.key.key) }
     }
 
     /// What a tab or screen card or a drag ghost pictures of `key`'s `image`: nothing on the

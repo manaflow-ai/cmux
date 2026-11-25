@@ -329,6 +329,9 @@ final class WindowRootView: NSView, WindowSurfacePainting, PaintHoldHosting {
 
     /// Called after `show(_:)` swaps the content (a top page or a workspace).
     var onContentChange: (() -> Void)?
+    /// A workspace's view is about to hide (a switch to another workspace or a top page), while what it shows is still
+    /// on screen: its chats are pictured now, since a hidden chat never is (#56159).
+    var willHideWorkspace: ((NSView) -> Void)?
 
     /// Keeps the outgoing content until its unpainted pages paint, or show their pictures after two frames of its screen.
     let paintHold = PanePaintHold(owner: "window.paint-hold", frames: 2)
@@ -391,6 +394,7 @@ final class WindowRootView: NSView, WindowSurfacePainting, PaintHoldHosting {
     /// leaves the window). Other content leaves the window.
     private func withdraw(_ view: NSView) {
         guard view is WorkspaceContentView, view.superview === contentHost else { return view.removeFromSuperview() }
+        if !view.isHidden { willHideWorkspace?(view) }
         if !view.handKeyboardToWindow(), let window {
             // A field editor that refuses to resign while it validates: end the edit, then resign.
             window.endEditing(for: nil)

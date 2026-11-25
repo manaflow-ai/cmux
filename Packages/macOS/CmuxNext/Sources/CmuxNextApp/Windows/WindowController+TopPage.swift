@@ -72,6 +72,10 @@ extension WindowController {
     /// (Lawrence 2026-10-09); Go Back leaves a page for its workspace.
     func followContentChanges() {
         root.onContentChange = { [weak self] in self?.services.locationTrail.pageHistoryDidChange() }
+        root.willHideWorkspace = { [weak self] content in
+            guard let self, let chats = services.madeAgentTabs?.views else { return }
+            services.previews.willHide(content, chats: chats)
+        }
     }
 
     /// The top page this window shows, if any.
