@@ -626,7 +626,11 @@ async fn a_start_from_kept_answers_skips_the_server_start_numbers() {
     let mut kept = Vec::new();
     for round in 0..5u64 {
         let session = format!("chat-n{round}");
-        g.keep(&session, launch(home.path())).unwrap();
+        // Each round its own launch: one launch's later chats are answered from the first's
+        // shared answer, so only another launch is a cold start.
+        let mut cold_launch = launch(home.path());
+        cold_launch.env.push(("ROUND".into(), round.to_string()));
+        g.keep(&session, cold_launch).unwrap();
         let started = Instant::now();
         rpc(&g, &session, init(1)).await;
         rpc(&g, &session, list(2)).await;
@@ -1145,4 +1149,72 @@ async fn gateway_parallel_numbers() {
         ms(started.elapsed()),
         8 * 100
     );
+}
+
+/// A launch for chat `session`: the session id in its env, as acpmux's own launch carries it.
+fn launch_for(dir: &Path, session: &str) -> Launch {
+    let mut launch = launch(dir);
+    launch.env.push(("CMUX_SESSION_ID".into(), session.into()));
+    // A chat's own secret, unlike its session id nowhere in the server's answers.
+    let token: String = session.chars().rev().collect();
+    launch.env.push(("ACPMUX_SESSION_TOKEN".into(), format!("token-{token}")));
+    launch
+}
+
+/// Every new chat's harness asks `initialize` and `tools/list` first. Once one chat's server
+/// answered them, a new chat of the same launch (but its session id) is answered with no process,
+/// its session id in place of the other's, and its own call still starts its own server.
+#[tokio::test]
+async fn a_new_chat_of_the_same_shape_starts_with_no_process() {
+    let home = tempfile::tempdir().unwrap();
+    let g = gateway(home.path(), IDLE_STOP).await;
+    g.keep("chat-a", launch_for(home.path(), "chat-a")).unwrap();
+    let first_init = rpc(&g, "chat-a", init(1)).await;
+    let first_list = rpc(&g, "chat-a", list(2)).await;
+    assert!(g.server_pid("chat-a").await.is_some(), "the first chat's start runs its server");
+    // Its server's answer names its session: the new chat's names the new chat's.
+    let chat = g.chat("chat-a").unwrap();
+    let launch = chat.kept.lock().unwrap().launch.clone();
+    let named = json!({"tools": [{"name": "who", "description": "for chat-a", "inputSchema": {"type": "object"}}]});
+    chat.share_answer(&launch, "tools/list", &json!({}), &named);
+
+    g.keep("chat-b", launch_for(home.path(), "chat-b")).unwrap();
+    let again_init = rpc(&g, "chat-b", init(3)).await;
+    let again_list = rpc(&g, "chat-b", list(4)).await;
+    assert_eq!(g.server_pid("chat-b").await, None, "the new chat's start holds no process");
+    assert_eq!(again_init["result"], first_init["result"]);
+    assert_eq!(again_init["id"], json!(3));
+    assert_eq!(again_list.pointer("/result/tools/0/description"), Some(&json!("for chat-b")));
+    assert_ne!(again_list["result"], first_list["result"]);
+    // It is the new chat's own kept answer now: its wakes get the same list.
+    assert!(g.chat("chat-b").unwrap().kept_answer("tools/list", &json!({})).is_some());
+    // A call starts its own server, initialized as its harness was.
+    let answer = rpc(&g, "chat-b", call(5)).await;
+    let pid = g.server_pid("chat-b").await.expect("a call runs the new chat's server");
+    assert!(text(&answer).starts_with(&format!("{pid} harness ")), "{answer}");
+}
+
+/// Another shape (another env, so another server) or another harness's `initialize` is answered
+/// by a server, and a shared answer older than the window is not used.
+#[tokio::test]
+async fn another_shape_or_an_old_shared_answer_asks_the_server() {
+    let home = tempfile::tempdir().unwrap();
+    let g = gateway(home.path(), IDLE_STOP).await;
+    g.keep("chat-c", launch_for(home.path(), "chat-c")).unwrap();
+    rpc(&g, "chat-c", init(1)).await;
+    rpc(&g, "chat-c", list(2)).await;
+    let mut other = launch_for(home.path(), "chat-d");
+    other.env.push(("ANOTHER".into(), "1".into()));
+    g.keep("chat-d", other).unwrap();
+    rpc(&g, "chat-d", init(3)).await;
+    assert!(g.server_pid("chat-d").await.is_some(), "another shape starts its own server");
+
+    g.keep("chat-e", launch_for(home.path(), "chat-e")).unwrap();
+    let chat = g.chat("chat-e").unwrap();
+    let codex = json!({"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "codex"}});
+    assert_eq!(chat.start_answer("initialize", &codex), None, "another harness asks afresh");
+    for (at, _) in g.shared.by_shape.lock().unwrap().values_mut() {
+        *at = Instant::now().checked_sub(SHARED_FOR + Duration::from_secs(1)).unwrap();
+    }
+    assert_eq!(chat.start_answer("tools/list", &json!({})), None, "an old answer is not used");
 }

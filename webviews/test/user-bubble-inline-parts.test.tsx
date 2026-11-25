@@ -260,7 +260,7 @@ try {
     );
     const body = host.querySelector(".cv-user__text")!;
     expect(body.classList.contains("is-clamped")).toBe(true);
-    // The one fold; Save as Prompt's popover button is not a fold.
+    // The one fold.
     expect(host.querySelectorAll("[aria-expanded]")).toHaveLength(1);
     await act(async () => host.querySelector<HTMLButtonElement>(".cv-user__more")!.click());
     expect(body.classList.contains("is-clamped")).toBe(false);
@@ -600,10 +600,13 @@ try {
       "[data-inline-content] .cv-user__inline-file",
     ]) {
       const box = style(selector);
-      // In the text, an image tile and a file chip each stand on the line; the tile is a flex box, so
-      // its loaded image's button adds no font descent under it (the placeholder's box holds).
+      // Placed in the text, an image tile and a file chip both sit on the line where they were put; the
+      // tile is a flex box and its image's button a block, so no font descent sits under the thumbnail
+      // when its image loads (conversation.css; the placeholder's box holds).
       expect(box.display).toBe(selector.endsWith("inline-image") ? "inline-flex" : "inline-block");
       expect(box.verticalAlign).toBe("middle");
+      if (selector.endsWith("image"))
+        expect(style("[data-inline-content] .cv-user__inline-image > button").display).toBe("block");
       expect([box.marginTop, box.marginBottom, box.marginLeft, box.marginRight]).toEqual(
         [
           INLINE_ATTACHMENT_MARGIN.y,
