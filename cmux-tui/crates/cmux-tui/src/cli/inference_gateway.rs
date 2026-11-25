@@ -345,7 +345,11 @@ pub(super) fn parse(
         }
     };
     let token = token.unwrap_or_else(|| {
-        if env("CMUX_CLOUD_ACCESS_TOKEN").is_some() { TokenSource::Env } else { TokenSource::App }
+        if super::api_tokens::env_credential(env).is_some() {
+            TokenSource::Env
+        } else {
+            TokenSource::App
+        }
     });
     Ok(Options { api, team, personal, token, upstream, supervised, enable_once })
 }
@@ -482,7 +486,8 @@ pub(super) async fn backend_credential(
     team: Option<&str>,
 ) -> Result<(String, Option<String>), String> {
     let raw = match source {
-        TokenSource::Env => std::env::var("CMUX_CLOUD_ACCESS_TOKEN").unwrap_or_default(),
+        TokenSource::Env => super::api_tokens::env_credential(|key: &str| std::env::var(key).ok())
+            .unwrap_or_default(),
         TokenSource::File(path) => tokio::fs::read_to_string(path)
             .await
             .map_err(|e| format!("cannot read the token file: {e}"))?,

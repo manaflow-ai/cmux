@@ -460,7 +460,8 @@ pub(crate) fn read_credential(
         std::fs::read_to_string(path)
             .map_err(|e| format!("the --cloud-token-file could not be read ({:?})", e.kind()))?
     } else {
-        return Ok(env(TOKEN_ENV).map(|c| c.trim().to_owned()).filter(|c| !c.is_empty()));
+        // `CMUX_CLOUD_ACCESS_TOKEN`, else an API token in `CMUX_TOKEN` (api_tokens.rs).
+        return Ok(super::api_tokens::env_credential(env));
     };
     let credential = raw.trim().to_owned();
     if credential.is_empty() {
