@@ -5,6 +5,7 @@ import CmuxNextCloudUI
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDesign
+import CmuxNextSettings
 import CmuxNextSidebar
 import Foundation
 
@@ -56,6 +57,12 @@ enum TopPages {
         services.pages.register(HistoryTopPage(services: services))
         services.pages.register(BookmarksTopPage(services: services))
         services.pages.register(StashTopPage(services: services))
+        // Forum (experiments.forum, off by default): hidden in the sidebar and refused while off.
+        services.pages.register(ForumTopPage(services: services))
+        services.registry.addSettingOffReason(["forum.show"]) { [weak services] in
+            services?.settings?.snapshot.showsForum == true ? nil : CmuxConfigSnapshot.forumHiddenReason
+        }
+        _ = services.registry.bindEffect("forum.show", effect: { [weak services] _ in _ = services.map { TopPages.show(.page(.forum), services: $0) }; return .done })
         // Automations (docs/automations-platonic-ideal.md section 8): this Mac's store through the bundled CLI, Cloud through cloud.automation.
         let automations = AutomationsPageHost(bundled: services.bundledCLI, cloud: { [forward = CloudCLICall(cli: services.bundledCLI).automationRelay(signedIn: services.cloud.auth)] in
             try AutomationsPageHost.cloudValue(await forward(Data(#"{"op":"automation.list","params":{"limit":100}}"#.utf8))) })

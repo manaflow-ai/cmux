@@ -38,6 +38,20 @@ impl Hub {
         Some((peer, id, row))
     }
 
+    /// The state of local chat `id` where it runs now, when it moved away: its row from the
+    /// peer its tombstone names ([`Self::moved_forward`]), as the chat looked before it moved
+    /// (no `peer`, no second id). None for a chat that is here, and while the peer is down or
+    /// its row has not come: the caller reads this daemon's own row then.
+    /// A wait reads it (`server/wait.rs`): the tombstone is closed, so without it a wait for a
+    /// moved chat's turn to end answered at once, while the turn ran on the other machine.
+    pub fn moved_row(&self, id: &str) -> Option<Value> {
+        let (_, _, mut row) = self.moved_forward(id)?;
+        let fields = row.as_object_mut()?;
+        fields.remove("peer");
+        fields.remove("qualifiedSessionId");
+        Some(row)
+    }
+
     /// Where a request for `key` goes when not here: a peer's chat (`resolve_remote`, for a key
     /// that names no chat of this daemon), or the peer copy of a chat that moved away
     /// ([`Self::moved_forward`]), with whether it is that one.

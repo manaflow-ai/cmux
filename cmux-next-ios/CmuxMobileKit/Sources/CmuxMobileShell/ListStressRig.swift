@@ -69,6 +69,8 @@ final class ListStressRig: NSObject {
                 scroll.contentOffset.y = top + (bottom - top) * CGFloat(min(max(fraction, 0), 1))
             }
             rig.log.notice("FRAMELOG list-stress holding \(screen, privacy: .public)")
+            // The capture suites shoot the held screen on this mark, not after a fixed pause.
+            LaunchMarks.shared.markWhenStill("list_hold")
             if settings.pullTrace, let scroll = rig.findScrollView(horizontal: false) { rig.tracePull(scroll) }
             return
         }
@@ -94,6 +96,11 @@ final class ListStressRig: NSObject {
             store.workspaces = store.workspaces.map { $0.id == ws.id ? ws : $0 }
             store.requestOpen(tabID: "t-g0", in: ws.id)
             shell.tab = .workspaces
+            if settings.macCards {
+                let seeded = ws.tabs, macID = ws.macID
+                let drops = settings.macCardsDrop
+                Task { await ListStressMacCards.seed(tabs: seeded, macID: macID, drops: drops) }
+            }
             try? await Task.sleep(for: .seconds(1))
             // Opening the workspace from the list (the push and its first page).
             FrameIntervalLog.shared.begin("tabs-push")

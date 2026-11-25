@@ -42,6 +42,7 @@ enum AgentHandlers {
         registry.bind("agentPaneZoomIn", run: { invocation in try setAgentPaneZoom("agentPaneZoomIn", by: AgentPaneZoomSetting.step, context: context, invocation: invocation) })
         registry.bind("agentPaneZoomOut", run: { invocation in try setAgentPaneZoom("agentPaneZoomOut", by: -AgentPaneZoomSetting.step, context: context, invocation: invocation) })
         registry.bind("agentPaneZoomReset", run: { invocation in try resetAgentPaneZoom(context, invocation: invocation) })
+        registry.bindEffect("agentPaneReload", effect: { focusedAgentView("agentPaneReload", context, $0)?.reloadForPerson(); return .done })
         // The Chief chat follows the same setting (HomeNativeTranscriptView.followZoom): no view to look up.
         registry.bindEffect("home.zoomIn", requires: nil, effect: { _ in
             try stepAgentPaneZoom(by: AgentPaneZoomSetting.step, context: context)
@@ -112,11 +113,13 @@ enum AgentHandlers {
         // A chat tab's Move to Floating Chat (cx-b9qi): the same panel holds its session.
         context.services.agentTabs.moveToFloatingChat = { [weak services = context.services] in services?.quickComposer.moveToFloatingChat(session: $0) ?? false }
         // Computer Use Setup: one model (`ComputerUseSetup`) behind the palette, the CLI, the
-        // Settings card and the onboarding step. Setup opens the guided step; the two grant
-        // actions open their Privacy & Security list.
-        registry.bind("palette.computerUse.setup", run: { _ in
-            context.services.onboarding.computerUseSetup.recheck()
-            context.services.onboarding.show(step: .computerUse)
+        // Settings card and the onboarding step. Every entry opens the guided window; the two grant
+        // actions also start that grant's Allow there (System Settings with the drag panel) on the
+        // person's own run in this app (never a `focus` request, a page or the socket). An agent's run (`cmux action run palette.computerUse.setup` after a
+        // tool call found Computer Use off) only opens the window, without the keys.
+        registry.bindEffect("palette.computerUse.setup", effect: { invocation in
+            context.services.onboarding.showComputerUse(inFront: invocation.allowsViewChange, byPerson: invocation.isPersonsOwnRun)
+            return .done
         })
         registry.bindEffect("palette.computerUse.restart", effect: { _ in
             guard let restart = context.services.onboarding.computerUseSetup.prepareRestart() else { return .done }
@@ -145,8 +148,13 @@ enum AgentHandlers {
             })
         }
         context.services.cmuxRemote.bindApprovalSuggestions(into: registry)
-        registry.bind("palette.computerUse.accessibility", run: { _ in context.services.onboarding.computerUseSetup.open(.accessibility) })
-        registry.bind("palette.computerUse.screenRecording", run: { _ in context.services.onboarding.computerUseSetup.open(.screenRecording) })
+        for (id, pane) in [("palette.computerUse.accessibility", .accessibility), ("palette.computerUse.screenRecording", .screenRecording)]
+            as [(ActionID, ComputerUsePermissionPane)] {
+            registry.bindEffect(id, effect: { invocation in
+                context.services.onboarding.showComputerUse(allowing: pane, inFront: invocation.allowsViewChange, byPerson: invocation.isPersonsOwnRun)
+                return .done
+            })
+        }
         registry.bindAgentPane(customizeRows: { context.services.settings?.snapshot.customizeFromTheApp == true }) { invocation in
             if openOnHost(invocation, context: context) { return }
             openLocalChat(invocation, context: context)
@@ -316,8 +324,7 @@ enum AgentHandlers {
     private static let agentPaneZoomPath = AgentPaneZoomSetting.configPath
 
     private static func focusedAgentView(_ id: ActionID, _ context: AppActionContext, _ invocation: ActionInvocation) -> AgentPaneView? {
-        guard let view = chatView(context, invocation) else { return context.registry.refuse(.noChat, id) }
-        return view
+        chatView(context, invocation) ?? context.registry.refuse(.noChat, id)
     }
 
     /// The agent chat of the invocation's tab, else its pane's selected tab; nil (no refusal) when it is none.
@@ -366,7 +373,7 @@ enum AgentHandlers {
     }
 
     static func openNewAgentChat(in pane: PaneController, invocation: ActionInvocation, context: AppActionContext) {
-        let placed = !(invocation.origin == .user && invocation.target?.kind == .pane && pane.plusChatIsTab) // the + menu, the pane's "…": a tab here
+        let placed = !(invocation.origin == .user && invocation.target?.kind == .pane && pane.plusChatIsTab) // the + menu: a tab here
         // Preserve Cmd-I exactly when no optional argument was supplied. Explicit CLI/MCP
         // arguments use the same seed consumed by the palette and the page handshake.
         guard !invocation.arguments.isEmpty else {

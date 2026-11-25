@@ -186,15 +186,25 @@ fn the_packer_carries_the_sdk_so_a_folder_outside_a_checkout_builds() {
     let entry = dev::write_packer(packer.path()).unwrap();
     let index = std::fs::read_to_string(&entry).unwrap();
     assert!(index.contains("export function section("), "the SDK's own source");
-    let relative: Vec<&str> = index
-        .lines()
-        .filter_map(|l| l.split(" from \"").nth(1)?.split('"').next())
-        .filter(|p| p.starts_with('.'))
-        .collect();
-    assert!(!relative.is_empty(), "the SDK imports its tables");
-    for path in relative {
-        let file = entry.parent().unwrap().join(path);
-        assert!(file.is_file(), "{path} is carried with the SDK ({})", file.display());
+    // Check imports in every runtime module, including transitive imports and re-exports.
+    for (path, source) in scaffold::runtime_sdk_files() {
+        if !path.ends_with(".ts") {
+            continue;
+        }
+        let parent = packer.path().join(path);
+        let parent = parent.parent().unwrap();
+        for line in source.lines().map(str::trim_start) {
+            if !(line.starts_with("import ") || line.starts_with("export ")) {
+                continue;
+            }
+            let specifier = line.split_once(" from ").map_or(&line[7..], |(_, from)| from);
+            if let Some(quote @ ('"' | '\'')) = specifier.chars().next()
+                && let Some((import, _)) = specifier[1..].split_once(quote)
+                && import.starts_with('.')
+            {
+                assert!(parent.join(import).is_file(), "{path} imports missing {import}");
+            }
+        }
     }
     // `cmux-extension-sdk/customize`, written from this build's schema.
     let types = entry.parent().unwrap().join("generated/customize.ts");
@@ -1109,7 +1119,7 @@ fn a_record_that_cannot_be_written_fails_the_shot() {
     assert_eq!(json["exitCode"], exit::RECORD_FAILED);
     assert!(json["recorded"]["error"].as_str().unwrap().starts_with("cannot create"));
     // Nothing drawn to record is a failed record too, not a quiet success.
-    let mut nothing = outcome.clone();
+    let mut nothing = outcome;
     nothing.recorded.clear();
     let recorded = shot::record(&dir, &nothing);
     assert!(recorded.as_ref().unwrap_err().starts_with("nothing to record"), "{recorded:?}");
@@ -1216,8 +1226,14 @@ fn parses_add_share_and_search() {
         parse(&words("add ./x --no-install")),
         Ok(Request::Add(share::AddOptions { source: "./x".into(), install: false }))
     );
-    assert_eq!(parse(&words("share")), Ok(Request::Share { dir: None }));
-    assert_eq!(parse(&words("share ext/x")), Ok(Request::Share { dir: Some("ext/x".into()) }));
+    assert_eq!(
+        parse(&words("share")),
+        Ok(Request::Share { dir: ".".into(), name: None, private: false })
+    );
+    assert_eq!(
+        parse(&words("share ext/x")),
+        Ok(Request::Share { dir: "ext/x".into(), name: None, private: false })
+    );
     assert_eq!(parse(&words("search")), Ok(Request::Search { query: None }));
     assert_eq!(
         parse(&words("search pull requests")),

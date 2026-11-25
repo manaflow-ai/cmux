@@ -81,16 +81,24 @@ async function parent(ctx: PlayContext) {
   await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-done"));
 }
 
-/// The right pane: the app opened it on the subagent. Its task names it, its own rows show, and
-/// Session Info stays closed though the parent's is open.
+/// The right pane: the app opened it on the subagent. Its task names its tab, its own rows show from
+/// the top as a chat's do, with no line naming the chat it came from (Leo, 2026-11-22), and Session
+/// Info stays closed though the parent's is open.
 async function child(ctx: PlayContext) {
-  const page = ctx.document.defaultView as unknown as { cmuxAcpmuxBridge?: { revealTurn?(id: string): void } };
+  const page = ctx.document.defaultView as unknown as {
+    cmuxAcpmuxBridge?: { revealTurn?(id: string): void };
+    cmuxGalleryLog?: { method: string; params?: { title?: string } }[];
+  };
   page.cmuxAcpmuxBridge?.revealTurn?.(`subagent:${REVIEW}`);
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-of__task"));
-  const title = ctx.find({ selector: ".cv-subagent-of" }).textContent ?? "";
+  await ctx.waitFor(() => ctx.document.body.textContent?.includes("Forty-two pull requests merged"));
+  const shown = () => page.cmuxGalleryLog?.filter((call) => call.method === "chat.subagentShown").at(-1)?.params?.title;
+  await ctx.waitFor(() => Boolean(shown()));
+  const title = shown() ?? "";
   if (!title.includes("Review October engineering work")) throw new Error(`the child pane is not titled: ${title}`);
   if (UUID.test(title) || title.includes(REVIEW)) throw new Error(`the child pane shows a raw id: ${title}`);
-  await ctx.waitFor(() => ctx.document.body.textContent?.includes("Forty-two pull requests merged"));
+  const text = ctx.document.querySelector(".acpmux-scroll")?.textContent ?? "";
+  if (text.includes("Subagent of") || text.includes("October engineering review"))
+    throw new Error("the child pane names the chat it came from");
   await ctx.waitFor(() => !ctx.document.querySelector(shownPanel));
 }
 
@@ -101,7 +109,7 @@ export default agentPaneEntry({
   title: "Subagent opened in the right split",
   area: "Agent pane",
   height: 640,
-  covers: ["agent-session/acpmux/subagents/SubagentGroup.tsx#SubagentOfRow"],
+  covers: ["agent-session/acpmux/subagents/SubagentViewCorner.tsx#SubagentViewCorner"],
   keywords: ["subagent", "split", "right", "task", "session info"],
   variants: {
     parent: {
