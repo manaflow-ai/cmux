@@ -1030,7 +1030,8 @@ mod tests {
             feed(&mut c, &mut t, &[HOT; DEMOTE_AFTER as usize]);
             assert!(c.demoting());
             needed.push(c.needed());
-            feed(&mut c, &mut t, &vec![EIGHTY; c.needed() as usize]);
+            let clear = vec![EIGHTY; c.needed() as usize];
+            feed(&mut c, &mut t, &clear);
             assert!(!c.demoting());
         }
         assert_eq!(needed[..4], [PROMOTE_AFTER, PROMOTE_AFTER * 2, PROMOTE_AFTER * 4, 24]);
