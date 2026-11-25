@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use cmux_braid_session::LinkFacts;
 use cmux_remote_protocol::{FrameFlags, Lane, LanePolicy, SessionId};
+use futures_util::future::{AbortHandle, Abortable};
 use futures_util::stream::{FuturesUnordered, StreamExt};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, Notify, RwLock, oneshot, watch};
@@ -1124,10 +1125,21 @@ impl ClientConnection {
     /// can both look connected; if the one committed here is the one the daemon closed, its
     /// link fails at once and the next round redials, as after any lost link.
     ///
+    /// Waves. A route that says nothing leaves its dial waiting on its transport's backoff: a
+    /// TCP SYN is sent again after 1, 2, 4 and 8 s, a QUIC Initial likewise, so a network that
+    /// comes back with no change event (a tunnel, a lift, 8 s of loss) carried the link 2.7 to
+    /// 3.8 s later on the routes bench. So while the round has no winner, every
+    /// [`REDIAL_WAVE`] the source runs one more pass, and the route it opens races the ones
+    /// still hanging: a fresh dial, the same route included. A network change starts a wave at
+    /// once and no longer ends the round (the round's dials on the network that stayed were
+    /// dropped with it). At most [`REDIAL_WAVE_PASSES`] passes and [`REDIAL_WAVE_RACERS`]
+    /// handshakes are in flight; the oldest makes room. `CMUX_REMOTE_REDIAL_WAVE_MS=0` turns
+    /// waves off.
+    ///
     /// `stagger: None` dials the lead alone (no source, or `CMUX_REMOTE_REDIAL_RACE=0`).
     /// `resolved` gets the last route the source handed over, for the caller's next round.
-    async fn race_redial(
-        &self,
+    async fn race_redial<'a>(
+        &'a self,
         lead: Arc<dyn LinkGroup>,
         lead_bound: Option<Duration>,
         stagger: Option<Duration>,
@@ -1135,20 +1147,45 @@ impl ClientConnection {
     ) -> Result<(), ConnectionError> {
         let round = self.begin_redial().await?;
         let source = self.reconnect_groups.as_deref().filter(|_| stagger.is_some());
+        let wave = source.and(redial_wave());
         let stagger = stagger.unwrap_or_default();
         let resolution_bound = self.config.reconnect.attempt_timeout;
         let racers = REDIAL_RACERS.min(self.redial_alternates().saturating_add(1));
+        let mut network = self.network.subscribe();
+        network.borrow_and_update();
+        // One racer: abortable, so a wave can take the oldest one's place.
+        let racer = |group: Arc<dyn LinkGroup>, lead: bool, bound: Option<Duration>| {
+            let (handle, registration) = AbortHandle::new_pair();
+            (handle, Abortable::new(self.redial_racer(&round, group, lead, bound), registration))
+        };
+        // One pass of the source: the stagger chain's (`wave: false`) or a wave's.
+        let pass = |source: &'a dyn ReconnectGroupSource, wave: bool| {
+            let (handle, registration) = AbortHandle::new_pair();
+            let pass =
+                async move { (wave, resolve_reconnect_group(source, resolution_bound).await) };
+            (handle, Abortable::new(Box::pin(pass), registration))
+        };
+        // Every group this round dialed (the winner's losers are closed), and the ones whose
+        // handshake is still in flight, oldest first.
         let mut racing = vec![lead.clone()];
+        let mut flying = std::collections::VecDeque::new();
         let mut handshakes = FuturesUnordered::new();
-        handshakes.push(self.redial_racer(&round, lead, true, lead_bound));
-        let mut discovery = None;
+        let (handle, first) = racer(lead.clone(), true, lead_bound);
+        flying.push_back((lead, handle));
+        handshakes.push(first);
+        let mut passes = FuturesUnordered::new();
+        let mut wave_passes = std::collections::VecDeque::new();
+        let mut chain_pending = false;
         let mut sourced_out = source.is_none();
         let mut next_at = Some(tokio::time::Instant::now() + stagger);
+        let mut wave_at = wave.map(|wave| tokio::time::Instant::now() + wave);
         let mut last_error = None;
         loop {
-            let may_start = !sourced_out && discovery.is_none() && racing.len() < racers;
-            if handshakes.is_empty() && discovery.is_none() {
+            let may_start = !sourced_out && !chain_pending && racing.len() < racers;
+            if flying.is_empty() && !chain_pending {
                 if !may_start {
+                    // Every route answered with a failure: the caller's backoff decides when
+                    // to try again. Waves are for routes that say nothing.
                     return Err(last_error.unwrap_or(ConnectionError::ReconnectAttemptTimedOut {
                         timeout: resolution_bound,
                     }));
@@ -1158,7 +1195,10 @@ impl ClientConnection {
             }
             tokio::select! {
                 biased;
-                Some((group, took, result)) = handshakes.next(), if !handshakes.is_empty() => {
+                Some(ended) = handshakes.next(), if !handshakes.is_empty() => {
+                    // An aborted racer: a wave took its place.
+                    let Ok((group, took, result)) = ended else { continue };
+                    flying.retain(|(racer, _)| !Arc::ptr_eq(racer, &group));
                     match result {
                         Ok(established) => {
                             // Closed now, not when its last handle drops: until then a
@@ -1182,24 +1222,77 @@ impl ClientConnection {
                         }
                     }
                 }
-                found = pending_or(&mut discovery) => {
-                    discovery = None;
-                    match found {
-                        Some(group) if !racing.iter().any(|racer| same_route(racer, &group)) => {
+                Some(ended) = passes.next(), if !passes.is_empty() => {
+                    match ended {
+                        // The oldest wave pass, dropped for a newer one.
+                        Err(_) => {}
+                        Ok((false, found)) => {
+                            chain_pending = false;
+                            match found {
+                                Some(group)
+                                    if !racing.iter().any(|racer| same_route(racer, &group)) =>
+                                {
+                                    *resolved
+                                        .lock()
+                                        .unwrap_or_else(std::sync::PoisonError::into_inner) =
+                                        Some(group.clone());
+                                    racing.push(group.clone());
+                                    let (handle, next) = racer(group.clone(), false, None);
+                                    flying.push_back((group, handle));
+                                    handshakes.push(next);
+                                    next_at = Some(tokio::time::Instant::now() + stagger);
+                                }
+                                // The source has no other route (it handed back one already
+                                // racing), or found none in time.
+                                _ => sourced_out = true,
+                            }
+                        }
+                        // A wave's pass opened a route just now, so the network carries it
+                        // now: it races whatever is still hanging, the same route too (a dial
+                        // from before a drop waits out its transport's backoff). The same
+                        // group handed back is no fresh dial.
+                        Ok((true, Some(group)))
+                            if !flying.iter().any(|(racer, _)| Arc::ptr_eq(racer, &group)) =>
+                        {
+                            if flying.len() >= REDIAL_WAVE_RACERS
+                                && let Some((oldest, handle)) = flying.pop_front()
+                            {
+                                handle.abort();
+                                oldest.abandon();
+                            }
                             *resolved.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
                                 Some(group.clone());
                             racing.push(group.clone());
-                            handshakes.push(self.redial_racer(&round, group, false, None));
-                            next_at = Some(tokio::time::Instant::now() + stagger);
+                            let (handle, next) = racer(group.clone(), false, None);
+                            flying.push_back((group, handle));
+                            handshakes.push(next);
                         }
-                        // The source has no other route (it handed back one already racing),
-                        // or found none in time.
-                        _ => sourced_out = true,
+                        Ok((true, _)) => {}
                     }
+                }
+                // A network change is a wave now, not the end of the round: what is in flight
+                // on the network that stayed keeps going, and a fresh pass dials on the new one.
+                Ok(()) = network.changed(), if wave.is_some() => {
+                    wave_at = Some(tokio::time::Instant::now());
                 }
                 () = sleep_until_or_never(next_at), if may_start => {
                     if let Some(source) = source {
-                        discovery = Some(Box::pin(resolve_reconnect_group(source, resolution_bound)));
+                        let (_, next) = pass(source, false);
+                        passes.push(next);
+                        chain_pending = true;
+                    }
+                }
+                () = sleep_until_or_never(wave_at), if wave.is_some() => {
+                    if let (Some(source), Some(wave)) = (source, wave) {
+                        if wave_passes.len() >= REDIAL_WAVE_PASSES
+                            && let Some(oldest) = wave_passes.pop_front()
+                        {
+                            AbortHandle::abort(&oldest);
+                        }
+                        let (handle, next) = pass(source, true);
+                        wave_passes.push_back(handle);
+                        passes.push(next);
+                        wave_at = Some(tokio::time::Instant::now() + wave);
                     }
                 }
             }
@@ -1484,6 +1577,8 @@ impl ClientConnection {
             // while it is in flight abandons it.
             network.borrow_and_update();
             let mut network_moved = false;
+            // A raced round takes a network change as a wave ([`Self::race_redial`]).
+            let waves = stagger.is_some() && redial_wave().is_some();
             let dial = tokio::time::timeout(attempt_timeout, async {
                 match stagger {
                     Some(_) => {
@@ -1500,7 +1595,7 @@ impl ClientConnection {
                     reconnect = &mut dial => break reconnect,
                     // A dial on the network that just went away may hang until
                     // its timeout; drop it and dial on the new one.
-                    _ = network.changed() => {
+                    _ = network.changed(), if !waves => {
                         network_moved = true;
                         break Ok(Err(ConnectionError::Link(LinkError::Transport(
                             "network changed during the redial".into(),
@@ -1963,6 +2058,26 @@ const REDIAL_STAGGER_CEILING: Duration = Duration::from_secs(2);
 /// The stagger of a redial with no handshake time to go by (RFC 8305's default delay).
 const REDIAL_STAGGER_UNKNOWN: Duration = Duration::from_millis(250);
 
+/// How often a redial round with no winner dials afresh ([`ClientConnection::race_redial`]).
+/// The source's pass staggers its own routes behind its first, so with three routes a fresh
+/// dial leaves about every 250 ms.
+const REDIAL_WAVE: Duration = Duration::from_millis(750);
+/// Passes of the source a round keeps in flight for its waves: the oldest is 3 s old when it
+/// makes room, longer than a route takes to open on any network that carries a terminal.
+const REDIAL_WAVE_PASSES: usize = 4;
+/// Handshakes a round keeps in flight once waves add to them.
+const REDIAL_WAVE_RACERS: usize = 6;
+
+/// The wave interval: [`REDIAL_WAVE`], or `CMUX_REMOTE_REDIAL_WAVE_MS` (0: no waves, and a
+/// network change ends the round as before).
+fn redial_wave() -> Option<Duration> {
+    let wave = match std::env::var("CMUX_REMOTE_REDIAL_WAVE_MS").ok().map(|ms| ms.parse::<u64>()) {
+        Some(Ok(ms)) => Duration::from_millis(ms),
+        _ => REDIAL_WAVE,
+    };
+    (!wave.is_zero()).then_some(wave)
+}
+
 /// `CMUX_REMOTE_REDIAL_RACE=0` dials one route per redial again (the A/B for the race's
 /// numbers, and the switch if it misbehaves).
 fn redial_race_enabled() -> bool {
@@ -1973,14 +2088,6 @@ fn redial_race_enabled() -> bool {
 /// carrier facts (a source with one route hands back a new group for it each time).
 fn same_route(a: &Arc<dyn LinkGroup>, b: &Arc<dyn LinkGroup>) -> bool {
     Arc::ptr_eq(a, b) || (a.description() == b.description() && a.evidence() == b.evidence())
-}
-
-/// The future in `slot`, or one that never ends without one.
-async fn pending_or<F: Future + Unpin>(slot: &mut Option<F>) -> F::Output {
-    match slot {
-        Some(future) => future.await,
-        None => std::future::pending().await,
-    }
 }
 
 /// Waits until `at`, or forever without one.
