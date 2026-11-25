@@ -34,6 +34,7 @@ mod router_owner;
 pub(crate) use router_owner::router_owner_path;
 use router_owner::{ensure_router, release_router};
 mod app_orphan;
+pub(crate) use app_orphan::in_dev_bundle;
 #[cfg(unix)]
 pub(crate) use app_orphan::is_app_acpmux;
 // Decided on every platform so its tests run everywhere; used on macOS only.
@@ -1224,6 +1225,9 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             cloud_activity::activity_loop(hub.clone())
         });
     }
+    // Auto mode's holder loop on a laptop (`auto_session/laptop.rs`). It asks the Cloud once for
+    // the person's Auto chats this laptop does not have, then nothing until a chat has Auto on.
+    let _auto_session = crate::auto_session::laptop::start(hub.clone());
     // An update that moves this executable away swaps to the installed build, make-before-break
     // (F9, `daemon/exe_swap.rs`). Ended with the runtime.
     #[cfg(any(target_os = "linux", target_os = "macos"))]
