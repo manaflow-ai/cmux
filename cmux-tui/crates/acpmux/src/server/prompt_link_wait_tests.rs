@@ -89,6 +89,9 @@ fn cli_hello() -> Value {
 /// a prompt go.
 async fn link_up(hub: &Arc<Hub>, peer: &crate::peer::Peer) {
     peer.open_link_for_tests();
+    // A finished handshake from a current daemon advertises the trust gate, which a prompt
+    // from the app's pane (`Origin::LocalApp`, gated) needs to go out.
+    peer.seed_trust_gate(true);
     hub.seed_peer_back(peer, vec![row()]);
     let notice = (peer.name.clone(), peer.generation, crate::peer::PeerNotice::Connected);
     let _ = hub.peer_notices.send(notice).await;
