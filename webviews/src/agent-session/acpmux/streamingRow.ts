@@ -98,6 +98,39 @@ export function useStreamingRowCatchUp(active: boolean): { live: StreamingRow | 
   return { live: active ? live : undefined, catchUp };
 }
 
+/// `row` drawn with `live`: the reply's newer text and version, or the live line's `quietKey` naming
+/// the reply's newer version (turns.ts `quietKey`: the line stays quiet while the reply's text moves).
+export function streamedRow(row: AcpmuxRow, live: StreamingRow): AcpmuxRow {
+  if (row.kind === "assistant") {
+    if (row.id !== live.row.id || row.text !== live.drawnText) return row;
+    return { ...row, text: live.row.text, version: row.version + live.ahead };
+  }
+  const key = row.quietKey;
+  if (typeof key !== "string") return row;
+  const at = key.lastIndexOf(":");
+  if (at < 0 || key.slice(0, at) !== live.row.id) return row;
+  const version = Number(key.slice(at + 1));
+  if (!Number.isFinite(version)) return row;
+  return { ...row, quietKey: `${live.row.id}:${version + live.ahead}`, version: row.version + live.ahead };
+}
+
+/// `rows` with the streaming reply's newer text (`streamedRow`), the same array when there is none.
+/// For what reads the rows at a person's action (copy, Find as it opens), not per chunk.
+export function rowsWithStreamingRow(rows: readonly AcpmuxRow[]): readonly AcpmuxRow[] {
+  const live = current;
+  if (!live) return rows;
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index]!;
+    if (row.id !== live.row.id) continue;
+    const next = streamedRow(row, live);
+    if (next === row) return rows;
+    const copy = rows.slice();
+    copy[index] = next;
+    return copy;
+  }
+  return rows;
+}
+
 /// Whether the pane may draw a streamed chunk through the row alone: false while a view that reads
 /// the reply's text from the pane's snapshot is open (an artifact following an open fence, Find),
 /// so that view stays exact (review of #34004).
