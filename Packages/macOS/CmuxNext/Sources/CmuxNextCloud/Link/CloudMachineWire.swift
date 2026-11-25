@@ -86,8 +86,8 @@ public final class CloudMachineWire {
             } catch {}
             let delay = cmux_retry_pacer_failed(&retry, Double.random(in: 0..<1))
             guard delay >= 0 else { return }
-            // concurrency-allow: this is a cancellable async sleep after an actual socket failure, not a blocking wait.
             do {
+                // concurrency-allow: ContinuousClock.sleep suspends this task and never blocks the main actor.
                 try await ContinuousClock().sleep(for: .nanoseconds(delay))
                 WakeupLedger.shared.record("cloud.machine.wire.reconnect", reason: "backoff")
             } catch {
