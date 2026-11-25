@@ -60,9 +60,11 @@ def measure(sha: str) -> dict:
     commit = api(f"commits/{sha}")
     merged = ts(commit["commit"]["committer"]["date"])
     best = None
-    for wf in WORKFLOWS:
-        runs = api(f"actions/workflows/{wf}/runs?head_sha={sha}&event=push&per_page=10").get("workflow_runs", [])
-        for run in runs:
+    # By path, not actions/workflows/FILE: that resolves FILE on main, where these workflows are absent.
+    every = api(f"actions/runs?head_sha={sha}&event=push&per_page=100").get("workflow_runs", [])
+    for run in every:
+        wf = run.get("path", "").rsplit("/", 1)[-1]
+        if wf in WORKFLOWS:
             jobs = api(f"actions/runs/{run['id']}/jobs?per_page=100").get("jobs", [])
             built = any("build" in j["name"] and j.get("conclusion") == "success" and "cmux-tui" in j["name"].lower()
                         or "build-machine-channel" in j["name"] and j.get("conclusion") == "success" for j in jobs)
