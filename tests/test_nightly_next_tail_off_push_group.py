@@ -171,8 +171,8 @@ else:
         if "nightly.yml" not in run or re.findall(r"-f (\w+)=", run) != ["nightly_next_post_publish"]:
             failures.append("dispatch-published-in must dispatch nightly.yml with only -f nightly_next_post_publish=")
     runs_on = workflow_jobs.single_runs_on(dispatch)
-    if "blacksmith" in runs_on.lower() or "CI_NIGHTLY_MINI" not in runs_on:
-        failures.append("dispatch-published-in runs on the nightly mini, as published-build")
+    if "blacksmith" in runs_on.lower() or "cmux-gcp-nightly-x64" not in runs_on:
+        failures.append("dispatch-published-in runs on the nightly's reserved Linux label, as published-build")
 if TEXT.count("-f nightly_next_post_publish=") > 1:
     failures.append("only dispatch-published-in dispatches a tail run")
 if "fromJSON(inputs.nightly_next_post_publish)" in TEXT:
