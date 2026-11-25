@@ -85,7 +85,7 @@ async function runStep(name: string, inputs: Inputs, dir: string, snapshot = "sh
   writeFileSync(stub, `#!/usr/bin/env bash\nprintf '%s\\n' "$*" >> "${path.join(dir, "bun.argv")}"\n[ -z "$FREESTYLE_API_KEY_FILE" ] || echo "key-in-env=$(env | grep -c s3cr3t || true) file-mode=$(stat -c %a "$FREESTYLE_API_KEY_FILE" 2>/dev/null || stat -f %Lp "$FREESTYLE_API_KEY_FILE")" >> "${path.join(dir, "bun.env")}"\ncase "$1" in *bake.ts) echo "IMAGE_ID ${snapshot}"; case " $* " in *" --large "*) echo "LARGE_IMAGE_ID ${LARGE_SNAPSHOT}";; esac;; *prod-copy.ts) [ "$2" != plan ] || printf '%b' '${extra.bunOut ?? ""}';; esac\n`);
   chmodSync(stub, 0o755);
   const ctx = { inputs, out, snapshot, key: extra.key ?? "", plan: extra.plan ?? {}, missing: extra.missing, smokePassed: extra.smokePassed };
-  const env: Record<string, string> = { PATH: `${bin}:${process.env.PATH}`, GITHUB_OUTPUT: path.join(dir, "github-output"), GITHUB_SHA: "0123456789abcdef0123456789abcdef01234567", GITHUB_REF: extra.ref ?? "refs/heads/feat-cmux-next", RUNNER_TEMP: dir };
+  const env: Record<string, string> = { HOME: dir, PATH: `${bin}:${process.env.PATH}`, GITHUB_OUTPUT: path.join(dir, "github-output"), GITHUB_SHA: "0123456789abcdef0123456789abcdef01234567", GITHUB_REF: extra.ref ?? "refs/heads/feat-cmux-next", RUNNER_TEMP: dir };
   for (const [k, v] of Object.entries(job.env)) env[k] = evaluate(v, ctx);
   for (const [k, v] of Object.entries(step(name).env ?? {})) env[k] = evaluate(v, ctx);
   const result = await runChild("bash", ["-e", "-c", step(name).run!], { env, cwd: dir });
@@ -298,17 +298,26 @@ describe("cloud-vm-image-bake.yml large_image", () => {
     const largeSmoke = path.join(out, `smoke-large-${tag}.json`);
     writeFileSync(path.join(out, `smoke-${tag}.json`), JSON.stringify({ passed: true, checks: { a: { ok: true } } }));
 
+    // jq loads HOME/.jq for each invocation. Replay the second boundary that failed in CI without waiting.
+    const before = "2026-11-21T23:15:13Z";
+    const after = "2026-11-21T23:15:14Z";
+    const setClock = (at: string) => writeFileSync(path.join(dir, ".jq"), `def now: "${at}" | fromdate;\n`);
+    setClock(before);
+
     // Today's candidate: no large image baked.
     writeFileSync(bakeJson, JSON.stringify(bakeRecord));
     expect((await runStep("Dev channel candidate", inputs, dir)).result.status).toBe(0);
     const today = candidateOf(out);
+    expect(today).toMatchObject({ baked_at: before, smoke: { at: before }, cmux_tui: { committed_at: before } });
     expect(today).not.toHaveProperty("large");
 
-    // Baked and smoked: `large` is added, every other field is today's.
+    // Baked and smoked one second later.
+    setClock(after);
     writeFileSync(bakeJson, JSON.stringify({ ...bakeRecord, large: largeRecord }));
     writeFileSync(largeSmoke, JSON.stringify({ snapshotId: LARGE_SNAPSHOT, passed: true, checks: { a: { ok: true }, b: { ok: true }, c: { ok: true } } }));
     expect((await runStep("Dev channel candidate", inputs, dir)).result.status).toBe(0);
     const recorded = candidateOf(out);
+    expect(recorded).toMatchObject({ baked_at: after, smoke: { at: after }, cmux_tui: { committed_at: after } });
     expect(recorded.large).toMatchObject({
       snapshot: `${name}-large`,
       snapshot_id: LARGE_SNAPSHOT,
