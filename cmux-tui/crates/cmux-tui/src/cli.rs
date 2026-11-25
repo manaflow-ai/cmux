@@ -192,6 +192,9 @@ mod safe_mode;
 mod repro;
 #[cfg(unix)]
 mod sandbox_run;
+// `cmux search QUERY`: sessions, workspaces, scrollback and browser history (cli/search.rs).
+#[cfg(unix)]
+mod search;
 #[cfg(unix)]
 mod start_stages;
 #[cfg(unix)]
@@ -1106,6 +1109,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| sandbox_run::run_if_requested(args))
         .or_else(|| cloud_journey::run_if_requested(args))
         .or_else(|| repro::run_if_requested(args))
+        .or_else(|| search::run_if_requested(args))
         .or_else(|| migrate::run_if_requested(args))
         .or_else(|| vm::run_if_requested(args))
         .or_else(|| vnc::run_if_requested(args))
