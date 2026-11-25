@@ -1,7 +1,7 @@
 import Foundation
 
 // Automatic sessions (`sidebar.showAutomaticSessions`, off by default): which listed rows fold behind their list's
-// "Automatic (N)" row. The rule is Rust's (`SidebarAutomaticPlanner`); the model asks once per change of its rows and
+// "From scripts (N)" row. The rule is Rust's (`SidebarAutomaticPlanner`); the model asks once per change of its rows and
 // keeps the answer for every layout and Cmd-number order of that change.
 extension SidebarModel {
     /// The automatic sessions among the listed rows: empty with `sidebar.showAutomaticSessions` on. Cached by
@@ -21,7 +21,7 @@ extension SidebarModel {
         return automatic
     }
 
-    /// Whether a row patch from `old` to `new` moves the row in or out of its list's "Automatic (N)" row: who made it,
+    /// Whether a row patch from `old` to `new` moves the row in or out of its list's "From scripts (N)" row: who made it,
     /// or whether an automatic row needs the person.
     static func automaticMoves(from old: SidebarWorkspace, to new: SidebarWorkspace) -> Bool {
         let before = SidebarAutomaticPlanner.Facts(old, pinned: false), after = SidebarAutomaticPlanner.Facts(new, pinned: false)

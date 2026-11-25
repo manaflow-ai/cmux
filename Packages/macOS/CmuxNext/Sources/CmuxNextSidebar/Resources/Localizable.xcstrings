@@ -47215,133 +47215,133 @@
       }
     },
     "sidebar.automaticFold.title": {
-      "comment": "Sidebar fold row holding the sessions no person started (scripts, automations); %lld is how many.",
+      "comment": "Sidebar fold row holding the sessions a script, automation or launcher opened (no person or agent); says where they came from, not \"Automatic\", which read as automatic renaming; %lld is how many.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تلقائية (%lld)"
+            "value": "من البرامج النصية (%lld)"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Automatske (%lld)"
+            "value": "Iz skripti (%lld)"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Automatiske (%lld)"
+            "value": "Fra scripts (%lld)"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Automatisch (%lld)"
+            "value": "Aus Skripten (%lld)"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Automatic (%lld)"
+            "value": "From scripts (%lld)"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Automáticas (%lld)"
+            "value": "De scripts (%lld)"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Automatiques (%lld)"
+            "value": "Depuis des scripts (%lld)"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Automatiche (%lld)"
+            "value": "Da script (%lld)"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "自動 (%lld)"
+            "value": "スクリプトから (%lld)"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ស្វ័យប្រវត្តិ (%lld)"
+            "value": "ពីស្គ្រីប (%lld)"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "자동 (%lld)"
+            "value": "스크립트에서 (%lld)"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Automatiske (%lld)"
+            "value": "Fra skript (%lld)"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Automatyczne (%lld)"
+            "value": "Ze skryptów (%lld)"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Automáticas (%lld)"
+            "value": "De scripts (%lld)"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Автоматические (%lld)"
+            "value": "Из скриптов (%lld)"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "อัตโนมัติ (%lld)"
+            "value": "จากสคริปต์ (%lld)"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Otomatik (%lld)"
+            "value": "Betiklerden (%lld)"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Автоматичні (%lld)"
+            "value": "Зі скриптів (%lld)"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tự động (%lld)"
+            "value": "Từ script (%lld)"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "自动 (%lld)"
+            "value": "来自脚本 (%lld)"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "自動 (%lld)"
+            "value": "來自腳本 (%lld)"
           }
         }
       }

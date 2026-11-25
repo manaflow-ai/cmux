@@ -2,7 +2,7 @@ public import Foundation
 
 /// Automatic sessions (`sidebar.showAutomaticSessions`, off by default): a workspace no person started and that is no
 /// chat's subagent (a script, an automation, a launcher or a daemon made it; its daemon recorded `created_by` kind
-/// `script` at the create) leaves its list's working order for one "Automatic (N)" row at the list's end
+/// `script` at the create) leaves its list's working order for one "From scripts (N)" row at the list's end
 /// (`SidebarLayout.foldingDone`); the row opens them below it. A person's rows and subagents always show, and so does an
 /// automatic row that is pinned or needs the person.
 ///

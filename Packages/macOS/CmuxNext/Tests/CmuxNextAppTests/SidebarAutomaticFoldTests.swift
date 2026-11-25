@@ -8,7 +8,7 @@ import Testing
 
 /// Automatic sessions (`sidebar.showAutomaticSessions`, off by default; Leo: "A LOT OF THESE SESSIONS ID IMAGINE DIDNT
 /// NECESSSARILY NEED TO SHOW UP ON THE SIDE BY DEFAULT"): a session no person started and that is no chat's subagent
-/// (its daemon recorded `created_by` kind `script`) folds into "Automatic (N)" at the end of its list; a person's rows
+/// (its daemon recorded `created_by` kind `script`) folds into "From scripts (N)" at the end of its list; a person's rows
 /// and subagents (kind `agent`) always show; the setting draws every row in place. The rule is Rust's
 /// (`sidebar_automatic_plan`).
 @MainActor @Suite(.serialized, .closesItsWindows) struct SidebarAutomaticFoldTests {

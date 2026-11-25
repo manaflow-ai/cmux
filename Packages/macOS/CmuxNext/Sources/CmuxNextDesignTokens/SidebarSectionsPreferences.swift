@@ -143,7 +143,7 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     public var settleFinished = false
     /// `sidebar.showAutomaticSessions`: sessions no person started and no chat's subagent (a script, an automation, a
     /// launcher; the daemon records `created_by` kind `script`) draw in place. Off by default: they fold into an
-    /// "Automatic (N)" row at the end of their list (the rule is Rust's, `cmux-layout-reducer` `automatic`).
+    /// "From scripts (N)" row at the end of their list (the rule is Rust's, `cmux-layout-reducer` `automatic`).
     public var showAutomaticSessions = false
     /// `sidebar.showColors`: the sidebar draws workspace and group colors. Off draws none (a
     /// workspace's swatch goes, its symbol or emoji stays; a group draws as one with no color)

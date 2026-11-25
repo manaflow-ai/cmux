@@ -4,7 +4,7 @@
 //! A workspace no person started and that is no chat's subagent (a script, an
 //! automation, a launcher or a daemon opened it: the daemon records it at the
 //! create, `extra.created_by.kind` `script`) leaves its list's working order
-//! for one quiet "Automatic (N)" row at the list's end; the row opens them
+//! for one quiet "From scripts (N)" row at the list's end; the row opens them
 //! below it. A person's workspace (no record, or `person`) and a subagent (an
 //! agent session made it: `agent`, the chat it nests under) always show. So does an automatic row that is pinned or that needs the
 //! person (a question or a permission prompt waits): the fold never hides a
@@ -87,7 +87,7 @@ pub struct Request {
 /// The answer.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Plan {
-    /// Indices of the candidates that fold behind "Automatic (N)", in the
+    /// Indices of the candidates that fold behind "From scripts (N)", in the
     /// request's order.
     pub automatic: Vec<usize>,
 }
