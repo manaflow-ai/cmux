@@ -73,6 +73,9 @@ jobs:
       - name: H checks every tracked file
         id: tt-h
         run: python3 tests/test_h.py
+      - name: I lists source folders under a root it is handed
+        id: tt-i
+        run: python3 tests/test_i.py
 """
 FILES = {
     WORKFLOW: FIXTURE_WORKFLOW,
@@ -105,6 +108,29 @@ FILES = {
         import subprocess
         tracked = subprocess.run(["git", "ls-files", "-z"], capture_output=True).stdout
         """),
+    # ios_placeholder_bounds.py's shape: the root is a parameter (`--root`), the folders a tuple it loops over;
+    # the listing of a scratch folder names no repository directory and adds nothing.
+    "tests/test_i.py": textwrap.dedent("""\
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+        import check_i
+        """),
+    "scripts/check_i.py": textwrap.dedent("""\
+        import tempfile
+        from pathlib import Path
+        SOURCE_DIRS = ("app/Sources", "kit/Sources")
+        def sources(root: Path):
+            for rel in SOURCE_DIRS:
+                base = root / rel
+                yield from base.rglob("*.swift")
+        def scratch():
+            tmp = Path(tempfile.mkdtemp())
+            return list((tmp / "out").glob("*.json"))
+        """),
+    "app/Sources/Feature/View.swift": "struct V {}\n",
+    "kit/Sources/Kit.swift": "struct K {}\n",
+    "app/Other/Readme.swift": "struct R {}\n",
 }
 
 
@@ -149,7 +175,7 @@ class FixtureRepo(unittest.TestCase):
         decision = self.route(["webviews/src/pane.tsx"])
         self.assertFalse(decision.all)
         steps = self.verdicts(decision)
-        self.assertEqual({k for k, s in steps.items() if not s.run}, {"tt-a", "tt-b", "tt-f", "tt-g"})
+        self.assertEqual({k for k, s in steps.items() if not s.run}, {"tt-a", "tt-b", "tt-f", "tt-g", "tt-i"})
         # Setup steps are never selectable: they always run.
         self.assertNotIn("setup-python", steps)
 
@@ -172,7 +198,7 @@ class FixtureRepo(unittest.TestCase):
         self.assertIn("mystery_module_nowhere", steps["tt-c"].reason)
 
     def test_a_step_naming_no_test_or_hiding_its_script_runs(self):
-        steps = self.verdicts(self.route(["webviews/src/pane.tsx"]))
+        steps = self.verdicts(self.route(["docs/notes.md"]))
         self.assertTrue(steps["tt-d"].run)
         self.assertIn("no test", steps["tt-d"].reason)
         self.assertTrue(steps["tt-e"].run)
@@ -225,6 +251,15 @@ class FixtureRepo(unittest.TestCase):
                                                   "pull_request", ["webviews/src/new.tsx"]))
         self.assertTrue(steps["tt-h"].run, steps["tt-h"].reason)
 
+    def test_a_command_run_from_a_variable_is_judged_only_for_a_non_product_diff(self):
+        # tt-f's script runs `bash "$t"`: any file of tests/shell may run, so a tooling change runs it, but a diff of
+        # product source alone (which no tooling test reads) skips it.
+        steps = self.verdicts(self.route(["webviews/src/pane.tsx"]))
+        self.assertFalse(steps["tt-f"].run, steps["tt-f"].reason)
+        # With a file of its own directory in the diff, it runs.
+        steps = self.verdicts(self.route(["webviews/src/pane.tsx", "tests/shell/new.test.sh"]))
+        self.assertTrue(steps["tt-f"].run, steps["tt-f"].reason)
+
     def test_a_workflow_or_router_change_runs_every_step(self):
         for changed in (WORKFLOW, "scripts/ci/tooling_steps.py", "scripts/ci/workflow_paths_cover_inputs.py",
                         "scripts/ci/gh_expressions.py", "scripts/env.sh"):
@@ -256,6 +291,20 @@ class FixtureRepo(unittest.TestCase):
             self.assertEqual(values["tooling_all"], "false")
             self.assertEqual(values["tooling_steps"], " tt-a tt-c tt-d tt-e tt-h ")
             self.assertIn("`tt-b` B:", summary.read_text(encoding="utf-8"))
+
+    # A listing under a root the script is handed (`root / rel`, `--root`) is read as one under the repository: the
+    # walker used to drop it, so a change under those folders skipped the step and turned the base red after merge
+    # (tests/test_ios_placeholder_bounds.py, RecoveryGalleryRoot.swift, fixed on base by #55212).
+    def test_a_change_under_a_computed_root_listing_runs_the_step(self):
+        for changed in ("app/Sources/Feature/View.swift", "kit/Sources/Kit.swift"):
+            steps = self.verdicts(self.route([changed]))
+            self.assertTrue(steps["tt-i"].run, f"{changed}: {steps['tt-i'].reason}")
+            self.assertIn("lists", steps["tt-i"].reason)
+
+    def test_a_change_beside_a_computed_root_listing_skips_it(self):
+        steps = self.verdicts(self.route(["app/Other/Readme.swift"]))
+        self.assertFalse(steps["tt-i"].run, steps["tt-i"].reason)
+        self.assertFalse(steps["tt-a"].run, steps["tt-a"].reason)
 
 
 DECLARED_FIXTURE = """\
@@ -427,6 +476,12 @@ class RealWorkflow(unittest.TestCase):
         expected = [s["id"] for s in self.job["steps"] if "run" in s and not s["id"].startswith("setup-")]
         self.assertEqual([s.key for s in decision.steps], expected)
 
+    def test_an_iphone_swift_change_runs_the_placeholder_bounds_step(self):
+        decision = tooling_steps.route(ROOT, ".github/workflows/cmux-next-guards.yml", "tooling-tests",
+            ["cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/RecoveryGalleryRoot.swift"], "pull_request")
+        step = next(s for s in decision.steps if s.key == "tt-ios-placeholder-bounds")
+        self.assertTrue(step.run, step.reason)
+
     def test_the_route_step_runs_the_router_before_every_selected_step(self):
         steps = self.job["steps"]
         index = next(i for i, s in enumerate(steps) if s.get("id") == "setup-tooling-route")
@@ -444,7 +499,7 @@ class RealWorkflow(unittest.TestCase):
         # No routing job of its own: tooling-tests waits on coalesce and on the base-red check (#52891).
         self.assertEqual(self.job["needs"], ["coalesce", "tooling-tests-base-red"])
         self.assertNotIn("portable-placement", self.document["jobs"])
-        self.assertTrue(self.job["if"].startswith("${{ (!cancelled()"))
+        self.assertIn("(!cancelled() && needs.coalesce.outputs.run != 'false')", self.job["if"])  # after the draft tier
 
 
 if __name__ == "__main__":
