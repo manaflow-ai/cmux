@@ -1038,6 +1038,27 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/autofix"
           if [[ -f "$RUNNER_TEMP/pr-autofix-context/generator-inputs-verified" ]]; then
+            base_manifest="$RUNNER_TEMP/autofix-base-manifest"
+            git ls-tree -r --full-tree "$BASE_SHA" -- scripts/cmux-next scripts/ci |
+              awk '$2 == "blob" && $4 !~ /\/\.gitignore$/ { print $4 }' > "$base_manifest"
+            artifact_ok=true
+            while IFS= read -r helper; do
+              [[ -f "$RUNNER_TEMP/pr-autofix-context/$helper" ]] || { artifact_ok=false; break; }
+              expected=$(git ls-tree -r --full-tree "$BASE_SHA" -- "$helper" | awk '$2 == "blob" { print $3; exit }')
+              actual=$(git hash-object "$RUNNER_TEMP/pr-autofix-context/$helper")
+              [[ "$actual" == "$expected" ]] || { artifact_ok=false; break; }
+            done < "$base_manifest"
+            if [[ "$artifact_ok" == true ]]; then
+              while IFS= read -r helper; do
+                rel="${helper#"$RUNNER_TEMP/pr-autofix-context/"}"
+                [[ "$rel" == */.gitignore ]] && continue
+                grep -Fxq "$rel" "$base_manifest" || { artifact_ok=false; break; }
+              done < <(find "$RUNNER_TEMP/pr-autofix-context/scripts" -type f -print)
+            fi
+            if [[ "$artifact_ok" != true ]]; then
+              echo "::warning::PR autofix context artifact did not match the immutable base; using the batched restore."
+              rm -rf "$RUNNER_TEMP/pr-autofix-context"
+            else
             mkdir -p "$RUNNER_TEMP/autofix/scripts"
             cp -R "$RUNNER_TEMP/pr-autofix-context/scripts/." "$RUNNER_TEMP/autofix/scripts/"
             # Artifact archives do not retain executable bits. Every directly invoked
@@ -1046,6 +1067,7 @@ jobs:
             echo "Reused PR autofix context artifact; skipping the base script restore."
             echo "AUTOFIX=$RUNNER_TEMP/autofix/scripts/cmux-next" >> "$GITHUB_ENV"
             exit 0
+            fi
           fi
           # restore, not git archive: archive fetched every blob one request at a time (1,584 s in one run on
           # 2026-11-23); so does restore, hence the batched fetch first.
