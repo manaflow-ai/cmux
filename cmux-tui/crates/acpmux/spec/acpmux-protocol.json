@@ -427,6 +427,16 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/pin",
+      "params": {
+        "$ref": "#/types/PinParams"
+      },
+      "result": {
+        "$ref": "#/types/SessionSummary"
+      }
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/seen",
       "params": {
         "$ref": "#/types/SeenParams"
@@ -6552,6 +6562,22 @@
       ],
       "type": "object"
     },
+    "PinParams": {
+      "description": "`_acpmux/pin`: the person pins the chat to the top of their list, or unpins it; synced to\ntheir other replicas as `pin/<id>` (`hub/synced.rs`).",
+      "properties": {
+        "pinned": {
+          "type": "boolean"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId",
+        "pinned"
+      ],
+      "type": "object"
+    },
     "PresenceNote": {
       "description": "`_acpmux/presence`, to every connection attached to the chat on each change, and\n`presence` in the `_acpmux/attach` reply. Never in the log, `_acpmux/events` or an export.",
       "properties": {
@@ -7927,6 +7953,10 @@
           ],
           "description": "A daemon start holds what this chat queued until a person opens it: its folder is guarded\n(`hub/protected_hold.rs`). `session resume` names it and NOW says why the queue does not\ndrain. Absent otherwise, and from a peer on an older acpmux."
         },
+        "pinned": {
+          "description": "A person pinned it (`_acpmux/pin`), on any of their replicas (`hub/synced.rs`). Absent\notherwise, and from a peer on an older acpmux.",
+          "type": "boolean"
+        },
         "policy": {
           "type": [
             "string",
@@ -8907,6 +8937,10 @@
           ],
           "description": "A daemon start holds what this chat queued until a person opens it: its folder is guarded\n(`hub/protected_hold.rs`). `session resume` names it and NOW says why the queue does not\ndrain. Absent otherwise, and from a peer on an older acpmux."
         },
+        "pinned": {
+          "description": "A person pinned it (`_acpmux/pin`), on any of their replicas (`hub/synced.rs`). Absent\notherwise, and from a peer on an older acpmux.",
+          "type": "boolean"
+        },
         "policy": {
           "type": [
             "string",
@@ -9833,7 +9867,7 @@
       "description": "What a summary carries of a chat's task list (`SessionSummary::task_list`): the steps, and the\ncounts and lines a sidebar row or a chat strip draws without counting again.",
       "properties": {
         "current": {
-          "description": "The first step in progress; null when none is.",
+          "description": "The first step in progress, by its title (`step_title`); null when none is.",
           "type": [
             "string",
             "null"
@@ -9852,7 +9886,7 @@
           "type": "array"
         },
         "next": {
-          "description": "The first step still pending after the current one (or the first pending one when none is\nin progress); null when none is left.",
+          "description": "The first step still pending after the current one (or the first pending one when none is\nin progress), by its title; null when none is left.",
           "type": [
             "string",
             "null"
