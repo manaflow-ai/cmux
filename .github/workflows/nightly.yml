@@ -1464,7 +1464,7 @@ jobs:
   resolve-nightly-ghostty-cli-helper:
     needs: [decide, resolve-nightly-cmux-tui-client]
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true' && needs.decide.outputs.one_job != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 135 || 15 }}
     permissions:
       contents: read
@@ -2981,7 +2981,7 @@ jobs:
   resolve-nightly-cmux-tui-client:
     needs: decide
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'cmux-gcp-nightly-x64' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}
     permissions:
       contents: read
       actions: read
@@ -3229,7 +3229,7 @@ jobs:
       contents: read
       actions: read
     # Only moves and reads files; Mach-O checks run in verify-signed-nightly. It uses about one core.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'cmux-gcp-nightly-x64' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 220 || 100 }}
     strategy:
       fail-fast: false
@@ -3478,7 +3478,7 @@ jobs:
       contents: read
       actions: read
     # After a primary success it only reads that result.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'cmux-gcp-nightly-x64' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 220 || 100 }}
     strategy:
       fail-fast: false
@@ -5318,7 +5318,7 @@ jobs:
     needs: [decide, resolve-nightly-cmux-tui-client, build-nightly-app]
     # A timed-out pick-nightly-build-runner must not skip this job (see build-nightly-app's `if`).
     if: "!cancelled() && needs.decide.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.build-nightly-app.result == 'success' && (needs.resolve-nightly-cmux-tui-client.outputs.tree_pending == 'true' || inputs.nightly_next_unsigned_run != '') && needs.build-nightly-app.result == 'success'"
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     permissions:
       contents: read
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 180 || 60 }}
@@ -6719,6 +6719,63 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: python3 .publish-tooling/scripts/ci/nightly_next_signer_pick.py
 
+  # RFD 0134 cut 2: the nightly-next app as a .pkg whose postinstall pre-warms a first install. Optional, never
+  # fails the run (next-pkg.sh exits 0); NIGHTLY_NEXT_PKG=off skips it. A certificate with no Installer identity
+  # builds nothing and says so.
+  nightly-next-pkg:
+    environment: release-next
+    needs: [published-build, pick-nightly-sign-runner]
+    if: "!cancelled() && needs.published-build.outputs.track == 'nightly-next' && needs.published-build.outputs.should_publish == 'true' && needs.published-build.outputs.fast_build != 'true' && needs.published-build.outputs.publish_result == 'success' && needs.published-build.outputs.publish_source != 'recovered' && needs.published-build.outputs.publish_refused != 'true' && vars.NIGHTLY_NEXT_PKG != 'off' && needs.published-build.outputs.run_tail == 'true'"
+    permissions:
+      contents: read
+      actions: read
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && 'glaeda-trusted-next-signing' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.sign_owned && fromJSON(needs.pick-nightly-sign-runner.outputs.sign_owned) || 'glaeda-trusted-next-signing' }}
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: ${{ fromJSON(needs.published-build.outputs.variants) }}
+    timeout-minutes: 60
+    env:
+      NIGHTLY_VARIANT: ${{ matrix.variant }}
+      NIGHTLY_BUILD: ${{ needs.published-build.outputs.daemon_build }}
+      CHANNEL_DMG_PREFIX: ${{ needs.published-build.outputs.dmg_prefix }}
+    steps:
+      - *hold-the-whole-mac
+      - *forget-kept-sparse-mode
+      - *legacy-route-shared-3
+      - *checkout-the-gh-token-wrapper
+      - *claim-publication-mac
+      - *gh-app-token-read
+      - *gh-app-install-tooling
+      - *wait-through-github-api-rate-l
+      - *select-xcode
+      - *select-xcode-sdk
+      - name: Download published variant
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SOURCE_RUN: ${{ needs.published-build.outputs.source_run || github.run_id }}
+        run: python3 .publish-tooling/scripts/ci/download-run-artifact.py --name "cmux-nightly-variant-$NIGHTLY_VARIANT" --run-id "$SOURCE_RUN" --out nightly-pkg/input --connections 32
+      # From the build ref: build-pkg.sh and the postinstall match the app they package.
+      - name: Build, sign, notarize and upload the pre-warming .pkg
+        timeout-minutes: 50
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+        run: |
+          s=scripts/ci/nightly-steps/next-pkg.sh
+          [ -f "$s" ] || { echo "next-pkg: the build ref predates $s; no package"; exit 0; }
+          bash "$s" "nightly-pkg/input/${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-${NIGHTLY_BUILD}.dmg" nightly-pkg/output
+
   # nightly-next on one Mac, end to end. Why: docs/ci/nightly-workflow-notes.md#note-18
   nightly-next-one:
     needs: [decide, resolve-nightly-cmux-tui-client, pick-nightly-next-signer, early-nightly-webviews]
@@ -7840,8 +7897,12 @@ jobs:
     permissions:
       actions: write
     steps:
+      # Off the publish path: a rate-limited dispatch fails now instead of waiting, and never reds the nightly
+      # (tests/test_gh_budget_wait.py DISPATCH_NEVER_WAITS).
       - name: Dispatch fixit-handoff on feat-cmux-next
+        continue-on-error: true
         env:
+          GH_BUDGET_WAIT_MAX_SECONDS: "0"
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           ORIGIN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

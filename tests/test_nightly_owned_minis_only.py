@@ -100,7 +100,7 @@ HOSTED_LOOP_JOBS = {
 HOSTED_PREFLIGHT_JOBS: dict[str, str] = {}
 # Secret-free Linux controls on our own persistent Linux pool, cmux-linux: one label for every own-branch Linux job.
 # A fork takes GitHub-hosted Ubuntu.
-CMUX_LINUX_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}"
+CMUX_LINUX_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"
 CMUX_LINUX_JOBS = ("resolve-nightly-ghostty-cli-helper", "resolve-nightly-cmux-tui-client",
                    "prepare-nightly-variant-primary", "prepare-nightly-variant", "await-nightly-tree-marker",
                    "check-nightly-app-store-shelf")

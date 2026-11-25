@@ -79,7 +79,9 @@ on:
       - "schemas/settings/retired-keys.json"
       - "schemas/settings/settings-schema.json"
       - "schemas/settings/source/agent-cache.json"
+      - "schemas/settings/source/agent-defaults.json"
       - "schemas/settings/source/agent-retry.json"
+      - "schemas/settings/source/agent-defaults.json"
       - "schemas/settings/source/mcp-servers.json"
       - "schemas/settings/source/subsessions.json"
       - "schemas/settings/source/trust.json"
@@ -129,6 +131,7 @@ on:
       # (scripts/ci/affected_jobs.py check names the ones a paths list misses).
       - "docs/cmux-next/customize-recipes.md"
       - "examples/looks/**"
+      - "schemas/settings/source/agent-defaults.json"
       - "schemas/settings/source/mcp-servers.json"
       - "skills/cmux-customization/templates/clock-weather/cmux-app.json"
       - "skills/cmux-customization/templates/clock-weather/main.js"

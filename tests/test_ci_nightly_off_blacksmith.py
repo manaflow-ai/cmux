@@ -41,11 +41,11 @@ LIGHT_NIGHTLY_JOBS = ("resolve-nightly-cmux-tui-client", "resolve-nightly-ghostt
 # nightly-only minis.
 CMUX_LINUX_JOBS = ("resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-cli-helper",
                    "prepare-nightly-variant-primary", "prepare-nightly-variant")
-CMUX_LINUX_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}"
+CMUX_LINUX_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"
 # RFD 0021 route by need: the essential ones take the nightly's reserved label on attempt 1 (no PR job can ask
 # for it, tests/test_ci_nightly_labels_reserved.py) and cmux-linux on a rerun.
 NIGHTLY_PINNED_JOBS = ("resolve-nightly-cmux-tui-client", "prepare-nightly-variant-primary", "prepare-nightly-variant")
-NIGHTLY_PINNED_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'cmux-gcp-nightly-x64' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}"
+NIGHTLY_PINNED_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}"
 
 # A runs-on term that can put a nightly job on our own fleet: the owned nightly slot or side lane, the cmux-linux
 # pool, or a picker's owned output (pick-nightly-build-runner, pick-nightly-sign-runner).
