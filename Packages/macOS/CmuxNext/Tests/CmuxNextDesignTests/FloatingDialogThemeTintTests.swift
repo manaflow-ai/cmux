@@ -57,7 +57,8 @@ struct FloatingDialogThemeTintTests {
             let host = CmuxDialogHostView(frame: NSRect(x: 0, y: 0, width: 432, height: 160))
             let card = host.draw(Self.spec) { _ in }
             #expect(card.dialog.floatsOverApps)
-            #expect(try #require(card.surface).glass.tone.style == (themedPrompts ? .prompt : .transient))
+            let surface = try #require(card.surface)
+            #expect(surface.glass.tone.style == (themedPrompts ? .prompt : .transient))
         }
     }
 

@@ -62,7 +62,8 @@ struct FloatingPromptGlassTests {
                 view.subviews.flatMap { ($0 as? NSImageView).map { [$0] } ?? icons($0) }
             }
             #expect(icons(floating).map(\.frame.width) == [CmuxDialogMetrics.iconSize])
-            #expect(try #require(floating.surface).glass.tone.style != .prompt)
+            let surface = try #require(floating.surface)
+            #expect(surface.glass.tone.style != .prompt)
         }
     }
 
