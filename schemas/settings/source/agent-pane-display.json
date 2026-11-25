@@ -236,6 +236,33 @@
           ]
         },
         {
+          "key": "agentPane.display.compactShortTurns",
+          "note": "A turn with little to hide (under three tool calls and five seconds) draws flat, its work in a one-line summary such as \"4s \u00b7 Ran 2 commands\", instead of folding under \"Worked for 4s\". Off unless switched on: Leo, 2026-11-25: \"why isn't there a toggle? there should be one.\" (webviews conversation/turns.ts foldsTurn, chatDisplay.ts COMPACT_SHORT_TURNS_KEY).",
+          "title": {
+            "key": "settings.agentPane.display.compactShortTurns",
+            "text": "Compact Summary for Short Turns"
+          },
+          "help": {
+            "key": "settings.agentPane.display.compactShortTurns.help",
+            "text": "A short turn shows a one-line summary of what it did, instead of folding under Worked for."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "agent",
+            "chat",
+            "acp",
+            "display",
+            "short",
+            "turn",
+            "worked",
+            "summary",
+            "compact",
+            "fold",
+            "toggle"
+          ]
+        },
+        {
           "key": "agentPane.display.sendPop",
           "note": "A sent prompt pops in and settles where it lands, Claude's own user-message entrance (conversation.css SEND-POP; Leo, 2026-11-22: \"it does a little pop and settle\"). Off unless switched on: Leo, 2026-11-22: \"hm im not necessarily sure if people will be wanting to do the send pop by default\". The page sets data-send-pop on its root when on (chatDisplay.ts).",
           "title": {

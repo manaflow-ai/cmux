@@ -24,6 +24,7 @@ import { AFTER_SEND, findRowIndex } from "./chatFind";
 import { cutLongRuns } from "./runParts";
 import { keptPrefix, noteKeptPrefix, PrefixFilter } from "./prefixFlatMap";
 import { renderCall } from "./renderCall";
+import { compactShortTurnsOn } from "./compactShortTurns";
 import { hasTimestamp, showsTimestamp, type TurnTimes } from "./timestamps";
 import { isRunGroup, isSubagentGroup, WORKFLOW_CARD, SUBAGENT_DONE, SUBAGENT_STARTED } from "../subagents/subagentRows";
 import { STARTED_SESSIONS } from "../started/startedSessions";
@@ -129,13 +130,10 @@ export const SUPERSEDED = "superseded";
 /// edited-files card after the answer keeps the original id.
 const FOLDED = ":fold";
 
-/// "1m 16s", "42s", "1h 3m"; zero units dropped, under one second is "<1s".
+/// "1m 16s", "42s", "1h 3m"; zero units dropped, under one second is "0s".
 export function formatDuration(ms: number): string {
-  // Nearest second, and never "0s": a span that measured anything under a second reads "<1s", so
-  // 0.95 s is not "1s" and 1.4 s is (Leo: "well no it rounds down apparently. so it's just about what
-  // kind of behaviour we want"; "another worked for 0s").
-  if (!(ms >= 1000 && Math.round(ms / 1000) >= 1)) return "<1s";
-  const total = Math.round(ms / 1000);
+  const total = Math.floor(ms / 1000);
+  if (total <= 0) return "0s";
   const h = Math.floor(total / 3600);
   const m = Math.floor((total % 3600) / 60);
   const s = total % 60;
@@ -1160,6 +1158,8 @@ type ShapedTurn = {
   messagesArm: string;
   /// What its closed "Worked for" says besides its time (workedLine.experiment.ts).
   lineArm: string;
+  /// Whether it was shaped with the compact short-turn summary on (compactShortTurns.ts).
+  compact: boolean;
   /// The person's own prompt opened the next turn (`supersededFooters`).
   endedByPerson: boolean;
   rows: AcpmuxRow[];
@@ -1234,6 +1234,7 @@ type TurnArms = {
   steeredArm: string;
   messagesArm: string;
   lineArm: string;
+  compact: boolean;
 };
 const turnArms = (agentFamily: string | undefined): TurnArms => ({
   foldStyle: turnFoldStyle(agentFamily),
@@ -1241,6 +1242,7 @@ const turnArms = (agentFamily: string | undefined): TurnArms => ({
   steeredArm: experimentArm(turnFoldSteered),
   messagesArm: experimentArm(workedForMessages),
   lineArm: experimentArm(workedLine),
+  compact: compactShortTurnsOn(),
 });
 
 /// The drawn rows of the turn at `rows[start]` (its prompt) up to `end`, then its held prompts.
@@ -1259,7 +1261,7 @@ function shapedTurn(
   trayAgents = 0,
   retryTarget = false,
   turnStartedAtMs?: number,
-  { foldStyle, repliesArm, steeredArm, messagesArm, lineArm }: TurnArms = turnArms(agentFamily),
+  { foldStyle, repliesArm, steeredArm, messagesArm, lineArm, compact }: TurnArms = turnArms(agentFamily),
 ): AcpmuxRow[] {
   const user = rows[start]!;
   // A running turn changes with every event: it is neither read from nor kept in the cache, so its
@@ -1290,6 +1292,7 @@ function shapedTurn(
     cached.steeredArm === steeredArm &&
     cached.messagesArm === messagesArm &&
     cached.lineArm === lineArm &&
+    cached.compact === compact &&
     cached.endedByPerson === endedByPerson &&
     cached.source.length === source.length
   ) {
@@ -1448,6 +1451,7 @@ function shapedTurn(
       steeredArm,
       messagesArm,
       lineArm,
+      compact,
       endedByPerson,
       rows: shaped,
     });
@@ -2028,7 +2032,8 @@ function shapeTurn(
   // Flat: the family folds turns, but this one has too little to hide. Its replies stay plain replies
   // (no `settled`, no `foldedReply`): no fold holds them, so every answer reads as drawn
   // (replyAlwaysVisible.test.ts), unlike the `runs` arm, whose earlier replies draw as folded notes.
-  const flat = family.conclusion && !foldsTurn(user, body, summary, live ? turnStartedAtMs : undefined);
+  const flat =
+    family.conclusion && compactShortTurnsOn() && !foldsTurn(user, body, summary, live ? turnStartedAtMs : undefined);
   const style = flat ? CLAUDE_IN_PLACE : family;
   // Other agents' messages that started the turn fold into its "Worked for" once it ends, as its
   // first entries (Leo, 2026-11-07: "fold the receiving and sending messages into the worked for as

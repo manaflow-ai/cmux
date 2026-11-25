@@ -146,7 +146,9 @@ function WorkedLabel({ row }: { row: AcpmuxRow }) {
   return (
     <>
       {label}
-      <span className="cv-worked__work">{` · ${work}`}</span>
+      {/* A line with no time or count of its own (a fold whose time is unknown) opens on its work: never
+          a bare "·" before the first word (Leo, 2026-11-25: "dot on left weird"). */}
+      <span className="cv-worked__work">{label ? ` · ${work}` : work}</span>
     </>
   );
 }

@@ -211,7 +211,7 @@ test("the live line draws the command or Ran with the turn's time, or Thinking a
   expect(words(described)).toBe("Run the web tests 2s");
   expect(
     words(renderToStaticMarkup(<Thinking since={start} doing="" doingShell doingAt={start} now={() => start} />)),
-  ).toBe("Running a command &lt;1s");
+  ).toBe("Thinking 0s");
   const thinking = renderToStaticMarkup(<Thinking since={start} untimed now={() => start + 9_000} />);
   expect(words(thinking)).toBe("Thinking");
   expect(thinking).toContain("is-shimmer");
@@ -377,8 +377,7 @@ test("work after the turn's summary (a task notification's) is one live line, no
     ...head,
     row("late", "activity", { items: [call("cat build.log"), call("bun test", "in_progress")] }),
   ]);
-  // The ended turn's one call draws flat, in place: too little to fold (turns.ts `worthFolding`).
-  expect(callIds(running)).toEqual(["git log", "cat build.log"]);
+  expect(callIds(running)).toEqual(["cat build.log"]);
   expect(running.at(-1)).toMatchObject({ kind: THINKING, doing: "bun test", doingShell: true });
 });
 

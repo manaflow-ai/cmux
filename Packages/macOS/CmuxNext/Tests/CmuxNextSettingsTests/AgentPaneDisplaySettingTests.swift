@@ -29,6 +29,7 @@ struct AgentPaneDisplaySettingTests {
         // The prompt coach card after a chat that took several corrections (webviews PromptCoachCard.tsx).
         Row(key: "agentPane.display.promptCoach", fallback: .bool(true), accepted: [.bool(false)], refused: [.string("off")]),
         // A sent prompt pops in and settles (webviews conversation.css SEND-POP): off unless switched on.
+        Row(key: "agentPane.display.compactShortTurns", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
         Row(key: "agentPane.display.sendPop", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
         // The hat over the composer tucked away to its pull tab: off, it shows.
         Row(key: "agentPane.display.trayTucked", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),

@@ -185,8 +185,7 @@ function workedTurn(): AcpmuxRow[] {
       items: [{ kind: "tool", text: "", tool: { id: "bash-1", title: "bun test", status: "completed" } }],
     }),
     row("assistant-4", "assistant", { text: "All green." }),
-    // Six seconds: a one-call turn under five seconds draws flat, with no fold (turns.ts `worthFolding`).
-    row("turn-5", "turnSummary", { status: "completed", durationMs: 6_000 }),
+    row("turn-5", "turnSummary", { status: "completed", durationMs: 1_000 }),
   ];
 }
 

@@ -1,28 +1,19 @@
 // l10n-allow-file: test fixture prompts, thoughts and commands, not shipped UI.
 // A turn folds under "Worked for" only when the fold hides something worth hiding (turns.ts
-// `worthFolding`), and a duration reads to the nearest second, never "0s" (`formatDuration`).
+// `worthFolding`), but only with the Compact Summary for Short Turns setting on (compactShortTurns.ts);
+// off, the default, every turn folds under "Worked for", "Worked for 0s" included (Leo: "why isn't there a toggle?").
 // Leo, 2026-11-24, on a wake's "Report from Subagent" under "Worked for 0s": "honestly in these cases
 // should we just... not do our folding situation? this edge case? cuz otherwise it's so weird"; then
 // "what do we do here? math.ceil 1 second? did it even help?", "another worked for 0s" and "well no it
 // rounds down apparently. so it's just about what kind of behaviour we want".
-import { expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
 import { translate, type Translate } from "../i18n";
-import { footerLabel, formatDuration, turnView, worthFolding, workedLabel, WORKED } from "./turns";
+import { setCompactShortTurns } from "./compactShortTurns";
+import { footerLabel, turnView, worthFolding, workedLabel, WORKED } from "./turns";
 
 const t: Translate = (key, values) => translate(key, values, "en");
 const START = Date.UTC(2026, 10, 24, 7, 0, 0);
-
-test("durations round to the nearest second and never read 0s", () => {
-  expect(formatDuration(400)).toBe("<1s");
-  expect(formatDuration(950)).toBe("<1s");
-  expect(formatDuration(0)).toBe("<1s");
-  expect(formatDuration(1_400)).toBe("1s");
-  expect(formatDuration(1_500)).toBe("2s");
-  expect(formatDuration(59_600)).toBe("1m");
-  expect(formatDuration(65_000)).toBe("1m 5s");
-  expect(formatDuration(30_000)).toBe("30s");
-});
 
 test("the fold's threshold: three work rows, or five seconds, and never under a second", () => {
   expect(worthFolding(2, 4_900)).toBe(false);
@@ -71,6 +62,9 @@ function asked(durationMs: number, calls: number): AcpmuxRow[] {
     row("a-sum", "turnSummary", durationMs, { status: "completed", durationMs, toolCount: calls }),
   ];
 }
+
+beforeEach(() => void setCompactShortTurns(true));
+afterEach(() => void setCompactShortTurns(false));
 
 const view = (rows: AcpmuxRow[]) =>
   turnView(rows, new Set(), { agentFamily: "claude", now: START + 900_000 }).filter((r) => r.kind !== "date");
@@ -164,4 +158,10 @@ test("the same wakes that took a real while still fold", () => {
     ...report(0, 30_000),
   ];
   expect(view(rows).some((r) => r.kind === WORKED)).toBe(true);
+});
+
+test("with the setting off, the default, a short wake folds under Worked for like any turn", () => {
+  setCompactShortTurns(false);
+  expect(view(wake(800)).some((r) => r.kind === WORKED)).toBe(true);
+  expect(view(asked(2_000, 1)).some((r) => r.kind === WORKED)).toBe(true);
 });

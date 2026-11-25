@@ -315,6 +315,7 @@ export const ROW_LEVELS: {
     "agentPane.display.changesPill": "more",
     "agentPane.display.pinnedPlan": "more",
     "agentPane.display.sendPop": "more",
+    "agentPane.display.compactShortTurns": "more",
     "agentPane.display.trayTucked": "more",
     "agentPane.display.rail.side": "more",
     "agentPane.display.rail.show": "more",

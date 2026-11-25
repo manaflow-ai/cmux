@@ -1,5 +1,5 @@
 // l10n-allow-file: transcript fixture replies and paths, not shipped UI.
-import { expect, test, afterEach, beforeEach } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { toggleTurnFold, turnViewFrom, WORKED } from "../src/agent-session/acpmux/conversation/turns";
 
@@ -31,15 +31,8 @@ const read = (id: string) =>
 const prompt = row("prompt", "user", { text: "Check the two callers" });
 const first = read("first");
 const second = read("second");
-// Six seconds in: a live turn's concluding answer measures the turn from its prompt, and a two-call
-// turn under five seconds draws flat (turns.ts `worthFolding`).
-const final = row("final", "assistant", {
-  text: "Both callers are correct.",
-  assistantPhase: "final_answer",
-  at: 7_000,
-});
-// Six seconds: a two-call turn of no known time draws flat, with no fold (turns.ts `worthFolding`).
-const summary = row("summary", "turnSummary", { status: "completed", durationMs: 6_000 });
+const final = row("final", "assistant", { text: "Both callers are correct.", assistantPhase: "final_answer" });
+const summary = row("summary", "turnSummary", { status: "completed" });
 const foldId = `${WORKED}-prompt`;
 
 function expectSeparate(rows: AcpmuxRow[], text: string) {

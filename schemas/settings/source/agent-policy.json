@@ -840,6 +840,7 @@
         "agentPane.display.changesPill",
         "agentPane.display.finishSound",
         "agentPane.display.sendPop",
+        "agentPane.display.compactShortTurns",
         "agentPane.display.trayTucked",
         "agentPane.display.trayHandle",
         "agentPane.display.unreadBanner",
