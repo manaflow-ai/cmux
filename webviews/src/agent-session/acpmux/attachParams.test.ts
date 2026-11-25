@@ -8,9 +8,9 @@ import { plainAttach } from "./attachParams";
 /// The params the host lets through for `method`: the one contract, schemas/agent-pane/methods.json,
 /// which AcpmuxPaneMethodContractsTests holds knownParams equal to. Read there, never a list copied
 /// here: a copy went stale each time base added a param (seenSeq, then cutoverSeq).
-const CONTRACT = JSON.parse(
-  readFileSync(`${import.meta.dir}/../../../../schemas/agent-pane/methods.json`, "utf8"),
-) as { methods: Record<string, { params: string[] }> };
+const CONTRACT = JSON.parse(readFileSync(`${import.meta.dir}/../../../../schemas/agent-pane/methods.json`, "utf8")) as {
+  methods: Record<string, { params: string[] }>;
+};
 
 function hostParams(method: string): string[] {
   const entry = CONTRACT.methods[method];

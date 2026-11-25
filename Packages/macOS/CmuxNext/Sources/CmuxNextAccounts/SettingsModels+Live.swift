@@ -136,27 +136,54 @@ extension SettingsModels {
         setChatGPT(attempt: nil, error: error)
     }
 
-    /// Add an API key: into the Keychain first, then `connections/key.add` with its reference only.
-    /// A refused add takes the stored item back out.
+    /// Add an API key: every whitespace character out first (`withoutWhitespace`: a key a page or terminal
+    /// wrapped across lines is still the one key), into the Keychain, then acpmux checks it with the
+    /// provider (`connections/key.check`, by reference) and `connections/key.add` saves the reference.
+    /// A key the provider refuses, or of another provider's shape, is taken back out and said
+    /// (`cmux.models.key_rejected`, acpmux's sentence); a provider that does not answer saves anyway.
     func addKey(provider: String, key: String, label: String?) async throws {
         guard Self.providers.contains(provider) else { throw PageError.invalidParams("addKey needs a known provider") }
-        let key = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard Self.isOneWord(key) else { throw PageError.invalidParams("addKey needs a key of printable characters with no spaces") }
-        try await addSecret(key, store: provider, method: .connectionsKeyAdd, params: ["provider": provider], label: label)
+        let key = Self.withoutWhitespace(key)
+        guard Self.isOneWord(key) else { throw PageError.invalidParams("addKey needs a key of printable characters") }
+        try await addSecret(key, store: provider, method: .connectionsKeyAdd, params: ["provider": provider], label: label, checked: true)
     }
 
     /// Add a Claude setup token (`claude setup-token`'s `sk-ant-oat…`, pasted after the terminal tab ran
-    /// it): into the Keychain first, then `connections/claude_token.add` with its reference only. The
-    /// pasted value itself is never trimmed into shape: a token with whitespace inside is refused.
+    /// it): into the Keychain first, then `connections/claude_token.add` with its reference only. Every
+    /// whitespace character is taken out first (`withoutWhitespace`): a terminal that wrapped the token
+    /// across lines or padded it with spaces still gives the one token it printed. What is left must
+    /// read as a token (`isClaudeToken`).
     func addClaudeToken(_ token: String, label: String?) async throws {
-        let token = token.trimmingCharacters(in: .newlines)
-        guard token.hasPrefix(Self.claudeTokenPrefix), Self.isOneWord(token) else {
-            throw PageError.invalidParams("addClaudeToken needs the sk-ant-oat token claude setup-token printed, with no spaces")
+        let token = Self.withoutWhitespace(token)
+        guard Self.isClaudeToken(token) else {
+            throw PageError.invalidParams("addClaudeToken needs the sk-ant-oat token claude setup-token printed")
         }
         try await addSecret(token, store: "claude-token", method: .claudeTokenAdd, params: [:], label: label)
     }
 
     nonisolated static let claudeTokenPrefix = "sk-ant-oat"
+
+    /// TOKEN with every space, tab, line break and invisible space (zero-width, BOM) taken out. A setup
+    /// token never holds whitespace, so a pasted one loses only what the copy added.
+    nonisolated static func withoutWhitespace(_ secret: String) -> String {
+        String(String.UnicodeScalarView(secret.unicodeScalars.filter { scalar in
+            !scalar.properties.isWhitespace && !invisibleSpaces.contains(scalar.value)
+        }))
+    }
+
+    /// Zero-width space, non-joiner, joiner, word joiner and BOM: not whitespace to Unicode, but a paste adds them.
+    nonisolated private static let invisibleSpaces: Set<UInt32> = [0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF]
+
+    /// Whether TOKEN reads as a Claude setup token: `sk-ant-oat`, two digits, a dash, then base64url
+    /// (letters, digits, `-`, `_`), as webviews' `claudeSetupToken.ts` checks it.
+    nonisolated static func isClaudeToken(_ token: String) -> Bool {
+        guard token.hasPrefix(claudeTokenPrefix), token.utf8.count <= keyLimit else { return false }
+        let rest = Array(token.utf8.dropFirst(claudeTokenPrefix.utf8.count))
+        guard rest.count > 3, rest[0] >= 0x30, rest[0] <= 0x39, rest[1] >= 0x30, rest[1] <= 0x39, rest[2] == 0x2D else { return false }
+        return rest.dropFirst(3).allSatisfy { byte in
+            (byte >= 0x30 && byte <= 0x39) || (byte >= 0x41 && byte <= 0x5A) || (byte >= 0x61 && byte <= 0x7A) || byte == 0x2D || byte == 0x5F
+        }
+    }
 
     /// One line of printable characters with no spaces, as a key or token is; the Keychain line must not break.
     nonisolated static func isOneWord(_ secret: String) -> Bool {
@@ -165,11 +192,15 @@ extension SettingsModels {
 
     /// SECRET into the Keychain (as STORE), then METHOD with its reference only; a refused add takes it back out.
     private func addSecret(_ secret: String, store: String, method: AcpmuxHarnessMethod,
-                           params base: [String: any Sendable], label: String?) async throws {
+                           params base: [String: any Sendable], label: String?, checked: Bool = false) async throws {
         let environment = try requireDaemonEnvironment()
         let reference = try await storeKey(secret, provider: store)
         var params = base
         params["secret"] = reference
+        if checked, let refusal = await keyRefusal(environment, params) {
+            await deleteKey(reference)
+            throw refusal
+        }
         if let label = label?.trimmingCharacters(in: .whitespacesAndNewlines), !label.isEmpty { params["label"] = String(label.prefix(128)) }
         do {
             let reply = try JSONValue.parse(try await daemon(environment, method, params))
@@ -178,6 +209,14 @@ extension SettingsModels {
             await deleteKey(reference)
             throw error
         }
+    }
+
+    /// acpmux's `key.check` answer for a stored key: the refusal to show when the provider refused it or
+    /// it is another provider's shape; nil when it saves (ok, unreachable, or a daemon without the check).
+    private func keyRefusal(_ environment: AcpmuxEnvironment, _ params: [String: any Sendable]) async -> PageError? {
+        guard let data = try? await daemon(environment, .connectionsKeyCheck, params),
+              let reply = try? JSONValue.parse(data), reply["save"] == .bool(false) else { return nil }
+        return PageError(code: "cmux.models.key_rejected", message: reply["message"]?.stringValue ?? "Key rejected by the provider")
     }
 
     /// The team's shared key for an agent: `key` sets or replaces it, nil removes it (owners and admins).

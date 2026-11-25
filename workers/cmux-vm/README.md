@@ -671,6 +671,16 @@ Migrations 0016 (agent columns on `api_keys`, `vm_client_sessions`) and 0017
 (its concurrent index) apply through the release runner; grant the Worker role
 SELECT, INSERT and UPDATE on `cmux_vm.vm_client_sessions`.
 
+## Dated API versions
+
+A client pins the API it was written against with `Cmux-Api-Version: YYYY-MM-DD` (the base is 2026-11-24). The
+Worker serves the newest version dated on or before the pin, translates the request up and the JSON reply down, and
+names the version served in the reply's `Cmux-Api-Version`. A malformed pin or one older than the base gets 400
+`UnsupportedApiVersion`. No header: the current API, untouched. A breaking change to a route appends a dated
+version to `API_VERSIONS` in `src/api-version.ts` describing the change old to new (`rename`, `add`, `remove`);
+each dated version stays served for at least 12 months after the next one ships
+(`cmux-tui/spec/api-versioning.md`). Cost: `bun scripts/bench-api-version.ts`.
+
 ## Layout
 
 | path | what |
