@@ -407,6 +407,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 case .loading:
                     // placeholder-ok: this account has no cached Home rows yet.
                     loadingNote(String(localized: "Loading conversations…"), identifier: "home.note.loading")
+                        .placeholderBound("home.conversations.loading", .milliseconds(2000))
                 case .connecting, .updating, .none:
                     // `.connecting` draws nothing (Leo, 2026-11-23: "i dont wanna see connecting to
                     // cosmic-gray... with the spinner, i want it to just work."): the rows come with the link.

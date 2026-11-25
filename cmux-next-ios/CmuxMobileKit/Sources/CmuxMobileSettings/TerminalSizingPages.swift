@@ -116,6 +116,7 @@ struct TerminalSizingMacsPage: View {
                 if macs.isEmpty, list.devices == nil, store.awaitsAccountData {
                     // placeholder-ok: This account has no kept roster and discovery has never answered.
                     CmuxSpinner(label: Text("Loading Macs…"))
+                        .placeholderBound("settings.macs.loading", .milliseconds(2000))
                 } else if macs.isEmpty {
                     Text("No Macs.").foregroundStyle(theme.colors.label2)
                 }

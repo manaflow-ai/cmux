@@ -94,6 +94,7 @@ private struct CloudDirectoryList: View {
                 } else if !failed {
                     // placeholder-ok: none of this account and team's selected Mac directories has answered.
                     CmuxSpinner(label: Text("Loading Cloud chats…"))
+                        .placeholderBound("cloud.chats.loading", .milliseconds(2000))
                 }
                 if failed {
                     Text("Couldn't load Cloud chats. Try again.").foregroundStyle(.secondary)
@@ -205,6 +206,7 @@ struct CloudChatsConnecting: View {
                 .accessibilityLabel(Text("\(message) \(timing)"))
                 .font(CmuxMobileTheme.standard.type.meta)
                 .foregroundStyle(.secondary)
+                .placeholderBound("cloud.chat.connecting", .milliseconds(0))
             }
         }
         .multilineTextAlignment(.center)

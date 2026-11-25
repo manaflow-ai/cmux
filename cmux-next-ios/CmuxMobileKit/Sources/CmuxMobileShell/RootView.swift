@@ -814,6 +814,7 @@ struct ShellView: View {
                 LaunchMarks.shared.markWhenStill("demo_done")
             }
             await ListStressRig.runIfConfigured(shell: shell)
+            Task { await HostLoadDriver.runIfConfigured(store: shell.store) }
             await DebugLaunch.run(selectTab: { shell.tab = $0 })
             #endif
         }
