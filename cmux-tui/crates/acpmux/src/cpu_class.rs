@@ -73,6 +73,16 @@
 //!    The cost: any process of the tree that works (an MCP server's timer) keeps a hung harness
 //!    counted as working, so that case falls to its caller's longer bound (Chief's start ceiling,
 //!    the pool's `START_HAZARD`).
+//! 6. A person's own turn (their prompt, not a trigger's delivery: `prompt_sender::person_turn`)
+//!    lifts a `background` harness out of background class for the turn, at the agent tier's
+//!    nice (+11, below the app), and puts it back once the turn ended (`hub/turns.rs`). The tools
+//!    it starts while a person waits inherit that, not `PRIO_DARWIN_BG`: background class keeps a
+//!    process off the performance cores and throttles its disk, so with the Mac busy a person's
+//!    tool call waited on whatever the app left idle (Lucas's report, 2026-11-25: with the app at
+//!    high CPU, agents' tool calls ran at background priority;
+//!    `scripts/measure/agent-tool-priority.sh` has the numbers). Turns nobody waits on (triggers, deliveries,
+//!    scheduled work) keep background class, and a tool a person's turn started keeps the agent
+//!    tier after the turn.
 //!
 //! The class, first set wins: the profile's env `ACPMUX_SESSION_CPU_CLASS` as the harness gets it
 //! (its `${env:…}` references resolved; one build-heavy profile can opt out), the daemon's env
@@ -248,6 +258,14 @@ pub fn start_at_normal(cmd: &mut tokio::process::Command) {
 /// applies to `pid`. True when the call succeeded.
 pub fn clear_running(pid: u32) -> bool {
     imp::set_background(pid, false)
+}
+
+/// A `background` harness `pid` during a person's own turn (`on`) and after it (module docs,
+/// item 6): out of background class while a person waits on its tools, back in once the turn
+/// ended. It keeps the agent tier's nice ([`CpuClass::enter`] set it on its group), so the turn's
+/// tools stay below the app. The same caution as [`CpuClass::enter`] applies to `pid`.
+pub fn person_turn(pid: u32, on: bool) -> bool {
+    imp::set_background(pid, !on)
 }
 
 /// What a harness was doing when its start missed its deadline or failed, read from the kernel
@@ -1036,6 +1054,25 @@ mod tests {
         let _ = spinner.wait();
         assert!(b.cpu_ms > a.cpu_ms, "{a:?} {b:?}");
         assert!(b.worked_since(&a, WORK_WINDOW), "{a:?} {b:?}");
+    }
+
+    /// A person's turn takes a background harness out of background class and its end puts it
+    /// back (module docs, item 6); a process it starts during the turn is not at background class.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_persons_turn_lifts_a_background_harness_and_its_end_lowers_it_again() {
+        let mut harness =
+            std::process::Command::new("sleep").arg("30").spawn().expect("spawn sleep");
+        let pid = harness.id();
+        assert!(CpuClass::Background.enter(pid));
+        assert!(harness_state(pid).expect("read it").background);
+        assert!(person_turn(pid, true));
+        let lifted = harness_state(pid).expect("read it lifted");
+        assert!(!lifted.background, "{lifted:?}");
+        assert!(person_turn(pid, false));
+        assert!(harness_state(pid).expect("read it after").background);
+        let _ = harness.kill();
+        let _ = harness.wait();
     }
 
     #[cfg(target_os = "linux")]
