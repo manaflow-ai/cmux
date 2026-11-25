@@ -17,8 +17,6 @@ fn report_follow_gate(
     let god_p95 = gate_rounds::best_p95(god);
     let small_all = gate_rounds::all_p95(small);
     let god_all = gate_rounds::all_p95(god);
-    assert!(god_p95 <= small_p95.saturating_mul(12) / 10, "{name}: best p95 ratio");
-    assert!(god_all <= small_all.saturating_mul(2), "{name}: aggregate p95 ratio");
     let line = format!(
         "{{\"name\":\"{name}\",\"small_p95\":{small_p95},\"god_p95\":{god_p95},\"god_p95_all\":{god_all},\"unit\":\"{unit}\"}}"
     );
@@ -27,6 +25,9 @@ fn report_follow_gate(
         let mut file = OpenOptions::new().create(true).append(true).open(path)?;
         writeln!(file, "{line}")?;
     }
+    // The bounds after the line: a red row keeps its numbers in the v2 home.
+    assert!(god_p95 <= small_p95.saturating_mul(12) / 10, "{name}: best p95 ratio");
+    assert!(god_all <= small_all.saturating_mul(2), "{name}: aggregate p95 ratio");
     Ok(())
 }
 
