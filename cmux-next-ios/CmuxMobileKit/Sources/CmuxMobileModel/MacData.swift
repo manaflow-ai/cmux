@@ -48,7 +48,7 @@ public struct MacDataMachine: Equatable, Sendable {
     public enum Phase: Equatable, Sendable {
         /// Dialing with nothing to show yet: skeleton rows.
         case loading
-        /// Last-known workspaces, dimmed, while `link` says why they are not live.
+        /// Last-known workspaces, drawn as live ones (never dimmed, Leo 2026-11-24), while `link` says why they are not live.
         case cached(Link)
         /// The Mac's own list, with at least one workspace.
         case live

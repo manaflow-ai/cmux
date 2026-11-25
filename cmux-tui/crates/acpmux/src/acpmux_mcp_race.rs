@@ -6,7 +6,7 @@
 //! chat and the daemon refuses nothing here it would not refuse the CLI.
 
 use super::{arg, error_result, ok, refusal};
-use crate::cli::race::{MAX_ATTEMPTS, attempts, race_text, target};
+use crate::cli::race::{MAX_ATTEMPTS, attempts, race_text, target, with_hints};
 use crate::client::Client;
 use crate::rpc::method;
 use cmux_json::JsonSet as _;
@@ -19,7 +19,7 @@ pub(super) fn tools() -> Vec<Value> {
     vec![
         json!({
             "name": "race_start",
-            "description": "Best-of-N: run one task as several attempts, each a sub-session of this chat in its own git worktree of this chat's folder, then an independent reviewer reads every attempt and picks one. Give one model with attempts (4 attempts of codex) or several models. Returns the race id at once; race_show reads its state, each attempt's worktree and the reviewer's pick. Nothing is merged or discarded: losing worktrees are kept.",
+            "description": "Best-of-N: run one task as several attempts, each a sub-session of this chat in its own git worktree of this chat's folder, then an independent reviewer reads every attempt and picks one. Give one model with attempts (4 attempts of codex) or several models. Returns the race id at once; race_show reads its state and pick. Losing worktrees are kept.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -28,6 +28,7 @@ pub(super) fn tools() -> Vec<Value> {
                     "attempts": {"type": "integer", "minimum": 1, "maximum": MAX_ATTEMPTS, "description": "Attempts of each model (default 1; one model needs 2 or more)."},
                     "reviewer": {"type": "string", "description": "HARNESS[/MODEL] of the reviewer that picks the winner."},
                     "effort": {"type": "string", "description": "Thinking effort of the attempts (default: each harness's)."},
+                    "hints": {"type": "array", "items": {"type": "string"}, "description": "A plan hint per candidate, in candidate order (each model's attempts together), put before the task so attempts diverge; \"\" or none leaves the task alone."},
                     "reviewer_effort": {"type": "string", "description": "Thinking effort of the reviewer."}
                 },
                 "required": ["prompt", "models", "reviewer"]
@@ -74,7 +75,17 @@ pub(super) fn request(name: &str, args: &Value) -> Result<(&'static str, Value),
             "a race needs at least two candidates: two models, or attempts of 2 or more".to_owned()
         );
     }
-    let candidates = attempts(&models, n, arg(args, "effort")).map_err(|e| e.to_string())?;
+    let hints: Vec<String> = match args.get("hints") {
+        None | Some(Value::Null) => Vec::new(),
+        Some(Value::Array(items)) => items
+            .iter()
+            .map(|v| v.as_str().map(str::to_owned).ok_or("hints must be strings"))
+            .collect::<Result<_, _>>()?,
+        Some(_) => return Err("hints must be an array of strings".to_owned()),
+    };
+    let candidates = attempts(&models, n, arg(args, "effort"))
+        .and_then(|c| with_hints(c, &hints))
+        .map_err(|e| e.to_string())?;
     let mut params = json!({"prompt": prompt, "candidates": candidates});
     params.set(
         "reviewer",
@@ -104,6 +115,26 @@ pub(super) async fn call(daemon: &Arc<Client>, name: &str, args: &Value) -> Valu
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn race_start_puts_each_hint_on_its_candidate() {
+        let (_, params) = request(
+            "race_start",
+            &json!({"prompt": "fix it", "models": ["claude/haiku", "codex"], "attempts": 2,
+                    "reviewer": "claude", "hints": ["", "test first", "read first"]}),
+        )
+        .unwrap();
+        let hints: Vec<_> = params["candidates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c.get("hint").cloned())
+            .collect();
+        assert_eq!(hints, [None, Some(json!("test first")), Some(json!("read first")), None]);
+        let too_many =
+            json!({"prompt": "p", "models": ["a", "b"], "reviewer": "c", "hints": ["x", "y", "z"]});
+        assert!(request("race_start", &too_many).is_err());
+    }
 
     #[test]
     fn race_start_repeats_one_model_for_its_attempts() {
