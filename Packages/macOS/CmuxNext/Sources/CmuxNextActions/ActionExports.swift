@@ -5,7 +5,8 @@ public import Foundation
 /// `actions.md` (`ActionSurfaceReport`) and `links.json` (`DeepLinkExport`), all under `plans/cmux-next/`.
 /// The Mac's parity tests and the Linux exporter (`cmux-next-action-exports`,
 /// scripts/cmux-next/regenerate-action-exports-linux.sh) both call these, so either writes the same bytes.
-public enum ActionExports {
+public struct ActionExports {
+    public init() {}
     /// The files `write(repository:)` rewrites, relative to the repository root.
     public nonisolated static let files = [
         "plans/cmux-next/action-catalog.json", "plans/cmux-next/action-surfaces.json", "plans/cmux-next/actions.md",
