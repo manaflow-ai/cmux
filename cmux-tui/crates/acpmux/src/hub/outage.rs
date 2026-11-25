@@ -66,10 +66,10 @@ fn host_in(text: &str) -> Option<String> {
     let words: Vec<&str> = text.split_whitespace().collect();
     for (i, w) in words.iter().enumerate() {
         let lw = w.to_lowercase();
-        if lw.contains("enotfound") || lw.contains("econnrefused") || lw.contains("etimedout") {
-            if let Some(host) = words.get(i + 1).and_then(|n| word(n)) {
-                return Some(host);
-            }
+        if (lw.contains("enotfound") || lw.contains("econnrefused") || lw.contains("etimedout"))
+            && let Some(host) = words.get(i + 1).and_then(|n| word(n))
+        {
+            return Some(host);
         }
         if let Some(rest) = lw.split("://").nth(1) {
             let host = rest.split(['/', ':', ')', '"', ',']).next().unwrap_or("");

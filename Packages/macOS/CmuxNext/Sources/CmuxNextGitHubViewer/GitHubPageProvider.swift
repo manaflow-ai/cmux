@@ -32,6 +32,10 @@ public import CmuxNextSettings
 /// - `review.submit {url, event, body, head?}`, `thread.reply {url, thread, body}`,
 ///   `thread.resolve {url, thread, resolved}`: the person's review and replies
 ///   (GitHubPageProvider+Review.swift). Each spends the gesture.
+/// - `issues.list {repo}`: the repository's issues, newest activity first, pull requests left out
+///   (GitHub's issues endpoint lists both); `issue.details {url}`: one issue and its comments. Both
+///   read through the GitHub host op (``AgentPaneGitHubREST/get(_:_:tail:)``) and pass GitHub's fields
+///   through (GitHubPageProvider+Issues.swift).
 @MainActor
 public final class GitHubPageProvider: PageProvider {
     public static let namespace = "cmux.github."
@@ -75,6 +79,10 @@ public final class GitHubPageProvider: PageProvider {
     public var onShown: @MainActor (_ url: String, _ content: Bool) -> Void = { _, _ in }
     /// The page view, so what it opens lands beside the pane that shows it.
     public var anchor: @MainActor () -> NSView? = { nil }
+    /// One GitHub REST read (`repo`, `path`) for the issue ops; tests answer their own.
+    var restGet: @Sendable (_ repository: String, _ path: String) async -> AgentPaneGitHubREST.Answer = {
+        await AgentPaneGitHubREST.get($0, $1)
+    }
 
     /// The most diffs kept; the page shows one pull request at a time.
     static let maximumDiffs = 8
@@ -118,6 +126,8 @@ public final class GitHubPageProvider: PageProvider {
         if method == "checks.rerun" { return try await rerun(params, context: context) }
         if method == "review.submit" { return try await submitReview(params, context: context) }
         if method == "thread.reply" || method == "thread.resolve" { return try await writeThread(method, params, context: context) }
+        if method == "issues.list" { return try await listIssues(params) }
+        if method == "issue.details" { return try await issueDetails(params) }
         if method == "shown" {
             onShown(params["url"]?.stringValue ?? "", params["content"]?.boolValue == true)
             return .null

@@ -30,9 +30,13 @@ use super::{
 };
 use crate::link::FrameLink;
 
-/// Standby sockets a registration keeps: one for each circuit a pair opens at once (the cheap
-/// circuit and the bulk one).
-pub(super) const STANDBY_SOCKETS: usize = 2;
+/// Standby sockets a registration keeps: one for each link a client opens at once. A Cloud
+/// client's `Auto` lanes are three links (Interactive, Control, Tunnel and Bulk), and a reconnect
+/// that holds the daemon's key opens all three together (`cmux_braid_session::open_lanes_at_once`),
+/// so a third link with no Standby free would fall back to the two-hop circuit route and hold the
+/// whole reconnect up by its ~730 ms. The relay holds up to four per slot
+/// (`MAX_STANDBY_SOCKETS_PER_SLOT`), which leaves one for a replacement in flight.
+pub(super) const STANDBY_SOCKETS: usize = 3;
 /// A Standby says it is alive this often, and gives up on a relay that does not answer within
 /// [`STANDBY_PONG_WAIT`]: a dial paired with a dead Standby would wait on it.
 const STANDBY_PING: Duration = Duration::from_secs(20);

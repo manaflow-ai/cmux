@@ -33,7 +33,6 @@ const EXTRA_KEYS: &[&str] = &[
     "lastMessage",
     // The chat's task list, counts and lines only (`task_list.rs`): the row's "3/7" and its step.
     "taskList",
-    "rollingSummary",
     "lane",
     "turn",
     "tags",
@@ -57,6 +56,7 @@ const EXTRA_KEYS: &[&str] = &[
     "watching",
     "loopEpisode",
     "coldArchive",
+    "autoSession",
     "waitingPrompt",
     "since",
     "stuckError",
@@ -148,7 +148,6 @@ fn selected_extra(row: &Map<String, Value>, state: &str) -> Value {
         values.get_mut("taskList"),
         &["source", "done", "total", "current", "next", "updatedAt"],
     );
-    retain(values.get_mut("rollingSummary"), &["text", "next", "source", "turn", "at"]);
     retain(values.get_mut("lane"), &["state", "since", "error", "step", "title", "requiresOpen"]);
     retain(
         values.get_mut("turn"),

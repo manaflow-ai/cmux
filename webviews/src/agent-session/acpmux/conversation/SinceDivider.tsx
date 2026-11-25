@@ -233,8 +233,12 @@ export function SinceDivider({
             </>
           )}
           {drawn !== "line" && (
-            <span className="cv-since__tag" aria-hidden="true">
-              {words ?? t("since.new")}
+            // Both forms stack in one cell at the line's end (unread.css): the words where the row
+            // has room, "New" where it is tight, so a resize cross-fades between them in place and
+            // never wraps the tag to a second row or moves the rule.
+            <span className="cv-since__tag" aria-hidden="true" data-words={words !== undefined ? "" : undefined}>
+              {words !== undefined && <span className="cv-since__tag-words">{words}</span>}
+              <span className="cv-since__tag-new">{t("since.new")}</span>
             </span>
           )}
         </p>

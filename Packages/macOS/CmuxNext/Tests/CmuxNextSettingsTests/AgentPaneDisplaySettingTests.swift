@@ -24,6 +24,10 @@ struct AgentPaneDisplaySettingTests {
         Row(key: "agentPane.display.fullWidth", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("yes")]),
         // The VS Code-style chat minimap: off unless turned on.
         Row(key: "agentPane.display.vscodeMinimap", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
+        // Status pills on the live chats of All Chats (a taste prototype): off unless turned on.
+        Row(key: "agentPane.display.chatListStatusPills", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
+        // The header title as a monospace slash path (taste prototype): off, the plain title.
+        Row(key: "agentPane.display.headerBreadcrumb", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
         // The running turn's task list pinned in the chat: off, the composer's hat shows it.
         Row(key: "agentPane.display.pinnedPlan", fallback: .bool(false), accepted: [.bool(true)], refused: [.string("on")]),
         // The prompt coach card after a chat that took several corrections (webviews PromptCoachCard.tsx).

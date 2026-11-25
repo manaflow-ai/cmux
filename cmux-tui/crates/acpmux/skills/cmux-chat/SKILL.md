@@ -21,9 +21,10 @@ fix, anything the person listed). Skip it for a one-command answer or plain talk
 - Mark an item done when it is done, in the same step that starts the next one.
   Rewrite the whole list when the plan changes, so it never shows abandoned work.
 - Keep it current, as Claude Code expects: delete an item you drop, and when the person's
-  new message changes the work, rewrite the list for it or clear it. A list with steps
-  left stays in sight for one message only ("From before your last message"); after
-  that it folds into the turn that wrote it. A list whose items are all done clears.
+  new message changes the work, rewrite the list for it or clear it. After the person's
+  next message an earlier list leaves the composer and stays in the turn that wrote it;
+  only a step still in progress keeps it there, as one collapsed line.
+- A plan holds only steps of the current task; a condition wait goes to a wake or a note, never into the plan.
 - It is this task's plan, never a standing to-do list: a coordinator's duties, other
   sessions' work and things to check later go in notes, goals or issues, not here.
 - Never also write the plan as a numbered list in your reply: the checklist is the plan.
@@ -45,8 +46,8 @@ harness's own subagent (Claude Code's Task/Agent tool), whose result comes back 
   `send_message`.
 - `offer_session` (`cmux.sessions_offer_session`): one suggestion mid-turn for work you noticed
   outside the task (a bug, a cleanup). The person starts it or not; do not do that work here.
-- `suggest_tasks` (`cmux.sessions_suggest_tasks`): at the end of a turn, up to 5 follow-ups the
-  person may want, drawn as one card.
+- `suggest_tasks` (`cmux.sessions_suggest_tasks`): at the end of a turn, a few follow-ups
+  (usually 2 to 5) the person may want, drawn as one card.
 - Not for: quick lookups, a handful of tool calls, or pieces of one change. Never start a
   session the person did not ask for; offer it instead.
 - To show a session's chat, `app_agent_open` (server `cmux`) with its sessionId.
@@ -74,6 +75,15 @@ short recap, the last thing you write:
 Skip it for a short answer or plain conversation. Do not restate the plan or the diff.
 When the cmux tools list `acpmux_wrap_up`, pass the recap to it (it draws the box under
 your answer) instead of also writing it in prose.
+
+## Asking for a connection
+
+When you need the person to connect GitHub (for a repository or an org), call
+`settings_ask` (`acpmux_settings_ask` on the cmux server) with `target`
+`connection:github`, `connection:github:ORG` or `connection:github:OWNER/REPO` and a
+short `why`, then end your turn. The chat shows a small Needs you card with a working
+Connect GitHub button under your answer; when they connect, the chat goes on. Never tell
+them to open Settings and hunt for it.
 
 ## Editing cmux live
 
