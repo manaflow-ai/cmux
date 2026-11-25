@@ -146,19 +146,21 @@ struct WelcomeGlide: View {
             }
             .aspectRatio(width / height, contentMode: .fit)
             .overlay(alignment: .topLeading) {
-                if landed > 0 {
-                    GeometryReader { proxy in
-                        // The canvas's points per unit. The chevron lands at its
-                        // top left, `chevronHeight` tall; CmuxLogoMark (the launch
-                        // screen's view) draws the icon layer with its solid
-                        // chevron that tall, centered, glow around it.
-                        let unit = proxy.size.width / width
-                        CmuxLogoMark(chevronHeight: chevronHeight * unit)
-                            .position(x: chevronWidth / 2 * unit, y: chevronHeight / 2 * unit)
-                            .opacity(landed)
-                    }
-                    .allowsHitTesting(false)
+                // In the tree from the first frame, transparent until the landing:
+                // the icon's asset lookup, decode and upload happen while the word
+                // types, not in the frame its crossfade starts (made there, a
+                // first run held that frame for 168 ms and skipped the crossfade).
+                GeometryReader { proxy in
+                    // The canvas's points per unit. The chevron lands at its
+                    // top left, `chevronHeight` tall; CmuxLogoMark (the launch
+                    // screen's view) draws the icon layer with its solid
+                    // chevron that tall, centered, glow around it.
+                    let unit = proxy.size.width / width
+                    CmuxLogoMark(chevronHeight: chevronHeight * unit)
+                        .position(x: chevronWidth / 2 * unit, y: chevronHeight / 2 * unit)
+                        .opacity(landed)
                 }
+                .allowsHitTesting(false)
             }
             .frame(maxWidth: 292)
             .padding(.horizontal, 40)
