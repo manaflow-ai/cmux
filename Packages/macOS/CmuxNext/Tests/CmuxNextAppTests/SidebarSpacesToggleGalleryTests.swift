@@ -95,8 +95,9 @@ import Testing
         for dark in [true, false] {
             for variant in Self.variants {
                 let image = try Self.render(variant, dark: dark)
+                let themeName = dark ? "dark" : "light"
                 try AAGroupHeaderDensityGalleryTests.write(image,
-                    to: out.appending(path: "(dark ? "dark" : "light")-(variant.name).png"))
+                    to: out.appending(path: "\(themeName)-\(variant.name).png"))
             }
         }
         let tar = Process()
