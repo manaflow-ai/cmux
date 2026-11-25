@@ -439,6 +439,19 @@ impl Mux {
                     Err(refusal) => refuse(refusal).await,
                 }
             }
+            // A punch's candidates (`hub_carrier_punch.rs`): served while this machine listens
+            // for punched connections, else refused as a daemon from before it refuses it.
+            Ok(CircuitService::DirectOffer) if incoming.carrier.punch_listening() => {
+                let (ours, theirs) = tokio::io::duplex(super::DUPLEX_BYTES);
+                let carrier = incoming.carrier.clone();
+                tokio::join!(
+                    carrier.serve_offer(theirs),
+                    self.carry_admitted(id, ours, events, credit)
+                );
+            }
+            Ok(CircuitService::DirectOffer) => {
+                refuse(ServiceRefusal::new("service.unknown", "no such service")).await
+            }
             Ok(CircuitService::TransferSource) => match incoming.transfer(from).await {
                 Ok((local, serving)) => {
                     tokio::join!(serving, self.carry_admitted(id, local, events, credit));
@@ -782,7 +795,7 @@ impl KeptCircuits {
     }
 
     /// Every machine's slot whose kept circuit ended under it and wants opening again.
-    pub(crate) fn to_reopen(&self) -> Vec<(String, Arc<tokio::sync::Mutex<Kept>>)> {
+    pub(crate) fn to_reopen(&self) -> Vec<(String, Lane, Arc<tokio::sync::Mutex<Kept>>)> {
         let by_machine = self.by_machine.lock().unwrap_or_else(|e| e.into_inner());
         by_machine
             .iter()
@@ -790,7 +803,7 @@ impl KeptCircuits {
                 slot.try_lock()
                     .is_ok_and(|kept| kept.live.as_ref().is_some_and(|mux| mux.wants_reopen()))
             })
-            .map(|((daemon, _), slot)| (daemon.clone(), slot.clone()))
+            .map(|((daemon, lane), slot)| (daemon.clone(), *lane, slot.clone()))
             .collect()
     }
 
@@ -798,6 +811,17 @@ impl KeptCircuits {
     /// any stream, no keepalive PONG.
     pub(crate) fn silent_for(&self, daemon: &str, silent: Duration) -> Vec<Arc<Mux>> {
         self.live(daemon).into_iter().filter(|mux| mux.heard().elapsed() >= silent).collect()
+    }
+
+    /// The live kept circuit to `daemon` on `lane`, when one is open now.
+    pub(crate) fn live_on(&self, daemon: &str, lane: Lane) -> Option<Arc<Mux>> {
+        let slot = self
+            .by_machine
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&(daemon.to_owned(), lane))
+            .cloned()?;
+        slot.try_lock().ok()?.live.clone().filter(|mux| !mux.is_closed())
     }
 
     /// The live kept circuits to `daemon` open now, cheap first.
