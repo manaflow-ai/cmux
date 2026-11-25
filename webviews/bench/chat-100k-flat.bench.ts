@@ -348,8 +348,13 @@ try {
         },
       },
     });
-    const notify = (id: string, method: string, params: unknown) =>
-      sockets.get(id)?.send(JSON.stringify({ jsonrpc: "2.0", method, params }));
+    // Bun's send drops a message (returns 0) once a socket's buffer passes its backpressure limit; the daemon never
+    // drops one, so the bench counts drops and the grow loop waits for the pages to drain (backpressured, below).
+    let dropped = 0;
+    const notify = (id: string, method: string, params: unknown) => {
+      if (sockets.get(id)?.send(JSON.stringify({ jsonrpc: "2.0", method, params })) === 0) dropped += 1;
+    };
+    const backpressured = () => [...sockets.values()].some((ws) => ws.getBufferedAmount() > 1 << 20);
     const emit = (id: string, dir: string, kind: string, msg: Record<string, unknown>) => {
       const list = streamed.get(id) ?? [];
       streamed.set(id, list);
@@ -560,8 +565,10 @@ try {
           }
           if (batch >= GROW_BATCH) {
             batch = 0;
-            // fixed-wait: one frame between batches, so the pages apply them as they would a fast stream.
+            // fixed-wait: one frame between batches, so the pages apply them as they would a fast stream; and while a
+            // page's socket holds over 1 MB unread, as the daemon's writes would wait on it.
             await Bun.sleep(16);
+            while (backpressured()) await Bun.sleep(16);
           }
         }
         const lastText = `Grown answer ${grow}:`;
@@ -572,9 +579,11 @@ try {
               polling: 1000,
             });
           console.log(
-            `  ${name}: grew ${grow} turns a chat live in ${((performance.now() - began) / 1000).toFixed(1)} s`,
+            `  ${name}: grew ${grow} turns a chat live in ${((performance.now() - began) / 1000).toFixed(1)} s` +
+              (dropped ? `; ${dropped} records dropped on backpressure` : ""),
           );
         } finally {
+          if (dropped) console.log(`  ${name}: ${dropped} records dropped on backpressure during the grow`);
           // A grow that never shows its last turn still writes its profile: what the page was busy with instead.
           if (growProfiler) {
             const { profile: cpu } = (await growProfiler.send("Profiler.stop")) as { profile: CpuProfile };
