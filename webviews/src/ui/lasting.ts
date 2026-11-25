@@ -4,6 +4,7 @@
 // normal launch (Leo, 2026-10-29: "STOP SHOWING FUCKING BULLSHIT ON LOAD"). The page keeps its own
 // retries and state; this only says when the person is told.
 import { useEffect, useRef, useState } from "react";
+import { useExperimentSwitch } from "../experiments/switches";
 
 /// How long a link may stay down or connecting before a page says so: the agent pane's host
 /// deadline (#27541, hostRetry.ts `HOST_ERROR_DEADLINE_MS`: a daemon answered 10 s after an
@@ -57,6 +58,25 @@ export function useConnectionQuiet(down: boolean): boolean {
   return useLasting(down, defaultGrace <= 0 ? 0 : CONNECTION_QUIET_MS);
 }
 
+/// Settings > Advanced > Experiments > Quiet Connections (`experiments.quietConnect`, off by default; Leo,
+/// 2026-11-24: "don't unilaterally MERGE ui stuff yet ... having people be able to easily toggle" it). On, the
+/// surfaces below (a subagent's or sub-session's retry, a connector's connect, "Can't reach the model", the guest
+/// and Chief pages' Connecting/Reconnecting) wait out `CONNECTION_QUIET_MS`; off, they say so at once, as before.
+export const QUIET_CONNECT_SWITCH = "quietConnect";
+
+/// The grace those surfaces wait: the shared bound with Quiet Connections on, none with it off.
+function useQuietConnectGrace(): number {
+  const on = useExperimentSwitch(QUIET_CONNECT_SWITCH);
+  return on && defaultGrace > 0 ? CONNECTION_QUIET_MS : 0;
+}
+
+/// `useConnectionQuiet` behind Quiet Connections: off, `down` itself (the state shows at once).
+export function useQuietConnect(down: boolean): boolean {
+  const on = useExperimentSwitch(QUIET_CONNECT_SWITCH);
+  const lasting = useConnectionQuiet(down);
+  return on ? lasting : down;
+}
+
 /// `useConnectionQuietKeys`'s answer: whether the row `key`, `down` now, has been down for the bound.
 export type ConnectionQuietKeys = (key: string, down: boolean) => boolean;
 
@@ -69,6 +89,7 @@ const downSince = new Map<string, number>();
 /// component, set to the soonest row still waiting; a row that comes back forgets when it went down. `now` is the
 /// clock (tests inject one). The gallery's zero grace (`setLastingGrace(0)`) shows every row at once.
 export function useConnectionQuietKeys(now: () => number = Date.now): ConnectionQuietKeys {
+  const grace = useQuietConnectGrace();
   const [, redraw] = useState(0);
   const soonest = useRef(Number.POSITIVE_INFINITY);
   soonest.current = Number.POSITIVE_INFINITY;
@@ -77,7 +98,6 @@ export function useConnectionQuietKeys(now: () => number = Date.now): Connection
     const timer = setTimeout(() => redraw((n) => n + 1), Math.max(0, soonest.current - now()));
     return () => clearTimeout(timer);
   });
-  const grace = defaultGrace <= 0 ? 0 : CONNECTION_QUIET_MS;
   return (key, down) => {
     if (!down) {
       downSince.delete(key);
@@ -101,12 +121,12 @@ export function useConnectionQuietFrom(
   since: number | undefined,
   now: () => number = Date.now,
 ): boolean {
+  const grace = useQuietConnectGrace();
   const [, redraw] = useState(0);
   const seen = useRef<number | undefined>(undefined);
   if (!down) seen.current = undefined;
   else seen.current ??= now();
   const from = since ?? seen.current;
-  const grace = defaultGrace <= 0 ? 0 : CONNECTION_QUIET_MS;
   const due = down && from !== undefined ? from + grace : undefined;
   const lasted = due === undefined || due <= now();
   useEffect(() => {

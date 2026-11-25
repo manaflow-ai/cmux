@@ -35,7 +35,7 @@ import {
   type WhoAmIFetch,
 } from "./redeem";
 import { TypingSignal } from "./typingSignal";
-import { useConnectionQuiet } from "../../ui/lasting";
+import { useQuietConnect } from "../../ui/lasting";
 import {
   type GuestChat,
   type GuestConnection,
@@ -397,9 +397,9 @@ export function LiveChat({
   const [people, setPeople] = useState<GuestParticipant[]>([]);
   const [connection, setConnection] = useState<GuestConnection>("connecting");
   // Connecting and reconnecting heal on their own and offer nothing to do: the line waits out the
-  // shared bound (ui/lasting.ts `CONNECTION_QUIET_MS`), so a join or a blip that lands under it
+  // shared bound (ui/lasting.ts `CONNECTION_QUIET_MS`, with Quiet Connections on), so a join or a blip that lands under it
   // says nothing (Leo, 2026-11-14: "i also want all our connectivity stuff to shut up").
-  const linkDownLasting = useConnectionQuiet(connection !== "live");
+  const linkDownLasting = useQuietConnect(connection !== "live");
   const [hasMore, setHasMore] = useState(false);
   const [expanded, setExpanded] = useState(() => new Set<string>());
   const socket = useRef<ShareSocket | undefined>(undefined);

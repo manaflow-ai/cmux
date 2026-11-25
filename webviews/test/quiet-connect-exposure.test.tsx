@@ -5,6 +5,9 @@
 // `CONNECTION_QUIET_MS` (ui/lasting.ts). Each surface runs the same timelines through labelExposure:
 // a connect that completes in 0.8 s, a reconnect that heals in 6 s, a drop that lasts 15 s. A failure
 // with its one button, and a busy model (it is not a connection that heals), still show at once.
+// All of it sits behind Settings > Experiments > Quiet Connections (`experiments.quietConnect`, off by
+// default; Leo, 2026-11-24: "don't unilaterally MERGE ui stuff yet"): these timelines run with it on,
+// and the last block runs the same timelines with it off, the numbers from before.
 import { afterAll, afterEach, beforeEach, expect, jest, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { teardownDom } from "./support/domTeardown";
@@ -52,6 +55,8 @@ const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 type Root = ReturnType<typeof createRoot>;
 const { translate: t } = await import("../src/agent-session/acpmux/i18n");
+const { setExperimentSwitches } = await import("../src/experiments/switches");
+const { QUIET_CONNECT_SWITCH } = await import("../src/ui/lasting");
 const { Thinking } = await import("../src/agent-session/acpmux/conversation/Thinking");
 const { SubagentDoneLine } = await import("../src/agent-session/acpmux/subagents/SubagentDoneLine");
 const { SUBAGENT_DONE } = await import("../src/agent-session/acpmux/subagents/subagentRows");
@@ -70,6 +75,7 @@ let host: HTMLElement;
 let clock: ReturnType<typeof setInterval> | undefined;
 
 beforeEach(() => {
+  setExperimentSwitches({ [QUIET_CONNECT_SWITCH]: true });
   jest.useFakeTimers();
   // Date.now walks with the fake clock, so the hold's own `now` and its timers agree.
   jest.setSystemTime(0);
@@ -86,6 +92,7 @@ afterEach(async () => {
   host.remove();
   clearInterval(clock);
   jest.useRealTimers();
+  setExperimentSwitches({});
 });
 
 afterAll(async () => {
@@ -328,4 +335,65 @@ test("the guest's drop that lasts 15 s says Reconnecting for the last 5 s", asyn
     linkWords,
   );
   expect(ms).toBe(5_000);
+});
+
+// --- Quiet Connections off (the default): every state says so at once, as before -----------------------
+
+test("with Quiet Connections off, the model out of reach for 6 s says so the whole 6 s", async () => {
+  setExperimentSwitches({});
+  const ms = await labelExposure(
+    "off-thinking-unreachable-heals-6s",
+    [
+      { at: 0, apply: draw(line(UNREACHABLE, 0)) },
+      { at: 6_000, apply: draw(line()) },
+    ],
+    20_000,
+    retrying,
+  );
+  expect(ms).toBe(6_000);
+});
+
+test("with Quiet Connections off, a subagent's retry that heals in 6 s says so the whole 6 s", async () => {
+  setExperimentSwitches({});
+  const ms = await labelExposure(
+    "off-subagent-retry-heals-6s",
+    [
+      { at: 0, apply: draw(doneLine("heals-off", true)) },
+      { at: 6_000, apply: draw(doneLine("heals-off", false)) },
+    ],
+    20_000,
+    retryWords,
+  );
+  expect(ms).toBe(6_000);
+});
+
+test("with Quiet Connections off, a connector that connects in 0.8 s says so for the 0.8 s", async () => {
+  setExperimentSwitches({});
+  const ms = await labelExposure(
+    "off-connector-connects-0.8s",
+    [
+      { at: 0, apply: draw(connectors([{ name: "github", status: "pending" }])) },
+      { at: 800, apply: draw(connectors([{ name: "github", status: "connected" }])) },
+    ],
+    5_000,
+    connecting,
+  );
+  expect(ms).toBe(800);
+});
+
+test("with Quiet Connections off, the guest says Connecting for its 0.8 s connect and Reconnecting the whole 6 s drop", async () => {
+  setExperimentSwitches({});
+  const link = room();
+  const ms = await labelExposure(
+    "off-guest-reconnect-heals-6s",
+    [
+      { at: 0, apply: draw(guest(link)) },
+      { at: 800, apply: link.live },
+      { at: 2_000, apply: link.drop },
+      { at: 8_000, apply: link.live },
+    ],
+    20_000,
+    linkWords,
+  );
+  expect(ms).toBe(6_800);
 });
