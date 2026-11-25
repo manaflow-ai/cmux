@@ -49,7 +49,7 @@ extension DaemonLanePolicy {
         "ids": ["kind"],
         "list-agents": ["state", "surface"],
         "list-clients": [],
-        "list-notifications": ["limit"],
+        "list-notifications": ["limit", "stats"],
         "list-personal": [],
         "list-saved-tab-groups": [],
         "list-tab-groups": [],
