@@ -79,18 +79,33 @@ def artifacts(targets) -> dict:
     return {"artifacts": [{"name": f"{kind}-{target}"} for target in targets for kind in KINDS]}
 
 
-def leg(target: str, conclusion: str, failed_step: str | None = None) -> dict:
-    steps = [{"name": "Set up job", "conclusion": "success"}]
-    if failed_step:
-        steps.append({"name": failed_step, "conclusion": "failure"})
+DARWIN_BUILD_STEP = "Build the macOS binaries on Linux (no Apple SDK)"
+# The macOS cross leg's steps in order (job 138283422102), trimmed.
+DARWIN_STEPS = ("Set up job", "Checkout caller or requested ref",
+                "Fetch the ghostty-next Zig packages (cached, deadlined, retried)",
+                "Install the macOS cross toolchain", DARWIN_BUILD_STEP, "Stage binary")
+
+
+def leg(target: str, conclusion: str, failed_step: str | None = None, job_id: int = 1) -> dict:
+    steps = [{"name": "Set up job", "conclusion": "success", "number": 1}]
+    if target.endswith("-apple-darwin"):
+        steps = []
+        for number, name in enumerate(DARWIN_STEPS, 1):
+            ran = failed_step is None or DARWIN_STEPS.index(name) < DARWIN_STEPS.index(failed_step)
+            state = "failure" if name == failed_step else ("success" if ran else "skipped")
+            steps.append({"name": name, "conclusion": state, "number": number})
+    elif failed_step:
+        steps.append({"name": failed_step, "conclusion": "failure", "number": 2})
     elif conclusion == "cancelled":
-        steps.append({"name": "Build cmux-tui (Linux cross)", "conclusion": "cancelled"})
-    return {"name": f"build / build {target}", "conclusion": conclusion, "steps": steps}
+        steps.append({"name": "Build cmux-tui (Linux cross)", "conclusion": "cancelled", "number": 2})
+    # The Linux targets build in build-linux, their own call (#51895); the macOS ones in build.
+    caller = "build" if target.endswith("-apple-darwin") else "build-linux"
+    return {"id": job_id, "name": f"{caller} / build {target}", "conclusion": conclusion, "steps": steps}
 
 
 @unittest.skipIf(shutil.which("jq") is None, "jq runs the step's --jq filters (GitHub's runners have it)")
 class FallbackIgnoresALostLinuxLeg(unittest.TestCase):
-    def run_plan(self, built, jobs=None, build_result="failure") -> tuple[dict, str, str]:
+    def run_plan(self, built, jobs=None, build_result="failure", logs=None, attempt="1") -> tuple[dict, str, str]:
         step = plan_step()
         with tempfile.TemporaryDirectory() as temp:
             temp_path = Path(temp)
@@ -101,7 +116,9 @@ class FallbackIgnoresALostLinuxLeg(unittest.TestCase):
             gh.chmod(gh.stat().st_mode | stat.S_IEXEC)
             routes = {f"repos/{REPO}/actions/runs/100/artifacts": artifacts(built)}
             if jobs is not None:
-                routes[f"repos/{REPO}/actions/runs/100/attempts/1/jobs"] = {"total_count": len(jobs), "jobs": jobs}
+                routes[f"repos/{REPO}/actions/runs/100/attempts/{attempt}/jobs"] = {"total_count": len(jobs), "jobs": jobs}
+            for job_id, text in (logs or {}).items():
+                routes[f"repos/{REPO}/actions/jobs/{job_id}/logs"] = text
             (temp_path / "routes.json").write_text(json.dumps(routes), encoding="utf-8")
             output = temp_path / "output"
             output.touch()
@@ -117,11 +134,12 @@ class FallbackIgnoresALostLinuxLeg(unittest.TestCase):
                 "FAKE_GH_ROUTES": str(temp_path / "routes.json"),
                 "FAKE_GH_LOG": str(log),
                 "GH_TOKEN": "x",
+                "GH_TOKEN_SPARES": "",
+                "GH_BUDGET_WAIT_MAX_SECONDS": "0",
                 "REPOSITORY": REPO,
                 "RUN_ID": "100",
-                "RUN_ATTEMPT": "1",
+                "RUN_ATTEMPT": attempt,
                 "BUILD_RESULT": build_result,
-                "FIRST_ON_MAC": "false",
                 "BRANCH_PUSH": "",
             }
             for name in step["env"]:
@@ -176,10 +194,10 @@ class FallbackIgnoresALostLinuxLeg(unittest.TestCase):
             self.assertEqual(values.get("target_set"), "", f"{why}: {out}")
             self.assertIn("the x86_64-unknown-linux-musl build failed too", out, why)
 
-    def test_the_machine_channel_leg_of_the_same_target_is_not_read(self) -> None:
-        # build-linux (the Cloud machine channel) builds the same targets under another caller job.
+    def test_a_same_named_leg_of_another_caller_is_not_read(self) -> None:
+        # Only build-linux's leg of a Linux target counts (#51895), not a leg of that name in build.
         values, out, _ = self.run_plan(["aarch64-unknown-linux-musl"], [
-            {"name": "build-linux / build x86_64-unknown-linux-musl", "conclusion": "cancelled", "steps": []},
+            {"name": "build / build x86_64-unknown-linux-musl", "conclusion": "cancelled", "steps": []},
             leg("x86_64-unknown-linux-musl", "failure", "Build cmux-tui (Linux cross)"),
         ])
         self.assertEqual(values.get("target_set"), "", out)
@@ -187,11 +205,67 @@ class FallbackIgnoresALostLinuxLeg(unittest.TestCase):
     def test_every_linux_target_built_never_reads_the_jobs(self) -> None:
         values, out, log = self.run_plan(list(LINUX))
         self.assertEqual(values.get("target_set"), "macos-arm64", out)
-        self.assertNotIn("/jobs", log)
+        # Only the macOS legs' read (FALLBACK_RETRIES_LOST_LEGS_ON_LINUX), never the Linux legs'.
+        self.assertEqual(log.count("/jobs"), 1, log)
+        self.assertNotIn("build-linux", log)
         values, out, log = self.run_plan(list(LINUX) + ["aarch64-apple-darwin"])
         self.assertEqual(values.get("target_set"), "", out)
         self.assertEqual(values.get("recovered"), "true")
         self.assertNotIn("/jobs", log)
+
+    # FALLBACK_RETRIES_LOST_LEGS_ON_LINUX: a macOS leg that never reached its link rebuilds on Linux.
+    def darwin_plan(self, failed_step, **kwargs) -> tuple[dict, str]:
+        values, out, _ = self.run_plan(list(LINUX), [
+            leg("x86_64-unknown-linux-musl", "success"),
+            leg("aarch64-unknown-linux-musl", "success"),
+            leg("aarch64-apple-darwin", kwargs.pop("conclusion", "failure"), failed_step, job_id=7),
+        ], **kwargs)
+        self.assertEqual(values.get("target_set"), "macos-arm64", out)
+        return values, out
+
+    def test_a_macos_leg_that_failed_before_its_link_rebuilds_on_linux(self) -> None:
+        for step in ("Checkout caller or requested ref",
+                     "Fetch the ghostty-next Zig packages (cached, deadlined, retried)"):
+            values, out = self.darwin_plan(step)
+            self.assertEqual(values.get("builder"), "linux", f"{step}: {out}")
+            self.assertNotIn("cross_failed", values, "no red linux-cross status for a lost leg")
+
+    def test_a_macos_leg_that_lost_its_runner_rebuilds_on_linux(self) -> None:
+        values, out = self.darwin_plan(None)
+        self.assertEqual(values.get("builder"), "linux", out)
+        values, out = self.darwin_plan(DARWIN_BUILD_STEP, logs={7: "...\n##[error]The runner has received a shutdown signal. This can"})
+        self.assertEqual(values.get("builder"), "linux", out)
+
+    def test_a_failed_link_still_rebuilds_on_a_mac(self) -> None:
+        for logs in ({7: "ld64.lld: error: undefined symbol: kSecGuestAttributePid"}, None):
+            values, out = self.darwin_plan(DARWIN_BUILD_STEP, logs=logs)
+            self.assertEqual(values.get("builder"), "mac", out)
+            self.assertEqual(values.get("cross_failed"), "true")
+        values, out = self.darwin_plan("Stage binary")
+        self.assertEqual(values.get("builder"), "mac", out)
+
+    def test_a_timeout_a_later_attempt_or_an_unread_leg_rebuilds_on_a_mac(self) -> None:
+        values, out = self.darwin_plan(None, conclusion="cancelled", build_result="cancelled")
+        self.assertEqual(values.get("builder"), "mac", out)
+        values, out = self.darwin_plan("Checkout caller or requested ref", attempt="2")
+        self.assertEqual(values.get("builder"), "mac", out)
+        values, out, _ = self.run_plan(list(LINUX))
+        self.assertEqual(values.get("builder"), "mac", out)
+
+    def test_one_macos_leg_at_its_link_keeps_both_on_a_mac(self) -> None:
+        values, out, _ = self.run_plan(list(LINUX), [
+            leg("aarch64-apple-darwin", "failure", "Checkout caller or requested ref", job_id=7),
+            leg("x86_64-apple-darwin", "failure", DARWIN_BUILD_STEP, job_id=8),
+        ])
+        self.assertEqual(values.get("builder"), "mac", out)
+
+    def test_the_fallback_build_takes_the_plans_builder(self) -> None:
+        document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        call = document["jobs"]["build-darwin-fallback"]["with"]
+        self.assertEqual(call["darwin_builder"], "${{ needs.darwin-fallback-plan.outputs.builder }}")
+        self.assertEqual(call["linux_runner"], "cmux-linux")
+        self.assertEqual(document["jobs"]["darwin-fallback-plan"]["outputs"]["builder"],
+                         "${{ steps.plan.outputs.builder || 'mac' }}")
 
     def test_the_plan_reads_this_attempts_jobs(self) -> None:
         step = plan_step()
