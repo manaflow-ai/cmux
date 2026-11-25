@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "e1620065e298c750f8c38bb7def1d193f5724e07b50b491a3312be5fb6ffd9e0";
+pub const ir_sha256 = "23622ce49ad5791a2ff9200e0aeff4c2e785fbacc489099c290bb96400736620";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -6336,6 +6336,8 @@ pub const CreateWorkspaceRequest = struct {
     key: wire.Field([]const u8) = .absent,
     mutation_id: wire.Field([]const u8) = .absent,
     name: wire.Field([]const u8) = .absent,
+    /// user: name is exactly what the caller asked for (agents chat new --name), pinned like a rename at name_revision 1 so no automatic name or chat title replaces it. Absent or auto: a starting name the automatic namer may replace.
+    name_source: wire.Field(NameSource) = .absent,
     origin: wire.Field([]const u8) = .absent,
 };
 
