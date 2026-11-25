@@ -24,13 +24,13 @@
 //! Prints one line `TAIL_FIRST_BENCH {json}`; `TAIL_FIRST_BENCH_OUT` also writes
 //! it there.
 //!
-//! Run: `cargo test --release -p cmux-tui --test tail_first_move_bench --
-//! --ignored --nocapture`.
+//! Run: `cargo test --release -p cmux-tui --test it --
+//! tail_first_move_bench:: --ignored --nocapture`.
 //!
 //! Linux only, like the journeys it reuses: a Cloud host is a Linux machine.
 #![cfg(target_os = "linux")]
 
-mod journey_support;
+use crate::journey_support;
 
 use std::fs;
 use std::path::{Path, PathBuf};

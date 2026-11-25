@@ -2613,7 +2613,15 @@ struct WorkspaceTabPage: View {
                 .onAppear {
                     source.remember(context.safeAreaInsets, pageSize: context.pageSize)
                     source.pageAppeared(tabID)
+                    ScreenSharingOrientation.shared.tabPage(tabID, shows: context.isOnPage)
                 }
+                // Every tab page turns with the phone while it is full screen (Leo, 2026-11-23:
+                // "why do we not have a horizontal mode?"): a swipe to a browser or chat tab,
+                // or an address-bar edit, keeps the phone sideways; the tab grid is portrait.
+                .onChange(of: context.isOnPage) { _, onPage in
+                    ScreenSharingOrientation.shared.tabPage(tabID, shows: onPage)
+                }
+                .onDisappear { ScreenSharingOrientation.shared.tabPage(tabID, shows: false) }
         }
     }
 
