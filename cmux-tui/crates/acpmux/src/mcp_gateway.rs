@@ -47,13 +47,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::process::ChildStdin;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{oneshot, watch};
 
 /// A chat's server ends after this long with no request in flight; its next request starts it
 /// again. The same window as an upstream's in `cmux mcp serve` (`upstream::IDLE_STOP`).
@@ -79,6 +79,7 @@ const PORTS_REMEMBERED: usize = 24;
 /// Where a port with no kept one is derived: the IANA dynamic range, so a derived port cannot be
 /// a registered service's.
 const DERIVED_PORT_BASE: u16 = 49_152;
+#[cfg(test)]
 const DERIVED_PORT_SPAN: u16 = 8_192;
 /// `DERIVED_PORT_SPAN - 1`. The span is a power of two, so a port is derived with a mask instead
 /// of a division or a remainder: no arithmetic that can panic in a debug build, and none that can
@@ -226,7 +227,44 @@ struct Waiter {
     reply: oneshot::Sender<Value>,
     /// The request's `_meta.progressToken`: its `notifications/progress` go to `progress`.
     token: Option<Value>,
-    progress: Option<mpsc::UnboundedSender<Value>>,
+    progress: Option<ProgressTx>,
+}
+
+/// A request's progress: a coalescing slot holding the newest `notifications/progress` and how
+/// many came (RFD 0124 R4). A progress note says where the call is, so the newest says all the
+/// older ones did; a harness that reads its SSE stream slowly gets the newest when it reads,
+/// where an unbounded channel kept every note the server wrote meanwhile.
+type ProgressTx = watch::Sender<(u64, Option<Value>)>;
+
+/// Progress notes replaced by a newer one before their reader took them, since the daemon started.
+static PROGRESS_COALESCED: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(test)]
+fn progress_coalesced() -> u64 {
+    PROGRESS_COALESCED.load(Ordering::Relaxed)
+}
+
+/// The newest note in `rx` past the `seen`th, counting the ones it replaced.
+fn newest_progress(
+    rx: &mut watch::Receiver<(u64, Option<Value>)>,
+    seen: &mut u64,
+) -> Option<Value> {
+    let newest = rx.borrow_and_update();
+    let (count, note) = &*newest;
+    if *count <= *seen {
+        return None;
+    }
+    PROGRESS_COALESCED.fetch_add(*count - *seen - 1, Ordering::Relaxed);
+    *seen = *count;
+    note.clone()
+}
+
+/// Puts `note` in the slot, over any note not yet read.
+fn post_progress(progress: &ProgressTx, note: Value) {
+    progress.send_modify(|(count, slot)| {
+        *count += 1;
+        *slot = Some(note);
+    });
 }
 
 /// The daemon's gateway, once [`start`] bound it.
@@ -398,7 +436,7 @@ fn ports_chats_are_configured_at(home: &Path) -> Vec<u16> {
         }
     }
     // Newest config first: the ports most likely to belong to a chat that is still running.
-    found.sort_by(|a, b| b.0.cmp(&a.0));
+    found.sort_by_key(|a| std::cmp::Reverse(a.0));
     let mut seen = std::collections::HashSet::new();
     found.into_iter().map(|(_, port)| port).filter(|p| seen.insert(*p)).collect()
 }
@@ -837,7 +875,7 @@ impl Server {
     async fn send(
         &self,
         message: &Value,
-        progress: Option<mpsc::UnboundedSender<Value>>,
+        progress: Option<ProgressTx>,
     ) -> Result<(oneshot::Receiver<Value>, ())> {
         let id = message.get("id").map(Value::to_string).ok_or_else(|| anyhow!("no id"))?;
         let token = message.pointer("/params/_meta/progressToken").cloned();
@@ -886,7 +924,7 @@ async fn read_answers(
             if let Some(w) = waiting.values().find(|w| w.token.as_ref() == token && token.is_some())
                 && let Some(progress) = &w.progress
             {
-                let _ = progress.send(message);
+                post_progress(progress, message);
             }
             continue;
         }
@@ -1164,7 +1202,8 @@ async fn relay(
     streams: bool,
     stream: &mut TcpStream,
 ) -> Result<Value> {
-    let (progress_tx, mut progress_rx) = mpsc::unbounded_channel();
+    let (progress_tx, mut progress_rx) = watch::channel((0, None));
+    let mut seen = 0;
     let progress = streams.then_some(progress_tx);
     let mut tries = 0;
     let reply = loop {
@@ -1188,11 +1227,13 @@ async fn relay(
         // unbiased pick could take the answer while a note still waits.
         tokio::select! {
             biased;
-            Some(note) = progress_rx.recv() => {
-                stream.write_all(&sse_event(&note)).await?;
+            Ok(()) = progress_rx.changed() => {
+                if let Some(note) = newest_progress(&mut progress_rx, &mut seen) {
+                    stream.write_all(&sse_event(&note)).await?;
+                }
             }
             answer = &mut reply => {
-                while let Ok(note) = progress_rx.try_recv() {
+                if let Some(note) = newest_progress(&mut progress_rx, &mut seen) {
                     stream.write_all(&sse_event(&note)).await?;
                 }
                 return answer.map_err(|_| anyhow!("the server ended before it answered"));

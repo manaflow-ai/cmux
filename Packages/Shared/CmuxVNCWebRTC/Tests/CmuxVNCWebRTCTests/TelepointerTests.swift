@@ -24,6 +24,16 @@ struct TelepointerTests {
         #expect(ScreenStreamHost.fraction(of: CGPoint(x: 1800, y: 10), in: nil) == nil, "no display")
     }
 
+    /// hq#22239's class: a viewer's pointer fraction becomes a VNC pixel without trapping, whatever it carries.
+    @Test func aViewerPointerOfAnyValueIsAPixelOnTheDisplay() {
+        #expect(VNCLoopbackBackend.pixel(0.5, from: 1728, across: 1920) == 1728 + 960)
+        #expect(VNCLoopbackBackend.pixel(nil, from: 10, across: 100) == 10)
+        #expect(VNCLoopbackBackend.pixel(.nan, from: 10, across: 100) == 10)
+        #expect(VNCLoopbackBackend.pixel(.infinity, from: 10, across: 100) == 10)
+        #expect(VNCLoopbackBackend.pixel(1e300, from: 0, across: 1920) == 1920)
+        #expect(VNCLoopbackBackend.pixel(-4, from: 0, across: 1920) == 0)
+    }
+
     @Test func theMessageCarriesBothPointersAndAnOldViewerIgnoresIt() throws {
         var message = ScreenHostMessage(t: ScreenHostMessage.telepointersType)
         message.person = .init(x: 0.25, y: 0.5)
