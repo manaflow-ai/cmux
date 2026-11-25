@@ -356,6 +356,9 @@ public struct WorkspacesList: View {
     /// (`AppStore.openingTab`). Clears its "Done".
     func openWorkspace(_ ws: Workspace, status: WorkspaceStatus, tab: WorkspaceTab? = nil) {
         LaunchMarks.shared.mark("workspace_row_tap")
+        #if DEBUG
+        OpenMarks.shared?.begin("workspace_row_tap")
+        #endif
         if status == .offline {
             theme.haptics.warning()
             unavailable = ws
