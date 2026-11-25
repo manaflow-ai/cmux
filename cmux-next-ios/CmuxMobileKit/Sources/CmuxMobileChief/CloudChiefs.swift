@@ -1,5 +1,6 @@
 public import CMUXAuthCore
 public import CmuxMobileModel
+import CmuxEgress
 import Foundation
 
 /// One of the user's Cloud Chiefs (`chief.list`, `HomeChief`), the fields the
@@ -96,7 +97,7 @@ public struct ChiefCloudConfig: Sendable, Equatable {
 struct ChiefCloudHTTP: Sendable {
     let base: URL
     let accessToken: @Sendable (_ forceRefresh: Bool) async throws -> String
-    var session: URLSession = .shared
+    var session: URLSession = CmuxEgress.shared(site: "CmuxMobileChief.CloudChiefs")
     /// The build's cloud data space: every request and socket upgrade to the Worker carries it, and a
     /// misconfigured dev build's throw ``CMUXBuildSpaceError`` before they are sent.
     var buildSpace: CMUXBuildSpaceState = .nightly

@@ -273,7 +273,8 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // `diagnostics.shareInstallCounts`, and never calls the platform for a person who never did.
     crate::install_share::start();
     // Opt-in team usage sharing (cmux-usage-share): records nothing and sends nothing until the
-    // person turns on `diagnostics.usageSharing`. One record per turn: counts, times and hashed
+    // person turns on `diagnostics.usageSharing` and acknowledges the notice
+    // (`diagnostics.usageSharingNoticeAck`). One record per turn: counts, times and hashed
     // ids, never prompt, tool or file text.
     let _ = cmux_usage_share::install(&home(), Some(crate::hand::pair::hostname()));
     // Before the store, the sockets and any agent: launchd's soft limit is 256.
@@ -1206,13 +1207,24 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         "worker-lag-canary",
         crate::gauges::worker_lag_canary(crate::gauges::worker_lag()),
     );
+    // Supervised: a panic starts the loop again (`crate::supervise`).
     #[cfg(target_os = "linux")]
-    tokio::spawn(cloud_handoff::handoff_loop(hub.clone()));
+    {
+        let hub = hub.clone();
+        crate::supervise::restarting("cloud hand-off", &hub.fatal.clone(), move || {
+            cloud_handoff::handoff_loop(hub.clone())
+        });
+    }
     // Opt-in team usage sharing's uploads (`server/chats/team_audit.rs`); idle while it is off.
     let _usage_upload =
         hub.scope.spawn_until_cancelled("usage-share-upload", crate::server::usage_upload_loop());
     #[cfg(target_os = "linux")]
-    tokio::spawn(cloud_activity::activity_loop(hub.clone()));
+    {
+        let hub = hub.clone();
+        crate::supervise::restarting("cloud activity", &hub.fatal.clone(), move || {
+            cloud_activity::activity_loop(hub.clone())
+        });
+    }
     // Auto mode's holder loop on a laptop (`auto_session/laptop.rs`). It asks the Cloud once for
     // the person's Auto chats this laptop does not have, then nothing until a chat has Auto on.
     let _auto_session = crate::auto_session::laptop::start(hub.clone());

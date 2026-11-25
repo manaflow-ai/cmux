@@ -339,6 +339,15 @@ struct TerminalPage: View {
                 Text("On a slow connection, what you type shows at once, underlined until the remote confirms it.")
             }
             Section {
+                Toggle(isOn: $settings.predictiveEchoFullScreen) {
+                    SettingsLabel("Predictive Echo in Full-Screen Apps", symbol: "bolt.horizontal.circle")
+                }
+                .accessibilityIdentifier("settings.predictiveEchoFullScreen")
+                .disabled(!settings.predictiveEcho)
+            } footer: {
+                Text("Also predicts typing into full-screen apps such as Claude Code and Codex. A key shows only after the app printed the two before it where they were typed.")
+            }
+            Section {
                 Toggle(isOn: $settings.terminalJumpToBottom) {
                     SettingsLabel("Jump to Bottom Button", symbol: "arrow.down.to.line")
                 }
@@ -361,6 +370,22 @@ struct TerminalPage: View {
                 .accessibilityIdentifier("settings.terminalChatToggle")
             } footer: {
                 Text("Adds Show Chat and Show Terminal to a Claude Code or Codex tab's menu when both views can open.")
+            }
+            Section {
+                Toggle(isOn: $settings.terminalPlainScroll) {
+                    SettingsLabel("Plain Scroll in Full-Screen Apps", symbol: "scroll")
+                }
+                .accessibilityIdentifier("settings.terminalPlainScroll")
+            } footer: {
+                Text("Scrolling up in a full-screen app such as Claude Code moves through the rows this phone already has, like any page, instead of asking the app to scroll.")
+            }
+            Section {
+                Toggle(isOn: $settings.terminalZoomFullScreenApps) {
+                    SettingsLabel("Zoom Full-Screen Apps", symbol: "plus.magnifyingglass")
+                }
+                .accessibilityIdentifier("settings.terminalZoomFullScreenApps")
+            } footer: {
+                Text("Shows vim, htop or Codex at the Mac's size: pinch to zoom, drag to pan, and the Mac pane keeps its size. Typing into one fits it to the phone, which remembers that program. Applies to terminals opened next.")
             }
             Section {
                 Toggle(isOn: $settings.wrapCode) { SettingsLabel("Wrap code and diff lines", symbol: "text.word.spacing") }
@@ -614,6 +639,14 @@ struct TransportPage: View {
                 .accessibilityIdentifier("settings.transport.alignKeepalives")
             } footer: {
                 Text("Sends every connection's keepalive at the same moments, every 10 seconds, so the radio wakes once for all of them instead of for each. Applies at the next connection.")
+            }
+            Section {
+                Toggle(isOn: $settings.quietCloudConnect) {
+                    Text("Quiet Cloud Connections")
+                }
+                .accessibilityIdentifier("settings.transport.quietCloudConnect")
+            } footer: {
+                Text("Cloud chats and machines that answer within 10 seconds show no loading or connecting message, and a short outage behind Cloud lists you already see shows no alert. Longer waits and failures still show.")
             }
             Section {
                 Toggle(isOn: $settings.agentCLIHybrid) {
