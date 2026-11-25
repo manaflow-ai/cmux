@@ -14,6 +14,8 @@ public struct TabsView<Source: TabsDataSource>: View {
     let source: Source
     let isShowingOverview: Binding<Bool>?
 
+    @State private var chrome = ChromeState()
+
     /// `isShowingOverview`: optional two-way binding to the tab grid. Set it
     /// to open or close the grid with the same zoom as the tabs button; the
     /// kit sets it when the user opens or closes the grid.
@@ -29,15 +31,31 @@ public struct TabsView<Source: TabsDataSource>: View {
         GeometryReader { withKeyboard in
             GeometryReader { outer in
                 GeometryReader { full in
-                    let kb = withKeyboard.safeAreaInsets.bottom
+                    let inset = withKeyboard.safeAreaInsets.bottom
+                    let keyboard = inset > outer.safeAreaInsets.bottom + 1 ? inset : 0
                     TabsScreen(source: source, isShowingOverview: isShowingOverview, size: full.size, safeTop: outer.safeAreaInsets.top,
                                safeBottom: outer.safeAreaInsets.bottom,
-                               keyboard: kb > outer.safeAreaInsets.bottom + 1 ? kb : 0)
+                               keyboard: chrome.editing ? keyboard : 0, chrome: chrome)
+                        .environment(\.tabsAccessoryKeyboardHeight, keyboard)
                 }
                 .ignoresSafeArea()
             }
             .ignoresSafeArea(.keyboard)
         }
+    }
+}
+
+private extension EnvironmentValues {
+    @Entry var tabsAccessoryKeyboardHeight: CGFloat = 0
+}
+
+/// Only the accessory rides the keyboard when a page field is editing.
+private struct AccessoryKeyboardPadding: ViewModifier {
+    @Environment(\.tabsAccessoryKeyboardHeight) private var keyboard
+    let resting: CGFloat
+
+    func body(content: Content) -> some View {
+        content.padding(.bottom, keyboard > 0 ? keyboard : resting)
     }
 }
 
@@ -50,7 +68,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
     /// Software keyboard height from the screen bottom (0 when hidden).
     let keyboard: CGFloat
 
-    @State private var chrome = ChromeState()
+    let chrome: ChromeState
     /// Close All Tabs is waiting for the person's answer.
     @State private var confirmingCloseAll: CloseAllConfirmation?
     /// The page <-> grid transition (one interruptible progress value).
@@ -298,8 +316,8 @@ struct TabsScreen<Source: TabsDataSource>: View {
                     .id(tab.id)
                 }
                 // A top bar leaves the bottom to the accessory: it rests on the home indicator's inset.
-                .padding(.bottom, keyboard > 0 ? keyboard
-                         : theme.metrics.barEdge == .top ? safeBottom : size.height - layout.capsule.minY + 8)
+                .modifier(AccessoryKeyboardPadding(resting: theme.metrics.barEdge == .top ? safeBottom
+                                                   : size.height - layout.capsule.minY + 8))
                 .frame(width: size.width, height: size.height)
                 .scaleEffect(z.scale, anchor: .topLeading)
                 .offset(x: z.origin.x, y: z.origin.y)
