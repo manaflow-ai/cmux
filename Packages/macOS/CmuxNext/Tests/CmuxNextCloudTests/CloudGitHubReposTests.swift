@@ -249,8 +249,11 @@ struct CloudGitHubReposTests {
         #expect(completion.error == nil)
         // #55104: another redirect of the same state (the code-less update, a new installation) is its own completion,
         // never `idempotency.conflict`; the same redirect again is the same completion.
-        let update = try #require(CloudGitHubCompletion(url: try #require(URL(string: "\(link)?state=\(state)&installation_id=42&setup_action=update")), scheme: "cmux-dev-x"))
-        let otherInstall = try #require(CloudGitHubCompletion(url: try #require(URL(string: "\(link)?state=\(state)&code=abc&installation_id=43&setup_action=install")), scheme: "cmux-dev-x"))
+        // A `#require` nested in a `#require` does not compile ("recursive expansion of macro"): unwrap the URLs first.
+        let updateURL = try #require(URL(string: "\(link)?state=\(state)&installation_id=42&setup_action=update"))
+        let otherInstallURL = try #require(URL(string: "\(link)?state=\(state)&code=abc&installation_id=43&setup_action=install"))
+        let update = try #require(CloudGitHubCompletion(url: updateURL, scheme: "cmux-dev-x"))
+        let otherInstall = try #require(CloudGitHubCompletion(url: otherInstallURL, scheme: "cmux-dev-x"))
         #expect(Set([completion.idempotencyKey, update.idempotencyKey, otherInstall.idempotencyKey]).count == 3)
         #expect(try #require(CloudGitHubCompletion(url: url, scheme: "cmux-dev-x")).idempotencyKey == completion.idempotencyKey)
         #expect(completion.idempotencyKey.count <= 128)
