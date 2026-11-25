@@ -348,6 +348,29 @@
             "add",
             "terminal"
           ]
+        },
+        {
+          "key": "labs.connectionsUpcoming",
+          "note": "Settings > Integrations > Connections also lists Slack and the Google servers (Gmail, Calendar, Drive, Docs, Sheets), which say Not set up until cmux's client for each is registered on the platform (cmux-tui cli/mcp_servers.rs `upcoming`). Off by default: the catalog shows only the servers a person can connect today. A connected one always shows.",
+          "title": {
+            "key": "settings.labs.connectionsUpcoming",
+            "text": "Upcoming Connections"
+          },
+          "help": {
+            "key": "settings.labs.connectionsUpcoming.help",
+            "text": "Lists Slack and Google in Connections before they can be connected."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "connections",
+            "integrations",
+            "slack",
+            "google",
+            "gmail",
+            "mcp"
+          ]
         }
       ]
     }
