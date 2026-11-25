@@ -14,6 +14,6 @@ env:
 
 jobs:
   registration:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     steps:
       - run: echo "cmux-next is implemented on feat-cmux-next"
