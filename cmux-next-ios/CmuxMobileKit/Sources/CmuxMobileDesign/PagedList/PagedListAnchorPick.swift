@@ -1,4 +1,6 @@
 #if os(iOS)
+import CoreGraphics
+
 /// Which of the anchored rows the list puts back after an update (``PagedListController``'s restore):
 /// each anchored row still in the list, in anchor order (the row being read first), with its index
 /// before and after the update. Returns the position (in `rows`) of the row to keep still, or nil.
@@ -6,6 +8,9 @@ enum PagedListAnchorPick {
     struct Row {
         var oldIndex: Int
         var newIndex: Int
+        /// How far the row moved on screen in the update (pt), at the anchor's own point (top, or
+        /// bottom for an anchor read from the bottom): where it is now less where the anchor held it.
+        var moved: CGFloat = 0
     }
 
     /// The rows in place are the longest run that kept its order: sorted by where they were, their
@@ -13,6 +18,13 @@ enum PagedListAnchorPick {
     /// is not preferred). The first anchored row in place is kept: the row being read when it kept
     /// its place, whatever arrived or left next to it (rows inserted right under it no longer make it
     /// skipped); a row moved elsewhere (moveToNewest, a re-sort) is never kept.
+    /// The guard on a pick (inside an update): `rows` and the pick as for ``pick(_:)``, the update's own
+    /// offset move and its rows' size changes. Returns the row to keep instead, or nil to keep the
+    /// pick. Today: never overrides.
+    static func guarded(_ rows: [Row], pick: Int, updateMove: CGFloat, sized: CGFloat) -> Int? {
+        nil
+    }
+
     static func pick(_ rows: [Row]) -> Int? {
         guard !rows.isEmpty else { return nil }
         let order = rows.indices.sorted { rows[$0].oldIndex < rows[$1].oldIndex }
