@@ -310,6 +310,7 @@ import {
 } from "./backgroundTasks/backgroundPane";
 import { OpenBackgroundTasks, requestBackgroundFocus, useBackgroundFocus } from "./backgroundTasks/openBackgroundTasks";
 import { backgroundGroups, type TaskCache } from "./backgroundTasks/backgroundTasks";
+import { splitSilentTurns, type SilentTurn } from "./conversation/silentTurns";
 import { useListedSubagents } from "./backgroundTasks/useListedSubagents";
 import { settleTrayExit } from "./subagents/trayMotionModel";
 import { useStopPresence } from "./composer/turnPresence";
@@ -589,6 +590,7 @@ import { ACCESS_ACTIONS, type AccessOffer } from "./accessOffer";
 import { type ChatAccounts, ChatAccountsContext, readChatAccounts } from "./chatAccounts";
 import { ForkPendingLine } from "./ForkPendingLine";
 import { HostError, HostLineSlot, HostRecoveringLine, HostUnavailableLine } from "./HostError";
+import { usePublishHostRecovery } from "./composerStatusStore";
 import { hostLineText } from "./hostLine";
 import { AcpmuxRestartGate, type HostRestoring, readHostRestoring, hostSelfRetrying } from "./hostRetry";
 import { pageShowsWhatItIs } from "./firstPaint";
@@ -816,6 +818,7 @@ const NO_STARTED: readonly StartedSession[] = [];
 const NO_SESSION_IDS: ReadonlySet<string> = new Set();
 const NO_EXPANDED: ReadonlySet<string> = new Set();
 const NO_SPAWNED: readonly AcpmuxSessionEntry[] = [];
+const NO_SILENT: readonly SilentTurn[] = [];
 const NO_HAT_QUESTIONS: readonly HatQuestion[] = [];
 
 const sameItems = <T,>(a: readonly T[], b: readonly T[]) =>
@@ -2516,8 +2519,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       [snapshot.rows, snapshot.permission, snapshot.permissionGroups],
     ),
   );
-  // The chat's rows before turns fold their work, which Find searches (a closed fold included).
-  const sourceRows = useMemo(() => {
+  // The chat's rows before turns fold their work and before its silent turns go to the hat.
+  const allSourceRows = useMemo(() => {
     const groups = snapshot.permissionGroups;
     const groupedIds = new Set(groups?.groups.flatMap((group) => group.items.map((item) => item.permissionId)));
     const rows = groups?.supported
@@ -2666,6 +2669,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [surface, setSurface] = useState<PaneSurface>("pane");
   const [previewHost, setPreviewHost] = useState(false);
   const quick = surface === "quick";
+  // A turn something other than the person started that said nothing to them leaves the transcript
+  // for the composer hat, as a finished line (conversation/silentTurns.ts; Leo, 2026-11-25: "so...
+  // why were these 0 text output from you (is that a personal setting on my end)"). The Quick
+  // Composer has no hat, so it keeps them.
+  const silentSplit = useMemo(
+    () => (quick ? { rows: allSourceRows, silent: NO_SILENT } : splitSilentTurns(allSourceRows, snapshot.isWorking)),
+    [quick, allSourceRows, snapshot.isWorking],
+  );
+  // The chat's rows before turns fold their work, which Find searches (a closed fold included).
+  const sourceRows = silentSplit.rows;
   // The last snapshot's turns and subagent rows: the next builds on them (turnViewFrom).
   const lastTurns = useRef<{ sessionId: string | undefined; turns: TurnView; subagents: SubagentRows } | undefined>(
     undefined,
@@ -5756,10 +5769,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- endedCommandList is new on every snapshot; its key is not
   }, [endedCommandsKey, trayAgents]);
+  // The silent turns (conversation/silentTurns.ts) are finished lines too, newest first.
+  const silentItems = useMemo(
+    (): TrayItem[] => [...silentSplit.silent].reverse().map((turn) => ({ kind: "turn", id: turn.id, turn })),
+    [silentSplit.silent],
+  );
   const endedTray = useMemo(
     () =>
-      [...endedCommandItems, ...finishedTrayItems(trayAgents, childSessions)].filter((item) => !endedInFailure(item)),
-    [endedCommandItems, trayAgents, childSessions],
+      [...silentItems, ...endedCommandItems, ...finishedTrayItems(trayAgents, childSessions)].filter(
+        (item) => !endedInFailure(item),
+      ),
+    [silentItems, endedCommandItems, trayAgents, childSessions],
   );
   const lingerLive = useMemo(() => trayList.map(trayItemKey), [trayList]);
   const lingerEnded = useMemo(
@@ -10513,6 +10533,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         }
       />
     </Notice>
+  );
+  // The composer's status dot says the quiet recovery below instead, once mounted (composerStatusStore.ts).
+  usePublishHostRecovery(
+    restartingAcpmux ? undefined : { linkDown, restoring: hostRestoring, failureShown: hostErrorSaid },
   );
   // While the pane gets its chat back on its own, one quiet line says so: "Restoring sessions…"
   // while the host says acpmux restores, "Reconnecting…" while the link is down for real (`linkDown`).
