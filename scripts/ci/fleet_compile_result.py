@@ -51,7 +51,9 @@ def judge(record, sha, repo, configuration=CONFIGURATION):
         return "none", f"record is recipe {record.get('recipe_version')} {record.get('configuration')}"
     state = record.get("state") or ""
     if state in ("pass", "fail"):
-        return state, f"tip check {state}: {record.get('log_url') or ''}".strip()
+        # A red names why: the controller's reply carries the failing step's first error (hq#24624).
+        detail = "; ".join(str(x) for x in (record.get("reason"), record.get("log_url")) if x)
+        return state, f"tip check {state}: {detail}" if detail else f"tip check {state}"
     if state == "unavailable":
         return "none", "the tip check gave no verdict (unavailable)"
     if state == "superseded":
@@ -59,22 +61,39 @@ def judge(record, sha, repo, configuration=CONFIGURATION):
     return "pending", f"tip check {state or 'queued'}"
 
 
+# Answers that mean "busy, ask again later", not "down": the service's long-poll slots are full (429) or it is
+# starting (503). They never count toward the service-down bound until BUSY_MAX has passed with nothing else.
+BUSY = (429, 503)
+BUSY_MAX = 900  # a service that only ever answers busy for 15 minutes is down after all
+RETRY_AFTER_MAX = 120
+
+
+def retry_after(headers):
+    """Seconds a Retry-After header asks for (its seconds form), or None."""
+    try:
+        v = float((headers or {}).get("Retry-After", ""))
+    except (TypeError, ValueError):
+        return None
+    return min(max(v, 1), RETRY_AFTER_MAX) if v == v else None
+
+
 def fetch(url, timeout):
-    """(HTTP code, parsed body or None); code 0 when nothing answered."""
+    """(HTTP code, parsed body or None, Retry-After seconds or None); code 0 when nothing answered."""
     try:
         # The CDN refuses urllib's default user agent with 403 (handbook cdn-refuses-the-default-client).
         req = urllib.request.Request(url, headers={"User-Agent": "cmux-ci-fleet-compile-result/1"})
         with urllib.request.urlopen(req, timeout=timeout) as r:
             body = r.read()
             code = r.status
+            after = retry_after(r.headers)
     except urllib.error.HTTPError as e:
-        return e.code, None
+        return e.code, None, retry_after(e.headers)
     except (urllib.error.URLError, OSError, ValueError):
-        return 0, None
+        return 0, None, None
     try:
-        return code, json.loads(body)
+        return code, json.loads(body), after
     except ValueError:
-        return code, None
+        return code, None, after
 
 
 def read(sha, repo, pr="", wait=1500, no_record=600, results=RESULTS, fetch=fetch, now=time.monotonic,
@@ -89,8 +108,10 @@ def read(sha, repo, pr="", wait=1500, no_record=600, results=RESULTS, fetch=fetc
         q["phase"] = phase
     base = f"{results}/{sha}?{urllib.parse.urlencode(q)}"
     down_since = None
+    busy_since = None
     seen_record = False
     last = "no read"
+    wait_next = gap
     while True:
         left = deadline - now()
         if left <= 1:
@@ -98,25 +119,39 @@ def read(sha, repo, pr="", wait=1500, no_record=600, results=RESULTS, fetch=fetc
         # The results service sits behind a gateway that ends a request held about 100 s (HTTP 524),
         # so a 300 s hold read a healthy service as down and spent its two-minute grace on it.
         hold = int(min(max(left - 30, 1), HOLD_MAX))
-        code, body = fetch(f"{base}&wait={hold}", hold + 15)
+        got = fetch(f"{base}&wait={hold}", hold + 15)
+        code, body = got[0], got[1]
+        after = got[2] if len(got) > 2 else None
+        wait_next = gap
         if code == 200:
-            down_since = None
+            down_since = busy_since = None
             seen_record = True
             word, last = judge(body, sha, repo, PHASES[phase])
             if word != "pending":
                 return word, last
+            if after:
+                wait_next = after  # answered at once because the long-poll slots were full
         elif code == 404:
-            down_since = None
+            down_since = busy_since = None
             last = "no record yet"
             if not seen_record and now() - start >= no_record:
                 return "none", f"the tip check has no record of this head after {no_record} s"
+        elif code in BUSY:
+            # Busy is an answer: the service is up and asks us to come back (hq#24624: job 138782761400 read a 429
+            # as "down" and failed closed). Back off as it says, else 30, 60, 120 s.
+            down_since = None
+            busy_since = busy_since if busy_since is not None else now()
+            last = f"HTTP {code}, busy"
+            if now() - busy_since >= BUSY_MAX:
+                return "none", f"results service busy for {BUSY_MAX} s ({last})"
+            wait_next = after or min(gap * 2 ** min(int((now() - busy_since) // gap), 2), 120)
         else:
             last = f"HTTP {code}" if code else "no answer"
             down_since = down_since if down_since is not None else now()
             # The results service is a cache, not a dependency: down for two minutes, compile here.
             if now() - down_since >= 120:
                 return "none", f"results service down ({last})"
-        sleep(min(gap, max(deadline - now(), 0)))
+        sleep(min(wait_next, max(deadline - now(), 0)))
 
 
 def main(argv=None):

@@ -10,6 +10,10 @@ public enum CmuxMobilePreferences {
         public static let wrapCode = "cmuxMobile.settings.wrapCode"
         public static let keyClicks = "cmuxMobile.settings.keyClicks"
         public static let predictiveEcho = "cmuxMobile.settings.predictiveEcho"
+        /// Settings → Terminal → Predictive Echo in Full-Screen Apps (off by default): typing
+        /// into Claude Code, Codex or vim's insert mode is predicted too, each key confirmed
+        /// in its cell. Read by the terminal (`TerminalSurfacePrediction`).
+        public static let predictiveEchoFullScreen = "cmuxMobile.settings.predictiveEchoFullScreen"
         /// Settings → Terminal → Fit to Phone: on resizes the Mac's terminal to
         /// the phone (as before); off, the phone re-wraps it at its own width.
         public static let terminalFitToPhone = "cmuxMobile.settings.terminalFitToPhone"
@@ -22,6 +26,11 @@ public enum CmuxMobilePreferences {
         /// toggle js just so a** rn it needs more baking tiem"): on, a Claude Code or Codex tab's
         /// page menu offers Show Chat / Show Terminal where both faces work.
         public static let terminalChatToggle = "cmuxMobile.settings.terminalChatToggle"
+        /// Settings → Terminal → Zoom Full-Screen Apps (off by default; Leo, 2026-11-17: "Surely we
+        /// can just calculate a f***ing terminal and resize whatever needs exceptions when it comes /
+        /// Fall back if need be"): on, a full-screen app shows at the Mac's grid, zoomed, and only
+        /// typing into it resizes the Mac (`TerminalProjectingSession`, Rust `fit_policy`).
+        public static let terminalZoomFullScreenApps = "cmuxMobile.settings.terminalZoomFullScreenApps"
         /// Settings → Transport → Ultra mode (off, auto, always); read at each dial (`FFIMacLinkDialer`).
         public static let ultra = "cmuxMobile.settings.ultra"
         /// Settings → Transport → Align Keepalives (off by default); read at each dial and by
@@ -54,12 +63,14 @@ public enum CmuxMobilePreferences {
     public static let defaultWrapCode = false
     public static let defaultKeyClicks = true
     public static let defaultPredictiveEcho = true
+    public static let defaultPredictiveEchoFullScreen = false
     public static let defaultTerminalFitToPhone = false
     public static let defaultTerminalJumpToBottom = true
     /// Off: a shell line is not prose. On for talking to an agent CLI in
     /// prose (Leo, 2026-11-24: "an autocorect toggle in the terminal composer").
     public static let defaultTerminalComposerAutocorrect = false
     public static let defaultTerminalChatToggle = false
+    public static let defaultTerminalZoomFullScreenApps = false
     public static let defaultDismissKeyboardAfterSend = true
     public static let defaultTabCardMonograms = false
     /// Off until Leo picks it up (2026-11-24: "don't unilaterally MERGE ui stuff yet ... having people be able to
@@ -101,10 +112,25 @@ public enum CmuxMobilePreferences {
             ? defaultTerminalChatToggle : defaults.bool(forKey: Key.terminalChatToggle)
     }
 
+    /// Whether a full-screen app shows at the Mac's grid, zoomed, and fits the phone only once
+    /// typed into (on), or claims the phone's grid as soon as it shows (off, the default).
+    /// Read when a terminal page opens.
+    public static func terminalZoomFullScreenApps(_ defaults: UserDefaults = .standard) -> Bool {
+        // `bool(forKey:)` also reads a launch argument's "NO"/"YES" string.
+        defaults.object(forKey: Key.terminalZoomFullScreenApps) == nil
+            ? defaultTerminalZoomFullScreenApps : defaults.bool(forKey: Key.terminalZoomFullScreenApps)
+    }
+
     /// Typed characters show at once over a slow link, underlined until the
     /// remote echoes them (the terminal's `TerminalSurfacePrediction`).
     public static func predictiveEcho(_ defaults: UserDefaults = .standard) -> Bool {
         defaults.object(forKey: Key.predictiveEcho) as? Bool ?? defaultPredictiveEcho
+    }
+
+    /// Predictive echo inside full-screen apps (an agent's TUI), off by default.
+    public static func predictiveEchoFullScreen(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: Key.predictiveEchoFullScreen) == nil
+            ? defaultPredictiveEchoFullScreen : defaults.bool(forKey: Key.predictiveEchoFullScreen)
     }
 
     /// The Mac's terminal resizes to the phone (on), or keeps its size while
