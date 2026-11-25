@@ -8,8 +8,8 @@
 // One chat with a running turn, against the stand-in acpmux (support/papercutChat.ts), through each of
 // his events in order: a wheel scroll up and back down, the turn's calls ending (the live line reads
 // "Thinking"), a foreground subagent starting ("Waiting on 1 subagent") beside a background one in the
-// tray, each of them finishing, and acpmux going quiet until "Waiting for the agent service" shows,
-// then answering again. Over each event: the composer's React renders (`cmuxAcpmuxDebug.renders()`,
+// tray, each of them finishing, and acpmux going quiet for a while (the pane no longer draws a
+// waiting line for it, #51064), then answering again. Over each event: the composer's React renders (`cmuxAcpmuxDebug.renders()`,
 // with `composer.prop:KEY` naming each prop whose identity changed), whether its editor is still the
 // same DOM node, and every painted frame's composer box (place, size, opacity) and attribute changes on
 // the composer's own elements, so a class toggle or a remount that draws no React render still shows.
@@ -246,20 +246,17 @@ await requireBrowserLane("agent-pane-composer-still-on-churn.test.ts", async () 
           await settle(page);
         }
       });
-      await step("acpmux quiet: Waiting for the agent service", async () => {
+      await step("acpmux quiet", async () => {
         pane.stall(["_acpmux/watch", "_acpmux/attach"]);
         pane.drop();
-        await page.getByText("Waiting for the agent service", { exact: false }).first().waitFor({ timeout: 60_000 });
-        // fixed-wait: the waiting line's clock ticks a few seconds.
-        await page.waitForTimeout(3_000);
+        // fixed-wait: the pane draws no waiting line any more (#51064); the quiet runs past the old line's
+        // threshold so a reconnect's state change has had its frames.
+        await page.waitForTimeout(8_000);
       });
       await step("acpmux answers again", async () => {
         pane.stall([]);
-        await page.waitForFunction(() => !document.body.innerText.includes("Waiting for the agent service"), null, {
-          timeout: 30_000,
-        });
-        // fixed-wait: the reattach's rows and summary land.
-        await page.waitForTimeout(1_500);
+        // fixed-wait: the reconnect's backoff, then the reattach's rows and summary land.
+        await page.waitForTimeout(6_000);
       });
       for (const [label, result] of Object.entries(results))
         console.log(`COMPOSER-CHURN ${JSON.stringify({ event: label, ...result, editorNodeBefore: node })}`);
