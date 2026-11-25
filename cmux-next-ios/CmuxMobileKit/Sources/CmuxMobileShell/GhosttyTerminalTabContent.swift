@@ -19,8 +19,9 @@ private let warmLog = Logger(subsystem: "dev.cmux.mobile", category: "terminal")
 /// surface). One host (model + controller) per tab. The `warmLimit` most
 /// recently shown tabs keep their surface and attached session, so switching
 /// between them needs no reattach and no new surface; an older one is cooled
-/// (session detached, surface released) and keeps its last frame, which its
-/// page shows at once, dimmed, while it reattaches.
+/// (session detached, surface released) and keeps its last rows, which its
+/// new surface is fed at once: live at full opacity, scrolling and taking keys
+/// (queued for the attach) while it reattaches.
 @MainActor
 final class GhosttyTerminalTabContent: TerminalTabContent {
     /// Live Ghostty surfaces (and Mac attaches) kept across tab switches.
@@ -58,7 +59,16 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     private var upgrade = TerminalTabUpgrade()
     private var placeholderTabs: [String: (tab: WorkspaceTab, workspace: Workspace)] = [:]
     /// Last frames kept across launches.
-    var frameStore: TerminalFrameStore? = .standard
+    var frameStore: TerminalFrameStore? = .standard {
+        didSet { rowsStore = frameStore?.rows }
+    }
+    /// Each tab's page as last seen, as rows of text beside its frame: a host built for it
+    /// feeds them to its fresh surface before the attach (`TerminalModel.takeSeed`), so the
+    /// page is live at once, not a still picture (Leo, 2026-11-24: "the entire thing is
+    /// somehow grayed out and I can't interact with anything at all").
+    private(set) var rowsStore: TerminalFrameStore? = TerminalFrameStore.standard.rows
+    /// Cooled tabs' rows while they are not on disk, or being written (``writeRows``).
+    private var lastRows: [TerminalFrameKey: String] = [:]
     /// Each tab's composer draft, kept across rebuilds and launches (nil: not kept).
     var drafts: ComposerDraftStore? = .shared
     /// The signed-in account that owns the linked Macs. Unscoped frames are
@@ -93,7 +103,10 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             MainActor.assumeIsolated { self?.setAppActive(true) }
         }
         // A cooled tab's frame in memory is only a still for its next page: it can go.
-        MemoryPressure.shared.register(self) { [weak self] in self?.lastFrames = [:] }
+        MemoryPressure.shared.register(self) { [weak self] in
+            self?.lastFrames = [:]
+            self?.lastRows = [:]
+        }
     }
 
     private func setAppActive(_ active: Bool) {
@@ -121,7 +134,25 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             guard let key = hostFrameKeys[id] else { continue }
             host.model.captureSnapshot()
             if let frame = host.model.frameForSaving() { writeFrame(frame, to: frameStore, key: key) }
+            if let rowsStore, let rows = host.model.rowsForSaving() { writeRows(rows, to: rowsStore, key: key) }
         }
+    }
+
+    /// Writes `rows` as the tab's text file off the main thread, under a ticket taken now
+    /// (a later write or a removal wins). Until it lands, the next host takes them from
+    /// ``lastRows``.
+    private func writeRows(_ rows: String, to store: TerminalFrameStore, key: TerminalFrameKey) {
+        let ticket = store.ticket(for: key)
+        lastRows[key] = rows
+        Task.detached(priority: .utility) { [weak self] in
+            store.save(Data(rows.utf8), for: key, ticket: ticket)
+            await self?.rowsWritten(rows, key: key)
+        }
+    }
+
+    private func rowsWritten(_ rows: String, key: TerminalFrameKey) {
+        guard lastRows[key] == rows else { return }
+        lastRows[key] = nil
     }
 
     /// Frames being encoded and written (`writeFrame`), by key: a tab shown
@@ -280,6 +311,10 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         var frame = key.flatMap { lastFrames.removeValue(forKey: $0) ?? framesBeingWritten[$0] } ?? previous?.model.frameToKeep()
         if frame == nil, let key, let data = frameStore?.load(key) { frame = UIImage(data: data) }
         model.restoreLastFrame(frame)
+        // Its rows, fed to the new surface before the attach: the page is live at once.
+        var rows = key.flatMap { lastRows.removeValue(forKey: $0) } ?? previous?.model.rowsToKeep()
+        if rows == nil, let key, let data = rowsStore?.load(key) { rows = String(data: data, encoding: .utf8) }
+        model.restoreLastRows(rows)
         if live != nil, let frameStore, let key {
             // The next cold launch shows what was on screen last (R2-5), not
             // the frame from the last time the app went to the background.
@@ -323,6 +358,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             lastFrames[frameKey] = nil
             framesBeingWritten[frameKey] = nil
             frameStore?.remove(frameKey)
+            lastRows[frameKey] = nil
+            rowsStore?.remove(frameKey)
         }
         upgrade.removed(tabID: id)
         placeholderTabs[id] = nil
@@ -351,6 +388,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         liveTabs = []
         warm = TerminalWarmSet(limit: Self.warmLimit)
         lastFrames = [:]
+        lastRows = [:]
         scrollPlaces = [:]
         framesBeingWritten = [:]
     }
@@ -389,6 +427,9 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         // usually its file already (`host(for:in:)`). Memory holds it only when it is not on
         // disk: no frame store, or a frame handed over from a placeholder whose save has not
         // landed (written to disk only after live output, so a blank page never goes there).
+        if let key, let rows = host.model.rowsToKeep() {
+            if let rowsStore { writeRows(rows, to: rowsStore, key: key) } else { lastRows[key] = rows }
+        }
         var frameState = "none"
         if let key, let frame = host.model.frameToKeep() {
             if let frameStore, host.model.drewLiveOutput {
@@ -440,10 +481,10 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         feeds[id] = Task { [weak indicator, model] in
             for await state in Observations({ model.connectionState }) {
                 guard let indicator else { return }
-                if case .offline = state { indicator.update(offline: true); continue }
-                indicator.update(offline: false)
-                // Any outage (a reattach, a first connect, a failure) says so in
-                // the pill past the quiet bound: the page has no status row.
+                if case .offline = state { indicator.update(offline: true) } else { indicator.update(offline: false) }
+                // Any outage (a reattach, a first connect, a failure, an offline
+                // Mac) says so in the pill past the quiet bound: the page has no
+                // status row, and a blip draws nothing.
                 indicator.update(reattaching: !state.isAttached)
             }
         }
@@ -457,14 +498,15 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     }
 
     /// A read (no host is created): the tab's pill says "Reattaching…" (or
-    /// "Connecting…", "Can't connect") while its outage has lasted
-    /// `QuietStatusGate.threshold` or more, "Mac offline" at once. The only
-    /// place a terminal tab shows its connection: no row by the composer
-    /// (Leo, 2026-11-17: "The reconnect takes an extra line").
+    /// "Connecting…", "Can't connect", "Mac offline") only once its outage has
+    /// lasted `QuietStatusGate.threshold`; before that the tab shows its last
+    /// frame and says nothing. The only place a terminal tab shows its
+    /// connection: no row by the composer (Leo, 2026-11-17: "The reconnect
+    /// takes an extra line").
     func statusSubtitle(for tab: WorkspaceTab) -> String? {
         let indicator = indicator(tab.id)
-        if indicator.isOffline { return "Mac offline" }
         guard indicator.isShown else { return nil }
+        if indicator.isOffline { return "Mac offline" }
         return hosts[tab.id]?.model.connectionState.pillSubtitle ?? "Reattaching…"
     }
 
@@ -732,11 +774,21 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             actions.append(TerminalTabAction(title: "Fit to Phone", systemImage: fits ? "checkmark" : "iphone") { [weak self] in
                 self?.setFitToPhone(!fits, program: program, tab: tab, in: workspace)
             })
+            // The projection's exception undone by hand: typing into a TUI fitted it to the
+            // phone on its own (`TerminalProjectingSession`); this gives the Mac its size back
+            // and forgets the program.
+            if model.session.fitsToPhone == true {
+                actions.append(TerminalTabAction(title: "Keep the Mac's Size", systemImage: "macbook") {
+                    model.session.toggleFitToPhone()
+                })
+            }
         }
         return actions + [
             TerminalTabAction(title: "Files and Links", systemImage: "folder") { model.showFilesAndLinks() },
             TerminalTabAction(title: "Paste", systemImage: "doc.on.clipboard") { model.paste() },
             TerminalTabAction(title: "Find…", systemImage: "magnifyingglass") { model.showFind() },
+            // Wide output on its own page (Leo, 2026-11-23): Wide on, the key row and composer away.
+            TerminalTabAction(title: "Wide View", systemImage: "arrow.left.and.right.square") { model.openWideView() },
             // The Mac's Clear Screen and Scrollback: the Mac clears the terminal, scrollback
             // included, on the Mac and every phone (`clear-history`), not a Ctrl-L to the shell.
             TerminalTabAction(title: "Clear", systemImage: "clear", isEnabled: model.canClearScreenAndScrollback) {
@@ -748,7 +800,11 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
                 model.selectText()
             },
             TerminalTabAction(title: "Select All", systemImage: "selection.pin.in.out") { model.selectAll() },
-            TerminalTabAction(title: "Send Text…", systemImage: "text.cursor", isEnabled: model.connectionState.isAttached) {
+            // Connecting or reattaching, the text is queued for the attach (`sendText`'s own
+            // rule): the menu never blocks input Leo can type (2026-11-24, "grayed out and I
+            // can't interact with anything at all").
+            TerminalTabAction(title: "Send Text…", systemImage: "text.cursor",
+                              isEnabled: model.connectionState.composerNotSentNotice == nil) {
                 model.showSendText()
             },
             TerminalTabAction(title: "Scroll to Top", systemImage: "arrow.up.to.line", isEnabled: !model.isTUI) { model.scrollToTop() },
