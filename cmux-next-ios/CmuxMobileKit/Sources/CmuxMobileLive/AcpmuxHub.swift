@@ -172,7 +172,8 @@ public final class AcpmuxHub {
         isReady = false
         lastError = nil
         fullAccess = false
-        for source in liveSources { source.linkDown() }
+        let prefetchSources = liveSources
+        for source in prefetchSources { source.linkDown() }
         guard let channel else { return }
         let connection = AcpmuxConnection(channel: channel, held: gate != nil)
         self.connection = connection
@@ -210,6 +211,23 @@ public final class AcpmuxHub {
                 "_meta": .object(["acpmux": .object(["omitTimeBreakdown": .bool(true)])]),
             ]), timeout: requestTimeout)
             let pageID = try await connection.submit("_acpmux/watch", Self.firstPageParams, timeout: requestTimeout)
+            // A chat that already has a reader (the cold chat screen survives the link
+            // handshake) can carry its first attach in the same flight. The source keeps the
+            // reply until initialize and watch have been admitted, then applies the page as it
+            // normally would. Unknown kinds are harmless on a new daemon; an older one that
+            // rejects them fails this request and the source retries with its negotiated list.
+            var prefetched: [(source: AcpmuxSessionSource, read: AcpmuxSessionSource.CatchUpRead, id: Int)] = []
+            for source in prefetchSources {
+                guard let read = source.prefetchRead() else { continue }
+                do {
+                    let id = try await connection.submit("_acpmux/attach",
+                                                         .object(AcpmuxSessionSource.attachParams(read, hub: self, preflight: true)),
+                                                         timeout: requestTimeout)
+                    prefetched.append((source: source, read: read, id: id))
+                } catch {
+                    source.prefetchFailed()
+                }
+            }
             if let gate, !(await gate()) {
                 // The pairing failed: nothing this Mac sent is applied, and nothing is said here
                 // (the pairing says why).
@@ -238,7 +256,13 @@ public final class AcpmuxHub {
                 "full_access": .flag(fullAccess),
                 "capabilities": .number(Double(capabilities.count)),
             ], detail: capabilities.sorted().joined(separator: ","))
-            for source in liveSources { source.linkUp() }
+            for source in liveSources {
+                if let pending = prefetched.first(where: { $0.source === source }) {
+                    source.startPrefetchedAttach(pending.read, id: pending.id)
+                } else {
+                    source.linkUp()
+                }
+            }
             onWatchEvent?(.sessionsLoaded(Array(next.values)))
             if let cursor = first.cursor {
                 restOfList = Task { [weak self] in
