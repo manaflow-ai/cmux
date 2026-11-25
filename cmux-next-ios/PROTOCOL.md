@@ -2290,6 +2290,43 @@ hostd keeps phones' push keys in `<state>/push-keys.json` and spent reply
 ids and nonces in `<state>/mailbox-spent.json` (both mode 0600; public keys
 and ids only).
 
+## Relay snapshot seal (`cmux-relay-snapshot-v1`; RFD 0142 R2, crate only so far)
+
+The envelope a relay's Durable Object will store so a cold-opening phone gets first content from the edge
+while its live link dials. The relay holds ciphertext only. The one implementation is the Rust crate
+`cmux-tui/crates/cmux-relay-snapshot` (Mac, relay tooling and the phone's FFI all use it; Swift is a shim).
+No wire message carries it yet: the host publish path and the Durable Object store and serve are the next PR,
+and the phone's open the one after, each versioned and updated both sides at once.
+
+- Seal: the ECIES of "Sealed pushes" (P-256 ECDH, HKDF-SHA256 salted with `E_pub || R_pub`, AES-256-GCM) with
+  HKDF info and AAD `cmux-relay-snapshot-v1 \0 sourceKeyId \0 viewerKeyId \0 stream` (key ids are lowercase hex
+  SHA-256 of the X9.63 point), and the 130-byte header in the AAD.
+- Envelope: `version(1) epoch(u64) seq(u64) sourceKeyId(32) E_pub(65) nonce(12) ctLen(u32) ct||tag sig(64)`,
+  big endian. `sig` is the source identity key's ECDSA P-256 / SHA-256 (fixed 64 bytes) over
+  `cmux-relay-snapshot-sig-v1 \0 context \0 every byte before sig`.
+- Order: `(epoch, seq)` compared epoch first. The Durable Object keeps only the newest envelope per viewer and
+  stream; the viewer keeps the highest position it accepted and refuses an older one (`stale`), so a replay or
+  a rolled-back source never replaces newer state. Equal is a harmless replay.
+
+### Relay delta catch-up (RFD 0142 R9, crate only so far)
+
+A viewer that resumes after sleep asks the relay for the deltas it missed, so it catches up from the edge
+without waking the Mac. `cmux-relay-snapshot::delta` is the one implementation (Rust). No wire message
+carries it yet and nothing calls it, so it is off until the Durable Object store and serve land with R2's
+next PR behind the `relay.deltaCatchup` flag (default off).
+
+- Each delta is a `cmux-relay-snapshot-v1` envelope on the stream `<stream>/delta`, so a snapshot never opens
+  as a delta and a delta never opens as a snapshot. Deltas count `seq` up by one within an epoch.
+- The relay keeps per session at most 512 deltas and 1 MiB, oldest evicted first; each expires 10 minutes
+  after it arrived (the P8 mailbox's expiry), and the log drains through what every viewer acknowledged. A
+  hole or a new epoch restarts the log; a retry of a held or older position changes nothing.
+- A catch-up request is one position, "after `(epoch, seq)`". The relay answers every delta after it, in
+  order, or `gap` (not covered: expired, evicted, another epoch, empty); it never serves a partial run. On
+  `gap` the viewer takes the snapshot or the live link, as before.
+- The viewer applies a delta only if it is exactly the next position after its floor and it opens; it stops
+  at the first that is not. With no floor it takes the snapshot first.
+- The relay sees the envelopes' sizes and positions and which position a viewer resumes after; nothing else.
+
 ## Terminal sizing policy (`host-size-policy-v1`; added 2026-10-23)
 
 A shared terminal has one PTY grid. When several devices show it (this Mac,

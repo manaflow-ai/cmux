@@ -19,6 +19,7 @@ scripts/check-*
 scripts/ci/check-*
 scripts/ci/check_*
 scripts/ci/protocol_skew_check.py
+scripts/ci/entry_logs.py
 scripts/cmux-next/check-*
 webviews/scripts/check-*
 web/scripts/check-*
