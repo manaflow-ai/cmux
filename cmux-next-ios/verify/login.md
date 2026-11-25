@@ -106,7 +106,7 @@ CMUX_MOBILE_CLEAR_AUTH=1 CMUX_MOBILE_RECORD_CODEC=h264 verify/record.sh <udid> <
 ```
 
 DEBUG launch arguments for verification: `-cmux-mobile-intro-freeze <s>` holds the intro at a time,
-`-cmux-mobile-pulse-freeze <s>` holds the idle pulse, `-cmux-mobile-intro-hold <s>` rests on the launch mark
+`-cmux-mobile-intro-hold <s>` rests on the launch mark
 first. At the end of each intro a DEBUG build logs frame pacing (`dev.cmux.mobile`, category
 `welcome`).
 

@@ -313,10 +313,13 @@ test("the running chat's own harness keeps its models", async () => {
   await act(async () => {
     openQuickPicker();
   });
-  // A started chat's harness is fixed: its menu has no rail, only that harness's models.
-  expect(dom.window.document.querySelector(".acpmux-quick-rail")).toBeNull();
+  // A started chat opens the shared picker, rail and all (cmux#55750); its own harness's tab still
+  // lists its models, never Log In in their place.
+  const codex = tabFor("Codex");
+  expect(codex, "the running harness's rail tab").toBeDefined();
+  expect(codex!.getAttribute("aria-selected")).toBe("true");
   expect(modelRows().length).toBeGreaterThan(0);
-  expect(dom.window.document.querySelector(".acpmux-quick-menu")?.textContent).not.toContain("Log In");
+  expect(columnRows().map((row) => row.textContent)).not.toContain("Log In");
 });
 
 test("Starred lists no model of a signed-out harness", async () => {

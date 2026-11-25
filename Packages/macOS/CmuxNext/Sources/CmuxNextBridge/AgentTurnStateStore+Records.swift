@@ -139,6 +139,9 @@ extension AgentTurnStateStore {
     /// The name given to the session `ref` shows (acpmux `displayName`); nil when none was, or off this Mac.
     public func displayName(for ref: AgentSessionRef) -> String? { local(ref)?.identity?.displayName }
 
+    /// Every name that session had before its current one, oldest first (acpmux `formerNames`).
+    public func formerNames(for ref: AgentSessionRef) -> [String] { local(ref)?.identity?.formerNames ?? [] }
+
     /// The name that session had just before its current one (the newest of `formerNames`).
     public func formerName(for ref: AgentSessionRef) -> String? { local(ref)?.identity?.formerName }
 
