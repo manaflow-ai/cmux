@@ -209,6 +209,50 @@ describe("remote images", () => {
   });
 });
 
+describe("data URL images", () => {
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20"><rect width="40" height="20" fill="teal"/></svg>';
+  const svgBase64 = Buffer.from(svg, "utf8").toString("base64");
+
+  test("a base64 SVG image keeps its source", () => {
+    const { render } = shell();
+    const content = render(`![diagram](data:image/svg+xml;base64,${svgBase64})`);
+    expect(unsafeNodes(content)).toEqual([]);
+    const img = content.querySelector("img");
+    expect(img?.getAttribute("alt")).toBe("diagram");
+    expect(img?.getAttribute("src")).toBe(`data:image/svg+xml;base64,${svgBase64}`);
+  });
+
+  test("a base64 SVG image in raw HTML keeps its source", () => {
+    const { render } = shell();
+    const img = render(`<img alt="diagram" src="DATA:image/SVG+XML;base64,${svgBase64}">`).querySelector("img");
+    expect(img?.getAttribute("src")).toBe(`DATA:image/SVG+XML;base64,${svgBase64}`);
+  });
+
+  test("an SVG data URL that is not plain base64 loses its source", () => {
+    const { render } = shell();
+    const sources = [
+      `data:image/svg+xml,${encodeURIComponent(svg)}`,
+      `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`,
+      `data:image/svg+xml;charset=utf-8;base64,${svgBase64}`,
+      `data:image/svg+xmlx;base64,${svgBase64}`,
+      `data:image/svg;base64,${svgBase64}`,
+      `data:text/html;base64,${svgBase64}`,
+    ];
+    for (const source of sources) {
+      const img = render(`<img alt="diagram" src="${source}">`).querySelector("img");
+      expect(img).not.toBeNull();
+      expect(img?.hasAttribute("src")).toBe(false);
+    }
+  });
+
+  test("an SVG data URL is still not a link target", () => {
+    const { render } = shell();
+    const content = render(`<a href="data:image/svg+xml;base64,${svgBase64}">open</a>`);
+    expect(unsafeNodes(content)).toEqual([]);
+    expect(content.querySelector("a")?.hasAttribute("href") ?? false).toBe(false);
+  });
+});
+
 describe("local images", () => {
   test("Refresh points the same image at a new URL so WebKit loads the file again", () => {
     const { render, reloadLocalImages } = shell();
