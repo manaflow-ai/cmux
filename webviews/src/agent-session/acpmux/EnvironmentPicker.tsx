@@ -142,6 +142,7 @@ export function EnvironmentPicker({
   unavailableExpanded = false,
   card,
   otherDevices = false,
+  cloudDevices = false,
 }: {
   label: string;
   /// The name automation opens it by (`openPicker`).
@@ -208,6 +209,10 @@ export function EnvironmentPicker({
   /// opens the person's own machines (no Cloud ones) in place, then Add Machine… (Austin,
   /// 2026-11-12). Needs `onConnect`; a started chat's list is its move instead.
   otherDevices?: boolean;
+  /// Other devices also lists the person's Cloud machines, so the Where control alone picks a
+  /// specific machine (the user, 2026-11-24: three pickers, "folder, (local, cloud or autocloud or
+  /// machine), environment"); no machine chip of its own.
+  cloudDevices?: boolean;
 }) {
   // A picked saved environment is the current row: every machine row is then a change. One that is
   // only a folder on this computer leaves This Mac the current row.
@@ -373,11 +378,10 @@ export function EnvironmentPicker({
         ? orderEnvironments(environments).filter(
             (environment) =>
               sections.get(environment.id) !== "local" &&
-              environment.kind !== "cloud" &&
-              !isCloudMachineRow(environment),
+              (cloudDevices || (environment.kind !== "cloud" && !isCloudMachineRow(environment))),
           )
         : [],
-    [offersDevices, environments, sections],
+    [offersDevices, cloudDevices, environments, sections],
   );
   // What its row counts: the ones a chat can start on now, a machine still dialing included.
   const devicesReady = devices.filter((environment) => environmentPickable(environment)).length;
@@ -536,8 +540,9 @@ export function EnvironmentPicker({
           }
       : undefined;
   const cloudRow = runMode !== undefined ? CLOUD_RUN : cloud?.value;
-  // Auto heads a new chat's where-it-runs rows when the page offers it (opt in, per chat).
-  // With the devices inline, Auto is Hybrid start, an indented row under Cloud (below), not a list's head.
+  // Auto sits between This Mac and Cloud in a new chat's where-it-runs rows when the page offers it
+  // (opt in, per chat; cmux#51731). With the devices inline, Auto is Hybrid start, an indented row
+  // under Cloud (below), not its own row.
   const autoRows = auto && !inline ? [autoCloud ? AUTO_MENU : AUTO_RUN] : [];
   // Leo 2026-11-24: "Cloud's options are indented rows under Cloud. Hybrid start and the rest are one
   // or two rows, not worth a submenu." Hybrid start (Auto: this Mac first, Cloud when it must) and
@@ -627,8 +632,8 @@ export function EnvironmentPicker({
   const main = card
     ? [...cardActions, ...continueOn].map((action) => action.value)
     : [
-        ...autoRows,
         ...ordered.filter(isLocal).map((environment) => environment.id),
+        ...autoRows,
         ...inlineIds,
         ...(pickedOther && !inlineIds.includes(pickedOther) ? [pickedOther] : []),
         ...(move ? [move.value] : []),
@@ -664,11 +669,12 @@ export function EnvironmentPicker({
     ],
     [],
   );
-  // Where: This Mac, Cloud, Other devices (checked while the pick is any other machine or a saved
+  // Where: This Mac, Auto, Cloud, Other devices (checked while the pick is any other machine or a saved
   // environment). The cloud toggle: This Mac and Cloud.
   // A Cloud machine picked is Cloud's; any other machine (or a saved environment) is Other devices'.
   const checkedKind = ordered.find((environment) => environment.id === checkedRow)?.kind;
-  const cloudChecked = clouded || (listRows === "where" && checkedKind === "cloud");
+  // With Cloud machines under Other devices, a specific one picked checks that row, not Cloud.
+  const cloudChecked = clouded || (listRows === "where" && checkedKind === "cloud" && !cloudDevices);
   // A saved environment on this Mac is This Mac's row in the Where list.
   const savedLocal =
     listRows === "where" &&
@@ -676,9 +682,9 @@ export function EnvironmentPicker({
     saved?.environments.find((environment) => SAVED + environment.id === checkedRow)?.kind === "local";
   const anotherPicked = checkedRow !== undefined && !isLocalId(checkedRow) && !cloudChecked && !savedLocal;
   const where = [
-    ...autoRows,
     ...ordered.filter(isLocal).map((environment) => environment.id),
     ...inlineIds,
+    ...autoRows,
     ...(cloudRow ? [cloudRow] : []),
     ...cloudOptions,
     ...(inline ? inlineTail : devicesMenu ? [devicesMenu.value] : []),
@@ -736,8 +742,8 @@ export function EnvironmentPicker({
               : listRows === "where" || listRows === "run"
                 ? listRows === "run"
                   ? [
-                      ...autoRows,
                       ...ordered.filter(isLocal).map((environment) => environment.id),
+                      ...autoRows,
                       ...(cloudRow ? [cloudRow] : []),
                     ]
                   : where
