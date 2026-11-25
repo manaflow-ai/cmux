@@ -329,7 +329,8 @@ jobs:
       # (reported as cancelled). scripts/ci/api_workerd_infra_shards.py reads this run's jobs: a shard whose test
       # step ended `failure` already had its own rerun of the failed files, so it stays a red; every other shard that
       # is not green runs again here, through the same script, on this job's runner. More than 4 such shards is a
-      # pool outage, not a hiccup, and stays red rather than holding this runner for an hour.
+      # pool outage, not a hiccup, and stays red rather than holding this runner for an hour. The reruns are serial on
+      # this job's runner: on a slow h* host 2 or more of them can pass the step's 40 min, which stays red too.
       - name: Rerun API Worker shards that died without a test verdict
         id: shard-rerun
         if: ${{ !cancelled() && (needs.api-workerd.result == 'failure' || needs.api-workerd.result == 'cancelled') }}

@@ -9,12 +9,12 @@ reports as cancelled. None of those ran the tests to an answer, so none of them 
 
 This reads the run's jobs (GitHub REST, filter=latest) and sorts every shard into one of three:
 
-  pass    the shard job succeeded (or was skipped on purpose, see --allow-skipped)
+  pass    the shard job succeeded
   fail    the shard's test step itself ended `failure`: the tests ran and failed, already after the shard's own
           rerun of its failed files, so that is the code's answer and nothing reruns it again
   infra   anything else: the test step was cancelled, skipped, never started, or the job is missing
 
-It prints `infra=<shards space separated>` and `fail=<...>` lines for $GITHUB_OUTPUT. The `test` job reruns the
+It prints `infra=<shards space separated>` and `fail=<...>` lines on stdout (the gate step reads them). The `test` job reruns the
 infra shards itself; a fail shard fails the gate as before.
 
 Usage:
@@ -25,6 +25,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import os
 import re
@@ -85,7 +86,7 @@ def fetch_jobs(repo: str, run_id: str, token: str, attempts: int = 4) -> list[di
                 with urllib.request.urlopen(req, timeout=30) as resp:
                     body = json.load(resp)
                 break
-            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as error:
+            except (OSError, http.client.HTTPException, json.JSONDecodeError) as error:
                 if attempt == attempts - 1:
                     raise SystemExit(f"api_workerd_infra_shards: could not read the run's jobs: {error}")
                 # A bounded backoff between API attempts, not runtime synchronization.
