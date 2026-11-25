@@ -8,38 +8,59 @@ use std::time::Duration;
 
 use cmux_mobile_link::api::ApiClient;
 use cmux_mobile_link::api::{HttpClient, IceCache, IceServer};
-use cmux_mobile_link::link::{ChannelReceiver, ChannelSender};
+use cmux_mobile_link::link::ChannelSender;
+use cmux_mobile_link::viewport::{PhoneViewport, ViewportReceiver};
 use cmux_mobile_link::{
     BuildSpace, ChannelEvent, DialError, DialOptions, LinkConfig, SignalingClient, Timeline,
 };
 use tokio::runtime::Runtime;
 
+mod auto_chats;
 mod browser;
+mod chat_prompt_outbox;
 mod classic_leftovers;
 mod composer_outbox;
 mod follow_camera;
+mod last_place;
 mod link_side;
+pub mod local_link;
 mod mac_screen;
+mod mailbox_client;
 mod pair_requests;
+mod read_store;
+mod row_layout;
 mod share_approval;
 mod tabs;
 mod terminal_chat;
+mod terminal_fit;
 mod terminal_prediction;
 mod terminal_projection;
 mod window_layout;
 
+pub use auto_chats::{
+    AutoChat, AutoChatError, AutoChats, AutoHttp, AutoHttpError, AutoHttpReply, AutoHttpRequest,
+};
 pub use browser::{BrowserFrame, BrowserObserver, BrowserStats, BrowserStream};
+pub use chat_prompt_outbox::{
+    ChatAttachment, ChatCancelStep, ChatEditStep, ChatPromptDone, ChatPromptLook, ChatPromptOutbox,
+    ChatPromptOutcome, ChatPromptRequest, ChatPromptTaken, ChatUploadState, ChatUploadedAttachment,
+};
 pub use classic_leftovers::{ClassicCleanupPlan, KeychainDelete, KeychainLeftover};
 pub use composer_outbox::{
     ComposerOutbox, ComposerSendAnswer, ComposerSendDone, ComposerSendOutcome, ComposerSendRequest,
 };
 pub use follow_camera::{FollowCamera, FollowCameraMode, FollowRect};
+pub use last_place::{LastPlaceAnchor, LastPlaceRecord, LastPlaceScreen, LastPlaceStore};
 pub use link_side::{LinkOpenSide, link_open_side};
 pub use mac_screen::{MacScreenAnswer, MacScreenDisplay, MacScreenIceServer, MacScreenObserver, MacScreenRd};
+pub use read_store::{PhoneReadKey, PhoneReadStore, PhoneReadStoreError};
 pub use share_approval::{ShareApprovalDraft, ShareAsk, share_approval_draft, share_approval_signed};
 pub use tabs::{TabsEvent, TabsMirror, TabsRow, TabsViewport};
 pub use terminal_chat::{
     TabFace, TerminalChatCandidate, TerminalChatFaces, TerminalChatFacts, TerminalChatSwap,
+};
+pub use terminal_fit::{
+    TerminalFitDecision, TerminalFitPolicy, TerminalFitReason, TerminalZoomGeometry, TerminalZoomState,
 };
 pub use terminal_prediction::{PredictedGlyph, PredictionLayout, TerminalPrediction};
 pub use terminal_projection::{ProjectionSegment, ProjectionStats, TerminalProjection};
@@ -316,6 +337,9 @@ pub struct LinkHandle {
     /// The WebRTC media session beside a WireGuard link, when both sides
     /// support one (cmux_mobile_link::hybrid).
     media: Option<cmux_mobile_link::hybrid::MediaManager>,
+    /// The phone end of viewport sync (cmux_mobile_link::viewport): what
+    /// daemon channels ask for, and the link's datagram receivers.
+    viewport: PhoneViewport,
 }
 
 impl Drop for LinkHandle {
@@ -387,7 +411,7 @@ impl LinkHandle {
         args_json: String,
         lane: cmux_mobile_link::Lane,
     ) -> Result<Arc<ChannelHandle>, CmuxMobileError> {
-        let args: serde_json::Value = if args_json.trim().is_empty() {
+        let mut args: serde_json::Value = if args_json.trim().is_empty() {
             serde_json::json!({})
         } else {
             serde_json::from_str(&args_json)
@@ -398,6 +422,14 @@ impl LinkHandle {
                 message: "args_json must be a JSON object".into(),
             });
         }
+        // A daemon channel asks for pseq stamps and, with the gate on and an
+        // overlay, viewport sync; its receiver turns synced screens into
+        // `output` lines.
+        let daemon = service == "daemon";
+        if daemon {
+            self.viewport.merge_daemon_args(&mut args);
+        }
+        let hub = (daemon && self.viewport.requests_sync()).then(|| self.viewport.clone());
         let link = self.link.clone();
         let channel = on_runtime(async move { link.open_on(&service, args, lane).await }).await?;
         let id = channel.id();
@@ -405,7 +437,7 @@ impl LinkHandle {
         Ok(Arc::new(ChannelHandle {
             id,
             sender: Arc::new(sender),
-            receiver: Arc::new(tokio::sync::Mutex::new(receiver)),
+            receiver: Arc::new(tokio::sync::Mutex::new(ViewportReceiver::new(receiver, hub))),
             closed: Arc::new(Mutex::new(None)),
         }))
     }
@@ -542,6 +574,13 @@ impl LinkHandle {
         u32::try_from(timeout.as_millis()).unwrap_or(u32::MAX)
     }
 
+    /// How long a resumed parked link may stay silent before the app races a
+    /// fresh dial against it: three smoothed round trips plus 100 ms, within
+    /// 250 ms and 1.5 s (500 ms before any round trip was measured).
+    pub fn resume_hedge_ms(&self) -> u32 {
+        u32::try_from(self.link.resume_hedge_after().as_millis()).unwrap_or(u32::MAX)
+    }
+
     /// The app is in the foreground with a terminal or chat on screen
     /// (`true`), or not. While it is and the link's pings travel as
     /// WireGuard datagrams, the link probes every 3 s and is suspect after
@@ -592,6 +631,20 @@ impl LinkHandle {
     /// no traffic for a whole beat on the keepalive beat.
     pub fn traffic_ago_ms(&self) -> u64 {
         u64::try_from(self.link.traffic_ago().as_millis()).unwrap_or(u64::MAX)
+    }
+
+    /// Milliseconds since the link last made progress: anything heard from
+    /// the Mac, or a write other than a keepalive taken by the transport
+    /// (`Link::progress_ago`). The one progress clock a send's hold reads:
+    /// `ChatPromptOutbox.progressed(nowMs - progressAgoMs())` is the adapter.
+    pub fn progress_ago_ms(&self) -> u64 {
+        u64::try_from(self.link.progress_ago().as_millis()).unwrap_or(u64::MAX)
+    }
+
+    /// How many times the link made progress; monotonic, so a change since
+    /// the last read means it moved in between (`Link::progress_count`).
+    pub fn progress_count(&self) -> u64 {
+        self.link.progress_count()
     }
 
     /// Close the link and its transport. The signaling socket stays warm
@@ -677,7 +730,7 @@ impl LinkHandle {
 pub struct ChannelHandle {
     id: u32,
     sender: Arc<ChannelSender>,
-    receiver: Arc<tokio::sync::Mutex<ChannelReceiver>>,
+    receiver: Arc<tokio::sync::Mutex<ViewportReceiver>>,
     closed: Arc<Mutex<Option<(String, String)>>>,
 }
 
@@ -685,6 +738,13 @@ pub struct ChannelHandle {
 impl ChannelHandle {
     pub fn id(&self) -> u32 {
         self.id
+    }
+
+    /// Payload bytes this channel has queued for the transport so far. It moves while a long
+    /// write is taken by the link and stops when the link stalls: a request's deadline reads it
+    /// as progress, not a wall clock (`DaemonClient` on iOS).
+    pub fn sent_bytes(&self) -> u64 {
+        self.sender.sent_bytes()
     }
 
     pub async fn send(&self, data: Vec<u8>) -> Result<(), CmuxMobileError> {
@@ -888,9 +948,23 @@ async fn connect_on(
             return Err(error);
         }
     };
+    finish_link(pool, &request, connected, signaling, timeline, observer).await
+}
+
+/// A dialed link's handle: its watcher, first ping and path report.
+async fn finish_link(
+    pool: &Arc<Warm>,
+    request: &ConnectRequest,
+    connected: cmux_mobile_link::Connected,
+    signaling: Arc<WarmSocket>,
+    timeline: Timeline,
+    observer: Option<Arc<dyn LinkObserver>>,
+) -> Result<Arc<LinkHandle>, CmuxMobileError> {
+    let transport = request.transport;
+    let viewport = PhoneViewport::new(connected.overlay.as_ref(), cmux_mobile_link::viewport::enabled());
     let mut path = connected.path.clone();
     emit(&observer, LinkEvent::Connected { transport, path: (*path.borrow()).into() });
-    let media = connected.webrtc_media.then(|| media_manager(pool, &request, &connected, &signaling));
+    let media = connected.webrtc_media.then(|| media_manager(pool, request, &connected, &signaling));
     let mut media_status = media.as_ref().map(cmux_mobile_link::hybrid::MediaManager::status);
     let link = connected.link.clone();
     let watcher = tokio::spawn(async move {
@@ -959,6 +1033,7 @@ async fn connect_on(
         connected.path.clone(),
         timeline.clone(),
         current_signaling(pool, &signaling),
+        connected.session_id.clone(),
     );
     Ok(Arc::new(LinkHandle {
         link: connected.link,
@@ -971,6 +1046,7 @@ async fn connect_on(
         session_id: connected.session_id,
         tunnel_keys: connected.tunnel_keys,
         media,
+        viewport,
     }))
 }
 
@@ -982,13 +1058,16 @@ fn current_signaling(
 ) -> cmux_mobile_link::hybrid::SignalingSource {
     let key = socket.key.clone();
     let fallback = socket.client.clone();
+    let local = socket.local;
     let pool = Arc::clone(pool);
     Arc::new(move || {
         let key = key.clone();
         let fallback = fallback.clone();
         let pool = Arc::clone(&pool);
         Box::pin(async move {
-            match pool.pooled(&key).await {
+            // A local link signals through its own hub, not the service's socket.
+            let pooled = if local { None } else { pool.pooled(&key).await };
+            match pooled {
                 Some(socket) => Some(socket.client.clone()),
                 None => (fallback.closed_reason().is_none()).then_some(fallback),
             }
@@ -1054,6 +1133,8 @@ struct SocketKey {
 pub struct WarmSocket {
     key: SocketKey,
     client: SignalingClient,
+    /// A socket to a Mac's local hub (`local_link`): never pooled, never replaced by the service's.
+    local: bool,
 }
 
 impl Drop for WarmSocket {
@@ -1198,6 +1279,8 @@ async fn network_changed_on(
     team_id: String,
     device_id: String,
 ) -> Vec<TimingMark> {
+    // The ads were seen on the old network: a dial now would wait on a dead hub.
+    local_link::local_link_forget_all();
     let roam = tokio::spawn(cmux_mobile_link::dial::wireguard::network_changed());
     let timeline = Timeline::new();
     let key = SocketKey { base_url, team_id, device_id, build_space: build_space() };
@@ -1371,7 +1454,7 @@ impl Warm {
         client: SignalingClient,
         timeline: &Timeline,
     ) -> Arc<WarmSocket> {
-        let socket = Arc::new(WarmSocket { key: key.clone(), client });
+        let socket = Arc::new(WarmSocket { key: key.clone(), client, local: false });
         let mut pool = self.sockets.lock().await;
         pool.retain(|s| s.key != *key && s.client.closed_reason().is_none());
         pool.push(Arc::clone(&socket));
@@ -1588,6 +1671,7 @@ mod redial_tests {
             transport: Transport::WireGuard,
             include_loopback: true,
             relay_only: true,
+            force_relay: false,
             block_udp: false,
             video_lane: false,
             webrtc_media: false,
@@ -1822,7 +1906,76 @@ pub async fn reset_warm_state() {
     WarmPool::shared().reset().await;
 }
 
+/// The dial's options for `request` (the service's ICE servers; none for a hub dial).
+fn dial_options(request: &ConnectRequest, ice_servers: Vec<IceServer>, timeline: &Timeline) -> DialOptions {
+    DialOptions {
+        ice_servers,
+        // cmux's WebSocket relay, on the service the phone signs in and signals
+        // through: the last way to the Mac (PROTOCOL.md "WebSocket relay").
+        // CMUX_MOBILE_DEV_NO_RELAY=1 (simulator) dials without it.
+        relay: std::env::var_os("CMUX_MOBILE_DEV_NO_RELAY").is_none().then(|| {
+            cmux_mobile_link::dial::relay::RelayEndpoint::with_token(
+                request.base_url.clone(),
+                build_space(),
+                request.device_id.clone(),
+                request.token.clone(),
+            )
+        }),
+        // Debug "Relay via cmux (HTTPS) only" (simulator:
+        // SIMCTL_CHILD_CMUX_MOBILE_DEV_FORCE_RELAY=1).
+        force_relay: request.force_relay || std::env::var_os("CMUX_MOBILE_DEV_FORCE_RELAY").is_some(),
+        include_loopback: request.include_loopback,
+        // The rig's relay-only and UDP-blocked runs (simulator:
+        // SIMCTL_CHILD_CMUX_MOBILE_DEV_RELAY_ONLY=1, a phone on another network).
+        relay_only: request.relay_only || std::env::var_os("CMUX_MOBILE_DEV_RELAY_ONLY").is_some(),
+        // The rig's UDP-blocked runs (simulator:
+        // SIMCTL_CHILD_CMUX_MOBILE_DEV_BLOCK_UDP=1) without touching app settings.
+        block_udp: request.block_udp || std::env::var_os("CMUX_MOBILE_DEV_BLOCK_UDP").is_some(),
+        video_lane: request.video_lane,
+        webrtc_media: request.webrtc_media,
+        ultra: request.ultra,
+        // Read once, so the tunnel and its link agree (`dial_on`).
+        aligned_keepalives: cmux_mobile_link::keepalive::aligned(),
+        timeline: timeline.clone(),
+        ..DialOptions::default()
+    }
+}
+
 async fn dial(
+    pool: &Arc<Warm>,
+    request: &ConnectRequest,
+    timeline: &Timeline,
+) -> Result<(cmux_mobile_link::Connected, Arc<WarmSocket>), CmuxMobileError> {
+    // A Mac found nearby (its ad matches the Mac the phone paired with) is also dialed through its
+    // own hub: no service round trip, and a link even with no route out. The two race from the
+    // same instant and the first link up wins (the loser is dropped), so an ad that outlived its
+    // network (Wi-Fi gone, the Mac asleep) costs the service dial nothing.
+    let local = local_link::dial_local(request, timeline);
+    let service = dial_service(pool, request, timeline);
+    tokio::pin!(local, service);
+    let mut local_done = false;
+    loop {
+        tokio::select! {
+            result = &mut local, if !local_done => {
+                local_done = true;
+                if let Some(ok) = result {
+                    return Ok(ok);
+                }
+            }
+            result = &mut service => {
+                return match result {
+                    Ok(ok) => Ok(ok),
+                    Err(error) if local_done => Err(error),
+                    // No service (no route out, no account): the hub is the only way left.
+                    Err(error) => local.await.map(Ok).unwrap_or(Err(error)),
+                };
+            }
+        }
+    }
+}
+
+/// `dial` through the service: its signaling socket and ICE servers.
+async fn dial_service(
     pool: &Arc<Warm>,
     request: &ConnectRequest,
     timeline: &Timeline,
@@ -1855,37 +2008,7 @@ async fn dial(
         tokio::join!(pool.ice_servers(&request.base_url, &request.token, timeline), socket);
     let (socket, reused) = socket?;
     let ice_servers = without_turn_if_asked(ice_servers);
-    let options = DialOptions {
-        ice_servers,
-        // cmux's WebSocket relay, on the service the phone signs in and signals
-        // through: the last way to the Mac (PROTOCOL.md "WebSocket relay").
-        // CMUX_MOBILE_DEV_NO_RELAY=1 (simulator) dials without it.
-        relay: std::env::var_os("CMUX_MOBILE_DEV_NO_RELAY").is_none().then(|| {
-            cmux_mobile_link::dial::relay::RelayEndpoint::with_token(
-                request.base_url.clone(),
-                build_space(),
-                request.device_id.clone(),
-                request.token.clone(),
-            )
-        }),
-        // Debug "Relay via cmux (HTTPS) only" (simulator:
-        // SIMCTL_CHILD_CMUX_MOBILE_DEV_FORCE_RELAY=1).
-        force_relay: request.force_relay || std::env::var_os("CMUX_MOBILE_DEV_FORCE_RELAY").is_some(),
-        include_loopback: request.include_loopback,
-        // The rig's relay-only and UDP-blocked runs (simulator:
-        // SIMCTL_CHILD_CMUX_MOBILE_DEV_RELAY_ONLY=1, a phone on another network).
-        relay_only: request.relay_only || std::env::var_os("CMUX_MOBILE_DEV_RELAY_ONLY").is_some(),
-        // The rig's UDP-blocked runs (simulator:
-        // SIMCTL_CHILD_CMUX_MOBILE_DEV_BLOCK_UDP=1) without touching app settings.
-        block_udp: request.block_udp || std::env::var_os("CMUX_MOBILE_DEV_BLOCK_UDP").is_some(),
-        video_lane: request.video_lane,
-        webrtc_media: request.webrtc_media,
-        ultra: request.ultra,
-        // Read once, so the tunnel and its link agree (`dial_on`).
-        aligned_keepalives: cmux_mobile_link::keepalive::aligned(),
-        timeline: timeline.clone(),
-        ..DialOptions::default()
-    };
+    let options = dial_options(request, ice_servers, timeline);
     let attempt = dial_on(&socket, request, &options, reused).await;
     match attempt {
         Ok(connected) => Ok((connected, socket)),

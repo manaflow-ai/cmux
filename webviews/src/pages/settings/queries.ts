@@ -154,6 +154,7 @@ function publishedDomains(snapshot: SnapshotResult): Domains {
   return {
     themes: domains.themes ?? [],
     font_families: domains.font_families ?? [],
+    ui_font_families: domains.ui_font_families ?? [],
     sounds: domains.sounds ?? [],
     recent_fonts: domains.recent_fonts ?? [],
   };

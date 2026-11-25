@@ -507,6 +507,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-auto-session"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "cmux-braid-carrier"
 version = "0.1.0"
 
@@ -514,6 +524,7 @@ version = "0.1.0"
 name = "cmux-braid-path"
 version = "0.1.0"
 dependencies = [
+ "cmux-transport",
  "futures-util",
  "tokio",
 ]
@@ -527,10 +538,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-cloud-wire"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-composer-send"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-deadline"
+version = "0.1.0"
+dependencies = [
+ "tokio",
 ]
 
 [[package]]
@@ -565,6 +592,23 @@ name = "cmux-message-preview"
 version = "0.1.0"
 
 [[package]]
+name = "cmux-mobile-auto"
+version = "0.1.0"
+dependencies = [
+ "cmux-auto-session",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-mobile-core"
+version = "0.1.0"
+dependencies = [
+ "cmux-cloud-wire",
+ "cmux-terminal-sizing",
+]
+
+[[package]]
 name = "cmux-mobile-host"
 version = "0.1.0"
 dependencies = [
@@ -573,14 +617,18 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-build-space",
+ "cmux-deadline",
  "cmux-fault",
  "cmux-message-preview",
  "cmux-mobile-link",
+ "cmux-output-paint",
  "cmux-rd-core",
  "cmux-rd-engine",
  "cmux-rd-proto",
  "cmux-tab-snapshots",
+ "cmux-terminal-projection",
  "cmux-transport",
+ "cmux-wg",
  "flate2",
  "futures-util",
  "hkdf",
@@ -602,9 +650,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-mobile-last-place"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-mobile-link"
 version = "0.1.0"
 dependencies = [
+ "aes-gcm",
  "anyhow",
  "async-trait",
  "base64",
@@ -616,11 +673,16 @@ dependencies = [
  "cmux-mobile-link",
  "cmux-rd-core",
  "cmux-rd-proto",
+ "cmux-remote-protocol",
+ "cmux-terminal-projection",
  "cmux-transport",
  "cmux-wg",
  "flate2",
  "futures-util",
  "getrandom 0.3.4",
+ "hkdf",
+ "libc",
+ "p256",
  "rcgen",
  "reqwest",
  "rustls",
@@ -646,10 +708,15 @@ dependencies = [
 name = "cmux-mobile-link-ffi"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "base64",
+ "cmux-auto-session",
  "cmux-composer-send",
  "cmux-follow-cam",
+ "cmux-mobile-auto",
+ "cmux-mobile-core",
  "cmux-mobile-host",
+ "cmux-mobile-last-place",
  "cmux-mobile-link",
  "cmux-rd-core",
  "cmux-rd-engine",
@@ -663,6 +730,7 @@ dependencies = [
  "cmux-window-rules",
  "libc",
  "ring",
+ "serde",
  "serde_json",
  "sha2",
  "tempfile",
@@ -674,6 +742,10 @@ dependencies = [
  "url",
  "uuid",
 ]
+
+[[package]]
+name = "cmux-output-paint"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-process"
@@ -738,6 +810,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-remote-protocol"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
 name = "cmux-scope"
 version = "0.1.0"
 dependencies = [
@@ -780,6 +862,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-terminal-sizing"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "cmux-transport"
 version = "0.1.0"
 dependencies = [
@@ -802,6 +891,7 @@ dependencies = [
  "base64",
  "boringtun",
  "bytes",
+ "cmux-braid-path",
  "cmux-transport",
  "getrandom 0.3.4",
  "ip_network",
