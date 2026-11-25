@@ -32,6 +32,14 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
     var panEnded: () -> Void = {}
     /// DEBUG: a wheel report went to the surface (cmux#48951's round trip).
     var wheelSent: () -> Void = {}
+    /// A drag toward older rows asks to open the phone's reader of the app's
+    /// history (``TerminalTUIReader``); true when it opened. That drag then
+    /// moves the reader, not the app.
+    var readerOpens: () -> Bool = { false }
+    /// The reader's drag moved (its translation since it began).
+    var readerMoved: (CGFloat) -> Void = { _ in }
+    /// The reader's drag ended at this finger velocity (points per second).
+    var readerEnded: (CGFloat) -> Void = { _ in }
     /// A wheel's `dy` (points): the part that still goes to the app after
     /// the session painted what it holds (``TerminalSession/panHeldRows(_:)``).
     var panHeld: (CGFloat) -> CGFloat = { $0 }
@@ -59,6 +67,8 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
     private var tapDown: (at: CGPoint, time: TimeInterval)?
     /// The last touch on the host (a selection handle may own it).
     private weak var lastTouch: UITouch?
+    /// This drag moves the reader (``readerOpens``), which decelerates itself.
+    private var dragsReader = false
 
     /// `tap`: the host's tap, which a touch that stops a fling does not reach.
     func install(in host: UIView, surface: TerminalSurfaceView, tap: UITapGestureRecognizer) {
@@ -103,17 +113,35 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
             let translation = pan.translation(in: surface)
             let at = pan.location(in: surface)
             anchor = CGPoint(x: at.x - translation.x, y: at.y - translation.y)
+            // Toward older rows the phone already has: a plain scroll of them.
+            dragsReader = translation.y > 0 && readerOpens()
+            if dragsReader { readerMoved(translation.y) }
         }
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard !recentering else { return }
+        if dragsReader {
+            scroll.reset(offset: scrollView.contentOffset.y)
+            if let surface { readerMoved(pan.translation(in: surface).y) }
+            return
+        }
         guard let wheel = scroll.scrolled(to: scrollView.contentOffset.y, tracking: scrollView.isTracking),
               scrolling else { return }
         send(wheel)
     }
 
+    func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint,
+                                   targetContentOffset: UnsafeMutablePointer<CGPoint>) {
+        guard dragsReader else { return }
+        // The reader decelerates itself; the driver stops where it is.
+        targetContentOffset.pointee = scrollView.contentOffset
+        endReader(velocityY: surface.map { pan.velocity(in: $0).y } ?? 0)
+    }
+
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        // A cancelled drag of the reader: it settles where it is.
+        if dragsReader { endReader(velocityY: 0) }
         if !decelerate { endScroll() }
     }
 
@@ -130,6 +158,12 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
         surface.scrollWheel(at: anchor, deltaY: dy, momentum: wheel.momentum)
         tapClick.scrolled(at: CACurrentMediaTime())
         wheelSent()
+    }
+
+    private func endReader(velocityY: CGFloat) {
+        dragsReader = false
+        if let surface { readerMoved(pan.translation(in: surface).y) }
+        readerEnded(velocityY)
     }
 
     /// The drag or its fling is over: its end goes out once, and the
