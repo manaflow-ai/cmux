@@ -9,6 +9,7 @@ import sys
 import tempfile
 import time
 import unittest
+import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -343,6 +344,90 @@ class GreenBaseMergeTests(BranchRepo):
         for message in ("Merge feat-cmux-next-old into lane/x", "Merge branch 'lane/other'",
                         "Merge feat-cmux-next and fix the build", "Merge pull request #1 from x/feat-cmux-next"):
             self.assertFalse(pattern.match(message), message)
+
+
+class LandCarryTests(BranchRepo):
+    """A `ready-to-land` head that only merges the base onto a head whose full tier passed: the land carry rule."""
+
+    event = staticmethod(GreenBaseMergeTests.event)
+    tier = staticmethod(GreenBaseMergeTests.tier)
+
+    def landed(self, landed: bool | None, own: bool = False) -> dict:
+        sha = self.own if own else self.head
+        facts = head_tier.head_facts(self.event(sha))
+        return {**facts, "previous_landed": landed}
+
+    def landing(self, sha: str | None = None, labels: tuple[str, ...] = ("ready-to-land",)) -> dict:
+        return self.event(sha or self.head, labels=labels)
+
+    def test_a_landing_base_merge_onto_a_passed_full_tier_runs_cheap_and_carries_success(self) -> None:
+        decided = self.tier("pull_request", self.landing(), facts=self.landed(True), now=self.now)
+        self.assertEqual(decided[0], "cheap")
+        self.assertTrue(head_tier.carried(decided))
+        with unittest.mock.patch.dict(os.environ, {"CI_LAND_TIER": "1"}):
+            self.assertEqual(pr_router.land_status(self.landing(), decided), "success")
+
+    def test_a_merge_github_made_carries_too(self) -> None:
+        self.git("checkout", "-q", "feat-cmux-next")
+        self.git("commit", "-q", "--allow-empty", "-m", "base moves a third time", when=self.now - 20)
+        self.git("checkout", "-q", "lane/x")
+        env = git_fixture_env.fixture_env()
+        env.update(GIT_COMMITTER_NAME="GitHub", GIT_COMMITTER_EMAIL="noreply@github.com",
+                   GIT_COMMITTER_DATE=f"{self.now - 10} +0000", GIT_AUTHOR_DATE=f"{self.now - 10} +0000")
+        subprocess.run(["git", "-c", "commit.gpgsign=false", "merge", "-q", "--no-ff", "-m",
+                        "Merge branch 'feat-cmux-next' into lane/x", "feat-cmux-next"],
+                       cwd=self.dir, env=env, check=True, capture_output=True)
+        facts = head_tier.head_facts(self.event(self.git("rev-parse", "HEAD")))
+        self.assertTrue(facts["by_github"])
+        decided = self.tier("pull_request", self.landing(self.git("rev-parse", "HEAD")),
+                            facts={**facts, "previous_landed": True}, now=self.now)
+        self.assertTrue(head_tier.carried(decided), decided)
+
+    def test_an_unproved_previous_head_an_own_commit_full_ci_or_the_switch_keep_the_full_tier(self) -> None:
+        for landed in (False, None):
+            self.assertEqual(self.tier("pull_request", self.landing(), facts=self.landed(landed),
+                                       now=self.now)[0], "full", landed)
+        self.assertEqual(self.tier("pull_request", self.landing(self.own), facts=self.landed(True, own=True),
+                                   now=self.now)[0], "full")
+        self.assertEqual(self.tier("pull_request", self.landing(labels=("ready-to-land", "full-ci")),
+                                   facts=self.landed(True), now=self.now)[0], "full")
+        for switches in ({"carry_switch": "0"}, {"land_switch": "0"}):
+            self.assertEqual(self.tier("pull_request", self.landing(), facts=self.landed(True), now=self.now,
+                                       **switches)[0], "full", switches)
+        decided = self.tier("pull_request", self.landing(), facts=self.landed(False), now=self.now)
+        self.assertFalse(head_tier.carried(decided))
+
+    def test_a_head_not_landing_is_unchanged(self) -> None:
+        recent = self.now - 2 * DAY - 60
+        decided = self.tier("pull_request", self.event(self.head), facts=self.landed(True), now=recent)
+        self.assertNotEqual(decided[0], "full")
+        self.assertFalse(head_tier.carried(decided))
+
+    def test_decide_reads_the_status_and_runs_only_for_a_landing_base_merge(self) -> None:
+        calls = []
+        real = head_tier.head_facts, head_tier.runs_at, head_tier.land_status_at
+        repo = {"full_name": "manaflow-ai/cmux"}
+        ev = {"action": "synchronize", "pull_request": {
+            "draft": False, "base": {"ref": "feat-cmux-next", "repo": repo},
+            "head": {"sha": "a" * 40, "repo": repo}, "labels": [{"name": "ready-to-land"}]}}
+        state = {"value": "success"}
+        try:
+            head_tier.land_status_at = lambda *a: calls.append(("status", a[1])) or state["value"]
+            head_tier.runs_at = lambda *a: calls.append(("runs", a[1])) or [
+                {"id": 1, "path": "ci.yml", "status": "completed", "conclusion": "success"}]
+            head_tier.head_facts = lambda e: {"base_merge_only": False, "own_last": None}
+            self.assertEqual(head_tier.decide("pull_request", ev)[0], "full")
+            self.assertEqual(calls, [])
+            head_tier.head_facts = lambda e: {"base_merge_only": True, "own_last": time.time(), "previous": "b" * 40}
+            decided = head_tier.decide("pull_request", ev)
+            self.assertTrue(head_tier.carried(decided), decided)
+            self.assertEqual(calls, [("status", "b" * 40), ("runs", "b" * 40)])
+            calls.clear()
+            state["value"] = "pending"  # the previous head ran the cheap tier: nothing to carry, runs not read
+            self.assertEqual(head_tier.decide("pull_request", ev)[0], "full")
+            self.assertEqual(calls, [("status", "b" * 40)])
+        finally:
+            head_tier.head_facts, head_tier.runs_at, head_tier.land_status_at = real
 
 
 class GreenPreviousTests(unittest.TestCase):

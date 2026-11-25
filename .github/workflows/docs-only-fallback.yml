@@ -73,6 +73,8 @@ jobs:
       contents: read
       id-token: write
       pull-requests: write
+      # ci.yml's changes job: head_tier.py's land carry rule reads cmux/land-tier.
+      statuses: read
 
   cmux-next-guards:
     name: cmux-next-guards (fallback)
