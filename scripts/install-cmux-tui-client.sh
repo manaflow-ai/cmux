@@ -99,8 +99,8 @@ sha256_of() { shasum -a 256 "$1" | awk '{print $1}'; }
 # exceeded for installation" while 7+ nightlies ran at once. Bundles come from,
 # in order: the attestation cache (keyed by manifest sha256; a bundle is still
 # verified every time, so a bad cache entry only falls through), the
-# manifest.json.sigstore.json cmux-tui-artifacts.yml publishes beside the
-# manifest, then one API lookup whose bundle is cached for the next install.
+# digest-keyed bundle cmux-tui-artifacts.yml publishes under
+# cmux-tui-attestations/, then one API lookup whose bundle is cached for the next install.
 ATTESTATION_CACHE="${CMUX_TUI_ATTESTATION_CACHE:-$HOME/Library/Caches/cmux/cmux-tui-attestations}"
 ATTEST_ARGS=()
 attest_args() {
@@ -144,25 +144,31 @@ verify_manifest_attestation() {
     exit 1
   }
   attest_args
-  local digest cached published
+  local digest cached published origin bundle_url
   digest="$(sha256_of "$MANIFEST")"
   cached="$ATTESTATION_CACHE/$digest.sigstore.json"
   if verify_bundle_offline "$cached"; then
     echo "cmux-tui manifest attestation verified offline from cached bundle $cached" >&2
     return 0
   fi
-  # One short try: a commit published before bundles were is a plain 404.
+  # The publisher (cmux-tui-artifacts.yml, "Publish the manifest's Sigstore
+  # bundle") uploads the bundle for the manifest's digest, write-once, to
+  # <origin>/cmux-tui-attestations/sha256-<digest>.sigstore.json. One short try:
+  # a commit published before bundles were is a plain 404. A missing or rejected
+  # bundle falls through to the API lookup below, so a bundle never admits
+  # anything the lookup would refuse.
+  origin="${CMUX_TUI_ATTEST_BUNDLE_BASE:-$(printf '%s' "$MANIFEST_URL" | sed -E 's#^(https?://[^/]+)/.*#\1#')/cmux-tui-attestations}"
+  bundle_url="$origin/sha256-$digest.sigstore.json"
   published="$MANIFEST.sigstore.json"
   rm -f "$published"
-  local bundle_budget=60
-  (( DOWNLOAD_MAX_SECONDS < bundle_budget )) && bundle_budget=$DOWNLOAD_MAX_SECONDS
-  if curl --proto '=https' --tlsv1.2 -fsSL --connect-timeout 30 --max-time "$bundle_budget" \
-      "${MANIFEST_URL%%\?*}.sigstore.json" -o "$published" 2>/dev/null \
-      && verify_bundle_offline "$published"; then
-    echo "cmux-tui manifest attestation verified offline from the published bundle" >&2
-    cache_bundle "$published" "$cached"
-    rm -f "$published"
-    return 0
+  if DOWNLOAD_ATTEMPTS=1 DOWNLOAD_MAX_SECONDS=60 download "$bundle_url" "$published" 0 2>/dev/null; then
+    if verify_bundle_offline "$published"; then
+      echo "cmux-tui manifest attestation verified offline from $bundle_url" >&2
+      cache_bundle "$published" "$cached"
+      rm -f "$published"
+      return 0
+    fi
+    echo "warning: the published Sigstore bundle at $bundle_url did not verify; asking the GitHub attestations API instead" >&2
   fi
   rm -f "$published"
   # An exhausted GitHub API quota says nothing about the attestation, and
