@@ -516,7 +516,7 @@ fn the_bg_hook_reads_a_gateway_server_at_an_earlier_port_as_its_stdio_launch() {
         env: vec![("CMUX_SESSION".into(), "chat-i".into())],
         cwd: None,
     };
-    let kept = Kept { launch, initialize: None };
+    let kept = Kept { launch, initialize: None, answers: None };
     crate::agent_tools::write_private(
         &launch_path(home.path(), "chat-i"),
         &serde_json::to_vec(&kept).unwrap(),
@@ -814,7 +814,7 @@ async fn a_tool_call_acts_as_the_session_in_its_url_and_another_chats_token_is_r
 #[test]
 fn the_bg_hook_reads_a_gateway_server_as_its_stdio_launch() {
     let home = tempfile::tempdir().unwrap();
-    let kept = Kept { launch: launch(home.path()), initialize: None };
+    let kept = Kept { launch: launch(home.path()), initialize: None, answers: None };
     crate::agent_tools::write_private(
         &launch_path(home.path(), "chat-h"),
         &serde_json::to_vec(&kept).unwrap(),
