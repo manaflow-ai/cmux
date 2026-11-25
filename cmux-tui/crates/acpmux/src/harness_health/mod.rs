@@ -182,6 +182,7 @@ pub(crate) fn builtin_login(family: &str) -> Option<&'static str> {
         // cards and `cmux harness login muse`.
         "muse" => "muse login",
         "opencode" => "opencode auth login",
+        "antigravity" => "agy acp --login",
         // The bundled CLI's own sign-in: a clean Mac has no `unii` (first-run finding 2).
         "unii" => crate::uniichat_endpoint::LOGIN,
         "hermes" => "hermes model",

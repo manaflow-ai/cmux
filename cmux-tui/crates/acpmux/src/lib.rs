@@ -15,6 +15,7 @@
 #![cfg_attr(not(unix), allow(dead_code, unused_imports, unused_variables, unused_mut))]
 
 pub mod accept_errors;
+pub(crate) mod acp_key_auth;
 pub mod acp_todo_plan;
 pub mod acpmux_mcp;
 pub mod acpmux_mcp_names;
