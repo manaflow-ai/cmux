@@ -1051,8 +1051,13 @@ if [ -n "${CI_PATHS_FILE:-}" ]; then
   out="$(mktemp)"
   added=()
   git diff --no-renames --name-only --diff-filter=AD HEAD^1 HEAD > "$out.ad" 2>/dev/null && added=(--added-deleted "$out.ad")
+  # --pr-scope, as the job passes it: a step only a wide reach selects is left to the post-merge batch
+  # (cmux-next-tooling-tests-batch.yml). `vars.CI_TOOLING_TESTS_PR_SCOPE` set to `0` runs the whole selection here again.
+  scope=(--pr-scope)
+  [ "${CI_TOOLING_TESTS_PR_SCOPE:-1}" = 0 ] && scope=()
   if python3 scripts/ci/tooling_steps.py route --workflow .github/workflows/cmux-next-guards.yml --job tooling-tests \
-      --changed-files "$CI_PATHS_FILE" ${added[@]+"${added[@]}"} --event pull_request --github-output "$out" >/dev/null \
+      --changed-files "$CI_PATHS_FILE" ${added[@]+"${added[@]}"} --event pull_request ${scope[@]+"${scope[@]}"} \
+      --github-output "$out" >/dev/null \
       && grep -qx 'tooling_all=false' "$out"; then
     sel="$(sed -n 's/^tooling_steps=//p' "$out")"
   fi
@@ -1062,6 +1067,7 @@ status=0
 if want tt-asc-developer-id-app; then python3 tests/test_asc_developer_id_app.py || status=1; fi
 if want tt-fixture-dates-2101; then CMUX_NOW_EPOCH=4133980800 python3 tests/test_asc_developer_id_app.py && CMUX_NOW_EPOCH=4133980800 python3 -m unittest tests/test_lint_feature_flags_scope.py tests/test_lint_feature_flags_review_date.py || status=1; fi
 if want tt-cmux-now-epoch; then python3 -I tests/test_cmux_now_epoch.py || status=1; fi
+if want tt-tooling-tests-batch; then python3 tests/test_ci_tooling_tests_batch.py || status=1; fi
 if want tt-ios-placeholder-bounds; then python3 -I tests/test_ios_placeholder_bounds.py || status=1; fi
 if want tt-cmux-tui-republish; then python3 tests/test_cmux_tui_republish_same_commit.py || status=1; fi
 if want tt-verify-cmux-tui-hosted; then python3 tests/test_verify_cmux_tui_hosted.py || status=1; fi
@@ -1085,8 +1091,13 @@ if [ -n "${CI_PATHS_FILE:-}" ]; then
   out="$(mktemp)"
   added=()
   git diff --no-renames --name-only --diff-filter=AD HEAD^1 HEAD > "$out.ad" 2>/dev/null && added=(--added-deleted "$out.ad")
+  # --pr-scope, as the job passes it: a step only a wide reach selects is left to the post-merge batch
+  # (cmux-next-tooling-tests-batch.yml). `vars.CI_TOOLING_TESTS_PR_SCOPE` set to `0` runs the whole selection here again.
+  scope=(--pr-scope)
+  [ "${CI_TOOLING_TESTS_PR_SCOPE:-1}" = 0 ] && scope=()
   if python3 scripts/ci/tooling_steps.py route --workflow .github/workflows/cmux-next-guards.yml --job tooling-tests \
-      --changed-files "$CI_PATHS_FILE" ${added[@]+"${added[@]}"} --event pull_request --github-output "$out" >/dev/null \
+      --changed-files "$CI_PATHS_FILE" ${added[@]+"${added[@]}"} --event pull_request ${scope[@]+"${scope[@]}"} \
+      --github-output "$out" >/dev/null \
       && grep -qx 'tooling_all=false' "$out"; then
     sel="$(sed -n 's/^tooling_steps=//p' "$out")"
   fi
@@ -1122,8 +1133,13 @@ if [ -n "${CI_PATHS_FILE:-}" ]; then
   out="$(mktemp)"
   added=()
   git diff --no-renames --name-only --diff-filter=AD HEAD^1 HEAD > "$out.ad" 2>/dev/null && added=(--added-deleted "$out.ad")
+  # --pr-scope, as the job passes it: a step only a wide reach selects is left to the post-merge batch
+  # (cmux-next-tooling-tests-batch.yml). `vars.CI_TOOLING_TESTS_PR_SCOPE` set to `0` runs the whole selection here again.
+  scope=(--pr-scope)
+  [ "${CI_TOOLING_TESTS_PR_SCOPE:-1}" = 0 ] && scope=()
   if python3 scripts/ci/tooling_steps.py route --workflow .github/workflows/cmux-next-guards.yml --job tooling-tests \
-      --changed-files "$CI_PATHS_FILE" ${added[@]+"${added[@]}"} --event pull_request --github-output "$out" >/dev/null \
+      --changed-files "$CI_PATHS_FILE" ${added[@]+"${added[@]}"} --event pull_request ${scope[@]+"${scope[@]}"} \
+      --github-output "$out" >/dev/null \
       && grep -qx 'tooling_all=false' "$out"; then
     sel="$(sed -n 's/^tooling_steps=//p' "$out")"
   fi
@@ -1162,8 +1178,13 @@ if [ -n "${CI_PATHS_FILE:-}" ]; then
   out="$(mktemp)"
   added=()
   git diff --no-renames --name-only --diff-filter=AD HEAD^1 HEAD > "$out.ad" 2>/dev/null && added=(--added-deleted "$out.ad")
+  # --pr-scope, as the job passes it: a step only a wide reach selects is left to the post-merge batch
+  # (cmux-next-tooling-tests-batch.yml). `vars.CI_TOOLING_TESTS_PR_SCOPE` set to `0` runs the whole selection here again.
+  scope=(--pr-scope)
+  [ "${CI_TOOLING_TESTS_PR_SCOPE:-1}" = 0 ] && scope=()
   if python3 scripts/ci/tooling_steps.py route --workflow .github/workflows/cmux-next-guards.yml --job tooling-tests \
-      --changed-files "$CI_PATHS_FILE" ${added[@]+"${added[@]}"} --event pull_request --github-output "$out" >/dev/null \
+      --changed-files "$CI_PATHS_FILE" ${added[@]+"${added[@]}"} --event pull_request ${scope[@]+"${scope[@]}"} \
+      --github-output "$out" >/dev/null \
       && grep -qx 'tooling_all=false' "$out"; then
     sel="$(sed -n 's/^tooling_steps=//p' "$out")"
   fi
