@@ -625,9 +625,14 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     /// summary shows them; `_acpmux/attach` subscribes (again: the daemon only pages);
     /// `_acpmux/events` pages.
     private func page(_ method: String, _ page: AgentSessionPage, client: any AgentSessionRemoteClient) async throws -> Data {
-        if method == "_acpmux/events" { return Self.withMore(try await client.events(page)) }
+        if method == "_acpmux/events" {
+            let events = try await client.events(page)
+            if firstTokenIsOwed { tellFirstToken(in: (try? JSONSerialization.jsonObject(with: events)) as? [String: Any]) }
+            return Self.withMore(events)
+        }
         let result = try await client.attach(page) { [weak self] event in self?.pushed(event) }
         let object = (try? JSONSerialization.jsonObject(with: result)) as? [String: Any] ?? [:]
+        tellFirstToken(in: object)
         let summary = object["session"] as? [String: Any]
         if let resolved = summary?["sessionId"] as? String { state.withLock { $0.resolved = resolved } }
         guard method == "_acpmux/watch" else { return result }
@@ -688,11 +693,13 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
 
     // MARK: Pushes
 
-    private func pushed(_ event: AgentSessionRemoteEvent) {
+    /// One push from the attachment, sent on to the page. Not private: the milestone test pushes records as the daemon sends them.
+    func pushed(_ event: AgentSessionRemoteEvent) {
         switch event {
         case .record(let data):
             guard let record = try? JSONSerialization.jsonObject(with: data) else { return }
             notify("_acpmux/event", record)
+            if firstTokenIsOwed, Self.isFirstToken(record) { tell("first token") }
         case .permission(let data):
             guard let request = try? JSONSerialization.jsonObject(with: data) else { return }
             notify("_acpmux/permission_pending", request)
@@ -842,7 +849,6 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         guard let text else { return }
         let onFrame = state.withLock { $0.closed ? nil : $0.onFrame }
         onFrame?(text)
-        if milestone != nil, Self.isFirstToken(text) { tell("first token") }
     }
 
     /// Tells ``milestone`` `step` once.
@@ -851,11 +857,26 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         milestone(step)
     }
 
-    /// An agent's text or thinking on its way to the page: the model's first token, once the chat's first prompt went out
-    /// (the person's own words echoed back are a `user_message_chunk`, never this).
-    static func isFirstToken(_ frame: String) -> Bool {
-        frame.utf8Contains(#""session/update""#)
-            && frame.utf8ContainsAny([#""agent_message_chunk""#, #""agent_thought_chunk""#])
+    /// Whether a timeline still waits for this chat's first token: a wire with one to tell, open, that has not told it.
+    /// The records are read for it only while this holds.
+    private var firstTokenIsOwed: Bool {
+        milestone != nil && state.withLock { !$0.closed && !$0.told.contains("first token") }
+    }
+
+    /// Tells the first token when it reached the page in a page of records (an attach's first page, or the replay
+    /// after an attachment that dropped) instead of as a push.
+    func tellFirstToken(in page: [String: Any]?) {
+        guard firstTokenIsOwed, let events = page?["events"] as? [Any], events.contains(where: Self.isFirstToken) else { return }
+        tell("first token")
+    }
+
+    /// An agent's text or thinking on its way to the page: the model's first token (the person's own words echoed back
+    /// are a `user_message_chunk`, never this; only a new chat's wire has a timeline to tell, so no older turn's text
+    /// is read). Read from the record's `kind`, as the page reads it, never from the frame's text: the frame is written
+    /// with `session\/update`, its slash escaped.
+    static func isFirstToken(_ record: Any) -> Bool {
+        guard let kind = (record as? [String: Any])?["kind"] as? String else { return false }
+        return kind == "agent_message_chunk" || kind == "agent_thought_chunk"
     }
 
     /// A JSON-RPC id as its JSON text (number or string), so the reply carries the same id.
