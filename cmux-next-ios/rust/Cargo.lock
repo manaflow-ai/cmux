@@ -723,6 +723,7 @@ dependencies = [
  "cmux-build-space",
  "cmux-egress",
  "cmux-fault",
+ "cmux-mobile-host",
  "cmux-mobile-link",
  "cmux-rd-core",
  "cmux-rd-proto",
