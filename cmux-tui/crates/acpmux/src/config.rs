@@ -1539,6 +1539,11 @@ pub struct PersonHoldConfig {
     /// How long, in ms, from the first prompt's arrival. Default 30000; 0 turns it off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ms: Option<u64>,
+    /// `joinQueued`: whether the person's prompts queued behind the person's turn go in with it as
+    /// one turn, in every chat (`hub/person_hold.rs` [`joins_queued`]). Default true; false runs
+    /// each queued prompt as its own turn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub join_queued: Option<bool>,
 }
 
 /// `pageRule` (`hub/inbox_page_rule.rs`): the coordinator list. Another agent's message to one of
