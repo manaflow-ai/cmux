@@ -108,8 +108,8 @@ fn ranks_with_the_palette_engine_grouped_by_kind() {
         row(Kind::Workspace, "unrelated", false),
         row(Kind::Workspace, "deploy", false),
         row(Kind::Session, "lane-deploy", true),
-        // A content hit whose title does not hold the words stays, after the ranked rows.
-        row(Kind::Terminal, "error: dep... loy", true),
+        // A content hit the ranker cannot match (the words were in its context) stays, last.
+        row(Kind::Terminal, "connection refused", true),
         row(Kind::Terminal, "deploy: ok", true),
     ];
     let ranked = rank(&options("deploy"), rows);
@@ -120,7 +120,7 @@ fn ranks_with_the_palette_engine_grouped_by_kind() {
             (Kind::Session, "lane-deploy"),
             (Kind::Workspace, "deploy"),
             (Kind::Terminal, "deploy: ok"),
-            (Kind::Terminal, "error: dep... loy"),
+            (Kind::Terminal, "connection refused"),
             (Kind::Browser, "Deploy docs"),
         ]
     );
