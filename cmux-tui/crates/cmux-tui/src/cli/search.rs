@@ -272,8 +272,8 @@ fn rank(options: &Options, rows: Vec<Row>) -> Vec<(Row, Option<i64>)> {
     let mut order = Vec::new();
     for section in cmux_palette_ranker::rank_request(&request) {
         for ranked in section.rows {
-            if ranked.index < rows.len() && scores[ranked.index].is_none() {
-                scores[ranked.index] = Some(ranked.score);
+            if let Some(slot @ None) = scores.get_mut(ranked.index) {
+                *slot = Some(ranked.score);
                 order.push(ranked.index);
             }
         }
@@ -284,15 +284,20 @@ fn rank(options: &Options, rows: Vec<Row>) -> Vec<(Row, Option<i64>)> {
         let kept = order
             .iter()
             .copied()
-            .filter(|index| rows[*index].as_ref().is_some_and(|row| row.kind == kind));
+            .filter(|index| matches!(rows.get(*index), Some(Some(row)) if row.kind == kind));
         let kept = kept.collect::<Vec<_>>();
-        let dropped = (0..rows.len())
-            .filter(|index| scores[*index].is_none())
-            .filter(|index| rows[*index].as_ref().is_some_and(|row| row.kind == kind && row.found))
+        let dropped = rows
+            .iter()
+            .zip(&scores)
+            .enumerate()
+            .filter(|(_, (row, score))| {
+                score.is_none() && row.as_ref().is_some_and(|row| row.kind == kind && row.found)
+            })
+            .map(|(index, _)| index)
             .collect::<Vec<_>>();
         for index in kept.into_iter().chain(dropped).take(options.limit) {
-            if let Some(row) = rows[index].take() {
-                out.push((row, scores[index]));
+            if let Some(row) = rows.get_mut(index).and_then(Option::take) {
+                out.push((row, scores.get(index).copied().flatten()));
             }
         }
     }
@@ -490,7 +495,9 @@ impl Daemon {
     fn call(&mut self, mut request: Value) -> Result<Value, String> {
         let id = self.next_id;
         self.next_id += 1;
-        request["id"] = json!(id);
+        if let Some(object) = request.as_object_mut() {
+            object.insert("id".into(), json!(id));
+        }
         writeln!(self.reader.get_mut(), "{request}")
             .and_then(|()| self.reader.get_mut().flush())
             .map_err(|error| error.to_string())?;
@@ -747,9 +754,9 @@ fn terminal_matches(
             "query": query,
             "max_matches": MATCHES_PER_TERMINAL,
         });
-        if !before.is_null() {
-            request["before"] = before.clone();
-            request["epoch"] = epoch.clone();
+        if let (false, Some(object)) = (before.is_null(), request.as_object_mut()) {
+            object.insert("before".into(), before.clone());
+            object.insert("epoch".into(), epoch.clone());
         }
         let page = daemon.call(request)?;
         matches.extend(page.get("matches").and_then(Value::as_array).cloned().unwrap_or_default());
