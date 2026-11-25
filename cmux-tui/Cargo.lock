@@ -1637,6 +1637,7 @@ dependencies = [
 name = "cmux-classic-import"
 version = "0.1.0"
 dependencies = [
+ "cmux-config",
  "cmux-file-lock",
  "libc",
  "serde",
@@ -3229,6 +3230,7 @@ dependencies = [
  "cmux-lifeline",
  "cmux-link",
  "cmux-migrate",
+ "cmux-palette-ranker",
  "cmux-panic-log",
  "cmux-process",
  "cmux-projection",
