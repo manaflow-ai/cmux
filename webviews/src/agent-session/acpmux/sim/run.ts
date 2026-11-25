@@ -14,7 +14,14 @@ import { preserveScrollAnchorTop } from "../conversation/scrollAnchor";
 import { turnViewFrom, type TurnView } from "../conversation/turns";
 import { layoutConversation, type AcpmuxRow, type AcpmuxSnapshot, type ConversationLayout } from "../model";
 import { acpmuxSendCall } from "../conversation/acpmuxSends";
-import { ROW_GAP_LOOKS, TRANSCRIPT_BLOCK_GAP, TRANSCRIPT_RUN_GAP, TRANSCRIPT_TURN_GAP, MARK_STEP, transcriptGap } from "../transcriptGrid";
+import {
+  ROW_GAP_LOOKS,
+  TRANSCRIPT_BLOCK_GAP,
+  TRANSCRIPT_RUN_GAP,
+  TRANSCRIPT_TURN_GAP,
+  MARK_STEP,
+  transcriptGap,
+} from "../transcriptGrid";
 import { STARTED_LINE_NAMES, withSubagentLines, type DoneLineCache } from "../subagents/runningTray";
 import { SUBAGENT_STARTED } from "../subagents/subagentRows";
 import { subagentNamed } from "../subagents/subsessions";
@@ -424,7 +431,11 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
       // under the turn before's reply, the run gap under its footer row (transcriptSpacing.ts
       // footer-to-received; transcriptGrid.ts FOOTER_WORKING_GAP_LOOKS), by design.
       const wantUnder = (row: RowProbe | undefined) =>
-        probe.received ? (row?.kind === "turnSummary" ? TRANSCRIPT_RUN_GAP : TRANSCRIPT_BLOCK_GAP) : TRANSCRIPT_TURN_GAP;
+        probe.received
+          ? row?.kind === "turnSummary"
+            ? TRANSCRIPT_RUN_GAP
+            : TRANSCRIPT_BLOCK_GAP
+          : TRANSCRIPT_TURN_GAP;
       const want = wantUnder(above);
       // The turn's "Working for" (or "Worked for") line drawn over the message that opened it (turns.ts
       // `shapeLiveTurn`): that line is the turn's top, so it stands the gap under the turn before.

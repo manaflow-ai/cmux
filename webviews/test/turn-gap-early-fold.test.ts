@@ -17,7 +17,11 @@
 import { afterEach, expect, test } from "bun:test";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { layoutConversation, MESSAGE_RUN, type AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { TRANSCRIPT_BLOCK_GAP, TRANSCRIPT_LIVE_STEP_GAP, TRANSCRIPT_RUN_GAP } from "../src/agent-session/acpmux/transcriptGrid";
+import {
+  TRANSCRIPT_BLOCK_GAP,
+  TRANSCRIPT_LIVE_STEP_GAP,
+  TRANSCRIPT_RUN_GAP,
+} from "../src/agent-session/acpmux/transcriptGrid";
 import { connect, fakeDaemon, record, type Step } from "./support/agentPairDaemon";
 
 afterEach(() => {
