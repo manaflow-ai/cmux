@@ -7,7 +7,8 @@ import CmuxNextWakeups
 /// macOS's own Now Playing card: the site, the title and the artist, the
 /// artwork filling the top right and fading into the card, a scrubber that
 /// seeks, then Previous, Play or Pause (the one filled control, in the theme's
-/// accent) and Next, and past a divider Picture in Picture for a tab's video.
+/// accent) and Next, centered on the card, and past a divider Picture in
+/// Picture for a tab's video.
 /// Small level bars sway at the end of the controls while it plays. It sits
 /// on the sidebar cards' glass (``CardSurfaceView``), in the sidebar's theme.
 /// The bars and the scrubber move only when motion is allowed (`Motion`), as
@@ -217,18 +218,18 @@ final class SidebarNowPlayingCardView: NSView {
         } else {
             scrubber.frame = .zero
         }
-        // Previous, Play or Pause and Next from the leading edge (macOS's card), then the divider
-        // and Picture in Picture; the level bars close the row.
+        // Previous, Play or Pause and Next centered on the card, so Play keeps its place for every
+        // source; the divider and Picture in Picture follow Next, and the level bars close the row.
         let control = Self.controlSide, play = Self.playSide, gap = Metrics.space2
+        let line = Metrics.lineWidth(1)
         let controlY = y + (play - control) / 2
-        var x = max(0, pad - (control - Metrics.smallIconSize) / 2)
+        var x = max(0, ((b.width - (control + gap + play + gap + control)) / 2).rounded())
         previousButton.frame = NSRect(x: x, y: controlY, width: control, height: control).integral
         x += control + gap
         playPauseButton.frame = NSRect(x: x, y: y, width: play, height: play).integral
         x += play + gap
         nextButton.frame = NSRect(x: x, y: controlY, width: control, height: control).integral
         x += control + Metrics.space3
-        let line = Metrics.lineWidth(1)
         controlsDivider.frame = NSRect(x: x, y: y + Metrics.space2, width: line, height: max(0, play - 2 * Metrics.space2))
         x += line + Metrics.space3
         pictureInPictureButton.frame = NSRect(x: x, y: controlY, width: control, height: control).integral

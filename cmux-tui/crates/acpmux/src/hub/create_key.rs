@@ -59,6 +59,7 @@ impl Hub {
     /// store's index first, since the earlier daemon's session is in it.
     pub(crate) async fn created_with_key(&self, key: &str) -> Option<Arc<Session>> {
         self.wait_store().await;
+        self.rehydrate_where(|m| m.create_key.as_deref() == Some(key));
         let sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         made_in(&sessions, key).filter(|s| !s.purged.load(Ordering::SeqCst))
     }

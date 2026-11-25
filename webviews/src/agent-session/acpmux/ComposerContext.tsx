@@ -168,6 +168,7 @@ export function ComposerContext({
   onCloudFolderWaiting,
   sourceRepository,
   cloningRepository,
+  pendingRepository,
   onNewProject,
   newProject = false,
   newProjectName,
@@ -180,6 +181,7 @@ export function ComposerContext({
   onConnect,
   connectOnlyWhenEmpty = false,
   onOffload,
+  placeControl,
   offloads = NO_OFFLOADS,
   offloadReasons,
   moveTargets,
@@ -243,6 +245,7 @@ export function ComposerContext({
   onCloudFolderWaiting?(waiting: boolean): void;
   sourceRepository?: { cwd: string; name: string };
   cloningRepository?: string;
+  pendingRepository?: string;
   /// A new chat's New Project (FolderPopover, newtab/newProject.ts); `newProject` while it is the choice:
   /// the strip reads New Project until the send makes the folder.
   onNewProject?(): void;
@@ -271,6 +274,9 @@ export function ComposerContext({
   /// Bring Back Local for one a move put on a Cloud machine (the tab menu's same actions), as
   /// `offloads` lists them. None when the host passes none (the floating chat).
   onOffload?(kind: OffloadKind): void;
+  /// A started chat's place control (place/PlaceControl.tsx: Local, Cloud, Auto), beside the picker's
+  /// Move to Cloud and Bring Back Local rows, which stay. None while the app reports no place.
+  placeControl?: React.ReactNode;
   /// The moves the app offers this chat now (its right-click menu's, `pane.tabState` `moves`): the
   /// picker offers only these, whatever the machine's kind.
   offloads?: readonly OffloadKind[];
@@ -484,6 +490,9 @@ export function ComposerContext({
   const browseRetry = useRef<() => void>(undefined);
   // Counts folder picks: a folder panel's late answer (or failure) after one is dropped.
   const folderPicks = useRef(0);
+  // The folder the person picked in this menu: with Cloud picked, a folder of this Mac is named only then, never
+  // one the chat inherited (cmux#53226).
+  const [pickedHere, setPickedHere] = useState<string>();
   const browseRequest = useRef(0);
   useEffect(
     () => () => {
@@ -602,15 +611,18 @@ export function ComposerContext({
     cloudPicked ||
     (!sandboxPicked &&
       (machineOnCloud || waiting !== undefined || (selectedComputer !== "local" && currentComputer?.kind === "cloud")));
+  // Cloud picked for a chat from this Mac: this Mac's folders are still its projects (a Cloud start copies the
+  // picked one to the machine, cloudRun.ts cloudStartFolder), listed with the GitHub repositories (cmux#53226).
+  const localOnCloud = cloudPicked && selectedComputer === "local" && !machineOnCloud && !routeElsewhere;
   const pickedRepo = sourceRepository?.cwd === pickedFolder ? sourceRepository?.name : undefined;
   const currentFolder =
     noProject && !readOnly && !cloudStartOut
       ? undefined
       : cloudSide && !readOnly && !machineOnCloud && !cloudStartOut
-        ? cloudRepositoryPick(
+        ? (cloudRepositoryPick(
             pickedFolder,
             pickedRepo ?? folders.find((folder) => folder.id === pickedFolder)?.repo?.github,
-          )
+          ) ?? (localOnCloud && pickedFolder !== undefined && pickedFolder === pickedHere ? pickedFolder : undefined))
         : pickedFolder;
   const cloudFolders = useMemo(() => {
     if (!cloudSide || readOnly) return [];
@@ -825,6 +837,7 @@ export function ComposerContext({
     });
   const pickFolder = (cwd: string) => {
     folderPicks.current += 1;
+    setPickedHere(normalizeCwd(cwd));
     setBrowseError(undefined);
     if (waiting) clearWaiting();
     onCloudMachinePicked?.(undefined);
@@ -1124,7 +1137,7 @@ export function ComposerContext({
                   {...(folderDetail ? { detail: folderDetail } : {})}
                 />
               }
-              folders={cloudSide ? [] : folders}
+              folders={cloudSide && !localOnCloud ? [] : folders}
               current={currentFolder}
               currentPeer={cloudSide ? selectedComputer : undefined}
               onPick={pickFolder}
@@ -1132,6 +1145,7 @@ export function ComposerContext({
               onNoProject={chooseNoFolder}
               newProject={newProject}
               cloningRepository={cloningRepository}
+              {...(pendingRepository ? { pendingRepository } : {})}
               onNewWorktree={
                 !cloudSide && currentFolder && onNewWorktree ? () => onNewWorktree(currentFolder) : undefined
               }
@@ -1352,6 +1366,7 @@ export function ComposerContext({
               onPick={pickComputer}
             />
           )}
+          {started && placeControl}
         </div>
         {browseError && browseRetry.current && (
           <BrowseFailure
