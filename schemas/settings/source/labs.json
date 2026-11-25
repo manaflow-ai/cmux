@@ -274,6 +274,33 @@
           ]
         },
         {
+          "key": "labs.commentThreads",
+          "name": "commentThreads",
+          "note": "Opt-in comment threads from the browser pane and terminal selections (goal all-surface-comments-round-trip): a design mode card's Send, and Comment… on a terminal selection, save the comment on the session host and send it in a threaded diff.comments.send (diff-comments-threads-v1), so the agent's reply comes back into the same thread. Off by default: the browser card sends as a chip and Comment… on a terminal selection stays unavailable, as before. Off while Leo's UI merge hold stands (2026-11-24, ask-82b08b7ed7).",
+          "title": {
+            "key": "settings.labs.commentThreads",
+            "text": "Comment Threads in Browser and Terminal"
+          },
+          "help": {
+            "key": "settings.labs.commentThreads.help",
+            "text": "Send browser and terminal comments to the chat as threads that show the agent's reply."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "comment",
+            "comments",
+            "thread",
+            "threads",
+            "browser",
+            "terminal",
+            "design",
+            "reply",
+            "agent"
+          ]
+        },
+        {
           "key": "labs.hostsSidebar",
           "note": "Rex-style Hosts section in the sidebar. It projects the Machines page catalog, including Add Host and per-machine terminal actions. Off by default until the sidebar surface is ready.",
           "title": {

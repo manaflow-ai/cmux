@@ -214,7 +214,16 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::SessionHold { session, held, fleet, allow, set_allow, reason, status } => {
+        Command::SessionHold {
+            session,
+            held,
+            fleet,
+            allow,
+            set_allow,
+            reason,
+            status,
+            hold_for,
+        } => {
             let client = connect(true).await?;
             if !client.daemon_lists(crate::hub::session_hold::FEATURE) {
                 return Err(crate::cli::errors::AppError::new(
@@ -237,20 +246,56 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 }
                 // Read first: `--allow` adds to what is there, and the change is printed.
                 let before = client.request(method::MUX_FLEET_HOLD, json!({})).await?;
+                let hold_now = serde_json::from_value::<crate::hub::session_hold::FleetHold>(
+                    before.get("fleetHold").cloned().unwrap_or_default(),
+                )
+                .unwrap_or_default();
+                let active = hold_now.active(crate::store::now_ms());
                 if status {
                     if json_out {
                         print_json(&before);
-                    } else if before.pointer("/fleetHold/on").and_then(Value::as_bool) == Some(true)
-                    {
-                        println!("fleet hold on; allowed: {}", shown(&allow_of(&before)));
+                    } else if active {
+                        println!("{}", crate::cli::hold_line::fleet_hold_line(&hold_now, None));
+                        println!("allowed: {}", shown(&allow_of(&before)));
                     } else {
                         println!("fleet hold off");
                     }
                     return Ok(());
                 }
-                let was = allow_of(&before);
+                // `--allow` adds to a hold that is on; with none on it is no order to start one
+                // (2026-11-25: `hold --fleet --allow X` meant to admit X started a hold that idled
+                // every other chat on the host). `--set-allow`, or `hold --fleet` alone, starts one.
+                if held && !active && !allow.is_empty() && set_allow.is_none() {
+                    if json_out {
+                        print_json(&json!({"fleetHold": hold_now, "changed": false,
+                            "reason": "no_fleet_hold"}));
+                    } else {
+                        println!(
+                            "fleet hold off: --allow only adds to a hold that is on, so nothing \
+                             changed. To start a hold that lets only these run: `acpmux session \
+                             hold --fleet --set-allow {}`",
+                            allow.join(",")
+                        );
+                    }
+                    return Ok(());
+                }
+                let was = if active { allow_of(&before) } else { Vec::new() };
                 let next = crate::hub::session_hold::next_allow(&was, set_allow.as_deref(), &allow);
                 let mut p = json!({"on": held, "allow": next});
+                if held {
+                    let for_ms = match hold_for.as_deref().map(str::trim) {
+                        None => crate::hub::session_hold::DEFAULT_FOR_MS,
+                        Some("never" | "0") => 0,
+                        Some(text) => crate::cli::run::ls::parse_duration_ms(text)?,
+                    };
+                    cmux_json::JsonSet::set(&mut p, "forMs", json!(for_ms));
+                    let by = std::env::var("ACPMUX_SESSION_NAME")
+                        .ok()
+                        .or_else(|| std::env::var("ACPMUX_SESSION_ID").ok())
+                        .filter(|v| !v.trim().is_empty())
+                        .unwrap_or_else(|| "person".to_owned());
+                    cmux_json::JsonSet::set(&mut p, "by", json!(by));
+                }
                 let reason = reason.or_else(|| {
                     held.then(|| before.pointer("/fleetHold/reason").and_then(Value::as_str))
                         .flatten()
@@ -264,12 +309,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     print_json(&v);
                 } else if v.pointer("/fleetHold/on").and_then(Value::as_bool) == Some(true) {
                     let now = allow_of(&v);
+                    let set: crate::hub::session_hold::FleetHold =
+                        serde_json::from_value(v["fleetHold"].clone()).unwrap_or_default();
                     println!(
-                        "fleet hold on{}",
-                        v.get("held")
-                            .and_then(Value::as_u64)
-                            .map(|n| format!(", {n} sessions held"))
-                            .unwrap_or_default(),
+                        "{}",
+                        crate::cli::hold_line::fleet_hold_line(
+                            &set,
+                            v.get("held").and_then(Value::as_u64)
+                        )
                     );
                     println!("allowed before: {}", shown(&was));
                     println!("allowed now:    {}", shown(&now));
@@ -498,6 +545,75 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     field("family"),
                     field("agentSessionId")
                 );
+            }
+            Ok(())
+        }
+        Command::Succeed { session, names } => {
+            let client = connect(true).await?;
+            let id = crate::cli::resolve::control_id(&client, &session).await?;
+            let v = client
+                .request(method::MUX_SUCCEED, json!({"sessionId": id, "names": names}))
+                .await?;
+            if json_out {
+                print_json(&v);
+            } else {
+                let added: Vec<&str> =
+                    v["added"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+                println!("{id} answers to {}", added.join(", "));
+            }
+            Ok(())
+        }
+        Command::Role { cmd } => {
+            let client = connect(true).await?;
+            let (op, params) = match cmd {
+                RoleCmd::Ls => ("ls", json!({"op": "ls"})),
+                RoleCmd::Claim { address, session } => {
+                    let id = crate::cli::resolve::control_id(&client, &session).await?;
+                    ("claim", json!({"op": "claim", "sessionId": id, "address": address}))
+                }
+                RoleCmd::Release { address, session } => {
+                    let id = crate::cli::resolve::control_id(&client, &session).await?;
+                    ("release", json!({"op": "release", "sessionId": id, "address": address}))
+                }
+            };
+            let v = client.request(method::MUX_ROLE, params).await?;
+            if json_out {
+                print_json(&v);
+                return Ok(());
+            }
+            match op {
+                "ls" => {
+                    for row in v["sessions"].as_array().into_iter().flatten() {
+                        let roles: Vec<&str> = row["roles"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(|r| r["address"].as_str())
+                            .collect();
+                        let succeeds: Vec<&str> = row["succeeds"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(Value::as_str)
+                            .collect();
+                        println!(
+                            "{}\troles: {}\tsucceeds: {}",
+                            row["name"].as_str().unwrap_or_default(),
+                            if roles.is_empty() { "-".into() } else { roles.join(", ") },
+                            if succeeds.is_empty() { "-".into() } else { succeeds.join(", ") },
+                        );
+                    }
+                }
+                "claim" => println!(
+                    "{} holds {}",
+                    v["sessionId"].as_str().unwrap_or_default(),
+                    v["address"].as_str().unwrap_or_default()
+                ),
+                _ => println!(
+                    "{} gave up {}",
+                    v["sessionId"].as_str().unwrap_or_default(),
+                    v["address"].as_str().unwrap_or_default()
+                ),
             }
             Ok(())
         }
@@ -941,6 +1057,17 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     if let Some(line) = host_pressure_line(&v["host_pressure"]) {
                         println!("host:     {line}");
                     }
+                    if let Some(fleet) = v.get("fleetHold").filter(|f| !f.is_null())
+                        && let Ok(hold) = serde_json::from_value::<
+                            crate::hub::session_hold::FleetHold,
+                        >(fleet.clone())
+                    {
+                        let held = fleet.get("held").and_then(Value::as_u64);
+                        println!(
+                            "hold:     {}",
+                            crate::cli::hold_line::fleet_hold_line(&hold, held)
+                        );
+                    }
                     if let Some(line) = crate::session_budget::budget_line(&v["sessionBudgets"]) {
                         println!("budget:   {line}");
                     }
@@ -1134,8 +1261,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         Command::Host(PeerCmd::Key { create }) => crate::cli::host_ssh_key::run(create, json_out),
         // Its own socket, a fresh daemon connection per client: none held here.
         #[cfg(unix)]
-        Command::Host(PeerCmd::BrokerForward { owner, socket }) => {
-            crate::cli::host_broker_forward::run(owner, socket).await
+        Command::Host(PeerCmd::BrokerForward { owners, socket }) => {
+            crate::cli::host_broker_forward::run(owners, socket).await
         }
         #[cfg(not(unix))]
         Command::Host(PeerCmd::BrokerForward { .. }) => {
@@ -1364,6 +1491,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         }
         // Reads the home directory and writes one file; no daemon (`disk_usage.rs`).
         Command::Host(PeerCmd::DiskWalk) => crate::disk_usage::walk_and_store(),
+        // Reads the fleet listing and the registry; changes nothing (`cell_report.rs`).
+        Command::Host(PeerCmd::Cells) => super::ls::cells(json_out).await,
         // Pure: judges the readings on stdin, no daemon (`cli/host_budget.rs`).
         Command::Host(PeerCmd::Verdict) => crate::cli::host_budget::verdict_stdin(),
         // Only a running daemon's chats: no daemon, no chats to tell.
@@ -1507,11 +1636,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     return Ok(());
                 }
                 PeerCmd::Load { .. }
+                | PeerCmd::Cells
                 | PeerCmd::DiskWalk
                 | PeerCmd::Verdict
                 | PeerCmd::Notice { .. } => {
                     return Err(anyhow!(
-                        "machine load, disk-walk, verdict and notice are handled before connecting"
+                        "machine load, cells, disk-walk, verdict and notice are handled before connecting"
                     ));
                 }
                 PeerCmd::Rm { name } => {

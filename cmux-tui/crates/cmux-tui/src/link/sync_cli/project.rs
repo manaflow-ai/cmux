@@ -620,6 +620,16 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
                 }
             });
         }
+        // The files the agent reads first (project_hot.rs), warmed beside the serving loop that
+        // answers their fetches: after the chat's start, never in front of it (git's dirty set
+        // takes a second or more on a big checkout).
+        if super::project_hot::enabled() {
+            scope.spawn(|| {
+                let dirty = super::project_hot::dirty(&folder);
+                let hot = super::project_hot::pick(&listed.manifest, &dirty);
+                super::project_hot::warm(&socket, &name, &hot);
+            });
+        }
         serve_until_gone(&socket, &name, &at, &encoded, &listed, (stream, packed), &mut revisions);
     });
     Ok(Value::Null)

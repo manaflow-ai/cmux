@@ -22,7 +22,7 @@ OUT = "plans/cmux-next/links.json"
 
 # sha256 of DeepLinkExport.swift, and of DeepLink.url(scheme:)'s body, that this file mirrors.
 FINGERPRINTS = {
-    "DeepLinkExport.swift": "364aa1d1eda7a2c05c09e34bd88dd1218fea32da3ce42993c2352b5d148f3663",
+    "DeepLinkExport.swift": "fb5320189b7c9d1ee643b4b22154ae4038c72671aa6dc930d502fd6b675688f8",
     "DeepLink.url": "b05e93919f24813be5d679fcc75013624e10051c988bf2432b39760c82eb1599",
 }
 
