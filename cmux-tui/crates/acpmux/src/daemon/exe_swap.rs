@@ -12,8 +12,8 @@
 //! 1. start the new build beside this daemon: `<installed> --version` must answer;
 //! 2. readiness: it answered within [`READY_WITHIN`]. A new build that does not run (a cut copy,
 //!    another architecture, a refused signature) is dropped here and this daemon keeps serving;
-//! 3. handover through the owner's own restart command: the service manager's restart for a
-//!    daemon it runs (launchd `kickstart -k`, systemd `restart`), else a `daemon run --take-over`
+//! 3. drain and exit for a KeepAlive launchd job; ask the manager to restart a one-shot
+//!    launchd job or systemd unit. An unmanaged daemon starts `daemon run --take-over`
 //!    of the installed path, which asks this daemon to hand the home over (agents kept) and
 //!    serves it next. If that start ends before it asks, this daemon keeps serving.
 //!
@@ -93,7 +93,7 @@ enum Wake {
 
 /// Watch the installed executable; swap once an update replaced it. The path, its identity and
 /// the kernel watch are taken here, when this is called (before the daemon says ready: an update
-/// right after ready is then a change, never the baseline); the future it returns never resolves.
+/// right after ready is then a change, never the baseline); the future resolves only to exit for a KeepAlive job.
 pub(super) fn watch(args: Vec<String>) -> impl std::future::Future<Output = ()> + Send + 'static {
     let start = start();
     if let Some((installed, owned, _, _)) = &start {
@@ -152,14 +152,18 @@ pub(super) fn watch(args: Vec<String>) -> impl std::future::Future<Output = ()> 
                     installed.display()
                 ),
             }
-            let mut steps = ExeSwap { installed: installed.clone(), args: args.clone() };
+            let installed = installed.clone();
+            let args = args.clone();
             match tokio::task::spawn_blocking(move || {
-                cmux_supervise_core::make_before_break(&mut steps, READY_WITHIN)
+                let mut steps = ExeSwap { installed, args, restart: service_restart() };
+                let outcome = cmux_supervise_core::make_before_break(&mut steps, READY_WITHIN);
+                (outcome, steps.restart)
             })
             .await
             {
-                Ok(Swapped::New) => return std::future::pending().await,
-                Ok(Swapped::KeptOld(why)) => {
+                Ok((Swapped::New, ServiceRestart::ExitForLaunchd)) => return,
+                Ok((Swapped::New, _)) => return std::future::pending().await,
+                Ok((Swapped::KeptOld(why), _)) => {
                     failed += 1;
                     let next = RETRY_AFTER.get(failed - 1).map_or_else(
                         || "at the next change or a client's ask".to_owned(),
@@ -223,6 +227,7 @@ struct ExeSwap {
     installed: PathBuf,
     /// This daemon's own arguments, after its executable.
     args: Vec<String>,
+    restart: ServiceRestart,
 }
 
 impl Swap for ExeSwap {
@@ -252,7 +257,8 @@ impl Swap for ExeSwap {
     }
 
     fn hand_over(&mut self, _new: &mut cmux_process::Child) -> Result<(), String> {
-        match service_restart() {
+        match &self.restart {
+            ServiceRestart::ExitForLaunchd => return Ok(()),
             ServiceRestart::Command(restart) => {
                 let Some((program, args)) = restart.split_first() else {
                     return Err("empty service-manager restart command".into());
@@ -380,6 +386,8 @@ fn restart_outcome(command: &str, status: std::process::ExitStatus) -> Result<()
 enum ServiceRestart {
     /// No service manager owns this daemon, so a detached handover is safe.
     Unmanaged,
+    /// This job has unconditional KeepAlive; leaving the normal shutdown path restarts it.
+    ExitForLaunchd,
     /// Restart through the service manager that owns this daemon.
     Command(Vec<String>),
     /// A launchd marker is present, but its current job could not be resolved to this PID.
@@ -417,7 +425,7 @@ fn service_restart() -> ServiceRestart {
         let pid = std::process::id();
         return launchd_restart_plan(&label, uid, pid, |job| {
             let output =
-                std::process::Command::new("launchctl").args(["print", job]).output().ok()?;
+                cmux_process::Command::new("launchctl").args(["print", job]).output().ok()?;
             output.status.success().then(|| String::from_utf8_lossy(&output.stdout).into_owned())
         });
     }
@@ -438,47 +446,58 @@ fn launchd_restart_plan(
     label: &str,
     uid: u32,
     pid: u32,
-    print: impl FnMut(&str) -> Option<String>,
-) -> ServiceRestart {
-    match launchd_restart_command(label, uid, pid, print) {
-        Some(command) => ServiceRestart::Command(command),
-        None => ServiceRestart::SupervisedButUnresolved { label: label.into(), pid },
-    }
-}
-
-/// The launchd job that owns `pid`, in the GUI or system domain, and its restart command.
-/// Matching the PID prevents a similarly named job in the other domain from being restarted.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-fn launchd_restart_command(
-    label: &str,
-    uid: u32,
-    pid: u32,
     mut print: impl FnMut(&str) -> Option<String>,
-) -> Option<Vec<String>> {
+) -> ServiceRestart {
     let gui = format!("gui/{uid}/{label}");
     let system = format!("system/{label}");
-    let gui_print = print(&gui);
-    if launchd_job_pid(&gui_print) == Some(pid) {
-        return Some(vec!["launchctl".into(), "kickstart".into(), "-k".into(), gui]);
-    }
-    if launchd_job_pid(&print(&system)) == Some(pid) {
-        return Some(vec!["launchctl".into(), "kickstart".into(), "-k".into(), system]);
+    let mut gui_without_pid = false;
+    for job in [&gui, &system] {
+        let output = print(job);
+        let owner = output
+            .as_deref()
+            .and_then(|text| launchd_field(text, "pid"))
+            .and_then(|pid| pid.parse::<u32>().ok());
+        if job == &gui {
+            gui_without_pid = owner.is_none();
+        }
+        if owner == Some(pid) {
+            let keepalive = output
+                .as_deref()
+                .and_then(|text| launchd_field(text, "properties"))
+                .is_some_and(|props| props.split('|').any(|prop| prop.trim() == "keepalive"));
+            if keepalive {
+                return ServiceRestart::ExitForLaunchd;
+            }
+            // The per-home Aqua job is deliberately one-shot. A clean exit alone leaves it down.
+            return ServiceRestart::Command(vec![
+                "launchctl".into(),
+                "kickstart".into(),
+                "-k".into(),
+                job.clone(),
+            ]);
+        }
     }
     // The legacy LaunchAgent has a stable, exact label. If launchctl's GUI output is
     // unavailable or has no parseable pid, keep the old label-specific handoff rather
     // than detaching a second daemon. Hashed LaunchDaemon labels remain fail-closed.
-    if label == crate::cli::daemon_service::LAUNCHD_LABEL && launchd_job_pid(&gui_print).is_none() {
-        return Some(vec!["launchctl".into(), "kickstart".into(), "-k".into(), gui]);
+    if label == crate::cli::daemon_service::LAUNCHD_LABEL && gui_without_pid {
+        return ServiceRestart::Command(vec![
+            "launchctl".into(),
+            "kickstart".into(),
+            "-k".into(),
+            gui,
+        ]);
     }
-    None
+    ServiceRestart::SupervisedButUnresolved { label: label.into(), pid }
 }
 
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-fn launchd_job_pid(print: &Option<String>) -> Option<u32> {
-    print
-        .as_deref()?
-        .lines()
-        .find_map(|line| line.trim().strip_prefix("pid = ").and_then(|pid| pid.parse().ok()))
+fn launchd_field<'a>(text: &'a str, key: &str) -> Option<&'a str> {
+    // launchctl indents job fields by one tab; resource coalitions have their own nested fields.
+    text.lines().find_map(|line| {
+        let (name, value) = line.strip_prefix('\t').unwrap_or(line).split_once(" = ")?;
+        (name == key).then_some(value)
+    })
 }
 
 #[cfg(test)]
@@ -495,22 +514,46 @@ mod tests {
     }
 
     #[test]
-    fn a_launchd_launchdaemon_restart_targets_system_instead_of_takeover() {
+    fn a_keepalive_launchd_job_exits_after_readiness_without_starting_a_successor() {
         let label = "com.cmux.acpmux.daemon.077f602dcb3c3936";
-        let command = launchd_restart_command(label, 501, 420, |job| {
-            (job == &format!("system/{label}")).then(|| "state = running\npid = 420\n".into())
+        for domain in ["system", "gui/501"] {
+            let restart = launchd_restart_plan(label, 501, 420, |job| {
+                (job == format!("{domain}/{label}")).then(|| {
+                    "state = running\npid = 420\nproperties = keepalive | runatload\n".into()
+                })
+            });
+            assert_eq!(restart, ServiceRestart::ExitForLaunchd);
+            // Only --version succeeds; any attempt to invoke this program as a daemon fails.
+            let dir = tempfile::tempdir().unwrap();
+            let installed = dir.path().join("acpmux");
+            std::fs::write(&installed, "#!/bin/sh\n[ \"$1\" = --version ]\n").unwrap();
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(&installed, std::fs::Permissions::from_mode(0o755)).unwrap();
+            let mut steps = ExeSwap { installed, args: Vec::new(), restart };
+            assert!(matches!(
+                cmux_supervise_core::make_before_break(&mut steps, READY_WITHIN),
+                Swapped::New
+            ));
+        }
+    }
+
+    #[test]
+    fn a_one_shot_aqua_job_needs_its_manager_to_restart_it() {
+        let label = "com.cmux.acpmux.daemon.077f602dcb3c3936";
+        let plan = launchd_restart_plan(label, 501, 420, |job| {
+            (job == format!("gui/501/{label}")).then(|| {
+                "\tpid = 420\n\t\tproperties = keepalive\n\tproperties = runatload\n".into()
+            })
         });
         assert_eq!(
-            command,
-            Some(vec![
+            plan,
+            ServiceRestart::Command(vec![
                 "launchctl".into(),
                 "kickstart".into(),
                 "-k".into(),
-                format!("system/{label}"),
+                format!("gui/501/{label}")
             ])
         );
-        assert_eq!(launchd_job_pid(&Some("state = running\npid = 419\n".into())), Some(419));
-        assert_eq!(launchd_job_pid(&None), None);
     }
 
     #[test]
@@ -524,10 +567,10 @@ mod tests {
     #[test]
     fn a_launchagent_with_unusable_gui_output_uses_its_stable_label() {
         let label = "com.acpmux.daemon";
-        let command = launchd_restart_command(label, 501, 420, |_| None);
+        let command = launchd_restart_plan(label, 501, 420, |_| None);
         assert_eq!(
             command,
-            Some(vec![
+            ServiceRestart::Command(vec![
                 "launchctl".into(),
                 "kickstart".into(),
                 "-k".into(),
