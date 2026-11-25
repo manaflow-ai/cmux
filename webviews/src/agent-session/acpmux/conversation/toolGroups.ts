@@ -456,10 +456,10 @@ export function outputShapesRows(item: AcpmuxActivity): boolean {
   if (!tool) return false;
   return Boolean(
     whoElseCall(item) ||
-      dispatchCall(item) ||
-      forumShellCallShown(item) ||
-      acpmuxSendCalls(tool) ||
-      acpmuxMcpSends(tool),
+    dispatchCall(item) ||
+    forumShellCallShown(item) ||
+    acpmuxSendCalls(tool) ||
+    acpmuxMcpSends(tool),
   );
 }
 

@@ -39,7 +39,10 @@ export default componentEntry<{ look: ForumCardLook }>({
   pane: true,
   height: 1040,
   widths: { narrow: 420, normal: 640, wide: 820 },
-  covers: ["agent-session/acpmux/conversation/ForumCallCard.tsx", "agent-session/acpmux/conversation/forumShellCalls.ts"],
+  covers: [
+    "agent-session/acpmux/conversation/ForumCallCard.tsx",
+    "agent-session/acpmux/conversation/forumShellCalls.ts",
+  ],
   styles: () => Promise.all([import("../styles.css"), import("./conversation.css")]),
   load: async () => Stage,
   variants: {

@@ -4,8 +4,16 @@
 import { expect, test } from "bun:test";
 import { tool } from "../../../gallery/fixtures/acpmux";
 import { forumCommand, forumShellCall, forumShellCallShown } from "./forumShellCalls";
+import { experimentArm } from "../../../experiments/experiment";
+import { settingArms } from "../../../experiments/hostSettings";
+import { setExperimentSwitches } from "../../../experiments/switches";
+import { translate } from "../i18n";
+import { forumCallLook } from "./forumCall.experiment";
+import { headLine } from "./ForumCallCard";
 import { toolGroups } from "./toolGroups";
 import {
+  SEARCH_OUTPUT,
+  SHOW_OUTPUT,
   askRefusedCall,
   chainedCall,
   closeCall,
@@ -132,4 +140,35 @@ test("--json answers read the same, and only https links draw", () => {
     updated: "2026-11-23",
   });
   expect(call.hits[1]!.url).toBeUndefined();
+});
+
+test("an answer a filter may have cut names no count", () => {
+  const cut = (command: string, output: string) =>
+    read(tool("Run", "execute", "completed", { command, output, exitCode: 0 }));
+  const lines = SEARCH_OUTPUT.split("\n");
+  // `head -2` printed 2 lines: there may be more.
+  expect(cut("agent-forum search cache | head -2", lines.slice(0, 2).join("\n"))!.partial).toBe(true);
+  // `head -40` printed fewer than 40: that is the whole answer, counted.
+  const whole = cut("agent-forum search cache | head -40", SEARCH_OUTPUT)!;
+  expect(whole.partial).toBeUndefined();
+  expect(whole.hits).toHaveLength(3);
+  // `grep` drops any line it likes.
+  const grepped = cut("agent-forum search cache | grep open", lines[0]!)!;
+  expect(grepped.partial).toBe(true);
+  expect(headLine(translate, grepped)).toBe(translate("forumCall.searched", { query: "cache" }));
+  expect(headLine(translate, whole)).toBe(translate("forumCall.found.other", { count: "3", query: "cache" }));
+  const show = cut("agent-forum show 24871 | head -2", SHOW_OUTPUT.split("\n").slice(0, 2).join("\n"))!;
+  expect(show).toMatchObject({ partial: true, thread: { number: 24871 } });
+  expect(show.thread!.comments).toBeUndefined();
+});
+
+test("Settings > Customize > Forum Tool Calls turns on the card arm", () => {
+  try {
+    expect(experimentArm(forumCallLook, { overrides: {}, stored: {} })).toBe("off");
+    setExperimentSwitches({ forumCallCard: true });
+    expect(settingArms()).toMatchObject({ "forum-call-card": "card" });
+    expect(experimentArm(forumCallLook, { overrides: {}, stored: {} })).toBe("card");
+  } finally {
+    setExperimentSwitches({});
+  }
 });
