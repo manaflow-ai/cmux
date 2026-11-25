@@ -127,7 +127,7 @@ enum NewTabPage {
             home: machine.home,
             template: services.settings?.snapshot.newTabTemplate?.rawValue
         ).showingApp(services.settings?.snapshot.newTabApp).showingClock(services.settings?.snapshot.newTabClock).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).listingAllChats(showsAllChats(services))
-            .startingIn(machine.remoteFolders == nil ? services.newTabChoices.startedProject : nil)
+            .startingIn(machine.remoteFolders == nil ? services.newTabChoices : nil)
             .warmedOnThisMac(machine.remoteFolders == nil)
     }
 
@@ -140,7 +140,7 @@ enum NewTabPage {
             lastPicks: services.newTabChoices.picks, home: NSHomeDirectory(),
             template: services.settings?.snapshot.newTabTemplate?.rawValue
         ).showingApp(services.settings?.snapshot.newTabApp).showingClock(services.settings?.snapshot.newTabClock).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).listingAllChats(showsAllChats(services))
-            .startingIn(services.newTabChoices.startedProject).warmedOnThisMac()
+            .startingIn(services.newTabChoices).warmedOnThisMac()
     }
 
     /// Show All Chats on New Tab (`sidebar.showChats`; All chats left the sidebar for this page, cx-n0i9).
