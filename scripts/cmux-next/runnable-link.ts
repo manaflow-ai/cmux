@@ -157,6 +157,9 @@ export function verdict(opens: OpenRow[], baseline: BaselineRow[], meta: Record<
   };
 }
 
+/** A staging machine create can run past the 60 s op default (run 45600635121: three timeouts at the parent). */
+const CREATE_TIMEOUT_MS = 240_000;
+
 /** Staging's test team sits near its machine cap; a create that hits it waits for room instead of
  * failing the row (25 min, or ROOM_WAIT_MS). Returns the value and the time spent waiting, which the caller leaves out of its phase timing. */
 export async function withRoom<T>(fn: () => Promise<T>, budgetMs = Number(process.env.ROOM_WAIT_MS ?? 1_500_000)): Promise<[T, number]> {
@@ -253,7 +256,7 @@ async function main(): Promise<number> {
     // Parent: a real project, its service running, an agent session holding the canary as its launch credential.
     stage = "parent create";
     const t0 = Date.now();
-    const [created] = await withRoom(() => api.op("cloud.machine.create", { name: `runnable link ${tag} parent`, size: CHAT_START_SIZE }, `${tag}-parent`));
+    const [created] = await withRoom(() => api.op("cloud.machine.create", { name: `runnable link ${tag} parent`, size: CHAT_START_SIZE }, `${tag}-parent`, {}, CREATE_TIMEOUT_MS));
     parent = String(created?.machine?.id ?? created?.machine ?? created?.id);
     machines.push(parent);
     await waitMachine(api, parent, (m) => m?.status === "running" && Boolean(m?.host), 300_000);
@@ -383,7 +386,7 @@ async function main(): Promise<number> {
       let b0 = Date.now();
       try {
         await renew();
-        const [c, waited] = await withRoom(() => api.op("cloud.machine.create", { name: `runnable link ${tag} baseline ${run}`, size: CHAT_START_SIZE }, `${tag}-base-${run}`));
+        const [c, waited] = await withRoom(() => api.op("cloud.machine.create", { name: `runnable link ${tag} baseline ${run}`, size: CHAT_START_SIZE }, `${tag}-base-${run}`, {}, CREATE_TIMEOUT_MS));
         b.quota_wait_ms = waited;
         b0 += waited;
         b.machine = String(c?.machine?.id ?? c?.machine ?? c?.id);

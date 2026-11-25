@@ -495,11 +495,13 @@ export class Api {
   private headers(): Record<string, string> {
     return { authorization: `Bearer ${this.bearer}`, ...(this.team ? { "x-cmux-team": this.team } : {}) };
   }
-  /** `extra`: headers for this op only (a send's trace headers, cloud-start-trace.ts mintSendTrace). */
-  async op(op: string, params: unknown, key?: string, extra: Record<string, string> = {}): Promise<any> {
+  /** `extra`: headers for this op only (a send's trace headers, cloud-start-trace.ts mintSendTrace). `timeoutMs`:
+   * the client cutoff per try; a staging machine create can take past 60 s, and a same-key retry then waits on the
+   * same slow create (runnable-link run 45600635121 timed out three times). */
+  async op(op: string, params: unknown, key?: string, extra: Record<string, string> = {}, timeoutMs = 60_000): Promise<any> {
     let ownerRetried = false;
     for (let attempt = 1; ; attempt++) {
-      const r = await http("POST", `${this.origin}/v1/ops`, { op, params, ...(key ? { idempotency_key: key } : {}) }, { ...this.headers(), ...extra }, 60_000, !!key);
+      const r = await http("POST", `${this.origin}/v1/ops`, { op, params, ...(key ? { idempotency_key: key } : {}) }, { ...this.headers(), ...extra }, timeoutMs, !!key);
       // A provider call cut off mid-way is safe to repeat under the same key; without it a cleanup delete leaks the VM.
       if (key && attempt < OP_ATTEMPTS && opRetryable(r.body)) { await sleep(2000 * attempt); continue; }
       // An owner reset: once more, under the same key so the op cannot apply twice.
