@@ -225,6 +225,29 @@ const withConfigurePage = async (h: LedgerHost, p: Principal, ask: TokenAsk, ref
   return page ? { ...refusal, configure_url: page } : refusal
 }
 
+/**
+ * The person's own connections in their personal team, under another team's policy (cmux#55104). A person links GitHub
+ * once, often in their personal team (Settings with no Stack team selected), while their Cloud machines run in their
+ * selected Stack team, whose ConnectionDO holds none of their connections: the machine's clone ended
+ * `seed.needs_github` though the App they installed covers the repository. The token, status and repository routes
+ * fall back to this state when the asking team has nothing on the repository's owner. Only connections the person
+ * created count (never another member's shared one), and the asking team's policy decides what they may mint.
+ */
+export const ownConnectionsUnder = (state: ConnectionsState, user: string, policy: ReturnType<typeof policyOf>): ConnectionsState => ({
+  ...state,
+  policy,
+  connections: Object.fromEntries(Object.entries(state.connections).filter(([, c]) => c.created_by === user))
+})
+
+/**
+ * Whether a refusal in the asking team leaves room for the person's own connections (``ownConnectionsUnder``): the team
+ * has no GitHub connection this principal may use, or none on the repository's owner, and the ask selected no connection
+ * (a selected one is the only authority). Any other refusal (policy, a relink, a repository the owner's installation
+ * leaves out, a rate limit) is the team's answer.
+ */
+export const ownConnectionsMayAnswer = (refusal: TokenFail, ask: Pick<TokenAsk, "connection">): boolean =>
+  ask.connection === undefined && (refusal.code === "integration.not_found" || (refusal.code === "policy.denied" && refusal.reason === "owner_not_connected"))
+
 /** POST /v1/integrations/github/token for an authenticated, team-checked principal. */
 export const githubToken = (h: LedgerHost, p: Principal, ask: TokenAsk, now: number): Promise<TokenReply> => {
   if (!github.configured(h.env) || !h.env.INTEGRATIONS_KEK) return Promise.resolve(fail(503, "integration.unavailable", "the cmux GitHub App is not configured on this deployment"))
