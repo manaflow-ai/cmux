@@ -599,7 +599,7 @@ jobs:
           add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui -> target
-          shared-key: cmux-tui-linux-${{ matrix.target }}${{ inputs.lto == 'thin' && '-thin' || '' }}
+          shared-key: cmux-tui-linux-${{ matrix.target }}${{ inputs.lto == 'thin' && '-thin' || '' }}-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
           save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' && github.event_name != 'pull_request' }}
 
       # Off Blacksmith the GitHub store above misses (it is full and churns in minutes), so the dependency
@@ -892,7 +892,7 @@ jobs:
           cache-bin: false
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-darwin-on-linux-${{ matrix.target }}
-          key: ${{ steps.darwin-cross.outputs.key }}-${{ hashFiles('scripts/ci/macos-cross.sh', 'scripts/ci/macos-stubs/**', 'first-party-apps/cloud/server/Cargo.lock', 'cmux-tui/bindings/examples/rust-agent-screen-detection/Cargo.lock') }}
+          key: ${{ steps.darwin-cross.outputs.key }}-${{ hashFiles('scripts/ci/macos-cross.sh', 'scripts/ci/macos-stubs/**', 'first-party-apps/cloud/server/Cargo.lock', 'cmux-tui/bindings/examples/rust-agent-screen-detection/Cargo.lock', 'cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
           save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' && github.event_name != 'pull_request' }}
 
       - name: Build the macOS binaries on Linux (no Apple SDK)

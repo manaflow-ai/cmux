@@ -274,7 +274,7 @@ jobs:
           add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui -> target
-          shared-key: cmux-tui-windows-gnu-check
+          shared-key: cmux-tui-windows-gnu-check-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
 
       - name: cargo check cmux-tui-core, cmux-tui and acpmux for Windows
         if: ${{ steps.tree.outputs.hit != 'true' }}

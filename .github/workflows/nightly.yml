@@ -2343,7 +2343,7 @@ jobs:
             cmux-tui -> target/acpmux-app
             Native/OptChat/optchat-chief -> target/app
             cmux-next-ios/rust -> target/cmux-mobile-host-app
-          shared-key: nightly-next-rust-helpers
+          shared-key: nightly-next-rust-helpers-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', 'Native/OptChat/optchat-chief/Cargo.lock', 'cmux-next-ios/rust/Cargo.lock', '.cargo/config.toml') }}
           cache-all-crates: true
 
       - &x18

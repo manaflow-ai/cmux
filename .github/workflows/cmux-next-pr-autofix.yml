@@ -906,7 +906,7 @@ jobs:
           add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui -> target
-          shared-key: cmux-pr-autofix-clippy
+          shared-key: cmux-pr-autofix-clippy-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
 
       # Before the other repairs, so their cargo fmt sees clippy's edits.
       - name: cargo clippy --fix

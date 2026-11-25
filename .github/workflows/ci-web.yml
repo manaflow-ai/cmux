@@ -612,7 +612,7 @@ jobs:
           # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
           add-rust-environment-hash-key: false
           cache-bin: false
-          shared-key: agent-pane-real-acpmux
+          shared-key: agent-pane-real-acpmux-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
           # A feat-cmux-next push saves; a pull request restores only. `|| github.base_ref == 'feat-cmux-next'` saved a
           # copy per pull request that only that pull request reads: 114 entries, 53 GB written in 6 h (2026-11-24, RFD 0148 row 19).
           save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}

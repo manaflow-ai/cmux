@@ -480,7 +480,7 @@ jobs:
           add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: ${{ matrix.root }} -> target
-          key: ${{ matrix.root }}
+          key: ${{ matrix.root }}-${{ hashFiles('cmux-tui/rust-toolchain.toml', format('{0}/Cargo.lock', matrix.root), format('{0}/rust-toolchain.toml', matrix.root), '.cargo/config.toml') }}
           save-if: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' }}
 
       - name: cargo clippy --all-targets and cargo test

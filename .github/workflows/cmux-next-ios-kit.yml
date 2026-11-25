@@ -340,7 +340,7 @@ jobs:
           add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-next-ios/rust
-          key: cmux-next-ios-kit
+          key: cmux-next-ios-kit-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-next-ios/rust/Cargo.lock', '.cargo/config.toml') }}
 
       # The xcframework is reused when nothing it is built from changed: the key is the git tree ids of every package
       # the FFI library compiles (its path dependencies into cmux-tui included), the lock, the toolchain, the build
