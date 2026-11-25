@@ -285,9 +285,13 @@ public final class KeyboardPinTrace: NSObject {
             if let scroll = content(behind: field, in: window) {
                 let frame = MobileKeyboardProbe().onScreen(scroll, in: window)
                 let bounds = (scroll.layer.presentation() ?? scroll.layer).bounds
-                // The content's bottom edge on screen.
-                let bottom = frame.minY + scroll.contentSize.height - bounds.minY
-                parts.append(String(format: "cb=%.2f off=%.2f inb=%.2f trk=%d cf=%.2f,%.2f", bottom, bounds.minY, scroll.contentInset.bottom, scroll.isTracking ? 1 : 0, frame.minY, frame.maxY))
+                // The content's bottom edge on screen: as the content draws
+                // it (`csrc=drawn`: the terminal's last row, which moves
+                // inside a scroll view that keeps its offset), else the
+                // scroll view's own content (`csrc=scroll`).
+                let drawn = (scroll as? any KeyboardRidingContent)?.drawnContentBottom(in: window)
+                let bottom = drawn ?? frame.minY + scroll.contentSize.height - bounds.minY
+                parts.append(String(format: "cb=%.2f off=%.2f inb=%.2f trk=%d cf=%.2f,%.2f csrc=%@", bottom, bounds.minY, scroll.contentInset.bottom, scroll.isTracking ? 1 : 0, frame.minY, frame.maxY, drawn == nil ? "scroll" : "drawn"))
             }
         } else {
             parts.append("field=-")
@@ -366,14 +370,20 @@ public final class KeyboardPinTrace: NSObject {
         return nil
     }
 
-    /// The tallest scroll view (not a text view) under the field's column.
+    /// The tallest scroll view (not a text view) under the field's column;
+    /// content that says where it draws (`KeyboardRidingContent`) first.
     static func content(behind field: UIView, in window: UIWindow) -> UIScrollView? {
         let fieldRect = MobileKeyboardProbe().onScreen(field, in: window)
         var best: UIScrollView?
         var bestHeight: CGFloat = 0
         func walk(_ view: UIView) {
             guard !view.isHidden else { return }
-            if let scroll = view as? UIScrollView, !(scroll is UITextView), scroll.bounds.height > bestHeight {
+            if let scroll = view as? UIScrollView, !(scroll is UITextView) {
+                let riding = scroll is any KeyboardRidingContent, bestRiding = best is any KeyboardRidingContent
+                guard riding && !bestRiding || riding == bestRiding && scroll.bounds.height > bestHeight else {
+                    for sub in view.subviews { walk(sub) }
+                    return
+                }
                 let rect = MobileKeyboardProbe().onScreen(scroll, in: window)
                 if rect.minX <= fieldRect.midX, rect.maxX >= fieldRect.midX, rect.height > window.bounds.height / 3 {
                     best = scroll

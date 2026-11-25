@@ -11,19 +11,15 @@
   min-width: 0;
   box-sizing: border-box;
   color: var(--agent-text);
-  background: color-mix(in srgb, var(--acpmux-composer-solid, var(--glass-surface)) var(--ds-glass-popover-tint), transparent);
   border-left: var(--cmux-hairline, .5px) solid var(--agent-border);
-  -webkit-backdrop-filter: var(--ds-glass-popover-blur);
-  backdrop-filter: var(--ds-glass-popover-blur);
+  /* .ui-glass at the popover level (WorkflowSideTab.tsx); Reduce Transparency's solid fill is the token. */
+  /* glass-opaque-allow: Reduce Transparency's fill only (glass.css applies it under that setting) */
+  --glass-opaque: var(--cmux-surface-solid, var(--agent-page-bg));
 }
 /* Leave the native shared tab row and its trailing-tools hole clear. */
 .acpmux-shell[data-tab-row] .acpmux-workflow-side-tab {
   top: var(--acpmux-tab-row-height, 0px);
 }
-@media (prefers-reduced-transparency: reduce) {
-  .acpmux-workflow-side-tab { background: var(--cmux-surface-solid, var(--agent-page-bg)); -webkit-backdrop-filter: none; backdrop-filter: none; }
-}
-:root:is([data-reduce-transparency], [data-glass="off"]) .acpmux-workflow-side-tab { background: var(--cmux-surface-solid, var(--agent-page-bg)); -webkit-backdrop-filter: none; backdrop-filter: none; }
 .acpmux-workflow-side-tab__head { flex: none; display: flex; align-items: center; gap: var(--ds-space-2); height: calc(var(--ds-control-primary) + var(--ds-space-1)); padding: 0 var(--ds-space-2) 0 var(--ds-space-3); border-bottom: var(--cmux-hairline, .5px) solid var(--agent-border); }
 .acpmux-workflow-side-tab__title { min-width: 0; display: flex; align-items: center; gap: var(--ds-space-2); color: var(--agent-muted); font-size: var(--text-detail); }
 .acpmux-workflow-side-tab__title strong { min-width: 0; overflow: hidden; color: var(--agent-text); font-size: var(--text-control); font-weight: var(--weight-emphasis); text-overflow: ellipsis; white-space: nowrap; }
