@@ -378,6 +378,9 @@ public extension PageDescriptor {
         id: "cmux.feed", resource: "feed", namespaces: ["cmux.feed.", "cmux.settings.hub."],
         nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite],
         actions: ["feed.openItem", "feed.githubAction", "openSettings"])
+    /// The Forum page (`experiments.forum`, a top page): the daemon's forum threads through the
+    /// page relay (`cmux.forum.` -> `forum.*`, page-router `forum`).
+    static let forum = PageDescriptor(id: "cmux.forum", resource: "forum", namespaces: ["cmux.forum."])
     /// The Stashed Tabs page (`cmux://stashed`, a top page): the daemon's stashes (`stash-v1`). The
     /// command `open` with text `import` opens its OneTab paste box (Import from OneTab…).
     static let stash = PageDescriptor(

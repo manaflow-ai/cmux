@@ -19,8 +19,8 @@ use super::contract::{
     stdin_line,
 };
 use super::{
-    DialArgs, DialService, ServeArgs, desktop_failure, parse, parse_key, parse_serve,
-    public_key_line, with_team_env,
+    DialArgs, DialService, ServeArgs, open_failure, parse, parse_key, parse_serve, public_key_line,
+    with_team_env,
 };
 
 fn words(text: &str) -> Vec<String> {
@@ -298,6 +298,10 @@ fn arguments_are_the_machine_and_one_deadline() {
         DialService::Desktop
     );
     assert_eq!(
+        parse(&words(&format!("dial --machine {VM} --service acpmux"))).unwrap().service,
+        DialService::Acpmux
+    );
+    assert_eq!(
         parse(&words(&format!("dial --service mux --machine {VM}"))).unwrap().service,
         DialService::Mux
     );
@@ -313,6 +317,7 @@ fn arguments_are_the_machine_and_one_deadline() {
         format!("dial --machine {VM} --host x"),
         format!("dial --machine {VM} --service ssh"),
         format!("dial --machine {VM} --service desktop --service desktop"),
+        format!("dial --machine {VM} --service acpmux --service mux"),
         format!("dial --machine {VM} --team team_0123"),
         format!("dial --machine {VM} --team team_0123456789ABCDEF0123"),
         format!("dial --machine {VM} --team user_0123456789abcdef0123"),
@@ -757,16 +762,17 @@ fn a_carrier_desktop_open_that_its_send_finds_the_session_gone_takes_a_fresh_ses
     use cmux_remote::bridge::BridgeError;
     use cmux_remote::service::ServiceError;
     let sent = BridgeError::Service(ServiceError::Client(ConnectionError::SessionUnavailable));
-    let failure = desktop_failure(sent, false);
+    let failure = open_failure(sent, false, "the desktop");
     assert!(failure.fresh_session && failure.retryable, "{}", failure.detail);
     assert_eq!(failure.step, Step::Relay);
-    let typed = desktop_failure(BridgeError::Service(ServiceError::SessionUnavailable), false);
+    let typed =
+        open_failure(BridgeError::Service(ServiceError::SessionUnavailable), false, "the desktop");
     assert!(typed.fresh_session, "{}", typed.detail);
     // A session that ended any other way is still the carrier's, and fatal.
-    let closed = desktop_failure(BridgeError::Service(ServiceError::Closed), false);
+    let closed = open_failure(BridgeError::Service(ServiceError::Closed), false, "the desktop");
     assert!(!closed.fresh_session && !closed.retryable, "{}", closed.detail);
     // The daemon's refusal is the service's.
-    let refused = desktop_failure(BridgeError::Rejected("not the owner".into()), false);
+    let refused = open_failure(BridgeError::Rejected("not the owner".into()), false, "the desktop");
     assert_eq!(refused.step, Step::Service);
     assert!(!refused.fresh_session);
 }
