@@ -56,6 +56,16 @@ pub struct SubOpts {
     /// Follows the chat's transcript rows (`_acpmux/rows` `follow`): each live record's row
     /// changes go out as `_acpmux/rows_patch` (`rows/serve.rs`).
     pub rows: Option<Arc<crate::rows::Following>>,
+    /// The client draws nothing of the chat while it is `hidden` (`_acpmux/attach`
+    /// `quietHidden`, the app's pane): its agent's `session/update` stream is left out until a
+    /// view shows it, which then says how much in one `_acpmux/lagged` (`view.rs`).
+    pub quiet_hidden: bool,
+    /// Stream records left out since the chat was last shown here (`quiet_hidden`).
+    pub left_out: u64,
+    /// The cursor before the first of them (its seq less one): the show's `_acpmux/lagged` names it
+    /// as `afterSeq`, since the turn ends and status records that still went out moved the client's
+    /// own cursor past the chunks it never got (`view.rs`).
+    pub left_from: u64,
 }
 
 /// Which of one chat's `_acpmux/message` records a connection has heard, so each reaches it once.
@@ -916,6 +926,25 @@ impl Conn {
     fn sub_opts(&self, session_id: &str) -> Option<SubOpts> {
         self.subs.lock_or_recover().get(session_id).cloned()
     }
+
+    /// Whether a live stream record of `session_id` is left out here: its attachment draws nothing
+    /// while hidden (`SubOpts::quiet_hidden`) and is hidden now. Counted under the lock
+    /// `_acpmux/view` shows it under, so the `_acpmux/lagged` of that show covers every record
+    /// left out, and every record after it goes out (`view.rs` `view`).
+    // perf-hot: 1us acpmux-token-fanout (every streamed token, per hidden quiet attachment)
+    fn leaves_out_hidden(&self, session_id: &str, seq: u64) -> bool {
+        let mut subs = self.subs.lock_or_recover();
+        match subs.get_mut(session_id) {
+            Some(sub) if sub.quiet_hidden && sub.hidden && !sub.remote => {
+                if sub.left_out == 0 {
+                    sub.left_from = seq.saturating_sub(1);
+                }
+                sub.left_out += 1;
+                true
+            }
+            _ => false,
+        }
+    }
     /// This daemon's own chats this connection is attached to.
     fn local_attached_ids(&self) -> Vec<String> {
         let subs = self.subs.lock_or_recover();
@@ -1344,6 +1373,21 @@ pub async fn serve_ws_until(
     auth: WsAuth,
     shutdown: WsShutdown,
 ) -> Result<()> {
+    serve_ws_gated(hub, listener, token, auth, shutdown, None).await
+}
+
+/// [`serve_ws_until`] with an admission gate: the tailnet listener (`tailnet_carrier.rs`) reads
+/// no byte of a connection whose source `whois` does not name a node of this person, and treats
+/// one it admits as it does the end of an `ssh -W` tunnel (a loopback source: the peer token is
+/// proven over it). Without a gate every connection is as before.
+pub async fn serve_ws_gated(
+    hub: Arc<Hub>,
+    listener: TcpListener,
+    token: String,
+    auth: WsAuth,
+    shutdown: WsShutdown,
+    gate: Option<Arc<crate::tailnet_carrier::Gate>>,
+) -> Result<()> {
     let (shutdown, _draining) = shutdown.listener();
     anyhow::ensure!(!token.is_empty(), "the acpmux web listener needs a token");
     if shutdown.is_requested() {
@@ -1398,9 +1442,20 @@ pub async fn serve_ws_until(
         let local_app = auth.local_app.clone();
         let peer_auth = auth.peer.clone();
         let shutdown = shutdown.clone();
+        let gate = gate.clone();
         connections.spawn(async move {
             let _handshake_slot = handshake_slot;
             let mut stream = stream;
+            let peer = match &gate {
+                Some(gate) if gate.admits(peer).await => {
+                    std::net::SocketAddr::new(std::net::Ipv4Addr::LOCALHOST.into(), peer.port())
+                }
+                Some(_) => {
+                    tracing::debug!(peer = %peer, "tailnet connection refused: not this person's node");
+                    return;
+                }
+                None => peer,
+            };
             // The whole head routes the request (`ws_peek.rs`). Each path checks it: serve_http
             // as it reads, tungstenite as it parses it again for the callback.
             let mut probed = false;
@@ -2116,6 +2171,9 @@ async fn serve_connection_from(
     };
     let notification_worker =
         spawn_notification_worker(notification_rx, notification_handler.clone());
+    // A channel's frames, one at a time in the order they came (`channels.rs`): the worker above
+    // runs notifications side by side, which would reorder a byte stream.
+    let (channel_tx, channel_worker) = channels::spawn_worker(hub.clone(), conn.clone());
     let cancel_worker = spawn_notification_worker(cancel_rx, notification_handler);
 
     let notification_waiters = Arc::new(Semaphore::new(NOTIFICATION_WAIT_LIMIT));
@@ -2420,6 +2478,13 @@ async fn serve_connection_from(
                     requests::cancel_on_connection(&hub, &conn, params.as_ref());
                 }
             }
+            // A full channel queue holds this reader: backpressure on the sender, never a
+            // dropped or reordered frame.
+            Message::Notification { method: m, params } if channels::takes(&m) => {
+                if channel_tx.send((m, params.unwrap_or(Value::Null))).await.is_err() {
+                    break;
+                }
+            }
             Message::Notification { method: m, params } => {
                 let params = params.unwrap_or(Value::Null);
                 if m == method::SESSION_CANCEL {
@@ -2463,6 +2528,8 @@ async fn serve_connection_from(
         }
     }
     conn.ended.send_replace(true);
+    // Its listeners go and its channels close on their other side (`channels.rs`).
+    channels::conn_ended(&hub, &conn).await;
     // The link's v2 connection ends with it.
     drop(link_v2);
     let preparations: Vec<_> =
@@ -2481,6 +2548,8 @@ async fn serve_connection_from(
     }
     drop(cancel_tx);
     let _ = cancel_worker.await;
+    drop(channel_tx);
+    let _ = channel_worker.await;
 
     let deadline = tokio::time::Instant::now() + WORK_BACKPRESSURE_WAIT;
     let mut waiters = notification_waits.into_iter();
@@ -2659,8 +2728,17 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         // Whether this record went out (or a replay sent it): a peer daemon's link hears of one
         // that did not by its seq alone (`MUX_UNSENT`).
         let mut sent = repeat || sub.event_stream;
-        if repeat {
-            // Sent by the replay.
+        // The agent's stream to a client that draws nothing of the chat while hidden: left out,
+        // and read again from its cursor once shown (`SubOpts::quiet_hidden`). Every other record
+        // (status, turn ends, asks, the queue) still goes, so its row and its asks stay current.
+        let quiet = sub.quiet_hidden
+            && sub.hidden
+            && rec.dir == "in"
+            && rec.msg.get("method").and_then(Value::as_str) == Some(method::SESSION_UPDATE)
+            && (!sub.event_stream || sub.filter.matches_live(rec))
+            && conn.leaves_out_hidden(&ev.session_id, rec.seq);
+        if repeat || quiet {
+            // Sent by the replay, or left out while hidden.
         } else if sub.event_stream {
             if sub.filter.matches_live(rec) {
                 let params = routed(event_value(&ev.session_id, rec));
@@ -2737,6 +2815,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             ));
         }
         if let Some(following) = &sub.rows
+            && !quiet
             && ev.remote.is_none()
             && let Some((notice, params)) = crate::rows::live(hub, &ev.session_id, rec, following)
         {
@@ -2897,6 +2976,8 @@ mod cancel_classes_tests;
 #[cfg(test)]
 #[path = "cancel_prompt_tests.rs"]
 mod cancel_prompt_tests;
+/// Agent byte channels (design A1, RFD 0164 B9).
+pub(crate) mod channels;
 #[cfg(test)]
 #[path = "chatgpt_import_tests.rs"]
 mod chatgpt_import_tests;
@@ -2993,7 +3074,8 @@ pub(crate) mod queue_gauge;
 mod review_queue;
 mod run_elsewhere;
 mod sign_in_follow;
-mod ssh_carry;
+pub(crate) mod ssh_carry;
+mod surgery;
 mod task_list;
 pub use pairing::serve_connection_device;
 mod chat_place;
@@ -3051,6 +3133,10 @@ use requests::handle_notification;
 #[cfg(test)]
 #[path = "mirror_relay_tests.rs"]
 mod mirror_relay_tests;
+
+#[cfg(test)]
+#[path = "session_patch_peer_tests.rs"]
+mod session_patch_peer_tests;
 
 #[cfg(test)]
 mod request_admission_tests;
@@ -3111,6 +3197,10 @@ mod outbound_queue_tests;
 /// Owner-only TLS ingress from the embedded tailnet node.
 #[cfg(all(unix, feature = "tailnet"))]
 pub mod tailnet_ingress;
+
+/// The stable tailnet node's front on the embedded node (`tailnet.stableNode.enabled`).
+#[cfg(all(unix, feature = "tailnet"))]
+pub(crate) mod tailnet_front;
 
 /// The embedded tailnet listener's lifecycle, a server module (it serves the hub through
 /// `tailnet_ingress`; it was `tailnet::embedded_service`). Its file stays where it was: the
