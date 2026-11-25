@@ -132,6 +132,25 @@ def mac_workspace(app, sock, home, session=None):
         temp = ""
     if temp:
         env["TMPDIR"] = temp
+    # A new tag's app may not have its daemon up yet when the iPhone card goes online (run 45594864471
+    # attempt 2: "no daemon running at TEMP/cmux-tui-501/SESSION.sock" 10 s after launch). Wait up to 45 s for
+    # the socket at either place the daemon listens (TEMP, or /tmp when TEMP is too long for sun_path), then ask
+    # the CLI to `daemon ensure` the same session, as its own error says to.
+    how = "waited"
+    if session:
+        leaf = f"cmux-tui-{os.getuid()}/{session}.sock"
+        places = [p for p in ([os.path.join(temp, leaf)] if temp else []) + ["/tmp/" + leaf] if len(p.encode()) <= 103]
+        found = wait_for(lambda: next((p for p in places if os.path.exists(p)), None), 45, every=1)
+        if found:
+            how = f"daemon at {'TEMP' if temp and found.startswith(temp) else '/tmp'} after wait"
+        else:
+            try:
+                ensured = subprocess.run([cli, "--json", "--app-socket", sock, "--session", session, "daemon", "ensure"],
+                                         env=env, cwd=home, capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                                         timeout=60)
+                how = f"no daemon socket in 45 s; daemon ensure exit {ensured.returncode}"
+            except (OSError, subprocess.TimeoutExpired) as error:
+                how = f"no daemon socket in 45 s; daemon ensure {type(error).__name__}"
     try:
         # The app names its home daemon session itself (snapshot.get topology.sessions, `session_name`); the CLI
         # guessed it from the app socket's file name and found nothing there (run 45562601448).
@@ -145,8 +164,8 @@ def mac_workspace(app, sock, home, session=None):
     made = made.get("result", made) if isinstance(made, dict) else {}
     ws, term = (made.get("workspace_id"), made.get("terminal_id")) if isinstance(made, dict) else (None, None)
     if not ws:
-        return f"NOT created (exit {done.returncode}: {redact((done.stderr or done.stdout).strip())[-200:]})"
-    return f"created {str(ws)[:8]}, terminal {str(term)[:8] if term else 'none'}"
+        return f"NOT created ({how}; exit {done.returncode}: {redact((done.stderr or done.stdout).strip())[-200:]})"
+    return f"created {str(ws)[:8]}, terminal {str(term)[:8] if term else 'none'} ({how})"
 
 
 def attach_leg(simctl,udid, bundle_id, phone_env, phone_log, phone_shot, work, note):
