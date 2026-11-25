@@ -2491,7 +2491,11 @@ async fn dispatch_request_with_identity(
             // the owner only: a person's prompt neither replaces nor is replaced.
             let supersede = crate::hub::supersede_key(&params)?.filter(|_| !person_message);
             let supersede_set = supersede.is_some();
-            let inbox_on = hub.config.read().await.agent_inbox();
+            let inbox_on =
+                match tokio::time::timeout_at(admission.answer_due(), hub.config.read()).await {
+                    Ok(config) => config.agent_inbox(),
+                    Err(_) => false,
+                };
             // Files uploaded first and named in the prompt get their bytes back here, before
             // anything reads them (`prompt_uploads.rs`). A prompt id the chat took already goes on
             // to `prompt_with`, which answers with its first run even once its uploads are gone
@@ -2509,7 +2513,10 @@ async fn dispatch_request_with_identity(
                         result => result.map(|()| blocks),
                     }
                 });
-                blocks = resolved.await.map_err(|e| RpcError::internal(e.to_string()))??;
+                blocks = match tokio::time::timeout_at(admission.answer_due(), resolved).await {
+                    Ok(result) => result.map_err(|e| RpcError::internal(e.to_string()))??,
+                    Err(_) => return Err(crate::hub::auto_resume::retry_turn::busy()),
+                };
             }
             // Files sent with the message (`acpmux send --attach`), after every check that can
             // refuse it: saved in the session's uploads, and what the agent gets put in their
@@ -2522,7 +2529,10 @@ async fn dispatch_request_with_identity(
                     crate::attach::receive(&id, web, &mut blocks).map(|saved| (blocks, saved))
                 });
                 (blocks, saved) =
-                    received.await.map_err(|e| RpcError::internal(e.to_string()))??;
+                    match tokio::time::timeout_at(admission.answer_due(), received).await {
+                        Ok(result) => result.map_err(|e| RpcError::internal(e.to_string()))??,
+                        Err(_) => return Err(crate::hub::auto_resume::retry_turn::busy()),
+                    };
             }
             // From here the prompt's own uploads go only if the session refuses it.
             let saved = crate::attach::Saved::with_owned(saved, &s.id, owned.take());

@@ -1386,7 +1386,10 @@ impl Hub {
                 sender_session.as_deref(),
             );
         // A chat on the coordinator list wakes only for a page (`inbox_page_rule.rs`).
-        let page_rule_on = page_rule::listed(&*self.config.read().await, &meta_now.name);
+        // A config reload must never hold a delivery before its acceptance answer. During the
+        // write, fail open as unlisted and let the normal wake rules decide this delivery.
+        let page_rule_on =
+            self.config.try_read().is_ok_and(|config| page_rule::listed(&config, &meta_now.name));
         let continuing = self.continuation_pending(session);
         // It would sit in an idle chat's inbox until a flush: said in its acceptance, and a
         // sender that waits for it is refused at once (`not_woken`).

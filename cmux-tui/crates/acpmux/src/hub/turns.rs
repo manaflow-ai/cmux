@@ -681,10 +681,22 @@ impl Hub {
         // A prompt that cannot reach any agent (none running, and its folder or harness is gone)
         // is refused before it is recorded (`cold_prompt_check`, after steer-only's refusal).
         admission.enter("agent");
-        let live = match session.child.lock().await.as_ref() {
-            Some(child) => child.is_alive().await,
-            None => false,
-        };
+        // A stale host or teardown may hold the child mutex. Clone the handle while holding the
+        // guard, then release it before the liveness probe so setup cannot pin admission forever.
+        // Unknown liveness is treated as live and the existing admission deadline decides when
+        // the delivery must be deferred.
+        let live = tokio::time::timeout(super::prompt_admission::ADMISSION_BOUND, async {
+            let child = session.child.lock().await.clone();
+            match child {
+                Some(child) => child.is_alive().await,
+                None => false,
+            }
+        })
+        .await
+        .unwrap_or_else(|_| {
+            tracing::warn!(session = %session.id, "prompt live check lapsed during admission");
+            true
+        });
         let text = prompt_text(&blocks);
         let running = session.turn();
         // Another agent's message to a turn past its cap waits for the next turn (`turn_cap.rs`).
