@@ -74,6 +74,7 @@ export const liveThought = {
 
 /// The thought item each live-turn row of the transcript drew last, by row id (`drewThoughts`).
 let drawn = new Map<string, AcpmuxActivity>();
+let debugThoughtFailures = 0;
 
 /// What the transcript drew of the running turn: each row's last item when it is a thought. Read
 /// from the end back to the turn's prompt, so O(the running turn's rows), not the chat's.
@@ -141,7 +142,14 @@ export function thoughtOnly(
   // A short thought is quiet once it is finished, but the live transcript deliberately keeps
   // the current thought visible while it streams. `drewThoughts` proves that this row is the one
   // currently drawing it, so its chunks can stay on the row without redrawing the pane.
-  if (!sameThought(drawnThought(now.id), before)) return undefined;
+  const drawnNow = drawnThought(now.id);
+  if (!sameThought(drawnNow, before)) {
+    if (debugThoughtFailures < 8) {
+      debugThoughtFailures += 1;
+      console.log("LIVE_THOUGHT_GUARD", now.id, { drawnNow, before, after, drawn: drawn.get(now.id) });
+    }
+    return undefined;
+  }
   return { id: now.id, before, after };
 }
 
