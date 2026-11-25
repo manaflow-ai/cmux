@@ -64,8 +64,15 @@ const deny = (reason: DenyReason, message: string): TokenFail => ({ ...fail(403,
 const sha256hex = (s: string) => createHash("sha256").update(s).digest("hex")
 const enc = new TextEncoder()
 
-/** The ledger's principal key: the install, else the person's session. */
-export const principalKey = (p: Principal) => (p.kind === "install" && p.install ? `install:${p.install}` : `session:${p.user}`)
+/**
+ * A machine joined with `acpmux machine join` (cmux-platform's join registry), as machine-github.ts builds it after the
+ * platform checked the machine's `cmm_` credential live: it has no install, so no UserDO socket is registered for it.
+ */
+export const JOINED_MACHINE_KIND = "joined"
+
+/** The ledger's principal key: a joined machine (machine-github.ts), the install, else the person's session. */
+export const principalKey = (p: Principal) =>
+  p.install_kind === JOINED_MACHINE_KIND && p.bound_machine ? `machine:${p.bound_machine}` : p.kind === "install" && p.install ? `install:${p.install}` : `session:${p.user}`
 
 export const createGithubTokenTable = (sql: SqlStorage) => {
   sql.exec(`CREATE TABLE IF NOT EXISTS github_tokens (
@@ -93,7 +100,7 @@ type Row = { token_id: string; principal: string; install: string | null; team: 
 const aad = (r: Omit<Row, "sealed">) => enc.encode(`cmux-ghtok-v1|${canonicalJson([r.team, r.principal, r.install, r.repo, r.permissions, r.token_id, Number(r.expires_at)])}`)
 const openRow = (env: Env, r: Row) => open(env.INTEGRATIONS_KEK!, JSON.parse(r.sealed) as SealedSecret, aad(r))
 
-/** Token bucket per principal; the wait in seconds when empty, else null. */
+/** Token bucket per key (a principal, or a joined machine's minter); the wait in seconds when empty, else null. */
 const take = (buckets: LedgerHost["buckets"], key: string, now: number): number | null => {
   const b = buckets.get(key) ?? { tokens: MINT_RATE.burst, at: now }
   const tokens = Math.min(MINT_RATE.burst, b.tokens + ((now - b.at) / 1000) * MINT_RATE.per_second)
@@ -115,6 +122,16 @@ const rateLimited = (retry: number, installation: number, op: string): TokenFail
  * `installation.suspend` webhook). `installation.unsuspend` lifts only a connection with this detail.
  */
 export const GITHUB_SUSPENDED_DETAIL = "the GitHub App installation is suspended"
+/** A connection's detail once its installation no longer exists: the `installation.deleted` webhook, or GitHub's 404 on a mint. */
+export const GITHUB_UNINSTALLED_DETAIL = "the GitHub App was uninstalled"
+export const GITHUB_GONE_DETAIL = "the GitHub App installation is gone"
+/**
+ * Whether `c`'s installation is gone for good (uninstalled; GitHub answered 404). Its settings page is a 404 now, so
+ * status names none, and Connect opens the App's install page instead (cmux#55104: Connect GitHub opened
+ * github.com/settings/installations/<deleted id>, leaving the person no way back).
+ */
+export const githubInstallationGone = (c: Pick<Connection, "status" | "status_detail">): boolean =>
+  c.status === "needs_reauth" && (c.status_detail === GITHUB_UNINSTALLED_DETAIL || c.status_detail === GITHUB_GONE_DETAIL)
 
 /** The 409 a connection that needs a relink answers; a suspended installation says who can lift it, since a relink cannot. */
 const relinkFail = (c: Connection | undefined, fallback: string): TokenFail =>
@@ -133,7 +150,7 @@ const githubRefusal = async (res: Response, now: number, unauthorizedIsRelink: b
   // A rate limit is read first: taking one for a suspension would mark a working connection needs_reauth.
   const wait = rateLimitWait(res, now, message)
   if (wait !== null) return { kind: "rate", retry: wait }
-  if (res.status === 404) return { kind: "relink", detail: "the GitHub App installation is gone" }
+  if (res.status === 404) return { kind: "relink", detail: GITHUB_GONE_DETAIL }
   if (res.status === 403 && /suspend/i.test(message)) return { kind: "relink", detail: GITHUB_SUSPENDED_DETAIL }
   if (unauthorizedIsRelink && res.status === 401) return { kind: "relink", detail: "GitHub refused the App installation" }
   if (res.status === 403 || res.status === 422) return { kind: "denied" }
@@ -217,6 +234,29 @@ const withConfigurePage = async (h: LedgerHost, p: Principal, ask: TokenAsk, ref
   const page = await installationConfigureUrl(h.sql, h.env, h.http, installation, c.account.name, Date.now()).catch(() => null)
   return page ? { ...refusal, configure_url: page } : refusal
 }
+
+/**
+ * The person's own connections in their personal team, under another team's policy (cmux#55104). A person links GitHub
+ * once, often in their personal team (Settings with no Stack team selected), while their Cloud machines run in their
+ * selected Stack team, whose ConnectionDO holds none of their connections: the machine's clone ended
+ * `seed.needs_github` though the App they installed covers the repository. The token, status and repository routes
+ * fall back to this state when the asking team has nothing on the repository's owner. Only connections the person
+ * created count (never another member's shared one), and the asking team's policy decides what they may mint.
+ */
+export const ownConnectionsUnder = (state: ConnectionsState, user: string, policy: ReturnType<typeof policyOf>): ConnectionsState => ({
+  ...state,
+  policy,
+  connections: Object.fromEntries(Object.entries(state.connections).filter(([, c]) => c.created_by === user))
+})
+
+/**
+ * Whether a refusal in the asking team leaves room for the person's own connections (``ownConnectionsUnder``): the team
+ * has no GitHub connection this principal may use, or none on the repository's owner, and the ask selected no connection
+ * (a selected one is the only authority). Any other refusal (policy, a relink, a repository the owner's installation
+ * leaves out, a rate limit) is the team's answer.
+ */
+export const ownConnectionsMayAnswer = (refusal: TokenFail, ask: Pick<TokenAsk, "connection">): boolean =>
+  ask.connection === undefined && (refusal.code === "integration.not_found" || (refusal.code === "policy.denied" && refusal.reason === "owner_not_connected"))
 
 /** POST /v1/integrations/github/token for an authenticated, team-checked principal. */
 export const githubToken = (h: LedgerHost, p: Principal, ask: TokenAsk, now: number): Promise<TokenReply> => {
@@ -425,7 +465,9 @@ const mintOrReuse = async (h: LedgerHost, picked: { c: Connection; installation:
     }
     if ("ok" in again) return again
   }
-  const wait = take(h.buckets, pk, now)
+  // A joined machine's bucket is its minter's in this team (this ConnectionDO is the team's): N machines one person
+  // joined share one rate, never N. Every other principal keeps its own.
+  const wait = take(h.buckets, p.install_kind === JOINED_MACHINE_KIND ? `joined-user:${p.user}` : pk, now)
   if (wait !== null) return fail(429, "rate_limited", `too many new GitHub tokens for this caller; try again in ${wait} s`, wait)
   let res: Response
   try {
@@ -492,7 +534,7 @@ const mintOrReuse = async (h: LedgerHost, picked: { c: Connection; installation:
   const before = changed()
   if (before) return refuse(before)
   // UserDO calls closeInstall here once the install is revoked; false: it already is.
-  if (p.kind === "install") {
+  if (p.kind === "install" && p.install_kind !== JOINED_MACHINE_KIND) {
     const registered = await h.register(p, minted.expires_at).catch(() => null)
     if (registered !== true) return refuse(registered === null ? fail(503, "integration.unavailable", "the install could not be checked; retry") : fail(401, "auth.required", "this install was revoked"))
     const after = changed()
@@ -597,11 +639,12 @@ export const githubStatusConnection = (state: ConnectionsState, p: Principal): C
  * `configure_url` is that connection's installation page on GitHub, where repositories are added ("Add more
  * repositories"), or null when it is not known (github-connect.ts installationConfigureUrl).
  */
-export const githubStatus = (env: Env, state: ConnectionsState, p: Principal, configureUrl: string | null = null) => {
+export const githubStatus = (env: Env, state: ConnectionsState, p: Principal, configureUrl: string | null = null, appSlug: string | null = env.GITHUB_APP_SLUG ?? null) => {
   const c = githubStatusConnection(state, p)
   return {
     configured: Boolean(env.INTEGRATIONS_KEK) && github.configured(env),
-    app_slug: env.GITHUB_APP_SLUG ?? null,
+    // The slug GitHub names the App now (providers.ts githubAppSlug), so clients build its install URL after a rename.
+    app_slug: appSlug,
     // The token route's own policy check: a connection the team policy disallows mints nothing.
     allowed: providerAllowed(policyOf(state), "github"),
     connection: c ? { id: c.id, account: c.account?.name ?? null, status: c.status, repos: c.resources?.repos ?? null, allow_workflows: policyOf(state).github.allow_workflows === true, configure_url: configureUrl } : null

@@ -1835,6 +1835,137 @@
         }
       }
     },
+    "devices.join.screenSearch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "screen sharing, share screen, see my screen, let my team see"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مشاركة الشاشة, مشاركة شاشتي, رؤية شاشتي, السماح لفريقي بالرؤية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "dijeljenje ekrana, podijeli ekran, vidi moj ekran, dozvoli timu da vidi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "skærmdeling, del skærm, se min skærm, lad mit team se"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bildschirmfreigabe, Bildschirm teilen, meinen Bildschirm sehen, mein Team sehen lassen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "compartir pantalla, pantalla compartida, ver mi pantalla, dejar que mi equipo vea"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "partage d’écran, partager l’écran, voir mon écran, laisser mon équipe voir"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "condivisione schermo, condividi schermo, vedere il mio schermo, lascia vedere al team"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "画面共有, 画面を共有, 画面を見る, チームに見せる"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការចែករំលែកអេក្រង់, ចែករំលែកអេក្រង់, មើលអេក្រង់របស់ខ្ញុំ, ឱ្យក្រុមមើល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "화면 공유, 화면 공유하기, 내 화면 보기, 팀에게 보여 주기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "skjermdeling, del skjerm, se skjermen min, la teamet se"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "udostępnianie ekranu, udostępnij ekran, zobacz mój ekran, pozwól zespołowi widzieć"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "compartilhamento de tela, compartilhar tela, ver minha tela, deixar minha equipe ver"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "общий экран, демонстрация экрана, видеть мой экран, разрешить команде видеть"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การแชร์หน้าจอ, แชร์หน้าจอ, ดูหน้าจอของฉัน, ให้ทีมดู"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ekran paylaşımı, ekranı paylaş, ekranımı gör, ekibimin görmesine izin ver"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "спільний екран, демонстрація екрана, бачити мій екран, дозволити команді бачити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "chia sẻ màn hình, chia sẻ màn hình của tôi, xem màn hình, cho nhóm xem"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "屏幕共享, 共享屏幕, 查看我的屏幕, 让团队查看"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "螢幕共享, 共享螢幕, 查看我的螢幕, 讓團隊查看"
+          }
+        }
+      }
+    },
     "devices.join.controlHelp": {
       "extractionState": "manual",
       "localizations": {
@@ -1962,6 +2093,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "你團隊的機器可以在此移動指標和輸入"
+          }
+        }
+      }
+    },
+    "devices.join.controlSearch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "remote control, let my team control, take control, mouse and keyboard"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التحكم عن بُعد, السماح لفريقي بالتحكم, تولي التحكم, الفأرة ولوحة المفاتيح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "daljinsko upravljanje, dozvoli timu upravljanje, preuzmi upravljanje, miš i tastatura"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "fjernstyring, lad mit team styre, overtag styringen, mus og tastatur"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fernsteuerung, mein Team steuern lassen, Steuerung übernehmen, Maus und Tastatur"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "control remoto, dejar que mi equipo controle, tomar el control, ratón y teclado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "contrôle à distance, laisser mon équipe contrôler, prendre le contrôle, souris et clavier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "controllo remoto, lascia controllare al team, prendere il controllo, mouse e tastiera"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "リモート操作, チームに操作させる, 操作を引き継ぐ, マウスとキーボード"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការគ្រប់គ្រងពីចម្ងាយ, ឱ្យក្រុមគ្រប់គ្រង, គ្រប់គ្រង, កណ្ដុរ និងក្ដារចុច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "원격 제어, 팀이 제어하도록 허용, 제어권 가져오기, 마우스와 키보드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "fjernstyring, la teamet styre, ta kontroll, mus og tastatur"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "zdalne sterowanie, pozwól zespołowi sterować, przejmij sterowanie, mysz i klawiatura"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "controle remoto, deixar minha equipe controlar, assumir o controle, mouse e teclado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "удалённое управление, разрешить команде управлять, взять управление, мышь и клавиатура"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การควบคุมระยะไกล, ให้ทีมควบคุม, เข้าควบคุม, เมาส์และคีย์บอร์ด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "uzaktan kontrol, ekibimin kontrol etmesine izin ver, kontrolü al, fare ve klavye"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "віддалене керування, дозволити команді керувати, перейняти керування, миша і клавіатура"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "điều khiển từ xa, cho nhóm điều khiển, nắm quyền điều khiển, chuột và bàn phím"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "远程控制, 让团队控制, 接管控制, 鼠标和键盘"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "遠端控制, 讓團隊控制, 接管控制, 滑鼠和鍵盤"
           }
         }
       }
@@ -3010,6 +3272,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "允許"
+          }
+        }
+      }
+    },
+    "devices.join.ask.settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Settings…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الإعدادات…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Postavke…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indstillinger…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Einstellungen…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajustes…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Réglages…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impostazioni…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "設定…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការកំណត់…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "설정…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Innstillinger…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ustawienia…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajustes…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Настройки…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การตั้งค่า…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ayarlar…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Налаштування…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cài đặt…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "设置…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "設定…"
           }
         }
       }
@@ -13883,6 +14276,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "登入此帳號的其他 Mac 可以在這裡打開工作區和終端機"
+          }
+        }
+      }
+    },
+    "devices.join.signedInMachinesSearch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "other macs, open workspaces, remote workspaces, same account"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أجهزة Mac الأخرى, فتح مساحات العمل, مساحات عمل عن بُعد, الحساب نفسه"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "drugi Mac računari, otvori radne prostore, udaljeni radni prostori, isti račun"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "andre Mac-computere, åbn arbejdsområder, eksterne arbejdsområder, samme konto"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "andere Macs, Arbeitsbereiche öffnen, entfernte Arbeitsbereiche, gleiches Konto"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "otros Mac, abrir espacios de trabajo, espacios de trabajo remotos, misma cuenta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "autres Mac, ouvrir des espaces de travail, espaces de travail distants, même compte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "altri Mac, aprire spazi di lavoro, spazi di lavoro remoti, stesso account"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ほかのMac, ワークスペースを開く, リモートワークスペース, 同じアカウント"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac ផ្សេងទៀត, បើកកន្លែងធ្វើការ, កន្លែងធ្វើការពីចម្ងាយ, គណនីដូចគ្នា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다른 Mac, 워크스페이스 열기, 원격 워크스페이스, 같은 계정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "andre Mac-maskiner, åpne arbeidsområder, eksterne arbeidsområder, samme konto"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "inne Maki, otwieranie obszarów roboczych, zdalne obszary robocze, to samo konto"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "outros Macs, abrir espaços de trabalho, espaços de trabalho remotos, mesma conta"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "другие Mac, открыть рабочие пространства, удалённые рабочие пространства, тот же аккаунт"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac เครื่องอื่น, เปิดพื้นที่ทำงาน, พื้นที่ทำงานระยะไกล, บัญชีเดียวกัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "diğer Mac’ler, çalışma alanlarını aç, uzak çalışma alanları, aynı hesap"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "інші Mac, відкрити робочі простори, віддалені робочі простори, той самий обліковий запис"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "các máy Mac khác, mở không gian làm việc, không gian làm việc từ xa, cùng tài khoản"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "其他 Mac, 打开工作区, 远程工作区, 同一账户"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "其他 Mac, 開啟工作區, 遠端工作區, 同一帳號"
           }
         }
       }

@@ -1,5 +1,6 @@
 // l10n-allow-file: transcript geometry fixtures.
 import { expect, test } from "bun:test";
+import { setExperimentSwitches } from "../../experiments/switches";
 import { BACKGROUND_TURN } from "./conversation/backgroundTurns";
 import { SUBAGENT_DONE } from "./subagents/subagentRows";
 import {
@@ -29,6 +30,7 @@ import {
   MARK_STATUS,
   MARK_STEP,
   transcriptGap,
+  TRANSCRIPT_LINE_ROW,
 } from "./transcriptGrid";
 
 const row = (id: string, kind: string, fields: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
@@ -168,9 +170,11 @@ test("placed gaps follow an Interface Size change, kept rows included", () => {
   }
 });
 
-// Review at b1de39a: row estimates built from grid lengths (the action row, a tool row) scale with
-// the Interface Size like the CSS tokens, so first placement does not jump when rows are measured.
-test("estimated grid rows follow the Interface Size", () => {
+// Review at b1de39a: row estimates built from grid lengths (the action row) scale with the Interface Size
+// like the CSS tokens, so first placement does not jump when rows are measured. A one-line tool row does
+// not: `--cv-tool-row-height` is 22px at every Interface Size, and Chromium and WebKit draw a run of two
+// shell calls as two 22 px rows at Interface Size 1 and at 1.25 alike (review of #46650).
+test("estimated grid rows follow the Interface Size; tool rows keep their drawn line height", () => {
   const g = globalThis as { document?: unknown; getComputedStyle?: unknown };
   const saved = { document: g.document, getComputedStyle: g.getComputedStyle };
   let scale = "1";
@@ -182,7 +186,7 @@ test("estimated grid rows follow the Interface Size", () => {
     const received = [
       { id: "r", version: 1, at: 0, kind: "user", text: "Task", received: {} },
     ] as unknown as AcpmuxRow[];
-    // Two shell calls: two tool rows and the block gap between them, all grid lengths.
+    // Two shell calls: two one-line tool rows, flush.
     const run = [
       {
         id: "run",
@@ -195,15 +199,26 @@ test("estimated grid rows follow the Interface Size", () => {
         ],
       },
     ] as unknown as AcpmuxRow[];
-    for (const rows of [received, run]) {
+    setExperimentSwitches({ expandedEditsEstimate: true });
+    for (const [rows, factor] of [
+      [received, 1.25],
+      [run, 1],
+    ] as const) {
       scale = "1";
       const atOne = layoutConversation(rows, 720).heights[0]!;
       scale = "1.25";
       const atLarger = layoutConversation(rows, 720).heights[0]!;
       expect(atOne).toBeGreaterThan(0);
-      expect(atLarger).toBeCloseTo(atOne * 1.25, 5);
+      expect(atLarger).toBeCloseTo(atOne * factor, 5);
     }
+    setExperimentSwitches({});
+    scale = "1.25";
+    // Expanded Edits Estimate off (the default): tool rows scale with the grid, as before.
+    expect(layoutConversation(run, 720).heights[0]).toBeCloseTo(2 * TRANSCRIPT_LINE_ROW * 1.25, 5);
+    setExperimentSwitches({ expandedEditsEstimate: true });
+    expect(layoutConversation(run, 720).heights[0]).toBe(2 * TRANSCRIPT_LINE_ROW);
   } finally {
+    setExperimentSwitches({});
     if (saved.document === undefined) delete g.document;
     else g.document = saved.document;
     if (saved.getComputedStyle === undefined) delete g.getComputedStyle;
@@ -233,8 +248,8 @@ test("the live line takes its run box and gap after activity while activity rows
   } as Partial<AcpmuxRow>);
   const live = row("live", "thinking", { below: true } as Partial<AcpmuxRow>);
   const layout = layoutConversation([run, next, live], 720);
-  expect(layout.heights[0]).toBe(22);
-  expect(layout.tops[1]! - layout.tops[0]!).toBe(22);
+  expect(layout.heights[0]).toBe(TRANSCRIPT_LINE_ROW);
+  expect(layout.tops[1]! - layout.tops[0]!).toBe(TRANSCRIPT_LINE_ROW);
   expect(layout.tops[2]! - layout.tops[1]! - layout.heights[1]!).toBe(TRANSCRIPT_LIVE_STEP_GAP);
   expect(layout.heights[2]).toBe(TRANSCRIPT_LIVE_STEP_HEIGHT);
   // The room under it is a row of its box's: the composer gap under a line, the footer slot's under a slot.
@@ -296,17 +311,17 @@ test("a finished work disclosure shares the activity rhythm when closed or opene
     [worked, run, answer],
   ]) {
     const layout = layoutConversation(rows, 720);
-    // The 22px activity line, 4 to its rule, then 8 to the next row, with no stack gap after it
+    // The one-line activity row (TRANSCRIPT_LINE_ROW), 4 to its rule, then 8 to the next row, with no stack gap after it
     // (Lucas, 2026-11-07; Leo, 2026-11-09: "we need to reduce the after").
-    expect(layout.heights[0]).toBe(34);
+    expect(layout.heights[0]).toBe(TRANSCRIPT_LINE_ROW + 12);
     expect(layout.gaps?.[1]).toBe(0);
     const replyIndex = rows.length - 1;
     // A reply right under the line takes no gap of its own; under the opened fold's rows, the run gap.
     const replyGap = rows.length === 2 ? 0 : TRANSCRIPT_RUN_GAP;
     expect(layout.gaps?.[replyIndex]).toBe(replyGap);
-    if (rows.length === 3) expect(layout.tops[1]! - layout.tops[0]!).toBe(34);
-    const placed = placeRows(layout, () => 22);
-    expect(placed.tops[replyIndex]! - placed.tops[replyIndex - 1]! - 22).toBe(replyGap);
+    if (rows.length === 3) expect(layout.tops[1]! - layout.tops[0]!).toBe(TRANSCRIPT_LINE_ROW + 12);
+    const placed = placeRows(layout, () => TRANSCRIPT_LINE_ROW);
+    expect(placed.tops[replyIndex]! - placed.tops[replyIndex - 1]! - TRANSCRIPT_LINE_ROW).toBe(replyGap);
   }
   const prompt = row("prompt", "user", { text: "Go" });
   expect(layoutConversation([prompt, worked, answer], 720).gaps?.[1]).toBe(TRANSCRIPT_TURN_GAP);
@@ -335,8 +350,8 @@ test("status rows and step rows in a row sit flush", () => {
     row("compact", "compaction", { compaction: { state: "running" } }),
   ];
   const layout = layoutConversation(lines, 720);
-  expect(layout.tops[1]! - layout.tops[0]!).toBe(22);
-  expect(layout.tops[2]! - layout.tops[1]!).toBe(22);
+  expect(layout.tops[1]! - layout.tops[0]!).toBe(TRANSCRIPT_LINE_ROW);
+  expect(layout.tops[2]! - layout.tops[1]!).toBe(TRANSCRIPT_LINE_ROW);
 });
 
 test("a session start draws nothing: no height and no gap, as if it were not there", () => {

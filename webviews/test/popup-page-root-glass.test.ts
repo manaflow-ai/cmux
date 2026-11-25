@@ -32,7 +32,7 @@ const POPUP_PAGES: Record<string, string[]> = {
     "ui/ui.css",
     "pages/shared/pageBase.css",
     "pages/setup-card/styles.css",
-    "pages/home-messages/cards/cards.css",
+    "pages/setup-card/cards.css",
   ],
   "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/GroupEditor/GroupEditorService.swift": [
     "pages/group-editor/styles.css",
@@ -48,21 +48,14 @@ const POPUP_PAGES: Record<string, string[]> = {
     "pages/changelog/updateSurfaces.css",
     "pages/changelog/surface.css",
   ],
-  // The menu bar item's popover (server cards; the floating web card panel went in ba1c7441f70): the
-  // popover's glass is the page's background.
+  // The menu bar popover's server cards (ServerPanelPopover): the popover's glass is the page's background.
   "Packages/macOS/CmuxNext/Sources/CmuxNextServer/ServerPage/ServerPanelPopover.swift": [
     "pages/shared/pageBase.css",
     "ui/ui.css",
     "pages/server-cards/styles.css",
   ],
-  // Debug: Liquid Glass Parity's WebKit column, a see-through page over the playground's backdrop.
+  // The Liquid Glass parity playground's WebKit column: a page over the native glass it is compared with.
   "Packages/macOS/CmuxNext/Sources/CmuxNextPages/GlassParity/GlassParityPlayground.swift": [
-    "pages/shared/desktop.css",
-    "ui/glass/glass.css",
-    "ui/wave.css",
-    "pages/shared/transientMaterial.css",
-    "ui/ui.css",
-    "ui/notice.css",
     "pages/glass-parity/styles.css",
   ],
 };

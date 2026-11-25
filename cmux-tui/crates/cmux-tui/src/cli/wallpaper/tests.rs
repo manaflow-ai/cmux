@@ -431,3 +431,75 @@ fn every_write_passes_the_settings_schema() {
     assert!(missing.contains("appearance.noSuchWallpaperKey"), "{missing}");
     assert!(validate(&[Edit::Set(BACKGROUND, json!("folder:relative"))]).is_err());
 }
+
+#[test]
+fn back_and_recent_parse() {
+    assert_eq!(parse(&words("back")), Ok(Request::Back));
+    assert_eq!(parse(&words("recent")), Ok(Request::Recent { index: None }));
+    assert_eq!(parse(&words("recent 3")), Ok(Request::Recent { index: Some(3) }));
+    assert!(parse(&words("recent 0")).unwrap_err().contains("1 is the newest"));
+    assert!(parse(&words("recent x")).unwrap_err().contains("N is a number"));
+    assert!(parse(&words("back extra")).is_err());
+}
+
+/// Leo: "the choosing between rotating background folders and past selected".
+#[test]
+fn back_swaps_between_a_folder_and_a_picture_and_recent_picks_by_number() {
+    let list = |items: &[&str]| items.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let recents = list(&["file:/p/a.jpg", "folder:/walls", "junk", "daily"]);
+    let back = plan_recent(&Request::Back, "folder:/walls", &recents, None).expect("back");
+    assert_eq!(back.edits, vec![Edit::Set(BACKGROUND, json!("file:/p/a.jpg"))]);
+    assert_eq!(back.mode, "picture");
+    // After the swap the store put the folder first: back again returns to it.
+    let after = list(&["folder:/walls", "daily"]);
+    let again = plan_recent(&Request::Back, "file:/p/a.jpg", &after, None).expect("back again");
+    assert_eq!(again.edits, vec![Edit::Set(BACKGROUND, json!("folder:/walls"))]);
+    assert_eq!(again.mode, "rotate");
+
+    assert_eq!(recent_choices("folder:/walls", &recents), list(&["file:/p/a.jpg", "daily"]));
+    let second = plan_recent(&Request::Recent { index: Some(2) }, "folder:/walls", &recents, None);
+    assert_eq!(second.expect("recent 2").edits, vec![Edit::Set(BACKGROUND, json!("daily"))]);
+    let past = plan_recent(&Request::Recent { index: Some(3) }, "folder:/walls", &recents, None);
+    assert!(past.unwrap_err().contains("there are 2"));
+
+    assert!(plan_recent(&Request::Back, "none", &[], None).unwrap_err().contains("no earlier"));
+    assert!(
+        plan_recent(&Request::Recent { index: Some(1) }, "none", &[], None)
+            .unwrap_err()
+            .contains("no recent")
+    );
+    assert!(validate(&back.edits).is_ok());
+    assert_eq!(plan(&Request::Back, &Fixture::new("back").env()).unwrap_err(), "not a write");
+}
+
+#[test]
+fn back_to_a_picture_turns_sun_mode_off_as_the_picker_does() {
+    let recents = vec!["file:/p/a.jpg".to_string()];
+    let back = plan_recent(&Request::Back, "system:/x.heic", &recents, Some("time")).expect("back");
+    assert_eq!(
+        back.edits,
+        vec![Edit::Set(BACKGROUND, json!("file:/p/a.jpg")), Edit::Reset(DYNAMIC)]
+    );
+    let plain =
+        plan_recent(&Request::Back, "system:/x.heic", &recents, Some("appearance")).expect("back");
+    assert_eq!(plain.edits, vec![Edit::Set(BACKGROUND, json!("file:/p/a.jpg"))]);
+}
+
+#[test]
+fn the_owner_snapshot_gives_effective_values_and_the_revision() {
+    // A theme or a recommended value is in `effective` though the file holds nothing.
+    let snapshot = json!({
+        "revision": "12",
+        "effective": { "appearance": { "background": "daily", "backgroundRecents": ["none"] } },
+        "file": {},
+    });
+    let configured = from_snapshot(&snapshot);
+    assert_eq!(configured.revision, Some(12));
+    assert_eq!(configured.values.get(BACKGROUND), Some(&json!("daily")));
+    assert_eq!(configured.values.get(RECENTS), Some(&json!(["none"])));
+    let unset = from_snapshot(&json!({ "revision": 3, "effective": {} }));
+    assert_eq!(unset.revision, Some(3));
+    assert_eq!(unset.values.get(BACKGROUND), Some(&json!("none")));
+    assert!(is_conflict(&json!({ "code": "revision.conflict" })));
+    assert!(!is_conflict(&json!({ "code": "settings.invalid" })));
+}

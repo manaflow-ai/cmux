@@ -5,7 +5,7 @@
 //!
 //! ```sh
 //! CMUX_OUTPUT_CLEANUP_BENCH_DIR=/w/bench CMUX_OUTPUT_CLEANUP_BENCH_SCALE=0.25 \
-//!   cargo test --locked -p cmux-tui --test output_cleanup_bench -- --ignored --nocapture
+//!   cargo test --locked -p cmux-tui --test it -- output_cleanup_bench:: --ignored --nocapture
 //! ```
 //!
 //! Scale 1.0 is the real shape: 6.08M sealed and 14.93M live rows.

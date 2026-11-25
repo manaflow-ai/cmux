@@ -112,6 +112,10 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     /// equivalent: AppKit runs a chosen item's action after the menu's tracking, outside any input event's dispatch, so no
     /// event names the person; the run's focus choices count as theirs (`FocusState.personMoveSeq`). In-app only.
     public var menuPick = false
+    /// The right-click menu the person picked this run from (`ActionMenuPayload.menu`), nil for any other run. One
+    /// action placed in several menus tells them apart by it (Point at Element: a native tab's menu or the chat page's,
+    /// whose targets are both the tab). In-app only: the control socket never sets it.
+    public var menuContext: ActionMenuContext?
 
     public init(target: ActionTargetRef? = nil, arguments: [String: ActionValue] = [:], origin: ActionOrigin = .user,
                 focusRequested: Bool = false, keyContext: ActionContext? = nil) {
@@ -186,7 +190,7 @@ public extension ActionInvocation {
     /// that gets what automation must not (raw screen pixels, a read of a folder macOS guards). A run
     /// the control socket carries is automation even when it claims the `user` origin, and so is a
     /// run that names a caller (an app, an agent chat or a terminal), even during the person's gesture in it.
-    var isPersonsOwnRun: Bool {
+    nonisolated var isPersonsOwnRun: Bool {
         origin == .user && !viaControlSocket && callerApp == nil && callerAgentSession == nil && callerTerminal == nil
     }
 }

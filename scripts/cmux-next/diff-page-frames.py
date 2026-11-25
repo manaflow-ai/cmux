@@ -45,6 +45,9 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bench_memory as bm  # noqa: E402
 import diff_tab_cells as cells  # noqa: E402
+from state_wait import wait_stable, wait_until  # noqa: E402
+# cmux NEXT's config folder: `cmux-next` on macOS (cmux-config NEXT_DIR, location.rs; #53567).
+NEXT_DIR = "cmux-next" if sys.platform == "darwin" else "cmux"
 
 PAGE = cells.PAGE
 STUB = "#!/bin/sh\ncat >/dev/null\necho run >> \"$(dirname \"$0\")/summarizer.runs\"\necho 'Changes one constant value in this file.'\n"
@@ -187,8 +190,8 @@ def main() -> int:
         # acpmux complete/recipes.rs). A user profile file wins over the discovered `claude` for its id
         # (config/profiles.rs), and XDG_CONFIG_HOME names its folder, so the run's acpmux reads only it.
         xdg = os.path.join(work, "xdg")
-        os.makedirs(os.path.join(xdg, "cmux", "harnesses"), exist_ok=True)
-        with open(os.path.join(xdg, "cmux", "harnesses", "claude.toml"), "w") as handle:
+        os.makedirs(os.path.join(xdg, NEXT_DIR, "harnesses"), exist_ok=True)
+        with open(os.path.join(xdg, NEXT_DIR, "harnesses", "claude.toml"), "w") as handle:
             handle.write(profile_toml(stub))
         out["harness_add"] = "profile file"
         # The keyboard and the screen: the window comes to the front (no CMUX_NEXT_NO_ACTIVATE), as a person's.
@@ -202,7 +205,11 @@ def main() -> int:
         app.run("workspace.selectLast")
         app.run("newSurface")
         out["workspace"] = (made.get("created") or [None])[0] if isinstance(made.get("created"), list) else made.get("error")
-        time.sleep(3)  # test script: the new terminal settles before the timed open
+        # The new terminal settles before the timed open: the focused pane is a terminal with its content in.
+        wait_until(lambda: any(p.get("focused") and p.get("kind") == "terminal" and p.get("content_installed")
+                               for w in (app.call("debug.surfaces", timeout=10) or {}).get("windows") or []
+                               for p in w.get("panes") or []),
+                   "the new terminal's content in the focused pane", timeout=20, raise_on_timeout=False)
         started = time.monotonic()
         opened = app.action("openDiffViewer", focus=True, path=repo)
         waited = app.call("debug.page", {"page": PAGE, "action": "wait", "selector": ".file-header", "timeout_ms": 90000},
@@ -225,14 +232,27 @@ def main() -> int:
         state = wait_toggle(app, browser)
         out["toggle_before"] = state
         print(f"DIFF-FRAMES {args.label} toggle {json.dumps(state)[:400]} summaryCheck {out['summary_check']}", flush=True)
-        time.sleep(2)  # test script: the code view's own work after its first file ends before the timed click
+        # The code view's own work after its first file ends before the timed click: its file headers and node
+        # count hold for 1 s.
+        wait_stable(lambda: (lambda s: (s.get("headers"), s.get("nodes")))(runtime(app, browser, TOGGLE_STATE, timeout=30)),
+                    "the code view's DOM", timeout=30, interval=0.25, reads=5, raise_on_timeout=False)
         paint = runtime(app, browser, FIRST_PAINT, timeout=150)
         out["plain_english"] = paint
         print(f"DIFF-FRAMES {args.label} plain_english {json.dumps(paint)}", flush=True)
         if paint.get("error") or paint.get("click_to_paint_ms") is None:
             raise RuntimeError(f"Plain English did not paint: {json.dumps(paint)[:300]}")
-        time.sleep(3)  # test script: the first sentences are asked and answered before the scroll
         runs = os.path.join(work, "summarizer.runs")
+
+        def run_count() -> int:
+            return sum(1 for _ in open(runs)) if os.path.exists(runs) else 0
+
+        # The first sentences are asked and answered before the scroll: the stand-in ran, then its run count and
+        # the page's first sentences hold for 1 s.
+        wait_until(run_count, "the stand-in summarizer's first run", timeout=30, raise_on_timeout=False)
+        wait_stable(lambda: (run_count(), json.dumps(runtime(app, browser, "(async()=>JSON.stringify([...document.querySelectorAll("
+                                                              "'.plain-english-sentence')].slice(0,5).map(e=>e.textContent)))()",
+                                                              timeout=30))),
+                    "the first Plain English sentences", timeout=30, interval=0.25, reads=5, raise_on_timeout=False)
         sentences = runtime(app, browser, "(async()=>JSON.stringify([...document.querySelectorAll("
                             "'.plain-english-sentence')].slice(0,5).map(e=>e.textContent)))()", timeout=30)
         out["sentences"] = sentences

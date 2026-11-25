@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -88,8 +89,12 @@ class DecideTest(unittest.TestCase):
         self.c = piece_swap.load_classifier()
         self.config = piece_swap.load_config()
 
-    def test_ships_with_only_the_drill_class(self):
-        self.assertEqual(self.config["classes"], ["drill"])
+    def test_ships_with_drill_web_ui_and_rust_core(self):
+        self.assertEqual(self.config["classes"], ["drill", "web-ui", "rust-core"])
+
+    def test_never_build_and_unclassed_stay_unlisted(self):
+        for name in ("migrations", "signing-release", "published-builds", "other"):
+            self.assertNotIn(name, self.config["classes"], name)
 
     def test_drill_commit_swaps(self):
         ok, why = piece_swap.decide(piece_swap.split([DRILL_RED, DRILL_KEEP], self.c), self.config, {})
@@ -195,6 +200,20 @@ class SwapOutCommitTest(unittest.TestCase):
         self.assertEqual(self.git("rev-parse", f"{sha}^"), self.culprit)
         self.assertEqual(self.git("rev-parse", "HEAD"), self.culprit)  # no worktree or branch moved
 
+    def test_a_runner_with_no_git_identity_still_gets_the_commit(self):
+        """The judge job rebuilds a piece probe's commit to compare trees, on a runner with no user.name
+        (cmux run 45046212800, job 137282347168: "Author identity unknown", so no swap-out followed)."""
+        self.git("config", "--unset", "user.name")
+        self.git("config", "--unset", "user.email")
+        self.git("config", "user.useConfigOnly", "true")  # as a runner whose account has no name
+        clean = {k: v for k, v in git_fixture_env.fixture_env().items()
+                 if not k.startswith(("GIT_AUTHOR_", "GIT_COMMITTER_")) and k != "EMAIL"}
+        clean.update(GIT_CONFIG_GLOBAL="/dev/null", GIT_CONFIG_NOSYSTEM="1")  # no identity from this machine either
+        with mock.patch.dict(piece_swap.os.environ, clean, clear=True):
+            sha = piece_swap.swap_out_commit(self.culprit, self.culprit, [DRILL_RED], "expected probe", cwd=self.repo)
+        self.assertIsNotNone(sha)
+        self.assertNotIn(DRILL_RED, self.git("ls-tree", "-r", "--name-only", sha).splitlines())
+
     def test_onto_a_later_tip(self):
         (self.repo / "later.txt").write_text("later\n")
         self.git("add", "-A")
@@ -255,6 +274,16 @@ class WorkflowTest(unittest.TestCase):
         self.assertEqual(plan["suites"], ["drill"])
         plan = batch.plan_batch("a" * 40, [], suites, lambda base: [], branch="feat-cmux-next")
         self.assertEqual(len(plan["suites"]), len(suites))
+
+    def test_pieces_drill_branch_stays_drill_only_after_its_green_batch(self):
+        """Run 45037084940: the red batch planned web and rust-workspaces too, and its judge waited 85 minutes
+        on web shards before it could name the drill's red."""
+        suites = batch.load_manifest()
+        green = [{"id": 1, "event": "push", "status": "completed", "head_sha": "b" * 40, "display_title": "batch push", "name": "batch push"}]
+        self.assertTrue(batch.is_batch(green[0]))
+        plan = batch.plan_batch("a" * 40, green, suites, lambda base: [DRILL_RED, DRILL_KEEP], branch="lane/post-merge-drill-pieces-4")
+        self.assertEqual(plan["suites"], ["drill"])
+        self.assertEqual(plan["base"], "b" * 40)
 
     def test_drill_suite_reads_both_drill_pieces(self):
         drill = batch.load_manifest()["drill"]

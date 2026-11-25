@@ -16,7 +16,7 @@
 //! machine never starts here. The client names only an agent kind
 //! (`harness`, resolved by acpmux from its own config), an optional model (`model`), and a folder (`cwd`,
 //! absolute; acpmux checks it), and on the caller's own Cloud VM a mode (`mode`, below). No command, env, policy, peer, preset,
-//! workspace or MCP server param exists (unknown fields are a bad request).
+//! workspace or MCP server param exists (an unknown field is dropped unread).
 //! The daemon itself names the tab's workspace to acpmux on `session/new`
 //! (`_meta.acpmux.workspaceId`, which picks the session's display), from the
 //! tab's place in this store; a tab with no workspace, or whose workspace key
@@ -71,8 +71,9 @@ use crate::panic_free::JsonFields;
 
 #[path = "agent_session_prewarm.rs"]
 mod prewarm;
-pub use prewarm::AGENT_SESSION_PREWARM_CAPABILITY;
+pub(crate) use prewarm::chat_folder_prewarm_on;
 pub(super) use prewarm::prewarm;
+pub use prewarm::{AGENT_SESSION_PREWARM_CAPABILITY, AGENT_SESSION_PREWARM_CHAT_FOLDER_CAPABILITY};
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -139,13 +140,13 @@ const MAX_CREDENTIAL_BYTES: usize = 16 * 1024;
 /// A launch credential as the caller sends it. Never printed: no `Debug`.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct StartCredentials {
-    pub(super) env: std::collections::BTreeMap<String, String>,
+pub(in crate::server) struct StartCredentials {
+    pub(in crate::server) env: std::collections::BTreeMap<String, String>,
 }
 
 impl StartCredentials {
     /// One known name, a token-shaped value (acpmux checks the same again).
-    pub(super) fn valid(&self) -> bool {
+    pub(in crate::server) fn valid(&self) -> bool {
         self.env.len() == 1
             && self.env.iter().all(|(name, value)| {
                 CREDENTIAL_NAMES.contains(&name.as_str())
@@ -154,7 +155,7 @@ impl StartCredentials {
             })
     }
 
-    pub(super) fn wire(&self) -> Value {
+    pub(in crate::server) fn wire(&self) -> Value {
         json!({"env": self.env})
     }
 }
@@ -163,7 +164,7 @@ impl StartCredentials {
 /// "owner"`, the Cloud API's answer for the machine's creator alone, on a VM that is not a team
 /// VM, where every member's agents run as one Unix user and could read it), never from a phone's
 /// channel, and never through a teammate's or guest's proxied link (the caller checks `author`).
-pub(super) fn credentials_admitted(
+pub(in crate::server) fn credentials_admitted(
     mux: &Mux,
     client: u64,
     vm_kind: &Option<Option<String>>,
@@ -374,7 +375,6 @@ impl Drop for StartSlot {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 pub(super) struct StartParams {
     surface: SurfaceId,
     #[serde(default)]
@@ -417,7 +417,13 @@ pub(super) struct StartParams {
 }
 
 impl StartParams {
+    #[cfg(test)]
     fn valid(&self) -> bool {
+        self.invalid_field().is_none()
+    }
+
+    /// The first param out of bounds, by name (the bad request's `data.field`); none when all hold.
+    pub(super) fn invalid_field(&self) -> Option<&'static str> {
         let harness_ok = self.harness.as_deref().is_none_or(|harness| {
             (1..=64).contains(&harness.len())
                 && harness.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
@@ -439,13 +445,22 @@ impl StartParams {
         });
         let permission_mode_ok =
             self.permission_mode.as_deref().is_none_or(|mode| PERMISSION_MODES.contains(&mode));
-        let mode_ok = permission_mode_ok
-            && self.mode.as_deref().is_none_or(|mode| {
-                (1..=64).contains(&mode.len())
-                    && mode.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
-            });
+        let mode_ok = self.mode.as_deref().is_none_or(|mode| {
+            (1..=64).contains(&mode.len())
+                && mode.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
+        });
         let credentials_ok = self.credentials.as_ref().is_none_or(StartCredentials::valid);
-        harness_ok && cwd_ok && instance_ok && model_ok && mode_ok && credentials_ok
+        [
+            ("harness", harness_ok),
+            ("cwd", cwd_ok),
+            ("person_instance", instance_ok),
+            ("model", model_ok),
+            ("permission_mode", permission_mode_ok),
+            ("mode", mode_ok),
+            ("credentials", credentials_ok),
+        ]
+        .into_iter()
+        .find_map(|(field, ok)| (!ok).then_some(field))
     }
 }
 
@@ -464,8 +479,8 @@ pub(super) fn start(
     mut params: StartParams,
     writer: &MessageWriter,
 ) -> bool {
-    if !params.valid() {
-        return refuse(writer, id, Refusal::BadRequest);
+    if let Some(field) = params.invalid_field() {
+        return super::bad_field::refuse_field(writer, id, Some(field));
     }
     if let Err(refusal) = mux.agent_host_gate(client, vm_word(&params.vm_kind)) {
         return refuse(writer, id, refusal);
@@ -496,12 +511,12 @@ pub(super) fn start(
             .map(|path| path.to_string_lossy().into_owned());
     }
     if params.cwd.is_none() {
-        return refuse(writer, id, Refusal::BadRequest);
+        return super::bad_field::refuse_field(writer, id, Some("cwd"));
     }
     // A chat never starts in `/`, above the home folder, or in the home folder
     // unless the person chose it (cx-1bhjj), as on the Mac.
     let Some(cwd) = params.cwd.as_deref() else {
-        return refuse(writer, id, Refusal::BadRequest);
+        return super::bad_field::refuse_field(writer, id, Some("cwd"));
     };
     if let Err(refusal) = super::agent_session_trust::home_rule(cwd, params.home_confirmed) {
         return refuse(writer, id, refusal);
@@ -670,7 +685,8 @@ fn run(
     let checks = Instant::now();
     let until = checks + START_PATIENCE.ceiling;
     let cwd = params.cwd.as_deref().ok_or((Refusal::BadRequest, None))?;
-    let (link, catalog) = ready_catalog(&socket, link, cwd, until).map_err(|r| (r, None))?;
+    let (link, catalog) = ready_catalog(&socket, link, cwd, params.harness.as_deref(), until)
+        .map_err(|r| (r, None))?;
     let result = still_keyed(&link, &params).and_then(|()| {
         start_and_bind(mux, client, &link, &catalog, &params, phone, checks, until, timings)
             .map_err(|StartRefused(refusal, data)| (refusal, data))
@@ -690,10 +706,15 @@ fn ready_catalog(
     socket: &std::path::Path,
     mut link: Arc<AcpmuxLink>,
     cwd: &str,
+    harness: Option<&str>,
     until: Instant,
 ) -> Result<(Arc<AcpmuxLink>, Value), Refusal> {
+    // `forStart` with the start's harness: acpmux resolves it as `session/new` would before it
+    // answers (acpmux `hub/rediscover.rs`), so a harness its startup PATH missed is in this
+    // catalog and the start is not refused `harness_missing` (`start_family`) for it.
+    let params = json!({"cwd": cwd, "forStart": true, "harness": harness});
     loop {
-        match ask(&link, until, "_acpmux/harnesses", json!({"cwd": cwd})) {
+        match ask(&link, until, "_acpmux/harnesses", params.clone()) {
             Ok(catalog) => return Ok((link, catalog)),
             Err(LinkError::Closed) if Instant::now() < until => link.close(),
             Err(error) => {

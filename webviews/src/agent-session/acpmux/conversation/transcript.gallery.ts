@@ -147,6 +147,38 @@ const messageSurfaceChat = chat([
   summary(5.7, { status: "completed", durationMs: 78_000, toolCount: 2 }),
 ]);
 
+// The prompt bubble's ink (--cv-user-bubble-text, schemas/agent-pane/style-tokens.json): a filled pill
+// as Codex draws its prompt, white on blue, applied the way the host sends a look's agent-pane/theme.css.
+// The prompt carries a quote and inline code, so the bubble's quiet line and code wash are in the shot.
+const bubbleInkChat = chat([
+  user(
+    "> The prompt should read as Codex's\n\nMake the prompt a blue pill with `white` text and keep the quote quiet",
+    7,
+    {
+      id: "bubble-ink-user",
+    },
+  ),
+  activity([tool("Edit agent-pane/theme.css", "edit", "completed")], 6.8, { id: "bubble-ink-tools" }),
+  assistant("The prompt is a filled pill now, and its quote and code follow its ink.", 6.4, {
+    id: "bubble-ink-answer",
+  }),
+  user("Same in light", 6, { id: "bubble-ink-short" }),
+  summary(5.9, { status: "completed", durationMs: 24_000, toolCount: 1 }),
+]);
+const BUBBLE_PILL_TINT =
+  "--cv-user-bubble-tint: light-dark(color-mix(in srgb, var(--agent-accent) 78%, var(--agent-text)), color-mix(in srgb, var(--agent-accent) 30%, var(--agent-page-bg)));";
+const BUBBLE_PILL_INK = "--cv-user-bubble-text: light-dark(var(--agent-page-bg), var(--agent-text));";
+/// A play that sends `css` as the person's agent-pane/theme.css (AgentPaneCustomization.swift's path).
+const applyLookCss =
+  (css: string) => async (ctx: { document: Document; waitFor(condition: () => boolean): Promise<void> }) => {
+    const page = ctx.document.defaultView as unknown as {
+      cmuxAcpmuxBridge?: { applyCustomization?(customization: { themeCSS: string }): void };
+    };
+    await ctx.waitFor(() => typeof page.cmuxAcpmuxBridge?.applyCustomization === "function");
+    const stage = ctx.document.getElementById("acpmux-user-theme")?.textContent ?? "";
+    page.cmuxAcpmuxBridge!.applyCustomization!({ themeCSS: `${stage}\n${css}` });
+  };
+
 const keyboardRows = [
   user("Open the work details with the keyboard", 4, { id: "gallery-keyboard-user" }),
   activity(
@@ -1604,7 +1636,6 @@ export default agentPaneEntry({
     "page:cmux.agent",
     "agent-session/acpmux/VirtualTranscript.tsx#VirtualTranscript",
     "agent-session/acpmux/App.tsx#AcpmuxApp",
-    "agent-session/acpmux/rows/ActivityLineRow.tsx",
     "agent-session/acpmux/rows/AgentPairRow.tsx",
     "agent-session/acpmux/rows/BackgroundTaskRow.tsx",
     "agent-session/acpmux/rows/BackgroundTurnRow.tsx",
@@ -1622,7 +1653,6 @@ export default agentPaneEntry({
     "agent-session/acpmux/rows/PermissionAsk.tsx",
     "agent-session/acpmux/rows/PermissionRecordRow.tsx",
     "agent-session/acpmux/rows/PermissionRow.tsx",
-    "agent-session/acpmux/rows/PlanRow.tsx",
     "agent-session/acpmux/rows/PolicyUnenforcedRow.tsx",
     "agent-session/acpmux/rows/QuestionRecordRow.tsx",
     "agent-session/acpmux/rows/QueuedMessageRow.tsx",
@@ -1633,7 +1663,6 @@ export default agentPaneEntry({
     "agent-session/acpmux/rows/StartedSessionsRow.tsx",
     "agent-session/acpmux/rows/SubagentDoneRow.tsx",
     "agent-session/acpmux/rows/SubagentGroupRow.tsx",
-    "agent-session/acpmux/rows/SubagentOfPillRow.tsx",
     "agent-session/acpmux/rows/SubagentRow.tsx",
     "agent-session/acpmux/rows/SummaryRow.tsx",
     "agent-session/acpmux/rows/TaskLineRow.tsx",
@@ -1740,6 +1769,27 @@ export default agentPaneEntry({
       note: "Selected arm: stronger glass fill and no rim (Plain, Lens or Spectrum) for the user's prompt, borderless agent-message cards, no layout changes.",
       snapshot: messageSurfaceChat,
       play: messageSurfaceComputedStyle,
+    },
+    "user-bubble-ink-default": {
+      note: "Before: no look sets --cv-user-bubble-text, so the prompt keeps the grey glass and the transcript's text, as today.",
+      snapshot: bubbleInkChat,
+    },
+    "user-bubble-ink-tint-only": {
+      note: "Why the ink exists: a blue tint alone keeps the transcript's text on it (dark text on blue in light). The look-addons contrast check fails this.",
+      snapshot: bubbleInkChat,
+      play: applyLookCss(`:root { ${BUBBLE_PILL_TINT} }`),
+    },
+    "user-bubble-ink-pill": {
+      note: "A filled pill: the accent tint with --cv-user-bubble-text from the theme's own colors (white on blue in light and dark). The quote takes the ink at 88%, inline code a wash of it. Capture in light and dark.",
+      snapshot: bubbleInkChat,
+      play: applyLookCss(`:root { ${BUBBLE_PILL_TINT} ${BUBBLE_PILL_INK} }`),
+    },
+    "user-bubble-ink-codex": {
+      note: "The Codex pack's prompt: the pill with its 20 px corner and no edge, as chameleon-codex sets it. Paint only: no row moves from the default arm.",
+      snapshot: bubbleInkChat,
+      play: applyLookCss(
+        `:root { ${BUBBLE_PILL_TINT} ${BUBBLE_PILL_INK} --cv-user-bubble-edge: transparent; --cv-user-bubble-radius: 20px; }`,
+      ),
     },
     conversation: {
       note: "A finished exchange: prompt, markdown reply, turn footer.",
@@ -2040,14 +2090,17 @@ export default agentPaneEntry({
       },
     },
     "thought-row": {
-      note: 'Play: a finished thought is one quiet row, for Codex parity: the brain glyph and its words on one line, cut with an ellipsis, with no tooltip. Opened, it reads Thought for 12s over its text. Debug Settings agentPane.debug.thoughtFoldThreshold "Taller than the transcript" brings back the short thought in full after Thought.',
+      note: 'Play: a finished thought is one quiet row, for Codex parity: the brain glyph and its own first line, cut with an ellipsis when it runs past the row, with no tooltip and how long it took at the row\'s end. Opened, the rest of its text unfolds under that line. Debug Settings agentPane.debug.thoughtFoldThreshold "Taller than the transcript" brings back the short thought in full after Thought.',
       snapshot: thoughtChat([thought(SHORT_THOUGHT, { startedAt: 0, endedAt: 12_000 })]),
       play: async (ctx) => {
         await openEndedStretch(ctx);
         const row = () => ctx.document.querySelector<HTMLElement>(".cv-thought");
-        // Its words on one line, its paragraphs joined with spaces (ThoughtRow.tsx thoughtLine).
-        const line = SHORT_THOUGHT.split("\n").filter(Boolean).join(" ");
-        await ctx.waitFor(() => row()?.textContent === line);
+        // Its own first line (thoughtRowModel.ts thoughtHead), then how long it took.
+        const line = SHORT_THOUGHT.split("\n")[0]!;
+        await ctx.waitFor(() => row()?.querySelector(".cv-thought__preview")?.textContent === line);
+        if (row()!.querySelector(".cv-thought__time")?.textContent !== "12s")
+          throw new Error("a dated thought shows how long it took at the row's end");
+        if (row()!.textContent?.includes("Thought")) throw new Error("a thought's row reads its words, not Thought");
         await ctx.hover({ selector: ".cv-thought" });
         if (!row()!.matches("button") || row()!.getAttribute("aria-expanded") !== "false")
           throw new Error("a finished thought is a closed toggle");
@@ -2062,7 +2115,7 @@ export default agentPaneEntry({
       },
     },
     "thought-expanded": {
-      note: "Play: the folded thought opens to its full text under its label, which reads Thought for 12s.",
+      note: "Play: the folded thought opens to the rest of its text under its own first line, which stays where it was.",
       checks: {
         layoutShiftMax: {
           value: 0.02,
@@ -2073,13 +2126,22 @@ export default agentPaneEntry({
       snapshot: thoughtChat([thought(SHORT_THOUGHT, { startedAt: 0, endedAt: 12_000 })]),
       play: async (ctx) => {
         await openEndedStretch(ctx);
+        const line = () => ctx.document.querySelector<HTMLElement>("button.cv-thought .cv-thought__preview");
+        await ctx.waitFor(() => line());
+        const before = line()!.getBoundingClientRect();
+        const words = line()!.textContent;
         await ctx.click({ selector: "button.cv-thought" });
         const body = () => ctx.document.querySelector<HTMLElement>(".cv-thought__body");
         await ctx.waitFor(() => body()?.textContent?.includes("jittered backoff capped at three attempts") ?? false);
         if (ctx.document.querySelector("button.cv-thought")?.getAttribute("aria-expanded") !== "true")
           throw new Error("the opened thought is not expanded");
-        const label = ctx.document.querySelector("button.cv-thought .cv-thought__label")?.textContent;
-        if (label !== "Thought for 12s") throw new Error(`the opened thought reads ${label}, not Thought for 12s`);
+        // No word is swapped and the line does not move: the rest opens under it.
+        const after = line()!.getBoundingClientRect();
+        if (line()!.textContent !== words || words !== SHORT_THOUGHT.split("\n")[0])
+          throw new Error(`the opened thought's line reads ${line()!.textContent}, not its own first line`);
+        if (Math.abs(after.left - before.left) > 0.5 || Math.abs(after.top - before.top) > 0.5)
+          throw new Error("the thought's line moved when it opened");
+        if (body()!.textContent?.includes(words!)) throw new Error("the opened thought repeats its first line");
       },
     },
     "thoughts-merged": {
@@ -2103,10 +2165,13 @@ export default agentPaneEntry({
         await ctx.waitFor(() => rows()[0]?.textContent?.includes("parses errors first") ?? false);
         if (rows().length !== 1) throw new Error(`two thoughts side by side draw ${rows().length} rows, not one`);
         await ctx.click({ selector: "button.cv-thought" });
+        // The first thought is the row's line; the second opens under it.
         const body = () => ctx.document.querySelector<HTMLElement>(".cv-thought__body")?.textContent ?? "";
-        await ctx.waitFor(() => body().includes("parses errors first") && body().includes("On second thought"));
-        const label = ctx.document.querySelector("button.cv-thought .cv-thought__label")?.textContent;
-        if (label !== "Thought for 12s") throw new Error(`the opened thoughts read ${label}, not Thought for 12s`);
+        await ctx.waitFor(() => body().includes("On second thought"));
+        if (!rows()[0]!.querySelector(".cv-thought__preview")?.textContent?.includes("parses errors first"))
+          throw new Error("the first thought is not the row's line");
+        const time = ctx.document.querySelector("button.cv-thought .cv-thought__time")?.textContent;
+        if (time !== "12s") throw new Error(`the opened thoughts took ${time}, not 12s`);
       },
     },
     "thought-quiet": {
@@ -2125,7 +2190,7 @@ export default agentPaneEntry({
       },
     },
     "thought-codex-headings": {
-      note: 'Play: a Codex reasoning summary opened: "Thought for 12s", then each **Heading** as a muted title of its own over its text, never with its marks and never after "Thought".',
+      note: "Play: a Codex reasoning summary: its leading **Heading** is the row's line, in bold without its marks; opened, its text and each later heading as a muted title of its own unfold under it.",
       checks: {
         layoutShiftMax: {
           value: 0.01,
@@ -2142,7 +2207,10 @@ export default agentPaneEntry({
         await openEndedStretch(ctx);
         await ctx.click({ selector: "button.cv-thought" });
         const titles = () => [...ctx.document.querySelectorAll(".cv-thought__title")].map((node) => node.textContent);
-        await ctx.waitFor(() => titles().length === 2);
+        await ctx.waitFor(() => titles().length === 1);
+        const line = ctx.document.querySelector("button.cv-thought .cv-thought__preview.is-title")?.textContent;
+        if (line !== "Planning the retry fix") throw new Error(`the leading heading is not the row's line: ${line}`);
+        if (titles()[0] !== "Checking the callers") throw new Error(`the later heading reads ${titles()[0]}`);
         if (ctx.document.querySelector(".cv-thought__body")?.textContent?.includes("**"))
           throw new Error("a heading shows its ** marks");
       },
@@ -2154,7 +2222,7 @@ export default agentPaneEntry({
       }),
     },
     "long-thought-done": {
-      note: "A long thought followed by a step folds to its brain glyph and its words on one line; opened, it reads Thought for 12s.",
+      note: "A long thought followed by a step folds to its brain glyph and its leading heading; opened, the rest of its text unfolds under that line.",
       snapshot: chat(
         [
           user(prompt, 2),
@@ -2727,7 +2795,7 @@ export default agentPaneEntry({
     "codex-turn-command-under-messages": {
       // Reads the clock on the live line (liveTurnClock.experiment.ts `line`); the shipped `top` puts it over the work.
       experiments: { "live-turn-clock": "line" },
-      note: 'Leo, 2026-10-22: "the ran thing basiclly replcaes the thinking usually". A command still running in an earlier run while the agent writes and messages others: it is the live line at the bottom (Running cp … with its time, ⌃B to run in background at its right on hover), not a Ran cp row with the hint over a Thinking line. Play: the line names the cp, no transcript row draws the hint or runs.',
+      note: 'Leo, 2026-10-22: "the ran thing basiclly replcaes the thinking usually". A command still running in an earlier run while the agent writes and messages others: it is the live line at the bottom (cp … with its time, ⌃B to run in background at its right on hover), not a Ran cp row with the hint over a Thinking line. Leo, 2026-11-23: "running" doesn\'t need text. Play: the line names the cp, no transcript row draws the hint or runs.',
       snapshot: chat(
         [
           user("Copy the session log into recovery and tell the lanes what changed.", 3),
@@ -2751,7 +2819,7 @@ export default agentPaneEntry({
       play: async (ctx: PlayContext) => {
         const doc = ctx.document;
         await ctx.waitFor(() =>
-          (doc.querySelector(".cv-worked.is-below .cv-thinking")?.textContent ?? "").startsWith("Running cp "),
+          (doc.querySelector(".cv-worked.is-below .cv-thinking")?.textContent ?? "").startsWith("cp "),
         );
         const stray = [...doc.querySelectorAll(".cv-command__bg")].filter((node) => !node.closest(".cv-worked"));
         if (stray.length) throw new Error(`${stray.length} transcript rows draw the ⌃B hint`);
@@ -2763,7 +2831,7 @@ export default agentPaneEntry({
     "codex-turn-raw-commands": {
       // Reads the clock on the live line (liveTurnClock.experiment.ts `line`); the shipped `top` puts it over the work.
       experiments: { "live-turn-clock": "line" },
-      note: "Leo's turn-toolcalls-now.png: commands that all start with export PATH=… and send no description. Each reads as its meaningful command (acpmux ls, gh pr view 22363); the two runs and the short note between them are one folded line; the call in flight is the one live line at the bottom (Running acpmux send 13s), shimmering, no dots, under the run over it, its words in a 22px box at the top of the 32px slot it has under a reply, the footer gap (8) over it, so it holds still when a run or a reply lands (#31497, cmux#47098; transcriptGrid.ts LIVE_GAP_LOOKS); ⌃B to run in background shows on hover. Play: hover the line.",
+      note: "Leo's turn-toolcalls-now.png: commands that all start with export PATH=… and send no description. Each reads as its meaningful command (acpmux ls, gh pr view 22363); the two runs and the short note between them are one folded line; the call in flight is the one live line at the bottom (acpmux send 13s), shimmering, no dots, under the run over it, its words in a 22px box at the top of the 32px slot it has under a reply, the footer gap (8) over it, so it holds still when a run or a reply lands (#31497, cmux#47098; transcriptGrid.ts LIVE_GAP_LOOKS); Leo, 2026-11-23: \"running\" doesn't need text. ⌃B to run in background shows on hover. Play: hover the line.",
       snapshot: chat(
         [
           user("What did the lanes decide? Relay it and answer.", 2),
@@ -3594,6 +3662,39 @@ export default agentPaneEntry({
         },
       },
     },
+    "secret-card-keep": {
+      note: "Play: the person ticks Keep as key STRIPE_API_KEY before Provide, so acpmux also stores the value in Keys under that name (docs/design/safe-keys.md); the answer carries keepAs, never more.",
+      snapshot: chat([user("Create the Stripe test webhook", 1), assistant("I need your Stripe key for that.", 0.9)], {
+        isWorking: true,
+        secret: {
+          secretId: "gallery-secret",
+          name: "STRIPE_API_KEY",
+          reason: "Create the test webhook",
+        },
+      }),
+      afterCall: {
+        "chat.secret": chat(
+          [user("Create the Stripe test webhook", 1), assistant("I need your Stripe key for that.", 0.9)],
+          {
+            isWorking: true,
+          },
+        ),
+      },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-secret-card-field" });
+        await ctx.type("sk-test-51Hx9", { selector: ".acpmux-secret-card-field" });
+        await ctx.click({ selector: ".acpmux-secret-card-keep input" });
+        await ctx.click({ role: "button", name: "Provide" });
+        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-secret-card"));
+      },
+      checks: {
+        layoutShiftMax: {
+          value: 0.08,
+          reason:
+            "The card leaves the bottom stack, which lies over the transcript's foot (bottomStack.css): the stack's unpainted wrapper (div.acpmux-dock, the only source) shrinks from its top; the composer and the rows do not move.",
+        },
+      },
+    },
     "secret-card-unsent": {
       note: "Play: a secret typed in the card whose send has not gone through stays in the private field, so the person does not retype it.",
       snapshot: chat([user("Create the Stripe test webhook", 1), assistant("I need your Stripe key for that.", 0.9)], {
@@ -4095,11 +4196,11 @@ function promptPendingLooks() {
     );
   return {
     "prompt-pending": {
-      note: "Chosen (A): a prompt still on its way says so in its footer's time slot, a clock and one sentence (Sending; Queued, sends when the current turn ends for a steer behind the running turn), shown at rest; the row's buttons come with the pointer and the age takes the slot once it lands.",
+      note: "Chosen (A): a prompt still on its way says so in its footer's time slot, a clock and one sentence (Sending), shown at rest, its row anchored at the bubble's right edge so Copy never moves; a steer queued behind the running turn looks sent (its age, no words; Leo, 2026-11-17); the row's buttons come with the pointer and the age takes the slot once it lands.",
       snapshot: rows(),
     },
     "prompt-pending-clock": {
-      note: "Variant B, not shipped: the clock alone in the time slot, its words for VoiceOver only. Quietest, but a reader cannot tell a queued steer from a slow send without hovering.",
+      note: "Variant B, not shipped: the clock alone in the time slot, its words for VoiceOver only. Quietest, but the clock alone says less than Sending.",
       snapshot: rows(),
       documentAttributes: { "prompt-pending-look": "clock" },
     },
