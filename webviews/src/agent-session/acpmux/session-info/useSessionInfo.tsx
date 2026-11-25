@@ -21,6 +21,8 @@ import type { StartedSession } from "../started/startedSessions";
 import { headerStatus, visibleChanges } from "./changesSectionModel";
 import { useChangesStatuses, useStableUrls, withHeader } from "./changesStatus";
 import { type AccessGrant } from "./EnvironmentSection";
+import type { SessionInfoCloudControl } from "../hybrid/SessionInfoCloud";
+
 import { SubagentBanner, SubagentTitle } from "./SubagentScopeHeader";
 import { SUBAGENT_HEADER } from "./subagentScopeHeaderModel";
 import {
@@ -243,6 +245,7 @@ export function useSessionInfo({
   readCarried,
   onResolveCarried,
   remoteControl,
+  cloud,
   onCompact,
   onViewPrompt,
   onOpenChat,
@@ -331,6 +334,8 @@ export function useSessionInfo({
   onResolveCarried?: ResolveCarried;
   /// Environment's Remote Control switch (App.tsx, remoteControl.ts): absent, no row.
   remoteControl?: { on: boolean; set: (on: boolean) => void };
+  /// Environment's cloud controls (hybrid/HybridMounts.tsx), in Remote Control's place.
+  cloud?: SessionInfoCloudControl;
   /// Sends the chat's agent its `/compact` (Context's and Usage's Compact); unset where it cannot reach.
   onCompact?: () => void;
   /// Context's View Prompt: opens the Context screen (context/ContextScreen.tsx); unset for a chat
@@ -609,6 +614,7 @@ export function useSessionInfo({
         readCarried={subagent ? undefined : readCarried}
         onResolveCarried={subagent ? undefined : onResolveCarried}
         remoteControl={remoteControl}
+        cloud={cloud}
         onCompact={stableOnCompact}
         onViewPrompt={stableOnViewPrompt}
         onOpenChat={stableOnOpenChat}
@@ -894,6 +900,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   readCarried,
   onResolveCarried,
   remoteControl,
+  cloud,
   onCompact,
   onViewPrompt,
   onOpenChat,
@@ -969,6 +976,8 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
   readCarried?: ReadCarried;
   onResolveCarried?: ResolveCarried;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
+  /// Environment's cloud controls (hybrid/HybridMounts.tsx), in Remote Control's place.
+  cloud?: SessionInfoCloudControl;
   onCompact?: () => void;
   onViewPrompt?: () => void;
   onOpenChat?: (sessionId: string) => void;
@@ -1415,6 +1424,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
           onOpenArtifacts={rowCount > 0 ? () => setGallery(true) : undefined}
           onReconnectMcp={onReconnectMcp}
           remoteControl={scope ? undefined : remoteControl}
+          cloud={scope ? undefined : cloud}
           onCompact={scope ? undefined : onCompact}
           onViewPrompt={scope ? undefined : onViewPrompt}
           onOpenFolder={openFolder}
@@ -1513,6 +1523,7 @@ const SessionInfoPresence = memo(function SessionInfoPresence({
         readCarried={scope ? undefined : readCarried}
         onResolveCarried={scope ? undefined : onResolveCarried}
         remoteControl={scope ? undefined : remoteControl}
+        cloud={scope ? undefined : cloud}
         // Compact ends the chat's context, not a subagent's.
         onCompact={scope ? undefined : onCompact}
         onViewPrompt={scope ? undefined : onViewPrompt}
