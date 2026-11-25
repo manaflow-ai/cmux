@@ -327,7 +327,17 @@ fn coordinator_tools_stay_behind_the_owner_turn_policy() {
     let mut h = shared(started());
     teammate_turn(&mut h, "@Chief message the coordinator");
     assert_eq!(policy(&h, 0), "ask");
-    for name in ["send", "ls", "last", "info", "inbox_read", "inbox_reply"] {
+    for name in [
+        "send",
+        "ls",
+        "last",
+        "info",
+        "inbox_read",
+        "inbox_reply",
+        "watch_add",
+        "watch_ls",
+        "watch_rm",
+    ] {
         let folded = format!("acpmux_{name}");
         let tool = format!("mcp__cmux__{folded}");
         assert!(CHIEF_CMUX_TOOLS.contains(&folded.as_str()));
