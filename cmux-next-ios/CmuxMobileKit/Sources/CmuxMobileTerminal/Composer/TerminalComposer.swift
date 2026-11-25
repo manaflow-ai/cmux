@@ -73,7 +73,9 @@ struct TerminalComposer: View {
             GlassEffectContainer(spacing: 0) {
                 HStack(alignment: .bottom, spacing: 8) {
                     attachMenu
-                    if voice.placement == .leading, let source = voiceSource { voiceButton(source) }
+                    // Its own view: whether voice is offered reads the workspace (its agent), which every Mac
+                    // push changes; read here, each push re-rendered the composer and its field mid-typing.
+                    if voice.placement == .leading, let source = model.voiceSource { TerminalComposerVoiceSlot(source: source) }
                     fieldContainer
                 }
             }
@@ -166,24 +168,6 @@ struct TerminalComposer: View {
         .buttonStyle(.cmuxPressFillInLabel)
         .accessibilityLabel("Add Attachment")
         .accessibilityIdentifier("terminal.composer.attach")
-    }
-
-    /// Voice mode on this terminal's agent (replaces classic's dictation
-    /// mic): its replies read aloud, the user's speech typed in as prompts.
-    /// Filled and moving while it runs here; a tap ends it.
-    private func voiceButton(_ source: any AgentVoiceSource) -> some View {
-        let active = voice.isActive(source.voiceSourceID)
-        return Button {
-            voice.toggle(source)
-        } label: {
-            ComposerCircleLabel(systemImage: "waveform",
-                                foreground: active ? AnyShapeStyle(Color.cmuxMobileOnAccent) : AnyShapeStyle(Color.primary.opacity(0.78)),
-                                tint: active ? Color.cmuxMobileAccent : nil)
-                .symbolEffect(.variableColor.iterative, isActive: active)
-        }
-        .buttonStyle(.cmuxPressFillInLabel)
-        .accessibilityLabel(active ? "End Voice Mode" : "Voice Mode")
-        .accessibilityIdentifier("terminal.composer.voice")
     }
 
     /// The field and its send circle share one rounded glass container; the
@@ -593,6 +577,31 @@ struct TerminalCameraPicker: UIViewControllerRepresentable {
         }
 
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { parent.dismiss() }
+    }
+}
+
+/// The voice circle, when the tab's agent offers voice (`AgentVoiceSource.voiceAvailable`).
+/// Its own view so what that reads (the store's workspaces, moved by every Mac push)
+/// re-renders this circle alone, never the composer's field (ask-4a87599079).
+private struct TerminalComposerVoiceSlot: View {
+    let source: any AgentVoiceSource
+    private let voice = AgentVoiceLauncher.shared
+
+    var body: some View {
+        if source.voiceAvailable, voice.isAvailable {
+            let active = voice.isActive(source.voiceSourceID)
+            Button {
+                voice.toggle(source)
+            } label: {
+                ComposerCircleLabel(systemImage: "waveform",
+                                    foreground: active ? AnyShapeStyle(Color.cmuxMobileOnAccent) : AnyShapeStyle(Color.primary.opacity(0.78)),
+                                    tint: active ? Color.cmuxMobileAccent : nil)
+                    .symbolEffect(.variableColor.iterative, isActive: active)
+            }
+            .buttonStyle(.cmuxPressFillInLabel)
+            .accessibilityLabel(active ? "End Voice Mode" : "Voice Mode")
+            .accessibilityIdentifier("terminal.composer.voice")
+        }
     }
 }
 #endif
