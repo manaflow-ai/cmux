@@ -948,6 +948,8 @@ jobs:
           BASE_MERGE_CARRY: ${{ format('{0}', vars.CMUX_NEXT_BASE_MERGE_CARRY) != '0' }}
           CI_DRAFT_CHEAP_TIER: ${{ vars.CI_DRAFT_CHEAP_TIER || '1' }}
           CI_IDLE_BASE_MERGE_SKIP: ${{ vars.CI_IDLE_BASE_MERGE_SKIP || '1' }}
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-557
+          PR_FAST_ONLY: ${{ format('{0}', vars.CI_PR_FAST_ONLY) != '0' }}
         run: bash -e scripts/ci/cmux-next-steps/classify-pull-request-paths.sh
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-359
@@ -5015,6 +5017,7 @@ jobs:
   # Mac run of it is red too and gh-merge-green excuses that red as the base's, so it is skipped
   # (scripts/ci/base_red_skip.py: fails open, 10% of skips still run as the audit, label full-ci runs it,
   # vars.CI_SKIP_WHILE_BASE_RED == '0' turns it off). 2026-11-24: 0 of 37 PR runs green in 2 h, about 10k min a day.
+  # Why: docs/ci/cmux-next-workflow-notes.md#note-556
   generated-files-base-red:
     needs: [path_route]
     if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.path_route.outputs.generated_host == 'generated-files' && format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0' && !contains(github.event.pull_request.labels.*.name, 'full-ci') }}
