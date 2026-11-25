@@ -520,7 +520,10 @@ impl Hub {
         // A lease, never held across an unbounded await (`prompt_admission.rs`).
         let prompt_admission = match opts.prompt_admission.take() {
             Some(admission) => admission,
-            None => super::prompt_admission::Admission::take(&session.prompt_admission).await,
+            None => {
+                super::prompt_admission::Admission::take(&self.scope, &session.prompt_admission)
+                    .await
+            }
         };
         let admitted = || prompt_admission.release();
         #[cfg(test)]

@@ -26,12 +26,15 @@ pub struct Admission(Arc<Mutex<Option<OwnedMutexGuard<()>>>>, tokio::task::Abort
 
 impl Admission {
     /// Waits for the chat's admission (`Session::prompt_admission`) and holds it for at most
-    /// [`LEASE`].
-    pub(crate) async fn take(lock: &Arc<tokio::sync::Mutex<()>>) -> Self {
+    /// [`LEASE`]. The lease's timer is `owner`'s task (the hub's scope), ended with the admission.
+    pub(crate) async fn take(
+        owner: &cmux_scope::Scope,
+        lock: &Arc<tokio::sync::Mutex<()>>,
+    ) -> Self {
         let guard = lock.clone().lock_owned().await;
         let held = Arc::new(Mutex::new(Some(guard)));
         let lease = Arc::downgrade(&held);
-        let timer = tokio::spawn(async move {
+        let timer = owner.spawn_named("prompt admission lease", async move {
             tokio::time::sleep(LEASE).await;
             let lapsed = lease
                 .upgrade()
@@ -71,16 +74,17 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn an_admission_lapses_after_its_lease_and_a_release_lets_the_next_in() {
         let lock = Arc::new(tokio::sync::Mutex::new(()));
-        let first = Admission::take(&lock).await;
+        let owner = cmux_scope::Scope::new("test");
+        let first = Admission::take(&owner, &lock).await;
         assert!(first.held());
         let start = tokio::time::Instant::now();
-        let second = Admission::take(&lock).await;
+        let second = Admission::take(&owner, &lock).await;
         assert!(!first.held(), "the first prompt's admission lapsed");
         assert!(start.elapsed() >= LEASE && start.elapsed() < LEASE + Duration::from_millis(50));
         second.release();
         assert!(!second.held());
         let start = tokio::time::Instant::now();
-        let third = Admission::take(&lock).await;
+        let third = Admission::take(&owner, &lock).await;
         assert_eq!(start.elapsed(), Duration::ZERO);
         drop(third);
         assert!(lock.try_lock().is_ok(), "a dropped admission lets go");
