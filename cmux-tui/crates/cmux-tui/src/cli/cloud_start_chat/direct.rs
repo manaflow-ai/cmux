@@ -498,7 +498,7 @@ impl Cloud for Api {
 
     fn create(&mut self, name: &str, key: &str) -> Result<Row, Value> {
         use cmux_cloud_wire::{CloudMachineCreateOp, CloudMachineCreateParams, CloudMachineSize};
-        let (cpu, memory_mb, disk_mb) = super::super::cloud_journey::CHAT_START_SIZE;
+        let (cpu, memory_mb, disk_mb) = super::super::cloud_journey::start_size_from_env();
         let params = CloudMachineCreateParams {
             name: Some(name.to_owned()),
             size: CloudMachineSize {
