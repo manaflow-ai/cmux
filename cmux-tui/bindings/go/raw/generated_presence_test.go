@@ -45,6 +45,58 @@ func assertGeneratedFieldJSON(
 }
 
 func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
+	t.Run("ActivitySnapshot.EchoAtMs", func(t *testing.T) {
+		var missing ActivitySnapshot
+		if err := json.Unmarshal([]byte("{\"attached_clients\":1,\"last_agent_action_at_ms\":null,\"last_user_input_at_ms\":null,\"live_agents\":1}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if !missing.EchoAtMs.IsAbsent() {
+			t.Fatal("EchoAtMs did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "echo_at_ms", false, "")
+		var nullValue ActivitySnapshot
+		if err := json.Unmarshal([]byte("{\"attached_clients\":1,\"last_agent_action_at_ms\":null,\"last_user_input_at_ms\":null,\"live_agents\":1,\"echo_at_ms\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.EchoAtMs.IsNull() {
+			t.Fatal("EchoAtMs did not preserve null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "echo_at_ms", true, "null")
+		var presentValue ActivitySnapshot
+		if err := json.Unmarshal([]byte("{\"attached_clients\":1,\"last_agent_action_at_ms\":null,\"last_user_input_at_ms\":null,\"live_agents\":1,\"echo_at_ms\":1}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.EchoAtMs.Get(); !ok {
+			t.Fatal("EchoAtMs did not preserve a value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "echo_at_ms", true, "1")
+	})
+	t.Run("ActivitySnapshot.EchoInputAtMs", func(t *testing.T) {
+		var missing ActivitySnapshot
+		if err := json.Unmarshal([]byte("{\"attached_clients\":1,\"last_agent_action_at_ms\":null,\"last_user_input_at_ms\":null,\"live_agents\":1}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if !missing.EchoInputAtMs.IsAbsent() {
+			t.Fatal("EchoInputAtMs did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "echo_input_at_ms", false, "")
+		var nullValue ActivitySnapshot
+		if err := json.Unmarshal([]byte("{\"attached_clients\":1,\"last_agent_action_at_ms\":null,\"last_user_input_at_ms\":null,\"live_agents\":1,\"echo_input_at_ms\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.EchoInputAtMs.IsNull() {
+			t.Fatal("EchoInputAtMs did not preserve null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "echo_input_at_ms", true, "null")
+		var presentValue ActivitySnapshot
+		if err := json.Unmarshal([]byte("{\"attached_clients\":1,\"last_agent_action_at_ms\":null,\"last_user_input_at_ms\":null,\"live_agents\":1,\"echo_input_at_ms\":1}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.EchoInputAtMs.Get(); !ok {
+			t.Fatal("EchoInputAtMs did not preserve a value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "echo_input_at_ms", true, "1")
+	})
 	t.Run("ActivitySnapshot.LastAgentActionAtMs", func(t *testing.T) {
 		var missing ActivitySnapshot
 		if err := json.Unmarshal([]byte("{\"attached_clients\":1,\"last_user_input_at_ms\":null,\"live_agents\":1}"), &missing); err == nil {
@@ -66,6 +118,32 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 			t.Fatal("LastAgentActionAtMs did not preserve a required value")
 		}
 		assertGeneratedFieldJSON(t, presentValue, "last_agent_action_at_ms", true, "1")
+	})
+	t.Run("ActivitySnapshot.LastPersonAttachAtMs", func(t *testing.T) {
+		var missing ActivitySnapshot
+		if err := json.Unmarshal([]byte("{\"attached_clients\":1,\"last_agent_action_at_ms\":null,\"last_user_input_at_ms\":null,\"live_agents\":1}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if !missing.LastPersonAttachAtMs.IsAbsent() {
+			t.Fatal("LastPersonAttachAtMs did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "last_person_attach_at_ms", false, "")
+		var nullValue ActivitySnapshot
+		if err := json.Unmarshal([]byte("{\"attached_clients\":1,\"last_agent_action_at_ms\":null,\"last_user_input_at_ms\":null,\"live_agents\":1,\"last_person_attach_at_ms\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.LastPersonAttachAtMs.IsNull() {
+			t.Fatal("LastPersonAttachAtMs did not preserve null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "last_person_attach_at_ms", true, "null")
+		var presentValue ActivitySnapshot
+		if err := json.Unmarshal([]byte("{\"attached_clients\":1,\"last_agent_action_at_ms\":null,\"last_user_input_at_ms\":null,\"live_agents\":1,\"last_person_attach_at_ms\":1}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.LastPersonAttachAtMs.Get(); !ok {
+			t.Fatal("LastPersonAttachAtMs did not preserve a value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "last_person_attach_at_ms", true, "1")
 	})
 	t.Run("ActivitySnapshot.LastUserInputAtMs", func(t *testing.T) {
 		var missing ActivitySnapshot
@@ -67659,8 +67737,8 @@ func TestGeneratedConstrainedFieldsRejectUnknownValuesOnMarshal(t *testing.T) {
 }
 
 const (
-	generatedFieldShapeCount               = 1897
-	generatedOptionalNullableFieldCount    = 1324
+	generatedFieldShapeCount               = 1900
+	generatedOptionalNullableFieldCount    = 1327
 	generatedRequiredNullableFieldCount    = 174
 	generatedOptionalNonnullableFieldCount = 399
 	generatedRequiredFieldCount            = 1621
