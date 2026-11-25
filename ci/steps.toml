@@ -504,6 +504,7 @@ inputs = [
   "web/tests/vm-image-cmux-vm-machine-health.test.ts",
   "web/tests/vm-image-cmux-vm-promote-workflow.test.ts",
   "web/tests/vm-image-cmux-vm-github-auth.test.ts",
+  "web/tests/vm-image-cmux-vm-ipv6-route.test.ts",
   "web/services/vms/hygiene/cmux-machine-hygiene",
   ".github/workflows/cloud-vm-image-bake.yml",
   ".github/workflows/cloud-vm-image-promote.yml",
@@ -511,7 +512,7 @@ inputs = [
 run = '''
 cd web
 flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile
-bun test tests/vm-image-cmux-vm-lock.test.ts tests/vm-image-cmux-vm-sshd.test.ts tests/vm-image-cmux-vm-bake-workflow.test.ts tests/vm-image-cmux-vm-dev-tree.test.ts tests/vm-image-cmux-vm-dns.test.ts tests/vm-image-cmux-vm-machine-health.test.ts tests/vm-image-cmux-vm-promote-workflow.test.ts tests/vm-image-cmux-vm-github-auth.test.ts
+bun test tests/vm-image-cmux-vm-lock.test.ts tests/vm-image-cmux-vm-sshd.test.ts tests/vm-image-cmux-vm-bake-workflow.test.ts tests/vm-image-cmux-vm-dev-tree.test.ts tests/vm-image-cmux-vm-dns.test.ts tests/vm-image-cmux-vm-machine-health.test.ts tests/vm-image-cmux-vm-promote-workflow.test.ts tests/vm-image-cmux-vm-github-auth.test.ts tests/vm-image-cmux-vm-ipv6-route.test.ts
 '''
 
 # ci-artifact-transport.yml's two halves. Its Python tests ran on every change to its list; its Worker half
