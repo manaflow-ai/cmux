@@ -95,14 +95,6 @@ enum Strings {
     }
     static func unreadCount(_ value: Int) -> String { String(localized: "sidebar.a11y.unread", defaultValue: "\(value) unread", bundle: .localizedModule) }
     static func progressPercent(_ value: Int) -> String { String(localized: "sidebar.a11y.progress", defaultValue: "\(value)% done", bundle: .localizedModule) }
-    /// The agent chat's task list: steps done of all (the row's "3/7" in words, and the hover card's line).
-    static func taskProgress(done: Int, total: Int) -> String {
-        String(localized: "sidebar.tasks.progress", defaultValue: "\(done) of \(total) tasks done", bundle: .localizedModule)
-    }
-    /// The hover card's line for the step the agent works on.
-    static func taskNow(_ step: String) -> String { String(localized: "sidebar.tasks.now", defaultValue: "Now: \(step)", bundle: .localizedModule) }
-    /// The hover card's line for the step after it.
-    static func taskNext(_ step: String) -> String { String(localized: "sidebar.tasks.next", defaultValue: "Next: \(step)", bundle: .localizedModule) }
     /// The hover card's line for a workspace whose idle terminals were freed (`workspaces.freeing.*`).
     static func freedTerminals(_ value: Int) -> String { String(localized: "sidebar.hoverCard.freedTerminals", defaultValue: "Freed terminals: \(value). They start again when you open this workspace.", bundle: .localizedModule) }
     /// The hover card's split miniature, for VoiceOver.
