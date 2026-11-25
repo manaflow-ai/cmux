@@ -105,6 +105,26 @@ fn launch_sign_in_and_identity_rules_answer_here() {
         &json!({"window": "automatic", "defaultBrowser": "com.apple.Safari"}),
     );
     assert_eq!(window["opensDefaultBrowser"], false);
+    let (_, window) = call(
+        c"cloud_auth_sign_in_window",
+        &json!({"window": "inApp", "defaultBrowser": "com.microsoft.edgemac"}),
+    );
+    assert_eq!(window["opensDefaultBrowser"], true);
+    let (_, place) = call(
+        c"cloud_auth_sign_in_place",
+        &json!({"window": "automatic", "defaultBrowser": "com.microsoft.edgemac", "inApp": true}),
+    );
+    assert_eq!(place["place"], "inApp");
+    let (_, place) = call(
+        c"cloud_auth_sign_in_place",
+        &json!({"window": "automatic", "defaultBrowser": "com.microsoft.edgemac"}),
+    );
+    assert_eq!(place["place"], "defaultBrowser");
+    let (_, place) = call(
+        c"cloud_auth_sign_in_place",
+        &json!({"window": "popup", "defaultBrowser": null, "inApp": true}),
+    );
+    assert_eq!(place["place"], "popup");
     let (_, scope) = call(
         c"cloud_auth_creation_scope",
         &json!({"previous": [null, null], "current": ["u", null]}),
@@ -335,4 +355,41 @@ fn capture_auth_invalid_lease_refuses_before_platform_io() {
     assert_eq!(reply["result"]["code"], "invalid_lease");
     assert_eq!(reply["result"]["ok"], false);
     assert_eq!(reply["result"]["verifiedAbsent"], false);
+}
+
+#[test]
+fn the_no_callback_sign_in_answers_here() {
+    let project = json!({"stackBaseUrl": "https://api.stack-auth.com", "projectId": "p", "publishableClientKey": "k"});
+    let (code, start) = call(c"cloud_auth_cli_sign_in_start", &project);
+    assert_eq!(code, OK);
+    assert_eq!(start["call"]["url"], "https://api.stack-auth.com/api/v1/auth/cli");
+    assert_eq!(start["pollIntervalMs"], 2_000);
+    let (_, started) = call(
+        c"cloud_auth_cli_sign_in_read_start",
+        &json!({"status": 200, "body": r#"{"polling_code":"pc","login_code":"lc","expires_at":"x"}"#,
+                "authWebOrigin": "https://cmux.com"}),
+    );
+    assert_eq!(started["kind"], "started");
+    assert_eq!(started["confirmUrl"], "https://cmux.com/handler/cli-auth-confirm?login_code=lc");
+    let (_, poll) =
+        call(c"cloud_auth_cli_sign_in_poll", &json!({"project": project, "pollingCode": "pc"}));
+    assert_eq!(poll["call"]["url"], "https://api.stack-auth.com/api/v1/auth/cli/poll");
+    let (_, polled) = call(
+        c"cloud_auth_cli_sign_in_read_poll",
+        &json!({"status": 200, "body": r#"{"status":"success","refresh_token":"rt"}"#}),
+    );
+    assert_eq!(polled, json!({"kind": "signedIn", "refreshToken": "rt"}));
+    let (_, token) =
+        call(c"cloud_auth_cli_sign_in_token", &json!({"project": project, "refreshToken": "rt"}));
+    assert_eq!(
+        token["call"]["url"],
+        "https://api.stack-auth.com/api/v1/auth/sessions/current/refresh"
+    );
+    let (_, tokens) = call(
+        c"cloud_auth_cli_sign_in_read_token",
+        &json!({"status": 200, "body": r#"{"access_token":"at"}"#, "refreshToken": "rt"}),
+    );
+    assert_eq!(tokens, json!({"kind": "tokens", "accessToken": "at", "refreshToken": "rt"}));
+    let (code, _) = call(c"cloud_auth_cli_sign_in_read_poll", &json!({"status": "x"}));
+    assert_eq!(code, ERR_INVALID);
 }

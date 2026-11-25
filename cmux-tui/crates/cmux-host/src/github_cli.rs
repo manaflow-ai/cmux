@@ -1,5 +1,8 @@
 //! `cmux github …` on a cmux Cloud machine: git and `gh` with short-lived,
-//! repo-scoped GitHub tokens and no login on the machine.
+//! repo-scoped GitHub tokens and no login on the machine. On a machine joined to a cmux hub
+//! (`acpmux machine join`) with no Cloud agent, each ask goes to that hub instead
+//! (`github_cli_joined.rs`), and on a machine the person added from their Mac, to that Mac
+//! through the agent session's acpmux daemon (`github_cli_lane.rs`), with the same answers.
 //!
 //! - `credential get|store|erase`: a git credential helper. `get` asks the
 //!   machine's Cloud agent (its socket, `cloud/github.rs`) for a token for
@@ -44,6 +47,7 @@ use serde_json::{Map, Value, json};
 
 use crate::cloud::github::{TokenAsk, valid_repo};
 use crate::cloud::wire::AGENT_SOCKET;
+use crate::github_cli_joined::{JoinedMachine, Post, ask_hub, https_post, joined_now};
 use crate::json::JsonField;
 
 const USAGE: &str = "usage: cmux github credential get|store|erase | gh [--write] [--] ARGS... | gh --auto [--] ARGS... | setup [--unset]";
@@ -133,6 +137,22 @@ impl Refused {
                      suspended on GitHub)."
                 ),
                 Some(format!("To renew it, {CONNECT_GITHUB}; {again}.")),
+            ),
+            "github.no_owner" => (
+                format!(
+                    "{lead}: no Mac that lends GitHub to this machine is connected (cmux on the \
+                     Mac that added it is closed, asleep or signed out)."
+                ),
+                Some(format!(
+                    "Open cmux on that Mac (or add this machine from it with Add Machine, GitHub \
+                     on); {again}."
+                )),
+            ),
+            "github.denied" => (
+                format!("{lead}: the Mac that added this machine does not lend it GitHub."),
+                Some(format!(
+                    "Turn GitHub on for this machine in cmux on that Mac (Add Machine); {again}."
+                )),
             ),
             "auth.required" | "auth.forbidden" | "auth.refused" | "vm.unbound" => (
                 format!("{lead}: this machine's cmux Cloud sign-in needs renewing."),
@@ -268,6 +288,7 @@ pub fn retryable(code: &str) -> bool {
             | "busy"
             | "rate_limited"
             | "vm.agent_unreachable"
+            | "github.no_owner"
     )
 }
 
@@ -293,13 +314,15 @@ pub fn retry_delay(e: &Refused) -> Option<Duration> {
     }
 }
 
-/// [`ask_agent`], retried once after a retryable refusal.
+/// [`ask_here`] with this process's join reader (`github_cli_joined::set_joined_source`) and
+/// HTTPS, retried once after a retryable refusal.
 pub fn ask_retrying(socket: &Path, ask: &TokenAsk) -> Result<Minted, Refused> {
-    match ask_agent(socket, ask) {
+    let once = || ask_here(socket, ask, &joined_now, &https_post);
+    match once() {
         Err(e) => match retry_delay(&e) {
             Some(delay) => {
                 std::thread::sleep(delay);
-                ask_agent(socket, ask)
+                once()
             }
             None => Err(e),
         },
@@ -307,9 +330,35 @@ pub fn ask_retrying(socket: &Path, ask: &TokenAsk) -> Result<Minted, Refused> {
     }
 }
 
+/// One ask for this machine: its Cloud agent over `socket`, else, when no agent socket answers
+/// and the machine is joined to a hub (`joined`), that hub's machine token route
+/// (`github_cli_joined.rs`), else, in an acpmux agent session on a machine a Mac lends GitHub
+/// to, that Mac through the session's daemon (`github_cli_lane.rs`). None: the agent's
+/// `vm.agent_unreachable`.
+pub fn ask_here(
+    socket: &Path,
+    ask: &TokenAsk,
+    joined: &dyn Fn() -> Option<JoinedMachine>,
+    post: &Post<'_>,
+) -> Result<Minted, Refused> {
+    match UnixStream::connect(socket) {
+        Ok(stream) => minted_from_reply(&reply_on(stream, &ask.to_line(), ASK_TIMEOUT)?),
+        Err(e) => match joined() {
+            Some(machine) => ask_hub(&machine, ask, post),
+            None => crate::github_cli_lane::ask_lane(ask)
+                .unwrap_or_else(|| Err(unreachable(socket, &e))),
+        },
+    }
+}
+
 /// One ask over the agent socket: write the line, read the one reply.
 pub fn ask_agent(socket: &Path, ask: &TokenAsk) -> Result<Minted, Refused> {
-    let reply = agent_reply(socket, &ask.to_line(), ASK_TIMEOUT)?;
+    minted_from_reply(&agent_reply(socket, &ask.to_line(), ASK_TIMEOUT)?)
+}
+
+/// The token of an agent reply line (`{ok: true, token}`), or its refusal
+/// (`{ok: false, error: {code, message, configure_url?, reason?}, retry_after?}`).
+pub(crate) fn minted_from_reply(reply: &Value) -> Result<Minted, Refused> {
     if *reply.field("ok") == true {
         let token = reply.field("token").as_str().unwrap_or("");
         if token.is_empty() {
@@ -338,13 +387,20 @@ pub fn ask_agent(socket: &Path, ask: &TokenAsk) -> Result<Minted, Refused> {
 
 /// One line to the agent socket and its one JSON reply, read within `wait`.
 pub(crate) fn agent_reply(socket: &Path, line: &str, wait: Duration) -> Result<Value, Refused> {
-    let stream = UnixStream::connect(socket).map_err(|e| {
-        refused(
-            "vm.agent_unreachable",
-            format!("{} ({e}); `cmux github` works on a cmux Cloud machine", socket.display()),
-        )
-    })?;
+    let stream = UnixStream::connect(socket).map_err(|e| unreachable(socket, &e))?;
     reply_on(stream, line, wait)
+}
+
+/// No agent at `socket` (and no join to ask instead).
+fn unreachable(socket: &Path, e: &std::io::Error) -> Refused {
+    refused(
+        "vm.agent_unreachable",
+        format!(
+            "{} ({e}); `cmux github` works on a cmux Cloud machine or a machine joined to a cmux \
+             hub (`acpmux machine join`)",
+            socket.display()
+        ),
+    )
 }
 
 /// [`agent_reply`] on a connected socket: one line out, one JSON line back.

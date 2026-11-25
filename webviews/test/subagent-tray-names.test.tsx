@@ -63,6 +63,17 @@ afterAll(async () => {
   await teardownDom(saved, { window: dom.window, scope });
 });
 setPaneLanguage("en");
+// These cases read the folded header's names (trayFoldHead.experiment.ts `one`; its default is now
+// `kinds`) and the run's clock (trayHeadClock.experiment.ts `run`; its default is now `none`).
+globalThis.cmuxExperiments = {
+  ...globalThis.cmuxExperiments,
+  "subagent-tray-fold-head": "one",
+  "subagent-tray-head-clock": "run",
+};
+afterAll(() => {
+  const pins = globalThis.cmuxExperiments as Record<string, string> | undefined;
+  if (pins) for (const id of ["subagent-tray-fold-head", "subagent-tray-head-clock"]) delete pins[id];
+});
 
 const now = Date.now();
 const agent = (id: string, task: string, startedAgo: number): Subagent => ({

@@ -92,15 +92,18 @@ use crate::stream_interrupt::StreamInterrupt;
 /// each is a git process that reads a repository, and the machine also runs
 /// the person's agents and terminals. Four keep a view's read from waiting
 /// behind one slow diff without a burst of git processes.
+/// Measured: a git process each (its RSS grows with the repository, not measured here).
 const MAX_READ_RUNS: usize = 4;
 
 /// The read places that long reads may take at one time. One less than
 /// [`MAX_READ_RUNS`]: the place they leave is where a short read starts
 /// while long reads hold every place of theirs.
+/// Measured: a share of [`MAX_READ_RUNS`]'s git processes, no cost of its own.
 const MAX_LONG_READ_RUNS: usize = 3;
 
 /// Git mutations (a commit, a push, a worktree) that run at one time, in the
 /// whole daemon, beside the reads. They are a person's own actions and few.
+/// Measured: a git process each (its RSS grows with the repository, not measured here).
 const MAX_MUTATION_RUNS: usize = 2;
 
 /// Git runs of one connection that wait for a place (a run is one request
