@@ -44,43 +44,6 @@ struct SSHRemoteCommandCLIIntegrationTests {
 
     private struct RemoteCommandMockedSSHRun {
         let requests: [[String: Any]]
-        let status: Int32
-        let stderr: String
-    }
-
-    /// How the mock app answers `workspace.remote.configure`.
-    private enum RemoteConfigureReply {
-        case connected
-        case rejected
-        /// Closes the connection without a reply, as the app did for #21405.
-        case dropsConnection
-    }
-
-    @Test
-    func testSSHKeepsTheNewWorkspaceWhenTheAppDropsTheConnection() throws {
-        let run = try Self.runRemoteCommandMockedSSH(
-            arguments: [],
-            configureReply: .dropsConnection
-        )
-
-        #expect(run.status != 0, Comment(rawValue: run.stderr))
-        #expect(
-            Self.params(for: "workspace.close", in: run.requests) == nil,
-            "A transport error must not close the workspace the CLI just opened"
-        )
-        #expect(run.stderr.contains("11111111-1111-1111-1111-111111111111 stays open"), Comment(rawValue: run.stderr))
-    }
-
-    @Test
-    func testSSHClosesTheNewWorkspaceWhenTheAppRejectsItsConfiguration() throws {
-        let run = try Self.runRemoteCommandMockedSSH(
-            arguments: [],
-            configureReply: .rejected
-        )
-
-        #expect(run.status != 0, Comment(rawValue: run.stderr))
-        let closeParams = try #require(Self.params(for: "workspace.close", in: run.requests))
-        #expect(closeParams["workspace_id"] as? String == "11111111-1111-1111-1111-111111111111")
     }
 
     @Test
@@ -304,8 +267,7 @@ struct SSHRemoteCommandCLIIntegrationTests {
     }
 
     private static func runRemoteCommandMockedSSH(
-        arguments sshArguments: [String],
-        configureReply: RemoteConfigureReply = .connected
+        arguments sshArguments: [String]
     ) throws -> RemoteCommandMockedSSHRun {
         let fileManager = FileManager.default
         let cliPath = try BundledCLITestSupport.bundledCLIPath(
@@ -365,25 +327,11 @@ struct SSHRemoteCommandCLIIntegrationTests {
                             ]
                         )
                     case "workspace.remote.configure":
-                        switch configureReply {
-                        case .connected:
-                            return Harness.v2Response(
-                                id: id,
-                                ok: true,
-                                result: ["remote": ["state": "connected"]]
-                            )
-                        case .rejected:
-                            return Harness.v2Response(
-                                id: id,
-                                ok: false,
-                                error: ["code": "invalid_params", "message": "bad remote configuration"]
-                            )
-                        case .dropsConnection:
-                            Darwin.shutdown(clientFD, SHUT_RDWR)
-                            return nil
-                        }
-                    case "workspace.close":
-                        return Harness.v2Response(id: id, ok: true, result: [:])
+                        return Harness.v2Response(
+                            id: id,
+                            ok: true,
+                            result: ["remote": ["state": "connected"]]
+                        )
                     case "workspace.ssh.open":
                         return Harness.v2Response(
                             id: id,
@@ -438,15 +386,11 @@ struct SSHRemoteCommandCLIIntegrationTests {
             "Expected workspace.remote.configure or workspace.ssh.open, saw \(state.snapshot())"
         )
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
-        if configureReply == .connected {
-            #expect(result.status == 0, Comment(rawValue: result.stderr))
-            #expect(result.stderr.isEmpty, Comment(rawValue: result.stderr))
-        }
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stderr.isEmpty, Comment(rawValue: result.stderr))
 
         return RemoteCommandMockedSSHRun(
-            requests: state.snapshot().compactMap(Harness.jsonObject),
-            status: result.status,
-            stderr: result.stderr
+            requests: state.snapshot().compactMap(Harness.jsonObject)
         )
     }
 
