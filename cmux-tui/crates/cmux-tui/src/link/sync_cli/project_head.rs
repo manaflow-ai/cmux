@@ -66,7 +66,7 @@ pub(super) fn serve_head(
         elapsed_ms(started),
         answer.pointer("/data/mount_ms").and_then(Value::as_u64),
     );
-    stamp_ready(&mut answer, timing);
+    stamp_ready(&mut answer, timing, head.manifest.kept_count());
     print_ready(&answer);
 
     drop(encoded);

@@ -598,7 +598,7 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
     // The start's gate, split, in the server's log (`start` makes it `projections/<server>.log`): the
     // start-chat answer does not reach `cloud start-chat --from-folder`'s caller, and the log does
     // (cmuxterm-hq goals/cloud-no-network-wait.md, "Ceiling": is the O(files) cost the listing or the send).
-    stamp_ready(&mut answer, timing);
+    stamp_ready(&mut answer, timing, listed.manifest.kept_count());
     // Taken before the answer, so the pid [`start`] writes on it is never one without the lock.
     let _lock = hold_lock(&at);
     record_listing(&name, &at, &folder, &encoded);
@@ -614,13 +614,14 @@ fn record_listing(name: &str, at: &str, folder: &Path, encoded: &[u8]) {
 }
 
 /// Logs the start's gate split ([`ready_timing`]) and puts it on the ready answer's data.
-fn stamp_ready(answer: &mut Value, timing: Value) {
+/// `kept_on_mac` is how many of the listed files stay on the Mac (the manifest's kept entries).
+fn stamp_ready(answer: &mut Value, timing: Value, kept_on_mac: usize) {
     eprintln!("cmux link project: ready {timing}");
     if let (Some(data), Value::Object(timing)) =
         (answer.get_mut("data").and_then(Value::as_object_mut), timing)
     {
         data.extend(timing);
-        data.insert("kept_on_mac".into(), json!(listed.manifest.kept_count()));
+        data.insert("kept_on_mac".into(), json!(kept_on_mac));
     }
 }
 
