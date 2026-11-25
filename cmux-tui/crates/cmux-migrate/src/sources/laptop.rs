@@ -657,8 +657,15 @@ fn carry(home: &Path, options: &Options, plan: &mut Plan) {
     for rel in SHELL {
         add(plan, CarryKind::Shell, &home.join(rel), None);
     }
+    // History can hold tokens typed on a command line and goes as plain text: listed, unchecked,
+    // carried only when the person checks it.
     for rel in SHELL_HISTORY {
         add(plan, CarryKind::ShellHistory, &home.join(rel), None);
+        if let Some(last) = plan.carry.last_mut()
+            && last.kind == CarryKind::ShellHistory
+        {
+            last.checked = false;
+        }
     }
 
     for rel in [".gitconfig", ".config/git/config"] {

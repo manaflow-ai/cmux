@@ -317,6 +317,13 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         // `archived: false` brings a log back: an in-memory store has no archive file, so the
         // chat `$S` stays as it is for the rows after this one.
         (method::MUX_COLD_ARCHIVE, Run(json!({"sessionId": "$S", "archived": false}))),
+        // This hub runs no holder loop, so the switch answers `auto.unavailable` (the arm's own
+        // answer); `$S` has no kept changes, so `show` lists none.
+        (method::MUX_AUTO_SESSION_SET, Run(json!({"sessionId": "$S", "auto": false}))),
+        (method::MUX_AUTO_SESSION_LEFTOVER, Run(json!({"sessionId": "$S", "action": "show"}))),
+        (method::MUX_AUTO_SESSION_WAKE, Run(json!({}))),
+        // No holder loop: the chat's own log is its transcript (`projection: null`).
+        (method::MUX_AUTO_SESSION_TRANSCRIPT, Run(json!({"sessionId": "$S"}))),
         (method::MUX_SIDE, Run(json!({"sessionId": "$S", "chat": "lso-no-such-chat"}))),
         (
             method::MUX_HARNESS_ENABLE,

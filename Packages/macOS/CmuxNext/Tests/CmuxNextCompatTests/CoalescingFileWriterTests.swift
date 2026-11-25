@@ -52,7 +52,7 @@ struct CoalescingFileWriterTests {
         let writer = CoalescingFileWriter(window: 0.01)
         writer.write(Data("a".utf8), to: file)
         writer.flush()
-        writer.write(to: file) { nil }
+        writer.save(to: file) { nil }
         writer.flush()
         #expect(!FileManager.default.fileExists(atPath: file.path))
     }
