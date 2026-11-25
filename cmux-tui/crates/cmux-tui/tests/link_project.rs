@@ -401,7 +401,7 @@ fn a_tracked_secret_kept_on_the_mac_is_listed_refused_and_git_status_is_clean() 
         eprintln!("skipping: no FUSE here");
         return;
     }
-    let w = world(20);
+    let w = world(20, false);
     const KEY: &str = "-----BEGIN PRIVATE KEY----- a test key that stays on the Mac\n";
     write(&w.local.join("cmux/test/fixtures/server.key"), KEY);
     // Committed long ago, as a repository's test keys are: a key written in the index's own
