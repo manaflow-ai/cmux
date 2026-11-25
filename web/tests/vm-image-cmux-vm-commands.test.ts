@@ -530,8 +530,8 @@ describe("cmux VM image /tmp writer after clean (image roll 42888042827: /tmp/op
       expect(out).toContain(`open by pid ${holder.pid}: sleep 300`);
       expect(out).toContain(`named by pid ${namer.pid}:`);
       expect(out).toContain("processes of");
-      // Roll 45608292358: the step log keeps only its tail, so the names come again last.
-      expect(result.stdout.trimEnd().split("\n").at(-1)).toBe(`left after clean: ${leftover}`);
+      expect(out).not.toContain("Usage:");
+      expect(out.trimEnd().split("\n").at(-1)).toContain(`written after clean: ${leftover}`);
     } finally {
       holder.kill("SIGKILL");
       namer.kill("SIGKILL");

@@ -533,6 +533,34 @@
           ]
         },
         {
+          "key": "experiments.introWalk",
+          "note": "Make cmux Yours as the intro walk's four screens (hq RFD 0057): look bundles with light and dark faces and a Tidy switch, how you work, trust and noise (agents' permission, banners and sound), then tune (density, background). The onboarding page reads it from its state (MakeItYoursStepModel.introWalk; webviews onboarding walk.ts). Off by default; off keeps today's one Make cmux Yours screen.",
+          "title": {
+            "key": "settings.experiments.introWalk",
+            "text": "Intro Walk"
+          },
+          "help": {
+            "key": "settings.experiments.introWalk.help",
+            "text": "Make cmux Yours becomes four short screens: a whole look, how you work, trust and notifications, then density and background."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "onboarding",
+            "intro",
+            "first run",
+            "walk",
+            "look",
+            "bundle",
+            "trust",
+            "permission",
+            "notifications"
+          ]
+        },
+        {
           "key": "experiments.threadMinimapRestReveal",
           "note": "The agent chat's prompt rail, where it would cover the text (narrow panes), reveals only for a pointer that rests 140 ms on the pane-edge strip with no button down, and takes no pointer while a press that began in the text is down, so a selection drag along the edge keeps selecting (webviews threadMinimap/railIntent.ts, reveal.experiment.ts, useExperimentSwitch(\"threadMinimapRestReveal\")). Off by default (Leo's UI merge hold, 2026-11-24); off keeps the earlier reveal on touch.",
           "title": {

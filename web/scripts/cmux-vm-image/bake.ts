@@ -222,7 +222,8 @@ function tmpLeftovers(dirs: readonly string[]): string {
  * The last step before snapshot-ready: anything under /tmp or /var/tmp now was written after clean and tmp-empty
  * (image roll 42888042827: /tmp/opencode), and would ship in every clone. Fail, naming the writer: for each
  * leftover its owner and mtime, the processes that hold it open (fuser, /proc/<pid>/fd) or name it on their
- * command line, then every process of the daemon user. `dirs` is for tests.
+ * command line, then every process of the daemon user, and the leftovers' names again on the last line. psmisc's
+ * fuser takes no `--` (it printed its usage for every leftover in roll 45608292358). `dirs` is for tests.
  */
 export function tmpWritersCommand(dirs: readonly string[] = ["/tmp", "/var/tmp"]): string {
   const script = [
@@ -243,9 +244,8 @@ export function tmpWritersCommand(dirs: readonly string[] = ["/tmp", "/var/tmp"]
     "done",
     'echo "processes of $CMUX_TUI_USER:"',
     'ps -o pid,ppid,lstart,args -u "$CMUX_TUI_USER" 2>&1 | sed \'s/^/  /\'',
-    'echo "files under /tmp or /var/tmp were written after clean (listed above and below)" >&2',
-    // Again, last: the step log keeps only the output's tail (roll 45608292358 lost the names above).
-    'printf \'%s\\n\' "$left" | head -20 | sed \'s/^/left after clean: /\'',
+    // Last, so the step log's 3000-character tail always keeps the names (image roll 45608292358 lost them).
+    'echo "files under /tmp or /var/tmp were written after clean: $(printf \'%s \' $left)(writers above)" >&2',
     "exit 1",
   ].join("\n");
   return `${cmuxTuiLayoutSelector()} && { ${script}\n} 2>&1`;
