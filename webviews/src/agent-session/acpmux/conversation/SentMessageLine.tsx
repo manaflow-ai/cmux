@@ -514,7 +514,7 @@ export function SentMessageGroup({
           : entry.type === "subsession"
             ? shortId(entry.call.sessionId)
             : entry.message.to
-              ? (recipientName(entry.message.to, names) ?? shortId(entry.message.to))
+              ? (recipientName(entry.message.to, names) ?? entry.message.toName ?? shortId(entry.message.to))
               : t("message.unknown"),
       ),
     ),
