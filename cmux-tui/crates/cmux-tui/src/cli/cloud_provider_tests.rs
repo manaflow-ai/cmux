@@ -72,7 +72,7 @@ fn the_help_provider_lines_parse() {
         let help = crate::cli::cloud_help::overview(japanese);
         let lines = help
             .lines()
-            .filter_map(|line| line.trim().strip_prefix("cmux cloud provider "))
+            .filter_map(|line| line.trim().strip_prefix("cmux vm provider "))
             .collect::<Vec<_>>();
         assert_eq!(lines.len(), 3, "{lines:?}");
         for line in lines {
