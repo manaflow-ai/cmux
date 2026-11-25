@@ -117,6 +117,8 @@ mod first_send;
 
 /// A chat past its context window: `/compact`, then the continuation.
 mod compact_first;
+// A chat a full disk cut waits for free space (`disk_wait.rs`).
+mod disk_wait;
 
 /// A dead agent's unread steers go into its continuation.
 mod unread_steers;
@@ -169,7 +171,8 @@ pub const CAPACITY_MAX_WAIT_MS: u64 = 300_000;
 /// parking. A rate limit's waits are its chat's backoff (`rate_hold.rs`), whose park now
 /// lifts itself; a capacity wait is [`capacity_wait`]. Off (`[]`) stays off.
 pub(in crate::hub) fn waits_it_out(reason: RetryReason, delays: &[u64]) -> bool {
-    matches!(reason, RetryReason::Capacity | RetryReason::RateLimit) && !delays.is_empty()
+    matches!(reason, RetryReason::Capacity | RetryReason::RateLimit | RetryReason::Disk)
+        && !delays.is_empty()
 }
 
 /// The wait before capacity attempt `index` (from 0): the configured wait, at most
@@ -184,6 +187,57 @@ pub(super) fn capacity_wait(index: usize, delays: &[u64], session_id: &str) -> u
     });
     let wait = wait.min(CAPACITY_MAX_WAIT_MS);
     staggered(wait, &format!("{session_id}#{index}"))
+}
+
+/// The deadline a capacity error's own `retry after Ss` names, jittered per chat and attempt:
+/// up to a fifth later, never earlier. Every chat the SR2 pool turned away at once is told the
+/// same `retry after`, so without the jitter they all came back at the moment the next account
+/// freed and emptied it again (2026-11-24: one lane's continuations were scheduled at exactly
+/// `delayMs: 203000` for `retry after 203s`). Any other reason's deadline is kept as it is.
+pub(super) fn jittered_reset(
+    reason: RetryReason,
+    reset: Option<u64>,
+    now: u64,
+    key: &str,
+) -> Option<u64> {
+    match (reason, reset) {
+        (RetryReason::Capacity, Some(at)) if at > now => {
+            Some(now.saturating_add(staggered(at - now, key)))
+        }
+        _ => reset,
+    }
+}
+
+/// The `lastTurn` a session row shows. A turn a capacity error cut, whose continuation acpmux
+/// waits for or is deciding or running, reads `status: "capacity"` (with `heldUntil`, the
+/// continuation's time, while it waits), not `failed`: acpmux holds it and goes on by itself
+/// once the pool frees, so a census of failed turns (HQ NOW's `failed_turns`) does not count it
+/// (Leo, 2026-11-24: "21 turns just died on '503 no non-exhausted claude accounts available'.
+/// why are we out of accounts, and why isn't anything falling back?"). The log keeps the
+/// turn's `failed` result; with no continuation coming (auto-resume off, Stop) the row says
+/// `failed` as before.
+pub(in crate::hub) fn row_last_turn(
+    last: Option<&Value>,
+    retry: Option<&RetrySummary>,
+    deciding: bool,
+) -> Option<Value> {
+    let last = last?;
+    let error = last.get("errorText").and_then(Value::as_str).unwrap_or_default();
+    // An account's spent limit is a capacity cause too (`capacity_wait.rs`): never red while held.
+    let capacity = last.get("status").and_then(Value::as_str) == Some("failed")
+        && super::turn_errors::resume_cause(error, error)
+            .and_then(RetryReason::from_cause)
+            .is_some_and(super::capacity_wait::is_capacity);
+    let waits = retry.filter(|r| super::capacity_wait::is_capacity(r.reason));
+    if !capacity || (waits.is_none() && !deciding) {
+        return Some(last.clone());
+    }
+    let mut held = last.clone();
+    held.set("status", json!("capacity"));
+    if let Some(retry) = waits {
+        held.set("heldUntil", json!(retry.next_at));
+    }
+    Some(held)
 }
 
 /// The slash command a cut prompt was, when its continuation must send it again rather than
@@ -229,6 +283,7 @@ pub(super) fn continue_text(error: &str, reason: &str) -> String {
         }
         "transport" => "a connection error",
         "context" => "the chat's context filling up; it was compacted",
+        "disk" => "the machine's disk filling up; acpmux waited until space was free again",
         _ => "an error",
     };
     format!(
@@ -704,6 +759,7 @@ impl Hub {
             if context && !hub.can_compact(&session).await {
                 if hub.take_pending(&session, &turn_id) {
                     hub.settled_unretried(&session, &turn_id, "not_retried");
+                    hub.lane_stranded(&session);
                 }
                 return;
             }
@@ -724,6 +780,7 @@ impl Hub {
                 if done > 0 {
                     let msg = json!({"promptId": root, "attempts": done, "turnId": turn_id, "reason": reason.as_str()});
                     hub.append_retry(&session, "auto_resume_exhausted", msg);
+                    hub.lane_stranded(&session);
                 } else if ours {
                     hub.settled_unretried(&session, &turn_id, "off");
                 }
@@ -732,7 +789,9 @@ impl Hub {
             let attempt = done + 1;
             let now = super::now_ms();
             let limits = session.meta().usage_limits;
-            let reset = reset_hint::reset_at(&error, limits.as_ref(), now).max(not_before);
+            let reset = reset_hint::reset_at(&error, limits.as_ref(), now);
+            let reset = jittered_reset(reason, reset, now, &format!("{}#{index}", session.id))
+                .max(not_before);
             let mut next_at = now.saturating_add(delay).max(reset.unwrap_or(now));
             // A rate limit's continuation waits out the chat's backoff, which grows with its
             // strikes, however early its own attempt would come; a parked chat's waits for a

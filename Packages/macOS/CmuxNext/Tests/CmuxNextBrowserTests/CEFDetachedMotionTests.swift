@@ -247,6 +247,66 @@ import Testing
         #expect(!hosting.holdsFirstFrame() && !hosting.isDetached && hosting.firstFrameHold == .none)
     }
 
+    /// Cmd-T's parked New Tab page shows in the key's turn twice over: un-hidden in its parking spot (the first-frame
+    /// hold detaches it), then installed in the pane, which moves its view to the pane's window. The move attached the
+    /// page at once, so the key's turn made two fork calls (a 1 ms sample of 30 Cmd-T presses, cmux19: 20 samples each)
+    /// and the order-in the hold defers came back before the first frame. A window change in the hold keeps it: the
+    /// page shows its first frame in the new window, attaches after that frame and is granted after the order-in.
+    @Test func aPageShownThenMovedToAnotherWindowKeepsItsFirstFrameHold() {
+        let (hosting, commit, frame) = shownPage()
+        var grants = 0
+        hosting.pageAppeared(windowInWindow: false) { grants += 1 }
+        hosting.windowDidChange()
+        #expect(calls == ["4:detach"], "the window change attached the page in the key's turn: \(calls)")
+        #expect(hosting.isDetached && hosting.holdsFirstFrame())
+        commit()
+        #expect(calls == ["4:detach"], "the key's commit alone does not attach")
+        frame()
+        #expect(calls == ["4:detach", "4:attach"])
+        commit()
+        #expect(grants == 1 && !hosting.holdsFirstFrame() && !hosting.isDetached && hosting.firstFrameHold == .none)
+    }
+
+    /// Cmd-T's spare waits parked away (outside its window, so detached by ``CEFLayerHosting/placementChanged()``), then
+    /// the pane installs it: its view moves into the window's content. That move attached the page in the key's turn,
+    /// a fork call and the window order-in before the first frame (a 1 ms sample of 30 Cmd-T presses, cmux21: the
+    /// rest of the key turn's `PaneContentView.install`). A parked-away page moved into view takes the first-frame
+    /// hold instead: attached after that frame, the host's grant after the order-in.
+    @Test func aParkedAwayPageMovedIntoViewAttachesAfterItsFirstFrame() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
+        let (hosting, commit, frame) = shownPage()
+        var grants = 0
+        hosting.heldGrant = { grants += 1 }
+        view.frame = NSRect(x: -100_000, y: -100_000, width: 400, height: 300)
+        window.contentView?.addSubview(view)
+        hosting.placementChanged()
+        #expect(calls == ["4:detach"] && hosting.isParkedAway)
+        view.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+        hosting.windowDidChange()
+        #expect(calls == ["4:detach"], "the page attached in the turn it moved into view: \(calls)")
+        #expect(hosting.holdsFirstFrame() && !hosting.isParkedAway)
+        commit()
+        #expect(calls == ["4:detach"], "the key's commit alone does not attach")
+        frame()
+        #expect(calls == ["4:detach", "4:attach"])
+        commit()
+        #expect(grants == 1 && !hosting.holdsFirstFrame() && !hosting.isDetached)
+    }
+
+    /// A parked-away page that moves to another parking place (another window's, still outside it) stays detached.
+    @Test func aParkedAwayPageMovedToAnotherParkingStaysDetached() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        defer { window.closeAfterTest() }
+        let (hosting, _, frame) = shownPage()
+        view.frame = NSRect(x: -100_000, y: -100_000, width: 400, height: 300)
+        window.contentView?.addSubview(view)
+        hosting.placementChanged()
+        hosting.windowDidChange()
+        frame()
+        #expect(calls == ["4:detach"] && hosting.isDetached && !hosting.holdsFirstFrame())
+    }
+
     /// A page whose window is already in the window (a tab switch inside its pane) is left alone.
     @Test func aPageShownWithItsWindowInIsLeftAlone() {
         let (hosting, commit, frame) = shownPage()

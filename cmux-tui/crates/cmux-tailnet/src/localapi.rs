@@ -25,16 +25,27 @@ impl LocalApi {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let token = base64::engine::general_purpose::STANDARD.encode(format!(":{cred}"));
         // This client carries the private LocalAPI password. Never use proxies or redirects.
-        let agent = reqwest::blocking::Client::builder()
+        let agent = cmux_egress::blocking_client_builder("cmux_tailnet::localapi")
             .no_proxy()
             .redirect(reqwest::redirect::Policy::none())
-            // Plain HTTP to loopback: no TLS roots. Without this the platform verifier needs the
-            // system CA store, and a host without one (a minimal container) never sees its node
-            // come up ("could not create LocalAPI client").
-            .tls_certs_only([])
             .connect_timeout(Duration::from_secs(10))
+            // LocalAPI is plain http on loopback and needs no TLS roots. The
+            // platform verifier fails to build where the host has no CA bundle
+            // (a bare Linux container), which stopped every node before it
+            // joined; trusting no roots also keeps this client off https.
+            .tls_certs_only(std::iter::empty())
             .build()
-            .map_err(|error| Error(format!("could not create LocalAPI client: {error}")))?;
+            // A builder error names a TLS or platform setup failure; it never
+            // carries the password, which only goes into a request header.
+            .map_err(|error| {
+                let mut reason = error.to_string();
+                let mut source = std::error::Error::source(&error);
+                while let Some(cause) = source {
+                    reason.push_str(&format!(": {cause}"));
+                    source = cause.source();
+                }
+                Error(format!("could not create LocalAPI client: {reason}"))
+            })?;
         Ok(Self { base: format!("http://{addr}"), authorization: format!("Basic {token}"), agent })
     }
 

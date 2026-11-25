@@ -31,6 +31,10 @@ struct ComposerTextView: UIViewRepresentable {
     /// A copied image or file pasted into the field (edit menu Paste or
     /// Command-V): it becomes an attachment. Nil: the composer takes none.
     var onPasteAttachments: (() -> Void)?
+    /// The composer's Autocorrect toggle (`CmuxMobilePreferences.terminalComposerAutocorrect`):
+    /// on, the keyboard corrects, spell-checks and predicts as in the chat
+    /// composer; off (the default), a shell line is typed as is.
+    var autocorrect = false
 
     /// Classic cmux iOS's 14 lines (#41900 cut it to six; the iOS owner
     /// kept the classic design, 2026-11-13).
@@ -55,13 +59,11 @@ struct ComposerTextView: UIViewRepresentable {
         view.textContainerInset = UIEdgeInsets(top: inset, left: 0, bottom: inset, right: 0)
         view.textContainer.lineFragmentPadding = 0
         view.keyboardAppearance = .dark
-        view.autocorrectionType = .no
+        Self.applyAutocorrect(autocorrect, to: view)
         view.autocapitalizationType = .none
-        view.spellCheckingType = .no
         view.smartQuotesType = .no
         view.smartDashesType = .no
         view.smartInsertDeleteType = .no
-        view.inlinePredictionType = .no
         // A shell line is not prose (SPEC M2): no QuickType bar, no AutoFill
         // callout, no Writing Tools.
         view.textContentType = nil
@@ -78,6 +80,10 @@ struct ComposerTextView: UIViewRepresentable {
     }
 
     func updateUIView(_ view: ComposerUITextView, context: Context) {
+        ComposerKeyStamp.viewUpdate(view) { update(view, context: context) }
+    }
+
+    private func update(_ view: ComposerUITextView, context: Context) {
         context.coordinator.parent = self
         if context.coordinator.lastTypeSize != dynamicTypeSize {
             context.coordinator.lastTypeSize = dynamicTypeSize
@@ -90,6 +96,10 @@ struct ComposerTextView: UIViewRepresentable {
         view.placeholder = placeholder
         view.onPasteAttachments = onPasteAttachments == nil ? nil : { [weak coordinator = context.coordinator] in
             coordinator?.parent.onPasteAttachments?()
+        }
+        if Self.applyAutocorrect(autocorrect, to: view), view.isFirstResponder {
+            // The open keyboard reads its traits only when asked again.
+            view.reloadInputViews()
         }
         view.isEditable = !isDisabled
         if isDisabled, view.isFirstResponder { view.resignFirstResponder() }
@@ -104,6 +114,21 @@ struct ComposerTextView: UIViewRepresentable {
     /// (`ComposerFieldHeight`); measuring changes nothing on the view.
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: ComposerUITextView, context: Context) -> CGSize? {
         uiView.fittingSize(proposedWidth: proposal.width)
+    }
+
+    /// Sets the correction traits; true when one changed. Smart quotes and
+    /// dashes stay off either way: a quote typed to a shell stays a quote.
+    @discardableResult
+    static func applyAutocorrect(_ on: Bool, to view: UITextView) -> Bool {
+        let correction: UITextAutocorrectionType = on ? .yes : .no
+        let spelling: UITextSpellCheckingType = on ? .yes : .no
+        let prediction: UITextInlinePredictionType = on ? .default : .no
+        guard view.autocorrectionType != correction || view.spellCheckingType != spelling
+            || view.inlinePredictionType != prediction else { return false }
+        view.autocorrectionType = correction
+        view.spellCheckingType = spelling
+        view.inlinePredictionType = prediction
+        return true
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }

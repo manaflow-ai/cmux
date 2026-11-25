@@ -252,9 +252,51 @@ def classes_on() -> bool:
     return os.environ.get("CI_WEBVIEWS_PUSH_CLASSES", "1") != "0"
 
 
-def full_rule(files: list[str]) -> str:
+# webviews/package.json is on FULL for its pins: a new bun, React or test library version changes every test file. An
+# edit to its "scripts" alone moves no pin (bun.lock, a FULL path of its own, holds the versions). package.json alone
+# made 20 of the 38 every-shard pull request picks of 11-23 18Z..11-24 18Z, and this rule passes 4 of its 7 merged
+# edits of 11-18..24 (each a new check:NAME and its check:pieces line). Such an edit is an every-shard input outside
+# FULL, so sampled, unless the test run names a script it changes (`run NAME` in the runner or under webviews/test/,
+# a comment or a fixture string too): then that script may be a runner input, and the edit stays FULL.
+PACKAGE = "webviews/package.json"
+SCRIPT_CALLERS = ("scripts/ci/run-webviews-tests.sh", "webviews/test/")
+
+
+def json_or_none(text: str | None) -> dict | None:
+    try:
+        value = json.loads(text) if text is not None else None
+    except ValueError:
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def scripts_only(repo: Path, base: str, head: str) -> bool:
+    """Whether webviews/package.json's edit changes only "scripts", and none the test run calls."""
+    before, after = json_or_none(git_show(repo, base, PACKAGE)), json_or_none(git_show(repo, head, PACKAGE))
+    if before is None or after is None:
+        return False
+    rest = lambda value: {k: v for k, v in value.items() if k != "scripts"}  # noqa: E731
+    if rest(before) != rest(after):
+        return False
+    old, new = before.get("scripts") or {}, after.get("scripts") or {}
+    if not isinstance(old, dict) or not isinstance(new, dict):
+        return False
+    names = sorted(k for k in set(old) | set(new) if old.get(k) != new.get(k))
+    if not names:
+        return True
+    callers = subprocess.run(["git", "-C", str(repo), "grep", "-I", "-h", "-E", "-e", r"\brun\b", head, "--",
+                              *SCRIPT_CALLERS], capture_output=True, text=True)
+    if callers.returncode not in (0, 1):
+        return False
+    called = re.compile(r"\brun[\s\"',]+(" + "|".join(re.escape(n) for n in names) + r")(?![\w:-])")
+    return not called.search(callers.stdout)
+
+
+def full_rule(files: list[str], repo: Path | None = None, base: str = "", head: str = "") -> str:
     """Why the change needs every shard as a FULL path ("" when none is)."""
     for f in files:
+        if f == PACKAGE and repo is not None and scripts_only(repo, base, head):
+            continue
         for pattern, why in FULL:
             if pattern.search(f):
                 return f"{f} is {why}"
@@ -331,7 +373,7 @@ def classify(repo: Path, base: str, head: str, count: int) -> tuple[str, list[in
         files = wa.changed(repo, base, head)
     except subprocess.CalledProcessError as err:
         return "full", everything, f"cannot diff {base}..{head} ({err.stderr.strip()})", {}
-    why = full_rule(files)
+    why = full_rule(files, repo, base, head)
     if why:
         return "full", everything, why, {}
     selector = wa.Selector(repo)
