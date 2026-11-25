@@ -4,7 +4,7 @@
 use std::io::Write;
 
 use ratatui::Frame;
-use ratatui::layout::{Constraint, Layout};
+use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Gauge, Paragraph};
@@ -12,7 +12,7 @@ use ratatui::widgets::{Block, Borders, Gauge, Paragraph};
 use crate::App;
 use crate::link::Spec;
 use crate::readiness::Phase;
-use crate::transcript::Item;
+use crate::transcript::{Item, Transcript};
 
 const SPIN: [&str; 4] = ["◐", "◓", "◑", "◒"];
 
@@ -60,6 +60,11 @@ pub fn draw(f: &mut Frame, app: &App) {
     let mut spans = vec![
         Span::styled(" cmux autocloud ", Style::new().bold().reversed()),
         Span::raw(format!(" {} · {} · ", app.spec.describe(), session)),
+        Span::raw(if app.sides.is_empty() {
+            String::new()
+        } else {
+            format!("{} chats · ", app.sides.len().saturating_add(1))
+        }),
         link_state,
         agent,
     ];
@@ -82,10 +87,75 @@ pub fn draw(f: &mut Frame, app: &App) {
         f.render_widget(gauge, bar);
     }
 
-    // The chat, wrapped by hand so the bottom stays in view.
+    // The chats: one fills the body; several share it in columns (RFD 0139 "several chats in one
+    // view"), the focused one framed in color and taking the prompt.
+    if app.sides.is_empty() {
+        draw_chat(f, body, &app.transcript, app.scroll, app.live());
+    } else {
+        let all = app.sides.len().saturating_add(1);
+        let first = window_start(all, app.focus, MAX_COLUMNS);
+        let shown = all.min(MAX_COLUMNS);
+        let columns = Layout::horizontal(vec![Constraint::Fill(1); shown]).split(body);
+        for (col, area) in columns.iter().enumerate() {
+            let at = first.saturating_add(col);
+            let (transcript, title) = match at.checked_sub(1) {
+                None => (&app.transcript, app.session.as_deref().map(short).unwrap_or("new chat")),
+                Some(i) => match app.sides.get(i) {
+                    Some(side) => (&side.transcript, short(&side.session)),
+                    None => continue,
+                },
+            };
+            let focused = at == app.focus;
+            let style = if focused { Style::new().fg(Color::Cyan) } else { Style::new().dim() };
+            let status = match transcript.status.as_str() {
+                "running" => format!(" {} working", spin(app.ticks)),
+                _ => String::new(),
+            };
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .title(format!(" {} {title}{status} ", at.saturating_add(1)))
+                .border_style(style);
+            let inner = block.inner(*area);
+            f.render_widget(block, *area);
+            let scroll = if focused { app.scroll } else { 0 };
+            draw_chat(f, inner, transcript, scroll, app.live());
+        }
+    }
+
+    // The prompt. Typing works while the link is down: it goes out on reconnect.
+    let title = if !app.live() {
+        " message (sends when the link is back) ".to_owned()
+    } else if app.sides.is_empty() {
+        " message · Enter send · Ctrl-N another chat · PgUp/PgDn scroll · Ctrl-C quit ".to_owned()
+    } else {
+        format!(
+            " message to chat {} · Tab next chat · Ctrl-N another · Ctrl-W close · Ctrl-C quit ",
+            app.focus.saturating_add(1)
+        )
+    };
+    let prompt = Paragraph::new(format!("{}▏", app.input)).block(
+        Block::default().borders(Borders::ALL).title(title).border_style(Style::new().dim()),
+    );
+    f.render_widget(prompt, input);
+}
+
+/// The most chats drawn side by side; past it the view follows the focus.
+const MAX_COLUMNS: usize = 4;
+
+/// The first chat drawn when `all` chats share `columns` columns and `focus` must be in view.
+pub fn window_start(all: usize, focus: usize, columns: usize) -> usize {
+    let columns = columns.max(1);
+    if all <= columns {
+        return 0;
+    }
+    focus.saturating_add(1).saturating_sub(columns).min(all.saturating_sub(columns))
+}
+
+/// One chat's transcript, wrapped by hand so the bottom stays in view.
+fn draw_chat(f: &mut Frame, body: Rect, transcript: &Transcript, scroll: u16, live: bool) {
     let width = body.width.max(10) as usize;
     let mut lines: Vec<Line> = Vec::new();
-    for item in &app.transcript.items {
+    for item in &transcript.items {
         let (prefix, style, text) = match item {
             Item::User(t) => {
                 ("› ", Style::new().fg(Color::Magenta).add_modifier(Modifier::BOLD), t.clone())
@@ -108,27 +178,16 @@ pub fn draw(f: &mut Frame, app: &App) {
         }
         lines.push(Line::raw(""));
     }
-    if app.transcript.items.is_empty() && app.live() {
+    if transcript.items.is_empty() && live {
         lines.push(Line::styled("  Say something to the agent below.", Style::new().dim()));
     }
     let height = body.height as usize;
-    let end = lines.len().saturating_sub(app.scroll as usize);
+    let end = lines.len().saturating_sub(scroll as usize);
     let start = end.saturating_sub(height);
     f.render_widget(
         Paragraph::new(lines.get(start..end).map(<[_]>::to_vec).unwrap_or_default()),
         body,
     );
-
-    // The prompt. Typing works while the link is down: it goes out on reconnect.
-    let title = if app.live() {
-        " message · Enter send · PgUp/PgDn scroll · Ctrl-C quit "
-    } else {
-        " message (sends when the link is back) "
-    };
-    let prompt = Paragraph::new(format!("{}▏", app.input)).block(
-        Block::default().borders(Borders::ALL).title(title).border_style(Style::new().dim()),
-    );
-    f.render_widget(prompt, input);
 }
 
 fn short(id: &str) -> &str {
@@ -231,7 +290,17 @@ impl Printer {
 
 #[cfg(test)]
 mod tests {
-    use super::wrap;
+    use super::{window_start, wrap};
+
+    #[test]
+    fn the_columns_follow_the_focus() {
+        assert_eq!(window_start(3, 2, 4), 0);
+        assert_eq!(window_start(6, 0, 4), 0);
+        assert_eq!(window_start(6, 3, 4), 0);
+        assert_eq!(window_start(6, 4, 4), 1);
+        assert_eq!(window_start(6, 5, 4), 2);
+        assert_eq!(window_start(6, 9, 4), 2);
+    }
 
     #[test]
     fn wraps_at_spaces_and_keeps_blank_lines() {

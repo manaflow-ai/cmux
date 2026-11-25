@@ -25,9 +25,9 @@ pub fn write_600mib(path: &Path, session: &str, cwd: &Path) -> usize {
             // Fill the final small gap with a valid, complete JSON record.
             let fixed = "{\"type\":\"progress\",\"padding\":\"\"}\n";
             let len = usize::try_from(BYTES - size).unwrap();
-            write!(
+            writeln!(
                 out,
-                "{{\"type\":\"progress\",\"padding\":\"{}\"}}\n",
+                "{{\"type\":\"progress\",\"padding\":\"{}\"}}",
                 "x".repeat(len - fixed.len())
             )
             .unwrap();

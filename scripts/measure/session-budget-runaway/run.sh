@@ -5,7 +5,11 @@
 # 64 MB allocate+touch, a 2 ms CPU spin, a fork+exec and a 4 KB write+fsync every 100 ms (p50/p99 ms).
 # Cases: idle, mem-old|mem-new|mem-nohigh (a 6 GB hog; new = MemoryMax=2G with MemoryHigh, nohigh = without),
 # cpu-old|cpu-new (32 spinners), fork-old|fork-new (3000 forks; new = TasksMax=512), disk-old|disk-new (a dd
-# writer, CAP_MB, default 2048; new emulates the disk watcher's rule at TICK seconds with FLOOR_GB).
+# writer, CAP_MB, default 2048; new emulates the disk watcher's rule at TICK seconds with FLOOR_GB),
+# total-old|total-new (two scopes of one session, each MemoryMax=3G, each allocating 2 GB; new puts them in a
+# session slice with the session total, MemoryMax=3G, as session_total.rs does), hosts-old|hosts-new (three host
+# scopes allocating 2 GB each; new: a stand-in hosts slice with a 5G total). Total cases print the parent
+# slice's peak memory and each scope's end.
 # Run on a Linux host with a systemd user manager (a lane VM), light load, one case at a time:
 #   scripts/measure/session-budget-runaway/run.sh cpu-old; scripts/measure/session-budget-runaway/run.sh cpu-new
 # Writes only under OUT (default a new temporary directory) and deletes what it wrote.
@@ -42,6 +46,33 @@ disk-old|disk-new)
   M=old; [ "$1" = disk-new ] && M=watch
   probe "$1" 20 & np=$!
   pause 2; hog "$1" "$OLD" python3 -I "$D/disk.py" $M "${CAP_MB:-2048}" 512 "${FLOOR_GB:-10}" "${TICK:-15}"; wait $np ;;
-*) echo "usage: $0 idle|mem-old|mem-new|mem-nohigh|cpu-old|cpu-new|fork-old|fork-new|disk-old|disk-new" >&2; exit 2 ;;
+total-old|total-new|hosts-old|hosts-new)
+  n=2; [ "${1%-*}" = hosts ] && n=3
+  parent="budgetexp-${1%-*}${1#*-}.slice"
+  if [ "${1#*-}" = new ]; then
+    cap=3221225472; [ "${1%-*}" = hosts ] && cap=5368709120
+    # The total, made as session_total.rs makes a session's slice (StartTransientUnit).
+    busctl --user --quiet call org.freedesktop.systemd1 /org/freedesktop/systemd1 org.freedesktop.systemd1.Manager \
+      StartTransientUnit 'ssa(sv)a(sa(sv))' "$parent" fail 1 MemoryMax t "$cap" 0 || exit 1
+  fi
+  cg="$(sed -n 's/^0:://p' /proc/self/cgroup | sed 's#\(user@[0-9]*\.service\).*#\1#')"
+  dir="/sys/fs/cgroup$cg/budgetexp.slice/$parent"
+  peak=0; pids=()
+  for i in $(seq 1 "$n"); do
+    systemd-run --user --scope --quiet --slice="$parent" --unit="bexp-$1-$i" -p MemoryMax=3G -p OOMPolicy=continue \
+      timeout 25 python3 -I "$D/hogs.py" mem 2 6 >"$OUT/h-$1-$i.log" 2>&1 & pids+=($!)
+  done
+  t0=$(date +%s)
+  while [ $(( $(date +%s) - t0 )) -lt 15 ]; do
+    cur=$(cat "$dir/memory.current" 2>/dev/null || echo 0); [ "$cur" -gt "$peak" ] && peak=$cur; pause 0.2
+  done
+  # The kernel's own high-water mark when the slice is still there (a sample misses a fast OOM).
+  kpeak=$(cat "$dir/memory.peak" 2>/dev/null || echo 0); [ "$kpeak" -gt "$peak" ] && peak=$kpeak
+  [ -f "$dir/memory.events" ] && echo "parent events: $(tr '\n' ' ' <"$dir/memory.events")"
+  for i in $(seq 1 "$n"); do wait "${pids[$((i-1))]}"; echo "scope $i rc=$? last: $(tail -1 "$OUT/h-$1-$i.log")"; done
+  echo "$1: $n scopes of 2 GB, parent $parent peak $((peak >> 20)) MB"
+  [ "${1#*-}" = new ] && systemctl --user stop "$parent"
+  rm -f "$OUT"/h-"$1"-*.log ;;
+*) echo "usage: $0 idle|mem-old|mem-new|mem-nohigh|cpu-old|cpu-new|fork-old|fork-new|disk-old|disk-new|total-old|total-new|hosts-old|hosts-new" >&2; exit 2 ;;
 esac
 [ -f "$OUT/n-$1.json" ] && echo "$1 neighbor: $(cat "$OUT/n-$1.json")" && rm -f "$OUT/n-$1.json"

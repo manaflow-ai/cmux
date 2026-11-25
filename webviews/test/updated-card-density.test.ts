@@ -7,6 +7,9 @@
 // tight as a row and Comfortable gives it the comfortable rows' room. Since Leo 2026-11-07 ("it
 // becomes the exact same height as the composer") the card's box is the composer's one-line box at
 // every density (48, two compact rows); its words still take the density's sizes.
+// u51892 (2026-11-23): "the stuff in this message box is now just cut off for some reason, we need to elongate
+// it according to how much content there is. we need to show everything". The 48 is now the card's least
+// height: the change line wraps and the card grows to hold every line, with no glyph clipped.
 //
 // The real stylesheets and the real component (bundled) in Chromium and WebKit, under each density's
 // variables exactly as SidebarCardMetricsTests expects the host to send them at page zoom 1.
@@ -83,10 +86,16 @@ await requireBrowserLane("updated-card-density.test.ts", async () => {
        const root = createRoot(document.getElementById("root")!);
        const actions = { openChangelog: () => undefined, dismiss: () => undefined };
        // As the sidebar mounts it (surface.tsx): the host draws the glass and the x.
-       flushSync(() => root.render(createElement(UpdatedCard, { data, strings: createStrings(table), actions, closeButton: false, glass: false } as any)));
+       flushSync(() => root.render(createElement(UpdatedCard, { data, shape: "two-line", strings: createStrings(table), actions, closeButton: false, glass: false } as any)));
      };`,
   );
-  const built = await Bun.build({ entrypoints: [entry], target: "browser", format: "iife" });
+  const built = await Bun.build({
+    entrypoints: [entry],
+    target: "browser",
+    format: "iife",
+    // A classic script has no import.meta: modules the card reaches (toolMentions.ts, #53425) read import.meta.url.
+    define: { "import.meta.url": JSON.stringify("http://127.0.0.1/") },
+  });
   fs.rmSync(dir, { recursive: true, force: true });
   if (!built.success) throw new Error(built.logs.join("\n"));
   const output = built.outputs.find((artifact) => artifact.kind === "entry-point" && artifact.path.endsWith(".js"));
@@ -118,24 +127,58 @@ await requireBrowserLane("updated-card-density.test.ts", async () => {
       });
       afterAll(async () => browser?.close());
 
-      async function measure(density: keyof typeof DENSITIES) {
+      async function measure(density: keyof typeof DENSITIES, card = data, width = 244) {
         const page = await browser.newPage({ viewport: { width: 300, height: 300 } });
         await page.setContent(
-          `<!doctype html><html style="${variables(DENSITIES[density])}"><head><style>${css}</style></head><body><div id="root" style="width:244px"></div></body></html>`,
+          `<!doctype html><html style="${variables(DENSITIES[density])}"><head><style>${css}</style></head><body><div id="root" style="width:${width}px"></div></body></html>`,
         );
         await page.addScriptTag({ content: script });
-        await page.evaluate((d) => (window as any).mount(d), data);
+        await page.evaluate((d) => (window as any).mount(d), card);
         const metrics = await page.evaluate(() => {
           const px = (value: string) => Number.parseFloat(value);
           const card = document.querySelector<HTMLElement>(".wn-card")!;
           const style = getComputedStyle(card);
           const title = getComputedStyle(document.querySelector(".wn-card-title")!);
           const note = getComputedStyle(document.querySelector(".wn-card-note")!);
+          // Every glyph line's box (ascent to descent) inside every box that clips it: the card's, and any
+          // of its words' own boxes that clip on the block axis. A line cut at its trimmed baseline fails.
+          const box = card.getBoundingClientRect();
+          const cut: string[] = [];
+          for (const element of [document.querySelector(".wn-card-title")!, document.querySelector(".wn-card-note")!]) {
+            const range = document.createRange();
+            range.selectNodeContents(element);
+            for (const line of Array.from(range.getClientRects())) {
+              if (line.height === 0) continue;
+              for (let clip: Element | null = element; clip && clip !== card.parentElement; clip = clip.parentElement) {
+                const overflowY = getComputedStyle(clip).overflowY;
+                if (overflowY === "visible") continue;
+                const edge = clip.getBoundingClientRect();
+                if (line.top < edge.top - 0.5 || line.bottom > edge.bottom + 0.5) {
+                  cut.push(
+                    `${element.className} line ${line.top}-${line.bottom} cut by ${clip.className} ${edge.top}-${edge.bottom}`,
+                  );
+                }
+              }
+            }
+          }
+          const lines = (element: Element) => {
+            const range = document.createRange();
+            range.selectNodeContents(element);
+            return new Set(
+              Array.from(range.getClientRects())
+                .filter((r) => r.height > 0)
+                .map((r) => Math.round(r.top)),
+            ).size;
+          };
+          const noteBox = document.querySelector(".wn-card-note")!.getBoundingClientRect();
           return {
             radius: px(style.borderTopLeftRadius),
             title: px(title.fontSize),
             note: px(note.fontSize),
-            height: card.getBoundingClientRect().height,
+            height: box.height,
+            noteLines: lines(document.querySelector(".wn-card-note")!),
+            noteInside: noteBox.right <= box.right + 0.5,
+            cut,
           };
         });
         await page.close();
@@ -144,7 +187,7 @@ await requireBrowserLane("updated-card-density.test.ts", async () => {
 
       // The words follow the sidebar's density; the card's box is the composer's at every density
       // (Leo 2026-11-07: "it becomes the exact same height as the composer"): grid.md 5.1's one-line
-      // box (48) and corner (12).
+      // box (48), at least, and the composer's corner.
       for (const density of Object.keys(DENSITIES) as (keyof typeof DENSITIES)[]) {
         test(`at ${density} the card's words take the sidebar rows' tokens and its box is the composer's`, async () => {
           const want = DENSITIES[density];
@@ -152,7 +195,31 @@ await requireBrowserLane("updated-card-density.test.ts", async () => {
           expect(got.title).toBe(want.title);
           expect(got.note).toBe(want.note);
           expect(got.height).toBe(48);
-          expect(got.radius).toBe(12);
+          // The composer's own corner: the card is its twin (Lawrence 2026-11-23, back to the original look).
+          expect(got.radius).toBe(16);
+          expect(got.cut).toEqual([]);
+        });
+
+        // u51892: a change line longer than the card wraps, and the card grows to show all of it.
+        test(`at ${density} a long change wraps and the card grows to show every line in full`, async () => {
+          const long = {
+            ...data,
+            items: [
+              {
+                id: "a",
+                // Longer than its first clause: the card shows it whole (updateSummary.ts `full`).
+                title: "Fix the glass on the settings panels, so toggles read on bright wallpapers",
+                summary: null,
+                category: "fixed",
+              },
+            ],
+          };
+          // A narrow sidebar's card: the line cannot fit on one row.
+          const got = await measure(density, long, 180);
+          expect(got.noteLines).toBeGreaterThan(1);
+          expect(got.height).toBeGreaterThan(48);
+          expect(got.noteInside).toBe(true);
+          expect(got.cut).toEqual([]);
         });
       }
     });
