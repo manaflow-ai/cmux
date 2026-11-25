@@ -49,8 +49,6 @@ import {
   newIdempotencyKey,
   wireError,
   type AccountsRun,
-  type AllotmentSet,
-  type AllotmentView,
   type AccountsState,
   type AgentsRun,
   type AgentsState,
@@ -60,9 +58,10 @@ import {
   type CloudEnvironmentsState,
   type LibraryListing,
   type LibraryRun,
+  type Checklist,
+  type ChecklistFact,
   type SharesState,
   type TailnetState,
-  type TailnetVMReply,
   type DevicesRun,
   type DevicesRunResult,
   type DevicesState,
@@ -93,8 +92,6 @@ import {
   type AgentToolsCardState,
   type McpServersRun,
   type McpServersState,
-  type HubRun,
-  type HubState,
   type RowNoteData,
   type AgentSkillsRun,
   type AgentSkillsState,
@@ -104,9 +101,14 @@ import {
   type AgentHooksState,
   type AgentConfigAnswer,
   type AgentConfigRun,
+  type AllotmentSet,
+  type AllotmentView,
+  type HubRun,
+  type HubState,
   type AccountsRunReply,
   type DoctorReport,
   type DoctorRun,
+  type TailnetVMReply,
   type AutocloudAction,
   type AutocloudAnswer,
   type AutocloudState,
@@ -198,7 +200,7 @@ export type NativeTarget = "cmuxJSON";
 /** `appearance.background`, which the picker's host ops set. */
 const BACKGROUND = "appearance.background";
 
-const emptyDomains: Domains = { themes: [], font_families: [], sounds: [], recent_fonts: [] };
+const emptyDomains: Domains = { themes: [], font_families: [], ui_font_families: [], sounds: [], recent_fonts: [] };
 
 /** The page's state from the cache and the UI state (one function for hooks and getSnapshot). */
 export function composeState(ui: UiState, cache: CacheView): SettingsState {
@@ -1126,6 +1128,13 @@ export class SettingsStore {
       ? null
       : (answer.message ?? (answer.code ? t("settingsPage.customizeLibrary.notChanged") : null));
     return { library: answer.library ?? null, refusal };
+  }
+
+  /** Settings > General > Customize cmux: the checklist and progress, with `has` the connections the
+   * page knows of; null when the host has no CLI or did not answer. */
+  async customizeChecklist(has: ChecklistFact[]): Promise<Checklist | null> {
+    const reply = await this.request("cmux.settings.customize.checklist", { has });
+    return reply.ok ? (reply.value?.checklist ?? null) : null;
   }
 
   /** Personalization > Customization Problems: one `cmux customize doctor` verb (or `doctor-open`,

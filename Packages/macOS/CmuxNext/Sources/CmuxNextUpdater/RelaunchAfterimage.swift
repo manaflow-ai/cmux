@@ -54,8 +54,10 @@ import UniformTypeIdentifiers
 
     /// Pictures each window on screen now and starts the afterimage; false when there is nothing to picture or no
     /// folder. `activates`: the afterimage takes the front (the person is in cmux, and the new copy comes forward).
+    /// `status`: the line the afterimage shows over the front picture, with a spinner, while the relaunch runs (the
+    /// picture alone read as a frozen window, Leo 2026-11-24: "my window freezes instead of it instantly gracefully").
     @discardableResult
-    public func begin(activates: Bool) -> Bool {
+    public func begin(activates: Bool, status: String? = nil) -> Bool {
         guard state == .idle || state == .failed, let folder, let script else { return false }
         let windows = Self.shown(NSApp.orderedWindows)
         guard !windows.isEmpty else { return false }
@@ -71,7 +73,7 @@ import UniformTypeIdentifiers
                 pictures.append(Picture(number: window.windowNumber, frame: window.frame, image: image))
             }
             let made = pictures
-            let up = await Task.detached(priority: .userInitiated) { await Self.start(made, activates: activates, folder: folder, script: script) }.value
+            let up = await Task.detached(priority: .userInitiated) { await Self.start(made, activates: activates, status: status, folder: folder, script: script) }.value
             Self.logger.notice("relaunch afterimage: \(made.count, privacy: .public) of \(windows.count, privacy: .public) window(s), \(up ? "up" : "failed", privacy: .public) in \(started.duration(to: .now), privacy: .public)")
             self?.started(up)
         }
@@ -132,8 +134,8 @@ import UniformTypeIdentifiers
 
     /// Writes the pictures, starts the afterimage and waits (off main) for its `shown` file: the folder's own change
     /// events, never a poll, at most ``shownLimitMilliseconds``.
-    nonisolated static func start(_ pictures: [Picture], activates: Bool, folder: URL, script: URL) async -> Bool {
-        guard !pictures.isEmpty, write(pictures, activates: activates, to: folder) else { return false }
+    nonisolated static func start(_ pictures: [Picture], activates: Bool, status: String? = nil, folder: URL, script: URL) async -> Bool {
+        guard !pictures.isEmpty, write(pictures, activates: activates, status: status, to: folder) else { return false }
         let shown = folder.appending(path: "shown", directoryHint: .notDirectory).path
         let descriptor = open(folder.path, O_EVTONLY)
         guard descriptor >= 0 else { return false }
@@ -194,7 +196,7 @@ import UniformTypeIdentifiers
     }
 
     /// Writes the pictures (PNG) and `plan.json`, which `relaunch-afterimage.js` reads.
-    nonisolated static func write(_ pictures: [Picture], activates: Bool, to folder: URL) -> Bool {
+    nonisolated static func write(_ pictures: [Picture], activates: Bool, status: String? = nil, to folder: URL) -> Bool {
         try? FileManager.checked.removeItem(at: folder)
         guard (try? FileManager.checked.createDirectory(at: folder, withIntermediateDirectories: true)) != nil else { return false }
         var windows: [[String: Any]] = []
@@ -207,7 +209,8 @@ import UniformTypeIdentifiers
             windows.append(["image": name, "x": picture.frame.minX, "y": picture.frame.minY, "w": picture.frame.width,
                             "h": picture.frame.height, "above": picture.number])
         }
-        let plan: [String: Any] = ["activates": activates, "deadlineMs": Int(deadline.components.seconds * 1000), "windows": windows]
+        var plan: [String: Any] = ["activates": activates, "deadlineMs": Int(deadline.components.seconds * 1000), "windows": windows]
+        if let status { plan["status"] = status }
         guard let data = try? JSONSerialization.data(withJSONObject: plan) else { return false }
         // The plan last: the afterimage reads it first, so every picture it names is on disk.
         return (try? data.blockingWrite(to: folder.appending(path: "plan.json", directoryHint: .notDirectory), options: .atomic)) != nil
