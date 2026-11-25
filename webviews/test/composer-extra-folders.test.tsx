@@ -230,7 +230,9 @@ const typeFolder = async (value: string) => {
 };
 const keyFolder = async (key: string, options: KeyboardEventInit = {}) => {
   await act(async () =>
-    folderField().dispatchEvent(new dom.window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...options })),
+    folderField().dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...options }),
+    ),
   );
   await settle();
 };

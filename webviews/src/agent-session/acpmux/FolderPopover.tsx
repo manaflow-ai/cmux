@@ -415,9 +415,7 @@ export function FolderPopover({
           <span className="acpmux-menu-text acpmux-location-name">
             <span className="acpmux-menu-label">{worktreeLabel(worktree)}</span>
           </span>
-          {addsExtra(worktree.id) && (
-            <AlsoSee name={worktreeLabel(worktree)} onAdd={() => extra?.onAdd(worktree.id)} />
-          )}
+          {addsExtra(worktree.id) && <AlsoSee name={worktreeLabel(worktree)} onAdd={() => extra?.onAdd(worktree.id)} />}
           <span className="acpmux-location-check" aria-hidden="true">
             {worktree.id === current && <CheckIcon />}
           </span>
@@ -614,14 +612,7 @@ export function FolderPopover({
               : typed && highlightBy !== "keyboard"
                 ? listValues.find(isFolder)
                 : undefined;
-            if (
-              extra &&
-              event.key === "Enter" &&
-              event.shiftKey &&
-              !event.altKey &&
-              !event.metaKey &&
-              !event.ctrlKey
-            ) {
+            if (extra && event.key === "Enter" && event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey) {
               event.preventDefault();
               event.preventBaseUIHandler?.();
               if (folder && addsExtra(folder)) extra.onAdd(folder);
