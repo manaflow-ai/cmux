@@ -21,9 +21,12 @@ Prints one word on stdout and exits 0:
 With --phase app-debug it reads the pull request app compile's own check instead (the build fleet's Debug
 `--app` compile of a same-repository pull request head, configuration "debug"): the controller submits it
 when that job is queued or when this read names the pull request, and it never stands for the land Release.
+With --phase test-compile --packages A,B it reads the pull request's test-target compile of those packages
+(`swift build --build-tests`, configuration "test-compile"); the read submits it.
 
 Reasons go to stderr. Usage:
-  fleet_compile_result.py --sha SHA --repo OWNER/NAME [--pr N] [--phase app-debug] [--wait 1500] [--no-record 600]
+  fleet_compile_result.py --sha SHA --repo OWNER/NAME [--pr N] [--phase app-debug|scheme-debug|test-compile
+                          [--packages A,B]] [--job-out F] [--wait 1500] [--no-record 600]
 """
 import argparse
 import json
@@ -38,7 +41,9 @@ HOLD_MAX = 90  # under the gateway's ~100 s request limit
 RECIPE = 2
 CONFIGURATION = "release-onone"
 # The phases a read can name, and the configuration each one's record carries.
-PHASES = {"": CONFIGURATION, "app-debug": "debug"}
+# scheme-debug: the whole Debug cmux DEV app (the cmux app scheme's product) built by the fleet's app recipe for a
+# feat-cmux-next push or same-repository pull request head; its job_id names the zipped app (`cmux-ci artifact`).
+PHASES = {"": CONFIGURATION, "app-debug": "debug", "test-compile": "test-compile", "scheme-debug": "scheme-debug"}
 
 
 def judge(record, sha, repo, configuration=CONFIGURATION):
@@ -97,8 +102,8 @@ def fetch(url, timeout):
 
 
 def read(sha, repo, pr="", wait=1500, no_record=600, results=RESULTS, fetch=fetch, now=time.monotonic,
-         sleep=time.sleep, gap=30, phase=""):
-    """Wait up to `wait` s for this head's verdict; (word, reason)."""
+         sleep=time.sleep, gap=30, phase="", packages="", seen=None):
+    """Wait up to `wait` s for this head's verdict; (word, reason). `seen`, a dict, gets the last record's job_id."""
     start = now()
     deadline = start + wait
     q = {"repo": repo}
@@ -106,6 +111,8 @@ def read(sha, repo, pr="", wait=1500, no_record=600, results=RESULTS, fetch=fetc
         q["pr"] = pr
     if phase:
         q["phase"] = phase
+    if packages:
+        q["packages"] = packages
     base = f"{results}/{sha}?{urllib.parse.urlencode(q)}"
     down_since = None
     busy_since = None
@@ -127,6 +134,8 @@ def read(sha, repo, pr="", wait=1500, no_record=600, results=RESULTS, fetch=fetc
             down_since = busy_since = None
             seen_record = True
             word, last = judge(body, sha, repo, PHASES[phase])
+            if seen is not None and isinstance(body, dict) and body.get("job_id"):
+                seen["job_id"] = str(body["job_id"])
             if word != "pending":
                 return word, last
             if after:
@@ -162,12 +171,24 @@ def main(argv=None):
     p.add_argument("--wait", type=int, default=1500)
     p.add_argument("--no-record", type=int, default=600)
     p.add_argument("--phase", default="", choices=sorted(PHASES))
+    p.add_argument("--packages", default="", help="comma or space separated; phase test-compile only")
+    p.add_argument("--job-out", default="", help="write the matching record's fleet job id to this file")
     a = p.parse_args(argv)
     if len(a.sha) != 40 or any(c not in "0123456789abcdef" for c in a.sha):
         print(f"fleet compile result: bad sha {a.sha!r}", file=sys.stderr)
         print("none")
         return 0
-    word, why = read(a.sha, a.repo, a.pr if a.pr.isdigit() else "", a.wait, a.no_record, phase=a.phase)
+    packages = ",".join(sorted({x for x in a.packages.replace(",", " ").split() if x}))
+    if a.phase == "test-compile" and not packages:
+        print("fleet compile result: --phase test-compile needs --packages", file=sys.stderr)
+        print("none")
+        return 0
+    seen = {}
+    word, why = read(a.sha, a.repo, a.pr if a.pr.isdigit() else "", a.wait, a.no_record, phase=a.phase,
+                     packages=packages if a.phase == "test-compile" else "", seen=seen)
+    if a.job_out:
+        with open(a.job_out, "w") as f:
+            f.write(seen.get("job_id", "") + "\n")
     print(f"fleet compile result for {a.sha}: {word} ({why})", file=sys.stderr)
     print(word)
     return 0

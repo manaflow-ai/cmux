@@ -522,6 +522,56 @@ await requireBrowserLane("editor-page.test.ts", async () => {
         });
       });
 
+      test("editor.vimMode turns vim on and off live; Cmd-S still saves", async () => {
+        // Leo 2026-11-16: keyboard settings, "vim or not, dvorak".
+        await fresh();
+        const target = file("vim.ts", "alpha\n  beta\n");
+        await openEditor(page, target);
+        const look = (settings: Record<string, unknown>) =>
+          page.evaluate(
+            (settings) =>
+              (
+                window as unknown as { __cmuxEditorDev: { emit(stream: string, data: unknown): void } }
+              ).__cmuxEditorDev.emit("cmux.editor.look", { settings }),
+            settings,
+          );
+        const mode = () => page.evaluate(() => document.querySelector<HTMLElement>(".ed-vim")?.dataset.vimMode ?? null);
+        await look({ autoSave: "off", vimMode: true });
+        await page.waitForFunction(() => document.querySelector<HTMLElement>(".ed-vim")?.dataset.vimMode === "normal");
+        expect(await page.textContent(".ed-vim")).toContain("NORMAL");
+        await caret(page, 1, 1);
+        // Normal: x deletes; i enters Insert; Escape goes back to Normal.
+        await page.keyboard.press("x");
+        expect(await editorText(page)).toBe("lpha\n  beta\n");
+        await page.keyboard.press("i");
+        expect(await mode()).toBe("insert");
+        expect(await page.textContent(".ed-vim")).toContain("INSERT");
+        await page.keyboard.type("Z");
+        await page.keyboard.press("Escape");
+        expect(await mode()).toBe("normal");
+        expect(await editorText(page)).toBe("Zlpha\n  beta\n");
+        // >> on a line whose indentation is off the indent size: Monaco 0.57's ShiftCommand needs the
+        // language configuration service monaco-vim never passed (vimShiftCommand.ts).
+        await caret(page, 2, 1);
+        await page.keyboard.press(">");
+        await page.keyboard.press(">");
+        expect(await editorText(page)).toBe("Zlpha\n    beta\n");
+        await page.keyboard.press("v");
+        expect(await mode()).toBe("visual");
+        await page.keyboard.press("Escape");
+        expect(await mode()).toBe("normal");
+        await save(page);
+        expect(bytesOf(target)).toEqual(utf8("Zlpha\n    beta\n"));
+        // Off again, live: keys type text and the mode line is gone.
+        await look({ autoSave: "off", vimMode: false });
+        await page.waitForFunction(() => document.documentElement.dataset.cmuxEditorVim === "off");
+        expect(await mode()).toBeNull();
+        expect((await page.textContent(".ed-vim")) ?? "").toBe("");
+        await caret(page, 1, 1);
+        await page.keyboard.press("x");
+        expect(await editorText(page)).toBe("xZlpha\n    beta\n");
+      });
+
       test("resizing the editor does not show the scroller; scrolling it does", async () => {
         await fresh();
         // Counts every time an editor is marked scrolling (the mark clears 800 ms later, so a check
