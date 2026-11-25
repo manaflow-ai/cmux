@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.tailnet.switchHelp" : {
+      "comment" : "Settings > Tailscale Cloud machine join.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The machine is already on another tailnet. Add yours as a second profile."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "The machine is already on another tailnet. Add yours as a second profile."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "The machine is already on another tailnet. Add yours as a second profile."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "The machine is already on another tailnet. Add yours as a second profile."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "The machine is already on another tailnet. Add yours as a second profile."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "The machine is already on another tailnet. Add yours as a second profile."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "The machine is already on another tailnet. Add yours as a second profile."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "The machine is already on another tailnet. Add yours as a second profile."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "The machine is already on another tailnet. Add yours as a second profile."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "The machine is already on another tailnet. Add yours as a second profile."
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "The machine is already on another tailnet. Add yours as a second profile."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "The machine is already on another tailnet. Add yours as a second profile."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "The machine is already on another tailnet. Add yours as a second profile."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "The machine is already on another tailnet. Add yours as a second profile."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "The machine is already on another tailnet. Add yours as a second profile."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "The machine is already on another tailnet. Add yours as a second profile."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "The machine is already on another tailnet. Add yours as a second profile."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "The machine is already on another tailnet. Add yours as a second profile."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "The machine is already on another tailnet. Add yours as a second profile."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "The machine is already on another tailnet. Add yours as a second profile."
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "The machine is already on another tailnet. Add yours as a second profile."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
