@@ -136,7 +136,7 @@
     "_acpmux/bookmark_get": {"params": ["sessionId"], "acpmux": []},
     "_acpmux/turn_shots": {"params": ["sessionId", "turnId"], "acpmux": []},
     "_acpmux/bookmark_set": {"params": ["sessionId", "seq", "bookmarked"], "acpmux": []},
-    "_acpmux/perf": {"params": ["op", "after", "limit", "waitMs", "page", "windowMs", "spans", "renders", "frames", "layoutShifts", "bytes"], "acpmux": []},
+    "_acpmux/perf": {"params": ["op", "after", "limit", "waitMs", "page", "windowMs", "spans", "renders", "frames", "layoutShifts", "bytes", "bucketMs", "gaps"], "acpmux": []},
     "_acpmux/host_overload": {"params": [], "acpmux": []},
     "_acpmux/prompts_list": {"params": [], "acpmux": []},
     "_acpmux/prompts_save": {"params": ["name", "text"], "acpmux": []},
