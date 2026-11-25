@@ -3019,7 +3019,9 @@ async fn dispatch_request_with_identity(
                     ));
                 }
                 let wait = params.get("wait").and_then(Value::as_bool) == Some(true);
-                return heap(|| hub.reserve_home_warm(wait)).await;
+                // The harnesses and models the person set up (personal spares, ask-30d56720f6).
+                let shapes = crate::hub::parse_home_shapes(params.get("shapes"))?;
+                return heap(|| hub.reserve_home_warm(wait, shapes)).await;
             }
             let s = |k: &str| params.get(k).and_then(Value::as_str).map(str::to_owned);
             // A Cloud chat's coming start (cmux#45953): its owner credential, from this machine's
