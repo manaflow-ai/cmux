@@ -178,6 +178,9 @@ class CloudChatProofTests(unittest.TestCase):
             self.assertEqual(launch_kwargs["stdout"], subprocess.DEVNULL)
             self.assertEqual(launch_kwargs["stderr"], subprocess.DEVNULL)
             self.assertNotIn(claude_login_cache.TOKEN_ENV, launch_kwargs["env"], "The launcher never inherits the Claude token")
+            # `open` hands the app the launcher's environment: CMUX_SOCKET_PATH there marks another cmux and the
+            # app drops CMUX_NEXT_SOCKET_PATH (the daily proof's app.unreachable from 11-17).
+            self.assertNotIn("CMUX_SOCKET_PATH", launch_kwargs["env"], "The launched app never inherits a cmux marker")
             launcher.wait.assert_called_once_with(timeout=60)
             self.assertTrue(evidence_path.is_file(), "Every terminal outcome must write its evidence")
             for folder in folders:

@@ -3,6 +3,7 @@
 // what ChatSessionInfo takes and derives the same lists the same way; the per-section mappers turn them
 // into rows. The person's choices the page's sections kept in their own state (a fold, Show more, a
 // Reconnect under way) are kept here, since the App's rows have none.
+import type { SessionInfoCloudControl } from "../../hybrid/SessionInfoCloud";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { usePaneLanguage, useT } from "../../i18n";
 import { useConnectionQuiet } from "../../../../ui/lasting";
@@ -88,6 +89,7 @@ export type NativeSessionInfoProps = {
   grants?: readonly AccessGrant[];
   cloudRepositoryAvailable?: boolean;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
+  cloud?: SessionInfoCloudControl;
   onCompact?: () => void;
   /// Context's View Prompt (ContextSection.tsx).
   onViewPrompt?: () => void;
@@ -365,6 +367,7 @@ export function NativeSessionInfo(props: NativeSessionInfoProps) {
           repository: props.repository,
           grants: props.grants,
           remoteControl: props.remoteControl,
+          cloud: props.cloud,
           cloudRepositoryAvailable: props.cloudRepositoryAvailable,
           onAddCloudRepository: cloud.open,
           onOpenCloudEnvironment: () => openCloudEnvironment({ section: "overview" }),

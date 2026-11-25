@@ -107,7 +107,15 @@ public final class WindowMaterialView: NSView {
     public let videoView: BackdropVideoView
     /// A living wallpaper over the art (its still), drawn every frame while seen (``BackdropShaderView``).
     public let shaderView: BackdropShaderView
-    private(set) var artImage: NSImage?
+    private(set) var artImage: NSImage? {
+        didSet {
+            guard artImage !== oldValue else { return }
+            artLight = artImage.flatMap(images.lightField(of:))
+            images.light.artDidChange()
+        }
+    }
+    /// The shown art's light field, read in its decode (nil for a preview or a video's poster).
+    private(set) var artLight: WallpaperLightField?
     /// A video wallpaper plays over the art (pages get no still of it, `glassSource`).
     private(set) var showsVideo = false
     /// A live wallpaper (`live:<id>`) runs in place of the art (``BackdropLiveView``).

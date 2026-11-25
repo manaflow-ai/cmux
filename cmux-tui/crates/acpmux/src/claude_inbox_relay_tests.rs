@@ -50,6 +50,37 @@ async fn a_delivery_goes_through_the_attached_relay_and_its_answer_comes_back() 
     }
 }
 
+/// Any number of deliveries wait for one relay: past the old limit of 256, every one is handed
+/// over and answered.
+#[tokio::test]
+async fn a_relay_takes_more_than_256_waiting_deliveries() {
+    let pid = session(4);
+    let (_closed, ended) = tokio::sync::watch::channel(true);
+    poll_for(pid, &json!({}), ended).await.expect("poll");
+    let sent: Vec<_> = (0..300)
+        .map(|n| {
+            tokio::spawn(async move {
+                deliver(pid, Path::new("/tmp/inbox.sock"), &format!("{n}\n")).await
+            })
+        })
+        .collect();
+    while relays().get(&pid).map_or(0, |e| e.pending.len()) < 300 {
+        tokio::task::yield_now().await;
+    }
+    let mut done = Vec::new();
+    while done.len() < 300 {
+        let got = poll_for(pid, &json!({}), open()).await.expect("poll");
+        for d in got["deliveries"].as_array().expect("deliveries") {
+            done.push(json!({"id": d["id"]}));
+        }
+    }
+    let (_closed, ended) = tokio::sync::watch::channel(true);
+    poll_for(pid, &json!({"done": done}), ended).await.expect("ack");
+    for s in sent {
+        assert_eq!(s.await.expect("join"), Some(Ok(())));
+    }
+}
+
 /// A relay that stopped polling is no longer attached: its session's deliveries go back to the
 /// daemon instead of waiting for it.
 #[tokio::test]
