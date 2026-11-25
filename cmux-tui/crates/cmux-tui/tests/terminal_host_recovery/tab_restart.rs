@@ -6,8 +6,8 @@
 //! from the CLI (`cmux tab <id> restart`). A tab whose terminal still runs
 //! is a typed reject.
 
+use super::parallel_new_tabs::HostGate;
 use super::*;
-use crate::parallel_new_tabs::HostGate;
 
 fn restart_tab(harness: &RecoveryHarness, tab: serde_json::Value) -> serde_json::Value {
     request_response(&harness.socket, serde_json::json!({"id":1,"cmd":"restart-tab","surface":tab}))
