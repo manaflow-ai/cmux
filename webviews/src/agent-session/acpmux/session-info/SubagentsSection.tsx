@@ -69,7 +69,10 @@ export function SubagentCountsMeta({
 }) {
   const t = useT();
   const now = useSubagentStatusClock(agents, waiting);
-  const parts = useMemo(() => subagentCountParts(t, agents, waiting, sessions, now), [t, agents, waiting, sessions, now]);
+  const parts = useMemo(
+    () => subagentCountParts(t, agents, waiting, sessions, now),
+    [t, agents, waiting, sessions, now],
+  );
   return parts.length > 0 ? (
     <span className="acpmux-session-info-section__value">
       <CountLine parts={parts} />
