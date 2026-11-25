@@ -7,6 +7,7 @@ import React, {
   useInsertionEffect,
   useLayoutEffect,
 } from "react";
+import { splitTimed } from "./typingSplit";
 import { type ComposerAttachment, type DroppedKind, inlineCopyId } from "./attachments";
 import { composerCopy, forgetCopy, pastePlan, pastesPlaced, writeComposerCopy } from "./composer/composerCopy";
 import { stagesComposerCopy } from "./composer/composerCopyStage";
@@ -441,9 +442,9 @@ export function ComposerBox({
               return true;
             }}
             onChange={(markdown, caret) => {
-              composerChanged(); // a launch's first typed key drawn (launchInputEcho.ts)
-              inline.edited(markdown);
-              field.onChange(markdown, caret);
+              splitTimed("oc:composerChanged", () => composerChanged());
+              splitTimed("oc:inlineEdited", () => inline.edited(markdown));
+              splitTimed("oc:field", () => field.onChange(markdown, caret));
             }}
             onBeforeInput={(data, state) => {
               // A huge paste is a chip, the prompt as it was (pastedText.ts); a chip's own text going

@@ -27,7 +27,7 @@ import {
   withTextMarksEscaped,
 } from "./composer/inlineNode";
 import { inlineCaretPlugin } from "./composer/inlineCaret";
-import { flashThumbOnLength, followActionsWidth } from "./composerScrollLane";
+import { followActionsWidth, flashThumbOnLength } from "./composerScrollLane";
 import { followTextCenter } from "./composerTextCenter";
 import { caretInView } from "./composer/caretInView";
 import { fieldGrowth } from "./composer/fieldGrowth";
@@ -44,6 +44,7 @@ import { subscribeIconFamily } from "./icons/iconPack";
 import { cmuxLinkLook } from "./chips/cmuxLinkLook.experiment";
 import { experimentArm } from "../../experiments/experiment";
 import type { SlashNames, SlashTrigger } from "./slashCommands";
+import { instrumentView, splitTimed } from "./typingSplit";
 import {
   MINIMAL_SCROLLER_ATTRIBUTE,
   SETTLING_SCROLLER_ATTRIBUTE,
@@ -545,7 +546,7 @@ const OUTSIDE = "\uE000";
  * constant as sessions grow). */
 // perf-hot: 2ms composer-draft-typing
 export function blockwiseMarkdown(doc: ProseNode, serialize: (doc: ProseNode) => string, inline: boolean): string {
-  const write = (node: ProseNode) => serialize(inline ? withTextMarksEscaped(node) : node);
+  const write = (node: ProseNode) => splitTimed(`bw:write c${doc.childCount}`, () => serialize(inline ? withTextMarksEscaped(node) : node));
   // The serializer drops an empty paragraph at the end, which alone would write as `<br />`.
   const last = doc.lastChild;
   let blockwise = doc.childCount > 0 && !(last?.type.name === "paragraph" && !last.content.size);
@@ -555,6 +556,8 @@ export function blockwiseMarkdown(doc: ProseNode, serialize: (doc: ProseNode) =>
   });
   if (!blockwise) return write(doc);
   if (doc.childCount === 1) {
+    const plain = plainLine(doc.child(0));
+    if (plain !== undefined) return splitTimed("bw:plain", () => `${plain}\n`);
     const lines = linewiseMarkdown(doc, doc.child(0), write, inline);
     return lines === undefined ? write(doc) : `${lines}\n`;
   }
@@ -567,12 +570,35 @@ export function blockwiseMarkdown(doc: ProseNode, serialize: (doc: ProseNode) =>
       markdown =
         !block.content.size && block.type.name === "paragraph"
           ? EMPTY_PARAGRAPH
-          : (linewiseMarkdown(doc, block, write, inline) ?? write(doc.copy(Fragment.from(block))).replace(/\n+$/, ""));
+          : (plainLine(block) ??
+            linewiseMarkdown(doc, block, write, inline) ??
+            write(doc.copy(Fragment.from(block))).replace(/\n+$/, ""));
       kept.set(block, markdown);
     }
     parts.push(markdown);
   });
   return `${parts.join("\n\n")}\n`;
+}
+
+/// Text the serializer writes unchanged: letters, digits and the punctuation it never escapes
+/// mid-line, starting and ending with a letter, digit or that punctuation, never a space.
+const PLAIN_LINE = /^[A-Za-z0-9,'?!](?:[A-Za-z0-9 ,'?!.]*[A-Za-z0-9,'?!.])?$/;
+/// What would make the serializer escape a `.` in such text: a list number at the start (`1.`),
+/// or an autolink literal's `www.` (GFM escapes the dot after a `w` that a word character follows).
+const ESCAPED_DOT = /^\d+\.|[Ww]\.[\w.-]/;
+
+/** One paragraph of plain prose, unmarked, as its text: what the serializer writes for it, without
+ * running the serializer, which every key into such a prompt ran (Milkdown's whole remark pipeline
+ * for one line; composer-typing bench --profile). Undefined for anything else. */
+function plainLine(paragraph: ProseNode): string | undefined {
+  if (paragraph.type.name !== "paragraph" || !paragraph.childCount) return undefined;
+  let text = "";
+  for (let at = 0; at < paragraph.childCount; at += 1) {
+    const child = paragraph.child(at);
+    if (!child.isText || child.marks.length) return undefined;
+    text += child.text!;
+  }
+  return PLAIN_LINE.test(text) && !ESCAPED_DOT.test(text) ? text : undefined;
 }
 
 /** A paragraph with hard breaks, written line by line from each line's kept markdown, or undefined
@@ -660,8 +686,8 @@ function linewiseMarkdown(
  * paragraph needed on restore. A field with placed attachments writes the person's own text shaped
  * like a token escaped (composer/inlineNode.ts withTextMarksEscaped): only its nodes write tokens. */
 function promptMarkdown(editor: Editor | undefined, view: EditorView, inline: boolean): string {
-  const serialize = editor?.action((ctx) => ctx.get(serializerCtx));
-  const markdown = clean(serialize ? blockwiseMarkdown(view.state.doc, serialize, inline) : "");
+  const serialize = splitTimed("ser:action", () => editor?.action((ctx) => ctx.get(serializerCtx)));
+  const markdown = splitTimed("ser:blockwise", () => clean(serialize ? blockwiseMarkdown(view.state.doc, serialize, inline) : ""));
   const { doc, schema } = view.state;
   // The serializer omits the empty typing paragraph Quote in Reply leaves after its block.
   // Keep that boundary in the persisted value: setDocument recreates it from the blank line,
@@ -674,7 +700,7 @@ function promptMarkdown(editor: Editor | undefined, view: EditorView, inline: bo
     doc.child(doc.childCount - 2).type !== schema.nodes.paragraph
   )
     return markdown + "\n\n";
-  const tail = trailingSpaces(view);
+  const tail = splitTimed("ser:tail", () => trailingSpaces(view));
   return tail && !markdown.endsWith(tail) ? markdown + tail : markdown;
 }
 
@@ -1449,7 +1475,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
             // Report every document and caret change; the composer's menu follows the caret.
             view: () => ({
               update: (next, previous) => {
-                tellSlash(next.state);
+                splitTimed("tellSlash", () => tellSlash(next.state));
                 const whole = wholeSelected(next.state);
                 if (whole !== wholeNow) {
                   wholeNow = whole;
@@ -1462,8 +1488,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                 // Before the editor is made there is nothing to write the document with (it would read
                 // as an empty prompt and wipe the draft); the document made is `known` then.
                 if (!editor.current) return;
-                const markdown = promptMarkdown(editor.current, next, inlineOn.current);
-                showPlaceholder(markdown);
+                const markdown = splitTimed("serialize", () => promptMarkdown(editor.current!, next, inlineOn.current));
+                splitTimed("placeholder", () => showPlaceholder(markdown));
                 // A value applied from outside comes back unchanged: not the user's edit.
                 if (markdown === known.current) return;
                 known.current = markdown;
@@ -1471,7 +1497,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
                   touched.current = true;
                   latest.current.onFirstInput?.();
                 }
-                latest.current.onChange(markdown, caretOf(next));
+                splitTimed("onChange", () => latest.current.onChange(markdown, caretOf(next)));
               },
             }),
           }),
@@ -1642,6 +1668,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           }
           editor.current = made;
           view.current = made.ctx.get(editorViewCtx);
+          instrumentView(view.current);
           richPlugins.current = view.current.state.plugins;
           configureLiteral();
           remark.current = made.ctx.get(remarkCtx);

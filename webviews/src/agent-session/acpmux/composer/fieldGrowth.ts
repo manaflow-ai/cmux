@@ -1,3 +1,4 @@
+import { splitTimed } from "../typingSplit";
 import { Plugin } from "@milkdown/kit/prose/state";
 import type { EditorView } from "@milkdown/kit/prose/view";
 import { FIELD_GROWTH_EVENT, TILE_SHAPE_EVENT, markGrowthPending, type FieldGrowthDetail } from "./fieldGrowthEvent";
@@ -411,7 +412,7 @@ export function fieldGrowth(external: () => boolean): Plugin {
           // A tile the text took or dropped just now moves the field in this edit, from its first frame:
           // a deferred move drew the box one frame at its end height (a removed tile's 29 px,
           // composer-geometry-stable.test.ts). Typing keeps the deferred path: its tiles are the same.
-          const tiles = view.dom.querySelectorAll("[data-inline-attachment]");
+          const tiles = splitTimed("fg:qsa", () => view.dom.querySelectorAll("[data-inline-attachment]"));
           let tileChanged = tiles.length !== tileCount;
           for (const tile of tiles) if (!tileSizes.has(tile)) tileChanged = true;
           tileCount = tiles.length;
@@ -435,11 +436,13 @@ export function fieldGrowth(external: () => boolean): Plugin {
           // same growth motion from `shown`.
           // A timeout here would run before the frame's observers in a busy event loop and drop the
           // growth's motion; the wait is counted in frames instead.
-          endEditWait();
+          splitTimed("fg:end", () => endEditWait());
           editWaitingForResize = true;
-          markGrowthPending(scroller!, true);
+          splitTimed("fg:mark", () => markGrowthPending(scroller!, true));
+          splitTimed("fg:raf", () => {
           editWait = requestAnimationFrame(() => {
             editWait = requestAnimationFrame(endEditWait);
+          });
           });
         },
         destroy() {

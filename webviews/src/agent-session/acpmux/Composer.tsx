@@ -1,4 +1,5 @@
 import { acpmuxPerf } from "./perf";
+import { splitTimed } from "./typingSplit";
 import { sentWords } from "./computerUse/computerUseState";
 import { runResumed, submitResumed } from "./composer/resumedSend";
 import { holdFlag, resumeOrFail, setRef } from "./heldFlag";
@@ -1917,11 +1918,11 @@ function ComposerFrame({
 
   /// `typed`: the field's own change, already in it; anything else is written into it (a render).
   const edit = (value: string, at: number, typed = false) => {
-    requestEmoji();
+    splitTimed("ed:requestEmoji", () => requestEmoji());
     // Esc closes a list for the text it was pressed on; an edit ends that, even one that comes back to
     // the same text (Backspace and the letter again, or the prompt cleared and typed again), so the @
     // and emoji lists come back as the / list does.
-    promptRef.current.set(value, at, true);
+    splitTimed("ed:set", () => promptRef.current.set(value, at, true));
     if (!typed) promptRef.current.draw();
     // Emptied (a command run, a prompt sent, the text deleted): this pane no longer types, and the
     // next draft picks its own skills.
@@ -3242,15 +3243,15 @@ function ComposerFrame({
     // IME composition. A value applied from outside (a draft coming back on open or a switch, a
     // failed prompt restored, the field normalizing either) comes with none.
     promptChange.current = (value, at) => {
-      edit(value, at, true);
+      splitTimed("pc:edit", () => edit(value, at, true));
       if (performance.now() - typedAt.current >= TYPED_WINDOW_MS) return;
       if (hydratedSession.current !== sessionId) editedBeforeHydration.current = true;
       // Kept past this mount: a composer that comes back keeps the person's text over acpmux's.
-      noteDraftEdited(sessionId);
+      splitTimed("pc:noteDraftEdited", () => noteDraftEdited(sessionId));
       // One change per key: what the field does after it (normalizing) is not another.
       typedAt.current = Number.NEGATIVE_INFINITY;
-      if (value.trim()) onTyping?.(value, sessionId);
-      if (value.trim()) onPromptEdit?.(value);
+      if (value.trim()) splitTimed("pc:onTyping", () => onTyping?.(value, sessionId));
+      if (value.trim()) splitTimed("pc:onPromptEdit", () => onPromptEdit?.(value));
     };
     promptCaret.current = promptRef.current.setCaret;
     promptKeyDown.current = (event) => {
