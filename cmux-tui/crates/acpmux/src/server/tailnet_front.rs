@@ -42,11 +42,17 @@ fn ports() -> PortMap {
     PortMap::ssh_layout(DEFAULT_WORKSPACE, &[])
 }
 
-/// Serve the front on `node` until `stop` turns true (or its sender is gone). Does nothing when
-/// the setting is off. A port that cannot be opened is logged and skipped; the node's other
-/// listeners are not affected.
-pub async fn serve(hub: Arc<Hub>, node: Arc<Node>, mut stop: watch::Receiver<bool>) {
+/// Serve the front on `node` until `stop` or `ingress_ended` turns true (or a sender is gone).
+/// Does nothing when the setting is off. A port that cannot be opened is logged and skipped; the
+/// node's other listeners are not affected.
+pub async fn serve(
+    hub: Arc<Hub>,
+    node: Arc<Node>,
+    stop: watch::Receiver<bool>,
+    ingress_ended: watch::Receiver<bool>,
+) {
     if !enabled() {
+        tracing::info!("tailnet front: off ({SETTING_ENABLED} is not true)");
         return;
     }
     let front = Front::new(Arc::clone(&hub.tailnet_placements), TcpDialer);
@@ -61,11 +67,19 @@ pub async fn serve(hub: Arc<Hub>, node: Arc<Node>, mut stop: watch::Receiver<boo
         }
     }
     tracing::info!("tailnet front: serving {serving:?}");
-    let _ = stop.wait_for(|stopped| *stopped).await;
+    until_either(stop, ingress_ended).await;
     let report = front.close(CLOSE_BOUND).await;
     tracing::info!("tailnet front: closed ({report:?})");
     // The listeners held clones of the node; the service releases its own off the runtime.
     crate::tailnet::embedded::release_node(node);
+}
+
+/// Until either signal turns true or its sender is gone.
+async fn until_either(mut a: watch::Receiver<bool>, mut b: watch::Receiver<bool>) {
+    tokio::select! {
+        _ = a.wait_for(|stopped| *stopped) => {}
+        _ = b.wait_for(|stopped| *stopped) => {}
+    }
 }
 
 #[cfg(test)]
@@ -79,6 +93,27 @@ mod tests {
         assert!(!enabled_in(&json!({"tailnet": {"stableNode": {"enabled": "yes"}}})));
         assert!(enabled_in(&json!({"tailnet": {"stableNode": {"enabled": true}}})));
         assert!(enabled_in(&json!({"tailnet.stableNode.enabled": true})));
+    }
+
+    #[tokio::test]
+    async fn the_front_outlives_a_failed_ingress_and_stops_with_either_signal() {
+        let (stop, stopping) = watch::channel(false);
+        let (ended, ingress_ended) = watch::channel(false);
+        let mut waiting = Box::pin(until_either(stopping, ingress_ended.clone()));
+        // A failed ingress sends nothing: the front is still serving a second later.
+        assert!(tokio::time::timeout(Duration::from_secs(1), &mut waiting).await.is_err());
+        stop.send_replace(true);
+        tokio::time::timeout(Duration::from_secs(1), waiting).await.unwrap();
+        // A clean ingress end stops it too.
+        let (_stop, stopping) = watch::channel(false);
+        let waiting = until_either(stopping, ingress_ended);
+        ended.send_replace(true);
+        tokio::time::timeout(Duration::from_secs(1), waiting).await.unwrap();
+    }
+
+    #[test]
+    fn the_rpc_method_is_the_fronts_own() {
+        assert_eq!(crate::rpc::method::MUX_TAILNET_PLACEMENT, cmux_tailnet_front::PLACEMENT_METHOD);
     }
 
     #[test]

@@ -327,7 +327,10 @@ impl Controller {
                     self.note_resume_error_if_current(generation, error);
                 })?;
             if enabled {
+                tracing::info!("embedded tailnet: resuming the saved opt-in");
                 self.start_locked().await?;
+            } else {
+                tracing::info!("embedded tailnet: off (no opt-in marker in {:?})", self.state_dir);
             }
             return Ok(());
         }
@@ -616,6 +619,12 @@ impl Controller {
                 .and_then(|path| std::fs::read_to_string(path).ok())
                 .map(|key| key.trim().to_owned())
                 .filter(|key| !key.is_empty());
+            tracing::info!(
+                hostname = %config.hostname,
+                control = config.control_url.as_deref().unwrap_or("default"),
+                auth_key = config.auth_key.is_some(),
+                "embedded tailnet: starting the node"
+            );
             let node = Node::new(&config).map_err(|error| error.0)?;
             node.start().map_err(|error| error.0)?;
             // Reconcile even when shutdown overtook startup: only the
@@ -1201,10 +1210,23 @@ impl Controller {
     }
 
     fn watch(self: Arc<Self>, node: Arc<Node>, generation: u64, runtime: tokio::runtime::Handle) {
-        if let Ok(watch) = node.watch() {
+        let watch = node.watch();
+        if let Err(error) = &watch {
+            tracing::info!("embedded tailnet: cannot watch the node: {error}");
+        }
+        if let Ok(watch) = watch {
             for notify in watch {
                 let mut snapshot = self.snapshot();
+                let (was, had_error) = (snapshot.state, snapshot.error.clone());
                 snapshot.apply_notify(&notify, Some(&node));
+                if snapshot.state != was || snapshot.error != had_error {
+                    tracing::info!(
+                        state = snapshot.state,
+                        error = snapshot.error.as_deref().unwrap_or(""),
+                        "embedded tailnet: {was} -> {}",
+                        snapshot.state
+                    );
+                }
                 self.publish_if_current(generation, snapshot);
             }
         }

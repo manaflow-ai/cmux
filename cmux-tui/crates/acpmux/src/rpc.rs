@@ -631,7 +631,7 @@ pub mod method {
     pub const MUX_TAILNET_LOGOUT: &str = "_acpmux/tailnet/logout";
     /// One placement update (`cmux_tailnet_front::PlacementMessage`: set, moved, removed) for
     /// the stable tailnet node's front; answers a `PlacementReply`. Local clients only.
-    pub const MUX_TAILNET_PLACEMENT: &str = cmux_tailnet_front::PLACEMENT_METHOD;
+    pub const MUX_TAILNET_PLACEMENT: &str = "_acpmux/tailnet/placement";
     /// The person's phones that may sign an allow (`hub/approvers.rs`).
     pub const MUX_APPROVERS_SET: &str = "_acpmux/approvers_set";
     /// The person's app: the folders of the workspaces its daemon lists now,

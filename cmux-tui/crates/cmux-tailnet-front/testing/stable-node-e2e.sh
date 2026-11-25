@@ -266,6 +266,8 @@ if ID1=$(identity); then
   result PASS front-up "stable node Running $(awk -v a="$T0" -v b="$(date +%s.%N)" 'BEGIN{printf "%.2f", b-a}')s after start: $ID1"
 else
   d logs "$FRONT" 2>&1 | sed 's/tskey-[A-Za-z0-9-]*/tskey-REDACTED/g; s/hskey-[A-Za-z0-9_-]*/hskey-REDACTED/g' | tail -30
+  log "headscale nodes: $(hs nodes list -o json 2>/dev/null | jq -c '[.[]? | {given_name, name, online}]' || true)"
+  front_log 2>&1 | grep -iE 'tailnet|tsnet|control' | tail -20 || true
   result FAIL front-up "stable node never Running"; exit 1
 fi
 if [[ -n $ACPMUX ]]; then
