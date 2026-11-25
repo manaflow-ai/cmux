@@ -830,9 +830,12 @@ pub fn unbound_agent_tab(reply: &Value, surface: u64, host: &str) -> bool {
                 list(pane, "tabs").iter().any(|tab| {
                     tab.get("surface").and_then(Value::as_u64) == Some(surface)
                         && tab.pointer("/conversation/agent_session").is_some_and(Value::is_object)
-                        && tab
-                            .pointer("/conversation/agent_session/host")
-                            .is_none_or(|value| value.is_null() || value.as_str().is_some_and(|tab_host| tab_host.is_empty() || tab_host == host))
+                        && tab.pointer("/conversation/agent_session/host").is_none_or(|value| {
+                            value.is_null()
+                                || value
+                                    .as_str()
+                                    .is_some_and(|tab_host| tab_host.is_empty() || tab_host == host)
+                        })
                         && tab.pointer("/conversation/agent_session/session").is_none_or(Value::is_null)
                 })
             })
