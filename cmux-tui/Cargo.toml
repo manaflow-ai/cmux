@@ -17,13 +17,16 @@ workspace = true
 resolver = "2"
 members = [
     "crates/acpmux",
+    "crates/cmux-terminal-host-protocol",
+    "crates/acpmux-tui",
     "crates/cmux-egress",
-    "crates/desktop-lease",
     "crates/acpmux-core",
     "crates/acpmux-client",
     "crates/acpmux-list-types",
+    "crates/acpmux-team-space",
     "crates/cmux-agent-cli-render",
     "crates/cmux-tailnet",
+    "crates/cmux-tailnet-local",
     "crates/acpmux-build-id",
     "crates/acpmux-standalone",
     "crates/acpmux-book",
@@ -34,6 +37,7 @@ members = [
     "crates/cmux-chat-index",
     "crates/cmux-apps",
     "crates/cmux-cloud-cli",
+    "crates/cmux-autocloud",
     "crates/cmux-cloud-environment",
     "crates/cmux-conversation",
     "crates/cmux-message-preview",
@@ -101,6 +105,7 @@ members = [
     "crates/cmux-projection",
     "crates/cmux-deadline",
     "crates/cmux-tailnet-join",
+    "crates/cmux-bounded",
     "crates/cmux-remote-protocol",
     "crates/cmux-braid-session",
     "crates/cmux-build-identity",
@@ -110,6 +115,7 @@ members = [
     "crates/cmux-relay",
     "crates/cmux-fault",
     "crates/cmux-composer-send",
+    "crates/cmux-mobile-last-place",
     "crates/cmux-duress",
     "crates/chatmux-relay",
     "crates/cmux-tui-machine-agent-protocol",
@@ -119,6 +125,7 @@ members = [
     "crates/cmux-wg-tun",
     "crates/cmux-weft",
     "crates/cmux-transport",
+    "crates/cmux-braid-carrier",
     "crates/cmux-braid-path",
     "crates/cmux-tasks-core",
     "crates/cmux-bookmarks-core",
@@ -155,6 +162,7 @@ members = [
     "crates/cmux-daemon-launch-core",
     "crates/cmux-health-core",
     "crates/cmux-launch-image",
+    "crates/cmux-pane-pictures",
     "crates/cmux-supervise-core",
     "crates/cmux-cookie-sync",
     "crates/cmux-browser-import",
@@ -195,12 +203,14 @@ default-members = [
     "crates/acpmux-core",
     "crates/acpmux-client",
     "crates/acpmux-list-types",
+    "crates/acpmux-team-space",
     "crates/acpmux-build-id",
     "crates/acpmux-standalone",
     "crates/acpmux-book",
     "crates/cmux-coderouter",
     "crates/cmux-apps",
     "crates/cmux-cloud-cli",
+    "crates/cmux-autocloud",
     "crates/cmux-conversation",
     "crates/cmux-message-preview",
     "crates/cmux-share-approval",
@@ -255,6 +265,7 @@ default-members = [
     "crates/cmux-install-check",
     "crates/cmux-deadline",
     "crates/cmux-tailnet-join",
+    "crates/cmux-bounded",
     "crates/cmux-remote-protocol",
     "crates/cmux-braid-session",
     "crates/cmux-build-identity",
@@ -271,6 +282,7 @@ default-members = [
     "crates/cmux-wg-tun",
     "crates/cmux-weft",
     "crates/cmux-transport",
+    "crates/cmux-braid-carrier",
     "crates/cmux-braid-path",
     "crates/cmux-tasks-core",
     "crates/cmux-bookmarks-core",
@@ -305,6 +317,7 @@ default-members = [
     "crates/cmux-daemon-launch-core",
     "crates/cmux-health-core",
     "crates/cmux-launch-image",
+    "crates/cmux-pane-pictures",
     "crates/cmux-supervise-core",
     "crates/cmux-cookie-sync",
     "crates/cmux-browser-import",
@@ -335,7 +348,6 @@ exclude = [
     "vendor/crossterm",
     "vendor/smoltcp",
     "crates/cmux-rd-host",
-    "crates/cmux-cellgrid-bench",
     "crates/cmux-codecs",
     "crates/acpmux-hot/guest",
 ]
@@ -393,6 +405,7 @@ cmux-web-pieces = { path = "crates/cmux-web-pieces" }
 cmux-projection = { path = "crates/cmux-projection" }
 cmux-deadline = { path = "crates/cmux-deadline" }
 cmux-tailnet-join = { path = "crates/cmux-tailnet-join" }
+cmux-bounded = { path = "crates/cmux-bounded" }
 cmux-worktree-care = { path = "crates/cmux-worktree-care" }
 cmux-conductor-import = { path = "crates/cmux-conductor-import" }
 cmux-browser-import = { path = "crates/cmux-browser-import" }
@@ -466,6 +479,7 @@ cmux-tui-image-paste = { path = "crates/cmux-tui-image-paste" }
 cmux-tui-hooks = { path = "crates/cmux-tui-hooks" }
 cmux-agent-customize = { path = "crates/cmux-agent-customize" }
 cmux-tui-util = { path = "crates/cmux-tui-util" }
+cmux-terminal-host-protocol = { path = "crates/cmux-terminal-host-protocol" }
 cmux-json = { path = "crates/cmux-json" }
 cmux-embed = { path = "crates/cmux-embed" }
 cmux-local-url = { path = "crates/cmux-local-url" }
@@ -478,9 +492,11 @@ cmux-build-identity = { path = "crates/cmux-build-identity" }
 cmux-netwatch = { path = "crates/cmux-netwatch" }
 cmux-fault = { path = "crates/cmux-fault" }
 cmux-composer-send = { path = "crates/cmux-composer-send" }
+cmux-mobile-last-place = { path = "crates/cmux-mobile-last-place" }
 cmux-duress = { path = "crates/cmux-duress" }
 cmux-remote = { path = "crates/cmux-remote", default-features = false, features = ["wireguard-transport"] }
 cmux-wg = { path = "crates/cmux-wg" }
+cmux-braid-carrier = { path = "crates/cmux-braid-carrier" }
 cmux-braid-path = { path = "crates/cmux-braid-path" }
 cmux-server = { path = "crates/cmux-server" }
 cmux-server-core = { path = "crates/cmux-server-core" }
@@ -596,6 +612,9 @@ rusqlite = { version = "=0.39.0", default-features = false, features = ["bundled
 # the graph through url -> idna -> idna_adapter at this version; compiled
 # data only, no new transitive code.
 icu_normalizer = { version = "2.2", default-features = false, features = ["compiled_data"] }
+# Git blob ids of prefetched files (acpmux hub/prefetch.rs). Already in the
+# graph at this version (RustCrypto, beside sha2).
+sha1 = "0.10"
 sha2 = "0.10"
 tar = "0.4"
 # XML parser for the SVG icon sanitizer (cmux-tui-core). Already in the graph

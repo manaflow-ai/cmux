@@ -117,6 +117,8 @@ mod first_send;
 
 /// A chat past its context window: `/compact`, then the continuation.
 mod compact_first;
+// A chat a full disk cut waits for free space (`disk_wait.rs`).
+mod disk_wait;
 
 /// A dead agent's unread steers go into its continuation.
 mod unread_steers;
@@ -169,7 +171,8 @@ pub const CAPACITY_MAX_WAIT_MS: u64 = 300_000;
 /// parking. A rate limit's waits are its chat's backoff (`rate_hold.rs`), whose park now
 /// lifts itself; a capacity wait is [`capacity_wait`]. Off (`[]`) stays off.
 pub(in crate::hub) fn waits_it_out(reason: RetryReason, delays: &[u64]) -> bool {
-    matches!(reason, RetryReason::Capacity | RetryReason::RateLimit) && !delays.is_empty()
+    matches!(reason, RetryReason::Capacity | RetryReason::RateLimit | RetryReason::Disk)
+        && !delays.is_empty()
 }
 
 /// The wait before capacity attempt `index` (from 0): the configured wait, at most
@@ -278,6 +281,7 @@ pub(super) fn continue_text(error: &str, reason: &str) -> String {
         }
         "transport" => "a connection error",
         "context" => "the chat's context filling up; it was compacted",
+        "disk" => "the machine's disk filling up; acpmux waited until space was free again",
         _ => "an error",
     };
     format!(
@@ -753,6 +757,7 @@ impl Hub {
             if context && !hub.can_compact(&session).await {
                 if hub.take_pending(&session, &turn_id) {
                     hub.settled_unretried(&session, &turn_id, "not_retried");
+                    hub.lane_stranded(&session);
                 }
                 return;
             }
@@ -773,6 +778,7 @@ impl Hub {
                 if done > 0 {
                     let msg = json!({"promptId": root, "attempts": done, "turnId": turn_id, "reason": reason.as_str()});
                     hub.append_retry(&session, "auto_resume_exhausted", msg);
+                    hub.lane_stranded(&session);
                 } else if ours {
                     hub.settled_unretried(&session, &turn_id, "off");
                 }

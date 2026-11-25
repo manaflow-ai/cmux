@@ -9,6 +9,7 @@ import { ErrorDetails } from "./ErrorDetails";
 import { MessageCard } from "./MessageCard";
 import { DispatchCard } from "./DispatchCard";
 import { WhoElseCard } from "./WhoElseCard";
+import { GitHubConnectCard } from "./GitHubConnectCard";
 import { McpCallRows } from "./McpCallRows";
 import { SubsessionCallCard } from "./SubsessionCallCard";
 import { AgentCallCard } from "./AgentCallCard";
@@ -55,7 +56,14 @@ import { RetryModelMenu } from "./RetryModelMenu";
 import { CloudSignIn } from "./CloudSignIn";
 import { offersGateway, type CloudSignIn as CloudSignInActions } from "../cloudAgentLogin";
 import { useT, type Translate } from "../i18n";
-import { failureCopy, failureKind, failureRecovery, isTeamMachineSignIn, type FailureRoute } from "../failureCopy";
+import {
+  failureCopy,
+  failureKind,
+  failureRecovery,
+  isAccountLimit,
+  isTeamMachineSignIn,
+  type FailureRoute,
+} from "../failureCopy";
 import { experimentArm } from "../../../experiments/experiment";
 import { turnErrorCard } from "./turnErrorCard.experiment";
 import { codeRouterOffer } from "./codeRouterOffer.experiment";
@@ -561,6 +569,9 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           retryNote={retryNote}
         />
       )}
+      {row.githubConnect && (
+        <GitHubConnectCard need={row.githubConnect} phaseKey={`${row.id}:${row.githubConnect.callId}`} />
+      )}
       <div
         className={
           failed
@@ -703,6 +714,8 @@ function TurnFailure({
     switchModel &&
     [
       "rate-limited",
+      "usage-limit",
+      "account-disabled",
       "unreachable",
       "invalid-key",
       "proxy-auth",
@@ -786,13 +799,20 @@ function TurnFailure({
       !signInFirst &&
       !cloudSignInLeads &&
       !compactFirst);
+  // The agent's account is out of usage or turned off (cmux#55066): Use another agent leads, and
+  // Sign in with another account follows it, outlined: the agent's own login here, its sign-in on
+  // the machine for a Cloud chat (only Use an API key on a team machine, which takes no personal login).
+  const accountLimit = isAccountLimit(kind);
+  const otherAccount = accountLimit ? cloudSignIn : undefined;
+  const otherAccountKeyOnly = route?.hostKind === "cloud" && route.teamMachine === true;
+  const otherAccountHere = accountLimit && otherAccount === undefined ? reauthenticate : undefined;
   const switchButton = offersSwitch && (
     <button
       type="button"
       className={`cv-turn-auth-action${switchFirst && !offerLeads && !accessLeads ? " cv-turn-error__primary" : ""}`}
       onClick={switchModel}
     >
-      {t("turn.failure.switchModel")}
+      {accountLimit ? t("turn.failure.useAnotherAgent") : t("turn.failure.switchModel")}
     </button>
   );
   return (
@@ -823,6 +843,22 @@ function TurnFailure({
           <CodeRouterAction choice={codeRouter} retry={retry} className="cv-turn-auth-action cv-turn-error__primary" />
         )}
         {switchFirst && switchButton}
+        {otherAccountHere && (
+          <button type="button" className="cv-turn-auth-action" onClick={otherAccountHere}>
+            {t("turn.failure.signInAnotherAccount")}
+          </button>
+        )}
+        {otherAccount && (
+          <CloudSignIn
+            signIn={otherAccount}
+            rowId={retryRowId}
+            prompt={prompt}
+            keyOnly={otherAccountKeyOnly}
+            another
+            gateway={offersGateway(message)}
+            actionsRef={actionsRef}
+          />
+        )}
         {compactFirst && (
           <button
             type="button"

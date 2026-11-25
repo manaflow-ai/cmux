@@ -169,7 +169,7 @@ mod tests {
     fn the_parent_and_the_reply_round_trip() {
         let p = parent_of(&json!({"parent": {"machine": "vm_a", "fork": true}})).unwrap();
         assert_eq!(p, Parent { machine: "vm_a".into(), fork: true });
-        assert_eq!(parent_of(&json!({"parent": {"machine": "vm_a"}})).unwrap().fork, false);
+        assert!(!parent_of(&json!({"parent": {"machine": "vm_a"}})).unwrap().fork);
         assert_eq!(parent_of(&json!({})), None);
         assert_eq!(
             to_json(&ForkPlace::Fork { machine: "vm_a".into(), client_key: "autocloud-k".into() }),
