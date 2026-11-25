@@ -52,7 +52,7 @@ jobs:
   compile:
     name: cmux-next head compile
     if: ${{ github.repository == 'manaflow-ai/cmux' && (github.ref == 'refs/heads/feat-cmux-next' || inputs.head != '') && vars.CI_COMPILE_CHECK_GATEWAY != '' && vars.CI_HEAD_COMPILE == 'on' }}
-    runs-on: ${{ vars.CI_COMPILE_CHECK_GATEWAY }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_COMPILE_CHECK_GATEWAY (cmux#54437)
     permissions:
       contents: read
       actions: read
