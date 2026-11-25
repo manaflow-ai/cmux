@@ -248,6 +248,7 @@ public:
     [[nodiscard]] Result<BrowserProviderSnapshot> register_browser_provider(const RegisterBrowserProviderRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<AttachedViewOutcomeResult> release_attached_view_size(const ReleaseAttachedViewSizeRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> release_surface_size(const ReleaseSurfaceSizeRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<ReleaseWorkspaceNamesResult> release_workspace_names(const ReleaseWorkspaceNamesRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<ReloadConfigResult> reload_config(const ReloadConfigRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<RemoteHostAppResult> remote_host_app(const RemoteHostAppRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> remote_host_call(const RemoteHostCallRequest& request, RequestOptions options = {});

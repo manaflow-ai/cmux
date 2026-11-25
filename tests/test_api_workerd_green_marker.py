@@ -92,11 +92,17 @@ class WorkflowTests(unittest.TestCase):
 
     def test_test_job_accepts_skip_only_on_a_hit(self):
         test = self.job("test")
-        self.assertIn("needs: [api-workerd-scope, api-workerd]", test)
+        self.assertIn("needs: [api-workerd, workerd-changes, api-workerd-scope]", test)
+        # A skip passes on the path gate's miss or on a green-marker hit, nothing else.
         self.assertIn(
-            "!(needs.api-workerd.result == 'skipped' && needs.api-workerd-scope.result == 'success' && needs.api-workerd-scope.outputs.hit == 'true')",
+            "!(needs.api-workerd.result == 'skipped' && (needs.workerd-changes.outputs.run == 'false' || (needs.api-workerd-scope.result == 'success' && needs.api-workerd-scope.outputs.hit == 'true')))",
             test,
         )
+
+    def test_shards_keep_the_path_gate(self):
+        shards = self.job("api-workerd")
+        self.assertIn("needs: [workerd-changes, api-workerd-scope]", shards)
+        self.assertIn("needs.workerd-changes.outputs.run != 'false'", shards)
 
     def test_marker_saved_only_by_our_own_pull_request_after_all_shards_pass(self):
         test = self.job("test")
