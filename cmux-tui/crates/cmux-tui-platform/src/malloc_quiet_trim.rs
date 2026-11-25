@@ -110,7 +110,7 @@ fn quiet_period(trimmer: &Trimmer, quiet: Duration) {
 
 /// Hands every free whole page of the allocator back to the system.
 pub fn release_free_pages() {
-    #[cfg(any(all(target_os = "linux", target_env = "gnu"), target_os = "macos"))]
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
     {
         unsafe extern "C" {
             fn malloc_trim(pad: usize) -> std::ffi::c_int;
