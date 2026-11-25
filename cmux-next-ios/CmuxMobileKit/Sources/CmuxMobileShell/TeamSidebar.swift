@@ -32,8 +32,8 @@ struct TeamSidebar: View {
                     ForEach(store.teams) { team in
                         row(team)
                     }
-                    if store.teams.isEmpty, store.awaitsAccountData {
-                        // Teams still loading: never "No teams".
+                    if store.teams.isEmpty, !shell.auth.hasKnownTeams, store.awaitsAccountData {
+                        // placeholder-ok: This account has never returned a team list.
                         CmuxSpinner(label: Text("Loading teams…"))
                             .padding(.horizontal, theme.metrics.sideMargin)
                             .padding(.vertical, 8)

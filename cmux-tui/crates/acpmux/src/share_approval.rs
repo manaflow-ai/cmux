@@ -18,7 +18,7 @@ use std::collections::HashSet;
 use base64::Engine as _;
 /// The format itself is shared with the iPhone, which asks with it
 /// (cmux-mobile-link-ffi `share_approval`): one definition of its canonical bytes.
-pub use cmux_share_approval::{AskRefused, Device, ShareApproval, VERSION};
+pub use cmux_share_approval::{AskRefused, CONTROL_VERSION, Device, ShareApproval, VERSION};
 use serde_json::{Value, json};
 
 /// How old an approval may be when the target reads it (the app stamps it at the
@@ -150,7 +150,21 @@ pub fn admit(
     keys: &impl AskerKeys,
     seen: &mut HashSet<String>,
 ) -> Result<(), Refused> {
-    if approval.v != VERSION {
+    admit_as(VERSION, approval, target, grant, keys, seen)
+}
+
+/// [`admit`] for the grant `version` names ([`VERSION`] or [`CONTROL_VERSION`]): an approval
+/// signed for the other grant is refused as `share.bad_version`, since the version is the
+/// first line of the bytes the device signed.
+pub fn admit_as(
+    version: &str,
+    approval: &ShareApproval,
+    target: &Target<'_>,
+    grant: &impl SameAccountGrant,
+    keys: &impl AskerKeys,
+    seen: &mut HashSet<String>,
+) -> Result<(), Refused> {
+    if approval.v != version {
         return Err(Refused::new(
             "share.bad_version",
             format!("unknown approval format {:?}", approval.v),
@@ -220,7 +234,12 @@ fn signature_valid(approval: &ShareApproval, signing_key: &str) -> bool {
 /// and when.
 pub fn target_entry(approval: &ShareApproval, decision: &Result<(), Refused>) -> Value {
     let mut entry = json!({
-        "event": if decision.is_ok() { "remote_host.share_admitted" } else { "remote_host.share_refused" },
+        "event": match (approval.v == CONTROL_VERSION, decision.is_ok()) {
+            (false, true) => "remote_host.share_admitted",
+            (false, false) => "remote_host.share_refused",
+            (true, true) => "remote_host.control_granted",
+            (true, false) => "remote_host.control_refused",
+        },
         "via": "same-account",
         "asker": approval.asker,
         "asker_name": approval.display_asker(),
