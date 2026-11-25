@@ -23,6 +23,11 @@ export const settingsAskCard = defineExperiment({
       label: "Accent rail",
       description: "No surface: a thin rail beside the line, the control under it.",
     },
+    popover: {
+      label: "Popover",
+      description:
+        "A small Needs you popover anchored to a chip under the turn, holding just that setting's control; it opens by itself once, and the chip opens it again.",
+    },
   },
   defaultArm: "needs",
 });
