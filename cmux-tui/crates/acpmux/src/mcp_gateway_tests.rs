@@ -562,7 +562,10 @@ fn tool_specs(session: &str, socket: &Path, allow: Option<&str>) -> Vec<Value> {
         acpmux[crate::agent_tools::MCP_TOOLS_ENV] = json!(allow);
     }
     let spec = |name: &str, word: &str, env: Value| json!({"name": name, "command": "/bin/acpmux", "args": ["acp", word], "env": env});
+    let mut computer_use = base(crate::computer_use::mcp::SESSION_ENV);
+    computer_use["CMUX_TUI_SOCKET"] = json!("/nonexistent/cmux-tui.sock");
     vec![
+        spec("cmux-computer-use", "computer-use-mcp", computer_use),
         spec("cmux-secrets", "secret-mcp", base("ACPMUX_SECRET_SESSION")),
         spec("cmux-sessions", "offer-mcp", base("ACPMUX_OFFER_SESSION")),
         spec("cmux-subsessions", "subsession-mcp", caller(base("ACPMUX_SESSION_ID"))),

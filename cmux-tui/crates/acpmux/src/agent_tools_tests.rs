@@ -678,7 +678,7 @@ async fn with_a_gateway_acpmux_s_own_upstreams_name_its_tool_endpoint() {
     let endpoint = gateway.tools_endpoint("s-gw");
     assert!(endpoint.url.ends_with("/mcp/s-gw/tools"), "{}", endpoint.url);
     let want = serde_json::json!({"url": endpoint.url, "headers": {"Authorization": endpoint.authorization}});
-    let own = ["cmux-secrets", "cmux-sessions", "cmux-subsessions", "cmux-forum", "acpmux"];
+    let own: Vec<&str> = crate::tools_mcp::SERVERS.iter().map(|(name, _)| *name).collect();
     let specs = upstreams(&tools);
     for spec in &specs {
         let name = spec["name"].as_str().unwrap();
@@ -690,7 +690,9 @@ async fn with_a_gateway_acpmux_s_own_upstreams_name_its_tool_endpoint() {
             assert!(spec.get("http").is_none(), "{name} is not acpmux's: {spec}");
         }
     }
-    assert_eq!(specs.iter().filter(|s| s.get("http").is_some()).count(), own.len());
+    let owned = specs.iter().filter(|s| own.contains(&s["name"].as_str().unwrap())).count();
+    assert!(owned >= own.len() - 1, "acpmux's servers, Computer Use where it runs: {specs:?}");
+    assert_eq!(specs.iter().filter(|s| s.get("http").is_some()).count(), owned);
     // The harness gets the gateway, and the gateway keeps the launch with the same upstreams.
     assert!(tools.http.contains_key("cmux"));
     let kept: serde_json::Value = serde_json::from_slice(
@@ -704,14 +706,15 @@ async fn with_a_gateway_acpmux_s_own_upstreams_name_its_tool_endpoint() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// The most acpmux processes cmux's own tools may run under one agent harness: the Computer Use
-/// bridge (`acpmux computer-use-mcp`), which ends the chat's Computer Use session (approvals,
-/// cursor) when its pipe closes, so it lives exactly as long as the harness. Every other tool
-/// family of acpmux's (`tools_mcp::SERVERS`) is served by the daemon (`mcp_gateway.rs`), folded
-/// behind the `cmux` server or not. Measured on Leo's Mac 2026-11-21: 5 per chat (14 chats, 65
-/// processes). Leo, 2026-11-21: "if it has tons of processes tbats a prkduct bug", "movjng
-/// everything out is not the actual solution".
-const ACPMUX_PROCESSES_PER_CHAT: usize = 1;
+/// The most acpmux processes cmux's own tools may run under one agent harness: none. Every tool
+/// family of acpmux's (`tools_mcp::SERVERS`), Computer Use included (`computer_use/served.rs`,
+/// which ends the chat's Computer Use session when the gateway forgets the chat), is served by
+/// the daemon (`mcp_gateway.rs`), folded behind the `cmux` server or not. Measured on Leo's Mac
+/// 2026-11-21: 5 per chat (14 chats, 65 processes); 1 per chat (Computer Use) until 2026-11-25.
+/// Leo, 2026-11-21: "if it has tons of processes tbats a prkduct bug"; 2026-11-25: "like we
+/// need to make sure our optimization of our processes and memory still goes on too... and
+/// optimizing tool calls and mcp servers for our app...".
+const ACPMUX_PROCESSES_PER_CHAT: usize = 0;
 
 /// The stdio entries of a Claude Code config that start `exe`: the acpmux processes the harness
 /// starts for the chat.
@@ -761,12 +764,28 @@ async fn a_chat_starts_at_most_its_budget_of_acpmux_processes() {
     let before = standalone().folded().mcp_config().unwrap();
     assert!(before["mcpServers"].get("cmux").is_none(), "{before}");
     let started = acpmux_processes(&before, &exe);
-    assert_eq!(started.len(), own.len() + 1, "five tool servers and Computer Use: {started:?}");
+    assert!(started.len() >= own.len() - 1, "the tool servers (and Computer Use): {started:?}");
+    // N chats register no stdio server between them: the count stays flat as chats grow.
+    for n in 0..8 {
+        let session = format!("s-budget-{n}");
+        let chat = resolve(&inputs).scoped(&Default::default()).for_session(&session);
+        let config = chat.folded().via_gateway_on(Some(&gateway), &session, &root).mcp_config();
+        let config = config.unwrap();
+        let stdio: Vec<&String> = config["mcpServers"]
+            .as_object()
+            .unwrap()
+            .iter()
+            .filter(|(_, e)| e.get("type").and_then(serde_json::Value::as_str) != Some("http"))
+            .map(|(name, _)| name)
+            .filter(|name| own.contains(&name.as_str()))
+            .collect();
+        assert!(stdio.is_empty(), "chat {n}: {stdio:?} in {config}");
+    }
     let after = standalone().folded().via_gateway_on(Some(&gateway), "s-budget", &root);
     let config = after.mcp_config().unwrap();
     let started = acpmux_processes(&config, &exe);
     assert!(started.len() <= ACPMUX_PROCESSES_PER_CHAT, "{started:?} in {config}");
-    for name in &own {
+    for name in own.iter().filter(|name| config["mcpServers"].get(**name).is_some()) {
         let entry = &config["mcpServers"][*name];
         let endpoint = gateway.server_endpoint("s-budget", name);
         assert_eq!(entry["type"], "http", "{name}: {entry}");

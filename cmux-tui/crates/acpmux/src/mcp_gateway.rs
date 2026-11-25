@@ -290,6 +290,8 @@ pub fn register(session: &str, launch: Launch) -> Option<Endpoint> {
 /// The chat ended: its server stops and its launch file goes.
 pub fn forget(home: &Path, session: &str) {
     let _ = crate::home_fs::remove_file(launch_path(home, session));
+    // Its Computer Use session ends on the worker, as the stdio bridge's ended with its pipe.
+    crate::computer_use::served::end(session);
     if let Some(gateway) = current() {
         let chat = gateway.chats.lock().unwrap_or_else(PoisonError::into_inner).remove(session);
         if let (Some(chat), Ok(_)) = (chat, tokio::runtime::Handle::try_current()) {
@@ -641,6 +643,7 @@ impl Gateway {
             crate::acpmux_mcp_names::SESSION_ENV,
             crate::secret_mcp::SESSION_ENV,
             crate::offer_mcp::SESSION_ENV,
+            crate::computer_use::mcp::SESSION_ENV,
         ] {
             if let Some(value) = env.get_mut(key) {
                 *value = session.to_owned();
