@@ -3,7 +3,8 @@ public import AppKit
 /// How the browser toolbar's profile menu opens (Leo 2026-11-25, of Helium's toolbar profile menu: "yeah even helium
 /// has a profile..."; "just... improve hte browser omnibar situation, obviously"). Every look holds the same rows; they
 /// differ in how the tab's profile leads and how much shows at once. The variants are shown side by side in the pull
-/// request that added them; `card` is the one the app opens.
+/// request that added them (cmux#55597). `card` is the one Settings > Experiments > Browser Profile Card opens; with
+/// it off the app opens `list` without the account row or the avatars, cmux#51248's menu.
 public nonisolated enum BrowserProfileMenuStyle: String, CaseIterable, Sendable {
     /// Helium's and Chrome's: a card with the profile's large avatar and name; the other profiles; New Browser Profile,
     /// New Incognito Window and Manage Browser Profiles together; the profile's own actions folded into Customize
@@ -93,7 +94,7 @@ extension ActionRegistry {
         let manage = makeContextMenuItem(for: "openSettings", in: .browserPage,
                                          arguments: ["section": .string("rooms"), "setting": .string("card.browserProfiles")],
                                          title: Self.browserProfileManage)
-        manage?.image = rowIcon("person.2.badge.gearshape")
+        if style == .card { manage?.image = rowIcon("person.2.badge.gearshape") }
         var parts: [[NSMenuItem]] = []
         // New Browser Profile is a row of the profile's own menu too; here it leads, beside New Incognito Window.
         var creation = makeContextMenu(for: .browserPage, target: target, entries: [.action("browserProfile.new"), .action("newIncognitoWindow")])

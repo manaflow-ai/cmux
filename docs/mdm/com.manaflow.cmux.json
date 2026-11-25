@@ -4002,6 +4002,12 @@
       "title" : "Attachment Type Icons",
       "type" : "boolean"
     },
+    "experiments.browserProfileCard" : {
+      "default" : false,
+      "description" : "The browser's profile menu opens with a profile card.",
+      "title" : "Browser Profile Card",
+      "type" : "boolean"
+    },
     "experiments.chatWidgets" : {
       "default" : false,
       "description" : "Installed extensions can show a card under a finished tool call in agent chat.",

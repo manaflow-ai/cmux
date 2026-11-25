@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextDesign
 import CmuxNextPalette
 @testable import CmuxNextApp
 import Testing
@@ -230,7 +231,19 @@ import Testing
         #expect(gaps.isEmpty, "\(gaps.count) toolbar profile menu rows with no palette row:\n\(gaps.joined(separator: "\n"))")
     }
 
-    /// The look the app opens (Leo 2026-11-25, Helium's profile menu): the card leads, with who is signed in to cmux
+    /// Settings > Experiments > Browser Profile Card off (the default): the button opens cmux#51248's menu, no card, no
+    /// account row, no avatars on the other profiles (Leo's UI hold, 2026-11-25).
+    @Test func browserToolbarProfileMenuIsTodaysWhileTheCardExperimentIsOff() throws {
+        let services = Self.services()
+        #expect(!DesignSettings.shared.experiment("browserProfileCard"))
+        let menu = BrowserToolbarHandlers.profileMenu(forTab: "tab-1", services: services)
+        #expect(!menu.items.contains { $0.view != nil || $0.identifier == ActionRegistry.browserProfileAccountID
+            || $0.identifier == ActionRegistry.browserProfileCustomizeID })
+        let carded = BrowserToolbarHandlers.profileMenu(forTab: "tab-1", services: services, style: .card)
+        #expect(carded.items.first?.view is MenuProfileCardView)
+    }
+
+    /// The look the experiment opens (Leo 2026-11-25, Helium's profile menu): the card leads, with who is signed in to cmux
     /// under it opening Accounts; New Browser Profile, New Incognito Window and Manage Browser Profiles sit together;
     /// the profile's own rows are one level down, in Customize Profile; Import from Browser and the Web Store end it.
     @Test func browserToolbarProfileMenuCardLeadsWithTheProfileCard() throws {
