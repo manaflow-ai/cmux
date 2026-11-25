@@ -33,6 +33,33 @@ import Testing
         #expect(timeline.marks.count == 10)
     }
 
+    /// cmux#55519: the composer start opens the chat's workspace and tab, trusts the copy and warms its agent beside this
+    /// Mac's gateway coming up, and waits for it only after `open`, just before the page's first prompt. RED before: the
+    /// gateway was awaited after the approvals, so a gateway still coming up held the open and everything after it.
+    @MainActor @Test func theOpenRunsBesideTheGatewayWhichIsAwaitedOnlyBeforeTheFirstPrompt() async {
+        for (outlasts, gatewayMs) in [(false, 0), (true, 300)] {
+            let clock = TestClock()
+            let timeline = CloudSendTimeline(now: clock.now)
+            let (began, beginning) = AsyncStream<Void>.makeStream()
+            let (released, release) = AsyncStream<Void>.makeStream()
+            let gateway = CloudStartBeside { () async -> Bool in
+                beginning.yield()
+                for await _ in released { return true }
+                return false
+            }
+            for await _ in began { break } // it began with the start, before any step below
+            for (step, ms) in [("machine", 2000), ("copy", 900), ("approvals", 0)] { clock.advance(ms); timeline.mark(step) }
+            clock.advance(1500) // the workspace, the tab, the trust and the prewarm, while the gateway comes up
+            if !outlasts { release.yield() }
+            timeline.mark("open")
+            if outlasts { clock.advance(300); release.yield() }
+            #expect(await gateway.value)
+            timeline.mark("gateway")
+            #expect(timeline.marks.map(\.step) == ["machine", "copy", "approvals", "open", "gateway"])
+            #expect(CloudSendTimeline.steps(timeline.marks).map(\.ms) == [2000, 900, 0, 1500, gatewayMs]) // the open never waits on it
+        }
+    }
+
     @Test func aStepMarkedTwiceKeepsItsFirstEnd() {
         let clock = TestClock()
         let timeline = CloudSendTimeline(now: clock.now)
