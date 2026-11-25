@@ -224,8 +224,11 @@ all three apps). Settings row icons 17 pt in a 22 pt frame.
 ### 2.6 Haptics (`CmuxMobileHaptics`)
 
 SwiftUI `.sensoryFeedback`, or `UIFeedbackGenerator` from UIKit code. All gated by Settings >
-Haptic feedback (Claude has this toggle, `claude-08-settings-bottom`; ChatGPT FAQ documents its own).
-Also respect the system haptics switch (automatic) and skip all haptics in Low Power Mode (ChatGPT does).
+Haptic feedback, **default off** (Leo, 2026-11-23: "ive turned off all haptics already, so dont inject
+haptic noise when i havent asked for it. ever."). Also respect the system haptics switch (automatic) and
+skip all haptics in Low Power Mode (ChatGPT does). Every call goes through the gate; no raw
+`UIFeedbackGenerator`, `.sensoryFeedback`, `AudioServicesPlaySystemSound` or `playInputClick` outside
+the gate files (`design/haptics-audit.md` lists every site).
 
 | Event | Feedback |
 | --- | --- |
@@ -239,8 +242,8 @@ Also respect the system haptics switch (automatic) and skip all haptics in Low P
 | Team switch, chip/segment change, picker change | `.selection` |
 | Sidebar crosses the open threshold during a pan | `.impact(weight: .light, intensity: 0.5)` once per crossing |
 | Copy | `.impact(weight: .light, intensity: 0.7)` + icon swap |
-| Joystick step | `.selection`, throttled to 30 Hz |
-| Key bar key | `.impact(weight: .light, intensity: 0.5)` (setting "Key clicks", default on) |
+| Joystick step | none (a key press follows the keyboard's own Keyboard Feedback setting, which no app can read) |
+| Key bar key | none. Setting "Key clicks" (default off) plays the system key click sound only when turned on |
 | Pull to refresh trigger | system |
 | Long press menus, toggles | system |
 
@@ -1067,7 +1070,7 @@ Tab root, `NavigationStack`, toolbar: leading drawer circle, principal "Settings
 | (Account card, no header) | Avatar 40 (initials) + name (`body` semibold) + email (`footnote` `label2`) + chevron → Account page (name, email, linked sign-in methods with badges Apple / Google / GitHub / Email, "Delete account" red at the bottom). Pattern `claude-07-settings`, `grok-12-settings`. |
 | Team | "<Team name>" row with team avatar (28) → Team page: Color and icon (3.4), Members (read-only list from Stack, owner badge), Invite to team, Leave team (red). Footer: "Color and icon are yours only; teammates choose their own." (prefs are per user per team, PROTOCOL.md) |
 | Connection | Transport: inline `Picker` menu "WebRTC" / "WireGuard" (value trailing with `chevron.up.chevron.down`, like Codex "Follow-up behavior: Queue"). Footer: "Switching reconnects to your Macs." / Paired Macs → page: rows with `StatusDot` + name + `footnote` "Online · WebRTC direct" / "Last seen 3h ago", swipe to Unpair; "Pair a Mac" row with `plus` in `label` (not blue; Codex uses blue "Add connection", `chatgpt-14`); "Disconnect all" trailing in the section header as `label2` text button. / Show connection details (toggle: shows path type, RTT, relay in the terminal title menu). |
-| Terminal | Font size (stepper 9–24, live preview row in the terminal theme), Theme (picker of Ghostty themes with swatches; default follows the Mac's theme), Key bar (page: reorder and toggle keys, 10.4), Composer: "Dismiss keyboard after sending" (toggle, on), "Follow-up while running" (Queue / Steer), "Wrap code and diff lines" (toggle, off), "Key clicks" (toggle, on). |
+| Terminal | Font size (stepper 9–24, live preview row in the terminal theme), Theme (picker of Ghostty themes with swatches; default follows the Mac's theme), Key bar (page: reorder and toggle keys, 10.4), Composer: "Dismiss keyboard after sending" (toggle, on), "Follow-up while running" (Queue / Steer), "Wrap code and diff lines" (toggle, off), "Key clicks" (toggle, off; plays the system key click sound, never a haptic). |
 | Appearance | Three tiles Light / Dark / System (`claude-08-settings-bottom`): 96 x 64 rounded previews radius 14, selected 2 pt `label` stroke and the label in `label` semibold (Claude uses blue; we use label). Haptic feedback toggle. |
 | Notifications | Allow notifications (system status row → opens iOS Settings if denied), Questions and permissions (toggle), Finished tasks (toggle), Errors (toggle), Live Activities ("One per agent" / "Only when waiting" / "Off", menu picker; Codex "Live Activities: One per remote"). |
 | Security | Require Face ID (toggle; footer "Require Face ID or passcode to open mobile on this device.", `chatgpt-15-codex-settings-bottom`). |
@@ -1109,14 +1112,16 @@ dictation). Codex and our own REFERENCES.md: "Terminal screen = chat screen".
 
 From bottom to top, inside one `GlassEffectContainer(spacing: 8)`, side margin 8:
 
-1. Key bar (only while the keyboard is up; hidden when a hardware keyboard is attached, like
-   Blink and Termius): 44 h glass capsule, horizontally scrollable middle with fixed ends:
+1. Key bar (only while the soft keyboard is up; hidden when it is down or a hardware keyboard is
+   attached, like Blink and Termius; Leo, 2026-11-23: "why are those things always showing?"). It is
+   never counted in the terminal's resting height, so the PTY keeps its rows as the keyboard comes and
+   goes. 44 h row, style per `KeyBarStyle` (caps, strip, inset; see `design/terminal-key-row.md`), horizontally scrollable middle with fixed ends:
    - Leading fixed: `esc` (Esc), `ctrl` (sticky modifier: tap = one-shot, highlighted
      `fillSelected`; double tap = lock, `accent` fill), `alt`.
    - Middle (scrolls): `tab`, `⇧tab` (Termius added Shift-Tab for Claude Code modes), `|`, `~`,
      `/`, `-`, `` ` ``, `{`, `}`, `[`, `]`, `^C`, `^D`, `^Z`, `^L`, `^R`, tmux prefix (`^B`).
-     Each key cap 40 x 34, radius 10, `fill`, label `subheadline` mono; press: `fillPressed` +
-     scale 0.92 (`snap`), key-click haptic.
+     Each key target at least 44 x 44 (Leo: "the buttons are really small"), glyph 17 pt, label
+     16 pt mono; press: `fillPressed` + scale 0.92 (`snap`), no haptic.
    - Trailing fixed: joystick (10.3), then `keyboard.chevron.compact.down` (hide keyboard).
 2. Composer row (always visible): a one-line glass capsule 48 h (`CmuxMobileComposer` collapsed metrics)
    with `+` (Photos, Camera, Files → uploads to the Mac and inserts the path; Paste image),
@@ -1135,12 +1140,12 @@ bottom safe area and the key bar is hidden.
 
 ### 10.3 Joystick
 
-- 36 pt glass circle in the key bar with a 14 pt `label2` dot (thumb). Touch and drag: the
-  thumb follows the finger within a 28 pt radius; direction quantized to 4 ways (8 with a
+- 44 pt glass circle in the key bar with a 14 pt `label2` dot (thumb). Touch and drag: the
+  thumb follows the finger within a 22 pt radius; direction quantized to 4 ways (8 with a
   setting); sends arrow keys while held.
 - Gears (Termius): distance from center 8–16 pt = gear 1 (repeat every 160 ms), 16–24 pt =
   gear 2 (80 ms), > 24 pt = gear 3 (30 ms). First key fires immediately on crossing 8 pt.
-  `.selection` haptic per key at gears 1–2, every 4th key at gear 3.
+  No haptic (2.6).
 - Release: thumb returns with `springBack`.
 - Alternative (Termius): long-press-and-slide on the space bar is a system gesture we cannot
   intercept; long press on the terminal surface in direct mode with no selection intent
