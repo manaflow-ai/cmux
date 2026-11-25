@@ -35,7 +35,7 @@ public struct LiveAPI: Sendable {
         public var teamId: String?
         /// A `presence` frame for a Mac its owner deleted (0.7.0): drop it.
         public var removed: Bool?
-        /// The computer the Mac runs on (added 2026-10-21): one per computer, shared by its cmux builds.
+        /// The computer the Mac runs on (added 2026-10-21): shared by its cmux builds of one account; lists do not group by it.
         public var machineId: String?
         /// Milliseconds since the service last heard the Mac's heartbeat; only for an online Mac
         /// (PROTOCOL.md "Mac freshness"). An older Worker sends none.

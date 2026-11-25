@@ -424,10 +424,17 @@ jobs:
       # reload.sh builds the web bundles from source (cx-vn5) with the bun
       # webviews/package.json pins; the owned Macs' shared ~/.bun holds another
       # one, so the build stopped at "the cmux-next web bundles need bun".
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        if: steps.scope.outputs.is_ui == 'true'
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Setup Bun
         if: steps.scope.outputs.is_ui == 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
           bun-version: "1.4.4"
 
       # The minis share ~/.bun with workflows that install another bun; this
@@ -437,7 +444,14 @@ jobs:
         run: scripts/cmux-next/private-bun.sh
 
       # The webviews app's `vp build` must run on node (build-web-bundles.sh).
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        if: steps.scope.outputs.is_ui == 'true'
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
+
       - name: Setup Node
+        timeout-minutes: 5
         if: steps.scope.outputs.is_ui == 'true'
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
@@ -980,6 +994,8 @@ jobs:
             scripts/ci/pr_media_ocr_tesseract.py
             scripts/ci/pr_media_ocr.swift
             scripts/cmux-next/media/publish.py
+            scripts/cmux-next/flicker-check.py
+            scripts/cmux-next/recording-shifts-report.py
           sparse-checkout-cone-mode: false
 
       # The pull request to comment on: the one the handed-off run was for, read
@@ -1053,6 +1069,16 @@ jobs:
         env:
           DEBIAN_FRONTEND: noninteractive
         run: command -v ffmpeg >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg >/dev/null)
+
+      # Leo, 2026-11-24: "this on reviving had tons of layout shifts." Every tour's capture.mov is read frame by
+      # frame for blocks that jump (move in one frame and stay), blinks and staggered settles; the table goes to
+      # this run's summary and <capture>.shifts.json beside each video. A report, never a failure: the seeded
+      # recordings (ci/steps.toml recording-shifts) are what gate the detector.
+      - name: Layout shifts in the tour recordings
+        if: ${{ inputs.publish_run != '' }}
+        continue-on-error: true
+        timeout-minutes: 10
+        run: python3 -I scripts/cmux-next/recording-shifts-report.py "$RUNNER_TEMP/media" --summary "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the media and update the comment
         if: ${{ steps.target.outputs.pr != '' }}

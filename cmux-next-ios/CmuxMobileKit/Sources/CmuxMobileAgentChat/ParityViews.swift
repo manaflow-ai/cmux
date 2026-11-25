@@ -416,7 +416,7 @@ struct CheckpointsScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .autoRetry(autoRetry, failing: load.isFailed) { await reload() }
         .cmuxMobileToast($toast)
-        .sensoryFeedback(.success, trigger: restoredTrigger)
+        .cmuxMobileSensoryFeedback(.success, trigger: restoredTrigger)
         .confirmationDialog("Restore this checkpoint?", isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
                             titleVisibility: .visible, presenting: confirming) { checkpoint in
             Button("Restore Files", role: .destructive) { restore(checkpoint) }
@@ -647,7 +647,7 @@ struct HandoffReviewScreen: View {
         .chatDemoReceiver(store: store, surface: surface)
         .navigationTitle("Review continuation")
         .navigationBarTitleDisplayMode(.inline)
-        .sensoryFeedback(.success, trigger: receipt)
+        .cmuxMobileSensoryFeedback(.success, trigger: receipt)
         .task { await prepare() }
         .onChange(of: surface.demoHandoffFill) { _, value in
             guard let value else { return }
