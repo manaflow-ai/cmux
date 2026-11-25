@@ -129,6 +129,11 @@ p0() {
   [ -n "$cli" ] && to 30 "$cli" computer-use status >"$out/cu-status.txt" 2>&1
   memory after-walk "$pid"
   inventory after-walk
+  # What the app wrote for this fresh person (the Chief's error, daemon logs): text logs only, size-capped. The home is
+  # the run's own, so it holds no credentials.
+  ( cd "$work/home" && find . -type f \( -name '*.log' -o -name '*.jsonl' -o -name '*.txt' \) -size -2M 2>/dev/null | head -200 |
+      tar -czf "$work/home-logs.tgz" -T - 2>/dev/null ); cp "$work/home-logs.tgz" "$out/" 2>/dev/null
+  find "$work/home" -maxdepth 4 2>/dev/null | sed "s|$work/home|~|" | head -200 >"$out/home-tree.txt"
 }
 
 case "$mode" in
