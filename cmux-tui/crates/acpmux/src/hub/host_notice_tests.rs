@@ -2,7 +2,7 @@
 //! journal, as a transcript record a chat client reads, and never in a closed chat.
 
 use super::*;
-use crate::server::host_notice::{KIND, append_all};
+use crate::server::methods::host_notice::{KIND, append_all};
 
 fn hub_with(chats: &[(&str, &str)]) -> Arc<Hub> {
     let cfg: crate::config::Config =
