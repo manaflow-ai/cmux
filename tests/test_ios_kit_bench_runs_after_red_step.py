@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The kit job's Instant list bench still runs when an earlier step of the job is red.
+"""The kit job's Instant list bench still runs when an earlier step of the job is red, except on a pull request.
 
 The bench steps of .github/workflows/cmux-next-ios-kit.yml are advisory and run with
 `!cancelled()`, so a red test step never hides their numbers. The steps they build
@@ -65,10 +65,47 @@ class BenchRunsAfterARedStep(unittest.TestCase):
                 "has nothing to build with and prints no INSTANTPERF line",
             )
 
+    def test_a_red_pull_request_does_not_wait_for_the_advisory_bench(self) -> None:
+        # On a pull request the red step is already the verdict; the advisory bench (3-10 min on a Mac) is skipped so
+        # the red check reports at once (goal ios-ci-under-5min). Base pushes and dispatches still bench after a red.
+        by_id = {step.get("id"): step for step in steps()}
+        for bench in BENCH_IDS:
+            condition = str(by_id[bench].get("if", ""))
+            self.assertIn("github.event_name != 'pull_request' || success()", condition, f"{bench}: {condition}")
+
     def test_a_red_lint_still_fails_the_job(self) -> None:
         # The lint keeps its teeth: it is not advisory, only no longer in the bench's way.
         lint = next(step for step in steps() if step.get("name") == "Connection notices")
         self.assertNotIn("continue-on-error", lint)
+        self.assertEqual(lint["env"]["LINT_RESULT"], "${{ needs.connection-notices.outputs.lint_result }}")
+        self.assertIn('test "$LINT_RESULT" = success', lint["run"])
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        linux = jobs["connection-notices"]
+        self.assertEqual(linux["runs-on"], jobs["runner"]["runs-on"])
+        self.assertEqual(linux["needs"], "runner")
+        self.assertIn(linux["if"].removeprefix("${{ ").removesuffix(" }}"), jobs["kit-tests"]["if"])
+        check = next(step for step in linux["steps"] if step.get("name") == "Connection notices")
+        self.assertTrue(check["continue-on-error"])
+        self.assertEqual(linux["outputs"]["lint_result"], "${{ steps." + check["id"] + ".outcome }}")
+        self.assertIn("check-connection-notices.py", check["run"])
+        self.assertIn("!cancelled()", jobs["kit-tests"]["if"])
+
+
+class KitTestsRunAfterARedLint(unittest.TestCase):
+    # A red Connection notices (it reads webviews/ too) skipped every kit test on base from 2026-11-25: a web-only
+    # finding in GitHubConnectCard.tsx hid 22 simulator reds in the kit's own code. The tests now run after it.
+    TESTS = (
+        "swift test (macOS)",
+        "swift test (macOS, measured suites alone)",
+        "xcodebuild test (iOS simulator)",
+        "xcodebuild test (iOS simulator, Mac fallback)",
+    )
+
+    def test_the_kit_tests_run_after_a_red_step(self) -> None:
+        by_name = {step.get("name"): step for step in steps()}
+        for name in self.TESTS:
+            self.assertIn(name, by_name, f"the kit job has no step named {name!r}")
+            self.assertTrue(survives_a_red_step(by_name[name]), f"{name!r} is skipped after a red lint step")
 
 
 if __name__ == "__main__":

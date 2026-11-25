@@ -131,9 +131,13 @@ export const revokeTestPlan = (sql: SqlStorage, subscription: string, now: numbe
   return sql.exec(`UPDATE test_plan_session SET revoked_at = ? WHERE subscription = ? AND revoked_at IS NULL`, now, subscription).rowsWritten > 0
 }
 
-/** The newest unrevoked test plan, or null (no table create on a read). */
-export const testPlanGrant = (sql: SqlStorage): string | null =>
-  hasGrantTable(sql) ? (sql.exec<{ plan: string }>(`SELECT plan FROM test_plan_session WHERE revoked_at IS NULL ORDER BY granted_at DESC, session DESC LIMIT 1`).toArray()[0]?.plan ?? null) : null
+/**
+ * The newest unrevoked test plan, or null (no table create on a read). `kind` "plan" is a classic plan (pro, max:
+ * it stands in for cmuxPlan); "next_plan" is a cmux NEXT plan (next_plus, next_pro, next_max: it stands in for
+ * cmuxNextPlan, plan-checkout.ts NEXT_PLANS). One kind never answers for the other.
+ */
+export const testPlanGrant = (sql: SqlStorage, kind: "plan" | "next_plan" = "plan"): string | null =>
+  hasGrantTable(sql) ? (sql.exec<{ plan: string }>(`SELECT plan FROM test_plan_session WHERE revoked_at IS NULL AND (substr(plan, 1, 5) = 'next_') = ? ORDER BY granted_at DESC, session DESC LIMIT 1`, kind === "next_plan" ? 1 : 0).toArray()[0]?.plan ?? null) : null
 
 const hasGrantTable = (sql: SqlStorage) => sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'test_plan_session'`).one().n > 0
 
@@ -145,10 +149,14 @@ const hasGrantTable = (sql: SqlStorage) => sql.exec<{ n: number }>(`SELECT COUNT
 export const inferencePlanOf = async (sql: SqlStorage, state: TeamState | null, entity: string, stack: StackServer | undefined, stackUser: string | undefined, user: string, now = Date.now(), testGrants = false): Promise<PlanAnswer> => {
   const answer = await sourcePlanOf(sql, state, entity, stack, stackUser, user, now)
   const granted = testGrants && !(answer.ok && answer.paid) ? testPlanGrant(sql) : null
+  // A test NEXT plan stands in for the record's cmuxNextPlan, only where the record holds none (a real subscription
+  // wins) and only on an answer that was read (an outage stays one). It carries no term: it is no intro pass.
+  const nextGranted = testGrants && answer.ok && !answer.next_plan ? testPlanGrant(sql, "next_plan") : null
+  const withNext = (a: PlanAnswer): PlanAnswer => (nextGranted === null || !a.ok ? a : { ...a, next_plan: nextGranted, next_plan_started_at: null, next_plan_ends_at: null })
   // The grant stands in for cmuxPlan only; the record's cmux NEXT plan (next_plan, with its term) and Chief add-on (chief_addon) are kept as read.
-  if (granted === null) return answer
+  if (granted === null) return withNext(answer)
   const read = answer.ok ? answer : undefined
-  return { ok: true, paid: true, user_limit_usd: memberLimit(state, user).limit_usd, plan: granted, next_plan: read?.next_plan ?? null, chief_addon: read?.chief_addon ?? null, next_plan_started_at: read?.next_plan_started_at ?? null, next_plan_ends_at: read?.next_plan_ends_at ?? null }
+  return withNext({ ok: true, paid: true, user_limit_usd: memberLimit(state, user).limit_usd, plan: granted, next_plan: read?.next_plan ?? null, chief_addon: read?.chief_addon ?? null, next_plan_started_at: read?.next_plan_started_at ?? null, next_plan_ends_at: read?.next_plan_ends_at ?? null })
 }
 
 const sourcePlanOf = async (sql: SqlStorage, state: TeamState | null, entity: string, stack: StackServer | undefined, stackUser: string | undefined, user: string, now: number): Promise<PlanAnswer> => {

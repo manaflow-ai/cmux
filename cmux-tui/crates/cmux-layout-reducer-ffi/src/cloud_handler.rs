@@ -4,12 +4,39 @@
 //! hold, and acts on the answer. A refusal comes back as `{"refusal": Said}`
 //! (a key into the app's localized strings, with the values it names).
 
-use cmux_cloud_handlers::{Said, answers, args, decide, fields};
+use std::sync::{LazyLock, Mutex, MutexGuard, PoisonError};
+use std::time::Instant;
+
+use cmux_cloud_handlers::{Said, answers, args, decide, fields, wake_hint};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value, json};
 
 use crate::ERR_INVALID;
+
+static WAKE_HINTS: LazyLock<Mutex<wake_hint::WakeHints>> = LazyLock::new(Mutex::default);
+static EPOCH: LazyLock<Instant> = LazyLock::new(Instant::now);
+
+fn wake_hints() -> MutexGuard<'static, wake_hint::WakeHints> {
+    WAKE_HINTS.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+fn now_ms() -> u64 {
+    u64::try_from(EPOCH.elapsed().as_millis()).unwrap_or(u64::MAX)
+}
+
+#[derive(Deserialize)]
+struct WakeResumed {
+    machine: String,
+    ok: bool,
+}
+
+#[derive(Deserialize)]
+struct WakeMachine {
+    machine: String,
+    #[serde(default)]
+    status: Option<String>,
+}
 
 /// Whether `operation` is one of this module's.
 pub(crate) fn handles(operation: &[u8]) -> bool {
@@ -234,6 +261,31 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
                 decide::Prewarm::Resume => json!({ "resume": true }),
                 decide::Prewarm::Skip(reason) => json!({ "resume": false, "reason": reason }),
             }
+        }
+        // Wake on intent (`wake_hint`, v1): the process's one ledger, on a monotonic clock.
+        b"cloud_handler_wake_hint" => {
+            let hint: wake_hint::Hint = read(request)?;
+            let decision = wake_hints().hint(&hint, now_ms());
+            match decision {
+                wake_hint::HintDecision::Resume => {
+                    json!({ "v": wake_hint::WAKE_HINT_VERSION, "resume": true })
+                }
+                wake_hint::HintDecision::Skip(reason) => {
+                    json!({ "v": wake_hint::WAKE_HINT_VERSION, "resume": false, "reason": reason })
+                }
+            }
+        }
+        b"cloud_handler_wake_resumed" => {
+            let r: WakeResumed = read(request)?;
+            json!({ "checkAfterMs": wake_hints().resumed(&r.machine, r.ok, now_ms()) })
+        }
+        b"cloud_handler_wake_input" => {
+            let r: WakeMachine = read(request)?;
+            json!({ "outcome": value(wake_hints().input(&r.machine, now_ms()))? })
+        }
+        b"cloud_handler_wake_idle" => {
+            let r: WakeMachine = read(request)?;
+            value(wake_hints().idle(&r.machine, r.status.as_deref(), now_ms()))?
         }
         b"cloud_handler_setup_readiness" => {
             let c: CreationFacts = read(request)?;
