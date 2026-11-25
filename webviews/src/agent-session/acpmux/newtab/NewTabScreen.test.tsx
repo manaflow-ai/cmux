@@ -285,7 +285,7 @@ test("Add harness keeps the typed draft through setup", async () => {
   expect(asks[0]?.[1]).toBe("keep my draft");
 });
 
-test("New Tab suggestions keep the composer's page glass", async () => {
+test("New Tab's box and its suggestions are the App's one popover glass", async () => {
   await act(async () => {
     root!.render(
       <NewTabScreen
@@ -303,8 +303,11 @@ test("New Tab suggestions keep the composer's page glass", async () => {
   await typePrompt("fix the flaky test");
   const popover = document.querySelector(".nt-popover");
   expect(popover).toBeTruthy();
-  expect(popover!.hasAttribute("data-host-glass")).toBe(false);
-  expect(popover!.hasAttribute("data-host-glass-cover")).toBe(false);
+  expect(popover!.getAttribute("data-host-glass")).toBe("popover");
+  expect(popover!.hasAttribute("data-host-glass-cover")).toBe(true);
+  const box = document.querySelector(".nt-box");
+  expect(box!.getAttribute("data-host-glass")).toBe("popover");
+  expect(box!.classList.contains("ui-glass")).toBe(true);
 });
 
 test("other popovers keep native popup glass", async () => {

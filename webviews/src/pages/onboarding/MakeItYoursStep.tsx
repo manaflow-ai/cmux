@@ -1,21 +1,30 @@
-// Make cmux Yours (cmux#48416): a new person's one setup screen, three choices, each already on the
+// Make cmux Yours (cmux#48416, cmux#49636): a new person's one setup screen, four choices, each already on the
 // recommended answer so Continue alone is a good setup:
 //   1. How you work: Agents first (recommended; Cmd-T opens the New Tab page, where a chat starts) or
 //      Terminal first (Cmd-T opens a terminal). The words never say "classic".
-//   2. Density: Compact, Standard or Comfortable (Settings has the two extremes).
-//   3. Background: None, Shuffle Paintings or one of a few built-in works.
+//   1b. Where chats run: This Mac (the default) or Cloud (`agentPane.newChatsIn`), each with one
+//      caption, so a Mac with no agent installed still has a way to start (ask c-8f5f7ff8b3). An
+//      older host that sends no `chatsRunIn` gets no row.
+//   2. Density: every density Settings has, by Settings' names (the host sends them).
+//   3. Background: None, Shuffle Paintings or one of a few built-in works, then the two rows
+//      Settings > Appearance draws under its own picker: Opacity (how much of the theme color covers
+//      the picture) and Material (None, Frosted, Glass, Clear Glass). With no picture they stay in
+//      place, dimmed and inert, so picking one never moves the window's layout.
+// Density and Material are segmented tracks whose selection plate slides (ui/motion/SlidingIndicator).
 // No theme row: windows follow macOS's light or dark mode, and the terminal theme stays in Settings.
 // Each choice is a group of native radios (the browser owns roles, arrows and focus); a pick is sent
 // at once and the host writes it, so the app behind the window changes while the person watches.
+// Continue keeps the picks; Skip (and Escape) puts back what was set when the window opened.
 // Return presses Continue, Escape skips (the page's own key handler).
 //
 // The `preview` look (the one that ships) also draws a small cmux window built from the three
 // answers: the painting behind it, a chat or a terminal in it, its rows as tight as the density.
 // The onboarding window covers the app it changes, so this is where a pick is seen. It is drawn from
 // the state alone and is hidden from assistive tech: the radios carry every answer.
-import type { ReactNode } from "react";
+import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { cx } from "../../ui/cx";
-import type { DensityChoice, MakeItYoursBackground, MakeItYoursState, WorkStyle } from "./ops";
+import { SlidingIndicator } from "../../ui/motion/SlidingIndicator";
+import type { ChatsRunIn, MakeItYoursBackground, MakeItYoursMaterial, MakeItYoursState, WorkStyle } from "./ops";
 import { HostIcon, useOnboarding } from "./parts";
 
 /** The looks of the screen (the gallery's variant switch): `preview` ships. */
@@ -33,15 +42,93 @@ const WORK_KEYS: Record<WorkStyle, { title: string; detail: string }> = {
     detail: "onboarding.makeItYours.work.terminal.detail",
   },
 };
-const DENSITIES: readonly DensityChoice[] = ["compact", "standard", "comfortable"];
-const DENSITY_KEYS: Record<DensityChoice, string> = {
-  compact: "onboarding.makeItYours.density.compact",
-  standard: "onboarding.makeItYours.density.standard",
-  comfortable: "onboarding.makeItYours.density.comfortable",
+// Where a new chat runs (c-8f5f7ff8b3): Cloud named on the one screen every new person sees. This
+// Mac stays the default.
+const RUN_INS: readonly ChatsRunIn[] = ["local", "cloud"];
+const RUN_IN_KEYS: Record<ChatsRunIn, { title: string; detail: string }> = {
+  local: { title: "onboarding.makeItYours.runIn.local", detail: "onboarding.makeItYours.runIn.local.detail" },
+  cloud: { title: "onboarding.makeItYours.runIn.cloud", detail: "onboarding.makeItYours.runIn.cloud.detail" },
+};
+const MATERIAL_KEYS: Record<MakeItYoursMaterial, string> = {
+  none: "onboarding.makeItYours.material.none",
+  frosted: "onboarding.makeItYours.material.frosted",
+  glass: "onboarding.makeItYours.material.glass",
+  "glass-clear": "onboarding.makeItYours.material.glass-clear",
 };
 
 /** The value a radio carries for no background (an input's value is a string). */
 const NO_BACKGROUND = "";
+/** The Opacity slider's step, as Settings' row. */
+const OPACITY_STEP = 0.05;
+
+const percent = (value: number) => `${Math.round(value * 100)}%`;
+
+/** Opacity, as Settings' row: a drag previews in the slider and is written once on release (the host
+ * takes one write per click or key); an arrow key writes its step at once. A value sent shows until the
+ * host's state answers it, so the thumb never jumps back and two quick keys step twice. */
+function OpacitySlider({ value, label, disabled }: { value: number; label: string; disabled: boolean }) {
+  const { store } = useOnboarding();
+  const [drag, setDrag] = useState<number | null>(null);
+  // The value sent while the host still shows `base`.
+  const [sent, setSent] = useState<{ value: number; base: number } | null>(null);
+  const dragging = useRef(false);
+  const pending = useRef<number | null>(null);
+  const current = sent !== null && sent.base === value ? sent.value : value;
+  const send = (next: number) => {
+    if (next === current) return;
+    setSent({ value: next, base: value });
+    store.call("cmux.onboarding.makeItYours.opacity", { value: next });
+  };
+  const release = () => {
+    if (!dragging.current) return;
+    dragging.current = false;
+    const next = pending.current;
+    pending.current = null;
+    setDrag(null);
+    if (next !== null) send(next);
+  };
+  const shown = drag ?? current;
+  return (
+    <div className="onb-make-adjust-row">
+      <span className="onb-make-adjust-label" id="onb-make-opacity-label">
+        {label}
+      </span>
+      <span className="onb-make-slider-cell">
+        <input
+          type="range"
+          className="onb-make-slider"
+          min={0}
+          max={1}
+          step={OPACITY_STEP}
+          value={shown}
+          aria-labelledby="onb-make-opacity-label"
+          aria-valuetext={percent(shown)}
+          disabled={disabled}
+          onPointerDown={() => {
+            dragging.current = true;
+          }}
+          onChange={(event) => {
+            const next = Number(event.currentTarget.value);
+            if (dragging.current) {
+              pending.current = next;
+              setDrag(next);
+              return;
+            }
+            // A key (or an assistive app's step): its own gesture, written now.
+            send(next);
+          }}
+          onPointerUp={release}
+          onPointerCancel={release}
+          onLostPointerCapture={release}
+          onBlur={release}
+        />
+        <span className="onb-make-adjust-value" aria-hidden="true">
+          {percent(shown)}
+        </span>
+      </span>
+    </div>
+  );
+}
 
 /** Looks whose tiles carry no name: the chosen work's full name shows once, under the row or the
  * preview, instead of six names cut to a word each. */
@@ -69,6 +156,8 @@ export function MakeItYoursStep({
   const captioned = CAPTIONED.has(look);
   // The preview names the work under itself; the other captioned looks name it under the tiles.
   const tileCaption = captioned && look !== "preview";
+  // Opacity and Material only change a picture: with None they stay in place, dimmed and inert.
+  const noPicture = chosenId === NO_BACKGROUND;
 
   const work = (
     <Group look={look} className="onb-make-work" label={strings.t("onboarding.makeItYours.work.label")}>
@@ -81,7 +170,11 @@ export function MakeItYoursStep({
               value={style}
               aria-label={strings.t(WORK_KEYS[style].title)}
               checked={choices.workStyle === style}
-              onChange={() => store.call("cmux.onboarding.makeItYours.workStyle", { value: style })}
+              onChange={() =>
+                store.call("cmux.onboarding.makeItYours.workStyle", {
+                  value: style,
+                })
+              }
             />
             {look === "preview" && <span className="onb-make-option-mark" aria-hidden="true" />}
             <span className="onb-make-option-text">
@@ -98,20 +191,65 @@ export function MakeItYoursStep({
       </div>
     </Group>
   );
+  // An older host sends no `chatsRunIn`: no row.
+  const runIn =
+    choices.chatsRunIn == null ? null : (
+      <Group look={look} className="onb-make-run-in" label={strings.t("onboarding.makeItYours.runIn.label")}>
+        <div
+          className="onb-make-segments ui-slide-host"
+          style={{ "--onb-make-count": RUN_INS.length } as CSSProperties}
+        >
+          <SlidingIndicator selected={choices.chatsRunIn} selector="[data-checked]" className="onb-make-thumb" />
+          {RUN_INS.map((where) => (
+            <label
+              key={where}
+              className="onb-make-segment ui-slide-item"
+              data-checked={choices.chatsRunIn === where || undefined}
+            >
+              <input
+                type="radio"
+                name="chatsRunIn"
+                value={where}
+                aria-label={strings.t(RUN_IN_KEYS[where].title)}
+                aria-describedby="onb-make-run-in-detail"
+                checked={choices.chatsRunIn === where}
+                onChange={() => store.call("cmux.onboarding.makeItYours.chatsRunIn", { value: where })}
+              />
+              <span>{strings.t(RUN_IN_KEYS[where].title)}</span>
+            </label>
+          ))}
+        </div>
+        <p id="onb-make-run-in-detail" className="onb-make-option-detail onb-make-run-in-detail">
+          {strings.t(RUN_IN_KEYS[choices.chatsRunIn].detail)}
+        </p>
+      </Group>
+    );
   const density = (
     <Group look={look} className="onb-make-density" label={strings.t("onboarding.makeItYours.density.label")}>
-      <div className="onb-make-segments">
-        {DENSITIES.map((value) => (
-          <label key={value} className="onb-make-segment" data-checked={choices.density === value || undefined}>
+      <div
+        className="onb-make-segments ui-slide-host"
+        style={{ "--onb-make-count": choices.densities.length } as CSSProperties}
+      >
+        <SlidingIndicator selected={choices.density} selector="[data-checked]" className="onb-make-thumb" />
+        {choices.densities.map((item) => (
+          <label
+            key={item.id}
+            className="onb-make-segment ui-slide-item"
+            data-checked={choices.density === item.id || undefined}
+          >
             <input
               type="radio"
               name="density"
-              value={value}
-              aria-label={strings.t(DENSITY_KEYS[value])}
-              checked={choices.density === value}
-              onChange={() => store.call("cmux.onboarding.makeItYours.density", { value })}
+              value={item.id}
+              aria-label={item.name}
+              checked={choices.density === item.id}
+              onChange={() =>
+                store.call("cmux.onboarding.makeItYours.density", {
+                  value: item.id,
+                })
+              }
             />
-            <span>{strings.t(DENSITY_KEYS[value])}</span>
+            <span>{item.name}</span>
           </label>
         ))}
       </div>
@@ -157,6 +295,45 @@ export function MakeItYoursStep({
           {chosenLabel}
         </p>
       )}
+      <div className="onb-make-adjust" data-off={noPicture || undefined}>
+        {choices.opacity !== null && (
+          <OpacitySlider
+            value={choices.opacity}
+            label={strings.t("onboarding.makeItYours.opacity")}
+            disabled={noPicture}
+          />
+        )}
+        <div className="onb-make-adjust-row" role="radiogroup" aria-labelledby="onb-make-material-label">
+          <span className="onb-make-adjust-label" id="onb-make-material-label">
+            {strings.t("onboarding.makeItYours.material")}
+          </span>
+          <div className="onb-make-chips ui-slide-host">
+            <SlidingIndicator selected={choices.material} selector="[data-checked]" className="onb-make-thumb" />
+            {choices.materials.map((material) => (
+              <label
+                key={material}
+                className="onb-make-chip ui-slide-item"
+                data-checked={choices.material === material || undefined}
+              >
+                <input
+                  type="radio"
+                  name="material"
+                  value={material}
+                  aria-label={strings.t(MATERIAL_KEYS[material])}
+                  checked={choices.material === material}
+                  disabled={noPicture}
+                  onChange={() =>
+                    store.call("cmux.onboarding.makeItYours.material", {
+                      value: material,
+                    })
+                  }
+                />
+                <span>{strings.t(MATERIAL_KEYS[material])}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      </div>
     </Group>
   );
 
@@ -169,6 +346,7 @@ export function MakeItYoursStep({
         </figure>
         <div className="onb-make-choices">
           {work}
+          {runIn}
           {density}
           {background}
         </div>
@@ -178,6 +356,7 @@ export function MakeItYoursStep({
   return (
     <div className="onb-make" data-look={look}>
       {work}
+      {runIn}
       {density}
       {background}
     </div>

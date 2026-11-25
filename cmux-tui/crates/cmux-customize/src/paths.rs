@@ -23,7 +23,11 @@ pub struct Roots {
 
 impl Roots {
     /// The roots this process's environment names; `None` with no home.
+    /// An old install's state moves to NEXT's folder first (macOS).
     pub fn from_env() -> Option<Roots> {
+        if std::env::var_os(STATE_OVERRIDE).is_none() {
+            cmux_config::location::migrate_legacy_state_once();
+        }
         Roots::from(|name| std::env::var_os(name).filter(|value| !value.is_empty()))
     }
 
