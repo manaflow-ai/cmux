@@ -2120,7 +2120,7 @@ async fn dispatch_request_with_identity(
                 .with_data(json!({"reason": "stale_generation", "retryable": false})));
             }
             // Ordered by the chat's prompt admission from here (`hub/prompt_admission.rs`), bounded.
-            let admission = crate::hub::prompt_admission::admit(&s).await;
+            let admission = crate::hub::prompt_admission::admit(&s, &hub.scope).await;
             attach(hub, conn, &s.id);
             if person_asks(conn) {
                 super::lane_parent::person_wrote(hub, &s);

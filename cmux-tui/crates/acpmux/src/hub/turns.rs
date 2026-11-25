@@ -527,7 +527,7 @@ impl Hub {
         let unanswered = Unanswered::of(&blocks, client, &mut opts);
         let admission = opts.admission.take().unwrap_or_else(|| Admission::new(session));
         let mut setup = Box::pin(async {
-            admission.acquire(session).await;
+            admission.acquire(session, &self.scope).await;
             self.run_prompt_admitted(session, blocks, client, steer, opts, joined, &admission).await
         });
         let Some(unanswered) = unanswered else {

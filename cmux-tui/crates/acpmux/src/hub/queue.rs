@@ -510,7 +510,15 @@ impl Hub {
                             break Some(guard);
                         }
                         drop(guard);
-                        done.await;
+                        // The restore wait keeps the same due time (as #55502 bounds it).
+                        match p.answer_due {
+                            Some(due) => {
+                                if tokio::time::timeout_at(due, done).await.is_err() {
+                                    break None;
+                                }
+                            }
+                            None => done.await,
+                        }
                     };
                     // `waiting` was read before the lock: a prompt the owner approved (or a
                     // resumed one) since then waits in the queue ahead of this one and keeps its

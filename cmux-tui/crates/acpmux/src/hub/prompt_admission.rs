@@ -80,7 +80,11 @@ impl Admission {
 
     /// Takes the session's admission, waiting at most [`ADMISSION_BOUND`], and holds it at most
     /// that long (its lease). Once: a prompt the RPC layer admitted does not wait again.
-    pub(crate) async fn acquire(self: &Arc<Self>, session: &Arc<Session>) {
+    pub(crate) async fn acquire(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        scope: &cmux_scope::Scope,
+    ) {
         if self.acquired.swap(true, Ordering::SeqCst) {
             return;
         }
@@ -92,7 +96,7 @@ impl Admission {
         *self.guard.lock().unwrap_or_else(|e| e.into_inner()) = Some(guard);
         self.enter("setup");
         let lease = Arc::downgrade(self);
-        tokio::spawn(async move {
+        scope.spawn_named("prompt-admission-lease", async move {
             tokio::time::sleep(ADMISSION_BOUND).await;
             let Some(admission) = lease.upgrade() else { return };
             let lapsed = admission.guard.lock().unwrap_or_else(|e| e.into_inner()).take();
@@ -146,9 +150,9 @@ impl Admission {
 
 /// Takes `session`'s prompt admission for a prompt that came now ([`Admission::acquire`]). The
 /// only way a prompt takes it.
-pub(crate) async fn admit(session: &Arc<Session>) -> Arc<Admission> {
+pub(crate) async fn admit(session: &Arc<Session>, scope: &cmux_scope::Scope) -> Arc<Admission> {
     let admission = Admission::new(session);
-    admission.acquire(session).await;
+    admission.acquire(session, scope).await;
     admission
 }
 
