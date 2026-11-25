@@ -207,7 +207,7 @@ pub(super) async fn handle(
         tokio::task::spawn_blocking(move || crate::hub::outbox::keep_attachments(&path, &request))
             .await
             .map_err(|e| RpcError::internal(e.to_string()))?
-            .map_err(|e| RpcError::internal(format!("cannot keep the attachments: {e:#}")))?;
+            .map_err(|e| crate::recovery::write_error("cannot keep the attachments", e, None))?;
     }
     // The send's one durable write (its line in outbox.journal, a group commit with other
     // changes): on the blocking pool at the on-screen CPU tier (`qos.rs`), so a loaded machine or
@@ -226,8 +226,11 @@ pub(super) async fn handle(
             if let Some(path) = kept {
                 forget_attachments(path).await;
             }
-            return Err(RpcError::internal(format!("cannot keep the message: {e:#}"))
-                .with_data(json!({"reason": "outbox.not_saved", "retryable": true})));
+            return Err(crate::recovery::write_error(
+                "cannot keep the message",
+                e,
+                Some("outbox.not_saved"),
+            ));
         }
     };
     // The same prompt id again: the first delivery, already on its way.
@@ -333,7 +336,7 @@ pub(super) async fn remember_forward(
     hub.outbox
         .remember_forward(intent)
         .map(|delivery| delivery.id)
-        .map_err(|e| RpcError::internal(format!("cannot persist peer message intent: {e:#}")))
+        .map_err(|e| crate::recovery::write_error("cannot persist peer message intent", e, None))
 }
 
 /// Find a receiver projection across every page, including messages still queued
