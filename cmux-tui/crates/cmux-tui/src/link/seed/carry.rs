@@ -9,8 +9,10 @@
 //! The switch is `CMUX_SEED_CARRY`: `off` never carries; anything else (the default) carries
 //! whenever the machine serves `git-seed-carry-v1`, the repository is not a partial clone (a
 //! blob it lacks would be fetched from GitHub here first) and the pack is at most
-//! `CMUX_SEED_CARRY_MAX_MB` (default [`DEFAULT_MAX_MB`]); past that the machine's own clone is
-//! the better bet over a slow uplink.
+//! the cap `cmux link seed push` picks from the measured link speed to the machine
+//! (`seed_cli/link_speed.rs`: `CMUX_SEED_CARRY_MAX_MB` when set, else what the link sends in
+//! `CMUX_SEED_CARRY_BUDGET_S`, else [`DEFAULT_MAX_MB`]); past that the machine's own clone is the
+//! better bet over a slow uplink.
 
 use std::io::Write as _;
 use std::path::Path;
@@ -27,29 +29,27 @@ pub fn enabled() -> bool {
     !std::env::var("CMUX_SEED_CARRY").is_ok_and(|value| value.eq_ignore_ascii_case("off"))
 }
 
-fn max_bytes() -> u64 {
-    std::env::var("CMUX_SEED_CARRY_MAX_MB")
-        .ok()
-        .and_then(|value| value.parse::<u64>().ok())
-        .unwrap_or(DEFAULT_MAX_MB)
-        .saturating_mul(1024 * 1024)
-}
-
 /// Writes the depth-1 pack of `base` from the repository at `folder` to `out`; its bytes.
-/// `Err` (why) when it cannot or should not be carried: the seed then goes without it.
-pub fn pack(folder: &Path, base: &str, out: &Path) -> Result<u64, String> {
-    pack_with_filter(folder, base, out, false)
+/// `Err` (why) when it cannot or should not be carried (past `max_bytes`, among others): the
+/// seed then goes without it.
+pub fn pack(folder: &Path, base: &str, out: &Path, max_bytes: u64) -> Result<u64, String> {
+    pack_with_filter(folder, base, out, false, max_bytes)
 }
 
-/// Writes the projection carry pack: commits and trees for the depth-one base, plus explicit
-/// staged blobs, while leaving ordinary base blobs to the public promisor or projected fallback.
-/// A projected start needs the repository shape immediately; it does not need to retransmit every
-/// large blob the Mac can already serve or a public remote can provide.
+/// Writes the projection carry pack: commits and trees for the depth-one base while leaving blobs
+/// to the public promisor or projected fallback. Staged blobs are fetched explicitly from the
+/// projected repository when the machine copies its index.
 pub fn pack_projection(folder: &Path, base: &str, out: &Path) -> Result<u64, String> {
-    pack_with_filter(folder, base, out, true)
+    pack_with_filter(folder, base, out, true, max_bytes())
 }
 
-fn pack_with_filter(folder: &Path, base: &str, out: &Path, blobless: bool) -> Result<u64, String> {
+fn pack_with_filter(
+    folder: &Path,
+    base: &str,
+    out: &Path,
+    blobless: bool,
+    max_bytes: u64,
+) -> Result<u64, String> {
     if git::optional(git::at(folder).args(["config", "--get", "extensions.partialClone"])).is_some()
     {
         return Err("the repository is a partial clone".into());
@@ -66,23 +66,12 @@ fn pack_with_filter(folder: &Path, base: &str, out: &Path, blobless: bool) -> Re
         .stdout(file)
         .stderr(Stdio::piped());
     let mut child = command.spawn().map_err(|error| format!("cannot run git: {error}"))?;
-    let staged = git::optional(git::at(folder).args(["ls-files", "--stage"]))
-        .unwrap_or_default()
-        .lines()
-        .filter_map(|line| line.split_whitespace().nth(1).map(str::to_owned))
-        .filter(|object| {
-            (object.len() == 40 || object.len() == 64)
-                && object.bytes().all(|byte| byte.is_ascii_hexdigit())
-        })
-        .filter(|object| object.chars().any(|character| character != '0'))
-        .collect::<Vec<_>>();
-    let mut input = format!("--shallow {base}\n{base}\n");
-    for object in staged {
-        input.push_str(&object);
-        input.push('\n');
-    }
-    let wrote =
-        child.stdin.take().map(|mut stdin| stdin.write_all(input.as_bytes())).unwrap_or(Ok(()));
+    let input = format!("--shallow {base}\n{base}\n");
+    let wrote = child
+        .stdin
+        .take()
+        .map(|mut stdin| stdin.write_all(input.as_bytes()))
+        .unwrap_or(Ok(()));
     let done = child.wait_with_output().map_err(|error| format!("cannot run git: {error}"))?;
     if !done.status.success() || wrote.is_err() {
         let _ = std::fs::remove_file(out);
@@ -92,9 +81,9 @@ fn pack_with_filter(folder: &Path, base: &str, out: &Path, blobless: bool) -> Re
         ));
     }
     let bytes = std::fs::metadata(out).map_err(|error| format!("cannot read: {error}"))?.len();
-    if bytes > max_bytes() {
+    if bytes > max_bytes {
         let _ = std::fs::remove_file(out);
-        return Err(format!("the pack is {bytes} bytes, over CMUX_SEED_CARRY_MAX_MB"));
+        return Err(format!("the pack is {bytes} bytes, over the {max_bytes}-byte cap"));
     }
     Ok(bytes)
 }

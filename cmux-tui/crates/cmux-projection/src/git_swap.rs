@@ -274,13 +274,9 @@ pub fn prepare_carry(
     };
     write_atomic(&local.join("shallow"), format!("{base}\n").as_bytes())?;
     index_carry(local, pack)?;
-    let mut check = git(local);
-    check.args(["rev-list", "--objects", "--no-walk", "--missing=print", base]);
-    let missing = output(check)?;
-    anyhow::ensure!(
-        !missing.split(|byte| *byte == b'\n').any(|line| line.starts_with(b"?")),
-        "the carry pack lacks an object reachable from {base}"
-    );
+    // A blobless pack intentionally omits the base tree's blobs. The projected repository is
+    // fetched below to fill those holes; checking reachability here would reject the pack before
+    // that transfer. The base commit itself must be present so the receiver has a stable anchor.
     let mut commit = git(local);
     commit.args(["rev-parse", "--verify", &format!("{base}^{{commit}}")]);
     output(commit)?;
@@ -314,7 +310,10 @@ fn index_carry(local: &Path, pack: &Path) -> anyhow::Result<()> {
     let incoming = packs.join("tmp_cmux_carry.pack");
     std::fs::copy(pack, &incoming)?;
     let mut index = git(local);
-    index.args(["index-pack", "--strict"]).arg(&incoming);
+    // Projection carry packs use `blob:none`: the commit and trees are present, while blobs
+    // arrive from the projected repository during `copy_mac_state`. Index the pack's checksum
+    // and object table here without requiring connectivity to those intentionally omitted blobs.
+    index.args(["index-pack"]).arg(&incoming);
     let name = String::from_utf8_lossy(&output(index)?).trim().to_owned();
     anyhow::ensure!(valid_object_name(&name), "index-pack answered {name:?}");
     for extension in ["rev", "idx", "pack"] {
@@ -377,8 +376,33 @@ fn copy_mac_state(projected: &Path, local: &Path, seed_url: Option<&str>) -> any
     fetch.args(["--recurse-submodules=no"]);
     // Negotiation only from what is already here, never a lazy blob fetch to check one.
     fetch.env("GIT_NO_LAZY_FETCH", "1");
+    // A reachable seed remote already owns the ordinary blobs; keep this projected transfer
+    // blobless so the carry path does not retransmit the remote's history. When the remote probe
+    // failed (or there is no remote), copy the blobs from the projection for a self-contained swap.
+    if seed_url.is_some() {
+        fetch.arg("--filter=blob:none");
+    }
     fetch.arg(projected).arg("+refs/*:refs/*");
     output(fetch)?;
+    // An index can name staged blobs that no ref reaches. Fetch those object IDs from the
+    // projected repository explicitly; the carry pack stays blobless while staged work still
+    // survives the swap without consulting the configured remote.
+    let mut staged = git(projected);
+    staged.args(["ls-files", "--stage"]);
+    let staged = text(staged)?
+        .lines()
+        .filter_map(|line| line.split_whitespace().nth(1))
+        .filter(|object| valid_object_name(object))
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    if !staged.is_empty() {
+        let mut fetch = git(local);
+        fetch.args(["fetch", "--quiet", "--no-tags", "--no-write-fetch-head"]);
+        fetch.args(["--recurse-submodules=no"]);
+        fetch.env("GIT_NO_LAZY_FETCH", "1").arg(projected);
+        fetch.args(staged);
+        output(fetch)?;
+    }
     let mut mac = git(projected);
     mac.args(["for-each-ref", "--format=%(refname)"]);
     let on_mac: std::collections::HashSet<String> = text(mac)?.lines().map(str::to_owned).collect();
@@ -480,7 +504,13 @@ pub fn run(
     let local = state.join(LOCAL_DIR);
     let ready = match prepare_carry(&projected, &local, &projected.join(CARRY_PACK), &base) {
         Ok(ready) => ready,
-        Err(_) => return Ok(Outcome::NoPublicRemote),
+        Err(error) => {
+            eprintln!(
+                "cmux projection: carry preparation failed for {}: {error:#}",
+                projected.display()
+            );
+            return Ok(Outcome::NoPublicRemote);
+        }
     };
     swap(overlay, forget, &projected, &local, &ready)?;
     Ok(Outcome::Swapped(local))

@@ -136,6 +136,13 @@ export default componentEntry<Props>({
       picker({ status: { ...notConnected, pendingApproval: true } }),
     ),
     opening: entry("The GitHub page is opening.", picker({ status: notConnected, connecting: true })),
+    "waiting-step": {
+      ...entry(
+        "The GitHub step says the repositories show up once an owner approves (Leo 2026-11-25).",
+        picker({ status: { ...notConnected, pendingApproval: true } }),
+      ),
+      play: step(/^GitHub repository/),
+    },
     "unavailable-refused": {
       ...entry(
         "The install request failed and can be retried.",
@@ -163,6 +170,20 @@ export default componentEntry<Props>({
         extraFolders: { draft: { machine: "local", folders: ["/Users/you/notes"] }, onChange: () => {} },
       },
     ),
+    "not-shared": {
+      ...entry(
+        "The repository wanted when Connect started is still not shared: the step says how to add it.",
+        picker({ status: ready, repos, missing: "acme/billing" }),
+      ),
+      play: step(/^GitHub repository/),
+    },
+    "typed-not-shared": {
+      ...entry("A typed owner/name the app can't see says how to add it.", picker({ status: ready, repos })),
+      play: async (ctx) => {
+        await step(/^GitHub repository/)(ctx);
+        await ctx.type("acme/billing", { role: "combobox", name: "Search repositories" });
+      },
+    },
     "ready-picked": {
       ...entry("The GitHub step shows the selected private repository.", picker({ status: ready, repos }), {
         ...cloud,
