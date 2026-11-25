@@ -4008,6 +4008,48 @@ button.menu-disclosure {
   stroke-linecap: round;
 }
 
+/* Add a Connection > Claude Code's Paste a token instead: a collapsed disclosure in the help line's
+   type under Connect Claude, the paste form inside it once opened. */
+.models-claude-paste > summary {
+  width: fit-content;
+  cursor: pointer;
+}
+.models-claude-paste[open] > summary {
+  margin-bottom: 8px;
+}
+
+/* Settings > General's Replay the Intro card (ReplayIntroCard), right under Text Size: a line and a button that
+   reopens the Make cmux Yours step. */
+.replay-intro-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-3);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--ds-radius-control) + var(--ds-space-3));
+}
+
+.replay-intro-card__text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  min-width: 0;
+}
+
+.replay-intro-card__text .group-title {
+  margin: 0;
+}
+
+.replay-intro-card__detail {
+  margin: 0;
+  color: var(--muted-text);
+}
+
+.replay-intro-card__run {
+  flex: none;
+}
+
 /* A card's slot: no box of its own, so a deep link can find any card without changing the layout. */
 .card-slot {
   display: contents;

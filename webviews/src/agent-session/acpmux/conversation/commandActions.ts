@@ -6,12 +6,8 @@
 // step of a compound command is named, with an ellipsis for the rest, so a label never claims more
 // than that step did. The opened row's Shell block always shows the whole line as it ran.
 //
-// Claude's Bash calls also carry a `description` the model wrote ("Search prior tooltip work");
-// Codex's exec calls carry none (acpmux passes `rawInput: {command, commandLine, cwd}`, and the
-// reads, searches and listings its app server parses arrive as read and search calls already).
-// The table comes first because it is read off what ran: a description is the model's own words
-// and could say one thing while the command does another (the reason #36940 drew commands as
-// typed). A description names only what the table cannot (`commandSaid`).
+// A tool's own description takes precedence over any inferred action. The opened Shell block
+// always displays the actual command, including setup and redirects.
 import type { StringKey, StringValues, Translate } from "../i18n";
 import { experimentArm } from "../../../experiments/experiment";
 import type { AcpmuxActivity } from "../model";
@@ -20,6 +16,7 @@ import { ROW_WIDTH, shortCommand } from "./shortCommand";
 import {
   baseName,
   isAssignmentOnly,
+  isSetup,
   mainStep as workingStep,
   shellWords,
   stages,
@@ -28,6 +25,8 @@ import {
   type Loop,
   type Stage,
 } from "./shellSteps";
+import { currentCommandRules } from "../session-info/commandLabelSettings";
+import { ruleOf, type CommandRule } from "../session-info/commandRules";
 import { commandFolder } from "./commandFolder";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
@@ -162,6 +161,12 @@ function mainStep(command: string): {
   loops: Loop[];
 } {
   let { step, more, before, bodies, loops } = workingStep(command);
+  // A timed wait is part of what ran even if the shell-step parser treats it as setup
+  // for the next operation. Keep both on the line.
+  more ||= before.some((part) => {
+    const words = stages(part)[0]?.words.map((word) => word.text) ?? [];
+    return baseName(unwrap(words)[0] ?? "") === "sleep";
+  });
   const vars = new Map<string, string[]>();
   const values = new Map<string, string>();
   for (const earlier of before) if (isAssignmentOnly(earlier)) assigned(earlier, vars, values);
@@ -537,7 +542,8 @@ const GIT: Record<string, Rule> = {
     // A push that deletes or rewrites says so (`:ref`, `--delete`, `+ref`, `--force`); one that
     // touches more than one ref, or every ref (`--mirror`, `--all`, `--prune`), reads as its line.
     const { positional, has } = parse(args, ["-o", "--push-option", "--repo", "--receive-pack", "--exec"]);
-    if (has("--mirror", "--all", "--tags", "--prune") || positional.length > 2) return undefined;
+    const dryRun = has("--dry-run") || args.some((arg) => /^-[a-zA-Z]*n[a-zA-Z]*$/.test(arg));
+    if (dryRun || has("--mirror", "--all", "--tags", "--prune") || positional.length > 2) return undefined;
     const ref = positional[1];
     const branch = ref
       ?.slice(ref.lastIndexOf(":") + 1)
@@ -841,6 +847,7 @@ function fetched(args: string[]): Act | undefined {
     ...SENDS.filter((flag) => flag.startsWith("--")),
     "--method",
   ]);
+  if (has("--config", "-K", "--next") || args.some((arg) => /^-K./.test(arg))) return undefined;
   const method = value("-X", "--request", "--method") ?? attachedMethod(args);
   // A request that sends something did more than fetch: its line says what.
   if ((method && method.toUpperCase() !== "GET") || has(...SENDS) || args.some(attachedSend)) return undefined;
@@ -1205,6 +1212,14 @@ export function actionText(t: Translate, action: CommandAction): string {
   return t(action.key, action.values ?? {});
 }
 
+/// The file named by a standalone shell read. A pipeline can do more with the file's contents.
+export function singleFileRead(command: string): string | undefined {
+  if (command.includes("|")) return undefined;
+  const action = commandAction(command);
+  if (action?.key === "command.read" && !action.more && action.files?.length === 1) return action.files[0];
+  return undefined;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Rows and groups.
 
@@ -1212,39 +1227,80 @@ export function commandLook(): CommandLabelLook {
   return experimentArm(commandLabelLook);
 }
 
-// A shell that went on in the background keeps its launch's "completed" while it runs there.
+// A background shell has its own lifecycle after the foreground launch returns.
 const running = (tool: Tool) =>
-  tool.status === "pending" || tool.status === "in_progress" || tool.background?.state === "running";
+  tool.background ? tool.background.state === "running" : tool.status === "pending" || tool.status === "in_progress";
 
-// A call that failed, was denied or a hook blocked: its status says so, its command exited nonzero, or
-// the shell it left in the background failed there (toolGroups.ts isFailed, countsFailed; not
-// imported, since toolGroups imports this file). The table's verbs say what a command did ("Merged
-// PR #101", "Pushed main"), so such a call never gets one: its row reads as its line, "Ran gh pr
-// merge 101", and a group with one reads "Ran N commands".
-const failed = (tool: Tool) =>
-  tool.status === "failed" ||
-  (tool.exitCode !== undefined && tool.exitCode !== 0) ||
-  tool.background?.state === "failed";
+const succeeded = (tool: Tool) =>
+  (tool.background ? tool.background.state === "completed" : tool.status === "completed") &&
+  tool.status !== "failed" &&
+  tool.status !== "stopped" &&
+  (tool.exitCode === undefined || tool.exitCode === 0) &&
+  (tool.background?.exitCode === undefined || tool.background.exitCode === 0);
 
-/// A command row's words when they are not its command line: the table's action, else the call's
-/// description, as the look orders them. Undefined when the row reads "Ran <line>". A running call
-/// reads as its command line, with the shimmer carrying its live state (Leo, 2026-11-23: "running"
-/// doesn't need text).
-export function commandSaid(t: Translate, tool: Tool, look: CommandLabelLook = commandLook()): string | undefined {
+/// Tray rules name the first interesting program. A transcript title accounts for the full
+/// command, so later work, file writes and substitutions must not disappear behind that name.
+export function commandSummary(
+  t: Translate,
+  command: string,
+  configured: readonly CommandRule[],
+  completed: boolean | "background" = false,
+  depth = 0,
+): string | undefined {
+  const match = ruleOf(command, configured);
+  if (!match) return undefined;
+  const { step, before, more, loops } = workingStep(command);
+  if (more || loops.length || !before.every(isSetup) || RUNS_INSIDE.test(step)) return undefined;
+  const [first, ...rest] = stages(step);
+  if (!first || first.writes || !rest.every(passesThrough)) return undefined;
+
+  const { read } = match;
+  if ("text" in read) return read.text;
+  // Only use the broad HTTP, push and PR merge titles when the action parser recognizes
+  // the same operation. A DELETE, force-push or automatic merge has a different meaning.
+  if (read.key === "commandRules.fetchingFrom" && commandAction(step)?.key !== "command.fetched") return undefined;
+  if (read.key === "commandRules.pushing" || read.key === "commandRules.pushingBranch") {
+    const key = commandAction(step)?.key;
+    if (key !== "command.git.push" && key !== "command.git.pushBranch") return undefined;
+  }
+  if (read.key === "commandRules.merging" && commandAction(step)?.key !== "command.gh.prMerge") return undefined;
+  let values = read.values;
+  if (read.inner !== undefined) {
+    if (depth >= 3) return undefined;
+    const label = commandSummary(t, read.inner, configured, false, depth + 1);
+    if (!label) return undefined;
+    values = { ...values, label };
+  }
+  if (completed && read.key === "commandRules.waiting") return t("command.waitedDuration", values);
+  if (completed && read.key === "commandRules.testingAll") {
+    const program = unwrap(first.words.map((word) => word.text))[0];
+    if (program) return t("command.tested", { tool: baseName(program) });
+  }
+  const label = t(read.key, values);
+  // Background rows display their own terminal state beside the label.
+  return completed === true ? `${label} · ${t("bgTask.state.completed")}` : label;
+}
+
+/// Prefer the author's description, including while the process is running or has failed.
+/// Past-tense actions describe successful exits only. The raw command remains in ShellBlock.
+export function commandSaid(t: Translate, tool: Tool): string | undefined {
+  const description = tool.description?.trim();
+  if (description) return description;
   const command = tool.command?.trim();
-  if (!command || look === "command" || look === "cleaned") return undefined;
-  const description = tool.description?.trim() || undefined;
-  // A running script reads as one, never as its heredoc marker (`python3 - <<'EOF'`).
-  if (running(tool)) return scriptSaid(t, command, true);
-  const action = failed(tool) ? undefined : commandAction(command);
-  if (look === "description" && description) return description;
-  // The table names one step: a line with more steps after it reads whole, never as its first. A
-  // loop the table read pass by pass is a compound command: its description says it first.
-  const named = action && !action.more && !(action.loop && description) ? action : undefined;
-  if (look === "description")
-    return named ? actionText(t, named) : (pipelineSaid(t, command) ?? scriptSaid(t, command));
-  if (named) return actionText(t, named);
-  return description ?? pipelineSaid(t, command) ?? scriptSaid(t, command);
+  if (!command) return undefined;
+  if (running(tool)) {
+    const file = singleFileRead(command);
+    return file
+      ? t("command.read", { file: baseName(file) })
+      : (scriptSaid(t, command, true) ?? commandSummary(t, command, currentCommandRules()));
+  }
+  const success = succeeded(tool);
+  const action = success ? commandAction(command) : undefined;
+  if (action && !action.more) return actionText(t, action);
+  const completed = success && (tool.background ? "background" : true);
+  return (
+    pipelineSaid(t, command) ?? scriptSaid(t, command) ?? commandSummary(t, command, currentCommandRules(), completed)
+  );
 }
 
 /// A pipeline into inline code reads as its programs and files, "Ran ffmpeg → python3 on *.mov"
@@ -1263,7 +1319,8 @@ function pipelineSaid(t: Translate, command: string): string | undefined {
 /// plumbing after it; as written (its setup left out, whitespace one space) for the `command` look,
 /// a running call and the live line, which name what is running (#36940).
 export function commandLine(command: string, look: CommandLabelLook = commandLook(), finished = true): string {
-  return look === "command" || !finished ? shortCommand(command, ROW_WIDTH) : cleanCommand(command);
+  if (finished && look !== "command") return cleanCommand(command);
+  return mainStep(command).more ? wholeLine(command) : shortCommand(command, ROW_WIDTH);
 }
 
 /// A finished group of commands that all did one kind of thing: "Searched memory twice", "Read 3
@@ -1275,8 +1332,7 @@ export function commandGroupSaid(
   tools: readonly Tool[],
   look: CommandLabelLook = commandLook(),
 ): string | undefined {
-  if (look === "command" || look === "cleaned" || tools.length < 2 || tools.some(running) || tools.some(failed))
-    return undefined;
+  if (look === "command" || look === "cleaned" || tools.length < 2 || !tools.every(succeeded)) return undefined;
   const actions: CommandAction[] = [];
   for (const tool of tools) {
     const action = tool.command ? commandAction(tool.command) : undefined;
