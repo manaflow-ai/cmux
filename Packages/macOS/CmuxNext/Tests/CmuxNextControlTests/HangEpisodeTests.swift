@@ -58,6 +58,23 @@ struct HangEpisodeTrackerTests {
         ((try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []).sorted()
     }
 
+    /// hq#20008: `begin` runs on the main thread (the watchdog's late probe answer). Its file I/O and the
+    /// toggle read stay on the recorder's queue, so a recorder stuck for a second costs `begin` nothing.
+    @Test func beginNeverWaitsOnTheRecordersQueue() {
+        let directory = scratch()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let recorder = HangEpisodeRecorder(directory: directory, isEnabled: {
+            Thread.sleep(forTimeInterval: 0.5)
+            return true
+        }, symbolicate: { $0.map { String($0) } })
+        let start = ContinuousClock.now
+        for beat in 1...3 { recorder.begin(beat: UInt64(beat), elapsed: .seconds(2), main: [1, 2, 3], others: []) }
+        let elapsed = ContinuousClock.now - start
+        #expect(elapsed < .milliseconds(50), "3 begins took \(elapsed)")
+        recorder.drain()
+        #expect(recorder.entries.count == 3)
+    }
+
     @Test func writesTheStackWhenTheHangStartsAndTheDurationWhenItEnds() throws {
         let directory = scratch()
         defer { try? FileManager.default.removeItem(at: directory) }

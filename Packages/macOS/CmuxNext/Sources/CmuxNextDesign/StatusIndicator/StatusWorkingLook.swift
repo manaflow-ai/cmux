@@ -24,9 +24,9 @@ public nonisolated enum StatusWorkingLook: String, Sendable, CaseIterable, Tunab
 
     public var tunableTitle: String {
         switch self {
-        case .breathe: String(localized: "statusWorkingLook.breathe", defaultValue: "Breathing Dot", bundle: .module)
-        case .shimmer: String(localized: "statusWorkingLook.shimmer", defaultValue: "Shimmer", bundle: .module)
-        case .spinner: String(localized: "statusWorkingLook.spinner", defaultValue: "Spinner", bundle: .module)
+        case .breathe: String(localized: "statusWorkingLook.breathe", defaultValue: "Breathing Dot", bundle: .localizedModule)
+        case .shimmer: String(localized: "statusWorkingLook.shimmer", defaultValue: "Shimmer", bundle: .localizedModule)
+        case .spinner: String(localized: "statusWorkingLook.spinner", defaultValue: "Spinner", bundle: .localizedModule)
         }
     }
 

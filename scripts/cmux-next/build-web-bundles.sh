@@ -1,7 +1,9 @@
 #!/bin/sh
+# tooling-steps runs: scripts/cmux-next/web-bundle-key.py scripts/cmux-next/sync-app-runtime.sh
 # Builds every web bundle the cmux-next app ships, from the current sources:
 # the agent pane, the React pages, Agent Activity, the
-# webviews app (diff, markdown and editor pages) and the Chief memory inspector.
+# webviews app (diff, markdown and editor pages) and the Chief memory inspector,
+# and writes the App Store packages (sync-app-runtime.sh --store).
 # Every app build path runs it
 # before it compiles (scripts/reload.sh, scripts/cmux-next/check-release-compile.sh,
 # the macOS jobs of cmux-next.yml, the nightly-next build, nx-remote Swift test
@@ -105,13 +107,30 @@ verified() {
   [ "$(python3 "$KEY" "$ROOT" --verify-stamp)" = "$(cut -d' ' -f1-2 "$STAMP")" ]
 }
 
+# The App Store packages the app bundles (AppPlatform/store: samples/apps and first-party-apps with
+# a STORE marker) are build output too (Leo, 2026-10-21: "don't commit generatable files"): plain
+# copies of committed packages, no bun, so every in-tree run writes them, and --verify checks them.
+# Every checkout has the script; a scratch tree holding only the bundle scripts (the tests of
+# --from, ensure-web-bundles and the report run) has no app platform to write, so it is skipped there.
+STORE_SYNC="$ROOT/scripts/cmux-next/sync-app-runtime.sh"
+[ -f "$STORE_SYNC" ] || STORE_SYNC=""
+
 if [ "$MODE" = verify ]; then
+  if [ -n "$STORE_SYNC" ] && ! "$STORE_SYNC" --store --check; then
+    echo "error: the App Store packages are missing or stale; run scripts/cmux-next/build-web-bundles.sh" >&2
+    exit 1
+  fi
   if verified; then
     echo "web bundles are current"
     exit 0
   fi
   echo "error: the cmux-next web bundles are missing or stale; run scripts/cmux-next/build-web-bundles.sh" >&2
   exit 1
+fi
+
+# In-tree runs only: an --out-root build hands over web bundles, and --from writes the packages here.
+if [ -z "$OUT_ROOT" ] && [ -n "$STORE_SYNC" ]; then
+  "$STORE_SYNC" --store
 fi
 
 # A tree built elsewhere for this source key (cmux-next.yml's Linux web-bundles job caches
@@ -126,6 +145,12 @@ if [ "$MODE" = from ]; then
   done
   # The check an in-tree build runs (build-optchat-inspector-web.sh --check): the page the
   # prebuilt tree generated for this source key must be the committed one.
+  # A pull request build that left optional pages out (scripts/ci/oops/isolate.py) is installed only where
+  # such a build may run; a strict build (nightly, release, a push, a local build) builds every page itself.
+  if [ -s "$FROM_ROOT/$PAGES/__oops-dropped" ] && ! python3 "$ROOT/scripts/ci/oops/isolate.py" allowed | grep -q '^allowed'; then
+    echo "error: $FROM_ROOT left out optional pages ($(tr '\n' ' ' < "$FROM_ROOT/$PAGES/__oops-dropped")); this build compiles every page: build the web bundles instead" >&2
+    exit 1
+  fi
   if ! cmp -s "$FROM_ROOT/$INSPECTOR/index.html" "$ROOT/$INSPECTOR/index.html"; then
     echo "error: generated file is stale; run scripts/cmux-next/build-optchat-inspector-web.sh and commit: $INSPECTOR/index.html" >&2
     exit 1
@@ -198,7 +223,9 @@ if [ -n "$OUT_ROOT" ]; then
   "$ROOT/scripts/cmux-next/build-optchat-inspector-web.sh" --out "$(out "$INSPECTOR")"
 fi
 
-if [ -z "$OUT_ROOT" ]; then
+if [ -z "$OUT_ROOT" ] && [ -s "$ROOT/$PAGES/__oops-dropped" ]; then
+  echo "web bundles built without the optional pages $(tr '\n' ' ' < "$ROOT/$PAGES/__oops-dropped")(ci-oops; not stamped, so the next build rebuilds them)"
+elif [ -z "$OUT_ROOT" ]; then
   python3 "$KEY" "$ROOT" --stamp > "$STAMP.tmp"
   mv "$STAMP.tmp" "$STAMP"
   echo "web bundles built ($(cut -c1-12 "$STAMP"))"

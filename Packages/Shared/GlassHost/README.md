@@ -35,7 +35,10 @@ It has two halves and no dependencies:
 ```ts
 import { createGlassHost, glassHostCss } from "./glass-host";
 
-// Your bridge to the app: any function that delivers the list and resolves once the app drew it.
+// Your bridge to the app: any function that delivers the list and returns a Promise that resolves once
+// the app drew it (rejects when it refused). WebKit's postMessage returns that Promise only for a handler
+// added with `addScriptMessageHandler(_:contentWorld:name:)` (a `WKScriptMessageHandlerWithReply`, as
+// in the Swift API below); a plain `add(_:name:)` handler returns undefined, which the host cannot use.
 const host = createGlassHost({
   transport: (surfaces) => window.webkit.messageHandlers.glass.postMessage({ surfaces }),
   applies: () => document.documentElement.dataset.seeThrough === "1", // optional
@@ -90,11 +93,15 @@ let glass = GlassHostView()
 glass.place(under: webView)            // same superview, right under the web view, at its frame
 
 // Your bridge's handler: decode, draw, then answer, so the page shows the surface on drawn glass.
-func userContentController(_: WKUserContentController, didReceive message: WKScriptMessage) {
+// A reply handler (WKScriptMessageHandlerWithReply), added with
+// `webView.configuration.userContentController.addScriptMessageHandler(handler, contentWorld: .page, name: "glass")`,
+// so the page's postMessage returns the Promise the web half waits on.
+func userContentController(_: WKUserContentController, didReceive message: WKScriptMessage,
+                           replyHandler: @escaping (Any?, String?) -> Void) {
     guard let body = message.body as? [String: Any],
-          let surfaces = GlassSurfaceState.decode(body["surfaces"]) else { return /* reply: refused */ }
+          let surfaces = GlassSurfaceState.decode(body["surfaces"]) else { return replyHandler(nil, "refused") }
     glass.apply(surfaces, zoom: webView.pageZoom)
-    // reply: ok
+    replyHandler(true, nil)
 }
 
 // After a layout that moves the web view:

@@ -15,6 +15,9 @@ use std::time::Duration;
 use anyhow::anyhow;
 use anyhow::{Context as _, bail};
 
+mod linger;
+pub(crate) use linger::enable_linger;
+
 #[cfg(target_os = "macos")]
 const LAUNCHD_LABEL: &str = "com.cmuxterm.host-remote";
 #[cfg(target_os = "linux")]

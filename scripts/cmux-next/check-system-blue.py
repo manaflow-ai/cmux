@@ -63,7 +63,6 @@ SKIP = (
     # Language and framework brand colors for the project picker's glyphs.
     "webviews/src/agent-session/acpmux/projectGlyphs.tsx",
     "webviews/src/agent-session/acpmux-preview/",
-    "webviews/src/agent-session/acpmux/prototype/",
     "webviews/src/pages/settings/mockThemes.ts",
 )
 

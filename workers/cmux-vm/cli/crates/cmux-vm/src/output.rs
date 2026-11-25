@@ -267,6 +267,21 @@ impl<'a> Printer<'a> {
         }
     }
 
+    pub fn file_list(&mut self, body: &[u8]) -> Result<(), CliError> {
+        let list: cmux_vm_client::types::FileList = decode(body)?;
+        if self.json {
+            return self.raw_json(body);
+        }
+        for entry in list.entries {
+            self.line(&format!(
+                "{}\t{}",
+                entry.kind.escape_debug(),
+                entry.name.escape_debug()
+            ))?;
+        }
+        Ok(())
+    }
+
     pub fn file_stat(&mut self, body: &[u8]) -> Result<(), CliError> {
         let _: cmux_vm_client::types::FileStat = decode(body)?;
         if self.json {

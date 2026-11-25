@@ -160,6 +160,29 @@ import CmuxHomeCoreTestSupport
         #expect(store.agentsStarted(["a3"]) == false)
         #expect(store.transcriptVersion[conversation, default: 0] == after)
         #expect(pillStates() == [.told])
+
+        // Its session's start (the Chief's acpmux lane, user 2026-11-20): its pill counts from it, not from the tell.
+        func pillStarts() -> [Date?] {
+            store.transcript(for: conversation).compactMap(\.agentMessage).flatMap(\.peerStarted)
+        }
+        #expect(pillStarts() == [Date(timeIntervalSince1970: 100)])
+        let session = Date(timeIntervalSince1970: 700)
+        #expect(store.agentsStarted(["a1017"], startedAt: ["a1017": session]) == true)
+        #expect(pillStarts() == [session])
+        // The same start again changes nothing; a list without it keeps the start it had.
+        #expect(store.agentsStarted(["a1017"], startedAt: ["a1017": session]) == false)
+        #expect(store.agentsStarted([], startedAt: [:]) == false)
+        #expect(pillStarts() == [session])
+    }
+
+    /// The owner's agent starts carry each session's start: the store reads them from ``HomeSource/agentStarts()``.
+    @Test func theOwnersAgentStartsCarryEachSessionsStart() async throws {
+        let source = MockHomeSource(options: .immediate)
+        let session = Date(timeIntervalSince1970: 900)
+        await source.setStartedAgents(HomeAgentStarts(peers: ["a7"], startedAt: ["a7": session]))
+        var starts = await source.agentStarts().makeAsyncIterator()
+        let first = await starts.next()
+        #expect(first == HomeAgentStarts(peers: ["a7"], startedAt: ["a7": session]))
     }
 }
 

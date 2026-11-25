@@ -1,11 +1,12 @@
 use cmux_extension_sdk::{
-    API_VERSION, EVENTS, Manifest, RUNTIME_VERSION, Region, SDK_VERSION, SIGNALS, Severity,
-    check_package, event, is_valid,
+    API_VERSION, EVENTS, Manifest, RUNTIME_VERSION, ReasoningMenu, Region, SDK_VERSION, SIGNALS,
+    Severity, check_package, event, is_valid,
 };
 use serde_json::Value;
 use std::path::PathBuf;
 
 fn repo() -> PathBuf {
+    // affected-reads: examples/extensions
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..")
 }
 
@@ -120,7 +121,7 @@ fn the_builder_makes_the_example_extensions_manifest() {
     );
 }
 
-/// A whole New Tab page (`cmux.newtab/1`, picked with `tabs.newTabApp`): the builder writes the
+/// A New Tab view (`cmux.newtab/1`, picked with `tabs.newTabApp`): the builder writes the
 /// place, its activation and the scope a launcher's buttons need, and cmux's validator takes it.
 #[test]
 fn the_builder_makes_a_whole_new_tab_page_cmux_loads() {
@@ -212,6 +213,25 @@ fn the_builder_adds_composer_commands_and_mentions_cmux_accepts() {
     );
 }
 
+#[test]
+fn model_picker_layouts_are_validated_without_activation() {
+    for (layout, option) in
+        [(ReasoningMenu::Column, "column"), (ReasoningMenu::Separate, "separate")]
+    {
+        let manifest = Manifest::new("local/model-picker", "Picker", "0.1.0", "Model picker.")
+            .model_picker(layout);
+        assert!(is_valid(&manifest.validate()), "{:?}", manifest.validate());
+        let mut json = manifest.to_json();
+        assert!(json.get("activation").is_none());
+        let place = &mut json["implements"]["cmux.composer.model.picker/1"];
+        assert!(place.get("export").is_none());
+        assert_eq!(place["options"]["modelMenu"], "search");
+        assert_eq!(place["options"]["reasoningMenu"], option);
+        place["options"]["reasoningMenu"] = "other".into();
+        assert!(!is_valid(&cmux_extension_sdk::validate(&json)));
+    }
+}
+
 /// A chat widget (`cmux.chat.widget/1`): the builder writes the place, the tools it answers and
 /// its activation, and cmux's validator takes it; a pattern that would answer every call is refused.
 #[test]
@@ -269,4 +289,40 @@ fn the_builder_makes_a_chat_widget_cmux_loads() {
         index.contains("export function chatWidget("),
         "the TypeScript package names the place too"
     );
+}
+
+/// `Manifest::composer_chip` writes `cmux.composer.chip/1` data cmux's validator takes, with no
+/// export and no activation; a chip id twice is refused as cmux refuses it.
+#[test]
+fn the_builder_adds_composer_chips_cmux_accepts() {
+    let manifest = Manifest::new("local/chips", "Chips", "0.1.0", "Composer chips.")
+        .composer_chip("branch", "Branch", "Work on the current git branch.", None)
+        .composer_chip("tests", "Tests", "Run the tests first.", Some("Ask for a test run"));
+    let issues = manifest.validate();
+    assert!(is_valid(&issues), "{issues:?}");
+    let json = manifest.to_json();
+    let chips = &json["implements"]["cmux.composer.chip/1"];
+    assert_eq!(chips["options"]["chips"][1]["detail"], "Ask for a test run");
+    assert_eq!(chips["options"]["chips"][0]["insert"], "Work on the current git branch.");
+    assert!(chips.get("export").is_none());
+    assert!(json.get("activation").is_none(), "data places activate no script: {json}");
+
+    let twice = Manifest::new("local/chips", "Chips", "0.1.0", "Composer chips.")
+        .composer_chip("branch", "A", "a", None)
+        .composer_chip("branch", "B", "b", None);
+    assert!(
+        twice.validate().iter().any(|i| i.code == "interface.options.duplicate"),
+        "{:?}",
+        twice.validate()
+    );
+}
+
+#[test]
+fn motion_contract_is_exported() {
+    use cmux_extension_sdk::motion;
+    use serde_json::json;
+    assert_eq!(motion::SCHEMA, "cmux.motion/1");
+    let parsed = motion::Motion::parse(&json!({"spring": {"response": 0.3}})).expect("a spring");
+    assert_eq!(parsed, motion::Motion::Spring { response: 0.3, damping_fraction: 1.0 });
+    assert!(motion::normalize_prop("transition", &json!("zoom")).expect("owned").is_err());
 }
