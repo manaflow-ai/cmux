@@ -668,6 +668,12 @@ struct ShellView: View {
         #endif
         .cmuxMobileToast($shell.toast)
         .modifier(LiveCallHost(shell: shell))
+        #if canImport(CmuxMobileLinkFFI)
+        // Another device waiting for a linked Mac's Allow: answered here (ask-45c37458ea).
+        .overlay(alignment: .top) {
+            if let requests = live?.pairRequests { PairRequestsOverlay(requests: requests) }
+        }
+        #endif
         .sheet(item: $shell.shareURL) { item in
             ShareSheet(url: item.url).presentationDetents([.medium, .large])
         }

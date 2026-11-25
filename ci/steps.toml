@@ -78,6 +78,28 @@ mkdir -p "$CI_TOOLS/bin"
 ln -sf "$goroot/bin/go" "$goroot/bin/gofmt" "$CI_TOOLS/bin/"
 "$CI_TOOLS/bin/go" version
 '''
+# zlib's headers and its deflate and inflate, for the CEF shim's packed-page test (test-cmux-page-path-cpp.sh) on a runner
+# with no zlib.h (no apt here). zlib 1.3.1's release tarball, checked against its pinned sha256, built into a
+# static libz.a under "$CI_TOOLS/zlib". A runner whose compiler already finds zlib.h needs nothing.
+zlib = '''
+if echo '#include <zlib.h>' | clang -x c -fsyntax-only - 2>/dev/null; then
+  echo "the compiler already finds zlib.h"
+  exit 0
+fi
+url="https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz"
+curl -fsSL --retry 3 --max-time 120 -o "$CI_TOOLS/zlib.tar.gz" "$url"
+echo "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23  $CI_TOOLS/zlib.tar.gz" | sha256sum -c -
+src="$CI_TOOLS/zlib-1.3.1"
+tar -xzf "$CI_TOOLS/zlib.tar.gz" -C "$CI_TOOLS"
+mkdir -p "$CI_TOOLS/zlib/include" "$CI_TOOLS/zlib/lib"
+cp "$src/zlib.h" "$src/zconf.h" "$CI_TOOLS/zlib/include/"
+objs=()
+for f in adler32 crc32 deflate inffast inflate inftrees trees zutil; do
+  clang -O2 -c "$src/$f.c" -o "$CI_TOOLS/zlib/$f.o"
+  objs+=("$CI_TOOLS/zlib/$f.o")
+done
+ar rcs "$CI_TOOLS/zlib/lib/libz.a" "${objs[@]}"
+'''
 # rustup's proxies, so a directory's rust-toolchain.toml or the step's RUSTUP_TOOLCHAIN picks the toolchain, and
 # the 1.94.0 coderouter-ci.yml pinned for dtolnay/rust-toolchain (rustup checks each download against its
 # manifest). A runner with no rustup gets it the way setup-cmux-tui-rust does, from a checksummed rustup-init.
@@ -89,7 +111,8 @@ if [ ! -x "$cargo_bin/rustup" ]; then
   sum="$(curl -fsSL --retry 3 --max-time 30 "$url.sha256" | cut -d' ' -f1)"
   echo "$sum  $CI_TOOLS/rustup-init" | sha256sum -c -
   chmod +x "$CI_TOOLS/rustup-init"
-  "$CI_TOOLS/rustup-init" -y --profile minimal --default-toolchain none --no-modify-path
+  # A system rustc/cargo on PATH makes rustup-init refuse ("cannot install while Rust is installed"); skip that check.
+  RUSTUP_INIT_SKIP_PATH_CHECK=yes "$CI_TOOLS/rustup-init" -y --profile minimal --default-toolchain none --no-modify-path
 fi
 "$cargo_bin/rustup" toolchain install 1.94.0 --profile minimal --component clippy,rustfmt
 mkdir -p "$CI_TOOLS/bin"
@@ -105,7 +128,8 @@ bash scripts/ci/init-submodule.sh ghostty-next
 export GITHUB_PATH="$CI_TOOLS/zig-path" GITHUB_ENV="$CI_TOOLS/zig-env"
 : > "$GITHUB_PATH"
 : > "$GITHUB_ENV"
-GHOSTTY_ZIG_SOURCE=ghostty-next ZIG_SYSTEM_PREFIX="$CI_TOOLS/zig-prefix" RUNNER_TEMP="$CI_TOOLS" ./scripts/install-zig-ci.sh
+# Job-local, never sudo: a root-owned install in $CI_TOOLS failed the job at cleanup after every step passed.
+GHOSTTY_ZIG_SOURCE=ghostty-next ZIG_FORCE_LOCAL_INSTALL=1 RUNNER_TEMP="$CI_TOOLS" ./scripts/install-zig-ci.sh
 mkdir -p "$CI_TOOLS/bin"
 zig_bin="$(sed -n 's/^CMUX_ZIG=//p' "$CI_TOOLS/zig-env" | tail -n 1)"
 [ -x "$zig_bin" ] || { echo "no zig was installed"; exit 1; }
@@ -263,6 +287,7 @@ run = "python3 scripts/ci/sync_labels.py --dry-run"
 # Every scripts/cmux-next/test-*-cpp.sh runs (tests/test_ci_step_table.py holds it).
 [step.shim-cpp]
 job = "linux"
+needs = ["zlib"]
 timeout = 300
 title = "CEF shim C++ tests"
 about = "the CEF shim's header-only rules (downloads, password reveal, switches, local files, agent URLs, proxies, DevTools, cmux-page://, the host wire, file chooser, helper signals, Web Store), compiled and run with clang++"

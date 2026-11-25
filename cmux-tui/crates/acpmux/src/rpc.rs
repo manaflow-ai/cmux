@@ -54,6 +54,9 @@ pub struct RpcError {
 /// `data.reason` of [`RpcError::no_peer`].
 pub const NO_PEER: &str = "no_peer";
 
+/// A temporary refusal. The reason in `data` identifies the resource.
+pub(crate) const BUSY_CODE: i64 = -32031;
+
 impl RpcError {
     pub fn new(code: i64, message: impl Into<String>) -> Self {
         Self { code, message: message.into(), data: None }
@@ -989,6 +992,9 @@ pub mod method {
     pub const MUX_GOAL_SET: &str = "_acpmux/goal/set";
     pub const MUX_GOAL_UPDATE: &str = "_acpmux/goal/update";
     pub const MUX_GOAL_GET: &str = "_acpmux/goal/get";
+    /// Context surgery (`hub/surgery.rs`): mask a Claude chat's old tool output and resume it
+    /// on the masked copy, with no model call.
+    pub const MUX_SURGERY: &str = "_acpmux/surgery";
     /// A chat's task list across its turns (`server/task_list.rs`, `task_list.rs`): kept by its
     /// agent or its Chief when the harness writes no plan of its own, and read back.
     pub const MUX_TASK_LIST_SET: &str = "_acpmux/task_list/set";
