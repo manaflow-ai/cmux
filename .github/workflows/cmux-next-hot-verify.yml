@@ -152,6 +152,25 @@ jobs:
         if: runner.environment == 'self-hosted'
         run: rm -rf "$GITHUB_WORKSPACE/.git"
       - name: Checkout the base branch's scripts
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: refs/heads/${{ github.event.pull_request.base.ref }}
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: scripts
+          sparse-checkout-cone-mode: true
+      # GitHub's git transport stalls now and then ("Operation too slow. Less than 1 bytes/sec transferred the last
+      # 60 seconds", or "could not fetch ... from promisor remote" when the sparse checkout asks for its blobs):
+      # 10 of 13 sampled hot verify reds on 2026-11-25 (runs 45701596650, 45702976944, 45711713795, ...), each green
+      # on a rerun. actions/checkout retries its fetch but not the checkout's blob fetch, so the job clones once more
+      # after a pause; a second stall is a real outage and ends red.
+      - name: Drop the stalled clone
+        if: ${{ steps.checkout.outcome == 'failure' }}
+        run: rm -rf "$GITHUB_WORKSPACE/.git" && sleep 20
+      - name: Checkout the base branch's scripts (again)
+        if: ${{ steps.checkout.outcome == 'failure' }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: refs/heads/${{ github.event.pull_request.base.ref }}
@@ -348,6 +367,24 @@ jobs:
         if: runner.environment == 'self-hosted'
         run: rm -rf "$GITHUB_WORKSPACE/.git"
       - name: Checkout the pull request check
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            /scripts/cmux-next/hot-verify-pr.sh
+            /scripts/ci/gh_budget_wait.sh
+            /scripts/ci/ci_pool_tokens.py
+          sparse-checkout-cone-mode: false
+      # A stalled git transport clones once more (see the plan job).
+      - name: Drop the stalled clone
+        if: ${{ steps.checkout.outcome == 'failure' }}
+        run: rm -rf "$GITHUB_WORKSPACE/.git" && sleep 20
+      - name: Checkout the pull request check (again)
+        if: ${{ steps.checkout.outcome == 'failure' }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.sha }}
@@ -447,6 +484,24 @@ jobs:
         if: runner.environment == 'self-hosted'
         run: rm -rf "$GITHUB_WORKSPACE/.git"
       - name: Checkout the pull request head (trees only)
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.target.outputs.head }}
+          persist-credentials: false
+          filter: blob:none
+          # The key script and its inputs list; the key itself reads git trees, which blob:none keeps.
+          sparse-checkout: |
+            /scripts/ci/cmux_tui_tree_key.py
+            /scripts/cmux-next/cmux-tui-tree-inputs.txt
+          sparse-checkout-cone-mode: false
+      # A stalled git transport clones once more (see the plan job).
+      - name: Drop the stalled clone
+        if: ${{ steps.checkout.outcome == 'failure' }}
+        run: rm -rf "$GITHUB_WORKSPACE/.git" && sleep 20
+      - name: Checkout the pull request head (trees only) (again)
+        if: ${{ steps.checkout.outcome == 'failure' }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ needs.target.outputs.head }}
@@ -576,6 +631,30 @@ jobs:
         if: runner.environment == 'self-hosted'
         run: rm -rf "$GITHUB_WORKSPACE/.git"
       - name: Checkout the publisher
+        id: checkout
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/pr-media-publish
+            scripts/pr-media.py
+            scripts/ci/pr_media_privacy.py
+            scripts/ci/pr_media_gate.py
+            scripts/ci/pr_media_ocr_tesseract.py
+            scripts/ci/pr_media_ocr.swift
+            scripts/cmux-next/hot-verify-ci.py
+            scripts/cmux-next/hot-verify-pr.sh
+            scripts/ci/gh_budget_wait.sh
+            scripts/ci/ci_pool_tokens.py
+          sparse-checkout-cone-mode: false
+      # A stalled git transport clones once more (see the plan job).
+      - name: Drop the stalled clone
+        if: ${{ steps.checkout.outcome == 'failure' }}
+        run: rm -rf "$GITHUB_WORKSPACE/.git" && sleep 20
+      - name: Checkout the publisher (again)
+        if: ${{ steps.checkout.outcome == 'failure' }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.sha }}
