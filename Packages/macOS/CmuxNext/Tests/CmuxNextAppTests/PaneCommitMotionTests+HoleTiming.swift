@@ -15,7 +15,7 @@ import Testing
 /// timing of the second close.
 ///
 /// This file reads the animations as they are on the layers, and each layer's path by `MotionPath` (the math of the
-/// render server) at media times. It reads no frame of the app, and it waits for no clock.
+/// render server) at media times. It reads no frame of the app, and it reads and waits for no clock.
 extension PaneCommitMotionTests {
     /// When and how `animation` runs, with each field that gives it its time: 2 animations with the same fields are
     /// at the same part of their way at each time.
@@ -56,7 +56,8 @@ extension PaneCommitMotionTests {
     ///    own move of that act, as both read back from their layers: the start time, the duration, the spring, the
     ///    speed and the time offset. Each mask has a move of each act.
     /// 2. At 3 media times, each edge of each mask's hole is as far from its place as that edge of the pane that
-    ///    grows is from its place, by `MotionPath`.
+    ///    grows is from its place, by `MotionPath`. The times are from the start times on the layers, not from a
+    ///    clock: the second close's start, and a quarter and a half of a close's time after it.
     ///
     /// Between the 2 keys the row gives the first close's animations to the render tree (`CATransaction.flush()`),
     /// as the app has them when a second key comes: Core Animation gives an animation its start time there. The row
@@ -119,8 +120,15 @@ extension PaneCommitMotionTests {
             begins.append(read.sorted())
         }
 
-        // 2. The hole and the pane, at 3 media times.
-        let now = CACurrentMediaTime()
+        // 2. The hole and the pane, at 3 media times from the start times on the layers: the second close's start, and
+        // a quarter and a half of a close's time after it. The second close's moves have no start time yet (the row
+        // gave them to no render tree): they start one frame after the first close's start, as the row's 2 keys do.
+        // No clock is read: a slow machine does not put the first close's move at its end before these times.
+        let starts: [CFTimeInterval] = begins.map { read in
+            guard let last = read.last, last > 0 else { return 0 }
+            return layer.convertTime(last, to: nil)
+        }
+        let now = starts[1] > 0 ? starts[1] : starts[0] + Self.dt
         let times = [0, Self.close.time / 4, Self.close.time / 2].map { now + $0 }
         let pane = try #require(Self.farFromPlace(layer, at: times, now: now), "SETUP: `MotionPath` does not read each animation on the layer of the pane that grows")
         for mask in masks {
@@ -135,7 +143,7 @@ extension PaneCommitMotionTests {
                 let hole = [far[2][index][2], far[0][index][3], far[3][index][0], far[1][index][1]]
                 let apart = zip(hole, pane[index]).map { abs($0 - $1) }.max() ?? 0
                 #expect(apart < 0.01, """
-                    \(times[index] - now) s after the read, the edges of the hole of the mask on the pane of the \(mask.name) close are \(hole) pt \
+                    \(times[index] - now) s after the second close's start, the edges of the hole of the mask on the pane of the \(mask.name) close are \(hole) pt \
                     from their places (min x, min y, max x, max y), and the edges of the pane that grows are \(pane[index]) pt from theirs: \
                     \(apart) pt apart
                     """)
@@ -144,6 +152,7 @@ extension PaneCommitMotionTests {
         let noStart = begins[0] == [0]
         print("ROW (HOLE TIMING): \(scene): the start times read back from the layers of the pane that grows and of the parts of the 2 masks:",
               "the first close's moves \(begins[0]), the second close's moves \(begins[1]); copies of the first close's move on the parts: \(copies);",
+              "the 3 times are \(times.map { (($0 - starts[0]) * 10000).rounded() / 10000 }) s after the first close's start;",
               "at the 3 times the pane that grows is \(pane.map { $0.map { ($0 * 100).rounded() / 100 } }) pt from its place (min x, min y, max x, max y).",
               noStart ? "NO START TIME: in this test process the first close's moves and their copies read the start time 0."
                   + " The row proves the fields and the values of each copy, and not the phase on a screen."

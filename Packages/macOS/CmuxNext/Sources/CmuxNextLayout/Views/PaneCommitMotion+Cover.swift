@@ -195,19 +195,36 @@ extension PaneCommitMotion {
         }
     }
 
+    /// The mark in the key of a copy of a pane's move, on a part of a mask: the key of a copy is the key of the move,
+    /// then this mark, then the number of the pane that it is a copy for. No other key of this motion has the mark.
+    private static let copyMark = ".copy."
+
     /// The one pane that moves (`change`) can still have the moves of acts before on its layer: a second key in a
     /// move. The hole of a mask that ``cut(_:by:_:)`` made in this act goes with this act's move alone, so it was
     /// ahead of the pane by what is left of those moves, and a pane of `hosts` (the panes under it) was cut in a band
     /// outside the pane over it. Each part of such a mask gets a copy of each of those moves, with the part's own
-    /// distance. A copy is the move's own animation with other values: its spring, its duration, its start time and
-    /// its key are the move's, and none of them is from this act's clock. So the hole is the pane's rect at each time.
+    /// distance. A copy is the move's own animation with other values: its spring, its duration and its start time
+    /// are the move's, and none of them is from this act's clock. So the hole is the pane's rect at each time.
     /// A pane that moves from rest has no such move: it gets no animation and no layer here. The pane's own window
     /// of an act before (``cover(_:under:_:)``) is no move, and is not copied.
     ///
+    /// A copy is for ONE pane: its key starts as the move's key does (the act's number), and ends with that pane's
+    /// number after ``copyMark``. A mask that an act before made under ANOTHER pane, and that ``cut(_:by:_:)`` uses
+    /// again under this one, keeps no copy for that pane: each copy for a pane that is not this act's one pane comes
+    /// off its part here, before a new copy. A pane that moves alone again keeps its copies: its hole goes with each
+    /// move that it still has.
+    ///
     /// The limit that stays: a mask whose parts have moves of that act gets nothing. A mask that the same pane cut in
     /// that act has them from there (a zoom, then its unzoom). A mask that an act before made under ANOTHER pane keeps
-    /// the moves of that pane's hole, as before: its hole is not at this pane's rect until those moves end.
+    /// the moves that ``cut(_:by:_:)`` gave it for that pane's hole in that act, as it did with no copy: its hole is
+    /// not at this pane's rect until those moves end.
     private func carryMoves(of change: Change, toTheMasksOf hosts: [PaneHostView]) {
+        let pane = Self.copyMark + String(Int(bitPattern: ObjectIdentifier(change.host)))
+        for part in hosts.flatMap({ ($0.clipView.layer?.mask as? PaneHoleMaskLayer)?.sublayers ?? [] }) {
+            for key in part.animationKeys() ?? [] where key.contains(Self.copyMark) && !key.hasSuffix(pane) {
+                part.removeAnimation(forKey: key)
+            }
+        }
         guard let layer = change.host.layer else { return }
         let own = ((covers[ObjectIdentifier(change.host)]?.acts ?? []) + [serial]).map { "pane.commit.\($0)." }
         var before: [String: (point: CGPoint, size: CGSize, like: CABasicAnimation)] = [:]
@@ -241,8 +258,8 @@ extension PaneCommitMotion {
                         copy.keyPath = path
                         copy.fromValue = from
                         copy.toValue = to
-                        part.add(copy, forKey: act + path)
-                        moved.append((layer: part, key: act + path))
+                        part.add(copy, forKey: act + path + pane)
+                        moved.append((layer: part, key: act + path + pane))
                     }
                 }
             }
