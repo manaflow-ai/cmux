@@ -197,6 +197,7 @@ import {
   storeEntry,
   ROLES_MANIFEST_PATH,
   rolesManifest,
+  pinnedFetchCommand,
   sq,
   STORE_DIR,
   ubuntuSourcesFile,
@@ -1215,7 +1216,7 @@ export function syftFetchCommand(syft: { url: string; sha256: string; size: numb
   const tgz = `${dir}/syft.tgz`;
   return [
     `mkdir -p ${dir}`,
-    `{ test "$(stat -c %s ${tgz} 2>/dev/null)" = ${syft.size} || curl -fsSL --retry 3 -C - -o ${tgz} ${sq(syft.url)}; }`,
+    pinnedFetchCommand(tgz, syft.sha256, syft.size, syft.url),
     `{ printf '%s  %s\\n' ${syft.sha256} ${tgz} | sha256sum -c --quiet - || { rm -f ${tgz}; false; }; }`,
     `test "$(stat -c %s ${tgz})" = ${syft.size}`,
     `tar -xzf ${tgz} -C ${dir} syft`,
