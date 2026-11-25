@@ -364,7 +364,7 @@ extension DesktopNotifier: UNUserNotificationCenterDelegate {
 
 /// Runs a banner click's handling on the main thread now when the delegate is called there (AppKit delivers
 /// didReceive on main), so the raise happens while the click's activation grant lasts; a later Task otherwise.
-enum BannerClickMain {
+nonisolated enum BannerClickMain {
     static func run(_ body: @escaping @MainActor () -> Void) {
         guard Thread.isMainThread else { Task { @MainActor in body() }; return }
         MainActor.assumeIsolated { body() } // main-proof: checked Thread.isMainThread just above
