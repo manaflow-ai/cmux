@@ -39,7 +39,10 @@ import {
 const SELECT_CLASS =
   "box-border h-7 rounded-md border border-solid border-edge bg-transparent px-2 font-[inherit] text-control text-fg outline-none focus:border-accent-soft";
 
-type Run = (run: Exclude<DeveloperTokensRun, { action: "refresh" }>) => Promise<CreatedToken | null>;
+/** One gesture: whether it went through, and the token a create made (once). */
+type Run = (
+  run: Exclude<DeveloperTokensRun, { action: "refresh" }>,
+) => Promise<{ ok: boolean; created: CreatedToken | null }>;
 
 function expirationLabel(days: number | null): string {
   if (days === null) return t("settingsWindow.tokens.expires.never");
@@ -190,7 +193,7 @@ function CreateForm({
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!ready) return;
-    const created = await onRun({
+    const { created } = await onRun({
       action: "create",
       name: name.trim(),
       scopes,
@@ -406,14 +409,15 @@ function AllowRepositoryForm({ busy, onRun, onDone }: { busy: boolean; onRun: Ru
     event.preventDefault();
     if (!parsed || scopes.length === 0) return;
     const ref = refOf(branch);
-    await onRun({
+    const { ok } = await onRun({
       action: "allowRepository",
       repository: parsed,
       ...(ref ? { ref } : {}),
       ...(environment.trim() ? { environment: environment.trim() } : {}),
       scopes,
     });
-    onDone();
+    // A refused rule keeps the form, with what the person typed, under the refusal.
+    if (ok) onDone();
   };
   return (
     <form className="accounts-form tokens-form" data-tokens-form="github" onSubmit={(event) => void submit(event)}>
@@ -615,7 +619,7 @@ export function DeveloperTokensCard() {
         const { state: next, created } = await store.runTokens(gesture);
         setState(next);
         setNow(Date.now());
-        return created;
+        return { ok: !next?.error, created };
       } finally {
         setBusy(false);
       }
