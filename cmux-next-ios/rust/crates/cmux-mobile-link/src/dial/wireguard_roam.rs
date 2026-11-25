@@ -942,9 +942,10 @@ impl Session {
         // Allocate before taking the roam lock: a roam meanwhile must not wait
         // seconds for an allocation that belongs to the old network.
         let roams = self.roams.load(Ordering::Relaxed);
+        let options = self.allocation_options();
         let (turn, roams) = tokio::select! {
             Some(turn) = late.landed() => (turn, since),
-            turn = TurnCarrier::allocate_keeping(&self.allocation_options(), late) => match turn {
+            turn = TurnCarrier::allocate_keeping(&options, late) => match turn {
                 Some(turn) => (turn, roams),
                 None => return false,
             },
