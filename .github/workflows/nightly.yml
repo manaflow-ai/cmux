@@ -1569,6 +1569,8 @@ jobs:
         if: inputs.nightly_next_unsigned_run == '' && !env.LEFT_SLOT
         run: |
           set -euo pipefail
+          # Keep the pinned archives across jobs on this Mac. The installer checks their hashes on every hit.
+          export ZIG_TARBALL_CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/cmux/zig-tarballs"
           ./scripts/install-zig-ci.sh
           GHOSTTY_ZIG_SOURCE=ghostty-next ZIG_FORCE_LOCAL_INSTALL=1 ZIG_PUBLISH_ENV=CMUX_VT_ZIG ./scripts/install-zig-ci.sh
 
@@ -6828,6 +6830,9 @@ jobs:
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       # Warm in one tree per Mac under $HOME, by flag (nightly_build_state.py); no shared compiler store or host root.
       CMUX_NIGHTLY_KEEP_STATE: "1"
+      # A cold 54 MB Zig transfer on the signer can take over 8 minutes (run 45512239356).
+      ZIG_DOWNLOAD_BUDGET_SECONDS: "1800"
+      ZIG_DOWNLOAD_ATTEMPTS: "8"
       CMUX_CI_FLEET_CACHE_OFF: "1"
       NIGHTLY_FAST_BUILD: ${{ needs.decide.outputs.fast_build }}
       NIGHTLY_COMPILE_ARCHS: ${{ needs.decide.outputs.compile_archs }}
@@ -7897,8 +7902,12 @@ jobs:
     permissions:
       actions: write
     steps:
+      # Off the publish path: a rate-limited dispatch fails now instead of waiting, and never reds the nightly
+      # (tests/test_gh_budget_wait.py DISPATCH_NEVER_WAITS).
       - name: Dispatch fixit-handoff on feat-cmux-next
+        continue-on-error: true
         env:
+          GH_BUDGET_WAIT_MAX_SECONDS: "0"
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           ORIGIN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
