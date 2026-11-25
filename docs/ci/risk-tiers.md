@@ -61,7 +61,7 @@ itself, without opening the job summary (cmux#41154).
 - **Pins and the package graph** (`ghostty`, `vendor/`, `Package.resolved`). Three stale pins
   broke the build (#16319, #15747, #11163). The compile checks catch that, and the fix is a
   one-line pin move. The takeback check above catches the stale-squash cause.
-- **The update channel setting** (`CmuxUpdater/UpdateRing.swift`, `CmuxNextUpdater/UpdatePreferences.swift`,
+- **The update channel setting** (`CmuxUpdaterCore/UpdateRing.swift`, `CmuxNextUpdater/UpdatePreferences.swift`,
   and the settings schema). Choosing a ring reuses the feeds the release pipeline already signs,
   and the updater still verifies every download (Leo, 2026-10-21, after #22781). The code that
   decides whether the updater runs (`UpdateTrack`), or parses, probes, installs or verifies an
@@ -178,7 +178,9 @@ gh-merge-green --revert manaflow-ai/cmux#<number>
 role) added them; the check reads who did. Agents never add either, and never need to: a SHIP
 receipt on the head is enough. The receipt is a line of the description, or the first line of a
 comment or review body, from a collaborator (for the description, its author must be one, the same
-rule as a commenter); it names the full head sha and isn't a self-review. A description line inside
+rule as a commenter); it names the full head sha. A self-review counts, and so does one from a subagent or
+from another agent on the author's own account (Leo, 2026-11-21: "the self-reviews should be
+completely acceptable"). A description line inside
 an HTML comment doesn't count, and description lines rank below every comment and review, so a later
 BLOCK comment beats a SHIP in the description. The newest verdict on the head
 decides, read as one timeline with approvals and change requests of the head commit: a later BLOCK

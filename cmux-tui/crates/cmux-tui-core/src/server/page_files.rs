@@ -269,7 +269,6 @@ pub fn page_bundle_dir() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write as _;
 
     fn packed_tree(name: &str) -> PathBuf {
         let stamp =

@@ -35,6 +35,10 @@ public struct TerminalPanFrames: Encodable, Equatable, Sendable {
     public var bytesIn: Int?
     /// and the link's last measured round trip to the Mac (ms), when known (the session fills it in).
     public var rttMs: Int?
+    /// Each presented frame: the session output bytes the terminal had parsed by then, and when
+    /// (``ProcessInfo/systemUptime``, s). The line sends it as `painted`, `[bytes, ms before
+    /// the line]`, so the Mac times its output to this paint on its own clock (`output_paint.rs`).
+    public var paintedAt: [(bytes: Int, at: Double)] = []
 
     public init(kind: Kind, program: String? = nil, app: String? = TerminalPanFrames.appVersion, expectedMs: Double, intervalsMs: [Double],
                 rows: Int? = nil, bytesIn: Int? = nil, rttMs: Int? = nil) {
@@ -49,11 +53,34 @@ public struct TerminalPanFrames: Encodable, Equatable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case v, kind, program, app, rows
+        case v, kind, program, app, rows, painted
         case expectedMs = "expected_ms"
         case intervalsMs = "intervals_ms"
         case bytesIn = "bytes_in"
         case rttMs = "rtt_ms"
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(v, forKey: .v)
+        try c.encode(kind, forKey: .kind)
+        try c.encodeIfPresent(program, forKey: .program)
+        try c.encodeIfPresent(app, forKey: .app)
+        try c.encode(expectedMs, forKey: .expectedMs)
+        try c.encode(intervalsMs, forKey: .intervalsMs)
+        try c.encodeIfPresent(rows, forKey: .rows)
+        try c.encodeIfPresent(bytesIn, forKey: .bytesIn)
+        try c.encodeIfPresent(rttMs, forKey: .rttMs)
+        if !paintedAt.isEmpty {
+            let now = ProcessInfo.processInfo.systemUptime
+            try c.encode(paintedAt.map { [Double($0.bytes), Self.rounded(max(0, now - $0.at) * 1000)] }, forKey: .painted)
+        }
+    }
+
+    public static func == (a: Self, b: Self) -> Bool {
+        a.kind == b.kind && a.program == b.program && a.app == b.app && a.expectedMs == b.expectedMs && a.intervalsMs == b.intervalsMs
+            && a.rows == b.rows && a.bytesIn == b.bytesIn && a.rttMs == b.rttMs
+            && a.paintedAt.map { $0.bytes } == b.paintedAt.map { $0.bytes } && a.paintedAt.map { $0.at } == b.paintedAt.map { $0.at }
     }
 
     /// The JSON line for `phone-frames`, or nil when the pan is too short or has no display rate.
@@ -81,9 +108,15 @@ public struct TerminalPanFrameTally: Sendable {
     /// Rows the page held when the pan began.
     public var rows: Int?
     public private(set) var bytesIn = 0
+    public private(set) var paintedAt: [(bytes: Int, at: Double)] = []
 
     /// Terminal output arrived during the pan.
     public mutating func output(_ bytes: Int) { bytesIn += bytes }
+
+    /// A frame was presented with `bytes` of session output parsed, at `at` (systemUptime, s).
+    public mutating func painted(_ bytes: Int, at: Double) {
+        if paintedAt.count < TerminalPanFrames.maxFrames { paintedAt.append((bytes, at)) }
+    }
 
     public init() { intervalsMs.reserveCapacity(TerminalPanFrames.maxFrames) }
 
@@ -100,8 +133,10 @@ public struct TerminalPanFrameTally: Sendable {
 
     /// The pan so far, and a tally ready for the next one (its storage kept).
     public mutating func take(_ kind: TerminalPanFrames.Kind) -> TerminalPanFrames {
-        let pan = TerminalPanFrames(kind: kind, expectedMs: nominalMs.isFinite ? nominalMs : 0, intervalsMs: intervalsMs,
+        var pan = TerminalPanFrames(kind: kind, expectedMs: nominalMs.isFinite ? nominalMs : 0, intervalsMs: intervalsMs,
                                     rows: rows, bytesIn: bytesIn)
+        pan.paintedAt = paintedAt
+        paintedAt.removeAll(keepingCapacity: true)
         intervalsMs.removeAll(keepingCapacity: true)
         last = nil
         nominalMs = .infinity

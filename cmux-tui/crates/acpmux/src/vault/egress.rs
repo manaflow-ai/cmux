@@ -297,7 +297,7 @@ fn start(home: &Path) -> Result<Running, &'static str> {
     let (node_ca, bundle) =
         write_trust(&dir, authority.pem(), &inherited).map_err(|_| "vault.egress_trust_files")?;
     let argv: Vec<String> = std::env::args().collect();
-    let daemon = crate::cli::process_owner::is_daemon_run(&argv);
+    let daemon = crate::cli::is_daemon_run(&argv);
     let listener = bind_stable(&dir, daemon).map_err(|_| "vault.egress_bind")?;
     listener.set_nonblocking(true).map_err(|_| "vault.egress_bind")?;
     let port = listener.local_addr().map_err(|_| "vault.egress_bind")?.port();

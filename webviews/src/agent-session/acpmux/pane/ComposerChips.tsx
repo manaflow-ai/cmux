@@ -11,6 +11,7 @@ import { switchForks } from "../conversation/messageMenu";
 import { useSignIn } from "../signIn";
 import { callNative } from "../callNative";
 import { holdModePick } from "../heldModePick";
+import { TerminalPickersNote } from "../TerminalPickersNote";
 
 /// The composer chips on the New Tab page (cx-e2aa): no chat exists yet, so a pick starts a deferred
 /// switch to the shown agent in the page's project (`chat.new {deferred}`): acpmux starts the session
@@ -33,7 +34,23 @@ export function ChatComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) {
   return <DefaultComposerChips snapshot={snapshot} />;
 }
 
-export function DefaultComposerChips({
+/// The composer row's chips. A chat a cmux terminal runs (Toggle Terminal and Chat, `terminal`)
+/// keeps Send, Stop and its attachments: each goes into that terminal's harness (acpmux
+/// `hub/bridge.rs`, `hub/terminal_input.rs`). Its model, effort and mode chips cannot apply there:
+/// the terminal's Claude Code or Codex runs its own and takes no change of them from outside its
+/// terminal, and a pick here would start this chat's own harness (acpmux refuses that while the
+/// terminal runs it). The row says where they are set instead.
+export function DefaultComposerChips(props: {
+  snapshot: AcpmuxSnapshot;
+  cwd?: string;
+  onAddAgent?(): void;
+  startsChat?: boolean;
+}) {
+  if (!props.startsChat && props.snapshot.summary?.terminal === true) return <TerminalPickersNote />;
+  return <PickerChips {...props} />;
+}
+
+function PickerChips({
   snapshot,
   cwd,
   onAddAgent,
@@ -127,13 +144,19 @@ export function DefaultComposerChips({
         start();
         void callNative("chat.effort", { configId, value });
       }}
+      // A started chat whose host serves Continue In… but not an in-place fork carries its
+      // conversation there (Continue In…'s review) rather than starting a blank chat (cmux#55750).
       onHarness={(harness, model, options) =>
-        void callNative("chat.new", {
-          harness,
-          ...(model ? { model } : {}),
-          ...(options ? { options } : {}),
-          ...inFolder,
-        })
+        void (
+          !startsChat && snapshot.sessionId && snapshot.canHandoff && !switchForks(snapshot)
+            ? callNative("chat.handoff.prepare", { harness })
+            : callNative("chat.new", {
+                harness,
+                ...(model ? { model } : {}),
+                ...(options ? { options } : {}),
+                ...inFolder,
+              })
+        ).catch(() => undefined)
       }
       // A started chat switches to any other harness's model (Leo 2026-10-22: "need to be able to
       // switch to different harnesses, can expose as fork"). A pick only holds it (forkHold.ts); the

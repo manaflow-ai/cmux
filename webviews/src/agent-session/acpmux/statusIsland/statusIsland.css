@@ -93,9 +93,21 @@
   font-variant-numeric: tabular-nums;
 }
 .acpmux-status-island__count {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
   color: var(--agent-muted);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+/* The running mark beside another state (an ask, an error): the island's running dot, small, in the
+   accent, so the number needs no word. */
+.acpmux-status-island__count-dot {
+  flex: none;
+  width: 6px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--agent-accent);
 }
 
 .acpmux-status-island__card {

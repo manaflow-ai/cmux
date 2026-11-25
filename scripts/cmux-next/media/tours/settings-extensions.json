@@ -1,0 +1,14 @@
+{
+  "title": "Settings > Extensions, light and dark: each installed extension's declared settings drawn from its manifest (apps.settings.list), then Caffeinate's Design variant changed from Menu to Pane in place (apps.settings.set; the running extension hears settings.changed). Record it with: cmux-ci capture SHA --state tour:settings-extensions",
+  "settings": {},
+  "steps": [
+    {"title": "Launch", "wait": 3, "shot": false},
+    {"title": "Open Settings", "cmux": ["action", "run", "openSettings", "--setting", "tabs.newTabTemplate"], "wait": 3, "shot": false},
+    {"title": "Settings > Extensions, light", "rpc": {"method": "debug.page", "params": {"page": "cmux.settings", "action": "route", "route": "/settings/extensions"}}, "wait": 3},
+    {"title": "Wait for Caffeinate's settings", "rpc": {"method": "debug.page", "params": {"page": "cmux.settings", "action": "wait", "selector": "[data-extension-setting=\"variant\"] .ui-select-button", "timeout_ms": 15000}}, "wait": 0.5, "shot": false},
+    {"title": "Open the Design variant menu", "rpc": {"method": "debug.page", "params": {"page": "cmux.settings", "action": "click", "selector": "[data-extension-setting=\"variant\"] .ui-select-button"}}, "wait": 1},
+    {"title": "Pick Pane: the row shows the value the daemon stored", "rpc": {"method": "debug.page", "params": {"page": "cmux.settings", "action": "click", "selector": ".ui-select-popup .ui-select-option:nth-child(2)"}}, "wait": 2},
+    {"title": "Settings > Extensions after the change, dark", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 2,
+     "optional": "debug.appearance is DEBUG only"}
+  ]
+}

@@ -23,6 +23,9 @@ Usage: sidebar-motion-record.py --socket /tmp/cmux-debug-<tag>[-capslot<N>].sock
 """
 import argparse, json, os, re, socket, sys, time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from state_wait import wait_stable, wait_until  # noqa: E402
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True, help="the tagged app's debug socket")
 parser.add_argument("--out", required=True)
@@ -78,6 +81,16 @@ def wait(check, seconds, step=0.25):
     return None
 
 
+def rows_state():
+    """Every sidebar row's key, title, selection, group and frame: unchanged across reads once the list settled."""
+    return json.dumps([(r.get("key"), r.get("title"), r.get("selected"), r.get("group"), r.get("window_frame"))
+                       for r in sidebar().get("rows") or []], sort_keys=True)
+
+
+def settle(what):
+    wait_stable(rows_state, f"the sidebar rows after {what}", timeout=10, interval=0.1, reads=4)
+
+
 def center(row):
     frame = row.get("window_frame") or {}
     return frame.get("x", 0) + frame.get("width", 0) / 2, frame.get("y", 0) + frame.get("height", 0) / 2
@@ -102,7 +115,7 @@ def drag_onto(dragged, target):
         rpc("debug.mouse", {"action": "drag", "x": x, "y": to, "to_x": x, "to_y": to + 2, "steps": 1, "press": False, "release": False})
         to += 2
     print(f"drag-onto: released at {to} over {hit and hit.get('title')}", flush=True)
-    time.sleep(0.3)  # test harness: the onto highlight shows before the drop
+    time.sleep(0.3)  # sleep-ok: a person's hover dwell over the target before the drop, which the frames record
     return rpc("debug.mouse", {"action": "up", "x": x, "y": to})
 
 
@@ -113,12 +126,14 @@ def record(name, trigger, seconds=None):
     directory = os.path.join(opts.out, name)
     os.makedirs(directory, exist_ok=True)
     started = rpc("debug.window_record", {"dir": directory, "seconds": seconds})
-    time.sleep(0.15)  # test harness: a few still frames before the change
+    time.sleep(0.15)  # sleep-ok: the recording keeps a few still frames before the change
     reply = trigger()
-    time.sleep(seconds + 0.6)  # test harness: the recording stops by itself
+    # frames.json lands when the recorder finishes by itself.
+    wait_until(lambda: os.path.exists(os.path.join(directory, "frames.json")), f"{name}'s recording to finish (frames.json)",
+               timeout=seconds + 15)
     frames = len([f for f in os.listdir(directory) if f.endswith(".jpg")])
     print(f"{name}: {frames} frames; record={json.dumps(started)[:120]} reply={json.dumps(reply)[:160]}", flush=True)
-    time.sleep(0.5)  # test harness: let the list settle before the next scenario
+    settle(name)
 
 
 def set_tab_rows(on):
@@ -130,7 +145,7 @@ def set_tab_rows(on):
     else:
         rpc("settings.unset", {"path": "sidebar.showWorkspaceTabs"})
     wait(lambda: bool(rows("tab")) == on, 5)
-    time.sleep(0.5)  # test harness: the list settles
+    settle("Show Tabs Under Workspaces " + ("on" if on else "off"))
 
 
 def drag_reorder(suffix=""):
@@ -140,7 +155,7 @@ def drag_reorder(suffix=""):
         x, y = center(workspace_rows[1])
         to_y = (workspace_rows[4].get("window_frame") or {}).get("y", 0) - 2
         record("drag-reorder" + suffix, lambda: rpc("debug.mouse", {"action": "drag", "x": x, "y": y, "to_x": x, "to_y": to_y, "steps": 30}))
-        time.sleep(0.5)  # test harness: the drop settles
+        settle("the drop")
 
 
 def main():
@@ -154,10 +169,11 @@ def main():
     set_tab_rows(False)  # the default
     action("workspace.selectFirst")
     while len(rows("workspace")) < 6:
+        count = len(rows("workspace"))
         action("newTab")
-        time.sleep(0.4)  # test harness: one workspace at a time
+        wait_until(lambda: len(rows("workspace")) > count, "the new workspace's row", timeout=10)
     action("workspace.selectFirst")
-    time.sleep(1.0)  # test harness: the list settles
+    settle("the new workspaces")
     frames = [r.get("window_frame") or {} for r in sidebar().get("rows") or []]
     width = max((f.get("x", 0) + f.get("width", 0) for f in frames), default=260) + 12
     with open(os.path.join(opts.out, "sidebar.json"), "w") as handle:
@@ -174,7 +190,7 @@ def main():
     set_tab_rows(True)
     try:
         action("workspace.selectFirst")
-        time.sleep(0.5)  # test harness: selection settles
+        settle("selecting the first workspace")
         record("new-tab-row", lambda: action("newSurface"))
         drag_reorder("-tab-rows")
     finally:

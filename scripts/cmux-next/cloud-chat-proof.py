@@ -64,6 +64,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import claude_login_cache  # noqa: E402
+from app_launch_env import launch_env  # noqa: E402
+from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True, help="the tagged app bundle")
@@ -619,6 +621,7 @@ launch = [open_tool, "-W", "-g", "-n"]
 # LaunchServices starts the app with its own environment, not this process's ENV, so the proof's socket
 # must travel as --env, and only as CMUX_NEXT_SOCKET_PATH: CMUX_SOCKET_PATH is a marker of another cmux,
 # and the app then strips the CMUX_NEXT_* state-root knobs (LaunchIdentity.inheritedKeys), the socket one included.
+# `open` also hands the app this process's environment, so the launcher runs on launch_env(ENV) (app_launch_env.py).
 launch.extend(["--env", f"CMUX_NEXT_SOCKET_PATH={SOCKET_PATH}"])
 if CONFIG_FILE:
     # Its own cmux.json, as the socket: LaunchServices passes the app only what --env names.
@@ -644,7 +647,7 @@ if args.cleanup_tag:
         launchable_cleanup = False
 if launchable_cleanup:
     try:
-        app_launcher = subprocess.Popen(launch, env=ENV, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        app_launcher = subprocess.Popen(launch, env=launch_env(ENV), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except OSError as error:
         record("launch app", 1, "", str(error))
         finish("fail: launch app")
@@ -812,7 +815,20 @@ def paused_capture(out_dir: str) -> None:
                clean(str(clicked.get("error") or cost.get("error") or "")), detail_text=detail_text or None)
 
     # 4. The images: the page as WebKit drew it, and the whole window.
-    time.sleep(2)  # the selection and detail draw before the capture (harness, not app code)
+    # The selection and detail drew before the capture: the window's pixels hold still (best effort).
+    probe_fd, probe = tempfile.mkstemp(prefix="cloud-paused-probe-", suffix=".png")
+    os.close(probe_fd)
+
+    def window_pixels() -> str:
+        shot = app_call("debug.window_snapshot", {"kind": "main", "path": probe}, timeout=60)
+        if shot.get("error"):
+            raise RuntimeError(shot["error"])
+        return hashlib.sha256(Path(probe).read_bytes()).hexdigest()
+    try:
+        wait_stable(window_pixels, "the window after the selection", timeout=10, interval=0.25,
+                    raise_on_timeout=False)
+    finally:
+        Path(probe).unlink(missing_ok=True)
     images = {}
     for name, method, params in (
         ("cloud-paused-page.png", "debug.page", {"page": "cmux.cloud", "action": "snapshot"}),

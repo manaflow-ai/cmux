@@ -4,8 +4,8 @@
 //! - `disk_full_mid_turn_loses_nothing` (F20): the disk fills (ENOSPC or EDQUOT, the store's debug
 //!   seam `ACPMUX_TEST_DISK_FAULT_FILE`) while a turn streams. The daemon stays up; once space
 //!   returns the next prompt works, the turn's words are stored exactly once, and what the client
-//!   read equals what a restarted daemon reads back from the journal. Known red (its ignore says
-//!   why); lane `rc-supervisor-contract` flips it.
+//!   read equals what a restarted daemon reads back from the journal. The broken host link is
+//!   retried until the store logs again (`Hub::reach_broken_link`).
 //!
 //! ```text
 //! cargo test -p acpmux --test rc_faults -- --nocapture --include-ignored   # CMUX_FAULT_RUNS (20)
@@ -255,16 +255,12 @@ fn prompt(session: &str, text: &str) -> Value {
 /// prompt runs; every word the agent said is stored once; and what the client read equals what a
 /// restarted daemon reads from its journal.
 ///
-/// Red on feat-cmux-next, 20 of 20 seeds (cmux run 43881964417): the daemon stays up, but the
-/// turn's last words and its answer never reach the client, and the prompt sent after space
-/// returned is never answered (60 s). The agent's host kept them: a restarted daemon reads
-/// "after-gate" from the journal. The live daemon's link to the host broke on the entry it could
-/// not log, and the reattach that replays it waits for the next request, which queues behind the
-/// turn that never ends. Lane `rc-supervisor-contract` (piece P1, F20) makes it pass and removes
-/// the ignore.
+/// Red before the fix (cmux run 43881964417, 20 of 20 seeds): the daemon stayed up, but the turn's
+/// last words and its answer never reached the client, and the prompt sent after space returned was
+/// never answered (60 s). The link to the agent's host broke on the entry the store could not log,
+/// and its only reattach waited for the next request, which queued behind that turn. Now the broken
+/// link is retried with a backoff until the store logs again (`Hub::reach_broken_link`).
 #[test]
-#[ignore = "rc-supervisor-contract: after a full disk mid-turn the live daemon never reattaches \
-            the agent's host, so the turn and the next prompt hang until a restart (F20)"]
 fn disk_full_mid_turn_loses_nothing() -> Result<(), Failed> {
     let replay = "cargo test -p acpmux --test rc_faults disk_full";
     Runs::new("disk-full mid-turn", replay).at_most_parallel(4).run(|seed, trace| {
@@ -354,7 +350,11 @@ fn disk_full_mid_turn_loses_nothing() -> Result<(), Failed> {
                 None => Err("the prompt after space returned was never answered".into()),
             },
             invariants::each_once(
-                &["before-gate".to_owned(), "after-gate".to_owned(), "after-space".to_owned()],
+                &[
+                    "before-gate".to_owned(),
+                    "after-gate".to_owned(),
+                    "echo: after-space".to_owned(),
+                ],
                 &texts(&journal),
             ),
             invariants::client_equals_journal(&journal, &seen),

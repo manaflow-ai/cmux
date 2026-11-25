@@ -1075,6 +1075,10 @@ export function QuickModelMenu({
           {children}
         </MenuButton>
         <MenuPopup
+          // The columns menu sizes itself (QuickModelColumns: the longest name of every tab, the
+          // person's dragged width and grip). The compact menu is settled by the shared rule; its
+          // rail hold above (railRef) only raises the same floor, so the two never disagree.
+          popupSettle={families ? "own" : undefined}
           scroll={families === undefined}
           footer={
             menu.updates ? (
@@ -1105,6 +1109,8 @@ export function QuickModelMenu({
           // A native menu panel cannot draw the harness strip or the More models scroll area.
           // Keep this combined surface inside the window in both directions.
           escapes={!families}
+          // The model menu's fallback list (no columns) resizes as the columns do (cmux#51745).
+          resize={{ id: "composer.modelList" }}
           // ui-allow: 1 to 9 pick a row in place and typing filters the list, as in Claude Code's model menu.
           onKeyDown={keyDown}
         >

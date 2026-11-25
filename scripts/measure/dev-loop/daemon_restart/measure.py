@@ -424,7 +424,19 @@ def main() -> int:
         except (OSError, RuntimeError, ValueError):
             pass
         started_hosts.update(rl.host_pids(work))
-        time.sleep(0.5)
+
+        def running(pid):
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return False
+            except PermissionError:
+                pass
+            return True
+        # The shutdown ends its terminals: until those hosts exit by themselves (5 s), then SIGKILL the rest.
+        hosts_end = time.monotonic() + 5
+        while time.monotonic() < hosts_end and any(running(pid) for pid in started_hosts.values()):
+            time.sleep(0.05)
         for pid in started_hosts.values():  # only the terminal hosts this measurement started
             try:
                 os.kill(pid, signal.SIGKILL)

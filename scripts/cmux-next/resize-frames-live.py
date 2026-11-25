@@ -22,6 +22,7 @@ Compare samples:         resize-sample-diff.py DIR/sample-window.txt DIR/sample-
 """
 import argparse, glob, json, os, plistlib, signal, socket, subprocess, sys, tempfile, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from state_wait import wait_stable, wait_until  # noqa: E402
 try:
     from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 except ImportError:
@@ -143,7 +144,11 @@ def chat_pane(term):
         replies.append(reply)
         return isinstance(reply, dict) and "error" not in reply and reply
     chat = wait(new_chat, 90, 2)
-    time.sleep(2)
+    if chat:  # the new chat's session settled (connection and session id stop changing) before prompts go in
+        def session():
+            st = rpc("debug.agent_pane", {"action": "chat_state", "pane": pane}, timeout=40)
+            return (st.get("connection"), st.get("sessionId"), st.get("isWorking")) if isinstance(st, dict) and "error" not in st else None
+        wait_stable(session, "the new agent chat's session", timeout=20, interval=0.25, raise_on_timeout=False)
     sent = 0
     if chat:
         rpc("debug.mouse", {"pane": pane, "action": "click"})
@@ -211,21 +216,25 @@ report = {"tag": TAG, "app": APP, "pid": app.pid, "mode": opts.mode, "rounds": o
 try:
     if not wait(lambda: os.path.exists(SOCKET) and "error" not in (rpc("debug.focus") or {"error": 1}), 180):
         sys.exit("app did not come up")
-    time.sleep(2)
+    wait_until(focused_pane, "a focused pane in the app's first window", timeout=30)
     report["identify"] = rpc("system.identify")
     report["screens"] = rpc("debug.screens")
     # Sidebar shown; terminal | chat x N | New Tab page, side by side in one workspace.
+    before_tab = focused_pane()
     report["setup"] = [rpc("action.run", {"action": "newTab", "focus": True})]
-    time.sleep(2)
+    wait_until(lambda: (lambda p: p and p != before_tab)(focused_pane()), "the new tab's pane to take focus", timeout=20)
     report["chats"] = []
     term = focused_pane()  # an agent chat pane cannot be split: every new pane comes off the terminal's
     for _ in range(opts.chats):
         report["chats"].append(chat_pane(term))
     if opts.page:
+        before_split = focused_pane()
         report["setup"].append(rpc("action.run", {"action": "splitRight", "focus": True, "target": target(term)}))
-        time.sleep(1.5)
+        wait_until(lambda: (lambda p: p and p != before_split)(focused_pane()), "the split's new pane to take focus", timeout=20)
         report["setup"].append(rpc("action.run", {"action": "newTab.page", "focus": True, "target": target(focused_pane())}))
-    time.sleep(5)
+    # The layout is laid out once debug.layers stops changing between reads.
+    wait_stable(lambda: json.dumps(rpc("debug.layers"), sort_keys=True), "the window's layers after setup",
+                timeout=30, interval=0.5, raise_on_timeout=False)
     if not all(c["chat"] and c["prompts_sent"] for c in report["chats"]):
         sys.exit(f"an agent chat did not open: {report['chats']}")
     layers = rpc("debug.layers")

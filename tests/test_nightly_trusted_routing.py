@@ -517,17 +517,18 @@ class NightlyTrustedRouting(unittest.TestCase):
         self.assertEqual(select(**{'github.run_attempt': 2}), NIGHTLY_ONLY)
         self.assertEqual(select(**{'github.run_attempt': 2, 'github.ref': 'refs/heads/main'}), NIGHTLY_ONLY)
 
-    def test_prepare_takes_our_linux_pool_on_every_attempt(self):
+    def test_prepare_takes_the_nightly_label_then_our_linux_pool(self):
         def prepare(**changes):
             source = runs_on_text(DOC['jobs']['prepare-nightly-variant-primary'], 'prepare-nightly-variant-primary').removeprefix('${{').removesuffix('}}')
             context = {'github.repository_owner': 'manaflow-ai', 'github.repository': 'manaflow-ai/cmux',
                        'github.event_name': 'push', 'github.ref': 'refs/heads/nightly-next', 'github.run_attempt': 1,
                        'vars.CI_PR_POOL_OWNED': '1', **changes}
             return evaluate(parse_expression(source), context)
-        # Every attempt takes our Linux pool, never Blacksmith.
-        self.assertEqual(prepare(), CMUX_LINUX)
+        # Attempt 1 takes the nightly's reserved label (RFD 0021), a rerun our Linux pool; never Blacksmith.
+        self.assertEqual(prepare(), 'cmux-gcp-nightly-x64')
         self.assertEqual(prepare(**{'github.run_attempt': 2}), CMUX_LINUX)
-        self.assertEqual(prepare(**{'inputs.nightly_next_unsigned_run': '123'}), CMUX_LINUX)
+        self.assertEqual(prepare(**{'inputs.nightly_next_unsigned_run': '123'}), 'cmux-gcp-nightly-x64')
+        self.assertEqual(prepare(**{'github.event_name': 'pull_request'}), CMUX_LINUX)
         self.assertEqual(prepare(**{'github.repository_owner': 'someone'}), 'ubuntu-24.04')
 
     def test_prepare_fallback_follows_the_primary_then_retries_on_our_linux_pool(self):
@@ -718,7 +719,6 @@ class NightlyTrustedRouting(unittest.TestCase):
             "github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry != '') && "
             "(vars.NIGHTLY_NEXT_ONE_JOB != 'on' || vars.NIGHTLY_NEXT_SUBMISSIONS_PAUSED == '1' || "
             "vars.NIGHTLY_NEXT_NOTARY_PAUSED == '1') && 'push' || "
-            "github.event_name == 'workflow_dispatch' && inputs.nightly_next_sign_stage != '' && 'sign' || "
             "format('run-{0}', github.run_id))",
             group,
         )

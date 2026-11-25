@@ -13,7 +13,7 @@
 
 use crate::no_panic::LockExt;
 use crate::protocol::peer_state::{
-    Carrier, DownCause, MachineLink, OfflineReason, PeerStateChanged,
+    Carrier, DialFail, DownCause, MachineLink, OfflineReason, PeerStateChanged,
 };
 use serde_json::{Value, json};
 use std::collections::{HashMap, VecDeque};
@@ -143,6 +143,8 @@ pub struct Observed {
     pub cause: Option<DownCause>,
     /// Why a down link will not heal by retrying alone (`reason`; its `action` follows).
     pub reason: Option<OfflineReason>,
+    /// Why the route last went down (`downReason`; `LinkFacts::down_reason`).
+    pub down_reason: Option<DialFail>,
     /// When `link` took its value.
     pub since: u64,
     pub next_retry_at: Option<u64>,
@@ -152,10 +154,17 @@ pub struct Observed {
 
 /// What makes a note news: a change of any of these sends one; `since`, `lastSeen` and
 /// `error` ride along.
-type Key = (MachineLink, Option<Carrier>, Option<DownCause>, Option<OfflineReason>, Option<u64>);
+type Key = (
+    MachineLink,
+    Option<Carrier>,
+    Option<DownCause>,
+    Option<OfflineReason>,
+    Option<DialFail>,
+    Option<u64>,
+);
 
 fn key(note: &PeerStateChanged) -> Key {
-    (note.link, note.carrier, note.cause, note.reason, note.next_retry_at)
+    (note.link, note.carrier, note.cause, note.reason, note.down_reason, note.next_retry_at)
 }
 
 impl Observed {
@@ -166,6 +175,7 @@ impl Observed {
             carrier: None,
             cause: None,
             reason: None,
+            down_reason: None,
             since: 0,
             next_retry_at: None,
             last_seen,
@@ -174,7 +184,7 @@ impl Observed {
     }
 
     fn key(&self) -> Key {
-        (self.link, self.carrier, self.cause, self.reason, self.next_retry_at)
+        (self.link, self.carrier, self.cause, self.reason, self.down_reason, self.next_retry_at)
     }
 
     fn note(self, name: &str) -> PeerStateChanged {
@@ -189,6 +199,7 @@ impl Observed {
             next_retry_at: self.next_retry_at,
             reason: self.reason,
             action: self.reason.map(OfflineReason::action),
+            down_reason: self.down_reason,
             last_seen: self.last_seen,
             error: self.error,
             at,

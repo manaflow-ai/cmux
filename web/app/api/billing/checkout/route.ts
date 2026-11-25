@@ -1,6 +1,7 @@
 import type { StackServerApp } from "@hexclave/next";
 import { after, NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
+import type Stripe from "stripe";
 
 import { validatedNativeCallbackScheme } from "../../../lib/native-callback";
 import { requestOrigin, requestWithOrigin } from "../../../lib/request-origin";
@@ -46,6 +47,7 @@ import {
   hasExistingPersonalSubscription,
 } from "../../../../services/billing/personalSwitchRoute";
 import { captureBillingCheckoutStarted } from "../../../../services/analytics/stripeBilling";
+import { checkoutIdempotencyKey } from "../../../../services/billing/checkoutIdempotency";
 import {
   checkoutAttributionFromRequest,
   checkoutAttributionMetadata,
@@ -67,6 +69,7 @@ import {
   type TeamBillingAccessUser,
 } from "../../../../services/billing/teamBillingAccess";
 import { teamPortalSession } from "../../../../services/billing/teamPortal";
+import { cloudIntroCheckoutResponse } from "../../../../services/billing/cloudIntroCheckout";
 
 
 type CheckoutStackServerApp = StackServerApp<true>;
@@ -231,6 +234,13 @@ async function resolveCheckout(request: NextRequest): Promise<NextResponse> {
   ) {
     return NextResponse.redirect(appStorePricingUnavailableURL(requestWithOrigin(request).nextUrl));
   }
+  // The cmux Cloud $1 pass. Null when its flag is off, so `plan=intro` stays
+  // an unknown plan below, exactly as before.
+  const introResponse = await cloudIntroCheckoutResponse(request, {
+    stackServerApp: checkoutStackServerApp,
+    signInRedirect: checkoutSignInRedirect,
+  });
+  if (introResponse) return introResponse;
 
   const plan = checkoutPlan(request.nextUrl.searchParams.get("plan"));
   const intervalError = unavailableIntervalResponse(request, plan);
@@ -386,7 +396,7 @@ async function stripePersonalCheckout(
       ...checkoutAttributionMetadata(attribution),
     };
 
-    const session = await stripe().checkout.sessions.create({
+    const params: Stripe.Checkout.SessionCreateParams = {
       mode: "subscription",
       line_items: [
         {
@@ -410,6 +420,11 @@ async function stripePersonalCheckout(
       allow_promotion_codes: true,
       success_url: successUrl,
       cancel_url: cancelUrl.toString(),
+    };
+    // Two requests that both passed the subscription check above share one
+    // session instead of opening two.
+    const session = await stripe().checkout.sessions.create(params, {
+      idempotencyKey: checkoutIdempotencyKey({ scope: "user", subjectId: stackUserId, plan, interval, params }),
     });
     if (!usableCheckoutSession(session)) {
       throw new Error("Stripe Checkout Session did not include an id and URL");
@@ -528,7 +543,7 @@ async function stripeTeamCheckout(
     const customerId =
       stripeBillingStatus.customerId ?? await stripeCustomerForTeam(team, stackUserId);
     const memberCount = await checkoutTeamSeatCount(team);
-    const session = await stripe().checkout.sessions.create({
+    const params: Stripe.Checkout.SessionCreateParams = {
       mode: "subscription",
       line_items: [
         {
@@ -550,6 +565,9 @@ async function stripeTeamCheckout(
       allow_promotion_codes: true,
       success_url: successUrl,
       cancel_url: cancelUrl.toString(),
+    };
+    const session = await stripe().checkout.sessions.create(params, {
+      idempotencyKey: checkoutIdempotencyKey({ scope: "team", subjectId: resolvedTeamId, plan: "team", interval, params }),
     });
     if (!usableCheckoutSession(session)) {
       throw new Error("Stripe Checkout Session did not include an id and URL");

@@ -169,6 +169,10 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
             child.close()
         case .contextMenu(let request):
             contextMenus.present(request, in: tab.contentView, leading: [])
+        case .devTools(let command):
+            if let placement = command.placement { (tab as? any BrowserDevToolsHosting)?.performDevTools(placement) }
+        case .goToHistoryEntry(let offset):
+            (tab as? any BrowserBackForwardListing)?.goToEntry(offset: offset)
         default:
             break
         }
