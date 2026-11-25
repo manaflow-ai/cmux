@@ -117,6 +117,7 @@ pub(super) fn names() -> BTreeSet<String> {
                 from: "phone".into(),
                 sealed: "sealed".into(),
                 at: Some(1),
+                seq: Some(1),
             }],
         },
         SignalMessage::MailboxAck {
@@ -170,6 +171,8 @@ pub(super) fn names() -> BTreeSet<String> {
             endpoints: vec!["127.0.0.1:1".into()],
             relayed: vec!["127.0.0.1:2".into()],
             relayed_tls: vec!["127.0.0.1:2".into()],
+            mapped: vec!["127.0.0.1:1".into()],
+            mapped_by: Some("pcp".into()),
         },
         SignalPayload::WgRelay {},
         SignalPayload::Bye { reason: "closed".into() },
@@ -180,8 +183,11 @@ pub(super) fn names() -> BTreeSet<String> {
             endpoints: vec!["127.0.0.1:1".into()],
             relayed: vec!["127.0.0.1:2".into()],
             relayed_tls: vec!["127.0.0.1:2".into()],
+            mapped: vec!["127.0.0.1:1".into()],
+            mapped_by: Some("pcp".into()),
         },
         RoamMessage::Ack { generation: 1 },
+        RoamMessage::Metered { addresses: vec!["127.0.0.1:3".into()] },
         RoamMessage::Reach { from: Some("127.0.0.1:1".into()), via: Some("udp".into()) },
     ];
     let mut names = BTreeSet::new();

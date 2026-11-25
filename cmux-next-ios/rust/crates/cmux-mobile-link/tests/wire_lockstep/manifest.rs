@@ -107,15 +107,31 @@ pub(super) fn manifest() -> Manifest {
         ]
         .into(),
     );
-    // Reach is sent only on a v2 tunnel. Peers send the endpoint announcements on every version.
+    // A screen channel's base-carrying kind-4 datagrams and their kind-5 acknowledgements go only to a
+    // peer that also lists the screen lane; kind 4 itself is the classes lane's.
     manifest.capabilities.insert(
-        format!("wg-version={}", signaling::WG_VERSION),
+        cmux_mobile_link::classes::SCREEN_LANE.to_owned(),
+        [format!("control:liveness/screen-ack={}", cmux_mobile_link::classes::DATAGRAM_SCREEN_ACK)].into(),
+    );
+    // Each tunnel feature is keyed by the version that brought it, never the current WG_VERSION: a
+    // bump must add a capability, not rename an old one. Reach goes only to a version-2 peer or newer,
+    // `metered` only to version 3 or newer. Peers send the endpoint announcements on every version.
+    manifest.capabilities.insert(
+        format!("wg-version={}", signaling::WG_REACH_VERSION),
         ["event:reach", "field:reach#t", "field:reach#from", "field:reach#via"].map(str::to_owned).into(),
+    );
+    manifest.capabilities.insert(
+        format!("wg-version={}", cmux_mobile_link::dial::wireguard::multipath::MULTIPATH_VERSION),
+        ["event:metered", "field:metered#t", "field:metered#addresses"].map(str::to_owned).into(),
     );
     manifest.versions.insert("hostd-link".into(), LINK_PROTOCOL);
     manifest.versions.insert("link_stat".into(), link_stat::VERSION.into());
     manifest.versions.insert("wireguard".into(), signaling::WG_VERSION);
-    manifest.accepts.insert("wireguard".into(), [0, signaling::WG_VERSION].into());
+    manifest.accepts.insert(
+        "wireguard".into(),
+        [0, signaling::WG_REACH_VERSION, cmux_mobile_link::dial::wireguard::multipath::MULTIPATH_VERSION]
+            .into(),
+    );
 
     let mut vocabulary = super::signals::names();
     vocabulary.extend(super::worker::control_names());
@@ -254,6 +270,7 @@ pub(super) fn manifest() -> Manifest {
         end: Some("app"),
         lib: "test",
         // Every optional field set, so each one's wire name is in the manifest.
+        portmap: Some(link_stat::PortmapStat { by: "pcp", used: true }),
         echo: key_echo::Summary::of(&[1]),
         ack: key_echo::Summary::of(&[1]),
         spike_count: 1,
@@ -265,6 +282,7 @@ pub(super) fn manifest() -> Manifest {
     fields(&mut vocabulary, "link_stat.marks", &stat.marks);
     fields(&mut vocabulary, "link_stat.echo", stat.echo.unwrap());
     fields(&mut vocabulary, "link_stat.ack", stat.ack.unwrap());
+    fields(&mut vocabulary, "link_stat.portmap", stat.portmap.unwrap());
     let gated = manifest.names();
     manifest.legacy = vocabulary.into_iter().filter(|name| !gated.contains(name.as_str())).collect();
     manifest

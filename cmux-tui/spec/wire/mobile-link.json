@@ -100,6 +100,8 @@
     "field:close#reason",
     "field:endpoints#endpoints",
     "field:endpoints#generation",
+    "field:endpoints#mapped",
+    "field:endpoints#mappedBy",
     "field:endpoints#relayed",
     "field:endpoints#relayedTls",
     "field:endpoints#t",
@@ -118,6 +120,7 @@
     "field:link_stat#net",
     "field:link_stat#path",
     "field:link_stat#pings",
+    "field:link_stat#portmap",
     "field:link_stat#reason",
     "field:link_stat#rtt",
     "field:link_stat#setupMs",
@@ -151,6 +154,8 @@
     "field:link_stat.marks#signaling_reused",
     "field:link_stat.marks#wg_init_sent",
     "field:link_stat.marks#wg_resp_received",
+    "field:link_stat.portmap#by",
+    "field:link_stat.portmap#used",
     "field:link_stat.rtt#max",
     "field:link_stat.rtt#n",
     "field:link_stat.rtt#p50",
@@ -208,6 +213,8 @@
     "field:webrtc-offer#sdp",
     "field:wg-endpoints#endpoints",
     "field:wg-endpoints#generation",
+    "field:wg-endpoints#mapped",
+    "field:wg-endpoints#mappedBy",
     "field:wg-endpoints#relayed",
     "field:wg-endpoints#relayedTls",
     "field:wg-init#endpoints",
@@ -248,6 +255,7 @@
     "service:_link.park",
     "service:acpmux",
     "service:auth",
+    "service:catch-up",
     "service:chief",
     "service:daemon",
     "service:echo",
@@ -288,6 +296,9 @@
       "control:liveness/screen=4",
       "frame:sequenced=6"
     ],
+    "classes-screen-v1": [
+      "control:liveness/screen-ack=5"
+    ],
     "cloud-acpmux-v1": [
       "param:cloud-acpmux#machine_id",
       "param:cloud-acpmux#team_id",
@@ -323,6 +334,9 @@
     ],
     "mac-display-v1": [
       "control:surface.tab/d~"
+    ],
+    "mailbox-send-v1": [
+      "field:mailbox.items#seq"
     ],
     "needs-you-v1": [
       "service:needs-you"
@@ -391,17 +405,23 @@
       "field:reach#from",
       "field:reach#t",
       "field:reach#via"
+    ],
+    "wg-version=3": [
+      "event:metered",
+      "field:metered#addresses",
+      "field:metered#t"
     ]
   },
   "versions": {
     "hostd-link": 2,
     "link_stat": 1,
-    "wireguard": 2
+    "wireguard": 3
   },
   "accepts": {
     "wireguard": [
       0,
-      2
+      2,
+      3
     ]
   }
 }

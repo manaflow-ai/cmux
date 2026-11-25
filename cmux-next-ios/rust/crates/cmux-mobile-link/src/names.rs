@@ -64,6 +64,7 @@ host_services! {
     (Chief, "chief"),
     (Acpmux, "acpmux"),
     (CloudDirectory, "cloud-directory"),
+    (CatchUp, "catch-up"),
     (CloudAcpmux, "cloud-acpmux"),
     (File, "file"),
     (FilePreview, "file-preview"),
@@ -105,6 +106,7 @@ pub const BROWSER_STREAM: &str = "browser-stream-v1";
 pub const BROWSER_VIDEO_TRACK: &str = "browser-video-track-v1";
 pub const SURFACE_STREAM: &str = "surface-stream-v1";
 pub const CLOUD_DESKTOP: &str = "cloud-desktop-v1";
+pub const MAILBOX_SEND: &str = "mailbox-send-v1";
 pub const MAC_DISPLAY: &str = "mac-display-v1";
 
 pub const CLOUD_MOBILE_CHAT: &str = "cloud-mobile-chat-v1";
@@ -202,6 +204,13 @@ pub const ALL: &[Capability] = &[
         TAB_SNAPSHOTS,
         "(2026-11-22) The host serves `tabs`: every tab's title, favicon, thumbnail or terminal screen text, each picture sent once by hash and then only changes.",
         &["service:tabs"],
+    ),
+    host(
+        MAILBOX_SEND,
+        "(2026-11-24) The Mac's mailbox takes `send` (a chat message) and `compose` (a queue action) items, held up to 24 hours and applied once, in each phone's order: a phone routes a send to the mailbox only to a Mac that listed it on its last link.",
+        // The items themselves are sealed; on the wire it adds the queue position (`seq`), which an
+        // older hub omits and an older Mac ignores.
+        &["field:mailbox.items#seq"],
     ),
     host(
         BROWSER_STREAM,

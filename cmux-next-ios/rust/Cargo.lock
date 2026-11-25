@@ -514,6 +514,7 @@ version = "0.1.0"
 name = "cmux-braid-path"
 version = "0.1.0"
 dependencies = [
+ "cmux-transport",
  "futures-util",
  "tokio",
 ]
@@ -638,6 +639,7 @@ dependencies = [
 name = "cmux-mobile-link"
 version = "0.1.0"
 dependencies = [
+ "aes-gcm",
  "anyhow",
  "async-trait",
  "base64",
@@ -656,6 +658,9 @@ dependencies = [
  "flate2",
  "futures-util",
  "getrandom 0.3.4",
+ "hkdf",
+ "libc",
+ "p256",
  "rcgen",
  "reqwest",
  "rustls",
@@ -850,6 +855,7 @@ dependencies = [
  "base64",
  "boringtun",
  "bytes",
+ "cmux-braid-path",
  "cmux-transport",
  "getrandom 0.3.4",
  "ip_network",
