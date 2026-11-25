@@ -688,6 +688,7 @@ dependencies = [
  "cmux-braid-path",
  "cmux-build-space",
  "cmux-fault",
+ "cmux-mobile-host",
  "cmux-mobile-link",
  "cmux-rd-core",
  "cmux-rd-proto",
