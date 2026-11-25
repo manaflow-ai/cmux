@@ -359,7 +359,7 @@ fn bundled_cli_is_executable(path: &std::path::Path) -> bool {
 /// and whether a Mac lends this machine its GitHub login. Set in order, before the next request
 /// on the connection is spawned (`server/mod.rs`), so a peer link's `_acpmux/watch` sent with
 /// `initialize` sees them (`peer::HANDSHAKE_PIPELINE_FEATURE`).
-pub(super) fn note_initialize(conn: &Conn, params: &Value) {
+pub(in crate::server) fn note_initialize(conn: &Conn, params: &Value) {
     if let Some(name) = params.pointer("/clientInfo/name").and_then(Value::as_str) {
         *conn.name.lock_or_recover() = name.to_owned();
         let link = conn.origin == Origin::Peer || name == crate::peer::CLIENT_NAME;
