@@ -2503,6 +2503,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/connections/key.check",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/connections/chatgpt.begin",
       "params": true,
       "result": true
@@ -6762,6 +6768,26 @@
       },
       "type": "object"
     },
+    "QueueOrigin": {
+      "description": "Who put a queued prompt in the queue ([`of`]).",
+      "oneOf": [
+        {
+          "const": "person",
+          "description": "The person typed it: the composer's steer rows.",
+          "type": "string"
+        },
+        {
+          "const": "agent",
+          "description": "Another agent's message, or acpmux's notice or digest of such messages.",
+          "type": "string"
+        },
+        {
+          "const": "acpmux",
+          "description": "acpmux's own prompt to the chat's agent: no steer row and none of the person's actions.",
+          "type": "string"
+        }
+      ]
+    },
     "QueuedAuthor": {
       "description": "The person who queued a prompt in a shared chat.",
       "properties": {
@@ -6890,6 +6916,18 @@
           "default": null,
           "description": "acpmux's inbox notice of other agents' messages (`_meta.provenance` `inbox_notice`,\n`hub/inbox.rs`): that provenance, `{kind, noticeId, threads}`, so an app draws it as the\nmessages it carries and never as the person's queued prompt, also when it has not read\nits `queued` record (a chat reopened on a recent page). Null for any other prompt, and\nonce edited (an edit drops the provenance)."
         },
+        "origin": {
+          "anyOf": [
+            {
+              "$ref": "#/types/QueueOrigin"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Who put it in the queue, from its provenance alone (`hub/queue_origin.rs`): `person` (the\ncomposer's steer rows), `agent` (another agent's message or acpmux's notice of such), or\n`acpmux` (the daemon's own prompt: a surge digest, a subagent's resume, a cut turn's\ncontinuation), which an app draws apart from the person's rows with none of their actions.\nAbsent from an older acpmux."
+        },
         "prompt": {
           "type": "string"
         },
@@ -6940,6 +6978,7 @@
         "heldByStop",
         "images",
         "inboxNotice",
+        "origin",
         "prompt",
         "promptId",
         "provenance",

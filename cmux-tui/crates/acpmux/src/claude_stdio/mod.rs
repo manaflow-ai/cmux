@@ -1100,8 +1100,25 @@ impl Translator {
 /// its id and status): kind, title, input, and an edit's diffs and file. A live turn
 /// (`inbound.rs`) and an adopted chat's past turns (`adopt_tools.rs`) both draw calls from it.
 pub(crate) fn tool_call_fields(name: &str, input: &Value) -> Value {
+    // The transcript can describe a command in prose; permission requests still identify
+    // the command itself. Other tools keep the title identifying them (e.g. an MCP name)
+    // and carry any authored description alongside it in rawInput.
+    let title = match name {
+        "Bash" => input
+            .get("description")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|description| !description.is_empty())
+            .map(str::to_owned),
+        "Grep" => input
+            .get("pattern")
+            .and_then(Value::as_str)
+            .filter(|pattern| !pattern.is_empty())
+            .map(|pattern| format!("Search for {pattern}")),
+        _ => None,
+    };
     let mut call = json!({
-        "title": tool_title(name, input),
+        "title": title.unwrap_or_else(|| tool_title(name, input)),
         "kind": tool_kind(name),
         "rawInput": input,
         "_meta": {"claude": {"tool": name}}
