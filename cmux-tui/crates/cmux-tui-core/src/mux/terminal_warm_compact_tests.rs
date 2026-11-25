@@ -30,15 +30,15 @@ fn the_last_request_starts_at_the_line_before_its_first_assistant_line() {
         user("2026-11-25T10:00:00.000Z"),
         assistant("2026-11-25T10:00:20.000Z", "msg_1", 50_000, 2_000, true),
         user("2026-11-25T10:01:00.000Z"),
-        assistant("2026-11-25T10:01:40.000Z", "msg_2", 80_000, 1_000, false),
-        assistant("2026-11-25T10:01:45.000Z", "msg_2", 80_000, 1_500, false),
+        assistant("2026-11-25T10:01:40.000Z", "msg_2", 80_000, 0, false),
+        assistant("2026-11-25T10:01:45.000Z", "msg_2", 80_000, 0, false),
     ]
     .join("\n");
     let request = last_request(&text).unwrap();
     assert_eq!(request.key, "msg_2");
     assert_eq!(request.started_ms, ms("2026-11-25T10:01:00.000Z"));
-    assert_eq!(request.context, 3 + 80_000 + 1_500);
-    // One request wrote to the hour tier: the session's cache is the hour one.
+    assert_eq!(request.context, 3 + 80_000);
+    // The last request wrote neither tier: the hour tier an earlier one wrote still holds.
     assert_eq!(request.ttl_ms, ONE_HOUR_MS);
     assert_eq!(fire_at_ms(&request), request.started_ms + ONE_HOUR_MS - LONG_LEAD_MS);
 }
@@ -226,4 +226,18 @@ fn replay_transcripts() {
          the timer fires before {caught} of them (writing {caught_written}, mean context {})",
         if caught > 0 { caught_context / caught } else { 0 }
     );
+}
+
+#[test]
+fn a_later_five_minute_write_drops_the_hour_tier() {
+    let text = [
+        user("2026-11-25T10:00:00.000Z"),
+        assistant("2026-11-25T10:00:20.000Z", "msg_1", 50_000, 2_000, true),
+        user("2026-11-25T10:01:00.000Z"),
+        assistant("2026-11-25T10:01:40.000Z", "msg_2", 80_000, 1_000, false),
+    ]
+    .join("\n");
+    let request = last_request(&text).unwrap();
+    assert_eq!(request.ttl_ms, FIVE_MINUTES_MS);
+    assert_eq!(fire_at_ms(&request), ms("2026-11-25T10:05:30.000Z"));
 }

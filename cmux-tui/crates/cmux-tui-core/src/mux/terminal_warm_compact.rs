@@ -121,12 +121,18 @@ pub(super) fn last_request(text: &str) -> Option<LastRequest> {
                 + tokens("cache_read_input_tokens")
                 + tokens("cache_creation_input_tokens");
             if context > 0 {
-                if usage
-                    .pointer("/cache_creation/ephemeral_1h_input_tokens")
-                    .and_then(Value::as_u64)
-                    .is_some_and(|n| n > 0)
-                {
+                // The tier the latest request reported writing; one that wrote neither keeps
+                // the one before (a resumed session can drop from the hour to 5 minutes).
+                let wrote = |tier: &str| {
+                    usage
+                        .pointer(&format!("/cache_creation/ephemeral_{tier}_input_tokens"))
+                        .and_then(Value::as_u64)
+                        .is_some_and(|n| n > 0)
+                };
+                if wrote("1h") {
                     one_hour = true;
+                } else if wrote("5m") {
+                    one_hour = false;
                 }
                 let key = entry
                     .pointer("/message/id")
@@ -430,6 +436,17 @@ fn fire(mux: &Arc<Mux>, terminal: &TerminalPublicId, entry: &Armed) -> bool {
         return false;
     }
     std::thread::sleep(SUBMIT_GAP);
+    // Return only if the box still holds just `/compact` from the same idle session and nobody
+    // typed in the gap, so it never sends a person's draft.
+    if surface.terminal_last_input() != entry.input
+        || mux.terminal_warm_compact_idle(terminal, entry.session.as_deref()).is_none()
+    {
+        return false;
+    }
+    let Ok(Ok(screen)) = surface.try_with_terminal(|t| t.active_text()) else { return false };
+    if input_box_text(&screen).as_deref() != Some("/compact") {
+        return false;
+    }
     surface.write_bytes(b"\r").is_ok()
 }
 
