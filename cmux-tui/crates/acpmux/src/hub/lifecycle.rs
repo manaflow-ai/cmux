@@ -1596,6 +1596,17 @@ impl Hub {
                 return Err(e);
             }
         };
+        // An agent signed in by its key says so before its session (`acp_key_auth.rs`); one
+        // that refuses it names the sign-in as `initialize`'s failure does.
+        let family = crate::config::derive_family(&meta.harness, profile);
+        if let Some(params) = crate::acp_key_auth::authenticate_params(&family, &init, |k| {
+            crate::acp_key_auth::launch_var(&profile.env, &family, k)
+        }) && let Err(e) = child.request(method::AUTHENTICATE, params).await
+        {
+            let mut e = Self::explain_start_failure(session, e).await;
+            crate::recovery::start_sign_in(&mut e, &meta.harness);
+            return Err(e);
+        }
         let supports_load = init
             .get("agentCapabilities")
             .and_then(|c| c.get("loadSession"))

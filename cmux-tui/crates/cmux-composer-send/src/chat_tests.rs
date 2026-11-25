@@ -1229,7 +1229,9 @@ fn only_a_real_refusal_fails_and_a_not_now_that_never_ends_is_final_after_the_pa
     outbox.push("busy", "b", vec![], false, t0, t0);
     let mut now = t0;
     loop {
-        outbox.next_request(now).map(|_| outbox.wrote("busy"));
+        if outbox.next_request(now).is_some() {
+            outbox.wrote("busy");
+        }
         match outbox.refusal("busy", true, now).unwrap() {
             Refusal::Retry { retry_in, .. } => now += retry_in,
             Refusal::Final(done) => {
@@ -1299,4 +1301,86 @@ fn the_macs_resend_notices_drive_the_look_and_the_end() {
         Some(done("q", PromptOutcome::Refused, "no")),
         "a refusal for good fails it"
     );
+}
+
+// ---- Every pending send has an exit (`pending`) ------------------------------------------------
+//
+// Leo, 2026-11-24: "i also couldnt cancel out of the send. i need to be able to do that otherwise
+// i cant edit or anything to retry or delete and remove." The outbox could cancel, edit, retry and
+// delete, but the chat drew no row for a waiting text prompt and offered nothing once a prompt
+// left its upload: `pending` is the rows and the actions each one has.
+
+#[test]
+fn a_send_cancelled_mid_send_at_any_stage_leaves_nothing_pending() {
+    let t0 = Instant::now();
+    let mut outbox = PromptOutbox::new(TEN, 7);
+    outbox.set_link(false, t0);
+
+    // Offline, a text prompt waits: no row at the tap, a row with Stop once it waits.
+    outbox.push("a", "deploy it", vec![], false, t0, t0);
+    let rows = outbox.pending(t0 + ms(500));
+    assert_eq!(rows.len(), 1);
+    assert!(!rows[0].shown, "a prompt that goes at once draws no row");
+    let rows = outbox.pending(t0 + ms(3_000));
+    assert!(rows[0].shown, "waiting for the link: its row shows, with Stop");
+    assert_eq!(rows[0].look, PromptLook::Retrying);
+    assert!(!rows[0].can_send_now, "the link is down: Send now would do nothing");
+    let Some(CancelStep::Returned(done)) = outbox.cancel("a") else { panic!("never left") };
+    assert_eq!((done.outcome, done.text.as_str()), (PromptOutcome::Cancelled, "deploy it"));
+    assert!(outbox.pending(t0 + ms(3_000)).is_empty());
+
+    // Mid-upload: shown from the tap, Stop cancels the upload.
+    outbox.set_link(true, t0 + ms(3_000));
+    outbox.push("b", "look", atts(&["x"]), false, t0 + ms(3_000), t0 + ms(3_000));
+    let rows = outbox.pending(t0 + ms(3_000));
+    assert!(rows[0].shown && rows[0].attachments == atts(&["x"]));
+    let Some(CancelStep::Returned(done)) = outbox.cancel("b") else { panic!("never left") };
+    assert_eq!(done.cancel_uploads, atts(&["x"]));
+    assert!(outbox.pending(t0 + ms(3_000)).is_empty());
+
+    // Mid-write: Stop goes through the Mac, and its row says so until the Mac answers.
+    outbox.push("c", "rm -rf build", vec![], false, t0 + ms(3_000), t0 + ms(3_000));
+    assert_eq!(outbox.next_request(t0 + ms(3_000)).unwrap().id, "c");
+    assert_eq!(outbox.cancel("c"), Some(CancelStep::RemoveOnMac { id: "c".into() }));
+    let rows = outbox.pending(t0 + ms(3_000));
+    assert!(rows[0].stopping && rows[0].shown && !rows[0].can_send_now);
+    assert_eq!(outbox.remove_answered("c", true).unwrap().outcome, PromptOutcome::Cancelled);
+    assert!(outbox.pending(t0 + ms(3_000)).is_empty());
+    assert_eq!(outbox.next_request(t0 + ms(60_000)), None, "a stopped send never goes again");
+}
+
+#[test]
+fn a_failed_send_is_edited_and_retried_now_and_goes_with_the_edit() {
+    let t0 = Instant::now();
+    let mut outbox = outbox();
+    outbox.push("a", "teh fix", vec![], false, t0, t0);
+    outbox.next_request(t0).unwrap();
+    outbox.write_failed("a", t0);
+
+    let t = t0 + ms(3_000);
+    let rows = outbox.pending(t);
+    assert!(rows[0].shown, "a failed write's row shows while it backs off");
+    assert_eq!(rows[0].look, PromptLook::Retrying);
+    assert!(rows[0].can_send_now, "the link is up: Send now is offered");
+
+    assert_eq!(
+        outbox.edit("a", "a2", "the fix", vec![], t),
+        Some(EditStep::Edited { cancel_uploads: vec![] }),
+        "never written: edited in place, same id"
+    );
+    assert!(outbox.retry_now("a", t));
+    let request = outbox.next_request(t).expect("Send now: it goes at once");
+    assert_eq!((request.id.as_str(), request.attempt, request.resend), ("a", 2, false));
+    assert_eq!(outbox.pending(t)[0].text, "the fix", "it goes with the edit");
+    outbox.wrote("a");
+    assert_eq!(outbox.answered("a").unwrap().outcome, PromptOutcome::Sent);
+    assert!(outbox.pending(t).is_empty());
+
+    // Delete: gone with no text back, from a waiting send too.
+    outbox.push("b", "never mind", vec![], false, t, t);
+    outbox.next_request(t).unwrap();
+    outbox.write_failed("b", t);
+    let Some(CancelStep::Returned(_)) = outbox.delete("b") else { panic!("never left") };
+    assert!(outbox.pending(t + ms(3_000)).is_empty());
+    assert_eq!(outbox.look("b", t + ms(3_000)), PromptLook::Sent, "nothing failed is left to show");
 }
