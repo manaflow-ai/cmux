@@ -50,11 +50,23 @@ pub fn pack(folder: &Path, base: &str, out: &Path) -> Result<u64, String> {
         .stdout(file)
         .stderr(Stdio::piped());
     let mut child = command.spawn().map_err(|error| format!("cannot run git: {error}"))?;
-    let wrote = child
-        .stdin
-        .take()
-        .map(|mut stdin| stdin.write_all(format!("--shallow {base}\n{base}\n").as_bytes()))
-        .unwrap_or(Ok(()));
+    let staged = git::optional(git::at(folder).args(["ls-files", "--stage"]))
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|line| line.split_whitespace().nth(1).map(str::to_owned))
+        .filter(|object| {
+            (object.len() == 40 || object.len() == 64)
+                && object.bytes().all(|byte| byte.is_ascii_hexdigit())
+        })
+        .filter(|object| object.chars().any(|character| character != '0'))
+        .collect::<Vec<_>>();
+    let mut input = format!("--shallow {base}\n{base}\n");
+    for object in staged {
+        input.push_str(&object);
+        input.push('\n');
+    }
+    let wrote =
+        child.stdin.take().map(|mut stdin| stdin.write_all(input.as_bytes())).unwrap_or(Ok(()));
     let done = child.wait_with_output().map_err(|error| format!("cannot run git: {error}"))?;
     if !done.status.success() || wrote.is_err() {
         let _ = std::fs::remove_file(out);
