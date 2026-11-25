@@ -686,6 +686,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
             guard (oldValue == nil) != (paintedUptime == nil) else { return }
             // A new document draws again wherever it is; a page out of sight hides once it drew (AwayDrawing).
             if paintedUptime == nil { awayDrawing.drawnSize = nil }
+            awayDrawing.resetUnpaintedBound()
             setChromiumVisibility(true)
         }
     }
