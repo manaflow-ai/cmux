@@ -2531,12 +2531,15 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextTabs",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextActions",
                 "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextDesignTokens",
                 "CmuxNextIcons",
                 "CmuxNextResources",
+                "CmuxNextSettings",
                 "CmuxNextWakeups",
+                "CmuxNextWindowRules",
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
             ],
             resources: [

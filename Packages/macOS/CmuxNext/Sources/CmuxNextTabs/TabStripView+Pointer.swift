@@ -147,6 +147,7 @@ extension TabStripView {
             return
         }
         if isInNewTabButton(point) {
+            if !event.modifierFlags.contains(.option), showPrimaryNewTabMenu() { return }
             if opensNewTabMenuOnPress, !event.modifierFlags.contains(.option) {
                 showNewTabMenu()
                 return
@@ -332,8 +333,14 @@ extension TabStripView {
     }
 
     /// One menu builder for the adjacent chooser, hold/right-click and press-menu strips.
-    func showNewTabMenu(anchor: NSView? = nil) {
-        guard let menu = contextMenuProvider?(.newTabButton), !menu.items.isEmpty else { return }
+    func showPrimaryNewTabMenu() -> Bool {
+        guard let menu = primaryNewTabMenuProvider?(), !menu.items.isEmpty else { return false }
+        showNewTabMenu(menu: menu)
+        return true
+    }
+
+    func showNewTabMenu(anchor: NSView? = nil, menu supplied: NSMenu? = nil) {
+        guard let menu = supplied ?? contextMenuProvider?(.newTabButton), !menu.items.isEmpty else { return }
         hoverCards.dismiss(.action)
         let anchor = anchor ?? newTabButton
         let fromChooser = anchor === newTabMenuButton

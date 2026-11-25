@@ -124,6 +124,13 @@ final class PaneController: SurfacePresenter, PresentablePane {
         stripModel.intentHandler = { [weak self] intent in self?.handle(intent) }
         stripModel.closeSuccessor = { [weak state] in state?.selection.closeRule.successor(of: $0, old: $1, surviving: $2, shown: $3, groups: $4) } // the window's one close rule
         view.stripView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
+        view.stripView.primaryNewTabMenuProvider = { [weak self] in
+            guard let self else { return nil }
+            return self.services.registry.makeConfiguredPlusMenu(root: self.services.settings?.snapshot.root ?? .null,
+                target: ActionTargetRef(kind: .pane, id: paneKey), machineID: self.daemon.machineID,
+                localMachineID: self.services.machines.local.machineID)
+                .map { $0.themeRows(in: view.themeScope.fullStrength) }
+        }
         view.stripView.hoverCards = services.hoverCards
         view.stripView.onHoverTab = { [weak self] id in self?.noteHover(id) }
 

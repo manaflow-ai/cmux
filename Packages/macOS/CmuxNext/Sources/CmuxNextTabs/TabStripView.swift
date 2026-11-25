@@ -40,6 +40,8 @@ public final class TabStripView: NSView {
 
     /// Empty strip space in the window's top row acts as a titlebar (`actsAsTitlebar`).
     public var dragsWindowFromEmptySpace = true
+    /// Optional primary-click menu; nil keeps direct creation. Chevron and context clicks use their own menu.
+    public var primaryNewTabMenuProvider: (() -> NSMenu?)?
     /// The + button's tooltip ("New Tab"); nil: none.
     public var newTabToolTip: String? {
         get { newTabButton.themedToolTip }
@@ -323,6 +325,7 @@ public final class TabStripView: NSView {
         }
         newTabButton.onPress = { [weak self] in
             guard let self else { return }
+            if showPrimaryNewTabMenu() { return }
             if opensNewTabMenuOnPress { showNewTabMenu() }
             else { model.send(.newTab(after: nil)) }
         }

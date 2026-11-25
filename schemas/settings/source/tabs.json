@@ -498,6 +498,58 @@
           ]
         },
         {
+          "key": "tabs.plusMenu",
+          "note": "Opt-in ordered creation menu for the native pane + primary click only. Rust resolves its rows; empty keeps direct creation. Chevron, context click, Option-click and keyboard actions keep their existing behavior.",
+          "title": {
+            "key": "settings.tabs.plusMenu",
+            "text": "+ Button Menu"
+          },
+          "help": {
+            "key": "settings.tabs.plusMenu.help",
+            "text": "Choose and order the actions shown when clicking +. Empty keeps direct creation."
+          },
+          "kind": "ordered_choices",
+          "choices": [
+            {
+              "value": "terminal",
+              "title": {
+                "key": "settings.tabs.plusMenu.terminal",
+                "text": "New Terminal Tab"
+              }
+            },
+            {
+              "value": "localWorkspace",
+              "title": {
+                "key": "settings.tabs.plusMenu.localWorkspace",
+                "text": "New Local Workspace"
+              }
+            },
+            {
+              "value": "machineWorkspace",
+              "title": {
+                "key": "settings.tabs.plusMenu.machineWorkspace",
+                "text": "New Workspace on Machine…"
+              }
+            },
+            {
+              "value": "host",
+              "title": {
+                "key": "settings.tabs.plusMenu.host",
+                "text": "Connect to Machine…"
+              }
+            }
+          ],
+          "default": [],
+          "keywords": [
+            "plus",
+            "creation",
+            "menu",
+            "terminal",
+            "workspace",
+            "host"
+          ]
+        },
+        {
           "key": "tabs.barPosition",
           "name": "tabBarPosition",
           "note": "R109: where each pane's tab bar sits.",
