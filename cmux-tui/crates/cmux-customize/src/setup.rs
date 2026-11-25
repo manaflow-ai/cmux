@@ -150,6 +150,7 @@ pub mod check;
 mod export;
 mod history;
 pub mod layers;
+pub mod looks;
 mod reference;
 mod secrets;
 mod variant;
