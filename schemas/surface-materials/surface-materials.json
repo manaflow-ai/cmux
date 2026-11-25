@@ -165,6 +165,7 @@
     "CmuxNextTabs/TabStripView.swift": "window-chrome",
     "CmuxNextTerminal/TerminalDictationPreview.swift": "native-overlay",
     "CmuxNextTerminal/TerminalFindBarView.swift": "native-overlay",
+    "CmuxNextTerminalComments/TerminalCommentsPopup.swift": "native-overlay",
     "CmuxNextUpdater/Share/ShareCmuxView.swift": "native-overlay",
     "CmuxNextUpdater/UpdateSheetController.swift": "native-overlay"
   },

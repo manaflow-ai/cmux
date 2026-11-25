@@ -16,6 +16,8 @@
 .cv-link-preview__open:hover,.cv-link-preview .acpmux-open-in:hover{background:var(--ds-surface-hover);color:var(--agent-text)}
 .cv-link-preview .acpmux-open-in{height:20px;padding:0 6px;border-radius:5px;box-shadow:none;color:var(--agent-muted)}
 .cv-link-preview__open:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
+/* A pull request's Review (review from link): Open's quiet button, one step apart from the split control after it. */
+.cv-link-preview__review{margin-inline-end:4px}
 /* Open and its chevron are one split control (Leo 2026-11-07), drawn as plain controls on the card's glass: no frame of their own, which over the frost read as a second glass capsule inside the card (Leo 2026-11-22: "doubled up glass/wack looking glass"). One hairline between the halves; each half hovers on its own, the two fills meeting as one rounded control. */
 .cv-link-preview__split{display:inline-flex;flex:none;align-items:stretch;height:20px}
 .cv-link-preview__split .cv-link-preview__open{height:auto;border-top-right-radius:0;border-bottom-right-radius:0;color:var(--agent-text)}

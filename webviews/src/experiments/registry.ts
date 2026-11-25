@@ -11,6 +11,7 @@ import { newTabIconColumn } from "../agent-session/acpmux/newtab/iconColumn.expe
 import { homeCardGlow } from "../agent-session/acpmux/newtab/homeCardGlow.experiment";
 import { hoverActions } from "../ui/hoverActions.experiment";
 import { pastePlaceholderLook } from "../agent-session/acpmux/composer/pastePlaceholder.experiment";
+import { attachStripSize } from "../agent-session/acpmux/composer/attachStrip.experiment";
 import { toolErrorLook } from "../agent-session/acpmux/conversation/toolError.experiment";
 import { tableActionsPlace } from "../agent-session/acpmux/conversation/tableActions.experiment";
 import { expandRowLook } from "../agent-session/acpmux/conversation/expandRow.experiment";
@@ -18,10 +19,12 @@ import { backgroundReactionLook } from "../agent-session/acpmux/conversation/bac
 import { backgroundTurnLook } from "../agent-session/acpmux/conversation/backgroundTurnLook.experiment";
 import { cloudStartLook, cloudStartQuietLook } from "../agent-session/acpmux/cloudStart.experiment";
 import { cloudStartComposerLook } from "../agent-session/acpmux/cloudStartComposer.experiment";
+import { cloudStartJustGo } from "../agent-session/acpmux/cloudStartJustGo.experiment";
 import { cloudProgressLook } from "../pages/cloud-progress/cloudProgress.experiment";
 import { startRecoveryLook } from "../agent-session/acpmux/startRecovery.experiment";
 import { cloudStartAskLook } from "../agent-session/acpmux/cloudStartAsk.experiment";
 import { agentStartLook } from "../agent-session/acpmux/conversation/agentStart.experiment";
+import { composerUnpop } from "../agent-session/acpmux/conversation/unpop.experiment";
 import { liveLineTokens } from "../agent-session/acpmux/conversation/liveLineTokens.experiment";
 import { compactingLine } from "../agent-session/acpmux/conversation/compactingLine.experiment";
 import { liveLineTimes } from "../agent-session/acpmux/conversation/liveLineTimes.experiment";
@@ -36,6 +39,7 @@ import { threadMinimapHeight } from "../agent-session/acpmux/threadMinimap/heigh
 import { threadMinimapGutter } from "../agent-session/acpmux/threadMinimap/gutter.experiment";
 import { threadMinimapRestTick } from "../agent-session/acpmux/threadMinimap/restTick.experiment";
 import { threadMinimapLit } from "../agent-session/acpmux/threadMinimap/lit.experiment";
+import { threadMinimapCutover } from "../agent-session/acpmux/threadMinimap/cutover.experiment";
 import { threadMinimapMark } from "../agent-session/acpmux/threadMinimap/mark.experiment";
 import { threadMinimapWave } from "../agent-session/acpmux/threadMinimap/wave.experiment";
 import { threadMinimapIncoming } from "../agent-session/acpmux/threadMinimap/incoming.experiment";
@@ -54,24 +58,33 @@ import { jumpUpButton } from "../agent-session/acpmux/jumpUp.experiment";
 import { turnFoldReplies } from "../agent-session/acpmux/conversation/turnFoldReplies.experiment";
 import { turnFoldSteered } from "../agent-session/acpmux/conversation/turnFoldSteered.experiment";
 import { sinceLook } from "../agent-session/acpmux/conversation/sinceLook.experiment";
+import { workedLine } from "../agent-session/acpmux/conversation/workedLine.experiment";
+import { toolRowWords } from "../agent-session/acpmux/conversation/toolRowWords.experiment";
 import { workedForMessages } from "../agent-session/acpmux/conversation/workedForMessages.experiment";
 import { bareWorkedTurns } from "../agent-session/acpmux/conversation/bareWorkedTurns.experiment";
 import { turnErrorCard } from "../agent-session/acpmux/conversation/turnErrorCard.experiment";
+import { settingsAskCard } from "../agent-session/acpmux/conversation/settingsAskCard.experiment";
+import { capacityWaitLook } from "../agent-session/acpmux/conversation/capacityWait.experiment";
 import { pausedMachineResume } from "../agent-session/acpmux/pausedMachine.experiment";
 import { codeRouterOffer } from "../agent-session/acpmux/conversation/codeRouterOffer.experiment";
 import { stoppedTurnLook } from "../agent-session/acpmux/conversation/stoppedTurn.experiment";
 import { chromiumGlassUnderlay } from "../ui/glass/chromiumUnderlay.experiment";
+import { glassEngine } from "../ui/glass/engine/glassEngine.experiment";
 import { hoverLook } from "../ui/hoverLook.experiment";
 import { questionPreviewLayout } from "../agent-session/acpmux/question/previewLayout.experiment";
 import { trayPanelLook, trayRowLook, trayStopLook } from "../agent-session/acpmux/subagents/trayPanel.experiment";
 import { trayMotionLook } from "../agent-session/acpmux/subagents/trayMotion.experiment";
 import { composerHatLook } from "../agent-session/acpmux/subagents/composerHat.experiment";
+import { hatCountMotion } from "../agent-session/acpmux/subagents/hatCount.experiment";
 import { hatQuestionsLook } from "../agent-session/acpmux/question/hatQuestions.experiment";
-import { hatChevronLook, hatDoneCheckPlace, hatDoneLook } from "../agent-session/acpmux/subagents/hatParts.experiment";
-import { hatTuckLook } from "../agent-session/acpmux/subagents/hatTuck.experiment";
+import { hatDoneLook } from "../agent-session/acpmux/subagents/hatParts.experiment";
 import { hatOpenLook } from "../agent-session/acpmux/subagents/hatOpen.experiment";
+import { subagentForkChipsLook } from "../agent-session/acpmux/subagents/subagentForkChips.experiment";
+import { hatHeaderLook } from "../agent-session/acpmux/subagents/hatHeader.experiment";
 import { goalHatPlace } from "../agent-session/acpmux/goalHat.experiment";
+import { customizeBarPlace } from "../agent-session/acpmux/customizeBar/customizeBar.experiment";
 import { trayHeadLook } from "../agent-session/acpmux/subagents/trayHead.experiment";
+import { trayColumnLook } from "../agent-session/acpmux/subagents/trayColumn.experiment";
 import { trayFoldHeadLook } from "../agent-session/acpmux/subagents/trayFoldHead.experiment";
 import { trayKindLineLook } from "../agent-session/acpmux/subagents/trayKindLine.experiment";
 import { trayHeadClockLook } from "../agent-session/acpmux/subagents/trayHeadClock.experiment";
@@ -90,6 +103,7 @@ import { liveBackground } from "../ui/liveBackground/liveBackground.experiment";
 import { composerPlusCommands } from "../agent-session/acpmux/composerPlusCommands.experiment";
 import { composerPlusReturnHint } from "../agent-session/acpmux/composerPlusReturnHint.experiment";
 import { promptSuggestionLook } from "../agent-session/acpmux/promptSuggestionLook.experiment";
+import { composerControlsAnchor } from "../agent-session/acpmux/composerControlsAnchor.experiment";
 import { cmuxLinkLook } from "../agent-session/acpmux/chips/cmuxLinkLook.experiment";
 import { sentPasteJoin } from "../agent-session/acpmux/conversation/sentPasteJoin.experiment";
 import { sentMessageLook } from "../agent-session/acpmux/conversation/sentMessageLook.experiment";
@@ -115,18 +129,23 @@ import { jumpPairLook } from "../agent-session/acpmux/jumpPair.experiment";
 import { menuStyleV2 } from "../ui/menuStyleV2.experiment";
 import { menuRowStates } from "../ui/menuRowStates.experiment";
 import { jumpLatestPlace } from "../agent-session/acpmux/jumpPlace.experiment";
+import { hatPillPlace } from "../agent-session/acpmux/hatPillPlace.experiment";
 import { dockBand } from "../agent-session/acpmux/dockBand.experiment";
+import { draftFoot } from "../agent-session/acpmux/draftFoot.experiment";
 import { outcomeAsk } from "../agent-session/acpmux/outcomeAsk.experiment";
 import { composerV2Look } from "../agent-session/acpmux/composerV2.experiment";
 import { composerShellLook } from "../agent-session/acpmux/composer/shellLook.experiment";
 import { composerFooterControls } from "../agent-session/acpmux/composer/footerControls.experiment";
 import { composerEmptyHeight } from "../agent-session/acpmux/composer/emptyHeight.experiment";
 import { toastsV2 } from "../ui/toastsV2.experiment";
+import { toastGlass } from "../ui/toastGlass.experiment";
+import { diffViewedProgress } from "../diff-viewer/viewedProgress.experiment";
 import type { Experiment } from "./experiment";
 
 export const EXPERIMENTS: readonly Experiment[] = [
   diffTreeDisclosure,
   treeNameFade,
+  diffViewedProgress,
   sessionReplay,
   steerQueueExperiment,
   statusIslandExperiment,
@@ -144,6 +163,8 @@ export const EXPERIMENTS: readonly Experiment[] = [
   jumpUpButton,
   turnFoldReplies,
   turnFoldSteered,
+  workedLine,
+  toolRowWords,
   sinceLook,
   workedForMessages,
   bareWorkedTurns,
@@ -156,6 +177,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   homeCardGlow,
   threadMinimapLit,
   threadMinimapMark,
+  threadMinimapCutover,
   threadMinimapWave,
   threadMinimapIncoming,
   threadMinimapReplies,
@@ -163,12 +185,15 @@ export const EXPERIMENTS: readonly Experiment[] = [
   chatMinimapPlaceholder,
   codeActionsLook,
   turnErrorCard,
+  settingsAskCard,
+  capacityWaitLook,
   pausedMachineResume,
   codeRouterOffer,
   stoppedTurnLook,
   timeHoverWording,
   timeHoverDate,
   chromiumGlassUnderlay,
+  glassEngine,
   hoverLook,
   questionPreviewLayout,
   toolErrorLook,
@@ -182,6 +207,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   cloudStartAskLook,
   startRecoveryLook,
   agentStartLook,
+  composerUnpop,
   liveLineTokens,
   compactingLine,
   liveLineTimes,
@@ -196,14 +222,16 @@ export const EXPERIMENTS: readonly Experiment[] = [
   trayStopLook,
   trayMotionLook,
   composerHatLook,
+  hatCountMotion,
   hatQuestionsLook,
-  hatChevronLook,
-  hatTuckLook,
   hatOpenLook,
+  subagentForkChipsLook,
+  hatHeaderLook,
   goalHatPlace,
+  customizeBarPlace,
   hatDoneLook,
-  hatDoneCheckPlace,
   trayHeadLook,
+  trayColumnLook,
   trayFoldHeadLook,
   trayHeadKindsLook,
   trayKindLineLook,
@@ -221,7 +249,9 @@ export const EXPERIMENTS: readonly Experiment[] = [
   composerPlusCommands,
   composerPlusReturnHint,
   promptSuggestionLook,
+  composerControlsAnchor,
   cloudStartComposerLook,
+  cloudStartJustGo,
   cmuxLinkLook,
   sentPasteJoin,
   sentMessageLook,
@@ -232,6 +262,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   planUsageLook,
   emojiShortcodeLook,
   pastePlaceholderLook,
+  attachStripSize,
   sendStopMorph,
   stopPresence,
   sendMenuLook,
@@ -243,7 +274,9 @@ export const EXPERIMENTS: readonly Experiment[] = [
   holdToApprove,
   holdToApproveDuration,
   jumpLatestPlace,
+  hatPillPlace,
   dockBand,
+  draftFoot,
   outcomeAsk,
   glassToolbarLook,
   composerV2Look,
@@ -253,6 +286,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   menuStyleV2,
   menuRowStates,
   toastsV2,
+  toastGlass,
 ];
 
 export function experimentById(id: string): Experiment | undefined {

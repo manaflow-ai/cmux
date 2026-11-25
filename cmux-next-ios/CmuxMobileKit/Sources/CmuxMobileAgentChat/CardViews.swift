@@ -189,7 +189,7 @@ public struct PermissionActionBar: View {
                     .contentShape(.rect)
             }
         }
-        .sensoryFeedback(.impact(weight: .light), trigger: taps)
+        .cmuxMobileSensoryFeedback(.impact(weight: .light), trigger: taps)
     }
 
     private func style(_ option: ACPPermissionOption) -> CmuxMobileCapsuleButtonStyle.Kind {
@@ -244,7 +244,7 @@ public struct QuestionCard: View {
         .onChange(of: state) { _, new in
             if question.isPending { QuestionDraftStore.shared.save(QuestionDraft(new), for: question.id) }
         }
-        .sensoryFeedback(.impact(weight: .light), trigger: submitted)
+        .cmuxMobileSensoryFeedback(.impact(weight: .light), trigger: submitted)
         #if DEBUG
         .onChange(of: director.serial) { runDemoCommand() }
         #endif
@@ -349,7 +349,7 @@ public struct QuestionCard: View {
             .contentShape(.rect)
         }
         .buttonStyle(.cmuxPressFill)
-        .sensoryFeedback(.selection, trigger: chosen)
+        .cmuxMobileSensoryFeedback(.selection, trigger: chosen)
         .accessibilityAddTraits(chosen ? .isSelected : [])
     }
 
@@ -627,11 +627,8 @@ struct NextStepTryView: View {
                 }
             }
             if let target {
-                Text(target)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
+                SelectableText(target, textStyle: .caption1, monospaced: true, color: .secondaryLabel)
                     .lineLimit(2)
-                    .textSelection(.enabled)
                     .accessibilityIdentifier("agentChat.nextStep.tryTarget")
             }
             if !tryIt.verify.isEmpty {

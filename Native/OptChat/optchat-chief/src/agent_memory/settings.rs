@@ -12,6 +12,11 @@ use cmux_config::{jsonc, location};
 
 use serde_json::Value;
 
+/// The owner route a moved chat brought, set by acpmux on that chat's memory server only.
+pub const OWNER_ENV: &str = "CMUX_AGENT_MEMORY_OWNER";
+/// That route's `cmux remote rpc` options, a JSON array of strings.
+pub const OWNER_ARGS_ENV: &str = "CMUX_AGENT_MEMORY_OWNER_ARGS";
+
 /// What this machine's memory does.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct MemorySettings {
@@ -40,6 +45,26 @@ impl MemorySettings {
     /// (memory off, nothing extra), which never widen what runs.
     pub fn read(home: &Path) -> MemorySettings {
         Self::from_document(settings_file(home).as_ref(), home)
+            .with_followed_owner(crate::cli::env(OWNER_ENV), crate::cli::env(OWNER_ARGS_ENV))
+    }
+
+    /// The owner a moved chat's session brought (acpmux `memory_follow.rs`): a chat that moved
+    /// here from a machine with memory on keeps reaching the index it used there. This
+    /// machine's own `agents.memory.owner` wins; `args` is a JSON array of strings.
+    pub fn with_followed_owner(mut self, owner: Option<String>, args: Option<String>) -> Self {
+        let owner = owner.map(|o| o.trim().to_owned()).filter(|o| !o.is_empty());
+        if self.owner.is_none()
+            && let Some(owner) = owner
+        {
+            self.owner = Some(owner);
+            self.owner_args = args
+                .and_then(|a| serde_json::from_str::<Vec<String>>(&a).ok())
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|a| !a.is_empty())
+                .collect();
+        }
+        self
     }
 
     pub fn from_document(doc: Option<&Value>, home: &Path) -> MemorySettings {
@@ -167,6 +192,27 @@ mod tests {
             s.sources,
             [PathBuf::from("/h/notes"), PathBuf::from("/abs")]
         );
+    }
+
+    #[test]
+    fn a_followed_owner_applies_only_where_no_owner_is_set() {
+        let here = MemorySettings::from_document(None, Path::new("/h")).with_followed_owner(
+            Some(" ssh://studio ".into()),
+            Some(r#"["--no-install", ""]"#.into()),
+        );
+        assert_eq!(here.owner.as_deref(), Some("ssh://studio"));
+        assert_eq!(here.owner_args, ["--no-install"]);
+        let doc = json!({"agents": {"memory": {"owner": "ssh://mine"}}});
+        let mine = MemorySettings::from_document(Some(&doc), Path::new("/h"))
+            .with_followed_owner(Some("ssh://studio".into()), None);
+        assert_eq!(
+            mine.owner.as_deref(),
+            Some("ssh://mine"),
+            "this machine's own key wins"
+        );
+        let none = MemorySettings::from_document(None, Path::new("/h"))
+            .with_followed_owner(Some("  ".into()), None);
+        assert_eq!(none.owner, None);
     }
 
     #[test]

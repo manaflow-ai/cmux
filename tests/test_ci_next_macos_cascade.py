@@ -1602,14 +1602,16 @@ class Wiring(unittest.TestCase):
         fasts = (("skipped", ""), ("failure", ""), ("success", ""), ("success", "unavailable"),
                  ("failure", "unavailable"))
         placed = ({}, {"runner": ""}, {"large": " release-compile "}, {"small": " release-compile "}, {"retry": SMALL})
+        # Read once: runs_on_of and env_of re-resolve the job's expressions (20-100 ms), and the sweep below makes
+        # 7,500 cases; read per case it ran past 30 minutes.
+        runs_on, runner_env = runs_on_of(job), env_of(job)["CMUX_NEXT_RUNNER"]
         for event, config, ready, (attempt, actor), fast, outputs in itertools.product(
                 self.EVENTS, self.CONFIGS, ("true", ""), attempts, fasts, placed):
             context = self.nightly_push(ready, attempt, fast, event, actor, config, **outputs)
-            label = evaluate(runs_on_of(job), context)
+            label = evaluate(runs_on, context)
             if config == "owned" and attempt in ("1", "2"):
                 seen[event].add(tuple(label) if isinstance(label, list) else label)
-            for name, value in (("runs-on", label), ("CMUX_NEXT_RUNNER", evaluate(env_of(job)["CMUX_NEXT_RUNNER"],
-                                                                                   context))):
+            for name, value in (("runs-on", label), ("CMUX_NEXT_RUNNER", evaluate(runner_env, context))):
                 if not self.off_the_nightly_runner(value):
                     failures.append(f"{name}={value!r}: {event} {config} ready={ready!r} attempt={attempt} {actor} "
                                     f"fast={fast} outputs={outputs}")
@@ -1659,18 +1661,22 @@ class Wiring(unittest.TestCase):
             context["needs"]["path_route"] = {"outputs": {"swift_canary": canary, "scheme": scheme, "native": native}}
             return set(evaluate(expression, context).split())
 
-        self.assertEqual(runs(), set(CASCADED))
-        self.assertEqual(runs(native="false"), set(CASCADED) - {"release-compile"})
-        # A same-repository pull request runs its routed canary with no label (#22303); the two heavy
-        # compiles need full-ci again, except a member's dev-build scheme compile (its dogfood app).
-        self.assertEqual(runs(labels=()), {"fast-tier", "swift-canary"})
-        self.assertEqual(runs(labels=(), canary="false", scheme="false"), {"fast-tier"})
+        # A pull request's fast tier and Swift canary are pr-pipeline.yml's `mac` job (ci/steps.toml, note-556):
+        # the placement names them only off the pull request path. The two heavy compiles need full-ci,
+        # except a member's dev-build scheme compile (its dogfood app).
+        heavy = set(CASCADED) - {"fast-tier", "swift-canary"}
+        self.assertEqual(runs(), heavy)
+        self.assertEqual(runs(native="false"), heavy - {"release-compile"})
+        self.assertEqual(runs(labels=()), set())
+        self.assertEqual(runs(labels=(), canary="false", scheme="false"), set())
+        self.assertEqual(runs(fast_lane="glaeda-fast-std-xcode-26.6"), heavy)
         # The fast lane's label is a preference the placement takes only while it is idle
-        # (side_lane_placement.fast_route()), so the fast tier is always a cascade candidate.
-        self.assertEqual(runs(fast_lane="glaeda-fast-std-xcode-26.6"), set(CASCADED))
+        # (side_lane_placement.fast_route()), so on a push the fast tier is always a cascade candidate.
         self.assertEqual(runs("push", labels=(), canary="false"), {"fast-tier", "cmux-scheme-compile", "release-compile"})
-        self.assertEqual(runs(labels=("dev-build",), association="CONTRIBUTOR"), {"fast-tier", "swift-canary"})
-        self.assertEqual(runs(labels=("dev-build",)), {"fast-tier", "swift-canary", "cmux-scheme-compile"})
+        self.assertEqual(runs("push", labels=(), fast_lane="glaeda-fast-std-xcode-26.6", canary="false"),
+                         {"fast-tier", "cmux-scheme-compile", "release-compile"})
+        self.assertEqual(runs(labels=("dev-build",), association="CONTRIBUTOR"), set())
+        self.assertEqual(runs(labels=("dev-build",)), {"cmux-scheme-compile"})
         # A same-tree dispatch asking for the scheme tier has no path routing output.
         self.assertEqual(runs("workflow_dispatch", labels=(), canary="", scheme="", native="",
                               inputs={"same_tree_sha": "a" * 40, "same_tree_state": "ready",
@@ -1758,7 +1764,11 @@ class Wiring(unittest.TestCase):
                 context["github"].update(base_ref="feat-cmux-next")
                 context["needs"].update(path_route={"outputs": {"macos": "true", "fast_tier": "true"}},
                                          **{"push-head-preflight": {"outputs": {"current": "true"}}})
-                self.assertTrue(evaluate(self.jobs["fast-tier"]["if"].replace("!cancelled()", "true"), context))
+                condition = self.jobs["fast-tier"]["if"].replace("!cancelled()", "true")
+                # A pull request's fast tier is pr-pipeline.yml's `mac` job (note-556); the push keeps this one.
+                self.assertFalse(evaluate(condition, context))
+                context["github"].update(event_name="push", ref="refs/heads/feat-cmux-next")
+                self.assertTrue(evaluate(condition, context))
 
     def test_display_jobs_keep_push_routes_and_take_allocated_pr_overflow(self):
         for name in GUI_JOBS:
@@ -2735,6 +2745,34 @@ class BlacksmithMacosOffSwitch(unittest.TestCase):
         self.assertTrue(any(on.jobs.values()))
         self.assertEqual(placement.gui_overflow(env(CI_BLACKSMITH_MACOS=""), live, waiting, None), "")
         self.assertEqual(placement.gui_overflow(env(CI_BLACKSMITH_MACOS="on"), live, waiting, None), SMALL)
+
+    def test_a_fleet_client_job_no_idle_mini_took_spills_to_the_fleet_while_off(self):
+        # 2026-11-23 09-11Z: with Blacksmith macOS off the fast tier queued 46 to 65 min on the side label (all
+        # its slots busy) while the gateway had idle runners: place() never listed it for its fleet client.
+        live, waiting = {LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0}
+        values = {"CI_BLACKSMITH_MACOS": "", "FLEET_CLIENT_JOBS": "fast-tier"}
+        spilled = cascade.place(env(**values), (), live, waiting, saturated=True)
+        self.assertEqual(spilled.fleet_jobs, ("fast-tier",))
+        self.assertEqual({label: jobs for label, jobs in spilled.jobs.items() if jobs}, {})
+        self.assertIn("reserved for the fleet gateway", spilled.why)
+        self.assertIn(cascade.FLEET_SPILL_SWITCH, spilled.why)
+        # An idle mini took it, the runners were unread, or the off switch is `0`: it stays on its owned label.
+        self.assertEqual(cascade.place(env(**values), ("fast-tier",), live, waiting, saturated=True).fleet_jobs, ())
+        self.assertEqual(cascade.place(env(**values), (), live, waiting, saturated=False).fleet_jobs, ())
+        off = cascade.place(env(**values, CI_FAST_TIER_FLEET_SPILL="0"), (), live, waiting, saturated=True)
+        self.assertEqual(off.fleet_jobs, ())
+        # Only FLEET_CLIENT_JOBS spill, and with Blacksmith on the cascade places as before.
+        self.assertEqual(cascade.place(env(CI_BLACKSMITH_MACOS=""), (), live, waiting, saturated=True).fleet_jobs, ())
+        on = cascade.place(env(**{**values, "CI_BLACKSMITH_MACOS": "on"}), (), live, waiting, saturated=True)
+        self.assertNotIn("fleet gateway (vars.", on.why)
+
+    def test_the_spill_switch_reaches_macos_placement(self):
+        workflow = yaml.safe_load((ROOT / ".github/workflows/cmux-next.yml").read_text())
+        steps = workflow["jobs"]["macos-placement"]["steps"]
+        envs = [step.get("env") or {} for step in steps if "FLEET_CLIENT_JOBS" in (step.get("env") or {})]
+        self.assertTrue(envs)
+        for step_env in envs:
+            self.assertEqual(step_env.get(cascade.FLEET_SPILL_SWITCH), "${{ vars.CI_FAST_TIER_FLEET_SPILL }}")
 
     def test_the_read_deadline_route_is_owned_while_off(self):
         with tempfile.TemporaryDirectory() as tmp:

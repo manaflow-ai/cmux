@@ -60,4 +60,24 @@ import Testing
         defer { try? FileManager.default.removeItem(at: home) }
         #expect(settings.snapshot.updates.downloadAutomatically, "an opt-in on stable was lost")
     }
+
+    /// Update When Idle is on by default in cmux NEXT NIGHTLY and off in release (Leo, 2026-11-22: "auto be de
+    /// facto able to click the restart button"); an explicit off in NIGHTLY wins and is never written for him.
+    @Test func updateWhenIdleFollowsTheBuild() async throws {
+        let nightly = SettingsBuildDefaults.channel(downloadsAutomatically: true, installsWhenIdle: true)
+        do {
+            let (settings, home) = try await Self.settings("{}", nightly)
+            defer { try? FileManager.default.removeItem(at: home) }
+            #expect(settings.snapshot.updates.installWhenIdle, "NIGHTLY restarts when away by default")
+            #expect(try await settings.file.value(at: UpdatesSettings.installWhenIdlePath) == nil, "the build default was written")
+        }
+        do {
+            let (settings, home) = try await Self.settings(#"{"updates": {"installWhenIdle": false}}"#, nightly)
+            defer { try? FileManager.default.removeItem(at: home) }
+            #expect(!settings.snapshot.updates.installWhenIdle, "an explicit off lost to the build default")
+        }
+        let (settings, home) = try await Self.settings("{}", .channel(downloadsAutomatically: false))
+        defer { try? FileManager.default.removeItem(at: home) }
+        #expect(!settings.snapshot.updates.installWhenIdle, "release stays off")
+    }
 }

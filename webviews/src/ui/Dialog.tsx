@@ -68,6 +68,7 @@ export function Dialog({
           data-host-glass-role={glass ? "sheet" : undefined}
           data-host-glass-cover={glass ? "" : undefined}
           data-page-glass={glass ? undefined : "a dialog whose class draws no .ui-glass: no glass to hand to the App"}
+          data-surface-role="sheet"
           aria-label={label}
           style={style}
           initialFocus={initialFocus}

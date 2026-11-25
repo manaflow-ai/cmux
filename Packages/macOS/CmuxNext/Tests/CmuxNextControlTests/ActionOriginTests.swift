@@ -245,6 +245,22 @@ import Testing
         #expect(ran == ids)
     }
 
+    /// Computer Use's grant actions start the grant's Allow (which can turn Computer Use on) only
+    /// on the person's own run (cmux#48541): an agent's socket run that asks for focus, or claims
+    /// the `user` origin, may bring the window forward but is never the person's own run.
+    @Test func aFocusRequestOrAClaimedUserOriginOverTheSocketIsNeverThePersonsOwnRun() async throws {
+        let (_, asked) = await run(["focus": true])
+        #expect(asked?.allowsViewChange == true)
+        #expect(asked?.isPersonsOwnRun == false)
+        let (_, claimed) = await run(["origin": "user", "focus": true])
+        #expect(claimed?.allowsViewChange == true)
+        #expect(claimed?.isPersonsOwnRun == false)
+        #expect(ActionInvocation().isPersonsOwnRun)
+        var page = ActionInvocation(); page.origin = .page; page.focusRequested = true
+        #expect(page.allowsViewChange)
+        #expect(!page.isPersonsOwnRun)
+    }
+
     @Test func inAppRunsAreTheUsers() {
         #expect(ActionInvocation().origin == .user)
         #expect(ActionInvocation().allowsViewChange)
