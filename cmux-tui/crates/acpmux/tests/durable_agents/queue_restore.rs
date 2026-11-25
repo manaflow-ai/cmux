@@ -923,3 +923,158 @@ async fn an_edited_agent_message_stays_the_persons_across_a_crash() {
     assert_eq!(v["removed"], false, "the restart made the person's edit an agent's again: {v}");
     assert_eq!(v["notFromAgent"], true, "{v}");
 }
+
+/// A daemon adopts the live host whose turn ended with a background subagent still working.
+/// Its 66 background-command notices and a new delivery must reach that same harness.
+#[tokio::test]
+async fn an_adopted_host_with_background_work_drains_restored_notices() {
+    use acpmux::{prompt_provenance, store};
+
+    const AFTER: &str = "after-hosted-restore";
+    let notices: Vec<_> =
+        (0..66).map(|i| (format!("bg-done-bg-{i}"), format!("command-{i:03}-finished"))).collect();
+    let mut daemon = Daemon::new("qbg66", "approve-all");
+    let session = new_session(&daemon).await;
+    let reply = daemon
+        .rpc()
+        .await
+        .call(
+            "session/prompt",
+            json!({"sessionId": session,
+        "prompt": [{"type": "text", "text": "background-subagent"}]}),
+        )
+        .await;
+    assert_eq!(reply["stopReason"], "end_turn", "{reply}");
+    daemon.wait_event(&session, "background work continuing", |e| {
+        e["kind"] == "subagents_working" && e["msg"]["since"].is_u64()
+    });
+    let host = daemon.host_record(&session);
+    daemon.sigterm();
+
+    // Write what queue::enqueue persists for bg_notify, while only the agent host is live.
+    {
+        let journal = store::open(&acpmux::config::StoreConfig::default(), &daemon.home).unwrap();
+        let last = journal.newest_window(&session, u64::MAX, 1).unwrap().newest;
+        for (i, (id, marker)) in notices.iter().enumerate() {
+            let notice = json!({"sender": "acpmux", "severity": "info",
+                "title": format!("Background command finished: {marker} (exit 0)")});
+            let mut origin = prompt_provenance::notice(&notice, &session);
+            origin["bgTaskId"] = json!(format!("bg-{i}"));
+            let text = prompt_provenance::notice_text(&notice, "");
+            let msg = json!({"promptId": id, "turnId": format!("t-restored-{i}"),
+                "client": "acpmux", "fromAgent": "acpmux", "class": "result",
+                "text": text, "prompt": [{"type": "text", "text": text}],
+                "control": "local", "trustGate": false, "position": i + 1});
+            journal
+                .append(
+                    &session,
+                    &store::EventRecord {
+                        seq: last + i as u64 + 1,
+                        at: store::now_ms(),
+                        dir: "mux".into(),
+                        kind: "queued".into(),
+                        msg: prompt_provenance::marked(msg, Some(&origin)),
+                        host_seq: None,
+                    },
+                )
+                .unwrap();
+        }
+        let mut meta = journal.load(&session).unwrap().unwrap();
+        meta.last_seq = last + notices.len() as u64;
+        meta.event_count += notices.len() as u64;
+        journal.save(&meta).unwrap();
+        journal.flush().unwrap();
+    }
+
+    hold_startup(&daemon);
+    daemon.start();
+    daemon.wait_event(&session, "host adoption", |e| e["kind"] == "host_adopted");
+    let attach = json!({"sessionId": session, "limit": 0});
+    let mut monitor = daemon.rpc().await;
+    let info = monitor.call("_acpmux/info", json!({"sessionId": session})).await;
+    assert_eq!(info["logsLoading"], false, "{info}");
+    let restored = monitor.call("_acpmux/attach", attach.clone()).await;
+    assert_eq!(restored["session"]["status"], "ready", "{restored}");
+    assert!(restored["session"]["subagentsWorkingSince"].is_u64(), "{restored}");
+    let queue = restored["session"]["queue"].as_array().expect("restored queue");
+    assert_eq!(queue.len(), notices.len());
+    for (entry, (id, _)) in queue.iter().zip(&notices) {
+        assert_eq!(entry["promptId"].as_str(), Some(id.as_str()));
+    }
+
+    let mut client = daemon.rpc().await;
+    let sent = Instant::now();
+    std::fs::write(daemon.home.join("go"), b"go").unwrap();
+    let request = client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session,
+        "prompt": [{"type": "text", "text": AFTER}], "_meta": {"acpmux": {"promptId": AFTER}}}),
+        )
+        .await;
+    let accepted = tokio::time::timeout_at((sent + Duration::from_secs(5)).into(), async {
+        loop {
+            let line = client.lines.next_line().await.unwrap().expect("daemon closed the socket");
+            let v: Value = serde_json::from_str(&line).unwrap();
+            if v["method"] == "_acpmux/prompt_accepted" && v["params"]["promptId"] == AFTER {
+                break v["params"].clone();
+            }
+            assert_ne!(v["id"], request, "prompt answered before acceptance: {v}");
+        }
+    })
+    .await
+    .expect("the new prompt must be accepted within five seconds");
+    assert!(matches!(accepted["state"].as_str(), Some("started" | "queued")), "{accepted}");
+    let admission_time = sent.elapsed();
+
+    let sent_text = tokio::time::timeout(Duration::from_secs(60), async {
+        loop {
+            let line = client.lines.next_line().await.unwrap().expect("daemon closed the socket");
+            let v: Value = serde_json::from_str(&line).unwrap();
+            if v["id"] == request {
+                assert_eq!(v["result"]["stopReason"], "end_turn", "{v}");
+                break;
+            }
+        }
+        loop {
+            let attached = monitor.call("_acpmux/attach", attach.clone()).await;
+            if attached["session"]["queue"] == json!([]) && attached["session"]["status"] == "ready"
+            {
+                // A digest can run several notices together. Count the actual text sent to the harness.
+                let events = daemon.events(&session);
+                let mut sent_text = String::new();
+                for event in
+                    events.iter().filter(|e| e["dir"] == "out" && e["kind"] == "session/prompt")
+                {
+                    for block in event["msg"]["params"]["prompt"].as_array().unwrap() {
+                        if let Some(text) = block["text"].as_str() {
+                            sent_text.push_str(text);
+                            sent_text.push('\n');
+                        }
+                    }
+                }
+                // Dequeue precedes dispatch. The last turn may still be about to start.
+                if notices.iter().all(|(_, marker)| sent_text.contains(marker.as_str())) {
+                    break sent_text;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("the delivery must finish and the restored queue must drain");
+    for marker in notices.iter().map(|(_, marker)| marker.as_str()).chain([AFTER]) {
+        assert_eq!(sent_text.matches(marker).count(), 1, "{marker} in prompts: {sent_text}");
+    }
+    let adopted = daemon.host_record(&session);
+    for field in ["host_pid", "harness_pid"] {
+        let pid = host[field].as_i64().unwrap();
+        assert_eq!(adopted[field], pid, "replaced {field}");
+        assert!(alive(pid), "{field} {pid} exited while background work was live");
+    }
+    eprintln!(
+        "restored {} notices: accepted in {admission_time:?}, drained in {:?}",
+        notices.len(),
+        sent.elapsed()
+    );
+}
