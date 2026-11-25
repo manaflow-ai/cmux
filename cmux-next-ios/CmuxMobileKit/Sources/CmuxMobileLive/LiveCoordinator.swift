@@ -1270,6 +1270,11 @@ public final class LiveCoordinator {
         presence?.backgrounded = false
         presence?.kick()
         discovery.resume()
+        // Time away is not outage the person waited through: a link that dropped while the app
+        // was away counts its bounds from now, so its terminals stay reattaching (Send queued in
+        // the session's hold, no "Mac offline") instead of offline at once (LinkOutageClock).
+        let now = instants.now()
+        for session in sessions.values where session.linkDownSince != nil { outageRestarted(session, at: now) }
         // How long iOS kept the app away decides whether the links are kept (LinkMachine.shortSuspend).
         for session in sessions.values { session.link.send(away.map { .resumed(after: $0) } ?? .resume) }
         #if canImport(CmuxMobileLinkFFI)
