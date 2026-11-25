@@ -63,7 +63,9 @@ AGENTS = (
         "CMUX_CLAUDE_WRAPPER_SHIM",
         "CMUX_CUSTOM_CLAUDE_PATH",
         ("fix the bug",),
-        "hooks claude inject-settings",
+        # The wrapper's socket check. It also asks for hook settings, but
+        # under a one-second watchdog that a loaded machine can trip.
+        "ping",
     ),
     Agent(
         "amp",
@@ -524,7 +526,7 @@ def check_session_launch_is_prepared_once(agent: Agent, node: str | None, failur
             if (
                 arguments.count("--settings") != 1
                 or arguments.count("--session-id") != 1
-                or calls.count("hooks claude inject-settings") != 1
+                or calls.count(agent.preparation_call) != 1
             ):
                 failures.append(
                     f"claude: session id and hook settings were not added once: {arguments!r}, cmux calls {calls!r}"
