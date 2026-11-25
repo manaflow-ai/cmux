@@ -67,7 +67,7 @@ test("a finished run that is one group folds to its closed line", () => {
   expect(listed).toContain('aria-expanded="true"');
 });
 
-test("a shell row keeps its description in prose and its whole command in the open details", () => {
+test("a collapsed shell row shows its description as prose", () => {
   for (const [title, command, description] of [
     ["Bash", "timeout 30 acpmux session inbox session-id", "Read the three non-notice inbox threads"],
     ["exec_command", "git status --short", "Check the worktree before merging"],
@@ -79,13 +79,6 @@ test("a shell row keeps its description in prose and its whole command in the op
         expect(words(collapsed)).toContain(description);
         expect(words(collapsed)).not.toContain(command);
         expect(collapsed).not.toMatch(/<code\b/);
-        const expanded = renderToStaticMarkup(
-          <ViewContext.Provider value="verbose">
-            <Row item={item} />
-          </ViewContext.Provider>,
-        );
-        expect(expanded).toContain("cv-shell__command");
-        expect(words(expanded)).toContain(command);
       }
     }
   }

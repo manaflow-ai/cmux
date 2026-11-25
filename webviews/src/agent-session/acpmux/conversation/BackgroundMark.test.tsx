@@ -103,6 +103,25 @@ for (const [name, Row] of [
   ["CommandRow", CommandRow],
   ["ToolRow", ToolRow],
 ] as const) {
+  for (const [title, command, description] of [
+    ["Bash", "timeout 30 acpmux session inbox session-id", "Read the three non-notice inbox threads"],
+    ["exec_command", "git status --short", "Check the worktree before merging"],
+  ] as const) {
+    for (const status of ["in_progress", "completed"]) {
+      test(`${name}: opening a ${status} ${title} row reveals its full command`, async () => {
+        const item = call();
+        item.tool = { ...item.tool!, title, command, status, description };
+        const container = await render(<Row item={item} />);
+        const label = container.querySelector('button[aria-expanded="false"]')!;
+        expect(label.textContent).toContain(description);
+        expect(container.textContent).not.toContain(command);
+        await click(label);
+        expect(label.getAttribute("aria-expanded")).toBe("true");
+        expect(container.querySelector(".cv-shell__command")?.textContent).toBe(`$ ${command}`);
+      });
+    }
+  }
+
   test(`${name}: running in the background shimmers its words, with no mark at the edge and no hover time`, async () => {
     const container = await render(<Row item={call({ state: "running" })} />);
     const mark = container.querySelector(".cv-command__bg-state")!;
@@ -125,7 +144,7 @@ for (const [name, Row] of [
     expect(container.querySelector(".cv-command__time")).toBeNull();
   });
 
-  test(`${name}: failed says so to screen readers only; stopped draws no mark`, async () => {
+  test(`${name}: a failed call has an accessible mark and a stopped call names its state inline`, async () => {
     const failed = await render(<Row item={call({ state: "failed", endedAt: STARTED + 1_000 })} />);
     // Clipped away on screen (conversation.css `.cv-tool .cv-command__failed`), read aloud.
     expect(failed.querySelector(".cv-command__failed")!.textContent).toBe(translate("tools.failed"));
@@ -136,7 +155,7 @@ for (const [name, Row] of [
     );
     expect(stopped.querySelector(".cv-command__stopped")).toBeNull();
     expect(stopped.querySelector('[title="Stopped by the agent"]')).toBeNull();
-    expect(stopped.textContent).not.toContain(translate("bgTask.state.stopped"));
+    expect(stopped.textContent).toContain(` · ${translate("bgTask.state.stopped")}`);
   });
 }
 

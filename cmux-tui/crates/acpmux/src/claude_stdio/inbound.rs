@@ -317,8 +317,13 @@ impl Translator {
                                     owner_tries: 0,
                                 });
                             // A task event may already have supplied the task id and description.
+                            let late_command = shell.announced && shell.command.is_empty();
                             if let Some(command) = input.get("command").and_then(Value::as_str) {
                                 shell.command = command.to_owned();
+                                // task_started sometimes uses the command itself as its description.
+                                if shell.description.as_deref() == Some(command.trim()) {
+                                    shell.description = None;
+                                }
                             }
                             if let Some(description) = input
                                 .get("description")
@@ -330,6 +335,11 @@ impl Translator {
                             }
                             shell.background |= background;
                             shell.launched |= background;
+                            if late_command && !shell.command.is_empty() {
+                                let mut update = background_task_update(id, shell, "running");
+                                update.set("origin", json!(origin(shell)));
+                                out.push(shell_update(shell, update));
+                            }
                         }
                         // Claude's /loop tools, the chat's goal from their results (`loops.rs`).
                         if parent.is_none()

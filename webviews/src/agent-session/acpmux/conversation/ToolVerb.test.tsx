@@ -156,14 +156,14 @@ test("Find skips a command row's verb and the space after it, and counts the com
   const container = await render(
     <ColumnRows
       row={turn([
-        call("make lint", "execute", { command: "make lint" }),
-        call("make test", "execute", { command: "make test" }),
+        call("task-fixture lint", "execute", { command: "task-fixture lint" }),
+        call("task-fixture test", "execute", { command: "task-fixture test" }),
       ])}
     />,
   );
   const lines = [...container.querySelectorAll(".cv-command__text")];
-  expect(lines.map((line) => line.textContent)).toEqual(["Ran make lint", "Ran make test"]);
-  expect(lines.map(findText)).toEqual(["make lint", "make test"]);
+  expect(lines.map((line) => line.textContent)).toEqual(["Ran task-fixture lint", "Ran task-fixture test"]);
+  expect(lines.map(findText)).toEqual(["task-fixture lint", "task-fixture test"]);
   expect(container.querySelectorAll(".cv-command .cv-tool__verb")).toHaveLength(2);
 });
 
@@ -177,8 +177,10 @@ test("Find skips a lone command's named action, whatever its words hold, and cou
   expect(findText(label)).toBe("");
   await act(async () => root!.unmount());
   root = undefined;
-  const line = await render(<ColumnRows row={turn([call("make lint", "execute", { command: "make lint" })])} />);
-  expect(findText(line.querySelector(".cv-tool__text")!)).toContain("make lint");
+  const line = await render(
+    <ColumnRows row={turn([call("task-fixture lint", "execute", { command: "task-fixture lint" })])} />,
+  );
+  expect(findText(line.querySelector(".cv-tool__text")!)).toContain("task-fixture lint");
 });
 
 test("a group's line reads as words: its count is never pushed out to the verb column", async () => {

@@ -57,6 +57,27 @@ test("a background shell's call keeps the exit code its end reported", async () 
     { mux: "turn_started", msg: {} },
     ...shell("bench", "cargo bench", "Run bench"),
     ...shell("serve", "npm run dev"),
+    ...["inferred", "authored"].flatMap((id) => [
+      update({ sessionUpdate: "tool_call", toolCallId: id, title: "Bash", kind: "execute", status: "in_progress" }),
+      update({ sessionUpdate: "background_task_update", toolCallId: id, description: "bun test", state: "running" }),
+      update({
+        sessionUpdate: "tool_call_update",
+        toolCallId: id,
+        rawInput: { command: "bun test", ...(id === "authored" && { description: "bun test" }) },
+      }),
+      update({ sessionUpdate: "tool_call_update", toolCallId: id, status: "completed" }),
+      update({ sessionUpdate: "background_task_update", toolCallId: id, state: "completed" }),
+    ]),
+    // A later running update confirms an orphan's command. Its sparse completion can quote that
+    // command in the SDK summary without turning it back into a description.
+    update({ sessionUpdate: "background_task_update", toolCallId: "echo", description: "bun test", state: "running" }),
+    update({ sessionUpdate: "background_task_update", toolCallId: "echo", command: "bun test", state: "running" }),
+    update({
+      sessionUpdate: "background_task_update",
+      toolCallId: "echo",
+      state: "completed",
+      summary: 'Background command "bun test" completed (exit code 0)',
+    }),
     update({
       sessionUpdate: "background_task_update",
       toolCallId: "bench",
@@ -136,6 +157,10 @@ test("a background shell's call keeps the exit code its end reported", async () 
       summary: 'Background command "Create worktree for lane" completed (exit code 0)',
     });
     expect(notice("plain")?.description).toBeUndefined();
+    expect(notice("echo")).toMatchObject({ command: "bun test", state: "completed" });
+    expect(notice("echo")?.description).toBeUndefined();
+    expect(tools().find((tool) => tool.id === "inferred")?.description).toBeUndefined();
+    expect(tools().find((tool) => tool.id === "authored")?.description).toBe("bun test");
     const bench = tools().find((tool) => tool.id === "bench")!;
     expect(bench.description).toBe("Run bench");
     expect(bench.background).toMatchObject({ state: "failed", exitCode: 101 });

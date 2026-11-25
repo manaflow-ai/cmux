@@ -26,7 +26,7 @@ import { ShellBlock } from "./ShellBlock";
 import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { useTranscriptReadOnly } from "./readOnly";
 import { SubagentNavContext } from "../subagents/subagentGroupModel";
-import { commandSummary } from "../session-info/commandRules";
+import { commandSummary } from "./commandActions";
 import { currentCommandRules } from "../session-info/commandLabelSettings";
 import { spanDuration } from "./turns";
 

@@ -36,9 +36,7 @@ import { lastWalkthrough } from "./walkthroughModel";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
 import { ROW_WIDTH, shortCommand } from "./shortCommand";
-import { commandSummary } from "../session-info/commandRules";
-import { currentCommandRules } from "../session-info/commandLabelSettings";
-import { scriptNoun } from "./commandActions";
+import { commandSaid, scriptNoun } from "./commandActions";
 import { awaitsPermission, isDraftCall, isRunning, toolGroups } from "./toolGroups";
 import { acpmuxMcpSends } from "./acpmuxMcpSends";
 import { acpmuxSendCalls } from "./acpmuxSends";
@@ -3896,10 +3894,7 @@ function sendingTo(tool: NonNullable<AcpmuxActivity["tool"]>): Pick<AcpmuxRow, "
 }
 
 function liveShellLabel(tool: NonNullable<AcpmuxActivity["tool"]>): string | undefined {
-  if (tool.kind !== "execute") return undefined;
-  const description = tool.description?.trim();
-  if (description || !tool.command) return description || undefined;
-  return commandSummary(translatorFor(currentLanguage()), tool.command, currentCommandRules());
+  return tool.kind === "execute" ? commandSaid(translatorFor(currentLanguage()), tool) : undefined;
 }
 
 /// A command on the live line: its working step whole (the line's CSS ellipsis cuts it), or a

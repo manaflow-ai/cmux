@@ -496,7 +496,9 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
     );
     expect(await running.getAttribute("data-open")).toBe("true");
     expect(await opened(page)).toEqual([]);
-    // Open in terminal stays, inside the card.
+    // At this width Session Info overlays the card. Dismiss the inspector to use the card.
+    await page.locator(SESSION_INFO_TOGGLE).click();
+    await section.waitFor({ state: "hidden" });
     await running.getByRole("button", { name: "Open in terminal" }).click();
     await page.waitForFunction(() =>
       ((window as any).__posted as { method: string }[]).some((post) => post.method === "chat.processTerminal"),

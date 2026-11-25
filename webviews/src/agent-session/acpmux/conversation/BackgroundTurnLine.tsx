@@ -17,7 +17,7 @@
 // transcript as the background task row's owner does (BackgroundTaskNote.tsx), then the task's label.
 import { useContext, useId, type KeyboardEvent, type MouseEvent } from "react";
 import { useT } from "../i18n";
-import { commandSummary } from "../session-info/commandRules";
+import { commandSummary } from "./commandActions";
 import { currentCommandRules } from "../session-info/commandLabelSettings";
 import type { AcpmuxBackgroundSource, AcpmuxBackgroundTurn, AcpmuxRow } from "../model";
 import { SubagentNavContext } from "../subagents/subagentGroupModel";

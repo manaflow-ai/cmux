@@ -229,3 +229,26 @@ async fn pleasant_tool_labels_keep_the_task_id_when_its_command_arrives_later() 
     assert_eq!(end["description"], "Start the server");
     assert_eq!(end["command"], "npm run dev");
 }
+
+#[tokio::test]
+async fn pleasant_tool_labels_correct_a_task_description_that_was_its_command() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    t.inbound(&started()).await;
+    let updates = t.inbound(&launch()).await;
+    let running = updates
+        .iter()
+        .find_map(|message| match message {
+            Message::Notification { params: Some(p), .. }
+                if p.pointer("/update/state") == Some(&json!("running")) =>
+            {
+                Some(&p["update"])
+            }
+            _ => None,
+        })
+        .expect("an updated running announcement with the Bash input");
+    assert_eq!(running["command"], "npm run dev");
+    assert!(running.get("description").is_none());
+    let end = ended(&t.inbound(&notification("completed", "done")).await).expect("an end");
+    assert_eq!(end["command"], "npm run dev");
+    assert!(end.get("description").is_none());
+}

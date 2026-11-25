@@ -97,7 +97,7 @@ test("a run whose only step is in flight draws nothing yet", () => {
   const rows = [row("u", "user"), run("only", [call("bun test", "execute", "in_progress")])];
   const shaped = turnView(rows, new Set(), { working: true });
   expect(shaped.find((entry) => entry.id === "only")).toBeUndefined();
-  expect(shaped.find((entry) => entry.kind === "thinking")?.doing).toBe("Running tests");
+  expect(shaped.find((entry) => entry.kind === "thinking")?.doing).toBe("bun test");
 });
 
 test("an ended turn's open Worked for folds each run into its summary line", () => {

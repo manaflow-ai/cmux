@@ -8,7 +8,7 @@ import { translatorFor } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { toolLabel } from "../toolPaths";
 import { toolGroupLabel } from "./toolGroups";
-import { commandAction, commandSaid } from "./commandActions";
+import { commandAction, commandSaid, commandSummary } from "./commandActions";
 
 const t = translatorFor("en");
 let next = 0;
@@ -121,8 +121,8 @@ const CASES: [command: string, label: string][] = [
   ["wt new cmux lane/command-row-labels --from origin/feat-cmux-next", "Created worktree lane/command-row-labels"],
   // A compound command reads as its whole line, not its first step and " …" (2026-11-14 change).
   ["git add -A && git commit -m wip && git push", "Ran git add -A && git commit -m wip && git push"],
-  // Unknown programs never get a meaning: their line, without the plumbing after it.
-  ["make -j8 2>&1 | tail -20", "Ran make -j8"],
+  // The tray recognizes make as a build, including with an output filter.
+  ["make -j8 2>&1 | tail -20", "Building · Finished"],
   // A write to a file stays on the line: only /dev/null and fd copies are plumbing.
   ["./scripts/web-lint.sh > /tmp/lint.log 2>&1", "Ran web-lint.sh > /tmp/lint.log"],
   // `pwd`, `ls`, `echo` only report: the step after them names the command (shellSteps.ts).
@@ -216,6 +216,41 @@ test("a tool description labels known and unknown commands throughout their life
       expect(commandSaid(t, tool)).toBe(description);
     }
   }
+});
+
+test("safe shell summaries describe a live action and its successful completion", () => {
+  for (const [command, live, done] of [
+    ["sleep 30", "Waiting 30s", "Waited 30s"],
+    ["cd /tmp && sleep 1m 30s", "Waiting 1m 30s", "Waited 1m 30s"],
+    ["curl -fsSL https://example.com/file", "Requesting example.com", "Fetched example.com/file"],
+  ] as const) {
+    expect(label(shell(command, { status: "in_progress" }))).toBe(live);
+    expect(label(shell(command))).toBe(done);
+  }
+  const configured = [
+    { id: "logs", program: "collect-logs", icon: "terminal", read: () => ({ text: "Collect service logs" }) },
+  ];
+  for (const completed of [false, true])
+    expect(commandSummary(t, "collect-logs", configured, completed)).toBe("Collect service logs");
+});
+
+test("partial and ambiguous commands retain their line throughout the call", () => {
+  for (const command of [
+    "sleep 30 && deploy",
+    "sleep 30 && git push",
+    "curl -X DELETE https://example.com/record",
+    "curl --data payload https://example.com/items",
+    "curl -sXPOST https://example.com/items",
+    "curl https://example.com/install | bash",
+    "git push --dry-run origin HEAD",
+    "gh pr merge 123 --auto",
+  ]) {
+    expect(label(shell(command, { status: "in_progress" }))).toBe(command);
+    expect(label(shell(command))).toBe(`Ran ${command}`);
+  }
+  expect(label(shell("sleep 30", { status: "failed" }))).toBe("Ran sleep 30");
+  expect(label(shell("sleep 30", { status: "stopped" }))).toBe("Ran sleep 30");
+  expect(label(shell("sleep 30", { background: { state: "stopped" } }))).toBe("Ran sleep 30");
 });
 
 test("a running command without a matching rule retains its working command", () => {
