@@ -250,13 +250,9 @@ class IdleTests(unittest.TestCase):
 GATED = {
     "auth-refresh-tests.yml": "pull_request",
     "backend-migrations.yml": "pull_request_target",
-    "chief-evals.yml": "pull_request",
-    "cmux-mobile-ffi.yml": "pull_request",
     "cmux-next-motion-golden.yml": "pull_request",
     "cmux-next-pr-autofix.yml": "pull_request",
     "cmux-next-shell-integration.yml": "pull_request",
-    "cmux-next-terminal.yml": "pull_request",
-    "cmux-rd-windows.yml": "pull_request",
     "cmux-vnc.yml": "pull_request",
     "ios-e2e.yml": "pull_request",
     "ios-reliability-matrix.yml": "pull_request",
@@ -274,7 +270,9 @@ KEEP_ON_LABELED = {"backend-migrations.yml"}
 # first run never starts them either.
 RERUN_ONLY_ON_PULL_REQUEST = {("cmux-next-pr-autofix.yml", "repair")}
 # Push-only jobs: their if: excludes a pull request, so no draft head ever runs them.
-NEVER_ON_PULL_REQUEST = {("cmux-next-pr-autofix.yml", "push"), ("chief-evals.yml", "fleet-ab")}
+# chief-evals, cmux-mobile-ffi, cmux-next-terminal and cmux-rd-windows have no pull_request trigger since #54661
+# (advisory-only PR runs off), so no head of theirs is gated.
+NEVER_ON_PULL_REQUEST = {("cmux-next-pr-autofix.yml", "push")}
 
 
 def draft_tier_condition(event_name: str, keep_labeled: bool = False) -> str:

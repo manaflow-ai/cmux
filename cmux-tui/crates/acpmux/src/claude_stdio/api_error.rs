@@ -32,7 +32,7 @@ pub(super) fn text(line: &Value) -> Option<String> {
     let said = said.trim();
     let flagged = line.get("is_api_error_message").and_then(Value::as_bool) == Some(true);
     let synthetic = line.pointer("/message/model").and_then(Value::as_str) == Some("<synthetic>");
-    if !flagged && !(synthetic && said.starts_with("API Error")) {
+    if !(flagged || synthetic && said.starts_with("API Error")) {
         return None;
     }
     if !said.is_empty() {
