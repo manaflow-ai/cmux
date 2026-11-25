@@ -23,3 +23,4 @@ getrandom.workspace = true
 
 [dev-dependencies]
 tempfile = "3"
+proptest = { version = "1", default-features = false, features = ["std"] }
