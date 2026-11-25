@@ -3018,8 +3018,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
 
 // The Linux shape: the Linux package jobs (scripts/ci/swift-linux-packages.txt) set
 // CMUX_SWIFTPM_TARGET_LINUX and get only the targets below, which build without Apple
-// frameworks or binaries (no CCmuxAppFFI, GhosttyKit, Sparkle, Sentry or WebRTC), plus
-// swift-crypto for CryptoKit. A build for an Apple platform, on any host, keeps every target.
+// frameworks or binaries (no CCmuxAppFFI, GhosttyKit, Sparkle, Sentry or WebRTC), with
+// ChromiumRuntime hashes with its PortableSHA256 where CryptoKit is missing. A build for an Apple platform, on any host, keeps every target.
 #if os(Linux)
 let targetsLinux = ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1"
 #else
@@ -3036,32 +3036,10 @@ let linuxTargetNames: Set<String> = [
     "CmuxNextHostPressureTests",
 ]
 
-/// The Linux shape's ChromiumRuntime pair: Apple builds import CryptoKit, Linux swift-crypto's Crypto, so the
-/// Linux declarations add it here instead of changing the shared targets (the layer gate reads literal targets).
-let linuxChromiumRuntime: Target = .target(
-    name: "CmuxNextChromiumRuntime",
-    dependencies: [
-        .product(name: "CmuxEgress", package: "CmuxEgress"),
-        .product(name: "Crypto", package: "swift-crypto"),
-    ],
-    swiftSettings: daemonSwiftSettings
-)
-let linuxChromiumRuntimeTests: Target = .testTarget(
-    name: "CmuxNextChromiumRuntimeTests",
-    dependencies: [
-        "CmuxNextChromiumRuntime",
-        .product(name: "Crypto", package: "swift-crypto"),
-    ],
-    swiftSettings: daemonSwiftSettings
-)
-
-let linuxTargets: [Target] = !targetsLinux ? [] : packageTargets.filter {
-    linuxTargetNames.contains($0.name) && !$0.name.hasPrefix("CmuxNextChromiumRuntime")
-} + [linuxChromiumRuntime, linuxChromiumRuntimeTests]
+let linuxTargets: [Target] = !targetsLinux ? [] : packageTargets.filter { linuxTargetNames.contains($0.name) }
 
 let linuxPackageDependencies: [Package.Dependency] = [
     .package(path: "../../Shared/CmuxEgress"),
-    .package(url: "https://github.com/apple/swift-crypto.git", exact: "3.15.1"),
 ]
 
 // The Apple shape comes first: scripts/cmux-next/arch_counts.py reads the first Package call.
