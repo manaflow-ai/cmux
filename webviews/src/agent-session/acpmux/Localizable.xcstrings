@@ -14,6 +14,23 @@
     "auto.keptHereUnread": {"comment":"Agent chat: Auto kept this chat on this Mac because this Mac's load could not be read (or the daemon did not answer).","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"أبقى الوضع التلقائي هذه الدردشة على Mac هذا: تعذّرت قراءة حمله."}},"bs":{"stringUnit":{"state":"translated","value":"Auto je zadržao ovaj chat na ovom Macu: njegovo opterećenje nije moguće pročitati."}},"da":{"stringUnit":{"state":"translated","value":"Auto beholdt denne chat på denne Mac: dens belastning kunne ikke læses."}},"de":{"stringUnit":{"state":"translated","value":"Auto hat diesen Chat auf diesem Mac gelassen: Seine Auslastung ließ sich nicht lesen."}},"en":{"stringUnit":{"state":"translated","value":"Auto kept this chat on this Mac: its load could not be read."}},"es":{"stringUnit":{"state":"translated","value":"Auto dejó este chat en este Mac: no se pudo leer su carga."}},"fr":{"stringUnit":{"state":"translated","value":"Auto a gardé cette discussion sur ce Mac : sa charge n’a pas pu être lue."}},"it":{"stringUnit":{"state":"translated","value":"Auto ha tenuto questa chat su questo Mac: non è stato possibile leggerne il carico."}},"ja":{"stringUnit":{"state":"translated","value":"この Mac の負荷を読み取れなかったため、自動でこの Mac に置きました。"}},"km":{"stringUnit":{"state":"translated","value":"ស្វ័យប្រវត្តិបានទុកជជែកនេះលើ Mac នេះ៖ មិនអាចអានបន្ទុករបស់វាបានទេ។"}},"ko":{"stringUnit":{"state":"translated","value":"이 Mac의 부하를 읽을 수 없어 자동으로 이 Mac에 두었습니다."}},"nb":{"stringUnit":{"state":"translated","value":"Auto beholdt denne chatten på denne Macen: belastningen kunne ikke leses."}},"pl":{"stringUnit":{"state":"translated","value":"Auto zostawił ten czat na tym Macu: nie udało się odczytać jego obciążenia."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Auto manteve este chat neste Mac: não foi possível ler a carga dele."}},"ru":{"stringUnit":{"state":"translated","value":"Авто оставил этот чат на этом Mac: не удалось прочитать его нагрузку."}},"th":{"stringUnit":{"state":"translated","value":"อัตโนมัติเก็บแชตนี้ไว้บน Mac เครื่องนี้: อ่านโหลดของเครื่องไม่ได้"}},"tr":{"stringUnit":{"state":"translated","value":"Otomatik bu sohbeti bu Mac’te tuttu: yükü okunamadı."}},"uk":{"stringUnit":{"state":"translated","value":"Авто залишив цей чат на цьому Mac: не вдалося прочитати його навантаження."}},"vi":{"stringUnit":{"state":"translated","value":"Tự động giữ cuộc trò chuyện này trên máy Mac này: không đọc được mức tải của máy."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"无法读取这台 Mac 的负载，自动把此对话留在了这台 Mac 上。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"無法讀取這台 Mac 的負載，自動把此對話留在了這台 Mac 上。"}}}},
     "auto.bringBack": {"comment":"Agent chat: the arrival line's button that moves an Auto chat from Cloud back to this Mac (the same move as Bring Back Local).","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"أعِده"}},"bs":{"stringUnit":{"state":"translated","value":"Vrati"}},"da":{"stringUnit":{"state":"translated","value":"Hent tilbage"}},"de":{"stringUnit":{"state":"translated","value":"Zurückholen"}},"en":{"stringUnit":{"state":"translated","value":"Bring it back"}},"es":{"stringUnit":{"state":"translated","value":"Traerlo de vuelta"}},"fr":{"stringUnit":{"state":"translated","value":"La ramener"}},"it":{"stringUnit":{"state":"translated","value":"Riportala qui"}},"ja":{"stringUnit":{"state":"translated","value":"戻す"}},"km":{"stringUnit":{"state":"translated","value":"នាំត្រឡប់មកវិញ"}},"ko":{"stringUnit":{"state":"translated","value":"다시 가져오기"}},"nb":{"stringUnit":{"state":"translated","value":"Hent tilbake"}},"pl":{"stringUnit":{"state":"translated","value":"Przywróć"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Trazer de volta"}},"ru":{"stringUnit":{"state":"translated","value":"Вернуть"}},"th":{"stringUnit":{"state":"translated","value":"นำกลับมา"}},"tr":{"stringUnit":{"state":"translated","value":"Geri getir"}},"uk":{"stringUnit":{"state":"translated","value":"Повернути"}},"vi":{"stringUnit":{"state":"translated","value":"Mang về"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"带回来"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"帶回來"}}}},
     "auto.dismiss": {"comment":"Agent chat: accessibility label of the arrival line's close button.","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"translated","value":"إغلاق"}},"bs":{"stringUnit":{"state":"translated","value":"Zatvori"}},"da":{"stringUnit":{"state":"translated","value":"Luk"}},"de":{"stringUnit":{"state":"translated","value":"Ausblenden"}},"en":{"stringUnit":{"state":"translated","value":"Dismiss"}},"es":{"stringUnit":{"state":"translated","value":"Descartar"}},"fr":{"stringUnit":{"state":"translated","value":"Masquer"}},"it":{"stringUnit":{"state":"translated","value":"Chiudi"}},"ja":{"stringUnit":{"state":"translated","value":"閉じる"}},"km":{"stringUnit":{"state":"translated","value":"បិទ"}},"ko":{"stringUnit":{"state":"translated","value":"닫기"}},"nb":{"stringUnit":{"state":"translated","value":"Lukk"}},"pl":{"stringUnit":{"state":"translated","value":"Zamknij"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Dispensar"}},"ru":{"stringUnit":{"state":"translated","value":"Скрыть"}},"th":{"stringUnit":{"state":"translated","value":"ปิด"}},"tr":{"stringUnit":{"state":"translated","value":"Kapat"}},"uk":{"stringUnit":{"state":"translated","value":"Сховати"}},"vi":{"stringUnit":{"state":"translated","value":"Đóng"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"关闭"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"關閉"}}}},
+    "customizeBar.applied": {"comment":"Agent pane, customize bar: the title after the customization was applied; Undo rolls it back","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تم التطبيق"}},"bs":{"stringUnit":{"state":"needs_review","value":"Primijenjeno"}},"da":{"stringUnit":{"state":"needs_review","value":"Anvendt"}},"de":{"stringUnit":{"state":"needs_review","value":"Übernommen"}},"en":{"stringUnit":{"state":"translated","value":"Applied"}},"es":{"stringUnit":{"state":"needs_review","value":"Aplicado"}},"fr":{"stringUnit":{"state":"needs_review","value":"Appliqué"}},"it":{"stringUnit":{"state":"needs_review","value":"Applicato"}},"ja":{"stringUnit":{"state":"needs_review","value":"適用しました"}},"km":{"stringUnit":{"state":"needs_review","value":"បានអនុវត្ត"}},"ko":{"stringUnit":{"state":"needs_review","value":"적용됨"}},"nb":{"stringUnit":{"state":"needs_review","value":"Tatt i bruk"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zastosowano"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Aplicado"}},"ru":{"stringUnit":{"state":"needs_review","value":"Применено"}},"th":{"stringUnit":{"state":"needs_review","value":"ใช้แล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"Uygulandı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Застосовано"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã áp dụng"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"已应用"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"已套用"}}}},
+    "customizeBar.apply": {"comment":"Agent pane, customize bar: the button that keeps the previewed customization","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تطبيق"}},"bs":{"stringUnit":{"state":"needs_review","value":"Primijeni"}},"da":{"stringUnit":{"state":"needs_review","value":"Anvend"}},"de":{"stringUnit":{"state":"needs_review","value":"Übernehmen"}},"en":{"stringUnit":{"state":"translated","value":"Apply"}},"es":{"stringUnit":{"state":"needs_review","value":"Aplicar"}},"fr":{"stringUnit":{"state":"needs_review","value":"Appliquer"}},"it":{"stringUnit":{"state":"needs_review","value":"Applica"}},"ja":{"stringUnit":{"state":"needs_review","value":"適用"}},"km":{"stringUnit":{"state":"needs_review","value":"អនុវត្ត"}},"ko":{"stringUnit":{"state":"needs_review","value":"적용"}},"nb":{"stringUnit":{"state":"needs_review","value":"Bruk"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zastosuj"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Aplicar"}},"ru":{"stringUnit":{"state":"needs_review","value":"Применить"}},"th":{"stringUnit":{"state":"needs_review","value":"ใช้"}},"tr":{"stringUnit":{"state":"needs_review","value":"Uygula"}},"uk":{"stringUnit":{"state":"needs_review","value":"Застосувати"}},"vi":{"stringUnit":{"state":"needs_review","value":"Áp dụng"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"应用"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"套用"}}}},
+    "customizeBar.discard": {"comment":"Agent pane, customize bar: the button that drops the previewed customization","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تجاهل"}},"bs":{"stringUnit":{"state":"needs_review","value":"Odbaci"}},"da":{"stringUnit":{"state":"needs_review","value":"Kassér"}},"de":{"stringUnit":{"state":"needs_review","value":"Verwerfen"}},"en":{"stringUnit":{"state":"translated","value":"Discard"}},"es":{"stringUnit":{"state":"needs_review","value":"Descartar"}},"fr":{"stringUnit":{"state":"needs_review","value":"Abandonner"}},"it":{"stringUnit":{"state":"needs_review","value":"Scarta"}},"ja":{"stringUnit":{"state":"needs_review","value":"破棄"}},"km":{"stringUnit":{"state":"needs_review","value":"បោះបង់"}},"ko":{"stringUnit":{"state":"needs_review","value":"버리기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Forkast"}},"pl":{"stringUnit":{"state":"needs_review","value":"Odrzuć"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Descartar"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отменить"}},"th":{"stringUnit":{"state":"needs_review","value":"ทิ้ง"}},"tr":{"stringUnit":{"state":"needs_review","value":"At"}},"uk":{"stringUnit":{"state":"needs_review","value":"Відкинути"}},"vi":{"stringUnit":{"state":"needs_review","value":"Hủy bỏ"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"放弃"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"捨棄"}}}},
+    "customizeBar.label": {"comment":"Agent pane: the label of the bar over the composer while a customization of cmux previews live, not yet applied","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تخصيص مباشر"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prilagođavanje uživo"}},"da":{"stringUnit":{"state":"needs_review","value":"Live-tilpasning"}},"de":{"stringUnit":{"state":"needs_review","value":"Live-Anpassung"}},"en":{"stringUnit":{"state":"translated","value":"Live customization"}},"es":{"stringUnit":{"state":"needs_review","value":"Personalización en vivo"}},"fr":{"stringUnit":{"state":"needs_review","value":"Personnalisation en direct"}},"it":{"stringUnit":{"state":"needs_review","value":"Personalizzazione dal vivo"}},"ja":{"stringUnit":{"state":"needs_review","value":"ライブカスタマイズ"}},"km":{"stringUnit":{"state":"needs_review","value":"ការប្ដូរតាមបំណងផ្ទាល់"}},"ko":{"stringUnit":{"state":"needs_review","value":"실시간 사용자화"}},"nb":{"stringUnit":{"state":"needs_review","value":"Direktetilpasning"}},"pl":{"stringUnit":{"state":"needs_review","value":"Dostosowanie na żywo"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Personalização ao vivo"}},"ru":{"stringUnit":{"state":"needs_review","value":"Живая настройка"}},"th":{"stringUnit":{"state":"needs_review","value":"การปรับแต่งสด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Canlı özelleştirme"}},"uk":{"stringUnit":{"state":"needs_review","value":"Живе налаштування"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tùy chỉnh trực tiếp"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"实时自定义"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"即時自訂"}}}},
+    "customizeBar.part.automations": {"comment":"Agent pane, customize bar: a part of cmux a customization changed: its automations","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الأتمتة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Automatizacije"}},"da":{"stringUnit":{"state":"needs_review","value":"Automatiseringer"}},"de":{"stringUnit":{"state":"needs_review","value":"Automationen"}},"en":{"stringUnit":{"state":"translated","value":"Automations"}},"es":{"stringUnit":{"state":"needs_review","value":"Automatizaciones"}},"fr":{"stringUnit":{"state":"needs_review","value":"Automatisations"}},"it":{"stringUnit":{"state":"needs_review","value":"Automazioni"}},"ja":{"stringUnit":{"state":"needs_review","value":"オートメーション"}},"km":{"stringUnit":{"state":"needs_review","value":"ស្វ័យប្រវត្តិកម្ម"}},"ko":{"stringUnit":{"state":"needs_review","value":"자동화"}},"nb":{"stringUnit":{"state":"needs_review","value":"Automatiseringer"}},"pl":{"stringUnit":{"state":"needs_review","value":"Automatyzacje"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Automações"}},"ru":{"stringUnit":{"state":"needs_review","value":"Автоматизации"}},"th":{"stringUnit":{"state":"needs_review","value":"ระบบอัตโนมัติ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Otomasyonlar"}},"uk":{"stringUnit":{"state":"needs_review","value":"Автоматизації"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tự động hóa"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"自动化"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"自動化"}}}},
+    "customizeBar.part.keybindings": {"comment":"Agent pane, customize bar: a part of cmux a customization changed: its keyboard shortcuts","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الاختصارات"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prečice"}},"da":{"stringUnit":{"state":"needs_review","value":"Genveje"}},"de":{"stringUnit":{"state":"needs_review","value":"Kurzbefehle"}},"en":{"stringUnit":{"state":"translated","value":"Shortcuts"}},"es":{"stringUnit":{"state":"needs_review","value":"Atajos"}},"fr":{"stringUnit":{"state":"needs_review","value":"Raccourcis"}},"it":{"stringUnit":{"state":"needs_review","value":"Scorciatoie"}},"ja":{"stringUnit":{"state":"needs_review","value":"ショートカット"}},"km":{"stringUnit":{"state":"needs_review","value":"ផ្លូវកាត់"}},"ko":{"stringUnit":{"state":"needs_review","value":"단축키"}},"nb":{"stringUnit":{"state":"needs_review","value":"Snarveier"}},"pl":{"stringUnit":{"state":"needs_review","value":"Skróty"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Atalhos"}},"ru":{"stringUnit":{"state":"needs_review","value":"Сочетания клавиш"}},"th":{"stringUnit":{"state":"needs_review","value":"ปุ่มลัด"}},"tr":{"stringUnit":{"state":"needs_review","value":"Kısayollar"}},"uk":{"stringUnit":{"state":"needs_review","value":"Сполучення клавіш"}},"vi":{"stringUnit":{"state":"needs_review","value":"Phím tắt"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"快捷键"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"快速鍵"}}}},
+    "customizeBar.part.settings": {"comment":"Agent pane, customize bar: a part of cmux a customization changed: its settings","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"الإعدادات"}},"bs":{"stringUnit":{"state":"needs_review","value":"Postavke"}},"da":{"stringUnit":{"state":"needs_review","value":"Indstillinger"}},"de":{"stringUnit":{"state":"needs_review","value":"Einstellungen"}},"en":{"stringUnit":{"state":"translated","value":"Settings"}},"es":{"stringUnit":{"state":"needs_review","value":"Ajustes"}},"fr":{"stringUnit":{"state":"needs_review","value":"Réglages"}},"it":{"stringUnit":{"state":"needs_review","value":"Impostazioni"}},"ja":{"stringUnit":{"state":"needs_review","value":"設定"}},"km":{"stringUnit":{"state":"needs_review","value":"ការកំណត់"}},"ko":{"stringUnit":{"state":"needs_review","value":"설정"}},"nb":{"stringUnit":{"state":"needs_review","value":"Innstillinger"}},"pl":{"stringUnit":{"state":"needs_review","value":"Ustawienia"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Ajustes"}},"ru":{"stringUnit":{"state":"needs_review","value":"Настройки"}},"th":{"stringUnit":{"state":"needs_review","value":"การตั้งค่า"}},"tr":{"stringUnit":{"state":"needs_review","value":"Ayarlar"}},"uk":{"stringUnit":{"state":"needs_review","value":"Налаштування"}},"vi":{"stringUnit":{"state":"needs_review","value":"Cài đặt"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"设置"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"設定"}}}},
+    "customizeBar.part.styles": {"comment":"Agent pane, customize bar: a part of cmux a customization changed: the chat's look (styles)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"مظهر الدردشة"}},"bs":{"stringUnit":{"state":"needs_review","value":"Izgled chata"}},"da":{"stringUnit":{"state":"needs_review","value":"Chat-udseende"}},"de":{"stringUnit":{"state":"needs_review","value":"Chat-Stil"}},"en":{"stringUnit":{"state":"translated","value":"Chat style"}},"es":{"stringUnit":{"state":"needs_review","value":"Estilo del chat"}},"fr":{"stringUnit":{"state":"needs_review","value":"Style du chat"}},"it":{"stringUnit":{"state":"needs_review","value":"Stile della chat"}},"ja":{"stringUnit":{"state":"needs_review","value":"チャットのスタイル"}},"km":{"stringUnit":{"state":"needs_review","value":"រចនាប័ទ្មជជែក"}},"ko":{"stringUnit":{"state":"needs_review","value":"채팅 스타일"}},"nb":{"stringUnit":{"state":"needs_review","value":"Chatstil"}},"pl":{"stringUnit":{"state":"needs_review","value":"Styl czatu"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Estilo do chat"}},"ru":{"stringUnit":{"state":"needs_review","value":"Стиль чата"}},"th":{"stringUnit":{"state":"needs_review","value":"รูปแบบแชท"}},"tr":{"stringUnit":{"state":"needs_review","value":"Sohbet stili"}},"uk":{"stringUnit":{"state":"needs_review","value":"Стиль чату"}},"vi":{"stringUnit":{"state":"needs_review","value":"Kiểu trò chuyện"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"聊天样式"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"聊天樣式"}}}},
+    "customizeBar.part.themes": {"comment":"Agent pane, customize bar: a part of cmux a customization changed: its color themes","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"السمات"}},"bs":{"stringUnit":{"state":"needs_review","value":"Teme"}},"da":{"stringUnit":{"state":"needs_review","value":"Temaer"}},"de":{"stringUnit":{"state":"needs_review","value":"Themes"}},"en":{"stringUnit":{"state":"translated","value":"Themes"}},"es":{"stringUnit":{"state":"needs_review","value":"Temas"}},"fr":{"stringUnit":{"state":"needs_review","value":"Thèmes"}},"it":{"stringUnit":{"state":"needs_review","value":"Temi"}},"ja":{"stringUnit":{"state":"needs_review","value":"テーマ"}},"km":{"stringUnit":{"state":"needs_review","value":"រចនាប័ទ្ម"}},"ko":{"stringUnit":{"state":"needs_review","value":"테마"}},"nb":{"stringUnit":{"state":"needs_review","value":"Temaer"}},"pl":{"stringUnit":{"state":"needs_review","value":"Motywy"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Temas"}},"ru":{"stringUnit":{"state":"needs_review","value":"Темы"}},"th":{"stringUnit":{"state":"needs_review","value":"ธีม"}},"tr":{"stringUnit":{"state":"needs_review","value":"Temalar"}},"uk":{"stringUnit":{"state":"needs_review","value":"Теми"}},"vi":{"stringUnit":{"state":"needs_review","value":"Chủ đề"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"主题"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"主題"}}}},
+    "customizeBar.part.views": {"comment":"Agent pane, customize bar: a part of cmux a customization changed: its custom views","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"العروض"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prikazi"}},"da":{"stringUnit":{"state":"needs_review","value":"Visninger"}},"de":{"stringUnit":{"state":"needs_review","value":"Ansichten"}},"en":{"stringUnit":{"state":"translated","value":"Views"}},"es":{"stringUnit":{"state":"needs_review","value":"Vistas"}},"fr":{"stringUnit":{"state":"needs_review","value":"Vues"}},"it":{"stringUnit":{"state":"needs_review","value":"Viste"}},"ja":{"stringUnit":{"state":"needs_review","value":"ビュー"}},"km":{"stringUnit":{"state":"needs_review","value":"ទិដ្ឋភាព"}},"ko":{"stringUnit":{"state":"needs_review","value":"보기"}},"nb":{"stringUnit":{"state":"needs_review","value":"Visninger"}},"pl":{"stringUnit":{"state":"needs_review","value":"Widoki"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Visualizações"}},"ru":{"stringUnit":{"state":"needs_review","value":"Представления"}},"th":{"stringUnit":{"state":"needs_review","value":"มุมมอง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Görünümler"}},"uk":{"stringUnit":{"state":"needs_review","value":"Подання"}},"vi":{"stringUnit":{"state":"needs_review","value":"Chế độ xem"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"视图"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"檢視"}}}},
+    "customizeBar.preview": {"comment":"Agent pane: the customize bar's title when the preview has no wish in words (a hand edit)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"معاينة التغييرات"}},"bs":{"stringUnit":{"state":"needs_review","value":"Pregled promjena"}},"da":{"stringUnit":{"state":"needs_review","value":"Forhåndsviser ændringer"}},"de":{"stringUnit":{"state":"needs_review","value":"Vorschau der Änderungen"}},"en":{"stringUnit":{"state":"translated","value":"Previewing changes"}},"es":{"stringUnit":{"state":"needs_review","value":"Vista previa de los cambios"}},"fr":{"stringUnit":{"state":"needs_review","value":"Aperçu des modifications"}},"it":{"stringUnit":{"state":"needs_review","value":"Anteprima delle modifiche"}},"ja":{"stringUnit":{"state":"needs_review","value":"変更をプレビュー中"}},"km":{"stringUnit":{"state":"needs_review","value":"កំពុងមើលការផ្លាស់ប្ដូរជាមុន"}},"ko":{"stringUnit":{"state":"needs_review","value":"변경 사항 미리 보는 중"}},"nb":{"stringUnit":{"state":"needs_review","value":"Forhåndsviser endringer"}},"pl":{"stringUnit":{"state":"needs_review","value":"Podgląd zmian"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Pré-visualizando alterações"}},"ru":{"stringUnit":{"state":"needs_review","value":"Предпросмотр изменений"}},"th":{"stringUnit":{"state":"needs_review","value":"กำลังแสดงตัวอย่างการเปลี่ยนแปลง"}},"tr":{"stringUnit":{"state":"needs_review","value":"Değişiklikler önizleniyor"}},"uk":{"stringUnit":{"state":"needs_review","value":"Попередній перегляд змін"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đang xem trước thay đổi"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"正在预览更改"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"正在預覽變更"}}}},
+    "customizeBar.problems": {"comment":"Agent pane, customize bar: the tooltip of a disabled Apply while the preview has problems","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"أصلح المشكلات أولًا"}},"bs":{"stringUnit":{"state":"needs_review","value":"Prvo ispravite probleme"}},"da":{"stringUnit":{"state":"needs_review","value":"Ret problemerne først"}},"de":{"stringUnit":{"state":"needs_review","value":"Zuerst die Probleme beheben"}},"en":{"stringUnit":{"state":"translated","value":"Fix the problems first"}},"es":{"stringUnit":{"state":"needs_review","value":"Corrige los problemas primero"}},"fr":{"stringUnit":{"state":"needs_review","value":"Corrigez d’abord les problèmes"}},"it":{"stringUnit":{"state":"needs_review","value":"Correggi prima i problemi"}},"ja":{"stringUnit":{"state":"needs_review","value":"先に問題を修正してください"}},"km":{"stringUnit":{"state":"needs_review","value":"ជួសជុលបញ្ហាជាមុនសិន"}},"ko":{"stringUnit":{"state":"needs_review","value":"먼저 문제를 해결하세요"}},"nb":{"stringUnit":{"state":"needs_review","value":"Rett problemene først"}},"pl":{"stringUnit":{"state":"needs_review","value":"Najpierw napraw problemy"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Corrija os problemas primeiro"}},"ru":{"stringUnit":{"state":"needs_review","value":"Сначала исправьте ошибки"}},"th":{"stringUnit":{"state":"needs_review","value":"แก้ไขปัญหาก่อน"}},"tr":{"stringUnit":{"state":"needs_review","value":"Önce sorunları düzeltin"}},"uk":{"stringUnit":{"state":"needs_review","value":"Спершу виправте помилки"}},"vi":{"stringUnit":{"state":"needs_review","value":"Hãy sửa các lỗi trước"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"请先修复问题"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"請先修正問題"}}}},
+    "customizeBar.save": {"comment":"Agent pane, customize bar: the button that opens a field to name and save the customization as a profile","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"حفظ كملف تعريف…"}},"bs":{"stringUnit":{"state":"needs_review","value":"Sačuvaj kao profil…"}},"da":{"stringUnit":{"state":"needs_review","value":"Gem som profil…"}},"de":{"stringUnit":{"state":"needs_review","value":"Als Profil sichern…"}},"en":{"stringUnit":{"state":"translated","value":"Save as profile…"}},"es":{"stringUnit":{"state":"needs_review","value":"Guardar como perfil…"}},"fr":{"stringUnit":{"state":"needs_review","value":"Enregistrer comme profil…"}},"it":{"stringUnit":{"state":"needs_review","value":"Salva come profilo…"}},"ja":{"stringUnit":{"state":"needs_review","value":"プロファイルとして保存…"}},"km":{"stringUnit":{"state":"needs_review","value":"រក្សាទុកជាប្រវត្តិរូប…"}},"ko":{"stringUnit":{"state":"needs_review","value":"프로필로 저장…"}},"nb":{"stringUnit":{"state":"needs_review","value":"Lagre som profil…"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zapisz jako profil…"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Salvar como perfil…"}},"ru":{"stringUnit":{"state":"needs_review","value":"Сохранить как профиль…"}},"th":{"stringUnit":{"state":"needs_review","value":"บันทึกเป็นโปรไฟล์…"}},"tr":{"stringUnit":{"state":"needs_review","value":"Profil olarak kaydet…"}},"uk":{"stringUnit":{"state":"needs_review","value":"Зберегти як профіль…"}},"vi":{"stringUnit":{"state":"needs_review","value":"Lưu thành hồ sơ…"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"存储为配置文件…"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"儲存為設定檔…"}}}},
+    "customizeBar.saveConfirm": {"comment":"Agent pane, customize bar: the button that saves the profile under the typed name","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"حفظ"}},"bs":{"stringUnit":{"state":"needs_review","value":"Sačuvaj"}},"da":{"stringUnit":{"state":"needs_review","value":"Gem"}},"de":{"stringUnit":{"state":"needs_review","value":"Sichern"}},"en":{"stringUnit":{"state":"translated","value":"Save"}},"es":{"stringUnit":{"state":"needs_review","value":"Guardar"}},"fr":{"stringUnit":{"state":"needs_review","value":"Enregistrer"}},"it":{"stringUnit":{"state":"needs_review","value":"Salva"}},"ja":{"stringUnit":{"state":"needs_review","value":"保存"}},"km":{"stringUnit":{"state":"needs_review","value":"រក្សាទុក"}},"ko":{"stringUnit":{"state":"needs_review","value":"저장"}},"nb":{"stringUnit":{"state":"needs_review","value":"Lagre"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zapisz"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Salvar"}},"ru":{"stringUnit":{"state":"needs_review","value":"Сохранить"}},"th":{"stringUnit":{"state":"needs_review","value":"บันทึก"}},"tr":{"stringUnit":{"state":"needs_review","value":"Kaydet"}},"uk":{"stringUnit":{"state":"needs_review","value":"Зберегти"}},"vi":{"stringUnit":{"state":"needs_review","value":"Lưu"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"存储"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"儲存"}}}},
+    "customizeBar.saveName": {"comment":"Agent pane, customize bar: the placeholder of the profile name field","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"اسم ملف التعريف"}},"bs":{"stringUnit":{"state":"needs_review","value":"Naziv profila"}},"da":{"stringUnit":{"state":"needs_review","value":"Profilnavn"}},"de":{"stringUnit":{"state":"needs_review","value":"Profilname"}},"en":{"stringUnit":{"state":"translated","value":"Profile name"}},"es":{"stringUnit":{"state":"needs_review","value":"Nombre del perfil"}},"fr":{"stringUnit":{"state":"needs_review","value":"Nom du profil"}},"it":{"stringUnit":{"state":"needs_review","value":"Nome del profilo"}},"ja":{"stringUnit":{"state":"needs_review","value":"プロファイル名"}},"km":{"stringUnit":{"state":"needs_review","value":"ឈ្មោះប្រវត្តិរូប"}},"ko":{"stringUnit":{"state":"needs_review","value":"프로필 이름"}},"nb":{"stringUnit":{"state":"needs_review","value":"Profilnavn"}},"pl":{"stringUnit":{"state":"needs_review","value":"Nazwa profilu"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Nome do perfil"}},"ru":{"stringUnit":{"state":"needs_review","value":"Имя профиля"}},"th":{"stringUnit":{"state":"needs_review","value":"ชื่อโปรไฟล์"}},"tr":{"stringUnit":{"state":"needs_review","value":"Profil adı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Назва профілю"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tên hồ sơ"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"配置文件名称"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"設定檔名稱"}}}},
+    "customizeBar.saved": {"comment":"Agent pane, customize bar: the title after the customization was saved as a profile; {name} is the profile's name","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تم الحفظ باسم {name}"}},"bs":{"stringUnit":{"state":"needs_review","value":"Sačuvano kao {name}"}},"da":{"stringUnit":{"state":"needs_review","value":"Gemt som {name}"}},"de":{"stringUnit":{"state":"needs_review","value":"Als {name} gesichert"}},"en":{"stringUnit":{"state":"translated","value":"Saved as {name}"}},"es":{"stringUnit":{"state":"needs_review","value":"Guardado como {name}"}},"fr":{"stringUnit":{"state":"needs_review","value":"Enregistré sous {name}"}},"it":{"stringUnit":{"state":"needs_review","value":"Salvato come {name}"}},"ja":{"stringUnit":{"state":"needs_review","value":"{name} として保存しました"}},"km":{"stringUnit":{"state":"needs_review","value":"បានរក្សាទុកជា {name}"}},"ko":{"stringUnit":{"state":"needs_review","value":"{name}(으)로 저장됨"}},"nb":{"stringUnit":{"state":"needs_review","value":"Lagret som {name}"}},"pl":{"stringUnit":{"state":"needs_review","value":"Zapisano jako {name}"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Salvo como {name}"}},"ru":{"stringUnit":{"state":"needs_review","value":"Сохранено как {name}"}},"th":{"stringUnit":{"state":"needs_review","value":"บันทึกเป็น {name} แล้ว"}},"tr":{"stringUnit":{"state":"needs_review","value":"{name} olarak kaydedildi"}},"uk":{"stringUnit":{"state":"needs_review","value":"Збережено як {name}"}},"vi":{"stringUnit":{"state":"needs_review","value":"Đã lưu thành {name}"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"已存储为 {name}"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"已儲存為 {name}"}}}},
+    "customizeBar.undo": {"comment":"Agent pane, customize bar: the button that rolls back the last applied customization","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"تراجع"}},"bs":{"stringUnit":{"state":"needs_review","value":"Poništi"}},"da":{"stringUnit":{"state":"needs_review","value":"Fortryd"}},"de":{"stringUnit":{"state":"needs_review","value":"Rückgängig"}},"en":{"stringUnit":{"state":"translated","value":"Undo"}},"es":{"stringUnit":{"state":"needs_review","value":"Deshacer"}},"fr":{"stringUnit":{"state":"needs_review","value":"Annuler"}},"it":{"stringUnit":{"state":"needs_review","value":"Annulla"}},"ja":{"stringUnit":{"state":"needs_review","value":"元に戻す"}},"km":{"stringUnit":{"state":"needs_review","value":"មិនធ្វើវិញ"}},"ko":{"stringUnit":{"state":"needs_review","value":"실행 취소"}},"nb":{"stringUnit":{"state":"needs_review","value":"Angre"}},"pl":{"stringUnit":{"state":"needs_review","value":"Cofnij"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Desfazer"}},"ru":{"stringUnit":{"state":"needs_review","value":"Отменить изменения"}},"th":{"stringUnit":{"state":"needs_review","value":"เลิกทำ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Geri al"}},"uk":{"stringUnit":{"state":"needs_review","value":"Скасувати"}},"vi":{"stringUnit":{"state":"needs_review","value":"Hoàn tác"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"撤销"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"復原"}}}},
     "mention.computerUse": {"comment":"Agent pane: @ mention menu, the built-in row that asks the agent to use Computer Use (drive apps on this Mac)","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"استخدام الكمبيوتر"}},"bs":{"stringUnit":{"state":"needs_review","value":"Korištenje računara"}},"da":{"stringUnit":{"state":"needs_review","value":"Computerbrug"}},"de":{"stringUnit":{"state":"needs_review","value":"Computernutzung"}},"en":{"stringUnit":{"state":"translated","value":"Computer Use"}},"es":{"stringUnit":{"state":"needs_review","value":"Uso del ordenador"}},"fr":{"stringUnit":{"state":"needs_review","value":"Utilisation de l’ordinateur"}},"it":{"stringUnit":{"state":"needs_review","value":"Uso del computer"}},"ja":{"stringUnit":{"state":"needs_review","value":"コンピュータ操作"}},"km":{"stringUnit":{"state":"needs_review","value":"ការប្រើកុំព្យូទ័រ"}},"ko":{"stringUnit":{"state":"needs_review","value":"컴퓨터 사용"}},"nb":{"stringUnit":{"state":"needs_review","value":"Datamaskinbruk"}},"pl":{"stringUnit":{"state":"needs_review","value":"Obsługa komputera"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Uso do computador"}},"ru":{"stringUnit":{"state":"needs_review","value":"Управление компьютером"}},"th":{"stringUnit":{"state":"needs_review","value":"การใช้คอมพิวเตอร์"}},"tr":{"stringUnit":{"state":"needs_review","value":"Bilgisayar Kullanımı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Керування комп’ютером"}},"vi":{"stringUnit":{"state":"needs_review","value":"Sử dụng máy tính"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"电脑操作"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"電腦操作"}}}},
     "mention.computerUseHint": {"comment":"Agent pane: @ mention menu, the description beside Computer use","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"يمكن للوكلاء استخدام تطبيقاتك عندما تطلب منهم ذلك"}},"bs":{"stringUnit":{"state":"needs_review","value":"Agenti mogu koristiti tvoje aplikacije kada ih zamoliš"}},"da":{"stringUnit":{"state":"needs_review","value":"Agenter kan bruge dine apps, når du beder dem om det"}},"de":{"stringUnit":{"state":"needs_review","value":"Agenten können deine Apps verwenden, wenn du sie darum bittest"}},"en":{"stringUnit":{"state":"translated","value":"Agents can use your apps when you ask them to"}},"es":{"stringUnit":{"state":"needs_review","value":"Los agentes pueden usar tus apps cuando se lo pidas"}},"fr":{"stringUnit":{"state":"needs_review","value":"Les agents peuvent utiliser vos apps quand vous le leur demandez"}},"it":{"stringUnit":{"state":"needs_review","value":"Gli agenti possono usare le tue app quando glielo chiedi"}},"ja":{"stringUnit":{"state":"needs_review","value":"頼んだときにエージェントがアプリを使えます"}},"km":{"stringUnit":{"state":"needs_review","value":"ភ្នាក់ងារអាចប្រើកម្មវិធីរបស់អ្នក នៅពេលអ្នកស្នើ"}},"ko":{"stringUnit":{"state":"needs_review","value":"요청하면 에이전트가 앱을 사용할 수 있습니다"}},"nb":{"stringUnit":{"state":"needs_review","value":"Agenter kan bruke appene dine når du ber dem om det"}},"pl":{"stringUnit":{"state":"needs_review","value":"Agenci mogą używać Twoich aplikacji, gdy ich o to poprosisz"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Os agentes podem usar seus apps quando você pedir"}},"ru":{"stringUnit":{"state":"needs_review","value":"Агенты могут работать с вашими приложениями, когда вы их попросите"}},"th":{"stringUnit":{"state":"needs_review","value":"เอเจนต์ใช้แอปของคุณได้เมื่อคุณขอ"}},"tr":{"stringUnit":{"state":"needs_review","value":"Ajanlar, istediğinizde uygulamalarınızı kullanabilir"}},"uk":{"stringUnit":{"state":"needs_review","value":"Агенти можуть працювати з вашими програмами, коли ви їх попросите"}},"vi":{"stringUnit":{"state":"needs_review","value":"Tác tử có thể dùng ứng dụng của bạn khi bạn yêu cầu"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"在你要求时，智能体可以使用你的应用"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"在你要求時，代理程式可以使用你的 App"}}}},
     "mention.browserUse": {"comment":"Agent pane: @ mention menu, the built-in row that asks the agent to use the cmux browser","extractionState":"manual","localizations":{"ar":{"stringUnit":{"state":"needs_review","value":"استخدام المتصفح"}},"bs":{"stringUnit":{"state":"needs_review","value":"Korištenje preglednika"}},"da":{"stringUnit":{"state":"needs_review","value":"Browserbrug"}},"de":{"stringUnit":{"state":"needs_review","value":"Browsernutzung"}},"en":{"stringUnit":{"state":"translated","value":"Browser Use"}},"es":{"stringUnit":{"state":"needs_review","value":"Uso del navegador"}},"fr":{"stringUnit":{"state":"needs_review","value":"Utilisation du navigateur"}},"it":{"stringUnit":{"state":"needs_review","value":"Uso del browser"}},"ja":{"stringUnit":{"state":"needs_review","value":"ブラウザ操作"}},"km":{"stringUnit":{"state":"needs_review","value":"ការប្រើកម្មវិធីរុករក"}},"ko":{"stringUnit":{"state":"needs_review","value":"브라우저 사용"}},"nb":{"stringUnit":{"state":"needs_review","value":"Nettleserbruk"}},"pl":{"stringUnit":{"state":"needs_review","value":"Obsługa przeglądarki"}},"pt-BR":{"stringUnit":{"state":"needs_review","value":"Uso do navegador"}},"ru":{"stringUnit":{"state":"needs_review","value":"Управление браузером"}},"th":{"stringUnit":{"state":"needs_review","value":"การใช้เบราว์เซอร์"}},"tr":{"stringUnit":{"state":"needs_review","value":"Tarayıcı Kullanımı"}},"uk":{"stringUnit":{"state":"needs_review","value":"Керування браузером"}},"vi":{"stringUnit":{"state":"needs_review","value":"Sử dụng trình duyệt"}},"zh-Hans":{"stringUnit":{"state":"needs_review","value":"浏览器操作"}},"zh-Hant":{"stringUnit":{"state":"needs_review","value":"瀏覽器操作"}}}},
@@ -200101,6 +200118,138 @@
         }
       }
     },
+    "row.renderFailed": {
+      "comment": "Agent pane: a transcript row (a tool call, a plan, a notice) that failed to draw",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر عرض هذا الجزء من المحادثة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj dio razgovora se nije mogao prikazati."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne del af chatten kunne ikke vises."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Teil des Chats konnte nicht dargestellt werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This part of the chat could not be rendered."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se pudo mostrar esta parte del chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette partie de la conversation n’a pas pu être affichée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non è stato possibile mostrare questa parte della chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットのこの部分を表示できませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចបង្ហាញផ្នែកនេះនៃការជជែកបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅의 이 부분을 표시할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne delen av chatten kunne ikke vises."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie udało się wyświetlić tej części czatu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível exibir esta parte do chat."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось отобразить эту часть чата."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่สามารถแสดงส่วนนี้ของแชทได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbetin bu bölümü görüntülenemedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося показати цю частину чату."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể hiển thị phần này của cuộc trò chuyện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法显示聊天的这一部分。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法顯示聊天的這一部分。"
+          }
+        }
+      }
+    },
     "pane.renderFailed": {
       "comment": "Agent pane",
       "extractionState": "manual",
@@ -219599,138 +219748,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "關閉子代理"
-          }
-        }
-      }
-    },
-    "subagents.of": {
-      "comment": "Agent pane",
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "وكيل فرعي لـ"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Podagent od"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Underagent af"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Subagent von"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Subagent of"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Subagente de"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sous-agent de"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Subagente di"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "親エージェント"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ភ្នាក់ងាររងរបស់"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "상위 에이전트"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Underagent av"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Podagent agenta"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Subagente de"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Субагент агента"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "เอเจนต์ย่อยของ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Üst ajan"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Субагент агента"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tác tử con của"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "父代理"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "父代理"
           }
         }
       }
