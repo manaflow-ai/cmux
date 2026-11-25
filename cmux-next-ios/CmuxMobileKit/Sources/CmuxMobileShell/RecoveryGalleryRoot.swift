@@ -166,12 +166,12 @@ public struct RecoveryGalleryRoot: View {
             TerminalConnectingView(topInset: 60).background(Color.black)
         case "offline":
             TerminalConnectingView(topInset: 60,
-                                   unreachable: TerminalUnreachable.make(state: .offline(mac: "cosmic-gray"), linkStatus: nil),
+                                   unreachable: TerminalUnreachable.make(state: .offline(mac: "Mac Studio"), linkStatus: nil),
                                    retry: {})
                 .background(Color.black)
         default:
             TerminalConnectingView(topInset: 60,
-                                   unreachable: TerminalUnreachable.make(state: .reattaching(mac: "cosmic-gray"), linkStatus: nil),
+                                   unreachable: TerminalUnreachable.make(state: .reattaching(mac: "Mac Studio"), linkStatus: nil),
                                    retry: {})
                 .background(Color.black)
         }
