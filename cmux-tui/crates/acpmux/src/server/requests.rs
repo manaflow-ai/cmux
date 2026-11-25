@@ -109,7 +109,11 @@ fn attach_shows(conn: &Conn, params: &Value) -> bool {
 /// A create's admission ask (`hub/admission.rs`): `_meta.acpmux.forceAdmit`
 /// (`acpmux new --force-admit`), and whether the person asks here (proven, or
 /// this host's app pane; a peer's `via: app` is its client's word, not proof).
-pub(super) fn ask<'a>(conn: &Conn, params: &Value, who: &'a str) -> crate::hub::admission::Ask<'a> {
+pub(super) fn ask<'a>(
+    conn: &'a Conn,
+    params: &Value,
+    who: &'a str,
+) -> crate::hub::admission::Ask<'a> {
     let can_force = can_force(conn.origin);
     let force = can_force && force_asked(params);
     let person = person_asks(conn);
@@ -121,6 +125,14 @@ pub(super) fn ask<'a>(conn: &Conn, params: &Value, who: &'a str) -> crate::hub::
     let peers = conn.origin != Origin::Peer;
     // Only `session/new` follows a placed create (`hub/admission_redirect.rs`).
     let redirect = crate::hub::admission_redirect::movable(params);
+    let auto = auto_place_asked(conn.origin, params);
+    // The caller hears the wait when it begins (`_acpmux/admission_waiting`), not only in the
+    // reply up to `AUTO_WAIT_BOUND` later.
+    let waiting: Option<crate::hub::admission::Waiting<'a>> = auto.then(|| {
+        Box::new(move |note: Value| {
+            conn.send(&Message::notification(method::MUX_ADMISSION_WAITING, note));
+        }) as crate::hub::admission::Waiting<'a>
+    });
     // The harness it asks for, as `session/new` reads it; none: the default harness.
     let harness = mux_meta(params).and_then(|m| m.get("harness")).and_then(Value::as_str);
     let harness = harness.map(str::to_owned);
@@ -134,7 +146,22 @@ pub(super) fn ask<'a>(conn: &Conn, params: &Value, who: &'a str) -> crate::hub::
         name,
         redirect,
         harness,
+        auto,
+        waiting,
     }
+}
+
+/// Whether a create may wait for the fleet to add a machine: only a start whose place choice was
+/// Auto (`_meta.acpmux.autoPlace: true`, sent by `acpmux new --host auto` or a placed `new`, and by
+/// the app's Auto start). An explicit choice (a named machine, this Mac, Cloud) never sends it and
+/// is admitted as before. A peer daemon's connection never waits: the daemon that forwarded or
+/// redirected the create already did.
+pub(super) fn auto_place_asked(origin: Origin, params: &Value) -> bool {
+    origin != Origin::Peer
+        && mux_meta(params)
+            .and_then(|meta| meta.get(crate::hub::admission::AUTO_PLACE_FIELD))
+            .and_then(Value::as_bool)
+            == Some(true)
 }
 
 /// A peer request's `reply` with what its `wait` saw (`Hub::wait_for_peer`) as `wait`; none
@@ -971,6 +998,19 @@ async fn new_on_peer(
         return super::mesh_control_send::start_through_hub(hub, conn, params, peer_name).await;
     }
     let peer = hub.peer_by_name(peer_name).ok_or_else(|| RpcError::no_peer(peer_name))?;
+    // A new chat started while the peer's link is coming back (a network that just returned)
+    // waits for it, as a prompt does (`wait_for_prompt_link`), instead of being refused in a few
+    // ms as not sent: its ask makes the next attempt come within a second (`peer_wanted.rs`).
+    // Before the feature checks below: a link that is down lists no features. A peer down past
+    // its outage window, or whose login was refused, is refused at once by the request, as before.
+    if !peer.ready() && peer.reconnects_soon() {
+        tokio::select! {
+            _ = super::peer_forward::await_link(&peer, super::peer_forward::PROMPT_LINK_WAIT) => {}
+            () = conn.closed() => {
+                return Err(RpcError::internal("the client closed the connection"));
+            }
+        }
+    }
     if super::trust_gate::gated(conn.origin, params) && !peer.supports_trust_gate() {
         return Err(super::trust_gate::peer_unsupported(&peer.name));
     }
@@ -1475,7 +1515,7 @@ async fn dispatch_request_with_identity(
                 super::peer_forward::TRUST_PEER_EXTENSION,
                 method::MUX_V2, method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_USAGE, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
                 method::MUX_DETACH, method::MUX_WATCH, method::MUX_HARNESS_INVENTORY_WATCH, method::MUX_HARNESS_INVENTORY_REFRESH, method::MUX_HARNESS_UPDATE_PLAN, method::MUX_HARNESS_UPDATE_PREPARE, method::MUX_RENAME, method::MUX_REGISTER, method::MUX_INBOX_RELAY, method::MUX_DETACH_PARENT, method::MUX_KEEP, method::MUX_KILL, method::MUX_PAUSE, method::MUX_WAKE, method::MUX_SESSION_HOLD, method::MUX_FLEET_HOLD, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT, method::MUX_QUEUE_APPROVE, method::MUX_QUEUE_DECLINE, method::MUX_QUEUE_TEXT, method::MUX_ROWS,
-                method::MUX_INFO, method::MUX_MACHINE_INFO, method::MUX_SESSION_FILES, method::MUX_EVENTS, method::MUX_GITHUB_ACTION, method::MUX_GITHUB_APP_LEASE, method::MUX_GITHUB_REST, method::MUX_ATTACHMENT, method::MUX_TURN_SHOTS, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_TEAM_SEND, method::MUX_TEAM_INBOX, method::MUX_TEAM_READ, method::MUX_TEAM_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL, method::MUX_PROCESS_BACKGROUND, method::MUX_PROCESS_CENSUS, method::MUX_WORKTREE_REPORT, method::MUX_WORKTREE_CLEAN, method::MUX_WORKTREE_RESTORE, method::MUX_RETENTION, method::MUX_COLD_ARCHIVE,
+                method::MUX_INFO, method::MUX_MACHINE_INFO, method::MUX_SESSION_FILES, method::MUX_EVENTS, method::MUX_GITHUB_ACTION, method::MUX_GITHUB_APP_LEASE, method::MUX_GITHUB_REST, method::MUX_ATTACHMENT, method::MUX_TURN_SHOTS, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_TEAM_SEND, method::MUX_TEAM_INBOX, method::MUX_TEAM_READ, method::MUX_TEAM_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL, method::MUX_PROCESS_BACKGROUND, method::MUX_PROCESS_CENSUS, method::MUX_WORKTREE_REPORT, method::MUX_WORKTREE_CLEAN, method::MUX_WORKTREE_RESTORE, method::MUX_RETENTION, method::MUX_COLD_ARCHIVE, method::MUX_AUTO_SESSION_SET, method::MUX_AUTO_SESSION_LEFTOVER, method::MUX_AUTO_SESSION_WAKE, method::MUX_AUTO_SESSION_TRANSCRIPT,
                 method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_COMPOSER_SET, method::MUX_COMPOSERS, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_PROMPTS_LIST, method::MUX_PROMPTS_SAVE, method::MUX_PROMPTS_DELETE, method::MUX_STASH_LIST, method::MUX_STASH_PUSH, method::MUX_STASH_GET, method::MUX_STASH_DROP, method::MUX_STASH_MOVE, method::MUX_MEMORY_RESOLVE, method::MUX_AGENT_HOME, method::MUX_AGENT_HOME_RESOLVE, method::MUX_PROMPT_COACH, method::MUX_ASK, method::MUX_BTW, method::MUX_VIEW, method::MUX_TYPING, method::MUX_MARK_UNREAD, method::MUX_MARK_READ, method::MUX_SEEN, method::MUX_ARCHIVE, method::MUX_SIDE,
                 method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_SET_DIRECTORIES, method::MUX_MCP_RECONNECT, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_FILE_PUT, method::MUX_FILE_PUT_BEGIN, method::MUX_FILE_PUT_CHUNK, method::MUX_FILE_PUT_FINISH, method::MUX_FILE_PUT_CANCEL, method::MUX_FILE_PUT_STATUS, method::MUX_UPLOADS_KEEP, method::MUX_MEDIA_OPEN, method::MUX_MEDIA_RANGE, method::MUX_SUBAGENT_TRANSCRIPT, method::MUX_SUBAGENT_LIST, method::MUX_NATIVE_HISTORY, method::MUX_WORKFLOWS, method::MUX_DISPATCH, method::MUX_STEER, method::MUX_BRIEFS, method::MUX_REPORT, method::MUX_TASK_NEW, method::MUX_TASKS, method::MUX_RESOLVE, method::MUX_WHO_ELSE, method::MUX_SEND_FANOUT, method::MUX_SHUTDOWN, method::MUX_SESSION_AUTH, method::MUX_MESH_CONTROL,
                 method::CHAT_FIX_FROM_LINK,
@@ -1527,7 +1567,7 @@ async fn dispatch_request_with_identity(
                 // The daemon run decision proofs bind (`hub/person.rs`).
                 "personInstance": hub.person.instance(),
                 "extensions": extensions, "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", crate::config::chief_builtins::BRAIN_PRESETS_FEATURE, "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::file_uploads::window::FEATURE, crate::hub::journal_restore::PAGES_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, crate::hub::pause::FEATURE, crate::hub::session_hold::FEATURE, crate::hub::release_to_watch::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE, super::dual_requests::FEATURE, crate::hub::require_asking::FEATURE, crate::hub::create_key::FEATURE, crate::sender_token::FEATURE, crate::hub::register::AUTO_FEATURE, crate::request_cancel::FEATURE, super::fork_through::RETARGET_FEATURE, crate::hub::fork_subagent::FEATURE, super::client_features::UNSENT_FEATURE], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", crate::config::chief_builtins::BRAIN_PRESETS_FEATURE, "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::file_uploads::window::FEATURE, crate::hub::journal_restore::PAGES_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, crate::hub::pause::FEATURE, crate::hub::session_hold::FEATURE, crate::hub::release_to_watch::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE, super::dual_requests::FEATURE, crate::hub::require_asking::FEATURE, crate::hub::create_key::FEATURE, crate::sender_token::FEATURE, crate::hub::register::AUTO_FEATURE, crate::request_cancel::FEATURE, super::fork_through::RETARGET_FEATURE, crate::hub::fork_subagent::FEATURE, super::fork_through::FORK_REQUEST_FEATURE, super::client_features::UNSENT_FEATURE], "trustGate": true}}
             });
             // This link carries the v2 list stream (`link_v2.rs`): the one change `peers` makes
             // to what v1 sends a link.
@@ -2693,7 +2733,10 @@ async fn dispatch_request_with_identity(
                     };
                     Ok((new, admitted.warning.clone()))
                 };
-                hub.fork_cancellable(token, fork).await?
+                // One fork per `requestId`: a retry after a restart gets the fork it made
+                // (`hub/fork_request.rs`, cmux#50084).
+                let request = params.pointer("/_meta/acpmux/requestId").and_then(Value::as_str);
+                hub.fork_once(&s, request, hub.fork_cancellable(token, fork)).await?
             };
             // Onto another harness from a remote device: the mode a chat that device starts runs
             // in (`session/new` above), its family's reviewed asking default, or the fork is
@@ -3391,6 +3434,15 @@ async fn dispatch_request_with_identity(
                 .ok_or_else(|| RpcError::invalid_params("archived must be true or false"))?;
             hub.cold_archive_request(s, archived).await
         }
+        // Auto mode (`auto_session/surface.rs`): the chat's own machine switches it and settles
+        // its kept changes, and only for the person (`auto_gate.rs`).
+        method::MUX_AUTO_SESSION_SET
+        | method::MUX_AUTO_SESSION_LEFTOVER
+        | method::MUX_AUTO_SESSION_WAKE
+        | method::MUX_AUTO_SESSION_TRANSCRIPT => {
+            // On the heap (`heap_future.rs`): this function's frame keeps one pointer for it.
+            heap(|| super::auto_gate::request(hub, conn, m, &params)).await
+        }
         // One tag with a session as its value: never another tag (`_acpmux/tag`).
         method::MUX_SIDE => {
             let s = hub.resolve(session_key(&params)?)?;
@@ -3718,6 +3770,7 @@ async fn dispatch_request_with_identity(
                         idle: !hidden && params.get("attending") == Some(&Value::Bool(false)),
                         remote: false,
                         rows: None,
+                        omit_time_breakdown: omits_time_breakdown(&params),
                         quiet_hidden,
                         left_out: 0,
                         left_from: 0,
@@ -3777,6 +3830,7 @@ async fn dispatch_request_with_identity(
                     idle: !hidden && params.get("attending") == Some(&Value::Bool(false)),
                     remote: false,
                     rows: None,
+                    omit_time_breakdown: omits_time_breakdown(&params),
                     quiet_hidden,
                     left_out: 0,
                     left_from: 0,
@@ -4410,6 +4464,23 @@ mod admission_force_tests {
         assert!(!can_force(Origin::Peer), "a peer");
     }
 
+    /// Only an Auto start waits for a machine being added: an explicit choice from the app (this
+    /// Mac, which carries no `peer` either) is admitted as before the wait existed.
+    #[test]
+    fn only_an_auto_marked_start_may_wait_for_a_new_machine() {
+        let this_mac = json!({"cwd": "/tmp", "_meta": {"acpmux": {"harness": "claude"}}});
+        assert!(!auto_place_asked(Origin::LocalApp, &this_mac), "this Mac, from the app");
+        assert!(!auto_place_asked(Origin::LocalApp, &json!({"cwd": "/tmp"})), "no _meta");
+        let named = json!({"_meta": {"acpmux": {"peer": "box"}}});
+        assert!(!auto_place_asked(Origin::LocalApp, &named), "a named machine");
+        let off = json!({"_meta": {"acpmux": {"autoPlace": false}}});
+        assert!(!auto_place_asked(Origin::LocalApp, &off));
+        let auto = json!({"cwd": "/tmp", "_meta": {"acpmux": {"autoPlace": true}}});
+        assert!(auto_place_asked(Origin::LocalApp, &auto), "the app's Auto start");
+        assert!(auto_place_asked(Origin::Local, &auto), "acpmux new --host auto");
+        assert!(!auto_place_asked(Origin::Peer, &auto), "a forwarded create waited already");
+    }
+
     #[test]
     fn the_admission_name_is_the_one_the_create_takes() {
         let name = |p: Value| create_name(&p);
@@ -4784,4 +4855,10 @@ async fn agent_credentials_update(
     let env = params.get("env").cloned().unwrap_or(Value::Null);
     let credential = crate::agent_credentials::AgentCredential::parse(&json!({"env": env}))?;
     hub.update_credential(id, credential).await
+}
+
+/// The attach asked for no `timeBreakdown` (`omitTimeBreakdown: true`, the phone): its rows leave
+/// it out as its reply does (`SubOpts::omit_time_breakdown`).
+fn omits_time_breakdown(params: &Value) -> bool {
+    params.get("omitTimeBreakdown").and_then(Value::as_bool) == Some(true)
 }
