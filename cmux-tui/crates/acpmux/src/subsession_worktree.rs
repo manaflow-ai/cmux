@@ -570,10 +570,10 @@ pub fn remove_worktree(folder: Dir<'_>, worktree: &Worktree) {
             return;
         }
         #[cfg(test)]
-#[path = "subsession_worktree_tests.rs"]
-mod base_tests;
+        #[path = "subsession_worktree_tests.rs"]
+        mod base_tests;
 
-#[cfg(test)]
+        #[cfg(test)]
         before_path_removal(&worktree.root);
         // The made folder, emptied, stays at its path while its registration and branch go:
         // nothing can be recreated there meanwhile (worktree care refuses a path that exists).
