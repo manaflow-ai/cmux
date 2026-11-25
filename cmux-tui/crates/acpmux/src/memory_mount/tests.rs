@@ -176,14 +176,14 @@ fn write(
         .unwrap_or(u64::MAX);
     let author =
         headers.get("X-Memory-Author").and_then(|v| v.to_str().ok()).unwrap_or("").to_owned();
-    if let Some(bytes) = &bytes {
-        if bytes.windows(9).any(|w| w == b"refuse-me") {
-            return (
-                StatusCode::UNPROCESSABLE_ENTITY,
-                axum::Json(json!({"code": "memory.secret_refused"})),
-            )
-                .into_response();
-        }
+    if let Some(bytes) = &bytes
+        && bytes.windows(9).any(|w| w == b"refuse-me")
+    {
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            axum::Json(json!({"code": "memory.secret_refused"})),
+        )
+            .into_response();
     }
     let key = (scope, path);
     let current = store.files.get(&key).and_then(|v| v.last()).cloned();

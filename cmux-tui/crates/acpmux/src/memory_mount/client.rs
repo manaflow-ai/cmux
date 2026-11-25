@@ -248,7 +248,7 @@ impl Client {
         if !status.is_success() {
             bail!("memory history {path}: {status} {}", error_code(response).await.code);
         }
-        Ok(response.json().await.context("memory history body")?)
+        response.json().await.context("memory history body")
     }
 }
 
