@@ -532,7 +532,8 @@
       "keys": [
         "labs.previewFeatures",
         "labs.appStore",
-        "labs.commentThreads"
+        "labs.commentThreads",
+        "labs.previousBuild"
       ]
     },
     {
@@ -564,6 +565,7 @@
         "experiments.composerHatGroups",
         "experiments.toastsV2",
         "experiments.foldSummaryCounts",
+        "experiments.cloudDiskBar",
         "experiments.terminalHistoryFind",
         "experiments.terminalHistory",
         "experiments.quietConnect",
