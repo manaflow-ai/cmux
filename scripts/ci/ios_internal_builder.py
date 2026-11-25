@@ -441,13 +441,29 @@ def _write_outputs(decision: Decision) -> None:
             fh.write(f"reason={decision.reason}\n")
 
 
+def _read_runs(runner, sleep) -> list[dict]:
+    """The builder's runs, YOLO-marked. A rate limit on GH_TOKEN retries once on GH_FALLBACK_TOKEN.
+
+    2026-11-25 21:35Z and 21:38Z: the repository's shared GITHUB_TOKEN quota was spent, so two decides in a
+    row skipped and nothing built (Leo: "Why are these iPhone builds still so slow and unverified?"). The
+    trigger now reads with its own App token (GH_TOKEN) and keeps the workflow token as GH_FALLBACK_TOKEN,
+    so one exhausted quota never skips a dispatch."""
+    try:
+        return mark_yolo(builder_runs(runner=runner, sleep=sleep), yolo_shas(runner=runner, sleep=sleep))
+    except GitHubUnavailable as error:
+        fallback = os.environ.get("GH_FALLBACK_TOKEN") or ""
+        if not fallback or fallback == os.environ.get("GH_TOKEN"):
+            raise
+        print(f"::warning::GH_TOKEN rate-limited or down ({error}); reading again with GH_FALLBACK_TOKEN")
+        os.environ["GH_TOKEN"] = fallback
+        return mark_yolo(builder_runs(runner=runner, sleep=sleep), yolo_shas(runner=runner, sleep=sleep))
+
+
 def cmd_plan(head: str, repo: str, runner=subprocess.run, sleep=time.sleep, force: bool = False,
              clock=time.time, api_wait: dt.timedelta = PLAN_API_WAIT) -> int:
     has_cmux_next_ios = _show(repo, head, PROJECT_YML) is not None
     try:
-        runs = with_api_wait(lambda: mark_yolo(builder_runs(runner=runner, sleep=sleep),
-                                               yolo_shas(runner=runner, sleep=sleep)),
-                             api_wait, "the builder's run list", runner=runner, sleep=sleep, clock=clock)
+        runs = with_api_wait(lambda: _read_runs(runner, sleep), api_wait, "the builder's run list", runner=runner, sleep=sleep, clock=clock)
     except GitHubUnavailable as error:
         # Still no run list after the whole wait: build the head (fail open), as the plan does when the diff is
         # unknown. A skip here lost every head of the outage (2026-11-25, 19:04Z to 21:47Z). The builder's
@@ -477,6 +493,26 @@ def cmd_plan(head: str, repo: str, runner=subprocess.run, sleep=time.sleep, forc
     return 0
 
 
+def _dispatch_once(args: list[str], runner, sleep):
+    """One dispatch with GH_TOKEN, then GH_FALLBACK_TOKEN (the trigger's App token) when GH_TOKEN's quota is spent."""
+    try:
+        return _gh_api(args, runner=runner, sleep=sleep)
+    except GitHubUnavailable as error:
+        fallback = os.environ.get("GH_FALLBACK_TOKEN") or ""
+        if not fallback or fallback == os.environ.get("GH_TOKEN"):
+            raise
+        print(f"::warning::dispatch with GH_TOKEN failed ({str(error)[:200]}); trying GH_FALLBACK_TOKEN")
+        saved = os.environ.get("GH_TOKEN")
+        os.environ["GH_TOKEN"] = fallback
+        try:
+            return _gh_api(args, runner=runner, sleep=sleep)
+        finally:
+            if saved is None:
+                os.environ.pop("GH_TOKEN", None)
+            else:
+                os.environ["GH_TOKEN"] = saved
+
+
 def cmd_dispatch(sha: str, base: str, runner=subprocess.run, sleep=time.sleep, clock=time.time,
                  api_wait: dt.timedelta = DISPATCH_API_WAIT) -> int:
     """Dispatch BUILD_WORKFLOW on BUILDER_REF for `sha`, waiting out a spent or failing API like the plan does
@@ -485,7 +521,7 @@ def cmd_dispatch(sha: str, base: str, runner=subprocess.run, sleep=time.sleep, c
             "-f", f"ref={BUILDER_REF.removeprefix('refs/heads/')}", "-f", f"inputs[sha]={sha}",
             "-f", f"inputs[base]={base}"]
     try:
-        with_api_wait(lambda: _gh_api(args, runner=runner, sleep=sleep), api_wait, f"the dispatch of {sha[:12]}",
+        with_api_wait(lambda: _dispatch_once(args, runner, sleep), api_wait, f"the dispatch of {sha[:12]}",
                       runner=runner, sleep=sleep, clock=clock)
     except GitHubUnavailable as error:
         print(f"::error title=cmux INTERNAL dispatch lost::{sha[:12]}: GitHub API unavailable for {api_wait}: "

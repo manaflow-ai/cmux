@@ -273,6 +273,7 @@ mod person_prompt_at;
 mod personal_stats;
 #[cfg(test)]
 mod phone_floor_tests;
+mod place_migrate;
 pub mod plan_build;
 mod policy_gate;
 mod policy_mode;
