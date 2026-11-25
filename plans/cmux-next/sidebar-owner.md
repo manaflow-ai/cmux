@@ -25,6 +25,7 @@
   `WorkspaceRowLayoutSettingsTests`, `WorkspaceRowLayoutWatcherTests` and
   `WorkspaceRowLayoutRenderingTests`; gallery: `AASidebarRowLayoutGalleryTests`.
 
+- 2026-11-24 (lane/sidebar-live-toggle, RFD 0141 phase 1): Sidebar-Look: Leo, 2026-11-24: "i think there's even situations where we can have an icon maybe toggle somewhere omnipresent... say the bottom left of the sidebar area, which is currently not used for anything. because we hid spaces by default". The footer line gets a Live button right after the profile avatar (SF Symbol `dot.radiowaves.left.and.right`, the Search button's size, centered on the avatar's line): accent-filled when `presence.live` is on, dimmed when off (off by default: RFD 0141 makes Live opt-in). A click flips `presence.live`; a right-click lists the live agents (SidebarPresence) and the team's people (each opens their DM) with Turn Live On/Off; the tooltip says what it means and how many teammates are live. `sidebar.showLiveToggle` (default on) hides it. The live-mode badge, the Spaces dots and the Update button start after it. Regression: `SidebarLiveToggleTests`, `SidebarLiveSettingsTests`.
 - 2026-11-23 (chief-row-house-icon): Sidebar-Look: the person, 2026-11-23: "add the home icon to the sidebar chief, the one that we used to have ages ago". The top row (Home, which is the Chief) draws Home's house again (`SidebarBuiltIn.home`: symbol `house`, icon `.home`) beside "Chief", in every look, also when the Chief wears a picture; the picture and the sparkles stay on the Chief Activity item. This replaces the title-only row of chief-row-no-icon below (`hidesGlyphBesideTitle` is gone); its gap above the workspaces stays. Regression: `SidebarChiefRowHouseTests`, `ChiefReplacesHomeTests`.
 - 2026-11-23 (chief-row-no-icon): Sidebar-Look: the person, 2026-11-23: "remove the chief icon from the sidebar, and add a bit of spacing so that its clear and away from workspaces" / "just a bit of spacing nothing too crazy". The top row (Home, which is the Chief) draws its title alone in every look with a title: no crown, and "Chief" starts on the column a text-only workspace title starts on (`SidebarItemInfo.hidesGlyphBesideTitle`, set by `ChiefSidebar.decorateHome`). A tile, an icon look and a rail button keep the glyph. The top section's block keeps `SidebarListBlocks.topSectionGap` (`Metrics.space4`, 8 pt at Default, scaled by the density) under it, on top of the list's row gap, so the next row (a pin or a workspace) sits 10 pt under the Chief at Default instead of 2 pt; every other block keeps no bottom padding. A drag's drop hold at the block's end reads the items' end, above that gap. Regression: `SidebarChiefRowTitleOnlyTests`, `SidebarTopRowsRhythmTests` (Home to the first pin adds the gap), `SidebarItemGlyphStaysTests`.
 - 2026-11-18 (lane/sidebar-row-age): Sidebar-Look: Leo, 2026-11-18 (ask c-d1b544f190): "can you guys also start the [...]/codex/claude repos that we just have the entire ui and the various customizations lifted chameleon-like...". A look that sets `sidebar.showTimestamps` gets Codex's thread row: the title on the left, the age at the right end of the title line. A chat workspace had no time to show (the Rust face's `last_activity_ms` counts terminal agents' reports and notifications only), so its row drew no age; it now reads its chat's acpmux `lane.since` (`SidebarWorkspace.chatActivity`, from the chat tab the face picks) and draws the newer of the two (`rowAge`) in the existing trailing time slot (`badgeTime`, an expanded row's `time`, the Last Activity element). Off by default (`sidebar.showTimestamps` off draws no age, as before); sorting, grouping and hover cards keep `lastActivity`. `SidebarChatRowAgeTests`; gallery `AASidebarRowAgeGalleryTests` (off, compact, comfortable with a folder line, expanded; dark and light, artifact `sidebar-row-age-gallery.tar`).
@@ -1427,6 +1428,17 @@ Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents 
 3. Failing test first, then the fix. Real-app captures from the Mac-mini fleet, before and after.
 4. Land on `feat-cmux-next` (rebase, plain push). Add the commit to the log at the end of this note.
 
+## No two icons in a row share a box (2026-11-22)
+
+Leo 2026-11-22T21:56Z, on a tree parent's chevron with the blue dot drawn over the ⋮ beside it: "this too. fucking
+overlapping icons. over 24 hours ago." Target look: at every sidebar width, hovered or not, pinned or not, no two
+drawn icons of a row (the ✕, the ⋮, the pin, a tree chevron, the speaker, the drive button, the dot, the spinner, the
+status badge, a count, a chip) have intersecting frames. Each row kind's layout ends with one pass,
+`NSView.clearMarksMeetingIcons(keep:marks:fades:)`: the controls a person points at keep their box, and a mark meeting
+any icon drawn before it clears until the next layout (workspace rows, group headers, pinned tiles). Tests:
+`SidebarIconsNeverMeetTests` (pairwise frame intersection at the minimum width and above, every close spot, badge
+style, mark set and pose; a gallery at narrow widths).
+
 ## Every button rounds as a tab (2026-11-12)
 
 Lawrence 2026-11-12 (msg 30562): "roundness of all buttons should match roundness of tabs/workspaces". One token,
@@ -2827,6 +2839,12 @@ Commits logged without a trailer (the card above):
   (red on feat-cmux-next and on base 19421bb).
   Sidebar-Look: Leo 2026-10-21 "move the magnifying glass a bit lower": one device pixel, no more.
 
+- 2026-11-22 (quiet-connect-cloud): a Cloud machine resuming for an attach (`.resuming`, the record's pending start) is
+  held by the connecting grace (10 s, `SidebarPlaceholderGrace.healsOnItsOwn`) as a connect or reconnect is: a resume of
+  a second or two keeps the header quiet, no "Resuming…" and no spinner; one past the grace says so then. Pausing,
+  Paused and Deleting are not held. Harness: `CloudHeaderQuietTimelineTests` (label exposure ms per scenario).
+  Sidebar-Look: Leo 2026-11-14 "i also want all our connectivity stuff to shut up and load faster/percievably load faster".
+
 - 2026-11-21 (49583, 35f0edfcc6e): every sidebar row symbol (a pinned row's leading pin; a hovered row's Pin/Unpin,
   ⋮, ✕, tree chevron and speaker; a pinned item's ⋮ and Unpin; a group header's ⋮, Unpin and chevron) draws at one
   side, `SidebarStyle.rowSymbolSide`: the image side of the leading pin fitted to the rows' optical square. Before, the
@@ -2843,6 +2861,9 @@ Commits logged without a trailer (the card above):
   on a tab, so the row keeps the tab bar's balance. Fitting every favicon's ink to the glyphs' side had drawn it about
   1.4x smaller than on its tab.
   Sidebar-Look: "the icon sizes should be the same size as the horizontal tabs... the icon sizes need to be kind of standardized"
+- 2026-11-22 (leo-24h-icon-fixes): no two icons in a row share a box: a last layout pass clears any mark meeting a
+  control or an earlier icon. `SidebarIconsNeverMeetTests`.
+  Sidebar-Look: Leo 2026-11-22 "this too. fucking overlapping icons. over 24 hours ago."
 - 2026-11-23 (Updated card, ask-33e37575cb): the "Updated to Nightly" card is one line, "Updated to Nightly" with
   What's New ↗ at its end, at the composer's one-line height (48) and material (the art share over background
   pictures), at the layout grid's card corner (`card-radius`, 16: a third of the box) instead of the composer's
@@ -2858,6 +2879,8 @@ Commits logged without a trailer (the card above):
   pixels its frame draws (SidebarFaviconLegibilityTests: 32 px drawn as 17 pt). The gap test measures a favicon from
   its own square's end: it starts on the glyphs' edge and fills the tab's side, so it ends nearer its title by design.
   Sidebar-Look: no visual change
+- 2026-11-24 (lane/agent-chat-terminal-mark, ask-97938b6c84): Sidebar-Look: Leo, 2026-11-24: "terminal agent chats. can they be demarcated a bit differently/should they? than gui agent chats. both of them rn are just claude icon. but one is terminal one is gui." A workspace hover card's tab row draws a terminal's agent (a hook's report in a terminal or remote terminal tab) on a soft rounded square of the row's tint (`AgentBrandCatalog.templateImage(terminal:)`, the shared `terminalTile*` rule), and an agent chat's mark bare, as the tab strip (`TabIcon.terminalAgentMark`) and the iPhone's avatars (`AgentAvatarHost.terminal`) do. No row layout changes. Gallery: `AATerminalAgentMarkGalleryTests` (tab strip, light and dark).
+- 2026-11-25 (#55277, lane/terminal-agent-mark-default-off, ask-97938b6c84): 86b4688efbd puts the hover card row's terminal tile (entry above) behind `experiments.terminalAgentMark`, off by default: off, the row draws every agent's bare mark as it did before. Same Leo words as above. Gallery: `AATerminalAgentMarkGalleryTests` (strip off and on, light and dark).
 - 2026-11-24 (lane/sidebar-cloud-page-icon-size, ask-f32d868839): Sidebar-Look: Leo, 2026-11-24: "dont have such a
   dinky cloud icon. increase it". A cmux page's own icon in a row's favicon slot (a Cloud desktop's cloud, History's
   clock) drew at the pack glyphs' optical size, 11/16 of the favicon beside it on the next row. It now draws at the
