@@ -50,6 +50,34 @@ async fn wedge_a_resend_answers_with_the_inbox_receipt_its_first_run_got() {
 }
 
 #[tokio::test]
+async fn a_pending_inbox_receipt_survives_a_513_acceptance_burst() {
+    let hub = hub();
+    let session = chat(&hub, "01-burst", "burst");
+    let outcome = ledger_entry(&session, "msg_pending");
+    let receipt = json!({"sessionId": session.id, "promptId": "msg_pending", "queued": false,
+                         "inbox": true});
+    keep_acceptance(&session, "msg_pending", &receipt);
+
+    // Fill the cache with later accepted prompts. The first one is still pending and has no
+    // turn id, so it must be retained while completed or unknown entries are evicted.
+    for i in 0..KEPT_ACCEPTS {
+        let id = format!("later-{i}");
+        keep_acceptance(&session, &id, &json!({"promptId": id, "queued": true}));
+    }
+
+    let mut first = outcome.subscribe();
+    let kept = tokio::time::timeout(
+        Duration::from_secs(2),
+        first_acceptance(&session, "msg_pending", &mut first),
+    )
+    .await
+    .expect("the pending acceptance was evicted by the burst")
+    .expect("the pending acceptance remains available");
+    assert_eq!(kept["inbox"], true, "{kept}");
+    hub.shutdown_all().await;
+}
+
+#[tokio::test]
 async fn wedge_a_resend_of_a_first_run_refused_unaccepted_hears_no_acceptance() {
     let hub = hub();
     let session = chat(&hub, "01-target2", "target2");
