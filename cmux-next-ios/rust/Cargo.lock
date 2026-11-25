@@ -507,6 +507,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-auto-session"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "cmux-braid-carrier"
 version = "0.1.0"
 
@@ -582,6 +592,15 @@ name = "cmux-message-preview"
 version = "0.1.0"
 
 [[package]]
+name = "cmux-mobile-auto"
+version = "0.1.0"
+dependencies = [
+ "cmux-auto-session",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-mobile-core"
 version = "0.1.0"
 dependencies = [
@@ -640,6 +659,7 @@ dependencies = [
 name = "cmux-mobile-link"
 version = "0.1.0"
 dependencies = [
+ "aes-gcm",
  "anyhow",
  "async-trait",
  "base64",
@@ -656,6 +676,9 @@ dependencies = [
  "flate2",
  "futures-util",
  "getrandom 0.3.4",
+ "hkdf",
+ "libc",
+ "p256",
  "rcgen",
  "reqwest",
  "rustls",
@@ -681,9 +704,12 @@ dependencies = [
 name = "cmux-mobile-link-ffi"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "base64",
+ "cmux-auto-session",
  "cmux-composer-send",
  "cmux-follow-cam",
+ "cmux-mobile-auto",
  "cmux-mobile-core",
  "cmux-mobile-host",
  "cmux-mobile-last-place",
@@ -700,6 +726,7 @@ dependencies = [
  "cmux-window-rules",
  "libc",
  "ring",
+ "serde",
  "serde_json",
  "sha2",
  "tempfile",
