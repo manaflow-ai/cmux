@@ -753,6 +753,7 @@ impl Hub {
             if context && !hub.can_compact(&session).await {
                 if hub.take_pending(&session, &turn_id) {
                     hub.settled_unretried(&session, &turn_id, "not_retried");
+                    hub.lane_stranded(&session);
                 }
                 return;
             }
@@ -773,6 +774,7 @@ impl Hub {
                 if done > 0 {
                     let msg = json!({"promptId": root, "attempts": done, "turnId": turn_id, "reason": reason.as_str()});
                     hub.append_retry(&session, "auto_resume_exhausted", msg);
+                    hub.lane_stranded(&session);
                 } else if ours {
                     hub.settled_unretried(&session, &turn_id, "off");
                 }

@@ -1060,6 +1060,12 @@ pub(super) async fn handle_request(
     if m == method::MUX_V2 {
         return Err(RpcError::method_not_found(method::MUX_V2));
     }
+    // The person is here (the app's pane or a proven person on this machine, never a script, an
+    // agent or a remote client): a spare that idled out while they were away starts again now,
+    // before their next new chat (`hub/pool/spare.rs`).
+    if person_asks(conn) && !conn.origin.web_class() && !conn.agent_side() {
+        hub.spare_on_person_request();
+    }
     if matches!(
         m,
         method::TRIGGER_CHAT_ENSURE | method::TRIGGER_CHAT_SEND | method::TRIGGER_CHAT_STATUS
@@ -1952,8 +1958,8 @@ async fn dispatch_request_with_identity(
             // (`remote_guard::owner_control`, cmux#50026): no remote start rule, no asking-mode
             // settle, the mode it asks as this machine's own start. A VM-boundary start stays one.
             let remote_start = conn.origin.web_class()
-                && !(super::remote_guard::owner_control(conn.origin, conn.auth, &params)
-                    && !crate::hub::vm_boundary::asked(
+                && (!super::remote_guard::owner_control(conn.origin, conn.auth, &params)
+                    || crate::hub::vm_boundary::asked(
                         conn.auth,
                         super::remote_guard::control_of(conn.origin, conn.auth, &params),
                         &params,
@@ -3758,9 +3764,11 @@ async fn dispatch_request_with_identity(
                 anyhow::Ok((page, opener))
             })
             .map_err(|e| RpcError::internal(e.to_string()))?;
-            // The newest page holds to the log's end; a page of older records, or a forward one
-            // with more to read, only to its own last record.
-            let through = if before.is_none() && (after.is_none() || !page.has_more) {
+            // The newest page holds to the log's end, whether it was asked with no beforeSeq or
+            // with one past the end (the app's tail-first attach sends a sentinel): the records
+            // after its newest are of kinds it did not ask for. A page of older records, or a
+            // forward one with more to read, holds only to its own last record.
+            let through = if events::reads_to_end(after.is_some(), before, last, page.has_more) {
                 last
             } else {
                 events::newest_seq(&page.events)

@@ -335,7 +335,7 @@ fn carried(request: &Value, target: &str) -> Result<Carried, RpcError> {
 }
 
 /// The first line a relayed message carries its class in: `[question]`.
-fn class_line(class: PromptClass) -> &'static str {
+pub(super) fn class_line(class: PromptClass) -> &'static str {
     match class {
         PromptClass::Block => "[block]",
         PromptClass::Question => "[question]",
@@ -352,7 +352,7 @@ fn class_note(row: &mut Value, inline: Option<PromptClass>, dropped_supersede: b
     if let Some(class) = inline {
         row.insert("classInline".into(), json!(class.as_str()));
         notes.push(format!(
-            "the mesh relay carries no class field: sent with {} as the text's first line",
+            "the mesh relay carries no class field: sent with {} as the text's first line, which the receiving daemon files it by",
             class_line(class)
         ));
     }

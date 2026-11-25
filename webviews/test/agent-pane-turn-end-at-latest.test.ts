@@ -235,6 +235,9 @@ await requireBrowserLane("agent-pane-turn-end-at-latest.test.ts", async () => {
     events.length = watched;
     status = "running";
     const page = await browsers.get(name)!.newPage({ viewport: { width: 900, height: 640 } });
+    // These pin the open live-turn arm: they read a running turn's work drawn in full, which the
+    // shipped folded arm keeps under its Working for line (liveTurnWork.experiment.ts).
+    await page.addInitScript(() => Object.assign(window, { cmuxExperiments: { "live-turn-work": "open" } }));
     await installPaintedFrames(page);
     await page.goto(url());
     await page.locator(LIVE).waitFor();
