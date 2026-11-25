@@ -153,7 +153,7 @@ public final class MemoryPressureReporter: Sendable {
 
     public init(limiter: MemoryPressureRateLimiter = MemoryPressureRateLimiter(),
                 isEnabled: @escaping @Sendable () -> Bool,
-                highFootprintMegabytes: Int = Self.defaultHighFootprintMegabytes,
+                highFootprintMegabytes: Int = MemoryPressureReporter.defaultHighFootprintMegabytes,
                 sink: @escaping Sink,
                 uptime: @escaping @Sendable () -> UInt64 = { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }) {
         self.limiter = Mutex(limiter)
