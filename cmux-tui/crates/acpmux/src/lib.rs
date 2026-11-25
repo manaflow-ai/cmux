@@ -36,6 +36,8 @@ mod artifacts_fs;
 pub mod artifacts_sync;
 pub mod attach;
 pub mod author;
+/// Auto mode: a chat keeps running in the Cloud when the laptop goes away (`auto_session/`).
+pub mod auto_session;
 pub mod beads;
 pub mod bg_hook;
 pub mod bg_run;
@@ -122,6 +124,7 @@ pub mod github_rest_op;
 pub mod github_session_env;
 pub mod god_fixture;
 pub mod install_share;
+pub mod memory_follow;
 /// GitHub's MCP server needs the Cloud agent's unix socket (`github_mcp.rs`): elsewhere it is
 /// never offered, and the command says so.
 #[cfg(not(unix))]
@@ -162,6 +165,7 @@ pub(crate) mod home_fs;
 mod home_writers_by_path_tests;
 pub(crate) mod host_fingerprint;
 pub mod host_load;
+pub mod host_load_watch;
 pub mod host_overload;
 pub mod host_pressure;
 pub mod hosted_mcp;
@@ -252,10 +256,12 @@ pub(crate) mod peer_notice_outbox;
 pub mod peer_mirror;
 pub mod peer_path_stats;
 pub mod peer_paths;
+pub(crate) mod peer_row_patch;
 pub mod peer_states;
 pub mod person_proof;
 pub mod person_tokens;
 // A new chat's place mode (Auto, Cloud, one machine) and where it starts with it.
+pub mod fleet_elastic;
 pub mod place_mode;
 pub mod placement;
 pub mod plan_build_records;
@@ -300,6 +306,8 @@ mod router_socket;
 pub mod routes;
 pub mod rows;
 pub mod rpc;
+// `acpmux run-ask`: run an accepted forum `run` ask here or through the scheduler.
+pub mod run_ask;
 pub mod run_elsewhere;
 pub mod sccache_env;
 pub mod schema;
@@ -338,6 +346,7 @@ pub(crate) mod single_flight;
 /// A hub move's pages over the hub carrier (`transfer_service.rs`, `hub/transfer_pull.rs`).
 #[cfg(feature = "hub-carrier")]
 pub mod transfer_service;
+pub mod usage_limit;
 pub(crate) mod worker_lock;
 // The shadow admission verdict beside each placement and create (cmuxterm-hq#7342).
 pub mod memory_inbox;

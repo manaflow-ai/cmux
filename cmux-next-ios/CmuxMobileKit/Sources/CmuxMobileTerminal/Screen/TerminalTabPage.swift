@@ -56,7 +56,9 @@ public final class TerminalTabHost {
     }
 
     public func prepareCard() {
-        model.captureSnapshot()
+        // Runs in the tabs button's tap: the still is composed off the main
+        // thread, never in the zoom's first frame.
+        model.captureSnapshotOffMain()
         // The grid opens: the page becomes a picture in its card. TabsKit
         // does not lay the page out again until it zooms back in, so it is
         // taken out of accessibility and hit-testing here; the page's next
@@ -96,20 +98,24 @@ public struct TerminalTabPage: View {
     let host: TerminalTabHost
     /// Status bar (top) and toolbar (bottom) over the page.
     let insets: EdgeInsets
+    /// Where the chrome's cover ends this frame (a collapsed top bar's is above `insets.top`):
+    /// the status scrim's height. Nil: `insets.top`.
+    let chromeTop: CGFloat?
     /// The page is settled full screen (no zoom, swipe or open menu).
     let isInteractive: Bool
     /// This page's own identity for the host's size-claim ownership.
     @State private var pageID = UUID()
 
-    public init(host: TerminalTabHost, insets: EdgeInsets, isInteractive: Bool) {
+    public init(host: TerminalTabHost, insets: EdgeInsets, chromeTop: CGFloat? = nil, isInteractive: Bool) {
         self.host = host
         self.insets = insets
+        self.chromeTop = chromeTop
         self.isInteractive = isInteractive
     }
 
     public var body: some View {
         @Bindable var model = host.model
-        EmbeddedTerminalControllerView(host: host, insets: insets, isInteractive: isInteractive)
+        EmbeddedTerminalControllerView(host: host, insets: insets, chromeTop: chromeTop, isInteractive: isInteractive)
             // Zoomed into the grid or mid-swipe, the page is a picture: its
             // composer and key bar are not controls then (R4-3).
             .accessibilityHidden(!isInteractive)
@@ -151,6 +157,7 @@ public struct TerminalTabPage: View {
                             .ignoresSafeArea()
                             .padding(.bottom, insets.bottom)
                             .transition(.identity)
+                            .placeholderBound("terminal.page.connecting", .milliseconds(2000))
                     }
                 }
                 .allowsHitTesting(isInteractive)
@@ -197,7 +204,6 @@ public struct TerminalTabCard: View {
     public var content: TerminalCardContent {
         let started = model.controller?.started == true
         return TerminalCardContent.choose(sessionStarted: started,
-                                          connecting: model.connectionState.cardShowsConnecting(sessionStarted: started),
                                           hasSnapshot: model.snapshot != nil, screenText: model.cardScreenText,
                                           screenTextIsNewer: model.cardScreenTextIsNewer)
     }
@@ -205,11 +211,11 @@ public struct TerminalTabCard: View {
     private var cardContent: some View {
         GeometryReader { geo in
             ZStack(alignment: .top) {
-                Color(uiColor: (model.hostTheme ?? CmuxMobileTerminalThemes.shared.theme(for: model.hostMacID))?.backgroundColor
-                    ?? CmuxMobileGhosttyApp.background)
+                // The page's ground: the Mac's wallpaper under the terminal background's tint, else that background.
+                CmuxMobileBackdrop(background: Color(uiColor: (model.hostTheme
+                        ?? CmuxMobileTerminalThemes.shared.theme(for: model.hostMacID))?.backgroundColor
+                    ?? CmuxMobileGhosttyApp.background))
                 switch content {
-                case .connecting:
-                    TerminalConnectingView(topInset: insets.top, lastFrame: model.snapshot)
                 case .screenText:
                     TerminalCardScreenText(text: model.cardScreenText ?? "", topInset: insets.top, width: geo.size.width)
                 case .snapshot, .savedFrame:
@@ -222,7 +228,9 @@ public struct TerminalTabCard: View {
                         visibility: TerminalDockVisibility(chromeHidden: model.chromeHidden, composerPresented: model.composerPresented))
                     let crop = TerminalCardCrop(width: geo.size.width, imageHeight: image.size.height * scale,
                                                 bottomTrim: max(0, insets.bottom + composer - 6) * scale)
-                    // The newest rows and the prompt at the card's bottom edge (V5-6).
+                    // The newest rows and the prompt at the card's bottom edge (V5-6). A frame
+                    // from an earlier launch is the last-known page, shown as it is (not
+                    // dimmed) until the Mac's screen replaces it.
                     Image(uiImage: image)
                         .resizable()
                         .interpolation(.medium)
@@ -230,24 +238,14 @@ public struct TerminalTabCard: View {
                         .offset(y: crop.imageTop)
                         .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
                         .clipped()
-                        // A frame from an earlier launch stands in, dimmed like a page
-                        // that is not live, until the Mac's screen arrives (T-TABS-01).
-                        .opacity(content.isCurrent ? 1 : 0.55)
+                        // A frame from an earlier launch stands in at full strength until the
+                        // Mac's screen arrives (T-TABS-01): never greyed (Leo, 2026-11-24:
+                        // "the graying out of workspaces, nah let's not do that").
+                        .opacity(content.drawnOpacity)
                     }
-                case .placeholder:
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("\(model.programName) — \(model.title)")
-                            .foregroundStyle(Color.white.opacity(0.45))
-                        HStack(spacing: 0) {
-                            Text("$ ")
-                            Rectangle().fill(Color.white.opacity(0.85)).frame(width: 8, height: 15)
-                        }
-                    }
-                    .font(.system(size: 13, design: .monospaced))
-                    .foregroundStyle(Color.white.opacity(0.9))
-                    .padding(.horizontal, 12)
-                    .padding(.top, insets.top + 8)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                case .nothing:
+                    // Nothing known yet: the terminal's background, no stand-in.
+                    EmptyView()
                 }
             }
         }
@@ -290,6 +288,7 @@ struct TerminalCardScreenText: View {
 struct EmbeddedTerminalControllerView: UIViewControllerRepresentable {
     let host: TerminalTabHost
     let insets: EdgeInsets
+    var chromeTop: CGFloat?
     let isInteractive: Bool
 
     func makeUIViewController(context: Context) -> EmbeddedTerminalContainer {
@@ -301,6 +300,15 @@ struct EmbeddedTerminalControllerView: UIViewControllerRepresentable {
         let controller = container.terminal
         guard controller.parent === container else { return }
         controller.setEmbeddedInsets(UIEdgeInsets(top: insets.top, left: 0, bottom: insets.bottom, right: 0))
+        // The scrim rides the top bar's collapse inside the same SwiftUI animation, so the
+        // band the bar gave back shows the rows under it instead of a solid strip.
+        let scrimTop = chromeTop ?? insets.top
+        if controller.needsChromeTop(scrimTop) {
+            context.animate {
+                controller.setChromeTop(scrimTop)
+                controller.view.layoutIfNeeded()
+            }
+        }
         // Zoomed into the grid or mid-swipe the page is a picture: SwiftUI's
         // `accessibilityHidden` does not reach a representable's UIKit views,
         // so its composer, Return and Scroll to bottom stayed exposed and took

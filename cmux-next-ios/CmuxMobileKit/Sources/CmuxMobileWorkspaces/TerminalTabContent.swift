@@ -7,6 +7,10 @@ import SwiftUI
 public struct TerminalTabContext {
     /// Status bar (top) and tab toolbar (bottom) over the page.
     public var safeAreaInsets: EdgeInsets
+    /// Where the chrome's cover ends this frame (`TabsKitContentContext.chromeInsets.top`):
+    /// above `safeAreaInsets.top` while a top bar is collapsed. The status scrim follows it;
+    /// the grid keeps `safeAreaInsets` so its rows never change with the bar. Nil: the same.
+    public var chromeTop: CGFloat?
     /// The page is settled full screen and takes input.
     public var isInteractive: Bool
     /// A pinch is driving the tab zoom: suspend the terminal's own pinch.
@@ -19,9 +23,10 @@ public struct TerminalTabContext {
     /// workspace (the Mac's Cmd-click). Nil where no workspace can open one.
     public var openLink: (@MainActor (URL) -> Void)?
 
-    public init(safeAreaInsets: EdgeInsets, isInteractive: Bool, isZoomGestureActive: Bool,
+    public init(safeAreaInsets: EdgeInsets, chromeTop: CGFloat? = nil, isInteractive: Bool, isZoomGestureActive: Bool,
                 reportScroll: @escaping @MainActor (CGFloat) -> Void, openLink: (@MainActor (URL) -> Void)? = nil) {
         self.safeAreaInsets = safeAreaInsets
+        self.chromeTop = chromeTop
         self.isInteractive = isInteractive
         self.isZoomGestureActive = isZoomGestureActive
         self.reportScroll = reportScroll
@@ -133,11 +138,13 @@ public final class PlaceholderTerminalTabContent: TerminalTabContent {
                 await self.retry(workspace)
             }
         }
-        return AnyView(PlaceholderTerminalPage(tab: tab, insets: context.safeAreaInsets, retry: retryAction))
+        return AnyView(PlaceholderTerminalPage(tab: tab, insets: context.safeAreaInsets, retry: retryAction)
+            .placeholderBound("terminal.page.unavailable", .milliseconds(2000)))
     }
 
     public func card(for tab: WorkspaceTab, in workspace: Workspace) -> AnyView {
-        AnyView(PlaceholderTerminalPage(tab: tab, insets: EdgeInsets(top: 62, leading: 0, bottom: 90, trailing: 0)))
+        AnyView(PlaceholderTerminalPage(tab: tab, insets: EdgeInsets(top: 62, leading: 0, bottom: 90, trailing: 0))
+            .placeholderBound("tabgrid.terminal.unavailable", .milliseconds(1000)))
     }
 }
 
