@@ -7270,6 +7270,29 @@ def asks_only_rerun(view: "FailedView | Unplaced") -> str | None:
     return sorted(errors)[0].strip()
 
 
+def lost_runner_notes(repo: str, job: dict, github) -> list:
+    """JOB's check-run annotations for lost_runner_log, or [] when they cannot be read."""
+    try:
+        notes = github.json(f"repos/{repo}/check-runs/{job['id']}/annotations")
+    except (Refused, KeyError, ValueError):
+        return []
+    return notes if isinstance(notes, list) else []
+
+
+def worker_crash(repo: str, name: str, job: dict, github, notes: list | None = None) -> None:
+    """Refuses JOB, a red with no step failed, as one its runner refused when its annotations (NOTES, else read now)
+    say its runner's worker crashed under it (test_reds.runner_worker_crashed: cmux#50809's and cmux#50827's
+    react-apps-base-check, the runner's disk full). In merge_hold's words for a job its runner refused at setup, the
+    red glaeda-gh reruns once per (head, run): Infra's words stopped the land own_red."""
+    if any(step.get("conclusion") == "failure" for step in job.get("steps") or [] if isinstance(step, dict)):
+        return  # a failed step keeps its verdict, and costs no annotations read
+    if notes is None:
+        notes = lost_runner_notes(repo, job, github)
+    if why := test_reds.runner_worker_crashed(job, notes):
+        raise Refused(f"'{name}' was refused at setup by its runner (job {job.get('id')}: {why}); it gets re-run, "
+                      "never excused")
+
+
 def lost_runner_log(repo: str, name: str, job: dict, github) -> str:
     """JOB's log, after refusing a job that lost its runner (test_reds.lost_runner) as Infra. Its steps decide first, at
     no cost; a log GitHub cannot serve (a lost runner leaves none: BlobNotFound) has its check run's annotations read
@@ -7277,15 +7300,14 @@ def lost_runner_log(repo: str, name: str, job: dict, github) -> str:
     question: a runner shut down under a job prints its notice there and leaves a failed step behind
     (test_reds.runner_shut_down), so the log a caller is about to compare is read for it first."""
     if why := test_reds.lost_runner(job):
+        worker_crash(repo, name, job, github)
         raise infra(name, job, why)
     try:
         text = github.log(repo, job)
     except Refused as error:
-        try:
-            notes = github.json(f"repos/{repo}/check-runs/{job['id']}/annotations")
-        except (Refused, KeyError, ValueError):
-            notes = []
-        if why := test_reds.lost_runner(job, notes if isinstance(notes, list) else [], str(error)):
+        notes = lost_runner_notes(repo, job, github)
+        worker_crash(repo, name, job, github, notes)
+        if why := test_reds.lost_runner(job, notes, str(error)):
             raise infra(name, job, why) from None
         raise
     if why := test_reds.lost_runner(job, (), text):
