@@ -55,7 +55,7 @@ pub(in super::super) const JAPANESE: AppControlMessages = AppControlMessages {
     skew_use_cli: "その CLI: {path}",
     cloud_machines_unlisted: "注意: Cloud マシンは一覧にありません: {reason}",
     cloud_machines_malformed: "cmux アプリの cloud.machines の応答にマシンの一覧がありません",
-    cloud_secret_help: "シークレットをこの Mac のキーチェーンに保存します。set は非表示の入力プロンプト\nまたは標準入力から値を読み取ります。値をコマンドの引数には指定しません。\nls は名前とスコープを一覧表示し、値は表示しません。\nリポジトリ専用のシークレットには set または rm に --repo OWNER/NAME を指定します。",
+    cloud_secret_help: "シークレットをこの Mac のキーチェーンに保存します。set は非表示の入力プロンプト\nまたは標準入力から値を読み取ります。値をコマンドの引数には指定しません。\nls は名前とスコープを一覧表示し、値は表示しません。\nリポジトリ専用のシークレットには set または rm に --repo OWNER/NAME を指定します。\nClaude のセットアップトークン: claude setup-token を実行し、cmux cloud secret set\nCLAUDE_CODE_OAUTH_TOKEN で保存します。すべての Cloud マシンに届き、cmux の\nサーバーには保存されません。",
     cloud_team_keys_help: "エージェント（claude または codex）用のチーム共有キーです。オーナーと管理者が\n設定、置き換え、削除できます。チームの Cloud マシンでは各メンバー自身のキーより優先されます。\nset はキーを非表示の入力プロンプト、標準入力または --secret-file から読み取ります。コマンドの引数には指定しません。\nstatus はキーが設定されているかどうかを表示し、キーそのものは表示しません。",
     record: RecordMessages {
         usage: "使い方: cmux {noun} record [--target <ID>] [--seconds <1-60>] [--fps <1-60>] [--out <ファイル.mp4|フォルダ>]\n  アプリ自身の {noun} を表示どおりに録画します。画面収録の許可は不要です: 各フレームはアプリ自身の\n  `cmux {noun} screenshot` です (スクリプトでは常に、ブラウザのページ、チャット、Home は灰色で隠されます)。\n  既定は 5 秒、30 fps、最大 1800 フレーム。--out ファイル.mp4 (.mov、.m4v も可) は ffmpeg があれば\n  動画にします。フォルダを指定した場合や ffmpeg がない場合は、PNG フレームと frames.json (各フレームの ms)\n  を残します。--out がなければ一時フォルダに書き込みます。--json でレポートを表示します。",
