@@ -26,6 +26,12 @@ use std::io::Write;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+/// How many bytes of a chat's log [`super::Store::on_log_grown`]'s hook is called after: each time a
+/// segment's length passes a multiple of it. The session pack's segment (`cmux_session_pack::Params`'s
+/// 4 MiB), so a pack's open segment never holds much more than one: a log segment is 8 MiB, a
+/// multiple of it.
+pub const GROWN_EVERY: u64 = 4 << 20;
+
 /// A chat's open segment in the writers' map.
 pub(super) struct SegmentWriter {
     seg: Arc<OpenSegment>,
@@ -96,18 +102,30 @@ impl LocalStore {
     /// (`store/journal_store.rs`). Refused once the store is sealed.
     pub(super) fn append_line(&self, id: &str, line: &[u8]) -> Result<()> {
         let _open = self.writable()?;
-        let mut filled = None;
-        let wrote = self.append_to_open(id, line, &mut filled);
+        let (mut filled, mut grown) = (None, false);
+        let wrote = self.append_to_open(id, line, &mut filled, &mut grown);
         if let Some(index) = filled {
             self.copy_filled_segment(id, index);
             // Segment `index` is sealed: a worker may move it cold (`store/cold_segments.rs`).
             self.note_sealed(id);
         }
+        // The log passed another `GROWN_EVERY` bytes: a worker seals its pack segment
+        // (`hub/pack_as_it_grows.rs`). Two divisions here, and a hook call once per 4 MiB.
+        if grown && let Some(hook) = self.grow_hook.get() {
+            hook(id);
+        }
         wrote
     }
 
-    /// [`Self::append_line`]'s write. `filled` names the segment a rotation closed on the way.
-    fn append_to_open(&self, id: &str, line: &[u8], filled: &mut Option<u32>) -> Result<()> {
+    /// [`Self::append_line`]'s write. `filled` names the segment a rotation closed on the way;
+    /// `grown` is set when the write took the segment past a multiple of [`GROWN_EVERY`].
+    fn append_to_open(
+        &self,
+        id: &str,
+        line: &[u8],
+        filled: &mut Option<u32>,
+        grown: &mut bool,
+    ) -> Result<()> {
         loop {
             let (seg, rotated) = self.segment_for(id)?;
             if rotated.is_some() {
@@ -142,7 +160,12 @@ impl LocalStore {
                 }
                 return Err(e);
             }
-            seg.written.fetch_add(line.len() as u64, Ordering::AcqRel);
+            let before = seg.written.fetch_add(line.len() as u64, Ordering::AcqRel);
+            // Counted over the whole log, not this segment: the segments before this one each
+            // hold about `segment_bytes`, so a store whose segments are smaller than a mark, or
+            // no multiple of one, still passes every mark.
+            let before = u64::from(seg.index).saturating_mul(self.segment_bytes) + before;
+            *grown = before / GROWN_EVERY != (before + line.len() as u64) / GROWN_EVERY;
             return Ok(());
         }
     }

@@ -49,8 +49,7 @@ import {
   newIdempotencyKey,
   wireError,
   type AccountsRun,
-  type AllotmentSet,
-  type AllotmentView,
+  type AccountsRunReply,
   type AccountsState,
   type AgentsRun,
   type AgentsState,
@@ -92,8 +91,6 @@ import {
   type AgentToolsCardState,
   type McpServersRun,
   type McpServersState,
-  type HubRun,
-  type HubState,
   type RowNoteData,
   type AgentSkillsRun,
   type AgentSkillsState,
@@ -103,9 +100,16 @@ import {
   type AgentHooksState,
   type AgentConfigAnswer,
   type AgentConfigRun,
-  type AccountsRunReply,
+  type AllotmentSet,
+  type AllotmentView,
+  type ArchivedRun,
+  type ArchivedState,
   type DoctorReport,
   type DoctorRun,
+  type HubRun,
+  type HubState,
+  type ConnectionsRun,
+  type ConnectionsState,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -889,6 +893,18 @@ export class SettingsStore {
     return this.hubState();
   }
 
+  /** Settings > Connections (hosted MCP servers); null when the host has none. */
+  async connectionsState(): Promise<ConnectionsState | null> {
+    const reply = await this.request("cmux.settings.connections.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One Connections gesture, then the card as it is after it (null: the host has none). */
+  async runConnections(run: ConnectionsRun): Promise<ConnectionsState | null> {
+    await this.request("cmux.settings.connections.run", run);
+    return this.connectionsState();
+  }
+
   /** Settings > Agents > Claude Code & Codex: one `agent-config settings` verb. Answers the
    * host's reply, or `{error}` in plain words when the call failed or the CLI refused (its own
    * message, which never carries a secret value). */
@@ -1060,6 +1076,20 @@ export class SettingsStore {
   async shares(): Promise<SharesState | null> {
     const reply = await this.request("cmux.settings.shares.list", {});
     return reply.ok ? reply.value : null;
+  }
+
+  /** Settings > Sidebar > Archived Workspaces: the archived rows; null when the host has no list or the
+   * read failed. */
+  async archived(): Promise<ArchivedState | null> {
+    const reply = await this.request("cmux.settings.archived.list", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** Opens, restores or deletes one archived row; the refusal's text, else null. */
+  async runArchived(run: ArchivedRun): Promise<string | null> {
+    const reply = await this.request("cmux.settings.archived.run", run);
+    if (!reply.ok) return userMessage(reply.error, SETTINGS_SENTENCES);
+    return reply.value?.error ?? null;
   }
 
   /** Appearance > Customization Library: one `cmux customize library` verb. Answers the
