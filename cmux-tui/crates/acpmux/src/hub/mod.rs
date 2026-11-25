@@ -116,6 +116,9 @@ pub use fork::Retarget;
 #[cfg(test)]
 mod admission_restore_tests;
 #[cfg(test)]
+#[path = "first_acceptance_tests.rs"]
+mod first_acceptance_tests;
+#[cfg(test)]
 mod forum_held_turn_tests;
 #[cfg(test)]
 mod host_notice_tests;
