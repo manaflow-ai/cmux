@@ -841,11 +841,11 @@ fn blockers_and_the_chats_parent_or_delegator_steer_at_once() {
     assert!(steers_at_once(&meta, &from(PromptClass::Result, Some("coord"))), "its delegator");
 }
 
-/// FYIs alone that the person's own turn held back start no turn of their own when it ends:
-/// they wait for the flush, as they would have in any turn. Anything else it held back is due at
-/// once, as before.
+/// FYIs alone that the person's own turn held back start no turn of their own when it ends, not
+/// even past the flush: in an idle chat they wait for its next real turn. Anything else it held
+/// back is due at once, as before.
 #[tokio::test]
-async fn fyis_alone_the_persons_turn_held_back_wait_for_their_flush() {
+async fn fyis_alone_the_persons_turn_held_back_wait_for_the_next_turn() {
     let (hub, session) = hub_with_chat("fyi-held");
     {
         let mut inbox = session.inbox();
@@ -856,13 +856,13 @@ async fn fyis_alone_the_persons_turn_held_back_wait_for_their_flush() {
     assert_eq!(carried(&session), None, "no turn of its own before the flush");
     {
         let inbox = session.inbox();
-        assert!(inbox.timer.is_some(), "the flush is timed");
+        assert!(inbox.timer.is_none(), "no flush is timed for what wakes nobody");
         assert!(!inbox.held_by_person, "the hold lets go of FYIs alone");
     }
     assert!(!turn_coming(&session), "no turn comes for FYIs alone");
     session.inbox().items[0].at = now_ms().saturating_sub(FLUSH_MS + 1);
     hub.inbox_review(&session);
-    assert_eq!(carried(&session), Some(vec!["f1".to_owned()]), "a turn at its flush");
+    assert_eq!(carried(&session), None, "no cold turn past the flush either");
 
     // A result the person's turn held back (it wakes no one here) is due at once, as before.
     let (hub, session) = hub_with_chat("result-held");
@@ -1362,7 +1362,7 @@ async fn the_held_count_is_the_journals_undecided_messages_not_a_drifted_counter
 }
 
 /// With the surge preview on, a FYI tool notice of severity `fire` wakes an idle chat outside any surge once the wake
-/// debounce has passed, while an ordinary FYI of the same age waits for its flush.
+/// debounce has passed, while an ordinary FYI of the same age waits for the chat's next turn.
 #[tokio::test]
 async fn a_fire_notice_wakes_an_idle_chat_outside_a_surge_and_an_ordinary_fyi_does_not() {
     for (severity, wakes_now) in [("fire", true), ("warn", false)] {
@@ -1387,7 +1387,7 @@ async fn a_fire_notice_wakes_an_idle_chat_outside_a_surge_and_an_ordinary_fyi_do
             || inbox.items.iter().any(|i| i.noticed || i.answered.is_some());
         assert_eq!(tried, wakes_now, "{severity}");
         if !wakes_now {
-            assert!(inbox.timer.is_some(), "an ordinary FYI waits for its flush");
+            assert!(inbox.timer.is_none(), "an ordinary FYI times no flush of its own");
         }
     }
 }
