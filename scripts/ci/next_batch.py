@@ -36,7 +36,7 @@ import threading
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import base_red_excuse  # noqa: E402
@@ -344,6 +344,9 @@ class PullRequest:
     files: list[str] = field(default_factory=list)
     checks: list[tuple[str, str, str]] = field(default_factory=list)  # (name, status, conclusion)
     label_actors: dict[str, str] = field(default_factory=dict)  # label -> login that last applied it
+    # Files and checks not read yet (open_prs(details=False)): (gh, node id, cache key, want checks).
+    # read_details fills them for the PRs a step judges; until then ineligible_reason sees only the cheap filters.
+    unread: tuple | None = field(default=None, repr=False, compare=False)
 
     def short(self) -> str:
         return f"#{self.number}"
@@ -498,11 +501,13 @@ def rollup_failing(rollup: dict) -> bool:
     return any((item.get("state") or "").lower() in RED and item.get("count") for item in counts)
 
 
-def open_prs(gh: GitHub, fresh: bool = False) -> list[PullRequest]:
+def open_prs(gh: GitHub, fresh: bool = False, details: bool = True) -> list[PullRequest]:
     """Every open PR into BASE. Files and checks are filled in only for PRs
     the cheap filters keep (ineligible_reason without them), and checks only
     when the rollup has a failure: nothing else reads them. `fresh` skips the
-    cache (landing rechecks the exact state)."""
+    cache (landing rechecks the exact state). With `details=False` they are
+    left unread (pr.unread) for read_details: a batch takes MAX_PRS of ~3k open
+    PRs, so select reads them in number order only until the batch is full."""
     owner, name = gh.repo.split("/")
     nodes, after = [], None
     while True:
@@ -538,7 +543,9 @@ def open_prs(gh: GitHub, fresh: bool = False) -> list[PullRequest]:
         key = (pr.sha, json.dumps(rollup, sort_keys=True))
         keys[node["id"]] = key
         cached = None if fresh else DETAILS.get(key)
-        if cached is None:
+        if cached is None and not details:
+            pr.unread = (gh, node["id"], key, rollup_failing(rollup))
+        elif cached is None:
             wanted.append((node["id"], True, rollup_failing(rollup)))
         else:
             found[key] = cached
@@ -549,9 +556,25 @@ def open_prs(gh: GitHub, fresh: bool = False) -> list[PullRequest]:
             DETAILS.clear()
         DETAILS.update(fetched)
     for pr, node in prs:
-        if node["id"] in keys:
+        if node["id"] in keys and keys[node["id"]] in found:
             pr.files, pr.checks = found[keys[node["id"]]]
     return [pr for pr, _ in prs]
+
+
+def read_details(prs: Iterable[PullRequest]) -> None:
+    """Fill files and checks for the PRs open_prs(details=False) left unread."""
+    unread = [pr for pr in prs if pr.unread is not None]
+    by_gh: dict[int, list[PullRequest]] = {}
+    for pr in unread:
+        by_gh.setdefault(id(pr.unread[0]), []).append(pr)
+    for group in by_gh.values():
+        fetched = fetch_details(group[0].unread[0], [(pr.unread[1], True, pr.unread[3]) for pr in group])
+        if len(DETAILS) > 5000:
+            DETAILS.clear()
+        for pr in group:
+            pr.files, pr.checks = fetched[pr.unread[1]]
+            DETAILS[pr.unread[2]] = (pr.files, pr.checks)
+            pr.unread = None
 
 
 def touches_webviews(pr: PullRequest) -> bool:
@@ -753,7 +776,8 @@ def ineligible_reason(pr: PullRequest, at: dt.datetime, stale_days: int = STALE_
 def select(prs: list[PullRequest], at: dt.datetime, only: set[int] | None = None,
            limit: int = MAX_PRS) -> tuple[list[PullRequest], dict[int, str]]:
     eligible, skipped = [], {}
-    for pr in sorted(prs, key=lambda item: item.number):
+    ordered = sorted(prs, key=lambda item: item.number)
+    for index, pr in enumerate(ordered):
         if only is not None and pr.number not in only:
             continue
         if clash := groups.conflicting_groups(pr.labels):
@@ -762,6 +786,12 @@ def select(prs: list[PullRequest], at: dt.datetime, only: set[int] | None = None
         if name := groups.group_of(pr.labels):
             skipped[pr.number] = f"in group {groups.GROUP_PREFIX}{name}; lands with its group"
             continue
+        if pr.unread is not None and len(eligible) < limit:
+            # Files and checks only while the batch has room, a detail page of candidates at a time;
+            # past a full batch the cheap filters alone say "next batch".
+            read_details([item for item in ordered[index:] if item.unread is not None
+                          and (only is None or item.number in only) and groups.group_of(item.labels) is None
+                          and not groups.conflicting_groups(item.labels)][:DETAIL_PAGE])
         reason = ineligible_reason(pr, at)
         if reason:
             skipped[pr.number] = reason
@@ -1986,7 +2016,8 @@ class Controller:
     # -- landing
     def land(self, validation: Validation) -> list[tuple[PullRequest, str]]:
         landed = []
-        fresh = {pr.number: pr for pr in open_prs(self.gh, fresh=True)}
+        fresh = {pr.number: pr for pr in open_prs(self.gh, fresh=True, details=False)}
+        read_details(fresh[pr.number] for pr in validation.stack.included if pr.number in fresh)
         landing = getattr(self.args, "land", True) and not self.args.dry_run and not self.args.no_land
         stop = 0
         for pr in validation.stack.included:
@@ -2243,7 +2274,9 @@ class Controller:
         return bool(changed & files)
 
     def fresh_members(self, prs: list[PullRequest]) -> dict[int, PullRequest]:
-        return {pr.number: pr for pr in open_prs(self.gh, fresh=True)}
+        fresh = {pr.number: pr for pr in open_prs(self.gh, fresh=True, details=False)}
+        read_details(fresh[pr.number] for pr in prs if pr.number in fresh)
+        return fresh
 
     def run_group(self, name: str, members: list[PullRequest]) -> list[tuple[PullRequest, str]]:
         """Validate the group as one stack; land it in order when green, or
@@ -2358,6 +2391,7 @@ class Controller:
             if only is not None and not any(pr.number in only for pr in members):
                 continue
             members = [pr for pr in members if not self.reported(pr, ("culprit", "conflict", "refused"))]
+            read_details(members)
             # Own checks count: a red one found only at landing would strand the members before it.
             reasons = {pr.number: ineligible_reason(pr, now()) or group_hold(pr) for pr in members}
             if not members or any(reasons.values()):
@@ -2426,7 +2460,7 @@ class Controller:
 
     def run_cycle(self) -> int:
         only = {int(item) for item in re.split(r"[\s,#]+", self.args.prs) if item} if self.args.prs else None
-        prs = open_prs(self.gh)
+        prs = open_prs(self.gh, details=False)
         eligible, skipped = select(prs, now(), only)
         group_outcome = self.run_groups(prs, only, skipped)
         if self.validations and not any(text == "landed" for _, text in group_outcome) \
@@ -2540,7 +2574,7 @@ def write_summary(text: str) -> None:
 
 
 def cmd_select(args: argparse.Namespace) -> int:
-    eligible, skipped = select(open_prs(GitHub(args.repo)), now())
+    eligible, skipped = select(open_prs(GitHub(args.repo), details=False), now())
     print(json.dumps({"eligible": [pr.number for pr in eligible], "skipped": skipped}, indent=2))
     return 0
 
@@ -2548,7 +2582,8 @@ def cmd_select(args: argparse.Namespace) -> int:
 def cmd_stack(args: argparse.Namespace) -> int:
     gh = GitHub(args.repo)
     wanted = {int(item) for item in re.split(r"[\s,#]+", args.prs) if item}
-    prs = [pr for pr in open_prs(gh) if pr.number in wanted]
+    prs = [pr for pr in open_prs(gh, details=False) if pr.number in wanted]
+    read_details(prs)
     controller = Controller(args)
     base_sha = controller.fetch(prs)
     stack = build_stack(Path(args.worktree), base_sha, sorted(prs, key=lambda pr: pr.number),
@@ -2586,7 +2621,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
         main loop too, so the close watch never waits for a batch."""
         while True:
             try:
-                prs = open_prs(gh)
+                prs = open_prs(gh, details=False)
                 latest[0] = (prs, now())
                 watch.observe(prs, now())
             except Exception as error:  # keep polling

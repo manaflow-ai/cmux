@@ -294,6 +294,34 @@ class OpenPrsQuery(unittest.TestCase):
             nb.open_prs(gh, fresh=True)
         self.assertEqual([item[0] for item in seen], ["list", "detail"])
 
+    def test_select_reads_details_only_until_the_batch_is_full(self):
+        """3,808 open PRs: reading every candidate's files and checks took 169 GraphQL calls and the
+        login's secondary rate limit. select reads them in number order only while the batch has room."""
+        nodes = [self.node(n) for n in range(1, 31)]
+        nodes[1] = self.node(2, state="FAILURE")  # red on its own: read, skipped, the batch fills past it
+        pages = [{"repository": {"pullRequests": {"nodes": nodes,
+                                                   "pageInfo": {"hasNextPage": False, "endCursor": None}}}}]
+        details = {(f"PR_{n}", ""): (["a.swift"], [], None) for n in range(1, 31)}
+        details[("PR_2", "")] = (["a.swift"], [self.run_context("cmux-next fast tier", "FAILURE")], None)
+        gh, seen = self.fake(pages, details)
+        with mock.patch.dict(os.environ, {"CMUX_NEXT_BATCH_AUTHORS": ""}), \
+                mock.patch.object(nb, "coordinator_prs", return_value=set()):
+            prs = nb.open_prs(gh, details=False)
+            self.assertEqual([item for item in seen if item[0] == "detail"], [])
+            eligible, skipped = nb.select(prs, nb.now(), limit=3)
+        self.assertEqual([item.number for item in eligible], [1, 3, 4])
+        self.assertIn("red check", skipped[2])
+        self.assertEqual(skipped[30], "batch is full (3); next batch")
+        read = [item[1] for item in seen if item[0] == "detail"]
+        self.assertEqual(read, [f"PR_{n}" for n in range(1, nb.DETAIL_PAGE + 1)])
+        # What select read is cached for the next poll; landing reads only the PRs it lands.
+        self.assertEqual(prs[0].files, ["a.swift"])
+        self.assertIsNotNone(prs[29].unread)
+        seen.clear()
+        nb.read_details([prs[29]])
+        self.assertEqual([item[1] for item in seen], ["PR_30"])
+        self.assertIsNone(prs[29].unread)
+
     def test_the_detail_query_refuses_an_unexpected_id(self):
         with self.assertRaises(ValueError):
             nb.detail_query([('x") { a } b: node(id: "y', True, None)])
