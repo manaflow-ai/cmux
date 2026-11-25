@@ -143,8 +143,13 @@ extension LiveCoordinator {
     }
 
     private func observe(_ session: MacSession) {
-        let (seen, seenMedia) = withObservationTracking {
-            (session.link.phase, session.link.media)
+        // Capture the comparison values before registering the tracking closure. Referencing
+        // tuple bindings produced by withObservationTracking from its own onChange closure is
+        // rejected by the Swift compiler as a use before initialization.
+        let seen = session.link.phase
+        let seenMedia = session.link.media
+        withObservationTracking {
+            _ = (session.link.phase, session.link.media)
         } onChange: { [weak self, weak session] in
             Task { @MainActor [weak self, weak session] in
                 guard let self, let session, self.sessions[session.macID] === session else { return }
