@@ -1,8 +1,8 @@
 // The New Tab composer's model menu always shows the harness rail (Leo 2026-10-31: "IM SAYING I
 // CANT FUCKING SEE ANY HARNESS"). A pick or a typed prompt on the page starts its deferred chat
 // behind it; that session's start row counted as a message, so the chips locked the harness and
-// the menu dropped the rail to the plain list of one harness's models. A chat with a message keeps
-// its own harness's list, as before.
+// the menu dropped the rail to the plain list of one harness's models. A chat with a message now
+// opens the same shared picker too (cmux#55750).
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -167,6 +167,9 @@ test("a fresh chat whose only row is its session start can still pick another ha
   expect(tabs).toContain("Codex");
 });
 
-test("a chat with a message keeps its own harness's models, with no rail", async () => {
-  expect(await railTabs("chat", started([startRow, userRow]))).toEqual([]);
+// A chat with a message opens the same shared picker, rail and all, to fork to another agent (cmux#55750).
+test("a chat with a message keeps the harness rail, its own harness's tab among the others", async () => {
+  const tabs = await railTabs("chat", started([startRow, userRow]));
+  expect(tabs).toContain("Claude Code");
+  expect(tabs).toContain("Codex");
 });

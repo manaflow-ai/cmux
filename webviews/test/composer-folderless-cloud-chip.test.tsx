@@ -222,6 +222,25 @@ test("a Cloud start sent with a folder names that folder while it is out, never 
   expect(folderLabel()?.textContent).toBe(t("composer.cloudNoFolder"));
 });
 
+// cmux#53226: a GitHub repository picked for a Cloud chat turned into a plain folder icon on Return; its start is a
+// clone of the repository, and the chip keeps the repository's logo while it is out.
+test("a Cloud start of a GitHub repository keeps the GitHub logo and its name while it is out", async () => {
+  const { cloudStartBegun } = await import("../src/agent-session/acpmux/cloudStartProgress");
+  const { withCloudStartFolder, withDraftFolder } = await import("../src/agent-session/acpmux/newtab/draftFolder");
+  const start = cloudStartBegun("k-3", "whats in this pr?", "github:manaflow-ai/cmuxterm-hq", "Claude Code");
+  const page = {
+    sessionId: undefined,
+    summary: { sessionId: "", harness: "claude", host: "This Mac", hostKind: "local" },
+  } as unknown as Parameters<typeof withCloudStartFolder>[0];
+  const shown = withCloudStartFolder(withDraftFolder(page, undefined), start.cwd);
+  await mount({ ...cloud, cloudStartOut: true, summary: shown.summary });
+  expect(folderLabel()?.textContent).toBe("manaflow-ai/cmuxterm-hq");
+  const chip = folderLabel()?.parentElement;
+  // The GitHub glyph (GitHubIcons.tsx), not the folder icon.
+  expect(chip?.querySelector('svg[viewBox="-2 -2 20 20"]')).not.toBeNull();
+  expect(chip?.querySelector(".acpmux-location-icon")).toBeNull();
+});
+
 test("a folderless Cloud start still reads No folder while it is out", async () => {
   const { cloudStartBegun } = await import("../src/agent-session/acpmux/cloudStartProgress");
   const { withCloudStartFolder } = await import("../src/agent-session/acpmux/newtab/draftFolder");
