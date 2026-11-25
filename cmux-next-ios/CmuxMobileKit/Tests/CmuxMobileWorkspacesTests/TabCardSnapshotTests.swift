@@ -366,7 +366,8 @@ import UIKit
         #expect(top(100, slice: nil) == 664)
         // A short chat: wholly inside the slice, on its bottom edge.
         #expect(top(100) + 100 <= 566 && top(100) >= 70)
-        #expect(top(100) == 566 - 8 - 100)
+        let onTheSlicesEdge: CGFloat = 566 - 8 - 100
+        #expect(top(100) == onTheSlicesEdge)
         // Taller than the slice: from under the header.
         #expect(top(600) == 70)
         // Filling the page: as the page rests it.
