@@ -411,6 +411,13 @@ fn a_redial_prefers_the_quiet_socket_and_falls_back_when_there_is_none() {
 
     // A stale quiet socket (nothing accepts on it): the main one.
     drop(std::os::unix::net::UnixListener::bind(&quiet_path).unwrap());
+    // Another test forking a process at that moment holds the listener until its child execs, and
+    // a dial in that window is accepted, then reset: wait until the socket refuses.
+    let stale_by = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while UnixStream::connect(&quiet_path).is_ok() {
+        assert!(std::time::Instant::now() < stale_by, "the dropped listener still accepts");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
     assert_eq!(quiet_socket(&socket), Some(quiet_path.clone()));
     let (dialed, quiet) = redial(&socket, "p1", "/w", &[], Offer::Full);
     assert!(ok(&dialed.unwrap().1) && !quiet);
