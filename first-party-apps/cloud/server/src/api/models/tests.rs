@@ -85,6 +85,8 @@ fn fields_the_catalog_lacks_reach_the_app() {
     {
         assert_eq!(encoded[key], source[key], "{key}");
     }
+    // `origin` is a catalog field now (CloudMachine.origin): it rides the record.
+    assert_eq!(machine.record.origin.as_ref().map(|o| o.label.as_str()), Some("Surge"));
 
     // The older names read as the ones the app reads (cmux-cloud-machine `from_next`).
     let older = decode(with(

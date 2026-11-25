@@ -49,7 +49,7 @@ pub struct Surge {
 fn is_surge(machine: &Machine) -> bool {
     let Some(origin) = machine.record.origin.as_ref() else { return false };
     origin.label == SURGE_LABEL
-        && matches!(origin.kind, None | Some(CloudMachineOriginKind::Person))
+        && origin.kind.as_ref().is_none_or(|k| *k == CloudMachineOriginKind::Person)
 }
 
 /// The latest surge among `machines`, or `None` when none is listed.
