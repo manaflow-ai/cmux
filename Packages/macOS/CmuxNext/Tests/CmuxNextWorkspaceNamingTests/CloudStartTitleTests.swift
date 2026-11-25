@@ -73,4 +73,33 @@ struct CloudStartTitleTests {
         titles.begin(page, task: "Fix it", untitled: "Agent")
         #expect(titles.title(of: other) == nil)
     }
+
+    /// cmux#55540: a New Tab chat sent in Cloud mode turns its Mac tab into the Cloud chat in place (`CloudFrontedChats`).
+    /// The tab then read "New Tab" and the row "workspace-NNN": the handed title was held by the chat tab's record, and
+    /// the Cloud machine's store makes a new record for the same tab when it rebuilds the pane. The title is the chat's
+    /// by its tab id, and the Mac tab's row reads as the chat it shows, not as its own New Tab page.
+    @Test func aMacTabShowingItsCloudChatInPlaceKeepsTheStartsTitle() throws {
+        let titles = AgentCloudStartTitles()
+        let (macWorkspace, mac) = try Self.workspace(DaemonStore(), surface: 1)
+        let (_, opened) = try Self.workspace(DaemonStore(), surface: 2)
+        titles.begin(mac, task: "what's in this folder?", untitled: "Agent")
+        titles.hand(from: mac, to: opened)
+        titles.end(mac)
+        #expect(titles.title(of: mac) == nil, "the Mac tab's own page no longer reads as the start")
+
+        // The Cloud machine's store rebuilt the chat's pane (a relink): the same tab, a new record.
+        let (_, rebuilt) = try Self.workspace(DaemonStore(), surface: 2)
+        #expect(rebuilt !== opened && rebuilt.id == opened.id, "fixture: one tab, two records")
+        #expect(titles.title(of: rebuilt) == "what's in this folder?", "the tab read New Tab")
+
+        let reader = WorkspaceAutoNameReader(
+            enabled: { true }, isNewTabPage: { $0 === mac }, livePage: { _ in nil }, incognitoTitle: { _ in nil },
+            terminal: { _ in .init(kind: .terminal, userName: nil, title: nil, pageTitle: nil, url: nil, cwd: nil) },
+            turns: AgentTurnStateStore(), hold: WorkspaceAutoNameHold(), cloudStarts: titles,
+            shown: { $0 === mac ? rebuilt : nil })
+        #expect(reader.label(macWorkspace, front: mac, work: nil) == "what's in this folder?", "the row read workspace-6")
+
+        titles.gone(tabID: opened.id)
+        #expect(titles.title(of: rebuilt) == nil, "a closed chat's title names nothing")
+    }
 }

@@ -21,6 +21,13 @@ public final class AgentCloudStartTitles {
     private struct Mark { weak var tab: TabModel? }
 
     private var titles: [ObjectIdentifier: Entry] = [:]
+    /// The titles handed to the chats starts opened on their machines (``hand(from:to:)``), by the chat's tab id: a Cloud
+    /// machine's store makes a new record for the same tab when it rebuilds a pane (a snapshot, a relink), and the chat
+    /// must keep its title through that (cmux#55540: the tab read "New Tab" and its row "workspace-NNN"). A chat's tab id
+    /// names no later tab (each start opens its own key); the latest ``handedKept`` are kept, a chat long open has its own title.
+    private var handed: [String: String] = [:]
+    private var handedOrder: [String] = []
+    static let handedKept = 32
     /// New Tab pages whose Send started a Cloud chat (cmux#51000): marked from the Send, kept when the start fails (its
     /// page shows the failure and Retry), cleared once the chat shows in place (``CloudFrontedChats`` marks it then).
     private var cloudSends: [ObjectIdentifier: Mark] = [:]
@@ -31,8 +38,8 @@ public final class AgentCloudStartTitles {
 
     /// The title `tab` reads while it starts a Cloud chat, or shows the chat one started; nil for any other tab.
     public func title(of tab: TabModel) -> String? {
-        guard let entry = titles[ObjectIdentifier(tab)], entry.tab === tab else { return nil }
-        return entry.title
+        if let entry = titles[ObjectIdentifier(tab)], entry.tab === tab { return entry.title }
+        return handed.isEmpty ? nil : handed[tab.id]
     }
 
     /// Whether `tab` is a New Tab page whose Send is starting a Cloud chat (or a chat one started).
@@ -87,6 +94,14 @@ public final class AgentCloudStartTitles {
         guard let title = title(of: origin) else { return }
         end(origin)
         titles[ObjectIdentifier(opened)] = Entry(tab: opened, title: title)
+        if handed.updateValue(title, forKey: opened.id) == nil { handedOrder.append(opened.id) }
+        while handedOrder.count > Self.handedKept { handed[handedOrder.removeFirst()] = nil }
+    }
+
+    /// The chat of tab id `id` went (its tab closed): its handed title goes with it.
+    public func gone(tabID id: String) {
+        guard handed.removeValue(forKey: id) != nil else { return }
+        handedOrder.removeAll { $0 == id }
     }
 
     /// The title a start whose first prompt is `task` reads as: the prompt's naming line, as acpmux titles a chat by it.
