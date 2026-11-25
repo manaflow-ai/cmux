@@ -110,7 +110,9 @@ impl MachineFacts {
 }
 
 fn root_disk_mib() -> (u64, u64) {
-    let path = std::ffi::CString::new("/").expect("no nul");
+    let Ok(path) = std::ffi::CString::new("/") else {
+        return (0, 0);
+    };
     // SAFETY: statvfs fills a zeroed struct for a valid C string.
     let mut st: libc::statvfs = unsafe { std::mem::zeroed() };
     if unsafe { libc::statvfs(path.as_ptr(), &mut st) } != 0 {
