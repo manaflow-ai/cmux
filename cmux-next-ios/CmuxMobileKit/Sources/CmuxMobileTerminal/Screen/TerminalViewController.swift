@@ -676,6 +676,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         composerHost = composer
         jumpRowHost = jumpRow
         bottomStack.jumpRow = jumpRow.view
+        // The 8 pt between the key row and the composer focuses the composer,
+        // so a finger landing short of the field never reaches a key or the
+        // terminal (Leo, 2026-11-25: "When I tap the composer at certain points
+        // it treats it as if I also simultaneously tapped one of the combo buttons").
+        bottomStack.keyRow = keyBarClip
+        bottomStack.composer = composer.view
+        bottomStack.onGapTap = { [weak self] in self?.model.focusComposer() }
         // Not clipped: the keys' glass lifts past the row on touch. Hide
         // Toolbar folds the row by hiding it, and unfolding fades it in
         // (`dockChanged`), so it never draws over the composer while it grows.
@@ -4966,11 +4973,41 @@ final class TerminalBottomStack: UIView {
     /// The button's tap target in `jumpRow`'s coordinates; `.null` while hidden.
     var jumpTarget: CGRect = .null
 
+    /// The key row's clip view and the composer's host view: the band
+    /// between them (`TerminalDockMetrics.keyRowGap`) is the composer's.
+    weak var keyRow: UIView?
+    weak var composer: UIView?
+    /// A tap in that band: focus the composer.
+    var onGapTap: (() -> Void)?
+
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard let hit = super.hitTest(point, with: event) else { return nil }
+        if hit === self, let gap = composerGap, gap.contains(point) { return self }
         guard let row = jumpRow, hit === self || hit === row || hit.isDescendant(of: row) else { return hit }
         let inRow = convert(point, to: row)
         return Self.passesThrough(inRow, rowBounds: row.bounds, target: jumpTarget) ? nil : hit
+    }
+
+    /// The band between a shown key row and a shown composer, full width, in
+    /// the stack's coordinates; nil when either is hidden or they touch.
+    var composerGap: CGRect? {
+        guard let keyRow, let composer, !keyRow.isHidden, keyRow.alpha > 0.01, !composer.isHidden else { return nil }
+        return Self.gap(below: keyRow.frame, above: composer.frame, width: bounds.width)
+    }
+
+    nonisolated static func gap(below keyRow: CGRect, above composer: CGRect, width: CGFloat) -> CGRect? {
+        let top = keyRow.maxY, bottom = composer.minY
+        guard bottom > top else { return nil }
+        return CGRect(x: 0, y: top, width: width, height: bottom - top)
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        if let touch = touches.first, touch.view === self, let gap = composerGap,
+           gap.insetBy(dx: 0, dy: -2).contains(touch.location(in: self)) {
+            onGapTap?()
+            return
+        }
+        super.touchesEnded(touches, with: event)
     }
 
     /// A point in the row (row coordinates) outside the button's target is
