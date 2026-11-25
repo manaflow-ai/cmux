@@ -356,7 +356,13 @@ jobs:
     # merge_group runs this file from the queue commit (PR content), so it never gets an
     # environment or secrets (the environments allow only main and feat-cmux-next); the queue
     # only admits PRs whose pull_request_target gate passed. Fork PRs never get secrets here.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_GATE_SKIP_FLEET != '1' && 'cmux-gcp-gate-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted tokens; the required-gate JIT label first, then CI_TRUSTED_RUNNER picks GitHub-hosted or Blacksmith
+    # A plan that succeeded and found no migration change leaves this job one echo: no checkout, no
+    # environment, no secret read (every step past the echo is skipped), so it takes cmux-linux, the
+    # persistent pool, not a one-job gate VM. runs-on is read after needs finish, so the plan's answer
+    # picks the runner; a failed, cancelled or skipped plan, or one that found migrations, keeps the
+    # gate label. 2026-11-25 21:22-21:50Z: about 126 PR heads in 20 min each queued plan and this job on
+    # cmux-gcp-gate-jit-x64; 96 of the 127 queued gate jobs were this echo, and gate jobs waited ~14 min.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_GATE_SKIP_FLEET != '1' && needs.plan.result == 'success' && needs.plan.outputs.migrations == 'false' && 'cmux-linux' || vars.CI_GATE_SKIP_FLEET != '1' && 'cmux-gcp-gate-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted tokens; the required-gate JIT label first, then CI_TRUSTED_RUNNER picks GitHub-hosted or Blacksmith
     # Under 10s without migration changes; with them, bun install and a verify.
     timeout-minutes: 15
     # The environment's deployment-branch policy (main, feat-cmux-next, their merge-queue

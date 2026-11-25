@@ -65,6 +65,13 @@ POOL_JOBS = {
     ("merge-group-policy-checks.yml", "cla-assistant"),
     ("merge-group-policy-checks.yml", "cla-policy-guard"),
 }
+# A job whose work is one echo once its plan succeeded and found no migration change leads with cmux-linux only on that
+# answer, then the gate label: runs-on is read after needs finish, so the plan picks the runner. Any other plan result
+# (failed, cancelled, skipped, or migrations to verify against the databases) keeps the one-job gate VM. 2026-11-25
+# 21:22-21:50Z: 96 of 127 queued gate jobs were this echo, behind about 126 PR heads in 20 min, ~14 min waits.
+NO_CHANGE_POOL_OPERAND = ("vars.CI_GATE_SKIP_FLEET != '1' && needs.plan.result == 'success' && "
+                          "needs.plan.outputs.migrations == 'false' && '" + POOL_LABEL + "' || ")
+NO_CHANGE_POOL_JOBS = {("backend-migrations.yml", "gate")}
 CLA_SELECTOR = (FORK_BRANCH + "contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\","
                 "\"blacksmith-4vcpu-ubuntu-2404\"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || "
                 "'blacksmith-4vcpu-ubuntu-2404' }}")
@@ -112,7 +119,23 @@ class RequiredGateLabelTest(unittest.TestCase):
             with self.subTest(workflow=name, job=job_id, check=check):
                 value = runs_on(load(name)["jobs"][job_id])
                 operand = POOL_OPERAND if (name, job_id) in POOL_JOBS else GATE_OPERAND
+                if (name, job_id) in NO_CHANGE_POOL_JOBS:
+                    operand = NO_CHANGE_POOL_OPERAND + GATE_OPERAND
                 self.assertTrue(value.startswith(FORK_BRANCH + operand), value)
+
+    def test_only_a_plan_that_found_no_migrations_moves_the_gate_off_the_label(self) -> None:
+        # The pool operand must name both the plan's success and an explicit 'false': an empty output (a plan that
+        # failed before it wrote one) or 'true' (migrations to verify with the databases' secrets) keeps the one-job VM.
+        self.assertIn("needs.plan.result == 'success'", NO_CHANGE_POOL_OPERAND)
+        self.assertIn("needs.plan.outputs.migrations == 'false'", NO_CHANGE_POOL_OPERAND)
+        gate = load("backend-migrations.yml")["jobs"]["gate"]
+        self.assertIn("plan", gate["needs"])
+        for step in gate["steps"]:
+            text = str(step.get("env", "")) + str(step.get("with", "")) + str(step.get("run", ""))
+            if "secrets." in text or step.get("uses", "").startswith("actions/checkout"):
+                with self.subTest(step=step.get("name") or step.get("uses")):
+                    self.assertIn("needs.plan.outputs.migrations == 'true'", str(step.get("if", "")))
+        self.assertIn("needs.plan.outputs.migrations == 'true'", gate["environment"])
 
     def test_a_staged_job_keeps_the_admitted_selector_until_its_step(self) -> None:
         for (name, job_id), step in sorted(STAGED.items()):
@@ -139,6 +162,8 @@ class RequiredGateLabelTest(unittest.TestCase):
         for name, job_id in sorted(set(GATE_JOBS) - set(STAGED)):
             with self.subTest(workflow=name, job=job_id):
                 operand = POOL_OPERAND if (name, job_id) in POOL_JOBS else GATE_OPERAND
+                if (name, job_id) in NO_CHANGE_POOL_JOBS:
+                    operand = NO_CHANGE_POOL_OPERAND + GATE_OPERAND
                 after = runs_on(load(name)["jobs"][job_id]).replace(operand, "", 1)
                 self.assertNotIn(GATE_LABEL, after)
                 self.assertTrue(after.startswith(FORK_BRANCH), after)

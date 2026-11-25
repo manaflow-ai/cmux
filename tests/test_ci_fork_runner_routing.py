@@ -139,6 +139,8 @@ SMALL_TRUSTED_RUNNER_EXPRESSION = TRUSTED_RUNNER_EXPRESSION.replace(',"blacksmit
 # turns it off and the selector after it is unchanged, so it can only ever add that one literal label.
 GATE_JIT_LABEL = "cmux-gcp-gate-jit-x64"
 GATE_FIRST_OPERAND = "vars.CI_GATE_SKIP_FLEET != '1' && '" + GATE_JIT_LABEL + "' || "
+GATE_NO_CHANGE_POOL_OPERAND = ("vars.CI_GATE_SKIP_FLEET != '1' && needs.plan.result == 'success' && "
+                               "needs.plan.outputs.migrations == 'false' && 'cmux-linux' || ")
 GATE_TRUSTED_RUNNER_EXPRESSION = TRUSTED_RUNNER_EXPRESSION.replace(
     "'ubuntu-24.04' || ", "'ubuntu-24.04' || " + GATE_FIRST_OPERAND, 1)
 GATE_CLA_TRUSTED_RUNNER_EXPRESSION = CLA_TRUSTED_RUNNER_EXPRESSION.replace(
@@ -1647,7 +1649,12 @@ class ForkRunnerRoutingTests(unittest.TestCase):
                                                        "runs-on: " + GATE_CLA_TRUSTED_RUNNER_EXPRESSION))
                 if workflow == "backend-migrations.yml":
                     # The required gates' reserved label leads (test_ci_required_gate_label.py).
-                    self.assertEqual(runs_on[0].split(" #", 1)[0].strip(), "runs-on: " + GATE_TRUSTED_RUNNER_EXPRESSION)
+                    # The gate job leads with cmux-linux only when its plan succeeded with no migration change
+                    # (test_ci_required_gate_label.py NO_CHANGE_POOL_OPERAND).
+                    expected = GATE_TRUSTED_RUNNER_EXPRESSION
+                    if job == "gate":
+                        expected = expected.replace("'ubuntu-24.04' || ", "'ubuntu-24.04' || " + GATE_NO_CHANGE_POOL_OPERAND, 1)
+                    self.assertEqual(runs_on[0].split(" #", 1)[0].strip(), "runs-on: " + expected)
 
     def test_the_gate_label_passes_only_as_the_literal_operand_ahead_of_the_trusted_selector(self) -> None:
         # A trusted-token gate may lead with cmux-gcp-gate-jit-x64 (one VM per job, deleted after it). Only that
