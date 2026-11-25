@@ -12,8 +12,8 @@ pub enum Offer<T> {
     Queued,
     /// Queued; it replaced the older state for its stream, returned here (latest wins).
     Replaced(T),
-    /// Queued; the oldest bulk item made room and is returned here.
-    DroppedOldest(T),
+    /// Queued; the oldest bulk items made room and are returned here, oldest first.
+    DroppedOldest(Vec<T>),
     /// The class is full: the item is handed back, nothing was queued.
     Refused(T),
 }
@@ -26,6 +26,12 @@ struct Queue<T> {
 
 /// Items of type `T` queued by [`Class`]. `stream` keys latest-wins for [`Class::State`];
 /// other classes ignore it.
+///
+/// A class holds at most its byte bound, with two exceptions, both on purpose:
+/// - an empty class takes one item past its bound, so an oversized item still moves;
+/// - a state replacement always goes in, even when it is bigger than the state it
+///   replaces. Refusing it would leave the stale screen queued, which latest-wins exists to
+///   prevent. The excess is at most one item's growth per stream, and drains on `pop`.
 pub struct Scheduler<T> {
     queues: [Queue<T>; 4],
 }
@@ -55,13 +61,17 @@ impl<T> Scheduler<T> {
                 }
             }
             DropRule::DropOldest => {
-                if queue.bytes + len > queue.limit
+                let mut dropped = Vec::new();
+                while queue.bytes + len > queue.limit
                     && let Some((_, old_len, old)) = queue.items.pop_front()
                 {
                     queue.bytes -= old_len;
+                    dropped.push(old);
+                }
+                if !dropped.is_empty() {
                     queue.bytes += len;
                     queue.items.push_back((stream, len, item));
-                    return Offer::DroppedOldest(old);
+                    return Offer::DroppedOldest(dropped);
                 }
             }
         }
@@ -71,7 +81,7 @@ impl<T> Scheduler<T> {
     }
 
     /// The next item to send: the highest class with anything queued, oldest first.
-    pub fn next(&mut self) -> Option<(Class, T)> {
+    pub fn pop(&mut self) -> Option<(Class, T)> {
         Class::ALL.into_iter().find_map(|class| {
             let queue = &mut self.queues[class.rank() as usize];
             let (_, len, item) = queue.items.pop_front()?;

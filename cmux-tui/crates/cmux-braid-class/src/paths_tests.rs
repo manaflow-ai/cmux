@@ -45,3 +45,22 @@ fn ties_and_unmeasured_paths_keep_the_callers_order() {
     assert_eq!(ids(paths_for(Class::State, &paths)), [2]);
     assert_eq!(ids(paths_for(Class::Bulk, &paths)), [1, 2, 3]);
 }
+
+#[test]
+fn every_path_is_considered_past_the_fourth() {
+    // Six live mesh paths; the fastest and the fattest come last.
+    let paths = [
+        path(1, true, Some(90), Some(1_000)),
+        path(2, true, Some(80), Some(2_000)),
+        path(3, true, Some(70), Some(3_000)),
+        path(4, true, Some(60), Some(4_000)),
+        path(5, true, Some(20), Some(5_000)),
+        path(6, true, Some(10), Some(9_000)),
+    ];
+    assert_eq!(ids(paths_for(Class::Input, &paths)), [6, 5]);
+    assert_eq!(ids(paths_for(Class::State, &paths)), [6]);
+    assert_eq!(ids(paths_for(Class::Bulk, &paths)), [6, 5, 4, 3, 2, 1]);
+    // Bulk holds up to MAX_PICK paths.
+    let many: Vec<_> = (0..12).map(|i| path(i, true, None, Some(u64::from(i)))).collect();
+    assert_eq!(ids(paths_for(Class::Bulk, &many)), [11, 10, 9, 8, 7, 6, 5, 4]);
+}

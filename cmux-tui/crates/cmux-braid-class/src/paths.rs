@@ -18,16 +18,19 @@ pub struct PathView<Id> {
     pub capacity: Option<u64>,
 }
 
-/// The paths a class sends on, best first. At most four: a link never has more live paths
-/// than that, and a fixed array keeps the hot path allocation-free.
+/// The most paths a [`Pick`] holds: cmux-wg's mesh keeps at most eight per peer, the
+/// widest path set any link has. A fixed array keeps the hot path allocation-free.
+pub const MAX_PICK: usize = 8;
+
+/// The paths a class sends on, best first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Pick<Id> {
-    ids: [Option<Id>; 4],
+    ids: [Option<Id>; MAX_PICK],
 }
 
 impl<Id: Copy> Pick<Id> {
     fn new() -> Self {
-        Self { ids: [None; 4] }
+        Self { ids: [None; MAX_PICK] }
     }
 
     fn push(&mut self, id: Id) {
@@ -54,39 +57,39 @@ impl<Id: Copy> Pick<Id> {
     }
 }
 
-/// An unmeasured round trip sorts after every measured one.
-fn rtt_key<Id>(path: &PathView<Id>) -> Duration {
-    path.rtt.unwrap_or(Duration::MAX)
-}
-
-/// The paths `class` sends on, best first, from `paths` (dead ones are skipped).
+/// The paths `class` sends on, best first, from `paths` (dead ones are skipped). Every
+/// supplied path is considered, however many there are.
 ///
 /// - Input: the two lowest-RTT paths (each keystroke on both; first copy wins).
 /// - State and Ordered: the lowest-RTT path.
-/// - Bulk: every live path, most capacity first, to stripe over.
+/// - Bulk: every live path (up to [`MAX_PICK`]), most capacity first, to stripe over.
 ///
-/// Ties keep the caller's order, so a caller that lists its current path first stays on it.
+/// An unmeasured round trip sorts after every measured one, unmeasured capacity after every
+/// measured one. Ties keep the caller's order, so a caller that lists its current path
+/// first stays on it.
 pub fn paths_for<Id: Copy>(class: Class, paths: &[PathView<Id>]) -> Pick<Id> {
-    let mut slots: [Option<&PathView<Id>>; 4] = [None; 4];
-    let mut count = 0;
-    for (slot, path) in slots.iter_mut().zip(paths.iter().filter(|p| p.alive)) {
-        *slot = Some(path);
-        count += 1;
-    }
-    let alive = &mut slots[..count];
-    // Stable sorts: ties keep the caller's order.
     let take = match class {
-        Class::Bulk => {
-            alive.sort_by_key(|p| std::cmp::Reverse(p.map_or(0, |p| p.capacity.unwrap_or(0))));
-            count
-        }
-        _ => {
-            alive.sort_by_key(|p| p.map_or(Duration::MAX, rtt_key));
-            if class.duplicates() { 2 } else { 1 }
+        Class::Bulk => MAX_PICK,
+        _ if class.duplicates() => 2,
+        _ => 1,
+    };
+    // Lower key is better; selection keeps the earliest of equal keys.
+    let key = |p: &PathView<Id>| -> (u128, u64) {
+        match class {
+            Class::Bulk => (0, u64::MAX - p.capacity.unwrap_or(0)),
+            _ => (p.rtt.map_or(u128::MAX, |rtt| rtt.as_nanos()), 0),
         }
     };
+    let mut taken = [usize::MAX; MAX_PICK];
     let mut pick = Pick::new();
-    for path in alive.iter().take(take).flatten() {
+    for round in 0..take {
+        let best = paths
+            .iter()
+            .enumerate()
+            .filter(|(i, p)| p.alive && !taken[..round].contains(i))
+            .min_by_key(|(_, p)| key(p));
+        let Some((i, path)) = best else { break };
+        taken[round] = i;
         pick.push(path.id);
     }
     pick
