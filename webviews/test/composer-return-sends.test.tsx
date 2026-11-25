@@ -17,7 +17,9 @@ import { teardownDom } from "./support/domTeardown";
 import { importWithDom } from "./support/importWithDom";
 
 const { noChat, user } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
-const { cmuxCommandRefusal, mergedCommands } = await importWithDom(() => import("../src/agent-session/acpmux/cmuxCommands"));
+const { cmuxCommandRefusal, mergedCommands } = await importWithDom(
+  () => import("../src/agent-session/acpmux/cmuxCommands"),
+);
 const { translate } = await importWithDom(() => import("../src/agent-session/acpmux/i18n"));
 
 const scope = globalThis as Record<string, unknown>;

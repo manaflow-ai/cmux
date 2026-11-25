@@ -21,9 +21,7 @@ const { inlineToken, inlineTokenIds, promptBlocks, withoutInlineTokens } = await
 const { PASTE_CHIP_CHARS, PASTE_CHIP_WORDS, isLargePaste, pastedTextAttachment, resentAttachments, shownPrompt } =
   await importWithDom(() => import("../src/agent-session/acpmux/pastedText"));
 const { keptChips } = await importWithDom(() => import("../src/agent-session/acpmux/composer/keptAttachments"));
-const { setComposerSettings } = await importWithDom(
-  () => import("../src/agent-session/acpmux/composerSettings"),
-);
+const { setComposerSettings } = await importWithDom(() => import("../src/agent-session/acpmux/composerSettings"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [

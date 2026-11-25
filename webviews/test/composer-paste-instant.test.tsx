@@ -16,9 +16,7 @@ import { teardownDom } from "./support/domTeardown";
 import { importWithDom } from "./support/importWithDom";
 
 const { noChat } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
-const { setComposerSettings } = await importWithDom(
-  () => import("../src/agent-session/acpmux/composerSettings"),
-);
+const { setComposerSettings } = await importWithDom(() => import("../src/agent-session/acpmux/composerSettings"));
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
