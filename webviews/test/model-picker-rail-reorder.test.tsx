@@ -128,7 +128,6 @@ test("a drag moves a harness tab up the rail, keeps the order, and picks nothing
         onCombo={(combo) => picked.push(combo.model)}
         onHarness={(id) => picked.push(`harness:${id}`)}
         onEffort={() => {}}
-        favorites={new Set(["opus"])}
         quick={{}}
       />,
     ),

@@ -1153,5 +1153,5 @@ test("a harness this Mac does not have leads its list with its note and Install 
   const rows = [...popup().querySelectorAll("[role=listbox][aria-label] > .acpmux-cols-row")]
     .filter((row) => row.closest("[role=listbox]")?.getAttribute("aria-label") === translate("picker.model"))
     .map((row) => row.textContent?.trim());
-  expect(rows.slice(0, 3)).toEqual(["Not installed", translate("harnesses.install"), "Pro"]);
+  expect(rows.slice(0, 3)).toEqual(["Gemini not installed", translate("harnesses.install"), "Pro"]);
 });

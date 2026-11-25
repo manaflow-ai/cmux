@@ -124,7 +124,7 @@ describe("harnesses this machine does not have", () => {
     ]);
   });
 
-  test("the full picker lists uninstalled catalog models as disabled beside Install…", async () => {
+  test("the full picker lists no model of a harness this Mac does not have, only its note and Install…", async () => {
     const { createRoot } = await import("react-dom/client");
     const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
     const picked: string[] = [];
@@ -156,25 +156,20 @@ describe("harnesses this machine does not have", () => {
     expect(geminiTab).not.toBeUndefined();
     await act(async () => geminiTab.click());
     await settle();
-    const row = [...doc.querySelectorAll<HTMLButtonElement>('.acpmux-mp-models [role="option"]')].find((item) =>
-      item.textContent?.includes("Gemini 3.1 Pro"),
-    )!;
-    expect(row).not.toBeUndefined();
-    expect(row.disabled).toBe(true);
-    expect(row.getAttribute("aria-disabled")).toBe("true");
-    await act(async () => row.click());
+    // Lucas 2026-11-25: "never show models unless the user has it installed"; the note names it.
+    const models = doc.querySelector(".acpmux-mp-models")!;
+    expect(models.querySelectorAll('[role="option"]').length).toBe(0);
+    expect(models.textContent).toContain("Gemini CLI not installed");
     expect(picked).toEqual([]);
     const install = [...doc.querySelectorAll<HTMLButtonElement>(".acpmux-mp-models button")].find(
       (item) => item.textContent?.trim() === "Install…",
     )!;
     expect(install).not.toBeUndefined();
-    // Install leads the list: it comes before every inert catalog model row.
-    expect(install.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await act(async () => install.click());
     expect(added).toBe(1);
   });
 
-  test("the compact menu lists them with their models and an Install… row", async () => {
+  test("the compact menu lists no model of theirs, only the named note and an Install… row", async () => {
     const { createRoot } = await import("react-dom/client");
     const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
     const picked: string[] = [];
@@ -215,13 +210,9 @@ describe("harnesses this machine does not have", () => {
     await settle();
     expect(geminiTab.getAttribute("aria-selected")).toBe("true");
     const menu = doc.querySelector('.acpmux-cols [role="listbox"]')!;
-    expect(menu.textContent).toContain("Gemini 3.1 Pro");
-    expect(menu.querySelector(".acpmux-cols-note")?.textContent).toBe("Not installed");
-    const row = [...menu.querySelectorAll<HTMLElement>('[role="option"]')].find((item) =>
-      item.textContent?.includes("Gemini 3.1 Pro"),
-    )!;
-    expect(row.getAttribute("aria-disabled")).toBe("true");
-    await act(async () => row.click());
+    // No model of a harness this Mac does not have: only its named note and Install….
+    expect(menu.querySelectorAll('[role="option"]').length).toBe(0);
+    expect(menu.querySelector(".acpmux-cols-note")?.textContent).toBe("Gemini CLI not installed");
     expect(picked).toEqual([]);
     const install = [...menu.querySelectorAll<HTMLElement>('[role="button"]')].find(
       (item) => item.textContent === "Install…",

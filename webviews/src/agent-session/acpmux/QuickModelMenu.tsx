@@ -718,7 +718,9 @@ export function QuickModelMenu({
         <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
           {query
             ? t(families ? "picker.noMatchesFor" : "picker.noMatchesForQuery", { query })
-            : (shown?.note ?? (ownModel ? t("picker.chiefOwnModel") : t("picker.noModels")))}
+            : shown?.setUp
+              ? t("harnesses.notInstalledNamed", { agent: shownTab?.name ?? shown.name })
+              : (shown?.note ?? (ownModel ? t("picker.chiefOwnModel") : t("picker.noModels")))}
         </MenuItem>
       ) : (
         // A harness that is not installed says why none of its models can start, and its Install row
@@ -727,7 +729,7 @@ export function QuickModelMenu({
         shown?.note &&
         shown.setUp && (
           <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
-            {shown.note}
+            {t("harnesses.notInstalledNamed", { agent: shownTab?.name ?? shown.name })}
           </MenuItem>
         )
       )}

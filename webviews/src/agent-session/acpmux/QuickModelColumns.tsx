@@ -1797,13 +1797,17 @@ function Columns({
                 {tabEmpty && (
                   <div className="acpmux-cols-row acpmux-cols-note" aria-disabled="true">
                     <span className="acpmux-cols-name">
-                      {shown.note ?? (shown.starred ? t("picker.starredNone") : t("picker.noModelsYet"))}
+                      {shown.setUp
+                        ? t("harnesses.notInstalledNamed", { agent: shownTab?.name ?? shown.name })
+                        : (shown.note ?? (shown.starred ? t("picker.starredNone") : t("picker.noModelsYet")))}
                     </span>
                   </div>
                 )}
                 {!query && shown?.note && rows.length > 0 && shown.setUp && (
                   <div className="acpmux-cols-row acpmux-cols-note" aria-disabled="true">
-                    <span className="acpmux-cols-name">{shown.note}</span>
+                    <span className="acpmux-cols-name">
+                      {t("harnesses.notInstalledNamed", { agent: shownTab?.name ?? shown.name })}
+                    </span>
                   </div>
                 )}
                 {!query && shown?.note && shown.logIn && (
