@@ -145,7 +145,8 @@ class WorkflowShape(unittest.TestCase):
         inputs = json.loads((ROOT / "scripts/ci/fast-check-inputs.json").read_text())[
             "workflows"][".github/workflows/cmux-next-fast-gates.yml"]["fast-gates"]["inputs"]
         step = step_named(job(workflow())["steps"], "Checkout")
-        self.assertEqual(step["with"]["filter"], "blob:none")
+        # A same-repo pull request reads the pool's git mirror (no blob filter); a fork or a dispatch stays blobless.
+        self.assertEqual(step["with"]["filter"], "${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && '' || 'blob:none' }}")
         patterns = step["with"]["sparse-checkout"].split()
         for path in inputs:
             with self.subTest(input=path):
