@@ -38,10 +38,23 @@ const agent = (name: string, minutes: number, action: string): Subagent => ({
 });
 
 /** A Codex chat with `status`'s goal; `hat` adds two running subagents and a queued prompt under it. */
-function goalChat(status: TaskGoal["status"], hat = false, objective?: string): AcpmuxSnapshot {
+function goalChat(status: TaskGoal["status"], hat = false, objective?: string, plan = false): AcpmuxSnapshot {
   const rows = [
     user("Keep going on the review queue", 34),
     assistant("Landed #38102. Splitting the next one.", 6),
+    // A plan of its own under the goal (the person, 2026-11-23, on Goal running over "0 of 3": "icons are
+    // not matching properly"): the hat then heads with the plan.
+    ...(plan
+      ? [
+          row("plan", 4, {
+            plan: [
+              { content: "Dev backend stack on the GCP VM for the build's tag", status: "in_progress" as const },
+              { content: "Build the tagged app", status: "pending" as const },
+              { content: "Verify on the MacBook", status: "pending" as const },
+            ],
+          }),
+        ]
+      : []),
     ...(hat
       ? [
           row(SUBAGENTS, 5, {
@@ -114,6 +127,10 @@ export default agentPaneEntry({
     "with-hat": {
       note: "The goal heads the hat over two running subagents and a queued prompt: one glass stack, every time and chevron in the same trailing columns.",
       snapshot: goalChat("running", true),
+    },
+    "with-plan": {
+      note: "The goal over the turn's plan: the goal's dot, the plan's mark and + share one leading column, their words one start, and the chevrons and the panel button one trailing edge, at every density.",
+      snapshot: goalChat("running", false, undefined, true),
     },
     "with-hat-open": {
       note: "Opened in place over the running lines: the objective's first line stays where it was, the rest and Updated unfold under it, the hat grows upward.",

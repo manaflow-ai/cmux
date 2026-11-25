@@ -263,17 +263,6 @@ const oneLine = (text: string) => text.split(/\s+/).filter(Boolean).join(" ");
 /// one acpmux lists, else the one its newest `queued` or `queue_updated` record named (`authors`, by
 /// prompt id: null when that record named none), else the one the pane had: an attach's page can
 /// hold a teammate's edit without the `queued` record before it.
-/// A chat's `rollingSummary` (acpmux `RollingSummary`) as the pane's summary field: nothing
-/// before its first summary or for a blank one.
-export function rollingSummaryOf(raw: unknown): { rollingSummary?: { text: string; next?: string } } {
-  if (!raw || typeof raw !== "object") return {};
-  const { text: rawText, next: rawNext } = raw as Record<string, unknown>;
-  const text = typeof rawText === "string" ? rawText.trim() : "";
-  if (!text) return {};
-  const next = typeof rawNext === "string" ? rawNext.trim() : "";
-  return { rollingSummary: next ? { text, next } : { text } };
-}
-
 /// A queue list's `subagentRetry` (acpmux `QueuedSubagentRetry`) as a row's resume.
 function listedRetry(raw: unknown): SubagentRetryNotice | undefined {
   if (!raw || typeof raw !== "object") return undefined;

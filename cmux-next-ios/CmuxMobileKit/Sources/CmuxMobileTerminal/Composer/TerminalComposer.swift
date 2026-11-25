@@ -163,25 +163,6 @@ struct TerminalComposer: View {
         .accessibilityIdentifier("terminal.composer.attach")
     }
 
-    /// Voice mode on this terminal's agent (replaces classic's dictation
-    /// mic): its replies read aloud, the user's speech typed in as prompts.
-    /// Filled and moving while it runs here; a tap ends it.
-    private func voiceButton(_ source: any AgentVoiceSource) -> some View {
-        let active = voice.isActive(source.voiceSourceID)
-        return Button {
-            voice.toggle(source)
-        } label: {
-            Image(systemName: "waveform")
-                .font(.system(size: 17))
-                .foregroundStyle(active ? AnyShapeStyle(Color.cmuxMobileOnAccent) : AnyShapeStyle(look.ink))
-                .symbolEffect(.variableColor.iterative, isActive: active)
-                .composerControlCircle(active ? Color.cmuxMobileAccent : Color.clear)
-        }
-        .buttonStyle(.cmuxPressFillInLabel)
-        .accessibilityLabel(active ? "End Voice Mode" : "Voice Mode")
-        .accessibilityIdentifier("terminal.composer.voice")
-    }
-
     /// The agent chat's card (``ComposerCard``): `+` (and voice when it sits left), the draft,
     /// Send, on one row while the draft fits; attachments over them inside the card. On the
     /// terminal theme's colors over the same Liquid Glass, so it reads as part of the pane.
@@ -194,7 +175,7 @@ struct TerminalComposer: View {
         } leading: {
             HStack(spacing: 0) {
                 attachMenu
-                if voice.placement == .leading, let source = voiceSource { voiceButton(source) }
+                if voice.placement == .leading, let source = model.voiceSource { TerminalComposerVoiceSlot(source: source, ink: look.ink) }
             }
         } field: {
             ComposerTextView(
@@ -542,6 +523,36 @@ struct TerminalCameraPicker: UIViewControllerRepresentable {
         }
 
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { parent.dismiss() }
+    }
+}
+
+/// The voice circle, when the tab's agent offers voice (`AgentVoiceSource.voiceAvailable`).
+/// Its own view so what that reads (the store's workspaces, moved by every Mac push)
+/// re-renders this circle alone, never the composer's field (ask-4a87599079).
+private struct TerminalComposerVoiceSlot: View {
+    let source: any AgentVoiceSource
+    /// The terminal theme's ink, as on the card's other controls.
+    let ink: Color
+    private let voice = AgentVoiceLauncher.shared
+
+    var body: some View {
+        if source.voiceAvailable, voice.isAvailable {
+            let active = voice.isActive(source.voiceSourceID)
+            // The card's control circle (`composerControlCircle`), as the chat's composer draws it:
+            // filled and moving while voice runs here; a tap ends it.
+            Button {
+                voice.toggle(source)
+            } label: {
+                Image(systemName: "waveform")
+                    .font(.system(size: 17))
+                    .foregroundStyle(active ? AnyShapeStyle(Color.cmuxMobileOnAccent) : AnyShapeStyle(ink))
+                    .symbolEffect(.variableColor.iterative, isActive: active)
+                    .composerControlCircle(active ? Color.cmuxMobileAccent : Color.clear)
+            }
+            .buttonStyle(.cmuxPressFillInLabel)
+            .accessibilityLabel(active ? "End Voice Mode" : "Voice Mode")
+            .accessibilityIdentifier("terminal.composer.voice")
+        }
     }
 }
 #endif

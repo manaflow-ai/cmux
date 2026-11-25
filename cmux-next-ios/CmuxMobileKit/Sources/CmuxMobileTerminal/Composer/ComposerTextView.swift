@@ -78,6 +78,10 @@ struct ComposerTextView: UIViewRepresentable {
     }
 
     func updateUIView(_ view: ComposerUITextView, context: Context) {
+        ComposerKeyStamp.viewUpdate(view) { update(view, context: context) }
+    }
+
+    private func update(_ view: ComposerUITextView, context: Context) {
         context.coordinator.parent = self
         if context.coordinator.lastTypeSize != dynamicTypeSize {
             context.coordinator.lastTypeSize = dynamicTypeSize
