@@ -608,6 +608,12 @@ struct TransportPage: View {
                 Text("Auto sends no extra data while the network is clean, and repair data within a round trip of the first lost packet, so a dropped packet costs milliseconds instead of seconds. On cellular, Auto keeps the repair data within the data it protects; Always sends it on every network, at about 2 to 3 times the data. Applies at the next connection.")
             }
             Section {
+                Toggle(isOn: $settings.quietConnections) {
+                    Text(String(localized: "mobile.transport.quietConnections", defaultValue: "Quiet Connections", bundle: .module))
+                }
+                .accessibilityIdentifier("settings.transport.quietConnections")
+            }
+            Section {
                 Toggle(isOn: $settings.alignKeepalives) {
                     Text("Align keepalives")
                 }
