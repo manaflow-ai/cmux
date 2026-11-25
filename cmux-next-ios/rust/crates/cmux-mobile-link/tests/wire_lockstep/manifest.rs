@@ -276,6 +276,7 @@ pub(super) fn manifest() -> Manifest {
         up_s: 0,
         end: Some("app"),
         lib: "test",
+        egress: Some("proxy"),
         // Every optional field set, so each one's wire name is in the manifest.
         portmap: Some(link_stat::PortmapStat { by: "pcp", used: true }),
         echo: key_echo::Summary::of(&[1]),

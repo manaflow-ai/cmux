@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.wallpaperSwitch.locationInvalid" : {
+      "comment" : "Location field error.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enter latitude, longitude (37.77,-122.42), or leave it empty."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "أدخل خط العرض، خط الطول (37.77,-122.42) أو اتركه فارغًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unesite geografsku širinu, dužinu (37.77,-122.42) ili ostavite prazno."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Angiv breddegrad, længdegrad (37.77,-122.42), eller lad feltet være tomt."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gib Breite, Länge ein (37.77,-122.42) oder lass das Feld leer."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Escribe latitud, longitud (37.77,-122.42) o déjalo vacío."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saisissez latitude, longitude (37.77,-122.42) ou laissez vide."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Inserisci latitudine, longitudine (37.77,-122.42) o lascia vuoto."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "緯度,経度(37.77,-122.42)を入力するか、空欄のままにします。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បញ្ចូលរយៈទទឹង រយៈបណ្តោយ (37.77,-122.42) ឬទុកទទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "위도,경도(37.77,-122.42)를 입력하거나 비워 두세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Skriv inn breddegrad, lengdegrad (37.77,-122.42), eller la feltet stå tomt."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wpisz szerokość, długość (37.77,-122.42) lub zostaw puste."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Digite latitude, longitude (37.77,-122.42) ou deixe vazio."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Введите широту, долготу (37.77,-122.42) или оставьте пустым."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ป้อนละติจูด ลองจิจูด (37.77,-122.42) หรือเว้นว่างไว้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enlem, boylam girin (37.77,-122.42) veya boş bırakın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Введіть широту, довготу (37.77,-122.42) або залиште порожнім."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nhập vĩ độ, kinh độ (37.77,-122.42) hoặc để trống."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "输入纬度,经度（37.77,-122.42），或留空。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "輸入緯度,經度（37.77,-122.42），或留空。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

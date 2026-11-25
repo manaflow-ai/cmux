@@ -69,6 +69,7 @@ host_services! {
     (File, "file"),
     (FilePreview, "file-preview"),
     (Upload, "upload"),
+    (Bundle, "bundle"),
     (Version, "version"),
     (Machine, "machine"),
     (NeedsYou, "needs-you"),
@@ -103,6 +104,7 @@ pub const APPEARANCE: &str = "appearance-v1";
 pub const PAIR_REQUESTS: &str = "pair-requests-v1";
 pub const PHONE_FRAMES: &str = "phone-frames-v1";
 pub const TAB_SNAPSHOTS: &str = "tab-snapshots-v1";
+pub const BUNDLE: &str = "bundle-v1";
 pub const BROWSER_STREAM: &str = "browser-stream-v1";
 pub const BROWSER_VIDEO_TRACK: &str = "browser-video-track-v1";
 pub const SURFACE_STREAM: &str = "surface-stream-v1";
@@ -212,6 +214,11 @@ pub const ALL: &[Capability] = &[
         // The items themselves are sealed; on the wire it adds the queue position (`seq`), which an
         // older hub omits and an older Mac ignores.
         &["field:mailbox.items#seq"],
+    ),
+    host(
+        BUNDLE,
+        "(2026-11-24) The host serves `bundle`: an attachment upload (`put`) or file open (`get`) as sealed content-defined chunks, so a file the far end already holds costs one round trip and its manifest.",
+        &["service:bundle", "param:bundle#op"],
     ),
     host(
         BROWSER_STREAM,
