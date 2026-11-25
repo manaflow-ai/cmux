@@ -16,7 +16,7 @@ export const toServer = (row: OverlayServerRow) => new OverlayServer({ id: Optio
 
 /** Called under the mesh writer by both credential enrollment and approved codes. Does not persist. */
 export const prepareOverlayServer = <C, M>(caller: Named<C, Principal>, mesh: Named<M, MeshId>, binding: ServerBinding, expectedId?: string) => Effect.gen(function* () {
-  if ((yield* tenantOwnsMesh(caller, mesh).pipe(Effect.mapError(() => unavailable()))) === null) return yield* Effect.fail(new NotFound({ message: "Mesh not found" }));
+  if ((yield* tenantOwnsMesh(caller, mesh).pipe(Effect.mapError(unavailable))) === null) return yield* Effect.fail(new NotFound({ message: "Mesh not found" }));
   const store = yield* MeshStore;
   const servers = yield* store.listOverlayServers(caller.value.tenantId, mesh.value).pipe(Effect.catchAll(dependencyDown("overlay.list")));
   const existing = servers.find((row) => row.installPublicKey === binding.installPublicKey);

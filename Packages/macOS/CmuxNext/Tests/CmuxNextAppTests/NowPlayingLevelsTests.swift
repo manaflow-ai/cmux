@@ -1,13 +1,14 @@
 import AppKit
 @testable import CmuxNextSidebar
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
 /// The Now Playing card's level bars and its Play or Pause disc: the bars sway only while a track
 /// plays and motion is allowed, as endless render-server loops (no app timer), and rest still
 /// otherwise; Play or Pause is the one filled control and follows the track.
-@MainActor @Suite(.serialized) struct NowPlayingLevelsTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct NowPlayingLevelsTests {
     static let labels = SidebarNowPlaying.Labels(play: "Play", pause: "Pause", previous: "Previous Track", next: "Next Track")
 
     static func track(playing: Bool) -> SidebarNowPlaying {

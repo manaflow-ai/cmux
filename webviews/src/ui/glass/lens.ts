@@ -4,7 +4,8 @@
 // (`cmuxTheme.backdrop`), and this module draws it once more, on one WebGL canvas behind all content
 // (--layer-backdrop), composited under the same native tint and page color: outside the glass the
 // copy equals what is under the page, and inside each `.ui-glass` rounded rect it is bent inward at
-// the rim, frosted, and (Spectrum) split per channel.
+// the rim, frosted, (Spectrum) split per channel, lit along the rim (--glass-gloss) and, if a surface
+// asks, zoomed a little at the center (--glass-magnify).
 //
 // Cost: nothing at all (no canvas, no listeners but the mode and backdrop watchers) under plain
 // glass, Reduce Transparency, with no still, or with no glass in the document. Otherwise a
@@ -17,6 +18,7 @@ import {
   GLASS_ATTRIBUTE,
   GLASS_CLASS,
   LENS_ATTRIBUTE,
+  LIVE_BACKGROUND_ATTRIBUTE,
   NATIVE_GLASS_ATTRIBUTE,
   installBackdropFallback,
   powerOfTwo,
@@ -25,6 +27,23 @@ import {
   type BackdropState,
   type GlassMode,
 } from "./glassState";
+import { shaderSource, type GlassShaderDialect } from "./glslDialect";
+import { experimentArm } from "../../experiments/experiment";
+import {
+  ENGINE_ADAPT,
+  ENGINE_IOR,
+  ENGINE_UNIFORMS,
+  GLASS_ENGINE_ATTRIBUTE,
+  GLASS_ENGINE_DRAWS_ATTRIBUTE,
+  PointerLight,
+  Prefilter,
+  motionHeld,
+  nextEnergy,
+} from "./engine/engineRenderer";
+import { ENGINE_FRAGMENT, PREFILTER_FRAGMENT, PREFILTER_VERTEX } from "./engine/engineShader";
+import { glassEngine } from "./engine/glassEngine.experiment";
+
+export type { GlassShaderDialect };
 
 /** The most glass surfaces drawn at once; more on screen draw as plain CSS glass. */
 const MAX_RECTS = 32;
@@ -36,8 +55,8 @@ const JOIN_REACH = 240;
 /** Unchanged frames before the loop stops. */
 const STABLE_FRAMES = 20;
 /** Floats per vertex: position 2, rect 4, clip 4, shape 4 (radius, refraction, blur, dispersion),
- * extra 2 (opacity, unused). */
-const FLOATS = 16;
+ * extra 4 (opacity, gloss, magnify, unused). */
+const FLOATS = 18;
 const VERTICES = 6;
 const MAX_TEXTURE = 1024;
 const REDUCE_TRANSPARENCY = "(prefers-reduced-transparency: reduce)";
@@ -52,11 +71,19 @@ type Surface = {
   refraction: number;
   blur: number;
   dispersion: number;
+  /** --glass-gloss: the specular light the rim catches, 0 to 1 (none: 0). */
+  gloss: number;
+  /** --glass-magnify: how much the center zooms the wallpaper, 0 to 0.2 (none: 0). */
+  magnify: number;
   opacity: number;
   visible: boolean;
   /** Ancestors that clip it (overflow other than visible), nearest first. */
   clippers: Element[];
   stale: boolean;
+  /** The engine's motion: the box's last center (CSS px) and its energy, 0 to 1. */
+  cx: number;
+  cy: number;
+  energy: number;
 };
 
 type Program = {
@@ -65,6 +92,11 @@ type Program = {
   buffer: WebGLBuffer;
   texture: WebGLTexture;
   uniforms: Record<string, WebGLUniformLocation | null>;
+  /** The glass engine draws (engine/): its shader, and the still blurred once by its prefilter. */
+  engine: boolean;
+  prefilter: Prefilter | null;
+  /** What the shader samples: the still, or the engine's prefiltered copy of it. */
+  sampled: WebGLTexture;
 };
 
 const VERTEX = `
@@ -72,13 +104,13 @@ ATTR vec2 a_pos;
 ATTR vec4 a_rect;
 ATTR vec4 a_clip;
 ATTR vec4 a_shape;
-ATTR vec2 a_extra;
+ATTR vec4 a_extra;
 uniform vec2 u_view;
 VARY vec2 v_p;
 VARY vec4 v_rect;
 VARY vec4 v_clip;
 VARY vec4 v_shape;
-VARY vec2 v_extra;
+VARY vec4 v_extra;
 void main() {
   v_p = a_pos;
   v_rect = a_rect;
@@ -104,7 +136,7 @@ VARY vec2 v_p;
 VARY vec4 v_rect;
 VARY vec4 v_clip;
 VARY vec4 v_shape;
-VARY vec2 v_extra;
+VARY vec4 v_extra;
 OUT_DECL
 
 float sdRound(vec2 p, vec2 b, float r) {
@@ -162,52 +194,50 @@ void main() {
     n *= vec2(lp.x < 0.0 ? -1.0 : 1.0, lp.y < 0.0 ? -1.0 : 1.0);
     float sigma = sqrt(u_artBlur * u_artBlur + v_shape.z * v_shape.z);
     float d = v_shape.w;
-    vec2 at = v_p - n * bend;
+    // Magnify: the center reads the wallpaper a little closer, as a thick lens does.
+    vec2 base = v_p - lp * v_extra.z;
+    vec2 at = base - n * bend;
     if (d > 0.0) {
       color = vec3(
         frosted(at, sigma).r,
-        frosted(v_p - n * bend * (1.0 + d), sigma).g,
-        frosted(v_p - n * bend * (1.0 + 2.0 * d), sigma).b);
+        frosted(base - n * bend * (1.0 + d), sigma).g,
+        frosted(base - n * bend * (1.0 + 2.0 * d), sigma).b);
     } else {
       color = frosted(at, sigma);
     }
+    color = mix(color, u_tint.rgb, u_tint.a);
+    color = mix(color, u_surface.rgb, u_surface.a);
+    // Gloss: the rim facing the light (above, a little left) catches a bright line that thins
+    // away round the corners, the opposite rim a fainter one, as light through a thick edge.
+    // No texture taps: a few ALU ops per rim pixel.
+    float gloss = v_extra.y;
+    if (gloss > 0.0) {
+      float facing = dot(n, normalize(vec2(-0.42, -1.0)));
+      float rim = 1.0 - smoothstep(0.0, max(1.5, min(band * 0.4, 7.0)), -sd);
+      float light = pow(max(facing, 0.0), 2.0) + 0.4 * pow(max(-facing, 0.0), 3.0);
+      color += vec3(rim * light * gloss * 0.6);
+    }
+    OUT_COLOR = vec4(min(color, vec3(1.0)) * alpha, alpha);
+    return;
   }
   color = mix(color, u_tint.rgb, u_tint.a);
   color = mix(color, u_surface.rgb, u_surface.a);
   OUT_COLOR = vec4(color * alpha, alpha);
 }`;
 
-/** How the fragment shader reads a mip level: WebGL2's textureLod, WebGL1's EXT_shader_texture_lod,
- * or plain WebGL1, which has no explicit level in a fragment shader (a bias over the automatic one). */
-export type GlassShaderDialect = "webgl2" | "webgl1-lod" | "webgl1";
-
-function shaderSource(source: string, kind: "vertex" | "fragment", dialect: GlassShaderDialect): string {
-  if (dialect === "webgl2")
-    return (
-      "#version 300 es\nprecision highp float;\n" +
-      source
-        .replaceAll("ATTR ", "in ")
-        .replaceAll("VARY ", kind === "vertex" ? "out " : "in ")
-        .replace("OUT_DECL", "out vec4 cmuxColor;")
-        .replace("OUT_COLOR", "cmuxColor")
-        .replaceAll("SAMPLE(", "textureLod(")
-    );
-  const lod = dialect === "webgl1-lod" && kind === "fragment";
-  return (
-    (lod ? "#extension GL_EXT_shader_texture_lod : enable\n" : "") +
-    "precision highp float;\n" +
-    source
-      .replaceAll("ATTR ", "attribute ")
-      .replaceAll("VARY ", "varying ")
-      .replace("OUT_DECL", "")
-      .replace("OUT_COLOR", "gl_FragColor")
-      .replaceAll("SAMPLE(", lod ? "texture2DLodEXT(" : "texture2D(")
-  );
-}
-
-/** Both shaders in a dialect, for tests that compile every dialect a browser can take. */
-export function glassShaderSources(dialect: GlassShaderDialect): { vertex: string; fragment: string } {
-  return { vertex: shaderSource(VERTEX, "vertex", dialect), fragment: shaderSource(FRAGMENT, "fragment", dialect) };
+/** A program's two shaders in a dialect, for tests that compile every dialect a browser can take:
+ * the lens's, the glass engine's, or the engine's prefilter. */
+export function glassShaderSources(
+  dialect: GlassShaderDialect,
+  kind: "lens" | "engine" | "prefilter" = "lens",
+): { vertex: string; fragment: string } {
+  if (kind === "prefilter")
+    return {
+      vertex: shaderSource(PREFILTER_VERTEX, "vertex", dialect),
+      fragment: shaderSource(PREFILTER_FRAGMENT, "fragment", dialect),
+    };
+  const fragment = kind === "engine" ? ENGINE_FRAGMENT : FRAGMENT;
+  return { vertex: shaderSource(VERTEX, "vertex", dialect), fragment: shaderSource(fragment, "fragment", dialect) };
 }
 
 function compile(gl: WebGLRenderingContext, type: number, source: string): WebGLShader | null {
@@ -222,7 +252,7 @@ function compile(gl: WebGLRenderingContext, type: number, source: string): WebGL
   return shader;
 }
 
-function createProgram(canvas: HTMLCanvasElement): Program | null {
+function createProgram(canvas: HTMLCanvasElement, engine: boolean): Program | null {
   const options: WebGLContextAttributes = {
     alpha: true,
     premultipliedAlpha: true,
@@ -241,7 +271,11 @@ function createProgram(canvas: HTMLCanvasElement): Program | null {
       ? "webgl1-lod"
       : "webgl1";
   const vertex = compile(gl, gl.VERTEX_SHADER, shaderSource(VERTEX, "vertex", dialect));
-  const fragment = compile(gl, gl.FRAGMENT_SHADER, shaderSource(FRAGMENT, "fragment", dialect));
+  const fragment = compile(
+    gl,
+    gl.FRAGMENT_SHADER,
+    shaderSource(engine ? ENGINE_FRAGMENT : FRAGMENT, "fragment", dialect),
+  );
   const program = gl.createProgram();
   if (!vertex || !fragment || !program) return null;
   gl.attachShader(program, vertex);
@@ -253,19 +287,15 @@ function createProgram(canvas: HTMLCanvasElement): Program | null {
     console.warn("cmux glass lens: link", gl.getProgramInfoLog(program));
     return null;
   }
-  gl.useProgram(program);
   const buffer = gl.createBuffer();
   const texture = gl.createTexture();
   if (!buffer || !texture) return null;
+  const prefilter = engine ? Prefilter.create(gl, dialect) : null;
+  // No prefilter (a framebuffer the driver refuses): the lens as it ships.
+  if (engine && !prefilter) return createProgram(canvas, false);
   gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
   gl.bufferData(gl.ARRAY_BUFFER, MAX_RECTS * VERTICES * FLOATS * 4, gl.DYNAMIC_DRAW);
-  const sizes = [2, 4, 4, 4, 2];
-  let offset = 0;
-  sizes.forEach((size, index) => {
-    gl.enableVertexAttribArray(index);
-    gl.vertexAttribPointer(index, size, gl.FLOAT, false, FLOATS * 4, offset * 4);
-    offset += size;
-  });
+  bindProgram(gl, program, buffer);
   const uniforms: Program["uniforms"] = {};
   for (const name of [
     "u_view",
@@ -278,6 +308,7 @@ function createProgram(canvas: HTMLCanvasElement): Program | null {
     "u_pass",
     "u_margin",
     "u_dpr",
+    ...ENGINE_UNIFORMS,
   ])
     uniforms[name] = gl.getUniformLocation(program, name);
   gl.uniform1i(uniforms.u_tex!, 0);
@@ -286,7 +317,20 @@ function createProgram(canvas: HTMLCanvasElement): Program | null {
   gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
   gl.activeTexture(gl.TEXTURE0);
   gl.bindTexture(gl.TEXTURE_2D, texture);
-  return { gl, program, buffer, texture, uniforms };
+  return { gl, program, buffer, texture, uniforms, engine, prefilter, sampled: texture };
+}
+
+/** The glass program, its buffer and its five attributes, current (again, after the prefilter). */
+function bindProgram(gl: WebGLRenderingContext, program: WebGLProgram, buffer: WebGLBuffer): void {
+  gl.useProgram(program);
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+  const sizes = [2, 4, 4, 4, 4];
+  let offset = 0;
+  sizes.forEach((size, index) => {
+    gl.enableVertexAttribArray(index);
+    gl.vertexAttribPointer(index, size, gl.FLOAT, false, FLOATS * 4, offset * 4);
+    offset += size;
+  });
 }
 
 function px(value: string, fallback: number): number {
@@ -341,6 +385,17 @@ class GlassLens {
   private readonly clip = new Float64Array(4);
   private tint: RGBA = { r: 0, g: 0, b: 0, a: 0 };
   private surface: RGBA = { r: 0, g: 0, b: 0, a: 0 };
+  /** The engine's text color and the theme surface its adaptive veil adds (readColors). */
+  private ink: RGBA = { r: 0, g: 0, b: 0, a: 1 };
+  private veil: RGBA = { r: 0, g: 0, b: 0, a: 1 };
+  /** The `glass-engine` experiment's arm, read once: a page reloads to change it. */
+  private readonly engineArm = experimentArm(glassEngine);
+  /** The engine draws (the host's ask or the experiment), and motion is held still. */
+  private engine = false;
+  private held = false;
+  /** The art blur the engine's prefilter ran at; NaN before it ran. */
+  private filteredBlur = Number.NaN;
+  private readonly light = new PointerLight(() => this.invalidate());
 
   /** Draws so far (tests read it through glassLensState). */
   draws = 0;
@@ -358,7 +413,14 @@ class GlassLens {
     this.rootWatch = new MutationObserver(this.reconcile);
     this.rootWatch.observe(this.root, {
       attributes: true,
-      attributeFilter: [GLASS_ATTRIBUTE, NATIVE_GLASS_ATTRIBUTE, "data-reduce-transparency"],
+      attributeFilter: [
+        GLASS_ATTRIBUTE,
+        NATIVE_GLASS_ATTRIBUTE,
+        LIVE_BACKGROUND_ATTRIBUTE,
+        GLASS_ENGINE_ATTRIBUTE,
+        "data-cmux-motion",
+        "data-reduce-transparency",
+      ],
     });
     this.mutations = new MutationObserver(this.onMutations);
     this.reconcile();
@@ -372,7 +434,26 @@ class GlassLens {
       drawing: this.drawing(),
       draws: this.draws,
       rects: this.rects,
+      engine: this.running && this.gpu?.engine === true,
+      prefilterRuns: this.gpu?.prefilter?.runs ?? 0,
     };
+  }
+
+  /** Draws `count` frames back to back and reads one pixel after the last, so the GPU finished them
+   * all, and returns the mean ms a frame took (bench/glass-engine.bench.ts); null while nothing draws. */
+  drawCost(count: number): number | null {
+    const gpu = this.gpu;
+    if (!this.drawing() || !gpu) return null;
+    const measured = this.measure();
+    const swap = this.current;
+    this.current = this.next;
+    this.next = swap;
+    this.currentCount = measured;
+    const pixel = new Uint8Array(4);
+    const start = performance.now();
+    for (let index = 0; index < count; index++) this.draw();
+    gpu.gl.readPixels(0, 0, 1, 1, gpu.gl.RGBA, gpu.gl.UNSIGNED_BYTE, pixel);
+    return (performance.now() - start) / count;
   }
 
   private drawing(): boolean {
@@ -389,8 +470,20 @@ class GlassLens {
       this.capable &&
       this.mode !== "plain" &&
       !this.root.hasAttribute(NATIVE_GLASS_ATTRIBUTE) &&
+      // A live background (ui/liveBackground) is drawn in the page: the host's still would cover it.
+      !this.root.hasAttribute(LIVE_BACKGROUND_ATTRIBUTE) &&
       this.backdrop.image !== null &&
       this.backdrop.rect !== null;
+    const engine = want && (this.engineArm === "on" || this.root.hasAttribute(GLASS_ENGINE_ATTRIBUTE));
+    this.held = motionHeld(this.root, this.view);
+    // The engine is its own program: switching between it and the lens starts the canvas again.
+    if (this.running && engine !== this.engine) this.stop();
+    this.engine = engine;
+    // Reduce Motion or the motion switch turned on while drawing: the light stops following.
+    if (this.running && this.gpu?.engine) {
+      if (this.held) this.light.detach();
+      else this.light.attach(this.doc);
+    }
     if (want !== this.armed) {
       this.armed = want;
       // `style` too: an inline move (a virtualized row, a drag) changes no class and fires no scroll.
@@ -422,6 +515,8 @@ class GlassLens {
   private readonly onBackdrop = () => {
     this.backdrop = readBackdrop(this.view);
     if (this.running) this.readColors();
+    // The engine's still is blurred by the art's blur: a new blur filters it again.
+    if (this.running && this.gpu?.engine && this.backdrop.blur !== this.filteredBlur) this.uploadTexture();
     this.needsDraw = true;
     this.reconcile();
   };
@@ -480,7 +575,8 @@ class GlassLens {
   };
   private readonly onContextRestored = () => {
     if (!this.canvas) return;
-    this.gpu = createProgram(this.canvas);
+    this.gpu = createProgram(this.canvas, this.engine);
+    this.filteredBlur = Number.NaN;
     this.uploadTexture();
     this.invalidate();
   };
@@ -492,7 +588,7 @@ class GlassLens {
     canvas.dataset.cmuxGlassLens = "";
     canvas.style.cssText =
       "position:fixed;inset:0;width:100%;height:100%;z-index:var(--layer-backdrop, -1);pointer-events:none;contain:strict;";
-    const gpu = createProgram(canvas);
+    const gpu = createProgram(canvas, this.engine);
     if (!gpu) {
       this.capable = false;
       this.reconcile();
@@ -513,6 +609,7 @@ class GlassLens {
     this.view.addEventListener("resize", this.onResize);
     this.doc.addEventListener("transitionrun", this.onMotion, { capture: true, passive: true });
     this.doc.addEventListener("animationstart", this.onMotion, { capture: true, passive: true });
+    if (gpu.engine && !this.held) this.light.attach(this.doc);
     this.readColors();
     this.resize();
     this.uploadTexture();
@@ -530,6 +627,10 @@ class GlassLens {
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
     this.observed.clear();
+    this.light.detach();
+    this.gpu?.prefilter?.release();
+    this.filteredBlur = Number.NaN;
+    this.root.removeAttribute(GLASS_ENGINE_DRAWS_ATTRIBUTE);
     this.canvas?.removeEventListener("webglcontextlost", this.onContextLost);
     this.canvas?.removeEventListener("webglcontextrestored", this.onContextRestored);
     this.gpu?.gl.getExtension("WEBGL_lose_context")?.loseContext();
@@ -587,6 +688,16 @@ class GlassLens {
     gl.generateMipmap(gl.TEXTURE_2D);
     scratch.width = 0;
     this.textureSize = [width, height];
+    if (gpu.prefilter && this.backdrop.rect) {
+      // The art's own blur once, in texels of the still: every frame after reads one texel.
+      const sigma = (this.backdrop.blur * width) / this.backdrop.rect.width;
+      const filtered = gpu.prefilter.run(gpu.texture, width, height, sigma);
+      gpu.sampled = filtered.texture;
+      this.textureSize = filtered.size;
+      this.filteredBlur = this.backdrop.blur;
+      bindProgram(gl, gpu.program, gpu.buffer);
+      this.root.setAttribute(GLASS_ENGINE_DRAWS_ATTRIBUTE, "");
+    }
     this.textureReady = true;
     this.needsDraw = true;
     this.root.setAttribute(LENS_ATTRIBUTE, "");
@@ -604,6 +715,8 @@ class GlassLens {
     };
     this.tint = read(this.backdrop.tint || "transparent");
     this.surface = read("var(--cmux-surface-background, transparent)");
+    this.ink = read("var(--cmux-text, CanvasText)");
+    this.veil = read("var(--glass-surface, Canvas)");
     probe.remove();
     this.needsDraw = true;
   }
@@ -649,10 +762,15 @@ class GlassLens {
       refraction: 0,
       blur: 0,
       dispersion: 0,
+      gloss: 0,
+      magnify: 0,
       opacity: 1,
       visible: true,
       clippers: [],
       stale: false,
+      cx: Number.NaN,
+      cy: Number.NaN,
+      energy: 0,
     };
     surface.joinTop = joinTop;
     surface.joinBottom = joinBottom;
@@ -662,6 +780,8 @@ class GlassLens {
     surface.blur = Math.max(0, px(style.getPropertyValue("--glass-blur"), 6));
     surface.dispersion =
       this.mode === "spectrum" ? Math.max(0, px(style.getPropertyValue("--glass-dispersion"), 0)) : 0;
+    surface.gloss = Math.min(1, Math.max(0, px(style.getPropertyValue("--glass-gloss"), 0)));
+    surface.magnify = Math.min(0.2, Math.max(0, px(style.getPropertyValue("--glass-magnify"), 0)));
     surface.visible = style.visibility !== "hidden" && style.display !== "none";
     surface.clippers.length = 0;
     let fixed = style.position === "fixed";
@@ -726,6 +846,17 @@ class GlassLens {
       open = open && clip[3]! > clip[1]!;
       if (!open) continue;
       const radius = surface.radiusFraction ? surface.radiusFraction * Math.min(box.width, box.height) : surface.radius;
+      if (this.engine) {
+        // Motion energy: how far the glass moved since the last frame (held still: none).
+        const cx = box.left + box.width / 2;
+        const cy = box.top + box.height / 2;
+        const moved = Number.isNaN(surface.cx) || this.held ? 0 : Math.hypot(cx - surface.cx, cy - surface.cy);
+        surface.energy = this.held ? 0 : nextEnergy(surface.energy, moved);
+        if (surface.energy < 0.01) surface.energy = 0;
+        else this.needsDraw = true;
+        surface.cx = cx;
+        surface.cy = cy;
+      }
       const x0 = Math.max(0, box.left - MARGIN);
       const y0 = Math.max(0, shapeTop - MARGIN);
       const x1 = Math.min(width, box.right + MARGIN);
@@ -750,7 +881,9 @@ class GlassLens {
         out[at++] = surface.blur;
         out[at++] = surface.dispersion;
         out[at++] = Math.min(1, surface.opacity);
-        out[at++] = 0;
+        out[at++] = surface.gloss;
+        out[at++] = surface.magnify;
+        out[at++] = surface.energy;
       }
       count++;
     }
@@ -761,6 +894,7 @@ class GlassLens {
     this.frame = 0;
     if (!this.running) return;
     const count = this.measure();
+    if (this.engine && this.light.step()) this.needsDraw = true;
     let changed = count !== this.currentCount;
     if (!changed) {
       const end = count * VERTICES * FLOATS;
@@ -817,6 +951,15 @@ class GlassLens {
     gl.uniform4f(uniforms.u_tint!, this.tint.r / 255, this.tint.g / 255, this.tint.b / 255, this.tint.a);
     gl.uniform4f(uniforms.u_surface!, this.surface.r / 255, this.surface.g / 255, this.surface.b / 255, this.surface.a);
     gl.uniform1f(uniforms.u_dpr!, this.dpr);
+    if (gpu.engine) {
+      const [x, y, pull] = this.light.value;
+      gl.bindTexture(gl.TEXTURE_2D, gpu.sampled);
+      gl.uniform3f(uniforms.u_veil!, this.veil.r / 255, this.veil.g / 255, this.veil.b / 255);
+      gl.uniform3f(uniforms.u_ink!, this.ink.r / 255, this.ink.g / 255, this.ink.b / 255);
+      gl.uniform1f(uniforms.u_adapt!, ENGINE_ADAPT);
+      gl.uniform1f(uniforms.u_ior!, ENGINE_IOR);
+      gl.uniform3f(uniforms.u_pointer!, x, y, this.held ? 0 : pull);
+    }
     const vertices = this.currentCount * VERTICES;
     // The copy around every glass first, then every lens over it, so no margin covers a lens.
     gl.uniform1f(uniforms.u_pass!, 0);
@@ -837,6 +980,11 @@ export function installGlassLens(doc: Document = document): void {
   // A DOM without observers (a unit test's light DOM) has nothing to lens: CSS glass only.
   if (typeof MutationObserver !== "function" || typeof ResizeObserver !== "function") return;
   lenses.set(doc, new GlassLens(doc));
+}
+
+/** The mean ms one lens frame takes on this GPU, for the bench; null while the lens draws nothing. */
+export function glassLensDrawCost(doc: Document = document, count = 60): number | null {
+  return lenses.get(doc)?.drawCost(count) ?? null;
 }
 
 /** The lens's state, for tests and debugging. */

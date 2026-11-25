@@ -7,6 +7,11 @@ export const GALLERY_NOW = Date.UTC(2026, 9, 6, 9, 41, 0);
 
 export const minutesAgo = (minutes: number) => GALLERY_NOW - minutes * 60_000;
 
+/// A live turn's reply written just now, in minutes (5.4 s): past WRITING_MS (5 s), so the live line
+/// reads "Thinking", and inside SILENT_MS (10 s), so it has not yet turned to "Waiting"
+/// (agent-session/acpmux/conversation/thinkingModel.ts) when a play reads it soon after load.
+export const FRESH_REPLY_MINUTES = 0.09;
+
 export function installGalleryClock(start = GALLERY_NOW): void {
   const RealDate = Date;
   const origin = performance.now();
@@ -21,4 +26,16 @@ export function installGalleryClock(start = GALLERY_NOW): void {
     }
   }
   globalThis.Date = GalleryDate as DateConstructor;
+}
+
+/// How long ago a scene's finished work ended, at most, in minutes: a finished line stays in the
+/// composer hat only for its grace (subagents/trayLinger.ts TRAY_LINGER_MS, 2 min), so a scene that
+/// shows one ends it well inside that, with room for a slow capture.
+export const RECENT_END_MINUTES = 0.5;
+
+/// A finished run's start and end: it ran `ran` minutes and ended at most RECENT_END_MINUTES ago, or
+/// at `minutes - ran` when that is sooner. Its duration on the line stays `ran`.
+export function recentRun(minutes: number, ran: number): { startedAt: number; endedAt: number } {
+  const endedAgo = Math.max(0, Math.min(minutes - ran, RECENT_END_MINUTES));
+  return { startedAt: minutesAgo(endedAgo + ran), endedAt: minutesAgo(endedAgo) };
 }

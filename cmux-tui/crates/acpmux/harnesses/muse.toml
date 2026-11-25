@@ -24,7 +24,9 @@ resume = true
 [auth]
 login = "muse login"
 docs = "https://dev.meta.ai/docs/muse-code"
-check = ["muse-acp", "--version"]
+# No `check`: `muse-acp --version` proves the install, not the sign-in. acpmux
+# reads `META_API_KEY` itself (harness_health/agent_files.rs), and a successful
+# ACP `session/new` or `session/load` also marks Muse signed in.
 
 [sessions]
 adapter = "muse"

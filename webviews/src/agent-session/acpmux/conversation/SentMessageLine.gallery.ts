@@ -53,6 +53,13 @@ const viaReach = bash(
   "completed",
   { output: "queued" },
 );
+// The same send over plain ssh (ask-1b0c0b04de): the session is on that host, as through reach.
+const viaSsh = bash(
+  `ssh -o ConnectTimeout=5 build-box 'acpmux send --no-wait docs-lane "The copy pass is yours; #4182 merged."'`,
+  "Hand the copy pass to docs-lane on build-box",
+  "completed",
+  { output: "steered" },
+);
 const fromFile = bash(
   `acpmux send --no-wait reports:leo "$(cat /tmp/net-retries/summary.md)"`,
   "Send the summary to Leo's reports",
@@ -73,6 +80,25 @@ const recordedFileSend = bash(
   "completed",
   { output: "queued", startedAt: 2 },
 );
+// Leo's row (2026-10-26): Claude Code's Write makes the message file, then a send reads it
+// through `bash -c` with `2>&1 | tail -1`. Opening the row renders that file, not the shell.
+const writeTool = tool("Write /tmp/coord/m1276.txt", "edit", "completed", {
+  diffs: [
+    {
+      path: "/tmp/coord/m1276.txt",
+      newText:
+        "## Composer follow-up\n\n- **Paste** keeps the caret where it was.\n- Ship it once the review passes.\n",
+    },
+  ],
+  startedAt: 1,
+  endedAt: 1.5,
+});
+const writtenFileSend = bash(
+  `bash -c '"/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux" send --no-wait --from coord build-box/composer - < /tmp/coord/m1276.txt 2>&1 | tail -1'`,
+  "Send the follow-up to composer",
+  "completed",
+  { output: "queued for delivery 01a17aa5-7ef3-7e30-9dd5-151c07b5b6ce", startedAt: 2 },
+);
 const failed = bash(
   "acpmux send perf-lane 'Profile the transcript scroll on the long fixture.'",
   "Hand the profile to perf-lane",
@@ -81,11 +107,6 @@ const failed = bash(
     output:
       'Exit code 4\nacpmux: no_session: no session matches "perf-lane"; run `acpmux ls` or `acpmux ensure perf-lane`',
   },
-);
-const running = bash(
-  `acpmux send coord-deputy '${REPORT}'`,
-  "Report merge to coord-deputy and wait for the reply",
-  "in_progress",
 );
 
 /// A cmux-subsessions `send_message` (Claude Code's shape): the same row.
@@ -112,7 +133,7 @@ const sent = () => {
   const snapshot = chat(
     [
       user("Report the merge, tell scroll-jitter, and ask for the re-review.", 4),
-      activity([reported, viaTimeout, viaHeredoc, viaReach, fromFile, subsessionSend], 3.8),
+      activity([reported, viaTimeout, viaHeredoc, viaReach, viaSsh, fromFile, subsessionSend], 3.8),
       assistant("Reported to coord-deputy, told scroll-jitter, and asked review-astra for a re-review.", 3.5),
       summary(3.5, { status: "completed" }),
     ],
@@ -134,22 +155,38 @@ const recordedFile = () => {
   return { ...snapshot, sessions: [...snapshot.sessions, CHILD] };
 };
 
-/// Opens the finished turn's "Worked for" line, where its calls are.
+const writtenFile = () =>
+  chat(
+    [
+      user("Write the follow-up and send it to composer.", 2),
+      activity([writeTool, writtenFileSend], 1.8),
+      assistant("Queued for composer.", 1.5),
+      summary(1.5, { status: "completed" }),
+    ],
+    { title: "coord" },
+  );
+
+/// Opens the finished turn's "Worked for" line, where its calls are, then the line its run of sends
+/// folds into ("Sent 7 messages", MessageRunLine.tsx, #31398), which draws the rows as before.
 const openTurn: Play = async (ctx) => {
   await ctx.click({ selector: ".cv-worked.is-toggle" });
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-sent, .cv-msggroup__line"));
-  // A run of sends draws as one group (MessageGroupRow.tsx): open it, so each send's own row shows.
-  if (ctx.document.querySelector('.cv-msggroup__line[aria-expanded="false"]')) {
-    await ctx.click({ selector: ".cv-msggroup__line" });
-    await ctx.waitFor(() => ctx.document.querySelector(".cv-sent"));
-  }
+  const run = () => ctx.document.querySelector("button[data-message-run]");
+  // Adjacent sends are one closed group ("Sent 7 messages", SentMessageLine.tsx `SentMessageGroup`).
+  const groupHead = ".cv-sent-group .cv-message-group__head";
+  const group = () => ctx.document.querySelector(groupHead);
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-msg") ?? run() ?? group());
+  if (!ctx.document.querySelector(".cv-sent-msg") && run()?.getAttribute("aria-expanded") === "false")
+    await ctx.click({ selector: "button[data-message-run]" });
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-msg") ?? group());
+  if (group()?.getAttribute("aria-expanded") === "false") await ctx.click({ selector: groupHead });
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-msg"));
 };
 
 /// Opens the turn, then its first sent row.
 const openFirst: Play = async (ctx) => {
   await openTurn(ctx);
-  await ctx.click({ selector: ".cv-sent" });
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-subsession__under .cv-md"));
+  await ctx.click({ selector: ".cv-sent-msg .cv-agentmsg__toggle" });
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-msg .cv-received__text .cv-md"));
 };
 
 export default agentPaneEntry({
@@ -169,11 +206,14 @@ export default agentPaneEntry({
       snapshot: sent(),
       play: async (ctx) => {
         await openTurn(ctx);
-        // Trusted clicks settle before the next step, so Raw is clicked where it rests.
-        await ctx.click({ role: "button", name: /net-retries: done/ });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-subsession__under .cv-md h2"));
-        await ctx.click({ selector: ".cv-subsession__under .cv-subsession__toggle" });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-subsession__under .cv-shell"));
+        // Trusted clicks settle before the next step, so Raw is clicked where it rests. The message's
+        // first line toggles the row, on the row (one line, #34464) or under it (stacked, #33249).
+        await ctx.click({ text: /^net-retries: done$/ });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-msg .cv-received__text .cv-md h2"));
+        await ctx.click({ selector: ".cv-sent-msg .cv-sent__raw > .cv-received__more" });
+        await ctx.waitFor(() =>
+          ctx.document.querySelector(".cv-sent-msg :is(.cv-sent__raw, .cv-sent__call) [data-tool-id]"),
+        );
       },
     },
     "recorded-file": {
@@ -181,8 +221,44 @@ export default agentPaneEntry({
       snapshot: recordedFile(),
       play: async (ctx) => {
         await openTurn(ctx);
-        await ctx.click({ selector: ".cv-sent" });
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-subsession__under .cv-md h2"));
+        await ctx.click({ selector: ".cv-sent-msg .cv-agentmsg__toggle" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-msg .cv-received__text .cv-md h2"));
+      },
+    },
+    "large-receipt": {
+      note: "A 1,025-recipient MCP receipt is one closed group counting every recipient; open, it pages through every message row, 32 mounted at once.",
+      snapshot: chat([
+        user("Send the report to the documentation agents.", 2),
+        activity(
+          [
+            tool("mcp__cmux__acpmux_send", "other", "completed", {
+              inputSummary: JSON.stringify({ tag: "area=docs", text: "The report is ready." }),
+              output: JSON.stringify({
+                results: Array.from({ length: 1025 }, (_, index) => ({ index: 0, to: `docs-${index}`, ok: true })),
+              }),
+            }),
+          ],
+          1.8,
+        ),
+        assistant("The report went to every documentation agent.", 1.5),
+        summary(1.5, { status: "completed" }),
+      ]),
+      play: async (ctx) => {
+        await openTurn(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector('[data-send-page="next"]'));
+        await ctx.click({ selector: '[data-send-page="next"]' });
+        await ctx.waitFor(() =>
+          [...ctx.document.querySelectorAll(".cv-sent-msg .cv-recipient")].some((n) => n.textContent === "docs-32"),
+        );
+      },
+    },
+    "written-file": {
+      note: 'Before: a send of a file Claude Code\'s Write made opened to Raw alone, and Raw to the shell command (Leo: "I EXPAND THEN ALL I SEE IS RAW"). After: opening it renders the written Markdown, the command behind Raw. A send whose words the transcript never held opens straight to its call.',
+      snapshot: writtenFile(),
+      play: async (ctx) => {
+        await openTurn(ctx);
+        await ctx.click({ selector: ".cv-sent-msg .cv-agentmsg__toggle" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-msg .cv-received__text .cv-md h2"));
       },
     },
     failed: {
@@ -199,14 +275,6 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await openFirst(ctx);
       },
-    },
-    "running-row": {
-      note: "A send that waits for the reply, in flight, with the Codex-style runs off: its own row, with the working spinner (with them on, the live line names it: agent-pane.sending-line).",
-      theme: { codexToolRuns: false },
-      snapshot: chat(
-        [user("Report the merge and wait for the deputy's answer.", 1), activity([reported, running], 0.8)],
-        { title: "net-retries", isWorking: true },
-      ),
     },
     "look-arrow": {
       note: "Gallery version: #24977's arrow line, → coord-deputy: <first line> (theme sentLook arrow).",

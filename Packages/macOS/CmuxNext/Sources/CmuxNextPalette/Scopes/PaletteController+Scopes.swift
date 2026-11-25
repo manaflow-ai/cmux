@@ -16,6 +16,11 @@ extension PaletteController {
             guard let self, self.isVisible else { return }
             self.model.reload()
         }
+        // The same for an on/off command whose setting's write lands after its row ran (Chat Minimap).
+        registry.paletteStateDidChange = { [weak self] in
+            guard let self, self.isVisible else { return }
+            self.model.reload()
+        }
     }
 
     /// Reads the user's aliases and pins (cmux.json), with the built-in aliases, into the searcher. A change ranks the empty
@@ -27,6 +32,7 @@ extension PaletteController {
             return current != settings
         }
         if changed { model.frecencyRevision += 1 }
+        model.remembersSearches = settings.remembersSearches
     }
 
     /// The scope a run of `id` opens (`PaletteScopeDescriptor.openAction`): Toggle Setting opens

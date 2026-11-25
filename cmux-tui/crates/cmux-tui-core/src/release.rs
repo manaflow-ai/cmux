@@ -9,10 +9,27 @@ use std::path::{Component, Path};
 /// test build, or a raw R2 tree artifact stamped `0.0.0-r2.sha-…` that the
 /// app bundles) reports the one cmux-next version, the workspace crate
 /// version, which `scripts/cmux-next/check-version-surfaces.sh` requires.
-pub const DISTRIBUTION_VERSION: &str = match option_env!("CMUX_TUI_DISTRIBUTION_VERSION") {
-    Some(version) if is_release(version) => version,
-    _ => env!("CARGO_PKG_VERSION"),
-};
+/// The binary stamps it (`CMUX_TUI_DISTRIBUTION_VERSION`) and installs it at
+/// start ([`install_distribution_version`]), so a new stamp (every build of
+/// the Linux pool) recompiles the binary and not this crate.
+pub fn distribution_version() -> &'static str {
+    INSTALLED_DISTRIBUTION_VERSION.get().copied().unwrap_or(env!("CARGO_PKG_VERSION"))
+}
+
+static INSTALLED_DISTRIBUTION_VERSION: std::sync::OnceLock<&'static str> =
+    std::sync::OnceLock::new();
+
+/// Records the binary's stamped release, `None` when it has none. A placeholder
+/// stamp is not a release ([`is_release`]). The first call wins.
+pub fn install_distribution_version(stamped: Option<&'static str>) {
+    let _ = INSTALLED_DISTRIBUTION_VERSION.set(release_or_workspace(stamped));
+}
+
+/// A release stamp as the version to report: the workspace crate version for
+/// none or a placeholder.
+fn release_or_workspace(stamped: Option<&str>) -> &str {
+    stamped.filter(|version| is_release(version)).unwrap_or(env!("CARGO_PKG_VERSION"))
+}
 
 /// A release version: not empty and not a `0.0.0-…` placeholder stamp.
 pub const fn is_release(version: &str) -> bool {
@@ -127,3 +144,7 @@ pub fn update_hint_for(install: Option<&str>) -> String {
         ),
     }
 }
+
+#[cfg(test)]
+#[path = "release_distribution_tests.rs"]
+mod distribution_tests;

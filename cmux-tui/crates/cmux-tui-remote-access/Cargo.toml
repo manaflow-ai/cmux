@@ -18,4 +18,5 @@ test-support = []
 anyhow.workspace = true
 base64.workspace = true
 cmux-link.workspace = true
+cmux-tui-util.workspace = true
 getrandom.workspace = true

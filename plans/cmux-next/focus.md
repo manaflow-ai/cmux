@@ -528,8 +528,9 @@ Enter), `hover`, `source` (keyboard or mouse), `pointer` (last pointer location 
   `public.url-name`) while the field is not focused.
 - A browser tab left while its address bar had the keyboard gets the address bar back when a
   tab, pane or workspace change returns to it (Chrome `RestoreState`); a click into its page
-  forgets that. `OmnibarFocusMemory` in `FocusCoordinator` asks for `focusTarget(.addressBar)`
-  after the core reduced the return; the core still drops chrome targets on a tab change.
+  forgets that. The focus machine's address bar memory (cmux-focus-core `omnibar_memory`, noted
+  on every reduction) tells `FocusCoordinator` to ask for `focusTarget(.addressBar)` after the
+  core reduced the return; the core still drops chrome targets on a tab change.
 - Search engines are keywords too (Chrome's tab to search): the default and built-in engines
   and YouTube, Wikipedia and GitHub, by host (`youtube.com`). The keyword with Tab or a space
   starts a session with no extension: no rows, the chip says "Search YouTube", Enter searches

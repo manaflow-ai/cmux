@@ -4,14 +4,14 @@ public import AppKit
 /// whose Command + scroll moves columns and rows over any pane (`layout.scrollModifier`).
 ///
 /// The owning view decides once per gesture, at its first event, and is the one place that
-/// decision lives. Content inside it that reacts to the same gesture on its own (a Chromium
-/// page's swipe Back or Forward, which watches scroll events before the page does) asks
+/// decision lives. Content inside it that reacts to the same gesture on its own (a cmux page's
+/// swipe Back or Forward, `PageSwipeForwarder`, which watches scroll events before the page does) asks
 /// ``NSView/isScrollGestureTakenByEnclosingView`` instead of testing the modifier keys itself, so
 /// the two never disagree about who owns a gesture.
 ///
 /// ```swift
-/// // CEFSwipeNavigation, before it starts a swipe:
-/// guard !hostView.isScrollGestureTakenByEnclosingView else { return event }
+/// // PageSwipeForwarder, on each moving event:
+/// guard !page.isScrollGestureTakenByEnclosingView else { return event }
 /// ```
 @MainActor
 public protocol ScrollGestureOwning: NSView {

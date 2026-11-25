@@ -213,15 +213,17 @@ class Journey:
         return [f"UI step {s['step']} failed: {json.dumps(s['detail'], default=str)[:300]}" for s in self.steps if not s["ok"]]
 
     def session(self) -> None:
-        tabs_before = len(self.shown_tabs())
         code, listed = self.cmux("terminal", "list", "--json")
         terms_before = set()
         if code == 0:
             terms_before = {part for part in listed.replace('"', " ").split() if part.startswith(("term_", "t_"))}
         opened = self.run_action("newTab")
-        grown = self.wait(lambda: len(self.shown_tabs()) > tabs_before)
-        self.step("terminal", bool(grown) and "error" not in opened, {"run": opened, "tabs_before": tabs_before,
-                                                                     "tabs_after": len(self.shown_tabs())})
+        # From Home, New Tab opens a new workspace with one tab, so the shown tab count does not grow:
+        # the tab the action made must be the one selected in a shown pane.
+        made = [str(i) for i in opened.get("created") or [] if str(i).startswith("tab_")]
+        shown = self.wait(lambda: made and made[-1] in {str(t.get("id")) for t in self.selected_tabs()})
+        self.step("terminal", bool(shown) and "error" not in opened,
+                  {"run": opened, "selected": [t.get("id") for t in self.selected_tabs()]})
 
         term = self.wait(lambda: self.terminal_id(terms_before), 30)
         typed = self.cmux("terminal", term, "write", "--text", ECHO_COMMAND + "\n") if term else (1, "no terminal id")
@@ -296,6 +298,12 @@ def journey(process, socket_path, env, app, out, report) -> list[str]:
     return Journey(process, Path(socket_path), env, Path(app), Path(out) if out else None, report).run()
 
 
+# The fresh home's login keychain (fresh_home_launch_smoke.login_keychain). Callers that load the smoke
+# themselves call theirs: this module loads its own copy, whose CannotRun their main does not catch.
+login_keychain = smoke.login_keychain
+
+
 if __name__ == "__main__":
     smoke.AFTER_RENDER = journey
+    smoke.PREPARE_HOME = login_keychain
     sys.exit(smoke.main())

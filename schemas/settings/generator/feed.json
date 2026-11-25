@@ -1,0 +1,8 @@
+{
+  "source": "schemas/settings/source/feed.json",
+  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Feed.generated.swift",
+  "type": "FeedSettingsSchema",
+  "lists": {
+    "feed": ["descriptors", "FeedGitHubSettings"]
+  }
+}

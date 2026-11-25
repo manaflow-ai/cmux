@@ -21,15 +21,23 @@ let package = Package(
         .library(name: "MessagesLabSidebar", targets: ["MessagesLabSidebar"]),
     ],
     dependencies: [
+        .package(path: "../CmuxEgress"),
         .package(path: "../CmuxHomeCore"),
         .package(path: "../CmuxHomeRender"),
+        .package(path: "../CmuxAgentQuestion"),
+        .package(path: "../CmuxAgentBrands"),
+        .package(path: "../CmuxSpinner"),
     ],
     targets: [
         .target(
             name: "MessagesLabHome",
-            dependencies: [
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
+                .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
+                .product(name: "CmuxSpinner", package: "CmuxSpinner"),
             ],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
@@ -54,8 +62,9 @@ let package = Package(
         ),
         .testTarget(
             name: "MessagesLabHomeTests",
-            dependencies: [
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "MessagesLabHome",
+                .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
             ],

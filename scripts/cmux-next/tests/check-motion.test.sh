@@ -73,6 +73,8 @@ pass "a popover explicitly disables animation" '        popover.animates = false
 pass "a popover disables animation before another statement" '        popover.animates = false; configure()'
 pass "a popover disables animation at the end of a block" '        if enabled { popover.animates = false }'
 pass "a popover whose animation a gate decides" '        popover.animates = Motion.overlays.animatesMovement'
+pass "a popover explicitly disables AppKit animation" '        popover.animates = false'
+fail "a popup entrance animation" '        popup.show(entrance: true)'
 fail "an animator change outside any gate group" '        view.animator().alphaValue = 1'
 pass "an animator change inside a gate group" '        Motion.home.animate(.fadeIn, in: view) {
             view.animator().alphaValue = 1

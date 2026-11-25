@@ -34,6 +34,7 @@ extension SidebarRegionView {
         guard newWindow == nil, let drag = reorder else { return }
         reorder = nil
         _ = dropToListProbe?(nil)
+        if case let .section(id) = drag.subject { _ = sectionDropTarget?(id, nil) }
         reorderSections = nil
         drag.lift.removeFromSuperview()
         for view in drag.hidden { view.alphaValue = 1 }

@@ -1,5 +1,11 @@
-"""Linux jobs that compile run on the 32 or 16 vCPU Blacksmith size.
+"""Linux jobs that compile run on the Blacksmith size .github/runners.json linux_sizes measured for them.
 
+Leo, 2026-11-01, on 1,531 jobs queued on 32 vCPU: "ok. we clearly are not able to use them. so we should have
+resized a long-ass time ago." Blacksmith caps concurrency in vCPUs, so each job below now takes the smallest
+size its measurement fits (tests/test_ci_blacksmith_linux_sizes.py), and fails over to another small size.
+Jobs whose entry is `pending` keep the 32 or 16 vCPU size listed here until their open pull request lands.
+
+History: 
 Leo, 2026-10-21: "MOVE STUFF TO BLACKSMITH 16 OR 32. IF WE HAVE 256 OF 32,
 JUST USE 32." Every Linux job below compiles (cargo, Swift, cross builds, zig, Go,
 C++, Gradle) or runs a web build or test suite, so its manaflow-ai runner is
@@ -29,16 +35,30 @@ the compile and test suites below. Small routing/status jobs can keep the
 from __future__ import annotations
 
 import re
+import sys
 import unittest
 from pathlib import Path
 
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+from blacksmith_linux_sizes import label as size_label, table  # noqa: E402
+from runs_on_labels import holds_signing_material, unwrap_fork_pool_reads  # noqa: E402
+import workflow_jobs  # noqa: E402
 WORKFLOWS = ROOT / ".github" / "workflows"
 
 BIG = "blacksmith-32vcpu-ubuntu-2404"
 SMALL = "blacksmith-16vcpu-ubuntu-2404"
+
+POOL_BY_LABEL = {
+    "blacksmith-2vcpu-ubuntu-2404": "linux_2",
+    "blacksmith-4vcpu-ubuntu-2404": "linux_4",
+    "blacksmith-8vcpu-ubuntu-2404": "linux_8",
+    "blacksmith-16vcpu-ubuntu-2404": "linux_16",
+    "blacksmith-32vcpu-ubuntu-2404": "linux_32",
+    "blacksmith-4vcpu-ubuntu-2404-arm": "linux_arm64",
+}
 
 # (workflow, job, where the label lives, expected label). `where` is "runs-on",
 # "matrix:<key>=<value>:<field>" for a matrix row, or "env:<step id>:<NAME>"
@@ -55,10 +75,7 @@ EXPECTED: tuple[tuple[str, str, str, str], ...] = (
     ("cmux-mobile-ffi.yml", "android", "runs-on", BIG),
     ("cmux-next-car-guards.yml", "linux", "runs-on", BIG),
     ("cmux-next-source-archive.yml", "vt-link-graph", "runs-on", BIG),
-    ("cmux-next-terminal.yml", "rust-terminal-linux", "runs-on", BIG),
     ("cmux-tui-artifacts.yml", "macos-cross-shadow", "runs-on", BIG),
-    ("cmux-tui-build-package.yml", "plan-build", "env:targets:LINUX_BUILD_RUNNER", BIG),
-    ("cmux-tui-build-package.yml", "plan-build", "env:targets:LINUX_DARWIN_RUNNER", BIG),
     ("cmux-tui-headless-debug.yml", "build", "runs-on", BIG),
     ("cmux-tui-spec.yml", "acpmux-protocol-ir", "runs-on", BIG),
     ("cmux-tui-sdks.yml", "packages", "runs-on", BIG),
@@ -69,8 +86,7 @@ EXPECTED: tuple[tuple[str, str, str, str], ...] = (
     ("cmux-tui.yml", "optchat-chief", "runs-on", BIG),
     ("cmux-vm-clients.yml", "rust", "runs-on", BIG),
     ("coderouter-ci.yml", "test", "runs-on", BIG),
-    ("coderouter-release.yml", "build", "matrix:rust_target=x86_64-unknown-linux-gnu:runner", BIG),
-    ("iroh-relay-minter.yml", "test", "runs-on", BIG),
+    ("coderouter-release.yml", "build-linux", "runs-on", BIG),
     ("macos-cross-parity.yml", "linux-build", "runs-on", BIG),
     ("rust-workspaces.yml", "workspace", "runs-on", BIG),
     ("sdk-publish-crates.yml", "bindings-e2e-rust", "runs-on", BIG),
@@ -80,22 +96,21 @@ EXPECTED: tuple[tuple[str, str, str, str], ...] = (
     ("sdk-publish-python.yml", "bindings-e2e-python", "runs-on", BIG),
     # Swift on Linux: swift build and swift test of the portable packages in the swift.org
     # container (ask-d3f5804560: "WE CAN COMPILE SWIFT ON LINUX").
-    ("swift-packages-linux.yml", "packages", "runs-on", BIG),
-    ("cmux-next-terminal.yml", "swift-terminal-linux", "runs-on", BIG),
+    ("swift-linux-packages.yml", "swift-linux-packages", "runs-on", BIG),
     # Web: production builds, bundle builds, the backend build and suites.
     ("backend.yml", "test", "runs-on", BIG),
     ("ci-web.yml", "web-production-build", "runs-on", BIG),
-    ("web-validation.yml", "build", "runs-on", BIG),
     ("cmux-next-web-bundle-publish.yml", "build", "runs-on", BIG),
     ("cmux-next-web-bundles.yml", "bundles", "runs-on", BIG),
     ("cmux-next.yml", "web-bundles", "runs-on", BIG),
     # Small compiles: one type check, a small test suite, Go, C++ shims.
+    # web-validation.yml's build and tests and gallery-health.yml's health read the live Linux pool
+    # (fromJSON(vars.RUNNER_POOLS).linux, tests/test_ci_runner_set.py) instead of one fixed size.
     ("ci-web.yml", "web-typecheck", "runs-on", SMALL),
+    ("ci-web.yml", "webviews-typecheck", "runs-on", SMALL),
     ("ci-web.yml", "web-tests", "runs-on", SMALL),
     ("ci-web.yml", "web-instant-navigation", "runs-on", SMALL),
-    ("web-validation.yml", "tests", "runs-on", SMALL),
     ("cmux-next-web-bundles.yml", "webviews-checks", "runs-on", SMALL),
-    ("gallery-health.yml", "health", "runs-on", SMALL),
     ("cmux-actions.yml", "check", "runs-on", SMALL),
     ("cmux-vm.yml", "check", "runs-on", SMALL),
     ("cmux-vm-cloud.yml", "check", "runs-on", SMALL),
@@ -107,21 +122,58 @@ EXPECTED: tuple[tuple[str, str, str, str], ...] = (
     ("cmux-tui-spec.yml", "api-compat", "runs-on", SMALL),
     ("cmux-next-shim-cpp.yml", "shim-downloads-cpp", "runs-on", SMALL),
     ("remote-daemon.yml", "remote-daemon-tests", "runs-on", SMALL),
-    ("sdk-bootstrap-crates.yml", "build", "runs-on", SMALL),
     ("sdk-publish-go.yml", "validate-go-module", "runs-on", SMALL),
     ("sdk-publish-go.yml", "verify-versioned-go-module", "runs-on", SMALL),
 )
 
-LINUX_LABEL = re.compile(r"blacksmith-\d+vcpu-ubuntu-\d+(?!-arm)\b")
+SIZES = table()["jobs"]
+
+
+def measured(workflow: str, job_id: str) -> dict | None:
+    """The job's linux_sizes entry once it has moved off its old size, else None."""
+    entry = SIZES.get(f"{workflow}#{job_id}")
+    return entry if entry and not entry.get("pending") else None
+
+
+# The size each job takes now: its measured size, or the old size while its move is pending.
+EXPECTED = tuple(
+    (workflow, job_id, where, size_label(measured(workflow, job_id)["size"]) if measured(workflow, job_id) else label)
+    for workflow, job_id, where, label in EXPECTED
+)
+# The failover each job takes while the overflow record exists.
+OTHER = {
+    (workflow, job_id): size_label(measured(workflow, job_id)["failover"])
+    for workflow, job_id, _, _ in EXPECTED
+    if measured(workflow, job_id)
+}
+
+# Linux CI is one persistent pool (hq decisions/junctions.md 2026-11-20): these own-branch routes name cmux-linux
+# directly; a fork pull request keeps its Blacksmith size.
+CMUX_LINUX = {("cmux-next-fast-gates.yml", "fast-gates", "runs-on")}
+CMUX_LINUX_TAIL = "|| 'cmux-linux' }}"
+
 # `vars.LINUX_RUNNER` exactly; `vars.LINUX_RUNNER_DARWIN_CROSS` is its own knob.
 SHARED_VARIABLE = re.compile(r"vars\.LINUX_RUNNER(?!\w)")
 
 
-def trusted_fallback(label: str) -> str:
+def route_ref(label: str, workflow: str, job_id: str) -> str:
+    """A job's route to `label`: its pool, or the literal in a job that holds signing material (runner trust policy)."""
+    return f"'{label}'" if holds_signing_material(load(workflow)["jobs"][job_id]) else pool_ref(label)
+
+
+def pool_ref(label: str) -> str:
+    try:
+        pool = POOL_BY_LABEL[label]
+    except KeyError as error:
+        raise AssertionError(f"no declared pool for {label}") from error
+    return f"fromJSON(vars.RUNNER_POOLS).{pool}"
+
+
+def trusted_fallback(label: str, other: str | None = None, ref=pool_ref) -> str:
     """The size; the other size while the outage record exists; an operator's non-Blacksmith runner first."""
-    other = SMALL if label == BIG else BIG
+    other = other or (SMALL if label == BIG else BIG)
     return (f"!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || "
-            f"vars.CI_CLOUD_OVERFLOW_SAVED && '{other}' || '{label}'")
+            f"vars.CI_CLOUD_OVERFLOW_SAVED && {ref(other)} || {ref(label)}")
 
 
 # What comes before the trusted fallback: the fork and fork pull request
@@ -133,13 +185,13 @@ FORK_PULL_REQUEST = (
 )
 FORK_PR_LABELS = {
     ("ci-web.yml", "web-typecheck", "runs-on"): SMALL,
+    ("ci-web.yml", "webviews-typecheck", "runs-on"): SMALL,
     ("ci-web.yml", "web-production-build", "runs-on"): BIG,
     ("ci-web.yml", "web-tests", "runs-on"): SMALL,
     ("ci-web.yml", "web-instant-navigation", "runs-on"): SMALL,
     ("ci-web.yml", "diff-sidecar-check", "runs-on"): BIG,
     ("cmux-next-fast-gates.yml", "fast-gates", "runs-on"): SMALL,
-    ("cmux-next.yml", "web-bundles", "runs-on"): BIG,
-    ("cmux-vm-clients.yml", "rust", "runs-on"): BIG,
+    ("cmux-vm-clients.yml", "rust", "runs-on"): "blacksmith-8vcpu-ubuntu-2404",
     ("cmux-vm-clients.yml", "sdk", "runs-on"): SMALL,
     ("remote-daemon.yml", "remote-daemon-tests", "runs-on"): SMALL,
 }
@@ -153,19 +205,19 @@ PREFIX: dict[tuple[str, str, str], tuple[str, str]] = {
     ("cmux-next-car-guards.yml", "linux", "runs-on"): (
         OWNER + FORK_PULL_REQUEST.format(label="blacksmith-16vcpu-ubuntu-2404"), ""),
     # A fork pull request keeps the 16 vCPU literal it took before the move.
-    ("swift-packages-linux.yml", "packages", "runs-on"): (
+    ("swift-linux-packages.yml", "swift-linux-packages", "runs-on"): (
         OWNER + FORK_PULL_REQUEST.format(label="blacksmith-16vcpu-ubuntu-2404"), ""),
     ("cmux-tui-artifacts.yml", "macos-cross-shadow", "runs-on"): (OWNER + "vars.LINUX_RUNNER_DARWIN_CROSS || ", ""),
+    # Its pull request run is an advisory copy of the push run (post-merge-checks.json, CI v2 step 5): the 4 vCPU
+    # pool, since a compile there only reports, and the 8/16 vCPU sizes stall first.
+    ("cmux-mobile-ffi.yml", "rust", "runs-on"): (
+        OWNER + "github.event_name == 'pull_request' && fromJSON(vars.RUNNER_POOLS).linux_4 || ", ""),
     ("macos-cross-parity.yml", "linux-build", "runs-on"): (OWNER + "vars.LINUX_RUNNER_DARWIN_CROSS || ", ""),
-    ("cmux-tui-build-package.yml", "plan-build", "env:targets:LINUX_DARWIN_RUNNER"): (
-        OWNER + "vars.LINUX_RUNNER_DARWIN_CROSS || ", ""),
-    ("cmux-tui-build-package.yml", "plan-build", "env:targets:LINUX_BUILD_RUNNER"): (
-        OWNER + "(inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_BUILD_RUNNER || ", ")"),
     # Owner-gated jobs with no fork branch.
     ("cmux-next-terminal.yml", "rust-terminal-linux", "runs-on"): ("", ""),
     ("cmux-next-terminal.yml", "swift-terminal-linux", "runs-on"): ("", ""),
     ("cmux-tui-headless-debug.yml", "build", "runs-on"): ("", ""),
-    ("coderouter-release.yml", "build", "matrix:rust_target=x86_64-unknown-linux-gnu:runner"): ("", ""),
+    ("coderouter-release.yml", "build-linux", "runs-on"): ("", ""),
 }
 # Selectors with the owner branch and no fork pull request branch.
 OWNER_ONLY = {
@@ -175,7 +227,6 @@ OWNER_ONLY = {
     ("cmux-mobile-ffi.yml", "android"),
     ("cmux-next-source-archive.yml", "vt-link-graph"),
     ("cmux-tui-windows-check.yml", "windows-gnu-check"),
-    ("iroh-relay-minter.yml", "test"),
     ("sdk-publish-crates.yml", "bindings-e2e-rust"),
     ("sdk-publish-go.yml", "bindings-e2e-go"),
     ("sdk-publish-java.yml", "bindings-e2e-java"),
@@ -183,7 +234,6 @@ OWNER_ONLY = {
     ("sdk-publish-python.yml", "bindings-e2e-python"),
     ("cmux-next-web-bundle-publish.yml", "build"),
     ("presence.yml", "test"),
-    ("sdk-bootstrap-crates.yml", "build"),
     ("sdk-publish-go.yml", "validate-go-module"),
     ("sdk-publish-go.yml", "verify-versioned-go-module"),
 }
@@ -197,7 +247,8 @@ def expected_selector(workflow: str, job_id: str, where: str, label: str) -> str
         else:
             fork_label = FORK_PR_LABELS.get((workflow, job_id, where), "blacksmith-4vcpu-ubuntu-2404")
             prefix = OWNER + FORK_PULL_REQUEST.format(label=fork_label)
-    return "${{ " + prefix + trusted_fallback(label) + closing + " }}"
+    ref = lambda size: route_ref(size, workflow, job_id)  # noqa: E731
+    return "${{ " + prefix + trusted_fallback(label, OTHER.get((workflow, job_id)), ref) + closing + " }}"
 
 
 def load(name: str) -> dict:
@@ -206,7 +257,10 @@ def load(name: str) -> dict:
 
 def selector(job: dict, where: str) -> str:
     if where == "runs-on":
-        return str(job["runs-on"])
+        cells = workflow_jobs.runs_on_cells(job)
+        if cells is None or len(cells) != 1:
+            raise AssertionError(f"expected one runs-on, read {cells!r}")
+        return cells[0]
     kind, _, rest = where.partition(":")
     if kind == "matrix":
         match, field = rest.rsplit(":", 1)
@@ -224,8 +278,17 @@ def selector(job: dict, where: str) -> str:
     raise AssertionError(f"unknown location {where!r}")
 
 
+# Every other own-branch route that names cmux-linux past its fork branches (cmux#49215 moved the rest of the
+# RUNNER_POOLS reads; tests/test_ci_same_repo_linux_owned_first.py is the rule) takes the same checks.
+CMUX_LINUX |= {
+    (workflow, job_id, where)
+    for workflow, job_id, where, _label in EXPECTED
+    if selector(load(workflow)["jobs"][job_id], where).endswith(CMUX_LINUX_TAIL)
+}
+
+
 class LinuxCompileRunners(unittest.TestCase):
-    def test_each_compile_job_runs_on_the_16_or_32_vcpu_size(self) -> None:
+    def test_each_compile_job_runs_on_its_measured_size(self) -> None:
         docs: dict[str, dict] = {}
         for workflow, job_id, where, label in EXPECTED:
             with self.subTest(workflow=workflow, job=job_id, where=where):
@@ -233,26 +296,35 @@ class LinuxCompileRunners(unittest.TestCase):
                 job = doc["jobs"].get(job_id)
                 self.assertIsNotNone(job, f"{workflow} has no job {job_id!r}")
                 value = selector(job, where)
-                labels = LINUX_LABEL.findall(value)
-                self.assertTrue(labels, f"{workflow}:{job_id} {where} names no Blacksmith Ubuntu label: {value}")
-                self.assertEqual(labels[-1], label, f"{workflow}:{job_id} {where}: {value}")
+                if (workflow, job_id, where) in CMUX_LINUX:
+                    self.assertTrue(value.endswith(CMUX_LINUX_TAIL), value)
+                    self.assertEqual(SHARED_VARIABLE.findall(value), [], value)
+                    self.assertNotIn("inputs.runner", value)
+                    continue
+                route = route_ref(label, workflow, job_id)
+                self.assertIn(route, value, f"{workflow}:{job_id} {where} names no {route} route: {value}")
                 # vars.LINUX_RUNNER appears only in the outage guard, never as
                 # a plain `vars.LINUX_RUNNER ||` that would pick 4 vCPU.
                 self.assertEqual(
                     len(SHARED_VARIABLE.findall(value)), 2,
                     f"{workflow}:{job_id} {where} must read vars.LINUX_RUNNER only in "
-                    f"{trusted_fallback(label)!r}: {value}",
+                    f"{trusted_fallback(label, OTHER.get((workflow, job_id)), lambda size: route_ref(size, workflow, job_id))!r}: {value}",
                 )
 
     def test_each_compile_job_follows_the_blacksmith_outage_switch(self) -> None:
         # cloud_overflow_switch.py sets LINUX_RUNNER=ubuntu-24.04 when Blacksmith
         # stalls; the guard sends these jobs there too, and keeps the size otherwise.
         for workflow, job_id, where, label in EXPECTED:
-            value = selector(load(workflow)["jobs"][job_id], where)
+            # A fork keeps its label (test_fork_pull_requests_use_the_selected_blacksmith_size); this is every other run.
+            value = unwrap_fork_pool_reads(selector(load(workflow)["jobs"][job_id], where))
             with self.subTest(workflow=workflow, job=job_id, where=where):
-                self.assertEqual(value.count(trusted_fallback(label)), 1, f"{workflow}:{job_id} {where}: {value}")
+                if (workflow, job_id, where) in CMUX_LINUX:
+                    self.assertTrue(value.endswith(CMUX_LINUX_TAIL), value)
+                    self.assertNotIn("RUNNER_POOLS", value)
+                    continue
+                self.assertEqual(value.count(trusted_fallback(label, OTHER.get((workflow, job_id)), lambda size: route_ref(size, workflow, job_id))), 1, f"{workflow}:{job_id} {where}: {value}")
                 self.assertRegex(
-                    value, re.escape(trusted_fallback(label)) + r"\)? \}\}$",
+                    value, re.escape(trusted_fallback(label, OTHER.get((workflow, job_id)), lambda size: route_ref(size, workflow, job_id))) + r"\)? \}\}$",
                     f"{workflow}:{job_id} {where}: the outage guard must be the trusted fallback",
                 )
 
@@ -262,7 +334,21 @@ class LinuxCompileRunners(unittest.TestCase):
         for workflow, job_id, where, label in EXPECTED:
             value = selector(load(workflow)["jobs"][job_id], where)
             with self.subTest(workflow=workflow, job=job_id, where=where):
-                self.assertEqual(value, expected_selector(workflow, job_id, where, label))
+                if (workflow, job_id, where) in CMUX_LINUX:
+                    self.assertTrue(value.endswith(CMUX_LINUX_TAIL), value)
+                    prefix = PREFIX.get((workflow, job_id, where), (None, ""))[0]
+                    if prefix is not None:
+                        self.assertTrue(value.startswith("${{ " + prefix), value)
+                    elif (workflow, job_id) in OWNER_ONLY:
+                        self.assertTrue(value.startswith("${{ " + OWNER), value)
+                    else:
+                        # A fork keeps the Blacksmith size it had; only the own-repository run moved.
+                        fork = re.escape(OWNER + FORK_PULL_REQUEST.format(label="LABEL")).replace("LABEL", r"blacksmith-\d+vcpu-ubuntu-2404")
+                        self.assertRegex(value, r"^\$\{\{ " + fork, value)
+                    continue
+                # A pool read a fork could reach is wrapped to keep the fork's old label
+                # (tests/test_ci_no_single_size_pins.py); compare what every other run takes.
+                self.assertEqual(unwrap_fork_pool_reads(value), expected_selector(workflow, job_id, where, label))
                 if "repository_owner != 'manaflow-ai'" in value:
                     self.assertRegex(value, r"github\.repository_owner != 'manaflow-ai' && '(ubuntu-24\.04|ubuntu-latest)'")
                 if (workflow, job_id) not in OWNER_ONLY and (workflow, job_id, where) not in PREFIX:
@@ -276,7 +362,7 @@ class LinuxCompileRunners(unittest.TestCase):
     def test_every_listed_label_is_known_to_actionlint(self) -> None:
         config = yaml.safe_load((ROOT / ".github" / "actionlint.yaml").read_text(encoding="utf-8"))
         known = set(config["self-hosted-runner"]["labels"])
-        self.assertLessEqual({BIG, SMALL}, known)
+        self.assertLessEqual({label for _, _, _, label in EXPECTED} | set(OTHER.values()) | {"cmux-fleet-linux-x64"}, known)
 
 
 if __name__ == "__main__":

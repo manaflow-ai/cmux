@@ -19,7 +19,7 @@ import Testing
     }
 
     private func titled(_ store: DaemonStore, _ surfaces: ClosedRange<Int>) -> [Int] {
-        surfaces.filter { store.index.tabsBySurface[SurfaceID(rawValue: UInt64($0))]?.title == "new \($0)" }
+        surfaces.filter { store.index.tabsBySurface[SurfaceID(rawValue: UInt64($0))]?.titleText == "new \($0)" }
     }
 
     /// Review 1 of pl-main-bc: the inbox coalesced `agent-changed`, but the roster records the

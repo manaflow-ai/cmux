@@ -2,6 +2,7 @@ import type { Env } from "./env.ts"
 import type { SqlStore } from "@cmux/ownership"
 import { vmApiSettings, type CloudTransport } from "./cloud-vm-api-config.ts"
 import { requiredSlugPrefix, teamVmDriver } from "./team-vm-driver.ts"
+import { freestyleIdleSeconds } from "./auto-pause.ts"
 
 export interface TeamVmCreateSpec { readonly image: { readonly id: string; readonly revision: string }; readonly idleTimeoutSeconds: number }
 export const teamVmCreationTransport = (env: Env): CloudTransport | null =>
@@ -12,7 +13,8 @@ export const teamVmApiSettings = (env: Env) => vmApiSettings({ ...env,
 export const teamVmCreateSpec = (env: Env): TeamVmCreateSpec | null => {
   const settings = teamVmApiSettings(env)
   if (!settings || !env.TEAM_VM_SLUG_PREFIX || (env.ENVIRONMENT !== "production" && !env.TEAM_VM_SLUG_PREFIX.startsWith(requiredSlugPrefix(env.ENVIRONMENT)))) return null
-  return { image: settings.image, idleTimeoutSeconds: env.ENVIRONMENT === "production" ? 600 : 300 }
+  // -1 (never pause) unless CLOUD_IDLE_PAUSE is on (auto-pause.ts; Leo, 2026-10-30).
+  return { image: settings.image, idleTimeoutSeconds: freestyleIdleSeconds(env, env.ENVIRONMENT === "production" ? 600 : 300) }
 }
 export const teamVmCreationReady = (env: Env, sql: SqlStore): boolean => {
   const transport = teamVmCreationTransport(env)
@@ -21,6 +23,6 @@ export const teamVmCreationReady = (env: Env, sql: SqlStore): boolean => {
 export const parseTeamVmCreateSpec = (text: string | null): TeamVmCreateSpec | null => {
   try {
     const v = JSON.parse(text ?? "null") as TeamVmCreateSpec | null
-    return v && typeof v.image?.id === "string" && typeof v.image.revision === "string" && /^[a-z][a-z0-9-]{0,62}$/.test(v.image.id) && /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(v.image.revision) && (v.idleTimeoutSeconds === 300 || v.idleTimeoutSeconds === 600) ? v : null
+    return v && typeof v.image?.id === "string" && typeof v.image.revision === "string" && /^[a-z][a-z0-9-]{0,62}$/.test(v.image.id) && /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(v.image.revision) && (v.idleTimeoutSeconds === -1 || v.idleTimeoutSeconds === 300 || v.idleTimeoutSeconds === 600) ? v : null
   } catch { return null }
 }

@@ -74,17 +74,10 @@ pub struct DaemonSpec {
     pub groups: Vec<u32>,
 }
 
-/// `$(cat /etc/cmux/ghostty-version 2>/dev/null)`: the file with trailing
-/// newlines removed; empty when absent.
-pub fn ghostty_version(file: Option<&str>) -> String {
-    file.map(|s| s.trim_end_matches('\n').to_owned()).unwrap_or_default()
-}
-
 /// The spec for `layout`. `template_bound_file` is `/run/cmux/bound`
 /// (under the agent's root).
 pub fn daemon_spec(
     layout: &DaemonLayout,
-    ghostty_version: &str,
     remote_entry: &RemoteEntry,
     template_bound_file: &Path,
 ) -> DaemonSpec {
@@ -101,10 +94,10 @@ pub fn daemon_spec(
         set_env.push(("LOGNAME".into(), layout.user.clone()));
         set_env.push(("SHELL".into(), "/bin/bash".into()));
     }
-    // CMUX_TUI_DAEMON_TERMINAL_ENV.
+    // CMUX_TUI_DAEMON_TERMINAL_ENV. No TERM_PROGRAM_VERSION: the daemon sets
+    // cmux's own on every terminal child (`cmux_pty::TERMINAL_IDENTITY`).
     set_env.push(("TERM".into(), "xterm-256color".into()));
-    set_env.push(("TERM_PROGRAM".into(), "ghostty".into()));
-    set_env.push(("TERM_PROGRAM_VERSION".into(), ghostty_version.to_owned()));
+    set_env.push(("TERM_PROGRAM".into(), "cmux".into()));
     let mut args: Vec<String> = IDENTITY_ARGS.iter().map(|s| (*s).to_owned()).collect();
     args.extend(remote_entry.args());
     DaemonSpec {
@@ -118,6 +111,38 @@ pub fn daemon_spec(
     }
 }
 
+/// The session host's mux socket for the work user `uid`: cmux-tui's default
+/// socket of [`SESSION`] (`<runtime base>/cmux-tui-<uid>/cloud.sock`) with the
+/// runtime base `/tmp`, because neither `XDG_RUNTIME_DIR` nor `TMPDIR` reaches
+/// the session host ([`inherited_env`]) and [`daemon_spec`] passes no
+/// `--socket`.
+pub fn session_socket(uid: u32) -> PathBuf {
+    PathBuf::from(format!("/tmp/cmux-tui-{uid}/{SESSION}.sock"))
+}
+
+/// The ssh backup carrier's forced command: cmux-platform writes it as the
+/// carrier key's `command=` (cmux-platform#1032), and must keep it equal to
+/// this. `remote-link` attaches to [`session_socket`] (never starting a
+/// second owner there) and, with the session host's `HOME` and no state
+/// override, to the link socket of the remote daemon running inside the
+/// session host. That is the daemon the relay carrier (`--relay`,
+/// [`crate::carrier_entry`]) lands on, with its acpmux bridge, so a client
+/// that fails over from the relay to ssh resumes the same acpmux sessions by
+/// seq. ssh logs in as the work user, so only the user layout has one.
+pub fn ssh_carrier_command(layout: &DaemonLayout) -> Option<Vec<String>> {
+    (layout.kind == LayoutKind::User).then(|| {
+        vec![
+            layout.bin.display().to_string(),
+            "remote-link".to_owned(),
+            "--stdio".to_owned(),
+            "--session".to_owned(),
+            SESSION.to_owned(),
+            "--mux-socket".to_owned(),
+            session_socket(layout.uid).display().to_string(),
+        ]
+    })
+}
+
 /// The default `PATH` when the agent has none.
 pub const DEFAULT_PATH: &str = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 
@@ -126,14 +151,24 @@ pub const DEFAULT_PATH: &str = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bi
 /// `CMUX_TUI_REMOTE_WS*` (the remote entry comes only from the host config),
 /// and the image's agent tool settings `CMUX_AGENT_TOOLS_*` and
 /// `CMUX_BROWSER_HOST_*` (the baked unit sets them for every terminal).
+/// The three non-secret `CMUX_PLATFORM_*` scope fields come from trusted host provisioning;
+/// keep the logical machine identity through daemon spawn, never infer it from a carrier ID.
 /// Service-manager variables (`INVOCATION_ID`, `JOURNAL_STREAM`,
 /// `NOTIFY_SOCKET`, `LISTEN_*`) and `CMUX_SERVER_MODE` never pass.
 pub fn inherited_env(vars: impl IntoIterator<Item = (String, String)>) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = vars
         .into_iter()
         .filter(|(k, _)| {
-            matches!(k.as_str(), "PATH" | "LANG" | "LANGUAGE" | "TZ")
-                || k.starts_with("LC_")
+            matches!(
+                k.as_str(),
+                "PATH"
+                    | "LANG"
+                    | "LANGUAGE"
+                    | "TZ"
+                    | "CMUX_PLATFORM_ORIGIN"
+                    | "CMUX_PLATFORM_WORKSPACE_ID"
+                    | "CMUX_PLATFORM_MACHINE_ID"
+            ) || k.starts_with("LC_")
                 || (k.starts_with("CMUX_TUI_") && !k.starts_with("CMUX_TUI_REMOTE_WS"))
                 || k.starts_with("CMUX_AGENT_TOOLS_")
                 || k.starts_with("CMUX_BROWSER_HOST_")
@@ -181,3 +216,7 @@ pub fn record_host_pid(json: &str) -> Option<u32> {
     let pid = value.get("host_pid")?.as_u64()?;
     u32::try_from(pid).ok().filter(|pid| *pid > 1)
 }
+
+#[cfg(test)]
+#[path = "daemon_spec_tests.rs"]
+mod tests;

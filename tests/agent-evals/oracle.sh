@@ -21,7 +21,7 @@ open_right() {
   local where r
   where=$(right_pane)
   if [ "$where" = split ]; then
-    r=$(j pane "$me_pane" split --right --viewport-width 0.5)
+    r=$(j pane "$me_pane" split --right --fit)
   else
     r=$(j tab create terminal --pane "${where#new-tab }")
   fi
@@ -41,14 +41,22 @@ case "$task" in
     run_in "$term" "echo EVAL_REUSE_OK"
     ;;
   subagents-right)
-    tabs=()
+    tabs=() terms=()
     for role in build test lint; do
       read -r tab term < <(open_right); refocus
       j tab "$tab" rename "$role" > /dev/null
       run_in "$term" "cmux-eval-agent --role $role"
-      tabs+=("$tab")
+      tabs+=("$tab") terms+=("$term:$role")
     done
-    sleep 2
+    # Until each helper has started (its terminal shows "agent ROLE ready"), 20 s each.
+    for tr in "${terms[@]}"; do
+      ready=0
+      for _ in $(seq 1 200); do
+        j terminal "${tr%%:*}" screen read | jq -r .text | grep -q "agent ${tr#*:} ready" && { ready=1; break; }
+        sleep 0.1
+      done
+      [ "$ready" = 1 ] || { echo "oracle: helper ${tr#*:} never printed its ready line" >&2; exit 1; }
+    done
     j tab group create --tabs "$(IFS=,; echo "${tabs[*]}")" --name "Helpers" > /dev/null
     ;;
   group-workspaces)

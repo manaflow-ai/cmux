@@ -1,3 +1,4 @@
+public import CmuxNextAgentIntegrations
 public import AppKit
 public import CmuxNextBrowserImport
 public import Foundation
@@ -44,10 +45,20 @@ public protocol OnboardingServices: AnyObject {
     // Computer use
     /// The helper app's grants, or nil when this build has no computer use.
     var computerUsePermissions: (any ComputerUsePermissionSource)? { get }
+
+    // Agents
+    /// The installed agent CLIs and their sign-ins, or nil when this app has no acpmux.
+    var agentSignIns: (any AgentSignInSource)? { get }
+
+    // Make cmux Yours
+    /// The first run's choices (how the person works, density, background), or nil when this app has no settings owner.
+    var firstRunChoices: (any FirstRunChoicesSource)? { get }
 }
 
 public extension OnboardingServices {
     var computerUsePermissions: (any ComputerUsePermissionSource)? { nil }
+    var agentSignIns: (any AgentSignInSource)? { nil }
+    var firstRunChoices: (any FirstRunChoicesSource)? { nil }
     func canImportPasswords() async -> Bool { false }
     func importFromFiles(into profile: String?) {}
     func browsersAwaitingAccess() async -> [ImportBrowser] { [] }

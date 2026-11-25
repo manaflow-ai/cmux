@@ -5,7 +5,6 @@
 //! connection loop (`serve_client*`) over `HostStream`.
 
 use crate::panic_free::RecoverPoison;
-use std::io::Write;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::channel as mpsc_channel;
 use std::sync::{Arc, TryLockError};
@@ -268,6 +267,20 @@ pub(crate) fn serve_client_with_snapshot_timeout(
     // as a renderer disconnect.
     let (sender, receiver) = mpsc_channel();
     let tap = HostTap::new(sender, Arc::new(stream.try_clone()?), MAX_HOST_CLIENT_QUEUED_BYTES);
+    // The daemon's own mirror (the owner token's smart admin connection with
+    // clipboard reads: a surface's, never a one-shot) holds the PTY reader
+    // back when it falls 8 MiB behind, instead of being cut off and resynced
+    // from a snapshot with the bytes in between lost. Every other client
+    // keeps the cutoff, so a stuck viewer cannot hold the terminal or pin
+    // more memory.
+    let tap = if smart_renderer
+        && hello.role == ClientRole::Admin
+        && granted_rights.contains(CapabilityRights::CLIPBOARD_READ)
+    {
+        tap.with_backpressure()
+    } else {
+        tap
+    };
     let command_sender = tap.clone();
     let (snapshot, colors, snapshot_sequence, replay_gap, _active_client_stream) = {
         // Wait for a parser boundary without blocking resize or cell-metric
@@ -472,16 +485,7 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                     if !granted_rights.contains(CapabilityRights::INPUT) {
                         break;
                     }
-                    let bracketed = command_host.term.lock().recover_poison().mode(2004, false);
-                    let mut writer = command_host.writer.lock().recover_poison();
-                    if bracketed {
-                        let _ = writer.write_all(b"\x1b[200~");
-                    }
-                    let _ = writer.write_all(&frame.payload);
-                    if bracketed {
-                        let _ = writer.write_all(b"\x1b[201~");
-                    }
-                    let _ = writer.flush();
+                    command_host.write_paste_frame(&frame.payload);
                 }
                 MessageKind::ViewerSize if frame.payload.len() == 4 => {
                     if !granted_rights.contains(CapabilityRights::RESIZE) {
@@ -687,20 +691,52 @@ pub(crate) fn serve_client_with_snapshot_timeout(
     })?;
     client_setup.disarm();
 
-    while let Ok(frame) = receiver.recv() {
-        if frame.kind == MessageKind::ResyncRequired && frame.sequence == 0 {
+    write_queued_frames(&mut stream, &receiver, &tap);
+    host.remove_client(client);
+    Ok(())
+}
+
+/// The client's writer: sends queued frames in order until the private
+/// wake sentinel (a sequence-0 ResyncRequired, never written), an Exit (written
+/// last) or a failed write. The frames already queued when the writer wakes go
+/// out together in one vectored write ([`write_frames`]), bounded by
+/// [`MAX_BATCH_FRAMES`] and [`MAX_BATCH_BYTES`]; the writer never waits for
+/// more, so a lone frame (an echo) leaves at once. Each frame's queue bytes are
+/// released after the write that carried it, as before.
+// perf-hot: 1us terminal-host-output (one writev per writer wake, per client)
+pub(crate) fn write_queued_frames(
+    stream: &mut HostStream,
+    receiver: &std::sync::mpsc::Receiver<Arc<Frame>>,
+    tap: &HostTap,
+) {
+    let mut batch: Vec<Arc<Frame>> = Vec::new();
+    while let Ok(first) = receiver.recv() {
+        let mut next = Some(first);
+        let mut batch_bytes = 0usize;
+        let mut last = false;
+        while let Some(frame) = next.take() {
+            if frame.kind == MessageKind::ResyncRequired && frame.sequence == 0 {
+                tap.release(&frame);
+                last = true;
+                break;
+            }
+            batch_bytes = batch_bytes.saturating_add(retained_frame_bytes(&frame));
+            let exit = frame.kind == MessageKind::Exit;
+            batch.push(frame);
+            if exit {
+                last = true;
+                break;
+            }
+            if batch.len() < MAX_BATCH_FRAMES && batch_bytes < MAX_BATCH_BYTES {
+                next = receiver.try_recv().ok();
+            }
+        }
+        let written = batch.is_empty() || write_frames(stream, &batch).is_ok();
+        for frame in batch.drain(..) {
             tap.release(&frame);
-            break;
         }
-        let write_result = write_frame(&mut stream, &frame);
-        tap.release(&frame);
-        if write_result.is_err() {
-            break;
-        }
-        if frame.kind == MessageKind::Exit {
+        if !written || last {
             break;
         }
     }
-    host.remove_client(client);
-    Ok(())
 }

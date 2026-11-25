@@ -6,7 +6,7 @@ import Testing
 
 /// P0 2026-10-30 ("I can no longer make new terminals"), lead decision: Cmd-N's workspace with its terminal is a new
 /// terminal too. Its `create-workspace` asked again on a late reply only until a fixed 10 s budget; past it the create
-/// threw and `WorkspaceCreation.withTerminal` closed the workspace the person already saw, while a busy cmux-tui still
+/// threw and `EmptyWorkspaceRepair.withTerminal` closed the workspace the person already saw, while a busy cmux-tui still
 /// made it. Now the create waits through late replies under its mutation id until the reply, a refusal or the
 /// connection's end.
 ///

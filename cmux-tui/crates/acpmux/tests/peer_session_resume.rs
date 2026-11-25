@@ -181,7 +181,9 @@ async fn a_resume_is_never_sent_to_a_peer_whose_resume_replays() {
             let Ok(mut ws) = tokio_tungstenite::accept_async(tcp).await else { continue };
             let counted = counted.clone();
             tokio::spawn(async move {
-                while let Some(Ok(Ws::Text(text))) = ws.next().await {
+                // Non-text frames (the client's pings, #38015) are not requests: skip them.
+                while let Some(Ok(frame)) = ws.next().await {
+                    let Ws::Text(text) = frame else { continue };
                     let Ok(Message::Request { id, method: m, .. }) = Message::parse(&text) else {
                         continue;
                     };
@@ -211,7 +213,7 @@ async fn a_resume_is_never_sent_to_a_peer_whose_resume_replays() {
     let resume = json!({"sessionId": "old-1", "cwd": std::env::temp_dir(), "mcpServers": []});
     let (reply, _) = ca.raw(method::SESSION_RESUME, resume).await;
     assert_eq!(reply["error"]["data"]["reason"], "sessionResume.unsupported", "{reply}");
-    assert!(reply["error"]["message"].as_str().unwrap().contains("acpmux host update old"));
+    assert!(reply["error"]["message"].as_str().unwrap().contains("acpmux machine update old"));
     assert_eq!(resumes.load(Ordering::SeqCst), 0);
     // A load, which replays by design, still goes to it.
     let load = json!({"sessionId": "old-1", "cwd": std::env::temp_dir(), "mcpServers": []});

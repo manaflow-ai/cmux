@@ -61,7 +61,9 @@ def fresh_state():
     import shutil
     bundle = bundle_id(opts.app) or ""
     for home in {account_home(), os.path.expanduser("~")}:
-        for folder in (os.path.join(home, "Library/Application Support/cmux/tags", TAG),
+        # NEXT's own tag folder and an older build's in classic's (a new build adopts that one at launch).
+        for folder in (os.path.join(home, "Library/Application Support/cmux-next/tags", TAG),
+                       os.path.join(home, "Library/Application Support/cmux/tags", TAG),
                        os.path.join(home, ".acpmux/builds", bundle), os.path.join(home, ".cmux/mux/tags", TAG)):
             if bundle and os.path.isdir(folder):
                 shutil.rmtree(folder, ignore_errors=True)

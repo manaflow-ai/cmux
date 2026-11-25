@@ -265,7 +265,8 @@ impl Mux {
         icon: Option<String>,
     ) -> anyhow::Result<ResourcePatchCommit> {
         let name = name.unwrap_or_default();
-        let color = color.unwrap_or_else(|| "grey".to_string());
+        let color =
+            color.unwrap_or_else(|| crate::workspace_registry::TAB_GROUP_NO_COLOR.to_string());
         validate_tab_group_name(&name)?;
         validate_tab_group_color(&color)?;
         validate_workspace_group_id(&id)?;
@@ -628,10 +629,6 @@ impl Mux {
                         ids.pane
                     }
                     TabGroupDestination::NewWorkspace { .. } => {
-                        anyhow::ensure!(
-                            state.workspaces.len() < WORKSPACE_REGISTRY_LIMIT,
-                            "workspace limit reached"
-                        );
                         let position = resource_topology::new_workspace_position(
                             state,
                             &presentation,
@@ -654,20 +651,12 @@ impl Mux {
                             name: mux.default_workspace_name(state),
                             name_source: crate::resource_name::NameSource::Auto,
                             name_revision: 0,
-                            screens: vec![Screen {
-                                id: screen_id,
-                                public_id: ScreenPublicId::random()?,
-                                name: None,
-                                root: Node::Leaf(ids.pane),
-                                active_pane: ids.pane,
-                                zoomed_pane: None,
-                                creation_order_auto_layout: Some(vec![ids.pane]),
-                                viewport_splits: Default::default(),
-                                viewport_base_width: None,
-                                layout_columns: Vec::new(),
-                                layout_revision: 0,
-                                layout_undo: Default::default(),
-                            }],
+                            screens: vec![Screen::with_one_pane(
+                                screen_id,
+                                ScreenPublicId::random()?,
+                                None,
+                                ids.pane,
+                            )],
                             active_screen: 0,
                         });
                         let last = state.workspaces.len() - 1;

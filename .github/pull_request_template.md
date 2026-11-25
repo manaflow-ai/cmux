@@ -1,9 +1,15 @@
 <!-- Before drafting or revising this description, read ../STYLE.md. Lead with the problem and the resulting behavior, keep it proportional, and delete any section or checklist line that does not apply. -->
 <!-- First pull request here? docs/start-here.md covers what reviewers look for and what CI runs for you: https://github.com/manaflow-ai/cmux/blob/main/docs/start-here.md -->
+<!-- Internal notes, measurements and ops tooling go to the maintainers' private repo, not here. -->
 
 ## Summary
 
 <!-- The concrete problem, and what a user or API caller can do after this change. Explain as much of the mechanism as a reviewer needs to assess it; link deeper design or implementation detail. If this closes an issue, say `Fixes #1234` here. -->
+
+## Leaned on
+
+<!-- Optional. Delete this section when nothing applies; it is never a gate. When a sourced perspective decided a choice in this change (a design lens, a doc, a talk, a post), write one line per choice: the lens or source, its URL, and the decision it shaped.
+Example: - Kenton Varda: https://blog.cloudflare.com/introducing-workers-durable-objects/ — one Durable Object per machine, not per team -->
 
 ## Testing
 
@@ -36,9 +42,9 @@ Native app UI: paste what `cmux-ci capture <head sha> --state <scene:NAME|tour:N
 Viewed after image: yes
 Visual verdict: <one sentence: would Leo accept this next to ChatGPT/Claude?>
 
-The pr-capture-check job fails a native UI change without the required evidence or review proof. -->
+The pr-capture-check job warns on a native UI change without the required evidence or review proof. -->
 
-<!-- Performance change (the perf label, or a perf word in the title or description)? Record the deltas so we can look back on them: add a section like the one below, with before and after from the same harness (or, under that heading, `No perf numbers: <why>`). The pr-perf-section-check job fails a perf PR without one; docs-only PRs are exempt.
+<!-- Performance change (the perf label, or a perf word in the title or description)? Record the deltas so we can look back on them: add a section like the one below, with before and after from the same harness (or, under that heading, `No perf numbers: <why>`). The pr-perf-section-check job warns on a perf PR without one; docs-only PRs are exempt.
 
 ## Performance
 
@@ -52,6 +58,7 @@ The pr-capture-check job fails a native UI change without the required evidence 
 <!-- Required for changes under webviews/ or CmuxNext UI paths. The advisory check only warns when this section or its verdict is missing; it never blocks a PR. Run the ui-review skill and paste its verdict and ranked findings here. Remove this section when the PR does not change UI. -->
 
 Verdict: blocked | approve with changes | ship it
+Try: `scripts/cmux-next/try-pr.sh N` <!-- this PR's number: a reviewer opens it in a copy of cmux NEXT before reading the diff; or `Try: none, <why>` -->
 
 ### Findings
 

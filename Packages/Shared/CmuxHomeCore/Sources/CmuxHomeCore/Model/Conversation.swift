@@ -42,6 +42,11 @@ public struct ConversationSummary: Hashable, Sendable, Codable, Identifiable {
     /// When the group's Chiefs answer (the owner's `settings.wake_policy`); nil when the owner
     /// names none (a local conversation, or an owner before settings), which means ``ChiefReplyPolicy/default``.
     public var chiefReplies: ChiefReplyPolicy?
+    /// A channel's own Chief (the owner's `channel_chief`, plans/cmux-next/chief-channels-DESIGN.md): the
+    /// group is a channel, and this Chief is woken only by it. Nil for every other conversation.
+    public var channelChief: ParticipantID?
+    /// The conversation is a channel (a group with its own scoped Chief).
+    public var isChannel: Bool { channelChief != nil }
 
     public init(
         id: ConversationID,
@@ -61,7 +66,8 @@ public struct ConversationSummary: Hashable, Sendable, Codable, Identifiable {
         mentionCount: Int = 0,
         declaredKind: Kind? = nil,
         memberCount: Int? = nil,
-        chiefReplies: ChiefReplyPolicy? = nil
+        chiefReplies: ChiefReplyPolicy? = nil,
+        channelChief: ParticipantID? = nil
     ) {
         self.id = id
         self.owner = owner
@@ -81,6 +87,7 @@ public struct ConversationSummary: Hashable, Sendable, Codable, Identifiable {
         self.declaredKind = declaredKind
         self.memberCount = memberCount
         self.chiefReplies = chiefReplies
+        self.channelChief = channelChief
     }
 
     public enum Kind: String, Hashable, Sendable, Codable {
@@ -124,7 +131,17 @@ public struct ConversationSummary: Hashable, Sendable, Codable, Identifiable {
     public func displayTitle(me: ParticipantID) -> String {
         if !title.isEmpty, !title.isHomeInternalID { return title }
         let names = participants.filter { $0.id != me }.map(\.visibleName).filter { !$0.isEmpty }
+        #if canImport(Darwin)
         return names.isEmpty ? "" : ListFormatter.localizedString(byJoining: names)
+        #else
+        // No ListFormatter (the Linux package lane): the English list it gives.
+        switch names.count {
+        case 0: return ""
+        case 1: return names[0]
+        case 2: return "\(names[0]) and \(names[1])"
+        default: return names.dropLast().joined(separator: ", ") + ", and " + names[names.count - 1]
+        }
+        #endif
     }
 
     /// Messages after my read cursor, without my own: my newest message

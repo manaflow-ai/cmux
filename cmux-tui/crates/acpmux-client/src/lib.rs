@@ -1,0 +1,2347 @@
+//! I/O-free client state machine for agent-service v2.
+
+pub mod chat;
+pub mod ffi;
+pub mod page;
+pub mod tokio_list;
+pub mod wire;
+
+use acpmux_list_types::{OriginState, RowKey, Summary};
+
+use serde::{Serialize, de::DeserializeOwned};
+use serde_json::Value;
+use std::collections::{HashMap, HashSet, VecDeque};
+use wire::{
+    Anchor, Cursor, DeltaOp, FolderPageResult, FolderWindow, Frame, FrameError, FrameKind, Hello,
+    Limits, ListKey, ListView, Page, PageResult, Request, Sub, Window,
+};
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Change<T> {
+    Window(Window<T>),
+    FolderWindow(FolderWindow),
+    Page(PageResult<T>),
+    FolderPage(FolderPageResult),
+    Summary {
+        sid: String,
+        seq: u64,
+        summary: T,
+        replay: bool,
+    },
+    Left {
+        sid: String,
+        seq: u64,
+        summary: T,
+        replay: bool,
+    },
+    Gone {
+        sid: String,
+        seq: u64,
+        origin: String,
+        chat_id: String,
+        why: Option<String>,
+        replay: bool,
+    },
+    Origin {
+        sid: String,
+        seq: u64,
+        origin: wire::Origin,
+        replay: bool,
+    },
+    Queue {
+        sid: String,
+        seq: u64,
+        bytes: u64,
+        replay: bool,
+    },
+    Folder {
+        sid: String,
+        seq: u64,
+        row: wire::FolderRow,
+        replay: bool,
+    },
+    FolderGone {
+        sid: String,
+        seq: u64,
+        origin: String,
+        folder: String,
+        replay: bool,
+    },
+    ResumeEnd {
+        sid: String,
+        cursor: Cursor,
+    },
+    Unconfirmed {
+        sid: String,
+    },
+    Dropped {
+        sid: String,
+        cursor: Option<Cursor>,
+        new_sid: Option<String>,
+    },
+    Error {
+        method: String,
+        sid: Option<String>,
+        id: Option<String>,
+        code: String,
+    },
+    Whole {
+        sid: String,
+        cursor: Cursor,
+    },
+    Fallback(Vec<u8>),
+    /// A chat sub's change: the same queue, the same credit, and no `T`.
+    Chat(chat::ChatChange),
+}
+
+/// Encodes a list summary using the object shape expected by the v1 app.
+/// Opaque extension fields are retained and typed fields win when both exist.
+pub fn v1_row(summary: &Summary, origin_state: OriginState, parent: Option<&Summary>) -> Value {
+    let mut object = serde_json::from_str::<Value>(summary.extra.get())
+        .ok()
+        .and_then(|value| value.as_object().cloned())
+        .unwrap_or_default();
+    object.insert("sessionId".into(), Value::String(summary.chat_id.clone()));
+    object.insert("title".into(), Value::String(summary.title.clone()));
+    object.insert("harness".into(), Value::String(summary.harness.clone()));
+    object.entry("status").or_insert_with(|| Value::String(summary.state.clone()));
+    object.insert("state".into(), Value::String(summary.state.clone()));
+    object.insert("unread".into(), Value::Bool(summary.unread > 0));
+    object.insert("unreadTurns".into(), Value::from(summary.unread));
+    object.insert("updatedMs".into(), Value::from(summary.last_activity));
+    if let Some(workspace) = &summary.workspace {
+        object.insert("workspaceId".into(), Value::String(workspace.clone()));
+    } else {
+        object.remove("workspaceId");
+    }
+    if summary.origin != "local" {
+        object.insert("peer".into(), Value::String(summary.origin.clone()));
+    } else {
+        object.remove("peer");
+    }
+    if matches!(origin_state, OriginState::Stale) {
+        object.insert("stale".into(), Value::Bool(true));
+    } else {
+        object.remove("stale");
+    }
+    if let Some(fork) = &summary.fork_of {
+        object.insert("parentId".into(), Value::String(fork.key.chat_id.to_string()));
+        object.insert("forkSeq".into(), Value::from(fork.seq));
+    } else {
+        object.remove("parentId");
+        object.remove("forkSeq");
+    }
+    if Summary::listed_under(summary, parent) {
+        if let Some(parent) = parent {
+            object.insert("spawnedBy".into(), Value::String(parent.chat_id.clone()));
+        }
+    } else {
+        object.remove("spawnedBy");
+    }
+    Value::Object(object)
+}
+
+/// A mirror's reconciliation state. The client stores keys, never row data;
+/// rows are delivered to the caller as page or delta changes.
+#[derive(Clone, Debug, Default)]
+struct MirrorState {
+    held: HashMap<(String, String), ListKey>,
+    wanted: HashMap<(String, String), ListKey>,
+    whole: bool,
+    walking: bool,
+    seen: HashMap<(String, String), ListKey>,
+    touched: HashSet<(String, String)>,
+    pending_wanted: VecDeque<ListKey>,
+    pending_wanted_ids: HashSet<(String, String)>,
+    // Decision 166: a window or a successful page permits one immediate retry.
+    read_error_since_progress: bool,
+    reads_stopped: bool,
+    parent_facts: HashMap<(String, String), ParentFacts>,
+    child_parent: HashMap<(String, String), (String, String)>,
+    parent_children: HashMap<(String, String), HashSet<(String, String)>>,
+    internal_wanted: HashSet<(String, String)>,
+    caller_wanted: HashSet<(String, String)>,
+    origin_states: HashMap<String, OriginState>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct ParentFacts {
+    /// The daemon has answered this key, including with `missing`/`gone`.
+    /// `answered` says whether that answer carried a row the mirror can use
+    /// as a parent for v1 rendering.
+    known: bool,
+    answered: bool,
+    archived: bool,
+    parent: Option<(String, String)>,
+}
+
+#[derive(Clone, Debug)]
+struct SubState {
+    initial: Sub,
+    request: Sub,
+    cursor: Cursor,
+    edition: u32,
+    consumed: u64,
+    credited: u64,
+    replaying: bool,
+    window_taken: bool,
+    mirror: Option<MirrorState>,
+}
+
+#[derive(Clone, Debug, Default)]
+enum PagePurpose {
+    #[default]
+    User,
+    MirrorWalk,
+    Wanted,
+    /// A page asked under its own sid with no sub, for the relay (row 8b): answered once,
+    /// never sent again on a reconnect.
+    Relay,
+}
+
+#[derive(Clone, Debug, Default)]
+struct PageState {
+    request: Option<Page>,
+    changed_keys: HashSet<(String, String)>,
+    changed_folders: HashSet<(String, String)>,
+    removed_origins: HashSet<String>,
+    purpose: PagePurpose,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Phase {
+    Upgrade,
+    Hello,
+    Ready,
+    Fallback,
+    Closed,
+}
+
+/// A connection's protocol state. The transport owns all I/O.
+pub struct Client<T = Summary> {
+    phase: Phase,
+    surfaces: Vec<String>,
+    frame_buf: Vec<u8>,
+    frame_total: Option<usize>,
+    send: VecDeque<Vec<u8>>,
+    changes: VecDeque<QueuedChange<T>>,
+    subscriptions: HashMap<String, SubState>,
+    retired_sids: HashSet<String>,
+    pages: HashMap<String, PageState>,
+    stale_folder_pages: HashSet<String>,
+    deferred_folder_pages: HashMap<String, Page>,
+    limits: Limits,
+    line: Vec<u8>,
+    next_id: u64,
+    next_sid: u64,
+    direct_v2: bool,
+    upgrade_id: Option<Value>,
+    skips: SkipCounters,
+    chats: HashMap<String, chat::ChatSub>,
+    blobs: VecDeque<chat::PendingBlob>,
+    /// The surfaces this connection's upgrade granted; none while not known (before the reply,
+    /// and on a handle made already connected in v2, which has what it named).
+    granted: Option<Vec<String>>,
+}
+
+/// Counts protocol values this client intentionally skips while preserving the
+/// stream cursor. These counters are diagnostic, never flow control.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct SkipCounters {
+    pub unknown_kind: u64,
+    pub unknown_op: u64,
+    pub missing_seq: u64,
+    pub unheld_sid: u64,
+    /// A chat window or page past 400 rows or 256 KB, skipped and answered with an error change.
+    pub over_bound: u64,
+}
+
+struct QueuedChange<T> {
+    pub(crate) change: Change<T>,
+    pub(crate) sid: Option<String>,
+    pub(crate) bytes: u64,
+    pub(crate) charge: bool,
+}
+
+impl<T> Client<T>
+where
+    T: Serialize + DeserializeOwned + Clone,
+{
+    fn sub_view_is_live(sub: &SubState) -> bool {
+        matches!(sub.request.view, Some(ListView::Live))
+    }
+
+    pub fn new(surfaces: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        Self {
+            phase: Phase::Upgrade,
+            surfaces: surfaces.into_iter().map(Into::into).collect(),
+            frame_buf: Vec::new(),
+            frame_total: None,
+            send: VecDeque::new(),
+            changes: VecDeque::new(),
+            subscriptions: HashMap::new(),
+            retired_sids: HashSet::new(),
+            pages: HashMap::new(),
+            stale_folder_pages: HashSet::new(),
+            deferred_folder_pages: HashMap::new(),
+            limits: Limits::default(),
+            line: Vec::new(),
+            next_id: 1,
+            next_sid: 1,
+            direct_v2: false,
+            upgrade_id: None,
+            skips: SkipCounters::default(),
+            chats: HashMap::new(),
+            blobs: VecDeque::new(),
+            granted: None,
+        }
+    }
+
+    /// Whether this connection serves a stream's surface: no for one its upgrade did not grant.
+    fn surface_granted(&self, stream: &wire::Stream) -> bool {
+        let surface = if stream.as_str().starts_with("chat:") { "chat" } else { stream.as_str() };
+        self.granted.as_ref().is_none_or(|granted| granted.iter().any(|name| name == surface))
+    }
+
+    /// Ends a list sub whose surface the connection does not serve: one `error` change with
+    /// method `sub` and code `surface_off`, and nothing on the wire.
+    fn end_list_surface_off(&mut self, sid: String) {
+        self.subscriptions.remove(&sid);
+        self.pages.remove(&sid);
+        self.stale_folder_pages.remove(&sid);
+        self.deferred_folder_pages.remove(&sid);
+        self.push_change(
+            Change::Error {
+                method: "sub".into(),
+                sid: Some(sid),
+                id: None,
+                code: "surface_off".into(),
+            },
+            None,
+            0,
+            false,
+        );
+    }
+
+    /// After the upgrade reply: each held sub on a surface not granted ends, the list's first,
+    /// each in order of its sid.
+    fn end_subs_not_granted(&mut self) {
+        let mut lists: Vec<String> = self
+            .subscriptions
+            .iter()
+            .filter(|(_, sub)| !self.surface_granted(&sub.request.stream))
+            .map(|(sid, _)| sid.clone())
+            .collect();
+        lists.sort_unstable();
+        for sid in lists {
+            self.end_list_surface_off(sid);
+        }
+        if !self.surface_granted(&wire::Stream::new("chat:")) {
+            self.end_chats_surface_off();
+        }
+    }
+
+    pub fn connected_v2() -> Self {
+        let mut client = Self::new(std::iter::empty::<String>());
+        client.phase = Phase::Hello;
+        client.direct_v2 = true;
+        client.queue_hello();
+        client
+    }
+
+    pub fn connected(&mut self) {
+        // A handle in fallback asks for v2 again on its next connection.
+        if self.phase == Phase::Fallback {
+            self.phase = Phase::Upgrade;
+        }
+        if self.phase == Phase::Upgrade {
+            let id = self.next_id;
+            self.next_id += 1;
+            self.upgrade_id = Some(Value::from(id));
+            let request = serde_json::json!({"jsonrpc":"2.0","id":id,"method":"_acpmux/v2","params":{"protocol":2,"surfaces":self.surfaces}});
+            self.send.push_back(format!("{request}\n").into_bytes());
+        }
+    }
+
+    pub fn disconnected(&mut self) {
+        if self.phase != Phase::Fallback {
+            self.phase = if self.direct_v2 { Phase::Hello } else { Phase::Upgrade };
+        }
+        if !self.direct_v2 {
+            // The next upgrade reply says again what is granted.
+            self.granted = None;
+        }
+        self.send.clear();
+        self.frame_buf.clear();
+        self.frame_total = None;
+        self.line.clear();
+        self.stale_folder_pages.clear();
+        self.deferred_folder_pages.clear();
+        self.retired_sids.clear();
+        self.pages.clear();
+        for sub in self.subscriptions.values_mut() {
+            if let Some(mirror) = sub.mirror.as_mut() {
+                if mirror.walking {
+                    mirror.whole = false;
+                }
+                mirror.walking = false;
+                mirror.seen.clear();
+            }
+            if sub.request.view == Some(ListView::Folders) {
+                // Folder subscriptions are always reopened at a fresh head;
+                // their view sequence is not a resumable history.
+                sub.request = sub.initial.clone();
+                sub.request.cursor = None;
+                sub.request.edition = None;
+                sub.request.anchor = Some(Anchor::End);
+                sub.cursor = Cursor::default();
+                sub.edition = 0;
+                sub.replaying = false;
+                sub.window_taken = false;
+            } else if sub.window_taken {
+                sub.request.cursor = Some(sub.cursor);
+                sub.request.edition = Some(sub.edition);
+                sub.request.anchor = None;
+                sub.replaying = true;
+            } else {
+                sub.request = sub.initial.clone();
+                sub.replaying = sub.request.cursor.is_some();
+            }
+            sub.consumed = 0;
+            sub.credited = 0;
+        }
+        self.chats_disconnected();
+        if self.direct_v2 {
+            self.queue_hello();
+        }
+    }
+
+    pub fn limits(&self) -> &Limits {
+        &self.limits
+    }
+    pub fn is_fallback(&self) -> bool {
+        self.phase == Phase::Fallback
+    }
+    pub fn is_closed(&self) -> bool {
+        self.phase == Phase::Closed
+    }
+    pub fn skip_counters(&self) -> SkipCounters {
+        self.skips
+    }
+    pub fn take_send(&mut self) -> Option<Vec<u8>> {
+        self.send.pop_front()
+    }
+    pub fn next_change(&mut self) -> Option<Change<T>> {
+        let queued = self.next_change_uncredited()?;
+        self.acknowledge_change(&queued);
+        Some(queued.change)
+    }
+
+    /// Removes one change without returning credit to the daemon. The page driver uses this to
+    /// hold a bounded batch until the page acknowledges it. Legacy callers should continue to
+    /// use [`Self::next_change`], which takes the change immediately.
+    pub(crate) fn next_change_uncredited(&mut self) -> Option<QueuedChange<T>> {
+        self.changes.pop_front()
+    }
+
+    /// Returns credit for a change previously removed with [`Self::next_change_uncredited`].
+    pub(crate) fn acknowledge_change(&mut self, queued: &QueuedChange<T>) {
+        if queued.charge
+            && let Some(sid) = queued.sid.as_deref()
+        {
+            self.charge_frame_now(Some(sid), queued.bytes);
+        }
+    }
+
+    /// Whether the handle has a queued protocol change. The page driver uses this to avoid
+    /// treating an empty batch as a page event.
+    pub(crate) fn has_queued_changes(&self) -> bool {
+        !self.changes.is_empty()
+    }
+
+    pub fn received(&mut self, bytes: &[u8]) -> usize {
+        if matches!(self.phase, Phase::Fallback | Phase::Closed) || !self.changes.is_empty() {
+            return 0;
+        }
+        if self.phase == Phase::Upgrade {
+            let Some(end) = bytes.iter().position(|b| *b == b'\n') else {
+                self.line.extend_from_slice(bytes);
+                if self.line.len() > wire::MAX_FRAME_BYTES {
+                    self.protocol_error("upgrade line too large");
+                }
+                return bytes.len();
+            };
+            self.line.extend_from_slice(bytes.get(..=end).unwrap_or(bytes));
+            let reply = std::mem::take(&mut self.line);
+            if reply.len() > wire::MAX_FRAME_BYTES {
+                self.protocol_error("upgrade line too large");
+                return bytes.len();
+            }
+            let Ok(value) = serde_json::from_slice::<Value>(&reply) else {
+                self.protocol_error("malformed upgrade reply");
+                return bytes.len();
+            };
+            if value.get("error").is_some_and(Value::is_object) {
+                self.phase = Phase::Fallback;
+                // Decision 225: each chat sub ends with one change before the fallback; the
+                // list's subs stay for the caller's v1 feed.
+                self.end_chats_surface_off();
+                let rest = bytes.get(end.saturating_add(1)..).unwrap_or_default().to_vec();
+                self.push_change(Change::Fallback(rest), None, 0, false);
+                return bytes.len();
+            }
+            let valid = value.get("id") == self.upgrade_id.as_ref()
+                && value.pointer("/result/upgrade").and_then(Value::as_bool) == Some(true);
+            if !valid {
+                self.protocol_error("invalid upgrade reply");
+                return bytes.len();
+            }
+            // Decision 223: the reply names the surfaces granted; an older daemon's names none,
+            // and it granted all the handle named.
+            let granted = value
+                .pointer("/result/surfaces")
+                .and_then(Value::as_array)
+                .map(|names| names.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+                .unwrap_or_else(|| self.surfaces.clone());
+            self.granted = Some(granted);
+            self.end_subs_not_granted();
+            self.phase = Phase::Hello;
+            self.queue_hello();
+            let remainder = bytes.get(end.saturating_add(1)..).unwrap_or_default();
+            if !remainder.is_empty() {
+                return end.saturating_add(1).saturating_add(self.received(remainder));
+            }
+            return end.saturating_add(1);
+        }
+        match self.take_frame(bytes) {
+            Ok((Some(frame), consumed)) => {
+                self.accept_frame(frame);
+                return consumed;
+            }
+            Ok((None, consumed)) => return consumed,
+            Err(error) => {
+                self.protocol_error(&error.to_string());
+            }
+        }
+        bytes.len()
+    }
+
+    fn protocol_error(&mut self, code: &str) {
+        self.phase = Phase::Closed;
+        self.push_change(
+            Change::Error { method: "frame".into(), sid: None, id: None, code: code.to_owned() },
+            None,
+            0,
+            false,
+        );
+    }
+
+    fn take_frame(&mut self, bytes: &[u8]) -> Result<(Option<Frame>, usize), FrameError> {
+        if self.frame_buf.is_empty() && self.frame_total.is_none() && bytes.len() >= 4 {
+            let header = bytes.get(..4).ok_or(FrameError::Truncated)?;
+            let len =
+                u32::from_be_bytes(header.try_into().map_err(|_| FrameError::Truncated)?) as usize;
+            let max_body = (self.limits.max_frame as usize).saturating_sub(4);
+            if !(1..=max_body).contains(&len) {
+                return Err(FrameError::InvalidLength(len));
+            }
+            let total = len.saturating_add(4);
+            if bytes.len() >= total {
+                return Ok((
+                    Some(Frame::from_encoded(bytes.get(..total).ok_or(FrameError::Truncated)?)?),
+                    total,
+                ));
+            }
+        }
+        let need = self.frame_total.map_or(4, |total| total).saturating_sub(self.frame_buf.len());
+        let used = need.min(bytes.len());
+        self.frame_buf.extend_from_slice(bytes.get(..used).unwrap_or_default());
+        if self.frame_total.is_none() && self.frame_buf.len() >= 4 {
+            let header = self.frame_buf.get(..4).ok_or(FrameError::Truncated)?;
+            let len =
+                u32::from_be_bytes(header.try_into().map_err(|_| FrameError::Truncated)?) as usize;
+            let max_body = (self.limits.max_frame as usize).saturating_sub(4);
+            if !(1..=max_body).contains(&len) {
+                return Err(FrameError::InvalidLength(len));
+            }
+            self.frame_total = Some(len.saturating_add(4));
+        }
+        let Some(total) = self.frame_total else {
+            return Ok((None, used));
+        };
+        if self.frame_buf.len() < total {
+            return Ok((None, used));
+        }
+        let encoded = std::mem::take(&mut self.frame_buf);
+        self.frame_total = None;
+        Ok((Some(Frame::from_encoded(encoded.get(..total).ok_or(FrameError::Truncated)?)?), used))
+    }
+
+    pub fn subscribe(&mut self, mut sub: Sub) -> Result<String, FrameError> {
+        if !wire::identifier_fits(&sub.sid) {
+            return Err(FrameError::InvalidLength(sub.sid.len()));
+        }
+        if self.chats.contains_key(&sub.sid) {
+            return Err(FrameError::Refused("the sid is held"));
+        }
+        if !self.surface_granted(&sub.stream) {
+            // A change, never a refused call: one path for a sub before and after the upgrade.
+            self.end_list_surface_off(sub.sid.clone());
+            return Ok(sub.sid);
+        }
+        if sub.view == Some(ListView::Folders) {
+            // A folders window is a replacement head snapshot. Cursors and
+            // editions belong to resumable summary streams only.
+            sub.cursor = None;
+            sub.edition = None;
+            sub.anchor = Some(Anchor::End);
+        } else if sub.cursor.is_none() {
+            sub.anchor.get_or_insert(Anchor::End);
+        }
+        let sid = sub.sid.clone();
+        let cursor = sub.cursor.unwrap_or_default();
+        let edition = sub.edition.unwrap_or_default();
+        self.subscriptions.insert(
+            sid.clone(),
+            SubState {
+                initial: sub.clone(),
+                request: sub.clone(),
+                cursor,
+                edition,
+                consumed: 0,
+                credited: 0,
+                replaying: sub.cursor.is_some(),
+                window_taken: false,
+                mirror: None,
+            },
+        );
+        if self.phase == Phase::Ready {
+            self.queue_request(Request::Sub(sub))?;
+        }
+        Ok(sid)
+    }
+
+    /// Subscribes a mirror. `held_keys` is the key set saved by the caller;
+    /// `whole` says that it was complete when saved. An incomplete mirror is
+    /// deliberately reopened at the head and reconciled by a walk.
+    pub fn subscribe_mirror(
+        &mut self,
+        mut sub: Sub,
+        held_keys: impl IntoIterator<Item = ListKey>,
+        whole: bool,
+    ) -> Result<String, FrameError> {
+        wire::validate_mirror_view(sub.view)?;
+        if !whole {
+            sub.cursor = None;
+            sub.edition = None;
+            sub.anchor = None;
+        }
+        if sub.cursor.is_none() {
+            sub.anchor.get_or_insert(Anchor::End);
+        }
+        let keys: HashMap<(String, String), ListKey> =
+            held_keys.into_iter().map(|key| (Self::row_identity(&key), key)).collect();
+        if !wire::identifier_fits(&sub.sid) {
+            return Err(FrameError::InvalidLength(sub.sid.len()));
+        }
+        if self.chats.contains_key(&sub.sid) {
+            return Err(FrameError::Refused("the sid is held"));
+        }
+        if !self.surface_granted(&sub.stream) {
+            // A change, never a refused call: one path for a sub before and after the upgrade.
+            self.end_list_surface_off(sub.sid.clone());
+            return Ok(sub.sid);
+        }
+        let sid = sub.sid.clone();
+        let cursor = sub.cursor.unwrap_or_default();
+        let edition = sub.edition.unwrap_or_default();
+        self.subscriptions.insert(
+            sid.clone(),
+            SubState {
+                initial: sub.clone(),
+                request: sub.clone(),
+                cursor,
+                edition,
+                consumed: 0,
+                credited: 0,
+                replaying: sub.cursor.is_some(),
+                window_taken: false,
+                mirror: Some(MirrorState { held: keys, whole, ..MirrorState::default() }),
+            },
+        );
+        if self.phase == Phase::Ready {
+            self.queue_request(Request::Sub(sub))?;
+        }
+        Ok(sid)
+    }
+
+    /// Adds keys to a mirror's wanted set. Reads are batched at 100 keys per
+    /// request and are deferred while the mirror is walking.
+    pub fn want(
+        &mut self,
+        sid: &str,
+        keys: impl IntoIterator<Item = ListKey>,
+    ) -> Result<(), FrameError> {
+        let Some(sub) = self.subscriptions.get_mut(sid) else {
+            return Err(FrameError::RequestInFlight);
+        };
+        let Some(mirror) = sub.mirror.as_mut() else {
+            return Err(FrameError::RequestInFlight);
+        };
+        for key in keys {
+            let id = Self::row_identity(&key);
+            if !mirror.wanted.contains_key(&id)
+                && mirror.wanted.len() >= 4096
+                && !Self::evict_internal_wanted(mirror)
+            {
+                return Err(FrameError::InvalidLength(mirror.wanted.len()));
+            }
+            mirror.wanted.insert(id, key.clone());
+            mirror.caller_wanted.insert(Self::row_identity(&key));
+            mirror.internal_wanted.remove(&Self::row_identity(&key));
+            Self::queue_pending_wanted(mirror, key);
+        }
+        // An explicit want may read pending keys after a stop, but does not
+        // replenish the retry allowance or restart the view's walk.
+        mirror.reads_stopped = false;
+        self.maybe_start_wanted(sid);
+        Ok(())
+    }
+
+    /// Removes a key from the wanted set. A live held row remains held until
+    /// its normal delta or reconcile removes it.
+    pub fn unwant(
+        &mut self,
+        sid: &str,
+        keys: impl IntoIterator<Item = ListKey>,
+    ) -> Result<(), FrameError> {
+        let Some(sub) = self.subscriptions.get_mut(sid) else {
+            return Err(FrameError::RequestInFlight);
+        };
+        let Some(mirror) = sub.mirror.as_mut() else {
+            return Err(FrameError::RequestInFlight);
+        };
+        for key in keys {
+            let id = Self::row_identity(&key);
+            mirror.caller_wanted.remove(&id);
+            if !mirror.internal_wanted.contains(&id) {
+                mirror.wanted.remove(&id);
+            }
+            if !mirror.internal_wanted.contains(&id) {
+                mirror.pending_wanted_ids.remove(&id);
+            }
+        }
+        Ok(())
+    }
+
+    /// Ends a list or a chat sub.
+    pub fn unsubscribe(&mut self, sid: &str) -> Result<(), FrameError> {
+        self.forget_chat(sid);
+        self.subscriptions.remove(sid);
+        self.stale_folder_pages.remove(sid);
+        self.deferred_folder_pages.remove(sid);
+        self.pages.remove(sid);
+        if self.phase == Phase::Ready {
+            self.queue_request(Request::Unsub(wire::Unsub { sid: sid.to_owned() }))?;
+        }
+        Ok(())
+    }
+
+    pub fn page(&mut self, page: Page) -> Result<(), FrameError> {
+        if !wire::identifier_fits(&page.sid) {
+            return Err(FrameError::InvalidLength(page.sid.len()));
+        }
+        let folder_page = page.view == Some(ListView::Folders)
+            || self
+                .subscriptions
+                .get(&page.sid)
+                .is_some_and(|sub| sub.request.view == Some(ListView::Folders));
+        if folder_page && self.stale_folder_pages.contains(&page.sid) {
+            if self.deferred_folder_pages.contains_key(&page.sid) {
+                return Err(FrameError::RequestInFlight);
+            }
+            // Validate now, before accepting a request whose send is deferred.
+            Frame::json(FrameKind::Request, &Request::Page(page.clone()))?;
+            self.deferred_folder_pages.insert(page.sid.clone(), page);
+            return Ok(());
+        }
+        if self.pages.contains_key(&page.sid) {
+            return Err(FrameError::RequestInFlight);
+        }
+        let sid = page.sid.clone();
+        self.pages.insert(sid, PageState { request: Some(page.clone()), ..PageState::default() });
+        if self.phase == Phase::Ready {
+            self.queue_request(Request::Page(page))?;
+        }
+        Ok(())
+    }
+
+    /// A page with no held sub, under its own `sid`, asked once: what a peer link answers for
+    /// `all` and `keys` (decision 266), sent by the relay (row 8b). Its answer is one
+    /// [`Change::Page`] or [`Change::Error`] for that sid, applied to no sub and to no index. A
+    /// reconnect drops it unanswered, and it is not sent again.
+    pub fn relay_page(&mut self, page: Page) -> Result<(), FrameError> {
+        if !wire::identifier_fits(&page.sid) {
+            return Err(FrameError::InvalidLength(page.sid.len()));
+        }
+        if self.phase != Phase::Ready {
+            return Err(FrameError::Refused("a relayed page needs a ready v2 connection"));
+        }
+        if self.pages.contains_key(&page.sid) || self.subscriptions.contains_key(&page.sid) {
+            return Err(FrameError::RequestInFlight);
+        }
+        let frame = Frame::json(FrameKind::Request, &Request::Page(page.clone()))?;
+        self.pages.insert(
+            page.sid,
+            PageState { request: None, purpose: PagePurpose::Relay, ..PageState::default() },
+        );
+        self.send.push_back(frame.encode());
+        Ok(())
+    }
+
+    fn is_relay_page(&self, sid: &str) -> bool {
+        self.pages.get(sid).is_some_and(|state| matches!(state.purpose, PagePurpose::Relay))
+    }
+
+    fn queue_request(&mut self, request: Request) -> Result<(), FrameError> {
+        self.send.push_back(Frame::json(FrameKind::Request, &request)?.encode());
+        Ok(())
+    }
+
+    fn queue_hello(&mut self) {
+        let _ = self.queue_request(Request::Hello(Hello {
+            client_kind: "acpmux-client".into(),
+            protocol: 2,
+            identity: None,
+        }));
+    }
+
+    fn push_change(&mut self, change: Change<T>, sid: Option<String>, bytes: u64, charge: bool) {
+        self.changes.push_back(QueuedChange { change, sid, bytes, charge });
+    }
+
+    fn queue_subscriptions(&mut self) {
+        let requests: Vec<Sub> =
+            self.subscriptions.values().map(|state| state.request.clone()).collect();
+        for request in requests {
+            let _ = self.queue_request(Request::Sub(request));
+        }
+        let requests: Vec<Page> =
+            self.pages.values().filter_map(|page| page.request.clone()).collect();
+        for request in requests {
+            let _ = self.queue_request(Request::Page(request));
+        }
+        self.queue_chat_requests();
+    }
+
+    fn row_key(value: &Value) -> Option<ListKey> {
+        Some(ListKey {
+            last_activity: value.get("lastActivity")?.as_u64()?,
+            chat_id: value.get("chatId").or_else(|| value.get("sessionId"))?.as_str()?.to_owned(),
+            origin: value.get("origin").and_then(Value::as_str).unwrap_or("local").to_owned(),
+            past: false,
+        })
+    }
+
+    fn value_key<U: Serialize>(row: &U) -> Option<ListKey> {
+        serde_json::to_value(row).ok().and_then(|value| Self::row_key(&value))
+    }
+
+    fn rows_v1(&self, sid: &str) -> bool {
+        self.subscriptions.get(sid).and_then(|sub| sub.mirror.as_ref()).is_some()
+            && self
+                .subscriptions
+                .get(sid)
+                .is_some_and(|sub| sub.request.rows.as_deref() == Some("v1"))
+    }
+
+    fn parent_identity(summary: &Summary) -> Option<(String, String)> {
+        summary
+            .parent
+            .as_ref()
+            .map(|parent| (parent.origin.to_string(), parent.chat_id.to_string()))
+    }
+
+    fn synthetic_parent(&self, sid: &str, id: &(String, String)) -> Option<Summary> {
+        let facts = self
+            .subscriptions
+            .get(sid)
+            .and_then(|sub| sub.mirror.as_ref())
+            .and_then(|mirror| mirror.parent_facts.get(id))?;
+        if !facts.known || !facts.answered {
+            return None;
+        }
+        let mut parent = Summary::new(id.1.clone());
+        parent.origin = id.0.clone();
+        parent.archived = facts.archived;
+        parent.parent = facts
+            .parent
+            .as_ref()
+            .map(|(origin, chat_id)| RowKey::new(origin.as_str(), chat_id.as_str()));
+        Some(parent)
+    }
+
+    fn record_summary(&mut self, sid: &str, summary: &Summary) {
+        let Some(sub) = self.subscriptions.get_mut(sid) else { return };
+        let Some(mirror) = sub.mirror.as_mut() else { return };
+        let id = (summary.origin.clone(), summary.chat_id.clone());
+        let parent = Self::parent_identity(summary);
+        let previous = mirror.parent_facts.insert(
+            id.clone(),
+            ParentFacts {
+                known: true,
+                answered: true,
+                archived: summary.archived,
+                parent: parent.clone(),
+            },
+        );
+        if let Some(old_parent) = previous.as_ref().and_then(|facts| facts.parent.clone())
+            && Some(old_parent) != parent
+        {
+            Self::detach_child(mirror, &id);
+        }
+        if let Some(parent) = parent.clone() {
+            mirror.child_parent.insert(id.clone(), parent.clone());
+            mirror.parent_children.entry(parent.clone()).or_default().insert(id.clone());
+            let parent_missing = !mirror.parent_facts.get(&parent).is_some_and(|facts| facts.known)
+                && !mirror.held.contains_key(&parent)
+                && !mirror.wanted.contains_key(&parent);
+            if parent_missing && mirror.wanted.len() < 4096 {
+                let key = ListKey {
+                    last_activity: 0,
+                    chat_id: parent.1.clone(),
+                    origin: parent.0.clone(),
+                    past: false,
+                };
+                mirror.wanted.insert(parent.clone(), key.clone());
+                mirror.internal_wanted.insert(parent);
+                Self::queue_pending_wanted(mirror, key);
+            }
+        } else {
+            mirror.child_parent.remove(&id);
+        }
+        let parent_changed = previous.as_ref().is_none_or(|old| {
+            !old.known || !old.answered || old.archived != summary.archived || old.parent != parent
+        });
+        if parent_changed && let Some(children) = mirror.parent_children.get(&id).cloned() {
+            for child in children {
+                if let Some(key) = mirror.held.get(&child).cloned()
+                    && !mirror.pending_wanted_ids.contains(&child)
+                {
+                    Self::queue_pending_wanted(mirror, key);
+                }
+            }
+        }
+        if !summary.is_live()
+            && mirror.parent_children.contains_key(&id)
+            && let Some(key) =
+                mirror.held.get(&id).cloned().or_else(|| mirror.wanted.get(&id).cloned())
+        {
+            if !mirror.wanted.contains_key(&id) && mirror.wanted.len() < 4096 {
+                mirror.wanted.insert(id.clone(), key.clone());
+            }
+            mirror.internal_wanted.insert(id);
+            Self::queue_pending_wanted(mirror, key);
+        }
+    }
+
+    fn prepare_rows(&mut self, sid: &str, rows: &[T]) {
+        if !self.rows_v1(sid) {
+            return;
+        }
+        let summaries: Vec<Summary> = rows
+            .iter()
+            .filter_map(|row| {
+                serde_json::to_value(row).ok().and_then(|value| serde_json::from_value(value).ok())
+            })
+            .collect();
+        for summary in &summaries {
+            self.record_summary(sid, summary);
+        }
+    }
+
+    fn record_origin_state(&mut self, sid: &str, origin: String, state: OriginState) {
+        let Some(sub) = self.subscriptions.get_mut(sid) else { return };
+        let Some(mirror) = sub.mirror.as_mut() else { return };
+        mirror.origin_states.insert(origin.clone(), state);
+        if state == OriginState::Removed {
+            let affected: Vec<_> = mirror
+                .parent_facts
+                .iter()
+                .filter(|((row_origin, _), facts)| row_origin == &origin && facts.known)
+                .map(|((row_origin, row_id), _)| (row_origin.clone(), row_id.clone()))
+                .collect();
+            for id in affected {
+                Self::invalidate_parent(mirror, &id);
+            }
+        }
+    }
+
+    fn release_parent_if_unused(&mut self, sid: &str, child: &(String, String)) {
+        let Some(sub) = self.subscriptions.get_mut(sid) else { return };
+        let Some(mirror) = sub.mirror.as_mut() else { return };
+        if mirror.held.contains_key(child) {
+            return;
+        }
+        Self::detach_child(mirror, child);
+    }
+
+    fn render_row(&self, sid: &str, row: T) -> T {
+        if !self.rows_v1(sid) {
+            return row;
+        }
+        let Ok(value) = serde_json::to_value(&row) else { return row };
+        let Ok(summary) = serde_json::from_value::<Summary>(value) else { return row };
+        let origin_state = self
+            .subscriptions
+            .get(sid)
+            .and_then(|sub| sub.mirror.as_ref())
+            .and_then(|mirror| mirror.origin_states.get(&summary.origin).copied())
+            .unwrap_or(OriginState::Connected);
+        let parent = Self::parent_identity(&summary).and_then(|id| self.synthetic_parent(sid, &id));
+        let rendered = v1_row(&summary, origin_state, parent.as_ref());
+        serde_json::from_value(rendered).unwrap_or(row)
+    }
+
+    fn render_rows(&self, sid: &str, rows: Vec<T>) -> Vec<T> {
+        rows.into_iter().map(|row| self.render_row(sid, row)).collect()
+    }
+
+    fn summary_is_live(value: &Value) -> bool {
+        value.get("state").and_then(Value::as_str).is_none_or(acpmux_list_types::is_live_state)
+    }
+
+    fn row_identity(key: &ListKey) -> (String, String) {
+        (key.origin.clone(), key.chat_id.clone())
+    }
+
+    fn queue_pending_wanted(mirror: &mut MirrorState, key: ListKey) {
+        let id = Self::row_identity(&key);
+        if mirror.pending_wanted_ids.insert(id) {
+            mirror.pending_wanted.push_back(key);
+        }
+    }
+
+    fn queue_pending_wanted_front(mirror: &mut MirrorState, key: ListKey) {
+        let id = Self::row_identity(&key);
+        if mirror.pending_wanted_ids.insert(id) {
+            mirror.pending_wanted.push_front(key);
+        }
+    }
+
+    fn pop_pending_wanted(mirror: &mut MirrorState) -> Option<ListKey> {
+        while let Some(key) = mirror.pending_wanted.pop_front() {
+            let id = Self::row_identity(&key);
+            if mirror.pending_wanted_ids.remove(&id) {
+                return Some(key);
+            }
+        }
+        None
+    }
+
+    fn detach_child(mirror: &mut MirrorState, child: &(String, String)) {
+        let Some(parent) = mirror.child_parent.remove(child) else { return };
+        let parent_empty = if let Some(children) = mirror.parent_children.get_mut(&parent) {
+            children.remove(child);
+            children.is_empty()
+        } else {
+            false
+        };
+        if parent_empty {
+            mirror.parent_children.remove(&parent);
+            mirror.parent_facts.remove(&parent);
+            if mirror.internal_wanted.remove(&parent) && !mirror.caller_wanted.contains(&parent) {
+                mirror.wanted.remove(&parent);
+                mirror.pending_wanted_ids.remove(&parent);
+            }
+        }
+    }
+
+    fn remove_held(mirror: &mut MirrorState, id: &(String, String)) {
+        mirror.held.remove(id);
+        Self::detach_child(mirror, id);
+        if !mirror.parent_children.contains_key(id) {
+            mirror.parent_facts.remove(id);
+        }
+    }
+
+    fn prune_parent_tracking(mirror: &mut MirrorState) {
+        let orphaned: Vec<_> = mirror
+            .child_parent
+            .keys()
+            .filter(|id| !mirror.held.contains_key(*id))
+            .cloned()
+            .collect();
+        for child in orphaned {
+            Self::detach_child(mirror, &child);
+        }
+        let empty_parents: Vec<_> = mirror
+            .parent_children
+            .iter()
+            .filter_map(|(parent, children)| children.is_empty().then_some(parent.clone()))
+            .collect();
+        for parent in empty_parents {
+            mirror.parent_children.remove(&parent);
+            mirror.parent_facts.remove(&parent);
+            if mirror.internal_wanted.remove(&parent) && !mirror.caller_wanted.contains(&parent) {
+                mirror.wanted.remove(&parent);
+                mirror.pending_wanted_ids.remove(&parent);
+            }
+        }
+        mirror.parent_facts.retain(|id, _| {
+            mirror.held.contains_key(id) || mirror.parent_children.contains_key(id)
+        });
+    }
+
+    fn evict_internal_wanted(mirror: &mut MirrorState) -> bool {
+        let candidates: Vec<_> = mirror.internal_wanted.iter().cloned().collect();
+        let mut parent = None;
+        for id in candidates {
+            if mirror.caller_wanted.contains(&id) {
+                // A caller's key cannot be evicted. It remains wanted, but
+                // no longer needs an internal reason to retain it.
+                mirror.internal_wanted.remove(&id);
+            } else {
+                parent = Some(id);
+                break;
+            }
+        }
+        let Some(parent) = parent else { return false };
+        mirror.internal_wanted.remove(&parent);
+        mirror.wanted.remove(&parent);
+        mirror.pending_wanted_ids.remove(&parent);
+        if let Some(facts) = mirror.parent_facts.get_mut(&parent) {
+            facts.known = false;
+            facts.answered = false;
+        }
+        if let Some(children) = mirror.parent_children.get(&parent).cloned() {
+            for child in children {
+                if let Some(key) = mirror.held.get(&child).cloned() {
+                    Self::queue_pending_wanted(mirror, key);
+                }
+            }
+        }
+        true
+    }
+
+    fn invalidate_parent(mirror: &mut MirrorState, id: &(String, String)) {
+        let Some(facts) = mirror.parent_facts.get_mut(id) else { return };
+        if !facts.known {
+            facts.known = true;
+        }
+        if !facts.answered {
+            return;
+        }
+        facts.answered = false;
+        if let Some(children) = mirror.parent_children.get(id).cloned() {
+            for child in children {
+                if let Some(key) = mirror.held.get(&child).cloned() {
+                    Self::queue_pending_wanted(mirror, key);
+                }
+            }
+        }
+    }
+
+    fn remember_missing_parent(mirror: &mut MirrorState, id: &(String, String)) {
+        if mirror.parent_children.contains_key(id) {
+            mirror.parent_facts.entry(id.clone()).or_insert(ParentFacts {
+                known: true,
+                answered: false,
+                ..ParentFacts::default()
+            });
+        }
+        Self::invalidate_parent(mirror, id);
+    }
+
+    fn start_mirror_walk(&mut self, sid: &str) {
+        if self
+            .subscriptions
+            .get(sid)
+            .and_then(|sub| sub.mirror.as_ref())
+            .is_some_and(|mirror| mirror.reads_stopped)
+        {
+            return;
+        }
+        if self.pages.contains_key(sid) {
+            if let Some(sub) = self.subscriptions.get_mut(sid)
+                && let Some(mirror) = sub.mirror.as_mut()
+            {
+                mirror.walking = true;
+                mirror.whole = false;
+            }
+            return;
+        }
+        let page = {
+            let Some(sub) = self.subscriptions.get_mut(sid) else { return };
+            let Some(mirror) = sub.mirror.as_mut() else { return };
+            mirror.walking = true;
+            mirror.whole = false;
+            mirror.seen.clear();
+            mirror.touched.clear();
+            Page {
+                sid: sid.to_owned(),
+                stream: sub.request.stream.clone(),
+                before: None,
+                after: None,
+                keys: None,
+                view: sub.request.view,
+                max_bytes: wire::MAX_PAGE_BYTES as u32,
+                filter: sub.request.filter.clone(),
+                edition: None,
+                fold: None,
+                turns: false,
+            }
+        };
+        self.pages.insert(
+            sid.to_owned(),
+            PageState {
+                request: Some(page.clone()),
+                purpose: PagePurpose::MirrorWalk,
+                ..PageState::default()
+            },
+        );
+        if self.phase == Phase::Ready {
+            let _ = self.queue_request(Request::Page(page));
+        }
+    }
+
+    fn maybe_start_wanted(&mut self, sid: &str) {
+        if self.pages.contains_key(sid) || self.phase != Phase::Ready {
+            return;
+        }
+        let page = {
+            let Some(sub) = self.subscriptions.get_mut(sid) else { return };
+            let Some(mirror) = sub.mirror.as_mut() else { return };
+            if mirror.walking || mirror.reads_stopped || mirror.pending_wanted_ids.is_empty() {
+                return;
+            }
+            let mut keys = Vec::with_capacity(100);
+            while keys.len() < 100 {
+                let Some(key) = Self::pop_pending_wanted(mirror) else { break };
+                keys.push(key);
+            }
+            if keys.is_empty() {
+                return;
+            }
+            Page {
+                sid: sid.to_owned(),
+                stream: sub.request.stream.clone(),
+                before: None,
+                after: None,
+                keys: Some(keys.into_iter().map(wire::PageKey::Summary).collect()),
+                view: sub.request.view,
+                max_bytes: wire::MAX_PAGE_BYTES as u32,
+                filter: sub.request.filter.clone(),
+                edition: None,
+                fold: None,
+                turns: false,
+            }
+        };
+        self.pages.insert(
+            sid.to_owned(),
+            PageState {
+                request: Some(page.clone()),
+                purpose: PagePurpose::Wanted,
+                ..PageState::default()
+            },
+        );
+        let _ = self.queue_request(Request::Page(page));
+    }
+
+    fn finish_mirror_walk(&mut self, sid: &str) {
+        let (cursor, stale) = {
+            let Some(sub) = self.subscriptions.get_mut(sid) else { return };
+            let Some(mirror) = sub.mirror.as_mut() else { return };
+            let stale: Vec<ListKey> = mirror
+                .held
+                .iter()
+                .filter(|(id, _)| {
+                    !mirror.seen.contains_key(*id)
+                        && !mirror.touched.contains(*id)
+                        && !mirror.wanted.contains_key(*id)
+                })
+                .map(|(_, key)| key.clone())
+                .collect();
+            for key in &stale {
+                Self::remove_held(mirror, &Self::row_identity(key));
+            }
+            Self::prune_parent_tracking(mirror);
+            mirror.walking = false;
+            mirror.whole = true;
+            mirror.seen.clear();
+            mirror.touched.clear();
+            (sub.cursor, stale)
+        };
+        for key in stale {
+            let id = Self::row_identity(&key);
+            self.release_parent_if_unused(sid, &id);
+            self.push_change(
+                Change::Gone {
+                    sid: sid.to_owned(),
+                    seq: cursor.0,
+                    origin: key.origin,
+                    chat_id: key.chat_id,
+                    why: Some("missed".into()),
+                    replay: false,
+                },
+                None,
+                0,
+                false,
+            );
+        }
+        self.push_change(Change::Whole { sid: sid.to_owned(), cursor }, None, 0, false);
+        if let Some(sub) = self.subscriptions.get_mut(sid)
+            && let Some(mirror) = sub.mirror.as_mut()
+        {
+            mirror.pending_wanted.clear();
+            mirror.pending_wanted_ids.clear();
+            let wanted: Vec<_> = mirror.wanted.values().cloned().collect();
+            for key in wanted {
+                Self::queue_pending_wanted(mirror, key);
+            }
+        }
+        self.maybe_start_wanted(sid);
+    }
+
+    fn accept_frame(&mut self, frame: Frame) {
+        let frame_bytes = frame.encoded_len() as u64;
+        let Some(frame) = self.accept_chat_frame(frame, frame_bytes) else { return };
+        match frame.kind {
+            FrameKind::Hello => {
+                let Ok(reply) = frame.decode_json::<wire::HelloReply>() else {
+                    self.protocol_error("malformed hello");
+                    return;
+                };
+                self.limits = reply.limits;
+                self.phase = Phase::Ready;
+                self.queue_subscriptions();
+            }
+            FrameKind::Window => {
+                let sid_hint = frame
+                    .decode_json::<Value>()
+                    .ok()
+                    .and_then(|value| value.get("sid").and_then(Value::as_str).map(str::to_owned));
+                let is_folders = sid_hint.as_deref().is_some_and(|sid| {
+                    self.subscriptions
+                        .get(sid)
+                        .is_some_and(|sub| sub.request.view == Some(ListView::Folders))
+                });
+                if is_folders {
+                    let Ok(window) = frame.decode_json::<FolderWindow>() else {
+                        self.protocol_error("malformed folders window");
+                        return;
+                    };
+                    let sid = window.sid.clone();
+                    if !self.subscriptions.contains_key(&sid) {
+                        self.skips.unheld_sid = self.skips.unheld_sid.saturating_add(1);
+                        self.charge_frame_now(None, frame_bytes);
+                        return;
+                    }
+                    // A new head invalidates every folder page requested from
+                    // the previous head. Responses that arrive after this
+                    // point are discarded before sending a deferred request.
+                    if self.pages.remove(&sid).is_some() {
+                        self.stale_folder_pages.insert(sid.clone());
+                    }
+                    self.deferred_folder_pages.remove(&sid);
+                    let replaying =
+                        self.subscriptions.get(&sid).map(|sub| sub.replaying).unwrap_or(false);
+                    if let Some(sub) = self.subscriptions.get_mut(&sid) {
+                        sub.cursor = Cursor(window.cursor);
+                        sub.edition = window.edition;
+                        sub.replaying = false;
+                        sub.window_taken = true;
+                    }
+                    self.push_change(
+                        Change::FolderWindow(window),
+                        Some(sid.clone()),
+                        frame_bytes,
+                        true,
+                    );
+                    if replaying {
+                        self.push_change(Change::Unconfirmed { sid }, None, 0, false);
+                    }
+                    return;
+                }
+                let Ok(mut window) = frame.decode_json::<Window<T>>() else {
+                    self.protocol_error("malformed window");
+                    return;
+                };
+                let sid = window.sid.clone();
+                if !self.subscriptions.contains_key(&sid) {
+                    self.skips.unheld_sid = self.skips.unheld_sid.saturating_add(1);
+                    self.charge_frame_now(None, frame_bytes);
+                    return;
+                }
+                let replaying =
+                    self.subscriptions.get(&sid).map(|sub| sub.replaying).unwrap_or(false);
+                let mirror =
+                    self.subscriptions.get(&sid).and_then(|sub| sub.mirror.as_ref()).is_some();
+                let raw_rows = window.rows.clone();
+                if mirror {
+                    for origin in &window.origins {
+                        self.record_origin_state(&sid, origin.id.clone(), origin.state);
+                    }
+                    self.prepare_rows(&sid, &raw_rows);
+                }
+                if let Some(sub) = self.subscriptions.get_mut(&sid) {
+                    sub.cursor = Cursor(window.cursor);
+                    sub.edition = window.edition;
+                    sub.replaying = false;
+                    sub.window_taken = true;
+                    if let Some(mirror) = sub.mirror.as_mut() {
+                        mirror.read_error_since_progress = false;
+                        mirror.reads_stopped = false;
+                        for row in &raw_rows {
+                            if let Some(key) = Self::value_key(row) {
+                                let id = Self::row_identity(&key);
+                                mirror.seen.insert(id.clone(), key.clone());
+                                mirror.held.insert(id, key);
+                            }
+                        }
+                    }
+                }
+                if let Some(sub) = self.subscriptions.get_mut(&sid)
+                    && let Some(mirror) = sub.mirror.as_mut()
+                {
+                    Self::prune_parent_tracking(mirror);
+                }
+                if mirror {
+                    window.rows = self.render_rows(&sid, raw_rows);
+                }
+                self.push_change(Change::Window(window), Some(sid.clone()), frame_bytes, true);
+                if replaying {
+                    self.push_change(Change::Unconfirmed { sid: sid.clone() }, None, 0, false);
+                }
+                if mirror {
+                    self.start_mirror_walk(&sid);
+                }
+            }
+            FrameKind::Page => {
+                let sid_hint = frame
+                    .decode_json::<Value>()
+                    .ok()
+                    .and_then(|value| value.get("sid").and_then(Value::as_str).map(str::to_owned));
+                if let Some(sid) = sid_hint.as_deref()
+                    && self.is_relay_page(sid)
+                {
+                    let Ok(page) = frame.decode_json::<PageResult<T>>() else {
+                        self.protocol_error("malformed page");
+                        return;
+                    };
+                    self.pages.remove(sid);
+                    self.push_change(Change::Page(page), None, frame_bytes, false);
+                    return;
+                }
+                if sid_hint.as_deref().is_some_and(|sid| !self.subscriptions.contains_key(sid)) {
+                    // An unheld page cannot be applied to any current
+                    // subscription. Skip it before generic decoding, since a
+                    // Value client could otherwise surface it as a Page.
+                    self.skips.unheld_sid = self.skips.unheld_sid.saturating_add(1);
+                    self.charge_frame_now(None, frame_bytes);
+                    return;
+                }
+                let is_folders = sid_hint.as_deref().is_some_and(|sid| {
+                    self.subscriptions
+                        .get(sid)
+                        .is_some_and(|sub| sub.request.view == Some(ListView::Folders))
+                });
+                if is_folders {
+                    let Ok(mut page) = frame.decode_json::<FolderPageResult>() else {
+                        self.protocol_error("malformed folders page");
+                        return;
+                    };
+                    let sid = page.sid.clone();
+                    if !self.subscriptions.contains_key(&sid) {
+                        self.skips.unheld_sid = self.skips.unheld_sid.saturating_add(1);
+                        self.charge_frame_now(None, frame_bytes);
+                        return;
+                    }
+                    let Some(state) = self.pages.remove(&sid) else {
+                        // This is a response to a page invalidated by a
+                        // reconnect or a replacement folder window.
+                        self.release_folder_tombstone(&sid);
+                        self.charge_frame_now(Some(&sid), frame_bytes);
+                        return;
+                    };
+                    page.rows.retain(|row| {
+                        !state
+                            .changed_folders
+                            .contains(&(row.origin.to_string(), row.folder.to_string()))
+                            && !state.removed_origins.contains(row.origin.as_ref())
+                    });
+                    self.push_change(Change::FolderPage(page), Some(sid), frame_bytes, true);
+                    return;
+                }
+                let Ok(mut page) = frame.decode_json::<PageResult<T>>() else {
+                    self.protocol_error("malformed page");
+                    return;
+                };
+                let sid = page.sid.clone();
+                if !self.subscriptions.contains_key(&sid) {
+                    self.skips.unheld_sid = self.skips.unheld_sid.saturating_add(1);
+                    self.charge_frame_now(None, frame_bytes);
+                    return;
+                }
+                if let Some(mirror) =
+                    self.subscriptions.get_mut(&sid).and_then(|sub| sub.mirror.as_mut())
+                {
+                    mirror.read_error_since_progress = false;
+                }
+                let state = self.pages.remove(&sid).unwrap_or_default();
+                let raw_rows = page.rows.clone();
+                if self.rows_v1(&sid) && matches!(state.purpose, PagePurpose::User) {
+                    self.prepare_rows(&sid, &raw_rows);
+                }
+                if matches!(state.purpose, PagePurpose::User | PagePurpose::MirrorWalk) {
+                    page.rows.retain(|row| {
+                        let Some(value) = serde_json::to_value(row).ok() else { return true };
+                        let key = value
+                            .get("chatId")
+                            .or_else(|| value.get("sessionId"))
+                            .and_then(Value::as_str)
+                            .map(str::to_owned);
+                        let origin = value.get("origin").and_then(Value::as_str).unwrap_or("local");
+                        if let Some(key) = key
+                            && state.changed_keys.contains(&(origin.to_owned(), key))
+                        {
+                            return false;
+                        }
+                        !state.removed_origins.contains(origin)
+                    });
+                }
+                match state.purpose {
+                    PagePurpose::User => {
+                        if self.rows_v1(&sid) {
+                            page.rows = self.render_rows(&sid, page.rows);
+                        }
+                        self.push_change(Change::Page(page), Some(sid.clone()), frame_bytes, true);
+                        let restart_walk = self
+                            .subscriptions
+                            .get(&sid)
+                            .and_then(|sub| sub.mirror.as_ref())
+                            .is_some_and(|mirror| mirror.walking && !mirror.whole);
+                        if restart_walk {
+                            self.start_mirror_walk(&sid);
+                        } else {
+                            self.maybe_start_wanted(&sid);
+                        }
+                    }
+                    PagePurpose::MirrorWalk => self.accept_mirror_walk_page(page, frame_bytes),
+                    // A relay page is answered above, before the sub check.
+                    PagePurpose::Relay => {}
+                    PagePurpose::Wanted => self.accept_wanted_page(
+                        page,
+                        frame_bytes,
+                        state
+                            .request
+                            .and_then(|request| request.keys)
+                            .unwrap_or_default()
+                            .into_iter()
+                            .filter_map(|key| match key {
+                                wire::PageKey::Summary(key) => Some(key),
+                                wire::PageKey::Folder(_) => None,
+                            })
+                            .collect(),
+                    ),
+                }
+            }
+            FrameKind::Delta => {
+                let Ok(value) = frame.decode_json::<Value>() else {
+                    self.protocol_error("malformed delta");
+                    return;
+                };
+                self.accept_delta_value(value, frame_bytes);
+            }
+            FrameKind::Dropped => {
+                let Ok(drop) = frame.decode_json::<wire::Dropped>() else {
+                    self.protocol_error("malformed dropped");
+                    return;
+                };
+                self.accept_dropped(drop, frame_bytes);
+            }
+            FrameKind::Error => {
+                let Ok(value) = frame.decode_json::<Value>() else {
+                    self.protocol_error("malformed error");
+                    return;
+                };
+                let sid = value.get("sid").and_then(Value::as_str).map(str::to_owned);
+                if value.get("method").and_then(Value::as_str) == Some("page")
+                    && let Some(sid) = sid.as_deref()
+                    && self.is_relay_page(sid)
+                {
+                    self.pages.remove(sid);
+                    let code = value.get("code").and_then(Value::as_str).unwrap_or("error");
+                    self.push_change(
+                        Change::Error {
+                            method: "page".into(),
+                            sid: Some(sid.to_owned()),
+                            id: None,
+                            code: code.to_owned(),
+                        },
+                        None,
+                        frame_bytes,
+                        false,
+                    );
+                    return;
+                }
+                if sid.as_deref().is_some_and(|sid| !self.subscriptions.contains_key(sid)) {
+                    self.skips.unheld_sid = self.skips.unheld_sid.saturating_add(1);
+                }
+                let method =
+                    value.get("method").and_then(Value::as_str).unwrap_or("unknown").to_owned();
+                let code = value.get("code").and_then(Value::as_str).unwrap_or("error").to_owned();
+                if method == "page"
+                    && let Some(sid) = sid.as_deref()
+                {
+                    // Retired and superseded folder replies cannot reach a new head.
+                    if !self.subscriptions.contains_key(sid) {
+                        self.charge_frame_now(None, frame_bytes);
+                        return;
+                    }
+                    if self.stale_folder_pages.contains(sid) {
+                        self.pages.remove(sid);
+                        self.release_folder_tombstone(sid);
+                        self.charge_frame_now(Some(sid), frame_bytes);
+                        return;
+                    }
+                }
+                let restart_walk = if method == "page" {
+                    sid.as_deref().is_some_and(|sid| self.accept_page_error(sid))
+                } else {
+                    false
+                };
+                if sid.is_some() && method == "sub" && code != "not_ready" {
+                    self.subscriptions.remove(sid.as_deref().unwrap_or_default());
+                }
+                self.push_change(
+                    Change::Error {
+                        method,
+                        sid: sid.clone(),
+                        id: value.get("id").and_then(Value::as_str).map(str::to_owned),
+                        code,
+                    },
+                    sid.clone(),
+                    frame_bytes,
+                    true,
+                );
+                if restart_walk && let Some(sid) = sid {
+                    self.start_mirror_walk(&sid);
+                }
+            }
+            FrameKind::Unknown(kind) => {
+                self.skips.unknown_kind = self.skips.unknown_kind.saturating_add(1);
+                self.skip_unknown(kind, &frame, frame_bytes);
+            }
+            _ => self.skip_unknown(0, &frame, frame_bytes),
+        }
+    }
+
+    /// Both automatic read paths share one retry allowance per subscription.
+    /// A failed wanted read keeps its keys while the retry walks from the head.
+    fn accept_page_error(&mut self, sid: &str) -> bool {
+        let state = self.pages.remove(sid);
+        let Some(mirror) = self.subscriptions.get_mut(sid).and_then(|sub| sub.mirror.as_mut())
+        else {
+            return false;
+        };
+        let Some(state) = state else { return false };
+        if matches!(state.purpose, PagePurpose::User) {
+            // Freeing the caller's slot may release a waiting walk. The
+            // caller's error neither spends nor restores its retry allowance.
+            return mirror.walking && !mirror.whole && !mirror.reads_stopped;
+        }
+        let retry = !mirror.read_error_since_progress;
+        mirror.read_error_since_progress = true;
+        if matches!(state.purpose, PagePurpose::Wanted)
+            && let Some(keys) = state.request.and_then(|request| request.keys)
+        {
+            for key in keys.into_iter().rev() {
+                if let wire::PageKey::Summary(key) = key {
+                    Self::queue_pending_wanted_front(mirror, key);
+                }
+            }
+        }
+        mirror.walking = false;
+        mirror.whole = false;
+        mirror.reads_stopped = !retry;
+        retry
+    }
+
+    fn accept_mirror_walk_page(&mut self, page: PageResult<T>, frame_bytes: u64) {
+        let sid = page.sid.clone();
+        let cursor = self.subscriptions.get(&sid).map(|sub| sub.cursor).unwrap_or_default();
+        let raw_rows = page.rows.clone();
+        if self.rows_v1(&sid) {
+            self.prepare_rows(&sid, &raw_rows);
+        }
+        let mut emitted = false;
+        for row in raw_rows {
+            let key = Self::value_key(&row);
+            if let Some(key) = key.clone()
+                && let Some(sub) = self.subscriptions.get_mut(&sid)
+                && let Some(mirror) = sub.mirror.as_mut()
+            {
+                let id = Self::row_identity(&key);
+                mirror.seen.insert(id.clone(), key.clone());
+                mirror.held.insert(id, key);
+            }
+            let row = self.render_row(&sid, row);
+            self.push_change(
+                Change::Summary { sid: sid.clone(), seq: cursor.0, summary: row, replay: false },
+                Some(sid.clone()),
+                frame_bytes,
+                !emitted,
+            );
+            emitted = true;
+        }
+        if !emitted {
+            self.charge_frame_now(Some(&sid), frame_bytes);
+        }
+        if page.has_after {
+            let Some(after_key) = page.after_key else {
+                self.protocol_error("mirror page hasAfter without afterKey");
+                return;
+            };
+            let next = {
+                let Some(sub) = self.subscriptions.get(&sid) else { return };
+                Page {
+                    sid: sid.clone(),
+                    stream: sub.request.stream.clone(),
+                    before: None,
+                    after: Some(wire::Position::List(after_key)),
+                    keys: None,
+                    view: sub.request.view,
+                    max_bytes: wire::MAX_PAGE_BYTES as u32,
+                    filter: sub.request.filter.clone(),
+                    edition: None,
+                    fold: None,
+                    turns: false,
+                }
+            };
+            self.pages.insert(
+                sid.clone(),
+                PageState {
+                    request: Some(next.clone()),
+                    purpose: PagePurpose::MirrorWalk,
+                    ..PageState::default()
+                },
+            );
+            let _ = self.queue_request(Request::Page(next));
+        } else {
+            self.finish_mirror_walk(&sid);
+        }
+    }
+
+    fn accept_wanted_page(
+        &mut self,
+        page: PageResult<T>,
+        frame_bytes: u64,
+        requested_keys: Vec<ListKey>,
+    ) {
+        let sid = page.sid.clone();
+        let raw_rows = page.rows.clone();
+        if self.rows_v1(&sid) {
+            self.prepare_rows(&sid, &raw_rows);
+        }
+        let mut emitted = false;
+        let mut answered = 0usize;
+        for row in raw_rows {
+            let Some(key) = Self::value_key(&row) else { continue };
+            let id = Self::row_identity(&key);
+            answered = answered.saturating_add(1);
+            let live =
+                serde_json::to_value(&row).ok().is_some_and(|value| Self::summary_is_live(&value));
+            let internal_only =
+                self.subscriptions.get(&sid).and_then(|sub| sub.mirror.as_ref()).is_some_and(
+                    |mirror| {
+                        mirror.internal_wanted.contains(&id) && !mirror.caller_wanted.contains(&id)
+                    },
+                );
+            if let Some(sub) = self.subscriptions.get_mut(&sid)
+                && let Some(mirror) = sub.mirror.as_mut()
+            {
+                if live || mirror.caller_wanted.contains(&id) {
+                    mirror.held.insert(id.clone(), key.clone());
+                } else {
+                    Self::remove_held(mirror, &id);
+                }
+            }
+            let cursor = self.subscriptions.get(&sid).map(|sub| sub.cursor.0).unwrap_or_default();
+            if !internal_only {
+                self.push_change(
+                    Change::Summary {
+                        sid: sid.clone(),
+                        seq: cursor,
+                        summary: self.render_row(&sid, row),
+                        replay: false,
+                    },
+                    Some(sid.clone()),
+                    frame_bytes,
+                    !emitted,
+                );
+                emitted = true;
+            }
+        }
+        for key in page.missing {
+            answered = answered.saturating_add(1);
+            let held = self
+                .subscriptions
+                .get(&sid)
+                .and_then(|sub| sub.mirror.as_ref())
+                .is_some_and(|mirror| mirror.held.contains_key(&Self::row_identity(&key)));
+            if held {
+                if let Some(sub) = self.subscriptions.get_mut(&sid)
+                    && let Some(mirror) = sub.mirror.as_mut()
+                {
+                    let id = Self::row_identity(&key);
+                    Self::remember_missing_parent(mirror, &id);
+                    Self::remove_held(mirror, &id);
+                    mirror.caller_wanted.remove(&id);
+                    if !mirror.internal_wanted.contains(&id) {
+                        mirror.wanted.remove(&id);
+                    }
+                }
+                let cursor =
+                    self.subscriptions.get(&sid).map(|sub| sub.cursor.0).unwrap_or_default();
+                self.push_change(
+                    Change::Gone {
+                        sid: sid.clone(),
+                        seq: cursor,
+                        origin: key.origin,
+                        chat_id: key.chat_id,
+                        why: Some("removed".into()),
+                        replay: false,
+                    },
+                    None,
+                    0,
+                    false,
+                );
+                emitted = true;
+            } else if let Some(sub) = self.subscriptions.get_mut(&sid)
+                && let Some(mirror) = sub.mirror.as_mut()
+            {
+                let id = Self::row_identity(&key);
+                Self::remember_missing_parent(mirror, &id);
+                mirror.caller_wanted.remove(&id);
+                mirror.internal_wanted.remove(&id);
+                mirror.wanted.remove(&id);
+            }
+        }
+        for key in page.unknown {
+            answered = answered.saturating_add(1);
+            if let Some(sub) = self.subscriptions.get_mut(&sid)
+                && let Some(mirror) = sub.mirror.as_mut()
+            {
+                mirror.wanted.insert(Self::row_identity(&key), key);
+            }
+        }
+        if !emitted {
+            self.charge_frame_now(Some(&sid), frame_bytes);
+        }
+        {
+            let Some(sub) = self.subscriptions.get_mut(&sid) else { return };
+            let Some(mirror) = sub.mirror.as_mut() else { return };
+            for key in &requested_keys {
+                mirror.pending_wanted_ids.remove(&Self::row_identity(key));
+            }
+        }
+        if !page.rest.is_empty() {
+            if answered == 0 {
+                self.protocol_error("wanted page rest made no progress");
+                return;
+            }
+            {
+                let Some(sub) = self.subscriptions.get_mut(&sid) else { return };
+                let Some(mirror) = sub.mirror.as_mut() else { return };
+                for key in page.rest.iter().rev() {
+                    Self::queue_pending_wanted_front(mirror, key.clone());
+                }
+            }
+            self.maybe_start_wanted(&sid);
+        } else {
+            self.maybe_start_wanted(&sid);
+        }
+    }
+
+    fn charge_frame_now(&mut self, sid: Option<&str>, bytes: u64) {
+        let Some(sid) = sid else { return };
+        let quarter = self.limits.credit_window / 4;
+        let consumed = {
+            let credit = if self.subscriptions.contains_key(sid) {
+                self.subscriptions.get_mut(sid).map(|sub| (&mut sub.consumed, &mut sub.credited))
+            } else {
+                self.chat_credit(sid)
+            };
+            let Some((consumed, credited)) = credit else { return };
+            *consumed = consumed.saturating_add(bytes);
+            if consumed.saturating_sub(*credited) >= quarter {
+                *credited = *consumed;
+                Some(*consumed)
+            } else {
+                None
+            }
+        };
+        if let Some(consumed) = consumed {
+            let _ =
+                self.queue_request(Request::Credit(wire::Credit { sid: sid.to_owned(), consumed }));
+        }
+    }
+
+    fn skip_unknown(&mut self, _kind: u8, frame: &Frame, frame_bytes: u64) {
+        let Ok(value) = frame.decode_json::<Value>() else {
+            self.charge_frame_now(None, frame_bytes);
+            return;
+        };
+        let sid = value.get("sid").and_then(Value::as_str);
+        if sid.is_some_and(|sid| !self.subscriptions.contains_key(sid)) {
+            self.skips.unheld_sid = self.skips.unheld_sid.saturating_add(1);
+        }
+        if let (Some(sid), Some(seq)) = (sid, value.get("seq").and_then(Value::as_u64)) {
+            self.advance(sid, seq);
+            if self.subscriptions.contains_key(sid) {
+                self.charge_frame_now(Some(sid), frame_bytes);
+            }
+        } else {
+            self.charge_frame_now(sid, frame_bytes);
+        }
+    }
+
+    fn accept_delta_value(&mut self, value: Value, frame_bytes: u64) {
+        let sid = value.get("sid").and_then(Value::as_str).unwrap_or_default().to_owned();
+        if !self.subscriptions.contains_key(&sid) {
+            self.skips.unheld_sid = self.skips.unheld_sid.saturating_add(1);
+            self.charge_frame_now(None, frame_bytes);
+            return;
+        }
+        let replay = match value.get("replay").and_then(Value::as_str) {
+            Some("replay") | Some("end") => {
+                self.subscriptions.get(&sid).is_some_and(|sub| sub.replaying)
+            }
+            None => false,
+            Some(_) => {
+                self.protocol_error("invalid replay mark");
+                return;
+            }
+        };
+        let replay_end = value.get("replay").and_then(Value::as_str) == Some("end");
+        if let Some(sub) = self.subscriptions.get_mut(&sid) {
+            sub.window_taken = true;
+        }
+        let Some(ops) = value.get("ops").and_then(Value::as_array) else {
+            self.protocol_error("malformed delta operations");
+            return;
+        };
+        let mut charged = false;
+        let mut emitted = false;
+        for raw in ops {
+            let Some(seq) = raw.get("seq").and_then(Value::as_u64) else {
+                self.skips.missing_seq = self.skips.missing_seq.saturating_add(1);
+                continue;
+            };
+            match serde_json::from_value::<DeltaOp<T>>(raw.clone()) {
+                Ok(DeltaOp::Summary { seq, summary }) => {
+                    self.advance(&sid, seq);
+                    self.note_page_summary(&sid, &summary);
+                    let value = serde_json::to_value(&summary).ok();
+                    let key = value.as_ref().and_then(Self::row_key);
+                    let live = value.as_ref().is_some_and(Self::summary_is_live);
+                    if self.rows_v1(&sid)
+                        && let Ok(typed) = value.clone().map(serde_json::from_value).transpose()
+                        && let Some(typed) = typed
+                    {
+                        self.record_summary(&sid, &typed);
+                    }
+                    let (live_view, held, wanted, mirrored) = self
+                        .subscriptions
+                        .get(&sid)
+                        .map(|sub| {
+                            let id = key.as_ref().map(Self::row_identity);
+                            let mirror = sub.mirror.as_ref();
+                            (
+                                Self::sub_view_is_live(sub),
+                                id.as_ref().is_some_and(|id| {
+                                    mirror.is_some_and(|mirror| mirror.held.contains_key(id))
+                                }),
+                                id.as_ref().is_some_and(|id| {
+                                    mirror.is_some_and(|mirror| mirror.wanted.contains_key(id))
+                                }),
+                                mirror.is_some(),
+                            )
+                        })
+                        .unwrap_or((false, false, false, false));
+                    let internal_only = key.as_ref().is_some_and(|key| {
+                        let id = Self::row_identity(key);
+                        self.subscriptions
+                            .get(&sid)
+                            .and_then(|sub| sub.mirror.as_ref())
+                            .is_some_and(|mirror| {
+                                mirror.internal_wanted.contains(&id)
+                                    && !mirror.caller_wanted.contains(&id)
+                            })
+                    });
+                    let left = live_view && !live && held && !wanted;
+                    let deliver =
+                        !mirrored || (!internal_only && (!live_view || live || held || wanted));
+                    if let Some(sub) = self.subscriptions.get_mut(&sid)
+                        && let Some(mirror) = sub.mirror.as_mut()
+                        && let Some(key) = key
+                    {
+                        let id = Self::row_identity(&key);
+                        if mirror.walking {
+                            mirror.touched.insert(id.clone());
+                        }
+                        if live || mirror.caller_wanted.contains(&id) {
+                            mirror.held.insert(id, key);
+                        } else {
+                            Self::remove_held(mirror, &id);
+                        }
+                    }
+                    if !live && let Some(key) = value.as_ref().and_then(Self::row_key) {
+                        self.release_parent_if_unused(&sid, &Self::row_identity(&key));
+                    }
+                    if left {
+                        let charge = !charged;
+                        charged = true;
+                        emitted = true;
+                        self.push_change(
+                            Change::Left {
+                                sid: sid.clone(),
+                                seq,
+                                summary: self.render_row(&sid, summary),
+                                replay,
+                            },
+                            Some(sid.clone()),
+                            frame_bytes,
+                            charge,
+                        );
+                    } else if deliver {
+                        let charge = !charged;
+                        charged = true;
+                        emitted = true;
+                        self.push_change(
+                            Change::Summary {
+                                sid: sid.clone(),
+                                seq,
+                                summary: self.render_row(&sid, summary),
+                                replay,
+                            },
+                            Some(sid.clone()),
+                            frame_bytes,
+                            charge,
+                        );
+                    }
+                }
+                Ok(DeltaOp::Gone { seq, origin, chat_id }) => {
+                    self.advance(&sid, seq);
+                    let charge = !charged;
+                    charged = true;
+                    emitted = true;
+                    if let Some(page) = self.pages.get_mut(&sid) {
+                        page.changed_keys.insert((origin.clone(), chat_id.clone()));
+                    }
+                    if let Some(sub) = self.subscriptions.get_mut(&sid)
+                        && let Some(mirror) = sub.mirror.as_mut()
+                    {
+                        let id = (origin.clone(), chat_id.clone());
+                        if mirror.walking {
+                            mirror.touched.insert(id.clone());
+                        }
+                        Self::remember_missing_parent(mirror, &id);
+                        Self::remove_held(mirror, &id);
+                        mirror.wanted.remove(&id);
+                        mirror.internal_wanted.remove(&id);
+                        mirror.caller_wanted.remove(&id);
+                        mirror.pending_wanted_ids.remove(&id);
+                    }
+                    self.release_parent_if_unused(&sid, &(origin.clone(), chat_id.clone()));
+                    let why = raw.get("why").and_then(Value::as_str).map(str::to_owned);
+                    self.push_change(
+                        Change::Gone { sid: sid.clone(), seq, origin, chat_id, why, replay },
+                        Some(sid.clone()),
+                        frame_bytes,
+                        charge,
+                    );
+                }
+                Ok(DeltaOp::Origin { seq, origin }) => {
+                    self.advance(&sid, seq);
+                    self.record_origin_state(&sid, origin.id.clone(), origin.state);
+                    let charge = !charged;
+                    charged = true;
+                    emitted = true;
+                    if origin.state == OriginState::Removed
+                        && let Some(page) = self.pages.get_mut(&sid)
+                    {
+                        page.removed_origins.insert(origin.id.clone());
+                    }
+                    self.push_change(
+                        Change::Origin { sid: sid.clone(), seq, origin, replay },
+                        Some(sid.clone()),
+                        frame_bytes,
+                        charge,
+                    );
+                }
+                Ok(DeltaOp::Queue { seq, bytes }) => {
+                    self.advance(&sid, seq);
+                    let charge = !charged;
+                    charged = true;
+                    emitted = true;
+                    self.push_change(
+                        Change::Queue { sid: sid.clone(), seq, bytes, replay },
+                        Some(sid.clone()),
+                        frame_bytes,
+                        charge,
+                    );
+                }
+                Ok(DeltaOp::Folder { seq, row }) => {
+                    self.advance(&sid, seq);
+                    if !self
+                        .subscriptions
+                        .get(&sid)
+                        .is_some_and(|sub| sub.request.view == Some(ListView::Folders))
+                    {
+                        self.skips.unknown_op = self.skips.unknown_op.saturating_add(1);
+                        continue;
+                    }
+                    let charge = !charged;
+                    charged = true;
+                    emitted = true;
+                    self.note_page_folder(&sid, &row);
+                    self.push_change(
+                        Change::Folder { sid: sid.clone(), seq, row, replay },
+                        Some(sid.clone()),
+                        frame_bytes,
+                        charge,
+                    );
+                }
+                Ok(DeltaOp::FolderGone { seq, origin, folder }) => {
+                    self.advance(&sid, seq);
+                    if !self
+                        .subscriptions
+                        .get(&sid)
+                        .is_some_and(|sub| sub.request.view == Some(ListView::Folders))
+                    {
+                        self.skips.unknown_op = self.skips.unknown_op.saturating_add(1);
+                        continue;
+                    }
+                    let charge = !charged;
+                    charged = true;
+                    emitted = true;
+                    if let Some(page) = self.pages.get_mut(&sid) {
+                        page.changed_folders.insert((origin.clone(), folder.clone()));
+                    }
+                    self.push_change(
+                        Change::FolderGone { sid: sid.clone(), seq, origin, folder, replay },
+                        Some(sid.clone()),
+                        frame_bytes,
+                        charge,
+                    );
+                }
+                Err(_) => {
+                    self.skips.unknown_op = self.skips.unknown_op.saturating_add(1);
+                    self.advance(&sid, seq);
+                    if let Some(page) = self.pages.get_mut(&sid)
+                        && let Some(chat_id) = raw.get("chatId").and_then(Value::as_str)
+                    {
+                        let origin = raw.get("origin").and_then(Value::as_str).unwrap_or("local");
+                        if let Some(sub) = self.subscriptions.get_mut(&sid)
+                            && let Some(mirror) = sub.mirror.as_mut()
+                            && mirror.walking
+                        {
+                            mirror.touched.insert((origin.to_owned(), chat_id.to_owned()));
+                        }
+                        page.changed_keys.insert((origin.to_owned(), chat_id.to_owned()));
+                    }
+                }
+            }
+        }
+        if !emitted {
+            self.charge_frame_now(Some(&sid), frame_bytes);
+        }
+        if self.rows_v1(&sid) {
+            self.maybe_start_wanted(&sid);
+        }
+        if replay_end {
+            let was_replaying = self.subscriptions.get(&sid).is_some_and(|sub| sub.replaying);
+            let cursor = self.subscriptions.get(&sid).map(|sub| sub.cursor).unwrap_or_default();
+            if was_replaying && let Some(sub) = self.subscriptions.get_mut(&sid) {
+                sub.replaying = false;
+            }
+            if was_replaying {
+                self.push_change(Change::ResumeEnd { sid: sid.clone(), cursor }, None, 0, false);
+                if self
+                    .subscriptions
+                    .get(&sid)
+                    .and_then(|sub| sub.mirror.as_ref())
+                    .is_some_and(|mirror| !mirror.whole)
+                {
+                    self.start_mirror_walk(&sid);
+                }
+            }
+        }
+    }
+
+    fn advance(&mut self, sid: &str, seq: u64) {
+        if let Some(sub) = self.subscriptions.get_mut(sid)
+            && seq > sub.cursor.0
+        {
+            sub.cursor = Cursor(seq);
+        }
+    }
+
+    fn accept_dropped(&mut self, drop: wire::Dropped, frame_bytes: u64) {
+        self.pages.remove(&drop.sid);
+        let Some(mut sub) = self.subscriptions.remove(&drop.sid) else {
+            self.skips.unheld_sid = self.skips.unheld_sid.saturating_add(1);
+            self.charge_frame_now(None, frame_bytes);
+            return;
+        };
+        let new_sid = loop {
+            let candidate = format!("s{}", self.next_sid);
+            self.next_sid = self.next_sid.saturating_add(1);
+            if wire::identifier_fits(&candidate)
+                && !self.subscriptions.contains_key(&candidate)
+                && !self.retired_sids.contains(&candidate)
+                && candidate != drop.sid
+            {
+                break candidate;
+            }
+        };
+        self.retired_sids.insert(drop.sid.clone());
+        let folders = sub.request.view == Some(ListView::Folders);
+        if folders {
+            self.stale_folder_pages.remove(&drop.sid);
+            self.deferred_folder_pages.remove(&drop.sid);
+            self.pages.remove(&drop.sid);
+        }
+        let cursor = (!folders).then_some(drop.cursor).flatten();
+        sub.request = sub.initial.clone();
+        sub.request.sid = new_sid.clone();
+        if folders {
+            sub.request.cursor = None;
+            sub.request.edition = None;
+            sub.request.anchor = Some(Anchor::End);
+        } else {
+            sub.request.cursor = cursor;
+            sub.request.edition = cursor.map(|_| sub.edition);
+            if cursor.is_some() {
+                sub.request.anchor = None;
+            }
+        }
+        sub.cursor = cursor.unwrap_or_default();
+        sub.replaying = !folders && cursor.is_some();
+        if let Some(mirror) = sub.mirror.as_mut() {
+            mirror.walking = false;
+            mirror.whole = false;
+            mirror.seen.clear();
+        }
+        sub.initial.sid = new_sid.clone();
+        sub.window_taken = false;
+        sub.consumed = 0;
+        sub.credited = 0;
+        self.subscriptions.insert(new_sid.clone(), sub.clone());
+        if self.phase == Phase::Ready {
+            let _ = self.queue_request(Request::Sub(sub.request));
+        }
+        self.push_change(
+            Change::Dropped { sid: drop.sid, cursor, new_sid: Some(new_sid) },
+            None,
+            0,
+            false,
+        );
+    }
+
+    fn note_page_summary(&mut self, sid: &str, summary: &T) {
+        let Some(page) = self.pages.get_mut(sid) else { return };
+        let Ok(value) = serde_json::to_value(summary) else { return };
+        if let Some(key) =
+            value.get("chatId").or_else(|| value.get("sessionId")).and_then(Value::as_str)
+        {
+            let origin = value.get("origin").and_then(Value::as_str).unwrap_or("local");
+            page.changed_keys.insert((origin.to_owned(), key.to_owned()));
+        }
+    }
+
+    fn note_page_folder(&mut self, sid: &str, row: &wire::FolderRow) {
+        if let Some(page) = self.pages.get_mut(sid) {
+            page.changed_folders.insert((row.origin.to_string(), row.folder.to_string()));
+        }
+    }
+
+    fn release_folder_tombstone(&mut self, sid: &str) {
+        if !self.stale_folder_pages.remove(sid) {
+            return;
+        }
+        let Some(page) = self.deferred_folder_pages.remove(sid) else {
+            return;
+        };
+        let page_state = PageState { request: Some(page.clone()), ..PageState::default() };
+        self.pages.insert(sid.to_owned(), page_state);
+        if self.phase == Phase::Ready {
+            let _ = self.queue_request(Request::Page(page));
+        }
+    }
+}
+
+#[cfg(feature = "tokio")]
+pub mod tokio_driver {
+    use super::*;
+    use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+
+    /// The transport is returned when the protocol hands control to a v1
+    /// caller or closes. `bytes` are unread bytes already held by the driver.
+    pub enum DriveExit<R, W> {
+        Fallback { reader: R, writer: W, bytes: Vec<u8> },
+        Closed { reader: R, writer: W, bytes: Vec<u8> },
+        Eof { reader: R, writer: W, bytes: Vec<u8> },
+    }
+
+    pub async fn drive<T, R, W>(
+        mut client: Client<T>,
+        mut reader: R,
+        mut writer: W,
+        tx: tokio::sync::mpsc::Sender<Change<T>>,
+    ) -> std::io::Result<DriveExit<R, W>>
+    where
+        T: Serialize + DeserializeOwned + Clone + Send + 'static,
+        R: AsyncRead + Unpin,
+        W: AsyncWrite + Unpin,
+    {
+        client.connected();
+        let mut buf = [0_u8; 16 * 1024];
+        let mut pending = Vec::new();
+        loop {
+            while let Some(bytes) = client.take_send() {
+                writer.write_all(&bytes).await?;
+            }
+            if let Some(change) = client.next_change() {
+                if let Change::Fallback(bytes) = change {
+                    return Ok(DriveExit::Fallback { reader, writer, bytes });
+                }
+                let closed = client.is_closed();
+                if tx.send(change).await.is_err() {
+                    return Ok(DriveExit::Closed { reader, writer, bytes: pending });
+                }
+                if closed {
+                    return Ok(DriveExit::Closed { reader, writer, bytes: pending });
+                }
+                continue;
+            }
+            if pending.is_empty() {
+                let n = reader.read(&mut buf).await?;
+                if n == 0 {
+                    return Ok(DriveExit::Eof { reader, writer, bytes: pending });
+                }
+                pending.extend_from_slice(buf.get(..n).unwrap_or_default());
+            }
+            let consumed = client.received(&pending);
+            if consumed > 0 {
+                pending.drain(..consumed.min(pending.len()));
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "tests.rs"]
+mod tests;

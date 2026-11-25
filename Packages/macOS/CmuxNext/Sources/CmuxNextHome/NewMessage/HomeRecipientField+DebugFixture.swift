@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import CmuxHomeCore
+import CmuxNextHomeModel
 
 /// DEBUG ONLY: fixture rows for captures of the list under To: (`debug.home.sidebar_fixture`
 /// `new_message`), with no signed-in account: four Chiefs (two read "Chief · This Mac" alike) and `team`.

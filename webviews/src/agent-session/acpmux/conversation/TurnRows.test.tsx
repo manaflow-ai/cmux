@@ -2,7 +2,10 @@ import { expect, test } from "bun:test";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { toolGroups } from "./toolGroups";
 import { renderToStaticMarkup } from "react-dom/server";
-import { runStretches, ToolRows, shouldFoldToolRun } from "./TurnRows";
+import { runStretches } from "./toolGroups";
+import { ToolRows } from "./TurnRows";
+import { shouldFoldToolRun } from "./turnRowsModel";
+import { Globe, MultiTool } from "./icons";
 
 const command = (id: string, text: string): AcpmuxActivity => ({
   kind: "tool",
@@ -32,6 +35,22 @@ const row = (items: AcpmuxActivity[], foldRun = true): AcpmuxRow => ({
   items,
 });
 
+test("discovery-only activity leaves no child for RowFrame's empty-row spacing rule", () => {
+  const discovery: AcpmuxActivity = {
+    kind: "tool",
+    text: "ToolSearch",
+    tool: {
+      id: "discovery",
+      title: "ToolSearch",
+      status: "completed",
+      provenance: { claudeTool: "ToolSearch" },
+      output: "Loaded 2 tools",
+    },
+  };
+  expect(renderToStaticMarkup(<ToolRows row={row([discovery])} />)).toBe("");
+  expect(renderToStaticMarkup(<ToolRows row={row([])} />)).toContain("cv-tools");
+});
+
 test("folds a run the Codex-style runs settled, made only of tool groups", () => {
   const items: AcpmuxActivity[] = [
     command("one", "bun test one"),
@@ -39,6 +58,31 @@ test("folds a run the Codex-style runs settled, made only of tool groups", () =>
   ];
   expect(toolGroups(items)).toHaveLength(2);
   expect(shouldFoldToolRun(row(items), toolGroups(items))).toBe(true);
+});
+
+const fetchCall = (id: string, url: string): AcpmuxActivity => ({
+  kind: "tool",
+  text: `Fetch ${url}`,
+  tool: { id, title: `Fetch ${url}`, kind: "fetch", status: "completed" },
+});
+
+// The folded run's line: the several-tools glyph when its calls did more than one kind of work, the
+// one kind's glyph otherwise.
+test("a folded run of several kinds of work draws the several-tools glyph", () => {
+  const items: AcpmuxActivity[] = [
+    command("one", "bun test one"),
+    { kind: "tool", text: "Read config", tool: { id: "read", title: "Read", kind: "read", status: "completed" } },
+  ];
+  const html = renderToStaticMarkup(<ToolRows row={row(items)} />);
+  expect(html).toContain(renderToStaticMarkup(<MultiTool />));
+});
+
+test("a folded run of one kind of work keeps that kind's glyph", () => {
+  const items = [fetchCall("one", "https://example.com/a"), fetchCall("two", "https://example.com/b")];
+  expect(shouldFoldToolRun(row(items), toolGroups(items))).toBe(true);
+  const html = renderToStaticMarkup(<ToolRows row={row(items)} />);
+  expect(html).toContain(renderToStaticMarkup(<Globe size={16} />));
+  expect(html).not.toContain(renderToStaticMarkup(<MultiTool />));
 });
 
 test("keeps each group of an ended turn's run on its own line", () => {
@@ -112,5 +156,5 @@ test("grouped starts stay visible before an ordinary tool in a folded run", () =
   expect(runStretches(row(items), groups)[0]).toMatchObject({ fold: false, groups: [groups[0]] });
   const html = renderToStaticMarkup(<ToolRows row={row(items)} />);
   expect(html).toContain("Started 3 sub-sessions: tests, docs, lint");
-  expect(html).toContain('class="cv-disclosure__line"');
+  expect(html).toContain('class="cv-disclosure__line cv-agent-activity-row"');
 });

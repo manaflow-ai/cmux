@@ -106,7 +106,9 @@ pub async fn connect() -> Result<(Arc<Client>, bool), HandError> {
             return Ok((client, false));
         }
         // Another key (an earlier hand run): restart it keyed, its agents kept.
-        let _ = client.request(method::MUX_SHUTDOWN, json!({})).await;
+        let _ = client
+            .request(method::MUX_SHUTDOWN, json!({"reason": "hand: restart keyed (another key)"}))
+            .await;
         crate::daemon::wait_for_exit().await;
     }
     start_keyed().await?;
@@ -123,18 +125,5 @@ pub async fn connect() -> Result<(Arc<Client>, bool), HandError> {
 }
 
 #[cfg(test)]
-mod self_command_tests {
-    #[test]
-    fn the_keyed_start_runs_under_the_daemon_prefix() {
-        let [standalone, tui] = crate::self_command::test_commands();
-        let args = |c: &tokio::process::Command| -> Vec<String> {
-            c.as_std().get_args().map(|a| a.to_string_lossy().into_owned()).collect()
-        };
-        let start = ["daemon", "start", "--person-key-fd", "0"];
-        assert_eq!(args(&super::keyed_start_command(&standalone)), start);
-        let command = super::keyed_start_command(&tui);
-        assert_eq!(command.as_std().get_program(), tui.exe.as_os_str());
-        assert_eq!(args(&command)[0], "acp");
-        assert_eq!(args(&command)[1..], start);
-    }
-}
+#[path = "daemon_self_command_tests.rs"]
+mod self_command_tests;

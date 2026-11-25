@@ -6,6 +6,7 @@ import CmuxNextActions
 @testable import CmuxNextUpdater
 import Foundation
 import Testing
+import CmuxNextTestSupport
 
 /// The Update Ready card's Hide button (Lawrence 2026-10-20, cmux NEXT: "clicking Hide does
 /// nothing"). The card's highlights popup opens while the pointer is on the card, in the app's one
@@ -14,7 +15,7 @@ import Testing
 /// corner, where Hide sits: the window server gives the click to the popup's window, which found
 /// no view there and dropped it. Hide must hide this version's card (kept across a relaunch) until
 /// a newer version or a check the person asks for; the card fades out, at once under Reduce Motion.
-@MainActor @Suite(.serialized) struct UpdateCardHideTests {
+@MainActor @Suite(.closesItsWindows, .serialized) struct UpdateCardHideTests {
     /// The highlights page, as the App's React surface reports it.
     final class Highlights: SidebarSurfaceIsland {
         let view = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 120))
@@ -45,8 +46,15 @@ import Testing
         return updater
     }
 
+    /// The App's update actions over `updater` (the card's Hide runs `updates.snooze`).
+    static func registry(_ updater: UpdaterService) -> ActionRegistry {
+        let registry = ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases)
+        UpdateHandlers.bind(into: registry, updater: updater)
+        return registry
+    }
+
     static func defaults() -> UserDefaults {
-        UserDefaults(suiteName: "UpdateCardHideTests.\(UUID().uuidString)")!
+        UserDefaults(testSuiteName: "UpdateCardHideTests.\(UUID().uuidString)")!
     }
 
     struct Harness {
@@ -68,9 +76,11 @@ import Testing
         }
 
         func close() {
+            let popup = card.hoverCards()?.cardWindow
             card.hideNotes()
             feed.cancel()
             window.close()
+            popup?.closeAfterTest()
         }
     }
 
@@ -82,9 +92,10 @@ import Testing
         let updater = Self.updater(defaults: defaults)
         updater.debugStage(version: Self.version, notes: .debugFake(version: Self.version, changes: 3))
         let model = SidebarModel()
+        let registry = Self.registry(updater)
         model.onIntent = { intent in
             if case .noticeAction(let card, let action) = intent {
-                SidebarCardFeed.noticeAction(card, action, updater: updater, open: { _ in })
+                SidebarCardFeed.noticeAction(card, action, updater: updater, registry: registry, open: { _ in })
             }
         }
         let sidebar = SidebarView(model: model, design: DesignSettings())
@@ -144,7 +155,8 @@ import Testing
         let updater = Self.updater(defaults: defaults)
         updater.debugStage(version: Self.version, notes: nil)
         try #require(updater.readyCard != nil)
-        SidebarCardFeed.noticeAction(SidebarUpdateCard.cardID, UpdaterService.updateHideAction, updater: updater, open: { _ in })
+        SidebarCardFeed.noticeAction(SidebarUpdateCard.cardID, UpdaterService.updateHideAction, updater: updater,
+                                     registry: Self.registry(updater), open: { _ in })
         #expect(updater.readyCard == nil, "Hide did not hide the card")
 
         // A relaunch keeps it hidden.

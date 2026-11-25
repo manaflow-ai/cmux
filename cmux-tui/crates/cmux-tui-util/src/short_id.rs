@@ -27,6 +27,14 @@ pub fn assign_short_ids(ids: impl IntoIterator<Item = u64>) -> HashMap<u64, Stri
     out
 }
 
+/// The short ID [`assign_short_ids`] gives `id` in any set of IDs, when that does not depend on the
+/// other IDs: an ID below the six-character space keeps its own value. IDs are sorted first and every
+/// ID below the space takes its own slot, so none of them ever probes and no other ID can take its
+/// slot before it. `None` for an ID at or above the space (it may probe: ask the whole set).
+pub fn short_id_without_set(id: u64) -> Option<String> {
+    (id < SPACE).then(|| encode_base36(id))
+}
+
 fn encode_base36(mut n: u64) -> String {
     let mut chars = [b'0'; WIDTH];
     for slot in chars.iter_mut().rev() {
@@ -38,28 +46,5 @@ fn encode_base36(mut n: u64) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn short_ids_are_stable_and_six_chars() {
-        let ids = assign_short_ids([1, 2, 35, 36]);
-        assert_eq!(ids[&1], "000001");
-        assert_eq!(ids[&35], "00000z");
-        assert_eq!(ids[&36], "000010");
-        assert!(ids.values().all(|id| id.len() == 6));
-        assert_eq!(ids, assign_short_ids([1, 2, 35, 36]));
-    }
-
-    #[test]
-    fn short_ids_probe_on_collision() {
-        let ids = assign_short_ids([1, SPACE + 1]);
-        assert_eq!(ids[&1], "000001");
-        assert_eq!(ids[&(SPACE + 1)], "000002");
-    }
-
-    #[test]
-    fn short_ids_collision_probe_is_input_order_independent() {
-        assert_eq!(assign_short_ids([1, SPACE + 1]), assign_short_ids([SPACE + 1, 1]));
-    }
-}
+#[path = "short_id_tests.rs"]
+mod tests;

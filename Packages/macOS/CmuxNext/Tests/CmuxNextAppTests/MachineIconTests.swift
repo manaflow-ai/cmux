@@ -15,9 +15,10 @@ import Testing
 /// SF Symbol name or a stored image or SVG asset of the home daemon. The home daemon's session
 /// registry keeps it on each machine's session record (`list-personal`), keyed by the session id
 /// `SessionRegistrar` records each machine under (its daemon's `registry_id`; this Mac's own row
-/// too). The sidebar header, a remote workspace's hover card, the machine picker and the Settings
-/// machine rows draw it in place of the machine's symbol (the symbol stands in while a stored asset
-/// loads), and Set/Remove Machine Icon are machine actions on every machine header's menu.
+/// too). The sidebar header, the machine picker and the Settings machine rows draw it in place of
+/// the machine's symbol (the symbol stands in while a stored asset loads; a remote workspace's
+/// hover card keeps its Cloud or globe mark, #30244), and Set/Remove Machine Icon are machine
+/// actions on every machine header's menu.
 @MainActor @Suite(.serialized)
 struct MachineIconTests {
     static let asset = "svg:sha256-" + String(repeating: "f", count: 64)
@@ -39,19 +40,14 @@ struct MachineIconTests {
 
     /// A Cloud machine `id` this run has not loaded (stopped, or its link has not answered).
     static func cloudMachine(_ services: AppServices, id: String) -> CloudMachineSession {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-machine-icon-\(UUID().uuidString.prefix(8))")
-        let paths = CloudPaths(root: root), binary = URL(fileURLWithPath: "/usr/bin/false"), api = services.cloud.api
-        let hub = CloudTunnelHub(api: api, paths: paths, binary: binary, deviceName: "cn-icon-test")
-        let link = CloudMachineLink(machineID: id, api: api, hub: hub, paths: paths, binary: binary, deviceName: "cn-icon-test")
-        let session = CloudMachineSession(machine: CloudMachine(id: id, displayName: "Icon VM"), link: link,
-                                          mainWork: services.mainWork)
+        let session = CloudTestLink.session(id: id, name: "Icon VM", mainWork: services.mainWork)
         services.machines.add(session)
         return session
     }
 
     /// This Mac's sidebar header.
     static func header(_ services: AppServices) -> SidebarMachine? {
-        SidebarBridge.sections(services.machines, profile: .defaultProfile).lazy.compactMap(\.machine).first { $0.kind == .local }
+        SidebarBridge.sections(services.machines, doc: services.sidebarDoc, profile: .defaultProfile).lazy.compactMap(\.machine).first { $0.kind == .local }
     }
 
     static func favicon() throws -> SidebarFavicon {
@@ -112,6 +108,40 @@ struct MachineIconTests {
         #expect(SidebarMapping.machineIcon(nil) == nil)
     }
 
+    /// With no icon of the person's own, a machine draws the symbol of the device its daemon says it
+    /// is (cmux-device-kind); the person's icon still wins.
+    @Test func noIconDrawsTheDeviceSymbol() {
+        #expect(SidebarMapping.machineIcon(nil, device: "macmini") == .symbol("macmini"))
+        #expect(SidebarMapping.machineIcon(Self.asset, device: "macmini") == .symbol("macmini"), "the device stands in while the asset loads")
+        #expect(SidebarMapping.machineIcon("star.fill", device: "macmini") == .symbol("star.fill"))
+    }
+
+    /// Leo, 2026-10-22: "but default group header can put cloud icon or mac mini icon or laptop icon".
+    /// A machine's header with no icon of the person's own draws the device it is: a Cloud machine
+    /// the cloud, whatever its VM reports; a Mac mini or a MacBook the symbol its daemon named.
+    @Test func aMachinesHeaderDrawsTheCloudMacMiniOrLaptopItIs() {
+        #expect(SidebarMapping.deviceSymbol(kind: .cloud, reported: nil) == "cloud")
+        #expect(SidebarMapping.deviceSymbol(kind: .cloud, reported: "server.rack") == "cloud", "a Cloud VM calls itself a Linux server")
+        #expect(SidebarMapping.deviceSymbol(kind: .ssh, reported: "macmini") == "macmini")
+        #expect(SidebarMapping.deviceSymbol(kind: .local, reported: "macbook.gen2") == "macbook.gen2")
+        #expect(SidebarMapping.deviceSymbol(kind: .server, reported: nil) == nil, "a daemon that says nothing draws as before")
+
+        let services = Self.services()
+        _ = Self.cloudMachine(services, id: "vm-cloud-icon")
+        let header = SidebarBridge.sections(services.machines, doc: services.sidebarDoc, profile: .defaultProfile).lazy.compactMap(\.machine)
+            .first { $0.id.rawValue == "vm-cloud-icon" }
+        #expect(header?.icon == .symbol("cloud"), "a Cloud machine's header draws the cloud")
+
+        let machine = SidebarMachine(id: CmuxNextSidebar.MachineID("vm-cloud-icon"), name: "Icon VM", kind: .cloud, icon: header?.icon)
+        let section = SidebarSection(kind: .machine(machine), nodes: [])
+        let row = SidebarRow(key: .section(section.id), y: 0, height: 28, section: section.id, group: nil, siblingIndex: 0,
+                             parentIndex: nil, isLastInGroup: false, isCollapsed: false, childCount: 0, groupColor: nil,
+                             titlesProjects: false)
+        let view = SectionHeaderRowView(key: row.key)
+        view.configure(section, row: row)
+        #expect(view.showsMachineIcon, "the drawn header shows the cloud before the name")
+    }
+
     /// The header draws a set icon before the name and nothing extra without one; the lone
     /// machine's "Projects" header is the list's title, not the machine's, and draws none.
     @Test func theSectionHeaderDrawsTheIconOnlyWhenTheMachineHasOne() {
@@ -133,18 +163,22 @@ struct MachineIconTests {
 
     // MARK: Hover card, picker and Settings
 
-    @Test func aRemoteWorkspacesHoverCardShowsItsMachinesIcon() throws {
+    /// #30244 (Leo 2026-11-01, cloud/remote delineation "just on the hover preview"): the hover
+    /// card's machine row says Cloud with the cloud symbol, and a machine's own icon never
+    /// replaces it (`WorkspaceHoverHostIdentityTests`). The header, picker and Settings still
+    /// draw the machine's icon (below).
+    @Test func aRemoteWorkspacesHoverCardKeepsTheCloudMarkWhateverItsMachinesIcon() throws {
         let workspace = SidebarWorkspace(id: CmuxNextSidebar.WorkspaceID("w1"), machineID: CmuxNextSidebar.MachineID("vm-1"), title: "build")
         func host(_ icon: WorkspaceIcon?) throws -> WorkspaceHoverCardContent.Fact {
             let machine = SidebarMachine(id: CmuxNextSidebar.MachineID("vm-1"), name: "cloud-a1", kind: .cloud, icon: icon)
-            return try #require(WorkspaceHoverCardContent.make(workspace, machine: machine, now: Date()).facts.first { $0.text == "cloud-a1" })
+            return try #require(WorkspaceHoverCardContent.make(workspace, machine: machine, now: Date()).facts.first { $0.kind == "machine" })
         }
-        #expect(try host(.emoji("🚀")).mark == "🚀")
-        #expect(try host(.symbol("star.fill")).mark == "star.fill")
         let favicon = try Self.favicon()
-        #expect(try host(.favicon(favicon)).image == favicon)
-        let plain = try host(nil)
-        #expect(plain.mark == nil && plain.image == nil, "no icon: the cloud symbol")
+        for icon: WorkspaceIcon? in [.emoji("🚀"), .symbol("star.fill"), .favicon(favicon), nil] {
+            let fact = try host(icon)
+            #expect(fact.text == CmuxNextSidebar.Strings.hoverCloud)
+            #expect(fact.mark == nil && fact.image == nil, "the cloud symbol, not the machine's own icon")
+        }
     }
 
     @Test func theMachinePickerDrawsAMachinesSymbolIcon() {
@@ -177,7 +211,9 @@ struct MachineIconTests {
         // ungroups the host's rows (close: "Close, delete, forget, ungroup").
         #expect(ContextMenuCatalog.shared.entries(for: .machineSection)
             == [.folder(.appearance, [.action("machine.setIcon"), .action("machine.clearIcon")]),
-                .separator, .action("machine.reconnect"), .separator, .action("remote.removeGroup")])
+                .separator, .action("machine.reconnect"), .action("macScreen.shareThisMac"),
+                .action("machine.viewScreen"), .separator, .action("customize.open"),
+                .separator, .action("remote.removeGroup")])
     }
 
     /// Every machine header's right-click menu offers Set Icon, aimed at that machine, beside its
@@ -241,7 +277,7 @@ struct MachineIconTests {
         ])
         services.machines.local.store.apply(snapshot: tree)
 
-        let header = SidebarBridge.sections(services.machines, profile: .defaultProfile).lazy.compactMap(\.machine)
+        let header = SidebarBridge.sections(services.machines, doc: services.sidebarDoc, profile: .defaultProfile).lazy.compactMap(\.machine)
             .first { $0.id.rawValue == "vm-icon1" }
         #expect(header?.icon == .emoji("🚀"), "the stopped Cloud machine's header draws its record's icon")
         #expect(services.machines.icon(machine: ssh.machineID) == "star.fill", "an SSH machine, by its route")

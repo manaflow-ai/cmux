@@ -2,7 +2,7 @@
 //! codes (Carbon `kVK_*`, HIToolbox Events.h). Both name physical key positions, so the
 //! host's own keyboard layout decides the character, as on a local keyboard.
 
-use core_graphics::event::{CGEventFlags, CGKeyCode};
+use super::sys::{CGEventFlags, CGKeyCode};
 
 const KEYBOARD_PAGE: u32 = 0x07;
 

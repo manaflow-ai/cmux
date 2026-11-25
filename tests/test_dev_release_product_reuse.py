@@ -249,9 +249,12 @@ class Workflows(unittest.TestCase):
         condition = lookup.splitlines()[1]
         self.assertIn("refs/heads/feat-cmux-next", condition)
         self.assertNotIn("pull_request", condition)
-        # A skipped step only ever skips on a dev_daily run; push runs compile Debug with them.
+        # A skipped step only ever skips on a dev_daily run; push runs compile Debug with them. A step
+        # that runs on a dev_daily run alone (the Blacksmith compile cache) may skip on a hit too.
         for line in job.splitlines():
             if "steps.dev-product.outputs.hit != 'true'" in line and line.strip().startswith("if:"):
+                if line.strip().startswith("if: ${{ inputs.dev_daily == true && "):
+                    continue
                 self.assertIn("inputs.dev_daily != true ||", line)
 
     def test_an_unset_switch_leaves_reuse_on(self):

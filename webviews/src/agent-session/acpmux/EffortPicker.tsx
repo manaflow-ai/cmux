@@ -1,5 +1,5 @@
 import React, { useContext, useEffect, useId, useRef, useState } from "react";
-import type { Choice } from "./ComposerPickers";
+import type { Choice } from "./composerPickerModel";
 import { isDefaultChoice } from "./defaultChoice";
 import { EffortTrack } from "./EffortTrack";
 import { useT } from "./i18n";
@@ -129,7 +129,12 @@ export function EffortPicker({
           <EffortLabel label={level} short={short && short !== level ? short : undefined} />
           {chevron}
         </MenuButton>
-        <MenuPopup side={newTab ? "bottom" : "top"} align="start" className="acpmux-effort-menu">
+        <MenuPopup
+          side={newTab ? "bottom" : "top"}
+          align="start"
+          className="acpmux-effort-menu"
+          resize={{ id: "composer.effort" }}
+        >
           {sliding && (
             <ReasoningSlider
               title={t("picker.reasoning")}

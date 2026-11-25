@@ -24,7 +24,11 @@ async function elapse(ms: number, run: () => void) {
 }
 
 const runs = (page: Awaited<ReturnType<typeof renderPage>>, op: string) =>
-  page.provider.log.filter((entry) => entry.op === op).map((entry) => entry.params);
+  page.provider.log
+    .filter((entry) => entry.op === op)
+    .map((entry) => entry.params)
+    // What a background mode last showed is kept beside each change (wallpaperSwitch.test.tsx covers it).
+    .filter((params) => (params as { key?: string }).key !== "appearance.backgroundMemory");
 
 test("Change Background… shows the picker on Appearance: resting previews, leaving restores, a click keeps", async () => {
   const page = await renderPage({
@@ -252,8 +256,9 @@ test("the wallpaper card holds Opacity and Material once each, and nothing repea
   }
   expect(page.container.querySelector('[data-row-key="appearance.backdropArt"]')).toBeNull();
   page.unmount();
+  // Hue is a hidden row (rowLevelsData.ts): a link to it shows it on Labs, behind More Options.
   const labs = await renderPage({
-    path: "/settings/experimental",
+    path: "/settings/experimental?focus=appearance.hue",
     mock: { values: { "appearance.experimentalControls": true } },
   });
   expect(labs.container.querySelector('[data-row-key="appearance.glassTransparency"]')).toBeNull();
@@ -451,5 +456,59 @@ test("an art tile shows one title line; its full credit is the tooltip (macOS 15
   // A tile whose help text is not its credit keeps both, title first.
   const none = page.container.querySelector<HTMLButtonElement>(".backdrop-grid > button")!;
   expect(none.querySelector(".row-help")).toBeNull();
+  page.unmount();
+});
+
+test("my desktop wallpaper and my screen saver lead the picker; a click on either makes it the background", async () => {
+  const aerial = "system:/Library/Application Support/com.apple.idleassetsd/Customer/4KSDR240FPS/B2.mov";
+  const page = await renderPage({ path: "/settings/appearance" });
+  page.provider.screenSaver = aerial;
+  await act(async () =>
+    page.provider.setHost({
+      ...page.provider.host,
+      backdrops: [
+        ...(page.provider.host.backdrops ?? []),
+        { id: "desktop", title: "Desktop Wallpaper", attribution: "Your current macOS desktop picture" },
+        {
+          id: aerial,
+          title: "Iceland Dusk",
+          attribution: "",
+          collection: "video",
+          collection_title: "Moving wallpapers",
+          video: true,
+        },
+      ],
+    }),
+  );
+  // Back from System Settings (where the screen saver is chosen): the page reads it again.
+  await act(async () => window.dispatchEvent(new Event("focus")));
+  await settle();
+  const picker = page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
+  const top = [...picker.querySelector(".backdrop-grid")!.querySelectorAll<HTMLButtonElement>(":scope > button")];
+  expect(top.slice(0, 3).map((tile) => tile.getAttribute("aria-label"))).toEqual([
+    "Desktop Wallpaper",
+    "Screen Saver",
+    "No wallpaper",
+  ]);
+  // The desktop picture is no longer repeated in an untitled group further down.
+  expect(picker.querySelectorAll('[aria-label="Desktop Wallpaper"]').length).toBe(1);
+  // The screen saver tile names its aerial in the tooltip and plays like a moving wallpaper.
+  const saver = top[1]!;
+  expect(saver.title).toBe("Screen Saver\nIceland Dusk");
+  await act(async () => saver.click());
+  await settle();
+  expect(runs(page, "cmux.settings.set").at(-1)).toMatchObject({ key: "appearance.background", value: aerial });
+  await act(async () => top[0]!.click());
+  await settle();
+  expect(runs(page, "cmux.settings.set").at(-1)).toMatchObject({ key: "appearance.background", value: "desktop" });
+  page.unmount();
+});
+
+test("a screen saver that is not an aerial adds no tile", async () => {
+  const page = await renderPage({ path: "/settings/appearance" });
+  await settle();
+  const picker = page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
+  expect(picker.querySelector('[aria-label="Screen Saver"]')).toBeNull();
+  expect(runs(page, "cmux.settings.backdrop.image.screen_saver").length).toBeGreaterThan(0);
   page.unmount();
 });

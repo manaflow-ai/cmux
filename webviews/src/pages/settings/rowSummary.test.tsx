@@ -76,6 +76,7 @@ const views: View[] = [
 ];
 
 test("Material says what Clear Glass does in one short line, with no tooltip repeating it", async () => {
+  // Appearance draws the background rows in its picker.
   page = await renderPage({ path: "/settings/appearance" });
   const line = rowElement(page.container, "appearance.backgroundBlur").querySelector<HTMLElement>(".row-help");
   expect(line?.textContent).toBe("Clear Glass shows the desktop through the wallpaper");

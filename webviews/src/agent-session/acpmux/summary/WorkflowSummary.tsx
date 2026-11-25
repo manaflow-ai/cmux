@@ -4,7 +4,8 @@ import { formatDuration } from "../conversation/turns";
 import { Spinner } from "../conversation/icons";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
-import { useNow } from "../subagents/SubagentGroup";
+import { StateMark } from "./StateMark";
+import { useNow } from "../subagents/subagentGroupModel";
 import {
   workflowDetailRequest,
   workflowSignals,
@@ -161,7 +162,7 @@ export function WorkflowSummaryRow({
           {workflow.tokens !== undefined &&
             ` · ${t("subagents.tokens", { n: workflow.tokens, tokens: workflow.tokens })}`}
         </span>
-        <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={10} />
+        <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={12} />
       </button>
       {open && (
         <div className="acpmux-workflow__detail">
@@ -196,7 +197,7 @@ export function WorkflowSummaryRow({
                   onClick={() => setPhaseId(entry.id)}
                 >
                   <span>{entry.name || t("workflow.unassigned")}</span>
-                  <span>{localizedState(t, entry.state)}</span>
+                  <StateMark state={entry.state} label={localizedState(t, entry.state)} mark />
                 </button>
               ))}
             </div>
@@ -228,8 +229,11 @@ export function WorkflowSummaryRow({
                           </output>
                         )}
                       </span>
-                      <span className="acpmux-summary-meta">{localizedState(t, agent.state)}</span>
-                      {agent.tokens !== undefined && <span className="acpmux-summary-meta">{agent.tokens}</span>}
+                      <StateMark
+                        className="acpmux-summary-meta"
+                        state={agent.state}
+                        label={localizedState(t, agent.state)}
+                      />
                       {workflowDetailRequest(workflow, agent) && (
                         <button
                           type="button"
@@ -254,7 +258,7 @@ export function WorkflowSummaryRow({
                             );
                           }}
                         >
-                          <Icon name="disclosure.collapsed" size={11} />
+                          <Icon name="disclosure.collapsed" size={12} />
                         </button>
                       )}
                       {agent.transcriptRowId && actions.onOpenTranscript && (
@@ -264,7 +268,7 @@ export function WorkflowSummaryRow({
                           aria-label={`${t("transcript.label")}: ${agent.name}`}
                           onClick={() => actions.onOpenTranscript?.(agent.transcriptRowId!)}
                         >
-                          <Icon name="disclosure.collapsed" size={11} />
+                          <Icon name="disclosure.collapsed" size={12} />
                         </button>
                       )}
                     </li>

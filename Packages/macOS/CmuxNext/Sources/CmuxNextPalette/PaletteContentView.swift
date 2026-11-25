@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextSignposts
 import Observation
 import QuartzCore
 
@@ -16,16 +17,17 @@ final class PaletteContentView: NSView {
     let searchBar = PaletteSearchBar()
     private let stage = FlippedView()
     /// The panel's material: glass, or opaque under Reduce Transparency.
-    let glass = Glass.makeOverlayPanel(cornerRadius: PaletteLayout.cornerRadius)
+    let glass = Glass.makeOverlayPanel(cornerRadius: PaletteLayout.cornerRadius, tone: .neutralGlass(.transient))
     private let body = FlippedView()
     private let topRule = NSView()
     private let bottomRule = NSView()
     private let list = PaletteListView()
+    /// The list's insets above the first row and below the last (tests: the rows' gap to the panel).
+    var listContentInsets: NSEdgeInsets { list.contentInsets }
     /// Hosts the results and fades them out at the top or bottom while more
     /// are hidden there.
     private lazy var listHost = ScrollEdgeFadeView(scrollView: list)
     private let emptyTitle = PaletteText.label(Typography.bodyEmphasized, tone: .secondary)
-    private let emptyHint = PaletteText.label(Typography.caption, tone: .tertiary)
     /// The page's line under the field (`PaletteModel.fieldHint`).
     private let fieldHint = PaletteText.label(Typography.caption, tone: .tertiary)
     private let footer = PaletteFooterView()
@@ -42,6 +44,7 @@ final class PaletteContentView: NSView {
     private var appliedScroll = -1
     private var appliedPage = -1
     private var appliedSize = CGSize.zero
+    private var appliedTextSizes = PaletteLayout.textSizes
     private var menuHeight: CGFloat = 0
     private var actionsMenuFadingOut = false
 
@@ -53,12 +56,10 @@ final class PaletteContentView: NSView {
         glass.translatesAutoresizingMaskIntoConstraints = true
         glass.contentView.addSubview(body)
         emptyTitle.stringValue = PaletteStrings.noResults
-        emptyHint.stringValue = PaletteStrings.noResultsHint
         emptyTitle.alignment = .center
-        emptyHint.alignment = .center
         [topRule, bottomRule].forEach { $0.wantsLayer = true }
         fieldHint.isHidden = true
-        [searchBar, fieldHint, topRule, listHost, emptyTitle, emptyHint, bottomRule, footer].forEach(body.addSubview)
+        [searchBar, fieldHint, topRule, listHost, emptyTitle, bottomRule, footer].forEach(body.addSubview)
         stage.addSubview(glass)
         stage.addSubview(actionsMenuView)
         stage.addSubview(recorderView)
@@ -122,7 +123,7 @@ final class PaletteContentView: NSView {
         }
     }
 
-    private func render() {
+    func render() {
         // Read every tracked input up front so tracking sees all of them.
         let resultsVersion = model.resultsVersion
         let sections = model.sections
@@ -133,10 +134,19 @@ final class PaletteContentView: NSView {
         let menuState = model.actionsMenu
         let recorderState = model.shortcutRecorder
         let size = PaletteLayout.windowSize
+        let textSizes = PaletteLayout.textSizes
 
         if resultsVersion != appliedResults {
             appliedResults = resultsVersion
             list.setSections(sections)
+            // The commit of the frame these rows draw in ends the typed query's marks (key.palette_query_*).
+            let marks = model.queryFrames.takePending()
+            if marks.rows != nil || marks.answer != nil {
+                CommitBoundary().after { outcome in
+                    if let rows = marks.rows { Signposter.key.end(.paletteQueryRows, rows, outcome) }
+                    if let answer = marks.answer { Signposter.key.end(.paletteQueryAnswer, answer.interval, message: "rows=\(answer.rows)") }
+                }
+            }
         }
         list.setSelection(selection)
         list.setHover(hover)
@@ -147,12 +157,6 @@ final class PaletteContentView: NSView {
         let showEmpty = sections.isEmpty && !model.isLoading && !model.awaitsRank
         listHost.isHidden = showEmpty
         emptyTitle.isHidden = !showEmpty
-        // The hint is about the typed search; a page that is empty with nothing typed shows only its title.
-        let hintHidden = !showEmpty || model.query.isEmpty
-        if emptyHint.isHidden != hintHidden {
-            emptyHint.isHidden = hintHidden
-            needsLayout = true
-        }
 
         searchBar.update(
             query: model.query,
@@ -166,7 +170,9 @@ final class PaletteContentView: NSView {
         )
         footer.update(
             pageTitle: model.prefixHints ?? model.pageTitle,
-            pageSymbol: model.pageSymbol,
+            // The scope hints ("@ Tabs  # Workspaces …") draw without the page's ⌘ icon, which read as a key held
+            // with them (Leo 2026-11-22: "not even properly depicting the keys"), and keep its room for the hints.
+            pageSymbol: model.prefixHints == nil ? model.pageSymbol : "",
             primaryTitle: model.primaryTitle,
             actionsEnabled: model.selectedItem?.isEnabled == true,
             closeTitle: model.selectedItem.flatMap { $0.isEnabled ? $0.closeCommand?.title : nil },
@@ -183,6 +189,14 @@ final class PaletteContentView: NSView {
         }
         updateMenu(menuState)
         updateRecorder(recorderState)
+        if textSizes != appliedTextSizes {
+            // Labels keep the font they were made with; a text size or density change while the
+            // palette exists resizes them (#26606).
+            appliedTextSizes = textSizes
+            refreshPaletteFonts()
+            list.reloadRows()
+            needsLayout = true
+        }
         if size != appliedSize {
             appliedSize = size
             list.relayoutRows()
@@ -240,11 +254,8 @@ final class PaletteContentView: NSView {
         listHost.frame = listFrame
         list.contentInsets = NSEdgeInsets(top: PaletteLayout.listInset, left: 0, bottom: PaletteLayout.listInset, right: 0)
         let titleHeight = PaletteText.height(emptyTitle)
-        // With the hint hidden the title alone is centered (the negative height cancels its gap).
-        let hintHeight = emptyHint.isHidden ? -Metrics.space2 : PaletteText.height(emptyHint)
-        let emptyTop = listFrame.midY - (titleHeight + Metrics.space2 + hintHeight) / 2
+        let emptyTop = listFrame.midY - titleHeight / 2
         emptyTitle.frame = body.pixelAligned(NSRect(x: 0, y: emptyTop, width: width, height: titleHeight))
-        emptyHint.frame = body.pixelAligned(NSRect(x: 0, y: emptyTop + titleHeight + Metrics.space2, width: width, height: max(0, hintHeight)))
         y += PaletteLayout.listHeight - fieldHintHeight
         bottomRule.frame = NSRect(x: 0, y: y, width: width, height: Metrics.dividerThickness)
         y += Metrics.dividerThickness

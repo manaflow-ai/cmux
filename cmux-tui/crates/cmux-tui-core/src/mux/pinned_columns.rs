@@ -166,9 +166,9 @@ pub(crate) fn ensure_pane_takes_tabs(
 
 /// The width of the column that opens right of a lone pinned column
 /// (`pinned-dock-alone-v1`): a conversation split from Home's dock and a link
-/// Home opens (`workspace.open_url`) both get it. A column width is a share of
-/// the strip right of the dock, so 1.0 fills that space; 0.5 left half of it empty.
-pub(crate) const LONE_DOCK_NEIGHBOR_WIDTH: f32 = 1.0;
+/// Home opens (`workspace.open_url`) both get it; the model owns the value and
+/// evens the dock beside it ([`crate::model::LONE_DOCK_WIDTH`]).
+pub(crate) const LONE_DOCK_NEIGHBOR_WIDTH: f32 = crate::model::LONE_DOCK_NEIGHBOR_WIDTH;
 
 /// Whether `pane` is in a pinned column alone on its screen
 /// (`pinned-dock-alone-v1`: Home's dock with nothing beside it).

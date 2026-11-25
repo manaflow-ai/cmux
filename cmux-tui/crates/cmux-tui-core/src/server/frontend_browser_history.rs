@@ -1,9 +1,12 @@
 //! Raw protocol handlers for frontend-rendered browser tabs:
+//! `new-frontend-browser-tab` (with `split`: `frontend-browser-tab-split-v1`),
 //! `update-frontend-browser-tab` (`frontend-browser-tabs-v1`) and the opaque
 //! per-tab session history (`frontend-browser-history-v1`).
 
+use super::conversation_tabs_wire::ConversationTabSplitParams;
 use super::*;
 use crate::Actor;
+use crate::mux::tab_strip::tab_place::{CreateRequest, TabPlaceRequest};
 
 /// Opaque per-tab session history (back/forward entries, scroll) for
 /// frontend-rendered browsers: `set-frontend-browser-history` and
@@ -16,16 +19,81 @@ pub const FRONTEND_BROWSER_HISTORY_CAPABILITY: &str = "frontend-browser-history-
 /// profile's store (cookies, storage, cache), which reloads it.
 pub const FRONTEND_BROWSER_TAB_PROFILE_CAPABILITY: &str = "frontend-browser-tab-profile-v1";
 
+/// `new-frontend-browser-tab {pane, split}`: the tab is created in a new pane
+/// on one side of `pane`, in one `pane.split` commit whose one `pane-added`
+/// delta holds the pane with the tab, as `conversation-tab-split-v1` does for
+/// a conversation tab. The source pane never lists the tab, so opening a
+/// link to the right no longer shows it in the source pane first.
+pub(crate) const FRONTEND_BROWSER_TAB_SPLIT_CAPABILITY: &str = "frontend-browser-tab-split-v1";
+
+/// `new-frontend-browser-tab {workspace}`: the tab goes in that workspace's
+/// active pane, or is the first tab of an empty workspace (no terminal is
+/// made for it to replace). Sent instead of `pane`; `split` is refused.
+pub(crate) const FRONTEND_BROWSER_TAB_WORKSPACE_CAPABILITY: &str =
+    "frontend-browser-tab-workspace-v1";
+
+/// `create-workspace {first_tab}`: the workspace and its first tab in one
+/// request. `first_tab` is `{kind: "browser", ...}` with the fields of
+/// `new-frontend-browser-tab` (no `pane`, `workspace`, `split` or `after`);
+/// the reply's `first_tab` is that command's reply. A first tab that cannot
+/// be made takes the workspace back, so no caller sees an empty workspace.
+pub(crate) const WORKSPACE_FIRST_TAB_CAPABILITY: &str = "workspace-first-tab-v1";
+
+/// The first tab of a `create-workspace` (`workspace-first-tab-v1`).
+#[derive(Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub(crate) enum FirstTabParams {
+    /// A frontend-rendered browser tab.
+    Browser(NewTabParams),
+}
+
+impl FirstTabParams {
+    /// Refuses a first tab that names a place of its own: it goes in the new workspace.
+    pub(super) fn validate(&self) -> anyhow::Result<()> {
+        let Self::Browser(tab) = self;
+        anyhow::ensure!(
+            tab.pane.is_none()
+                && tab.workspace.is_none()
+                && tab.split.is_none()
+                && tab.after.is_none(),
+            "bad request: first_tab takes no pane, workspace, split or after (it is the new workspace's first tab)"
+        );
+        Ok(())
+    }
+
+    /// Whether a replayed `create-workspace` can replay this tab too (it is keyed).
+    pub(super) fn is_keyed(&self) -> bool {
+        let Self::Browser(tab) = self;
+        tab.idempotency_key.is_some()
+    }
+
+    /// Creates the tab as the first tab of `workspace`; the reply of its own command.
+    pub(super) fn create(
+        self,
+        mux: &Arc<Mux>,
+        client: u64,
+        workspace: WorkspaceId,
+    ) -> anyhow::Result<Value> {
+        let Self::Browser(mut tab) = self;
+        tab.workspace = Some(workspace);
+        create(mux, client, tab)
+    }
+}
+
 /// `new-frontend-browser-tab`: a browser tab whose page the frontend renders
 /// (WebKit or CEF); the daemon persists its location and never attaches a CDP
 /// target. With `idempotency_key` (`frontend-browser-tab-keys-v1`) a retry
 /// returns the tab the first request created (state/frontend_browser_keys.rs).
 #[derive(Deserialize)]
-pub(super) struct NewTabParams {
+pub(crate) struct NewTabParams {
     url: String,
     engine: String,
     #[serde(default)]
     pane: Option<PaneId>,
+    /// `frontend-browser-tab-workspace-v1`: the workspace to put the tab in
+    /// (its first pane when it is empty), instead of `pane`.
+    #[serde(default)]
+    workspace: Option<WorkspaceId>,
     #[serde(default)]
     title: Option<String>,
     #[serde(default)]
@@ -49,6 +117,21 @@ pub(super) struct NewTabParams {
     /// instead of at the end. Ignored when that tab is not in the pane.
     #[serde(default)]
     after: Option<SurfaceId>,
+    /// `frontend-browser-tab-split-v1`: with `pane`, the tab goes in a new
+    /// pane split from it (`{direction, pane_id?, split_id?}`). The new pane
+    /// holds only the tab, so `activate` has no effect and `after` is refused.
+    #[serde(default)]
+    split: Option<ConversationTabSplitParams>,
+    /// `tab-create-place-v1`: where the tab goes in the strip of `pane`; it
+    /// wins over `after`. Refused with `workspace` or `split`.
+    #[serde(default)]
+    place: Option<TabPlaceRequest>,
+    /// `tab-create-place-v1`: the name of this creation. The `tab-added` of
+    /// the tab and the reply carry it, and a later request of the connection
+    /// names the creation by it (`place.after_creation`). Refused with
+    /// `workspace` or `split`.
+    #[serde(default)]
+    transaction: Option<String>,
 }
 
 const fn activate_by_default() -> bool {
@@ -60,6 +143,7 @@ pub(super) fn create(mux: &Arc<Mux>, client: u64, params: NewTabParams) -> anyho
         url,
         engine,
         pane,
+        workspace,
         title,
         favicon_url,
         profile_id,
@@ -69,7 +153,24 @@ pub(super) fn create(mux: &Arc<Mux>, client: u64, params: NewTabParams) -> anyho
         rows,
         activate,
         after,
+        split,
+        place,
+        transaction,
     } = params;
+    anyhow::ensure!(
+        workspace.is_none() || (pane.is_none() && split.is_none()),
+        "bad request: send pane or workspace, not both; split goes with pane, not workspace"
+    );
+    anyhow::ensure!(
+        (place.is_none() && transaction.is_none()) || (workspace.is_none() && split.is_none()),
+        "bad request: place and transaction go with pane, not with workspace or split"
+    );
+    validate_client_transaction(transaction.as_deref())?;
+    let split = split.map(|split| split.tab_split(pane)).transpose()?;
+    anyhow::ensure!(
+        split.is_none() || after.is_none(),
+        "bad request: after does not apply with split (the new pane holds only the tab)"
+    );
     let profile_id = profile_id
         .map(|profile| {
             mux.workspace_registry
@@ -87,36 +188,51 @@ pub(super) fn create(mux: &Arc<Mux>, client: u64, params: NewTabParams) -> anyho
         owner,
     };
     let size = paired_surface_size("new-frontend-browser-tab", cols, rows)?;
-    let (surface, replayed) = match idempotency_key {
-        Some(key) => {
-            let outcome = mux.new_frontend_browser_tab_keyed_as(
-                &origin_gate::connection_actor(mux, client),
-                pane,
-                record,
-                size,
-                &key,
-                crate::mux::FrontendTabPlacement { activate, after, index: None },
+    let actor = origin_gate::connection_actor(mux, client);
+    let placement = crate::mux::FrontendTabPlacement { activate, after, index: None };
+    let request =
+        CreateRequest { client, pane, place: place.as_ref(), transaction: transaction.as_deref() };
+    let placing = mux.place_tab_creation(request, None, true)?;
+    let (surface, replayed) = match (idempotency_key, split, workspace) {
+        (Some(key), None, Some(workspace)) => {
+            let outcome = mux.new_frontend_browser_tab_in_workspace_keyed_as(
+                &actor, workspace, record, &key, placement,
             )?;
             (outcome.surface, outcome.replayed)
         }
-        None => (
-            mux.new_frontend_browser_tab_placed_as(
-                &origin_gate::connection_actor(mux, client),
-                pane,
-                record,
-                size,
-                crate::mux::FrontendTabPlacement { activate, after, index: None },
-            )?,
+        (None, None, Some(workspace)) => (
+            mux.new_frontend_browser_tab_in_workspace_as(&actor, workspace, record, placement)?,
             false,
         ),
+        (Some(key), None, None) => {
+            let outcome =
+                mux.new_frontend_browser_tab_keyed_as(&actor, pane, record, size, &key, placement)?;
+            (outcome.surface, outcome.replayed)
+        }
+        (Some(key), Some(split), _) => {
+            let outcome =
+                mux.new_frontend_browser_tab_split_keyed_as(&actor, split, record, size, &key)?;
+            (outcome.surface, outcome.replayed)
+        }
+        (None, None, None) => {
+            (mux.new_frontend_browser_tab_placed_as(&actor, pane, record, size, placement)?, false)
+        }
+        (None, Some(split), _) => {
+            (mux.new_frontend_browser_tab_split_as(&actor, split, record, size)?, false)
+        }
     };
+    placing.made(surface.id);
     let identity = surface.resource_identity();
-    Ok(json!({
+    let mut reply = json!({
         "surface": surface.id,
         "tab_resource_id": identity.map(|identity| identity.tab_id.as_str()),
         "content_resource_id": identity.map(|identity| identity.content_id.as_str()),
         "replayed": replayed,
-    }))
+    });
+    if let (Some(transaction), Some(fields)) = (transaction, reply.as_object_mut()) {
+        fields.insert("transaction".to_string(), Value::String(transaction));
+    }
+    Ok(reply)
 }
 
 /// `update-frontend-browser-tab`: record a frontend-rendered browser's URL,
@@ -310,3 +426,11 @@ mod activate_tests;
 #[cfg(test)]
 #[path = "frontend_browser_insert_tests.rs"]
 mod insert_tests;
+
+#[cfg(test)]
+#[path = "frontend_browser_split_tests.rs"]
+mod split_tests;
+
+#[cfg(test)]
+#[path = "workspace_first_tab_tests.rs"]
+mod workspace_first_tab_tests;

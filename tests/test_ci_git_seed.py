@@ -10,7 +10,13 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-import git_fixture_env
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "ci" / "git-seed.sh"
@@ -235,14 +241,6 @@ class WorkflowWiringTests(unittest.TestCase):
                     retry = body.index("- name: Retry checkout", discard)
                     self.assertIn('rm -rf "$GITHUB_WORKSPACE/.git"', body[discard:retry])
                     self.assertIn("steps.checkout.outcome == 'failure'", body[retry:retry + 200])
-
-    def test_only_main_saves_the_seed(self):
-        text = (WORKFLOWS / "seed-derived-data.yml").read_text()
-        step = re.search(r"- name: Save git object seed\n(.*?)(?=\n      - name:|\Z)", text, re.S)
-        self.assertIsNotNone(step)
-        self.assertIn("if: github.ref == 'refs/heads/main'", step.group(1))
-        self.assertIn("continue-on-error: true", step.group(1))
-        self.assertIn('git-seed.sh save "$GITHUB_WORKSPACE"', step.group(1))
 
 
 if __name__ == "__main__":

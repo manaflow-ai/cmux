@@ -26,7 +26,7 @@ export const idempotent = <A extends { readonly id: string }, E, R, ER, RR>(
   if (key === undefined) return yield* run(null, null);
   const limits = yield* TenantLimits;
   const scoped = yield* scopedCreationKey(principal, key);
-  const claim = yield* limits.begin(principal.tenantId, scoped, yield* requestFingerprint(request), clientFingerprint, generated).pipe(Effect.mapError(() => unavailable()));
+  const claim = yield* limits.begin(principal.tenantId, scoped, yield* requestFingerprint(request), clientFingerprint, generated).pipe(Effect.mapError(unavailable));
   if (claim.state === "resume" && (claim.progress.phase === "cancelled" || ((claim.progress.phase === "creating" || claim.progress.phase === "capturing") && claim.progress.cancelRequested === true))) {
     return yield* Effect.fail(conflict("This VM creation was cancelled; inspect its status"));
   }
@@ -37,9 +37,9 @@ export const idempotent = <A extends { readonly id: string }, E, R, ER, RR>(
       if (claim.progress?.phase === "creating") {
         // An ownership commit can outlive a failed completion/abandon RPC. SQL may settle it,
         // but an active claim with no committed row never permits another provider operation.
-        const status = yield* (yield* OwnershipStore).allocationStatus(principal.tenantId, claim.progress.vmId).pipe(Effect.mapError(() => unavailable()));
+        const status = yield* (yield* OwnershipStore).allocationStatus(principal.tenantId, claim.progress.vmId).pipe(Effect.mapError(unavailable));
         if (status === "live" || status === "deleted") {
-          yield* limits.advance(principal.tenantId, scoped, { phase: "done", vmId: claim.progress.vmId }).pipe(Effect.mapError(() => unavailable()));
+          yield* limits.advance(principal.tenantId, scoped, { phase: "done", vmId: claim.progress.vmId }).pipe(Effect.mapError(unavailable));
           return yield* replay(claim.progress.vmId);
         }
       }
@@ -52,7 +52,7 @@ export const idempotent = <A extends { readonly id: string }, E, R, ER, RR>(
   }
   const resumeFrom = claim.state === "resume" ? claim.progress : null;
   return yield* run(resumeFrom, scoped).pipe(
-    Effect.tap((vm) => limits.advance(principal.tenantId, scoped, { phase: "done", vmId: vm.id }).pipe(Effect.mapError(() => unavailable()))),
+    Effect.tap((vm) => limits.advance(principal.tenantId, scoped, { phase: "done", vmId: vm.id }).pipe(Effect.mapError(unavailable))),
     Effect.tapError(() => limits.abandon(principal.tenantId, scoped)),
   );
 });

@@ -98,7 +98,8 @@ def load_inputs() -> dict:
     rust = next((r for r in toolchains.rust if channel and r.version == channel.group(1)), None)
     if rust is None:
         raise NoticeError("toolchains.json has no text for the rustc of cmux-tui/rust-toolchain.toml")
-    [zig] = toolchains.zig
+    # cmux-browser-host-release.yml installs the ghostty-next Zig (GHOSTTY_ZIG_SOURCE).
+    zig = toolchains.zig_for("ghostty-next")
     musl = json.loads((PACKAGE_NOTICES / "package-notices.json").read_text(encoding="utf-8"))["musl"]
     return {"rust": rust, "zig": zig, "musl": musl, "js": js_notices.load()}
 

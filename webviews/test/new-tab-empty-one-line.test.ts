@@ -79,14 +79,20 @@ await requireBrowserLane("new-tab-empty-one-line.test.ts", async () => {
       const sizes = await page.evaluate(() => {
         const box = document.querySelector<HTMLElement>(".nt-box")!;
         const row = document.querySelector<HTMLElement>(".nt-input")!;
-        const field = document.querySelector<HTMLTextAreaElement>(".nt-field")!;
-        const style = getComputedStyle(field);
+        // MarkdownField keeps the New Tab insets on its `.nt-field` wrapper and the line height on
+        // its editable (`.acpmux-md`), as the textarea carried both; its value is read through the
+        // field's handle.
+        const field = document.querySelector(".nt-field") as HTMLElement & {
+          acpmuxMarkdownField?: { value(): string };
+        };
+        const inset = getComputedStyle(field);
+        const text = getComputedStyle(field.querySelector<HTMLElement>(".acpmux-md")!);
         return {
-          value: field.value,
+          value: field.acpmuxMarkdownField?.value(),
           split: document.querySelector(".nt-foot") !== null,
           box: box.getBoundingClientRect().height,
           row: row.getBoundingClientRect().height,
-          oneLine: parseFloat(style.lineHeight) + parseFloat(style.paddingTop) + parseFloat(style.paddingBottom),
+          oneLine: parseFloat(text.lineHeight) + parseFloat(inset.paddingTop) + parseFloat(inset.paddingBottom),
           send: !!row.querySelector(".nt-send"),
         };
       });
@@ -104,7 +110,14 @@ await requireBrowserLane("new-tab-empty-one-line.test.ts", async () => {
     });
 
     for (const surface of [
-      { name: "the New Tab field", entry: "agent-pane.new-tab", variant: "minimal-default", field: ".nt-field" },
+      // The New Tab field is MarkdownField: its editable, as the chat composer's (the wrapper's text
+      // also holds the placeholder).
+      {
+        name: "the New Tab field",
+        entry: "agent-pane.new-tab",
+        variant: "minimal-default",
+        field: ".nt-field .acpmux-md",
+      },
       { name: "the chat composer", entry: "agent-pane.composer", variant: "idle", field: ".acpmux-md" },
     ]) {
       test(`${engine}: a burst of Backspace in ${surface.name} deletes every key`, async () => {

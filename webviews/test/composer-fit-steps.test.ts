@@ -47,8 +47,7 @@ describe("composer fit steps", () => {
     // The guard skips the plain quiet row only: ComposerFoot draws the same
     // `.acpmux-composer-bar.acpmux-composer-foot` in both footer looks, so it reads
     // `data-footer-look` on that element, and with the plain footer off the row still takes every
-    // step. The box's own row takes the steps in either footer look: Codex's look puts the mode,
-    // model and ring there (review of #28901: at 280 px they overflowed the box).
+    // step. New Tab's row takes the steps in either footer look.
     // The steps come after the rules that lay a part of another form out of the row, so they must stay
     // less specific than those: the row's measured fit (#24151, data-fit-model="icon" at a width whose
     // step only asks for "family") has to keep winning. A bare `:not([data-footer-look="plain"])` adds

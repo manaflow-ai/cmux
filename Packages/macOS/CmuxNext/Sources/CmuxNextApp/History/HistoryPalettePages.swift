@@ -1,5 +1,5 @@
-import CmuxAgentBrands
 import CmuxNextHistory
+import CmuxNextHistoryDaemon
 import CmuxNextPalette
 import Foundation
 
@@ -53,24 +53,21 @@ enum HistoryPalettePages {
 
     private static func page(_ services: AppServices, id: String, title: String, placeholder: String, symbol: String,
                              kinds: Set<HistoryEntry.Kind>) -> PalettePageSpec {
-        let provider = AsyncPaletteProvider(id: id) { [weak services] in
-            guard let services else { return [] }
-            let entries = await services.history.entries(HistoryQuery(kinds: kinds, limit: 500))
-            return entries.map { item(for: $0, services: services) }
-        }
+        // A list that is not complete yet (`pending_kinds`) shows its rows and the still-loading row, and is read again by itself.
+        let provider = AsyncPaletteProvider.rereading(id: id, read: { [weak services] in
+            guard let services else { return nil }
+            let query = HistoryQuery(kinds: kinds, limit: 500)
+            let read = await services.history.read(query)
+            let rows = read.entries.map { item(for: $0, services: services) } + (read.status(query).map { [statusItem($0)] } ?? [])
+            return (rows, !read.pending.isEmpty)
+        }, wait: { try await DaemonHistoryClient.waitForPending(afterReads: $0) })
         return PalettePageSpec(id: id, title: title, placeholder: placeholder, symbol: symbol, providers: [provider])
     }
 
-    /// The brand mark an agent session's row draws (its provider's), or nil.
-    nonisolated static func agentBrand(_ entry: HistoryEntry) -> String? {
-        switch entry.payload {
-        case .agent(let session):
-            return AgentBrandCatalog.brand(for: session.provider)?.rawValue
-        case .closed(let item):
-            return AgentBrandCatalog.brand(for: item.agentSession?.harness)?.rawValue
-        default:
-            return nil
-        }
+    /// A page's status row (`HistoryRead.status`): Try Again reloads the page, and the palette shows its spinner meanwhile.
+    static func statusItem(_ status: HistoryRead.Status) -> PaletteItem {
+        PaletteItem(id: status.id, title: status.title, subtitle: status.detail, symbol: status.symbol, isEnabled: status.canRetry,
+                    primary: PaletteCommand(id: "retry", title: HistoryRead.tryAgain, symbol: "arrow.clockwise", effect: .performKeepingOpen {}))
     }
 
     static func item(for entry: HistoryEntry, services: AppServices) -> PaletteItem {
@@ -112,18 +109,8 @@ enum HistoryPalettePages {
         let subtitle = [entry.detail, entry.machineName].compactMap { $0 }.joined(separator: " · ")
         return PaletteItem(
             id: entry.id, title: entry.title, subtitle: subtitle.isEmpty ? nil : subtitle, accessory: accessory,
-            symbol: symbol(entry.kind), brand: agentBrand(entry), keywords: [entry.searchText], isEnabled: entry.isAvailable,
+            symbol: entry.kind.symbol, brand: entry.agentBrand, keywords: [entry.searchText], isEnabled: entry.isAvailable,
             primary: PaletteCommand(id: "open", title: primaryTitle, symbol: "return", effect: .perform { restorer.open(entry) }),
             secondary: secondary)
-    }
-
-    static func symbol(_ kind: HistoryEntry.Kind) -> String {
-        switch kind {
-        case .page: "globe"
-        case .location: "location"
-        case .closed: "arrow.uturn.backward"
-        case .command: "terminal"
-        case .agent: "sparkles"
-        }
     }
 }

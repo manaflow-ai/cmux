@@ -33,17 +33,19 @@ struct SidebarCmdNumberTwiceTests {
     /// workspace and Cmd-9 = last, an order without the App Store makes the workspace item 2) and the
     /// App Store a moment later. Settled: when the daemon serves the sidebar document, it is loaded
     /// and the rows draw its latest version (its bands replace the layout, and a block's items are
-    /// stops where the block draws); the model shows the layout service's document; the item
+    /// stops where the block draws); the model shows the layout the window draws from the layout
+    /// service's document (`SidebarRows.visibleLayout(_:window:)`: the App Store only under Preview
+    /// Features, #26138, so by default Cmd-2 is the workspace); the item
     /// presentation (`itemInfo`) covers every top item; and every top item that draws (not hidden,
     /// missing or a suppressed app's) is a stop. Not the apps list: these tests never start the apps
     /// client (only the AppDelegate does), so it never lands, and without it a first-party app item
     /// draws as its former built-in, neither missing nor suppressed.
     static func topItemsSettled(_ window: WindowController, _ services: AppServices) -> Bool {
         if services.machines.local.supports(DaemonCapabilities.sidebarDoc) {
-            guard let doc = SidebarDocStore.current, doc.isActive, doc.shown != nil, doc.shownVersion == doc.version else { return false }
+            guard let doc = services.sidebarDoc.store, doc.isActive, doc.shown != nil, doc.shownVersion == doc.version else { return false }
         }
         let model = window.sidebar.model
-        guard model.layout == SidebarRows.visibleLayout(services.sidebarLayout.document) else { return false }
+        guard model.layout == SidebarRows.visibleLayout(services, window: window.state) else { return false }
         let top = model.layout.sections(in: .top, room: model.activeProfileID?.rawValue).flatMap(\.items)
         guard !top.isEmpty, top.allSatisfy({ model.itemInfo[$0.id] != nil }) else { return false }
         let stops = Set(model.itemOrder.items)
@@ -59,7 +61,7 @@ struct SidebarCmdNumberTwiceTests {
     static func report(_ window: WindowController, _ services: AppServices, picked: SidebarItem?, orderAtPick: [SidebarItem]?) -> String {
         let model = window.sidebar.model, view = window.sidebar.container.sidebarView
         let top = model.layout.sections(in: .top, room: model.activeProfileID?.rawValue).flatMap(\.items).map(\.id.rawValue)
-        let doc = SidebarDocStore.current.map { "active \($0.isActive), version \($0.version), shown \($0.shownVersion)" } ?? "none"
+        let doc = services.sidebarDoc.store.map { "active \($0.isActive), version \($0.version), shown \($0.shownVersion)" } ?? "none"
         let pick = picked.map { String(describing: $0) } ?? "nil", atPick = orderAtPick.map { String(describing: $0) } ?? "not picked"
         let selection = "model selection \(String(describing: model.selectedItem)), drawn \(drawnSelection(view)), "
             + "window selection \(String(describing: SidebarNavigation.current(in: window, services))), "

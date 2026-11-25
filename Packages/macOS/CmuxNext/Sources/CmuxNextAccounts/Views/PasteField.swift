@@ -23,7 +23,7 @@ struct PasteField: View {
             if let error { Text(error).font(palette.caption).foregroundStyle(palette.danger) }
             HStack(spacing: Metrics.space3) {
                 if provider == .claude {
-                    Button(AccountsStrings.runSetupToken) { model.services.runClaudeSetupToken() }
+                    Button(AccountsStrings.runSetupToken) { Task { await model.services.runClaudeSetupToken() } }
                 }
                 if provider.acceptsPastedKey {
                     Button(AccountsStrings.saveToKeychain) {

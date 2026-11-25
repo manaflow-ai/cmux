@@ -14,8 +14,17 @@ public import Foundation
 public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// Draw the user's icon (nil when the user set none or turned icons off).
     public var icon: WorkspaceIcon?
+    /// The workspace's color as the row's leading rail or full fill (`workspaceColors.indicatorStyle`,
+    /// #25653); nil for the dot style, an uncolored workspace or `sidebar.showColors` off.
+    public var rowColor: GroupColor?
+    /// How `rowColor` draws: `.leftRail` or `.fill` (`.dot` draws it as the icon instead).
+    public var colorStyle: WorkspaceColorIndicatorStyle = .dot
+    /// How a `.leftRail` row draws `rowColor`: its bar, wash and title tint (``WorkspaceRailLook/standard`` in the app).
+    public var railLook = WorkspaceRailLook.standard
     /// The second line: the shown second-line elements in order, joined.
     public var detail: String?
+    /// The normalized custom title; nil retains every legacy row behavior.
+    public var titleParts: [TitlePart]?
     /// The tab count, when that element is on.
     public var tabCount: Int?
     /// The pull request / CI badge text, when that element is on.
@@ -34,6 +43,9 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// The row badge draws each state apart (`sidebar.detailedStatusIcons`): working, waiting,
     /// error, done. Off (the default), it draws Working or Ready only (`WorkspaceRowBadges`).
     public var detailedStatus = false
+    /// The status mark draws in the leading icon slot, before the title (`sidebar.workspaceRow.statusPlacement`
+    /// `leading`); the row keeps that slot while idle so the title never moves. Off, it draws on the trailing column.
+    public var statusLeads = false
     /// An expanded row (`sidebar.density`): its trailing marks sit on the title's line.
     public var expanded = false
     /// Expanded rows: the time since the last change, on the title's line.
@@ -56,6 +68,8 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var status: SidebarWorkspaceStatus?
     /// The computer the workspace runs on, while the sidebar lists more than one (SidebarMachineMark).
     public var machine: SidebarMachineMark?
+    /// The workspace runs on a Cloud machine: a small muted cloud in the trailing status cluster, the row's only sign of it (never the leading slot, Leo 2026-11-22).
+    public var runsInCloud = false
     /// The computer as a one-list row names it, with its status when it cannot connect
     /// (`gpu-box · Failed to start`, `SidebarLayout.machineLabel`; set by `SidebarLayoutOptions.rowContent`
     /// in every row mode): no line draws it any more (Leo 2026-10-30), so the row's accessibility label
@@ -63,6 +77,10 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var machineLabel: String?
     /// The session tree (`sidebar.sessionTree`): 1 under the workspace whose agent started this one's.
     public var treeDepth = 0
+    /// The session tree: the parent's title, when this row's own title is the same name. The row reads
+    /// "Subagent of <parent>" instead of its parent's name again (Leo 2026-10-30: "the sidebar tab shouldn't
+    /// just be named claude sr2 coord if you can just say it's Subagent of sr2 coord").
+    public var subagentOf: String?
     /// The session tree: the Command-number that goes to the row (1 to 9), drawn as a keycap.
     public var keycap: Int?
     /// The session tree: the row's pull requests, a glyph and a count in their status color.
@@ -71,6 +89,19 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var treeFold: SidebarTreeFold?
     /// The session tree: a folded parent's descendants by state, drawn as chips.
     public var rollUp: SidebarTreeRollUp?
+    /// Its chats' subagents under the name: a line each (a click opens one) or one stacked line; nil without any.
+    public var subagents: SidebarSubagentStrip?
+    /// Failed subagents of its chats while it lists none (folded, or the tree off): counted in the title line's failed
+    /// chip (`SidebarTreeRollUpView`), the row's one failed mark. 0 while the rows show them.
+    public var subagentsFailed = 0
+    /// What the title line's roll-up draws: the tree's hidden sessions with the failed subagents added to its failed
+    /// count, so a failed session or subagent reads as one mark; nil with neither.
+    public var drawnRollUp: SidebarTreeRollUp? {
+        guard subagentsFailed > 0 else { return rollUp }
+        var drawn = rollUp ?? SidebarTreeRollUp()
+        drawn.failed += subagentsFailed
+        return drawn
+    }
     /// The Priority view's chip (`SidebarWorkspace.agentChip`) when it asks for something
     /// (`rowChip`), for the row's accessibility label. Never drawn: a row shows no status words
     /// (Leo 2026-10-21); needs you is the badge's yellow dot.
@@ -112,6 +143,10 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     }
 
     private init(_ ws: SidebarWorkspace, preferences: WorkspaceRowPreferences, now: Date, machine: String?, ageCache ages: AgeTextCache) {
+        if let layout = preferences.layouts.layout(for: ws.rowKind, agent: ws.kindBrand) {
+            self.init(ws, layout: layout, now: now)
+            return
+        }
         let set = preferences.resolved(for: ws.rowKind)
         let secondLine = set.secondLine.compactMap { element in Self.text(of: element, in: ws, now: now).map { (element, $0) } }
         var items = secondLine.map(\.1)
@@ -131,7 +166,7 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
             // Task status is already represented by the trailing status dots; only a user icon
             // belongs before the title (Chrome's chat list has no extra idle/status ring).
             icon: set.shows(.icon) ? ws.icon : nil,
-            detail: items.isEmpty ? nil : items.joined(separator: Self.separator),
+            detail: Self.nonRedundantDetail(items.isEmpty ? nil : items.joined(separator: Self.separator), title: ws.title),
             tabCount: set.shows(.tabCount) ? ws.tabs.count : nil,
             badge: set.shows(.pullRequest) ? Self.nonEmpty(ws.pullRequest) : nil,
             activity: Self.activity(ws.activity, working: working, progress: set.shows(.progress)),
@@ -140,7 +175,7 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
             status: status
         )
         trailingStatus = trailing
-        badgeTime = set.secondLine.contains(.lastActivity) ? nil : ws.lastActivity.map { Self.ageText($0, now: now, ages: ages) }
+        badgeTime = set.secondLine.contains(.lastActivity) ? nil : ws.rowAge.map { Self.ageText($0, now: now, ages: ages) }
     }
 
     /// An expanded row (`sidebar.density`, cx-13w3; T3 Code / Codex
@@ -162,15 +197,17 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
         let meta = [Self.nonEmpty(machine), Self.nonEmpty(ws.stage), showsPullRequest ? Self.nonEmpty(ws.pullRequest) : nil].compactMap { $0 }
         self.init(
             icon: ws.icon,
-            detail: (showsNotification ? Self.nonEmpty(ws.notificationText) : nil) ?? Self.descriptionLine(ws)
-                ?? Self.nonEmpty(ws.lastMessage) ?? Self.nonEmpty(ws.status)
-                ?? (place.isEmpty ? nil : place.joined(separator: Self.separator)),
+            detail: Self.nonRedundantDetail(
+                (showsNotification ? Self.nonEmpty(ws.notificationText) : nil) ?? Self.descriptionLine(ws)
+                    ?? Self.nonEmpty(ws.lastMessage) ?? Self.nonEmpty(ws.status)
+                    ?? (place.isEmpty ? nil : place.joined(separator: Self.separator)),
+                title: ws.title),
             activity: Self.activity(ws.activity, working: ws.agentWorking, progress: true),
             progress: Self.bar(ws),
             showsWorking: ws.agentWorking
         )
         expanded = true
-        time = ws.lastActivity.map { Self.ageText($0, now: now, ages: ages) }
+        time = ws.rowAge.map { Self.ageText($0, now: now, ages: ages) }
         self.meta = meta.isEmpty ? nil : meta.joined(separator: Self.separator)
     }
 
@@ -226,7 +263,7 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
         // The status block draws the reported entries; the line repeats none.
         case .agentStatus: ws.reported?.entries.isEmpty == false ? nil : nonEmpty(ws.status)
         case .ports: nonEmpty(ws.ports)
-        case .lastActivity: ws.lastActivity.map { activityText($0, now: now) }
+        case .lastActivity: ws.rowAge.map { activityText($0, now: now) }
         case .notification: nonEmpty(ws.notificationText)
         case .icon, .tabCount, .pullRequest, .progress, .working, .log: nil
         }
@@ -252,8 +289,30 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
             .map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty }
     }
 
+    /// Drops the agent-session row's synthetic local/session label when it repeats the title.
+    /// Other hosts and facts remain visible; the decision is based on the rendered data.
+    static func nonRedundantDetail(_ detail: String?, title: String) -> String? {
+        guard let detail = nonEmpty(detail) else { return nil }
+        let parts = detail.components(separatedBy: Self.separator).map {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if parts.count == 2, parts[0].caseInsensitiveCompare("local") == .orderedSame,
+           parts[1].caseInsensitiveCompare(title.trimmingCharacters(in: .whitespacesAndNewlines)) == .orderedSame {
+            return nil
+        }
+        return detail
+    }
+
     static func nonEmpty(_ text: String?) -> String? {
         guard let text, !text.isEmpty else { return nil }
         return text
+    }
+}
+
+nonisolated extension WorkspaceRowContent {
+    /// Two titles name the same thing: equal once trimmed, ignoring case and diacritics; an empty title names nothing.
+    static func sameTitle(_ a: String, _ b: String) -> Bool {
+        let a = a.trimmingCharacters(in: .whitespacesAndNewlines), b = b.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !a.isEmpty && a.compare(b, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
     }
 }

@@ -1,5 +1,6 @@
 @testable import CmuxNextCloud
 @testable import CmuxNextRemote
+import CmuxNextCompat
 import Foundation
 import Testing
 
@@ -65,6 +66,27 @@ struct SSHMachineSecretsTests {
         #expect(try String(contentsOf: file, encoding: .utf8) == "export API_KEY='sk-live-1'\\''23'\nexport DATABASE_URL='postgres://u:p@db/app'\n")
         #expect(try Self.mode(file) == 0o600)
         #expect(!FileManager.default.fileExists(atPath: home.appendingPathComponent(".cmux/machine-config/receive-secrets.a1b2.ticket").path))
+    }
+
+    /// A set of any size is written whole by the real receiver: here a file past the 4 MiB the app
+    /// and the receiver once refused (70 values of 16 KiB apostrophes, each written as `'\''`).
+    @Test func aSetWhoseFileIsPastFourMiBIsWrittenWhole() async throws {
+        let home = try Self.scratchHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let ssh = try Self.standInSSH(in: home)
+        let link = SSHMachineSecrets.link(to: try SSHDestination(parsing: "ann@own-machine"),
+                                          environment: ["HOME": home.path, "PATH": "/usr/bin:/bin"],
+                                          commandLine: SSHCommandLine(sshBinary: ssh.path), word: "e5f6")
+        let values = (0..<70).map { (name: "SECRET_\($0)", value: String(repeating: "'", count: 16 * 1024)) }
+        let count = try await CloudMachineSecrets.deliver(values, over: link, receiverAt: SSHMachineSecrets.receiverPath,
+                                                          ticketAt: SSHMachineSecrets.ticketPath("e5f6"))
+        #expect(count == 70)
+        let file = home.appendingPathComponent(".config/cmux/machine-secrets.env")
+        let written = try Data(contentsOf: file)
+        #expect(written.count > 4 << 20, "\(written.count) bytes")
+        let quoted = String(repeating: "'\\''", count: 16 * 1024)
+        let lines = String(decoding: written, as: UTF8.self).split(separator: "\n")
+        #expect(lines == values.map { "export \($0.name)='\(quoted)'"[...] })
     }
 
     /// An ssh that cannot reach the machine stops the delivery before any value is read off the pty,
@@ -150,6 +172,35 @@ struct SSHMachineSecretsTests {
         }
         await stopping.value
         #expect(!pty.isRunning)
+    }
+
+    /// ssh's exit closes the run's two pipes with no stop, even while a grandchild (a ControlPersist master)
+    /// still holds ssh's stdout: 100 runs a delivery never closed leave the app's pipe count where it was
+    /// (cmuxterm-hq#8747). Before the fix each run kept its stdin write end and stdout read end: 200 pipes.
+    @Test func sshsExitClosesTheRunsPipesWithoutAStop() async throws {
+        let baseline = try #require(OpenDescriptors.current())
+        var runs: [SSHPTYRun] = []
+        var homes: [URL] = []
+        defer { for home in homes { try? FileManager.default.removeItem(at: home) } }
+        for _ in 0..<100 {
+            let run = try Self.standIn("sleep 20 &\necho ready\n")
+            runs.append(run.run)
+            homes.append(run.home)
+            _ = try await run.run.waitFor("ready", seconds: 10)
+        }
+        // The drain grace after each exit, then at most 10 s for the closes to land.
+        let deadline = ContinuousClock.now + .seconds(12)
+        var left = Int.max
+        while ContinuousClock.now < deadline {
+            left = (OpenDescriptors.current()?.pipes ?? Int.max) - baseline.pipes
+            if left <= 0 { break }
+            try await Task.sleep(for: .milliseconds(200))
+        }
+        print("SSHMachineSecretsTests: SSHPTYRun x100 never stopped: \(left) pipes left open (baseline \(baseline.pipes))")
+        #expect(left <= 60, "100 ssh runs that exited left \(left) pipes open")
+        // A stop after the exit closed the ends returns at once and closes nothing twice.
+        for run in runs { await run.stop() }
+        #expect(runs.allSatisfy { !$0.isRunning })
     }
 
     // MARK: Helpers

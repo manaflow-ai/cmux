@@ -3,7 +3,15 @@
 // for a Refresh). The host sends it again on the next connection; the sender waits for it there.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { clientWaiter, isLostConnection, lostPrompt, lostPromptSlot, waitForResend } from "./lostPrompt";
+import {
+  clientWaiter,
+  isLostConnection,
+  lostPrompt,
+  lostPromptSlot,
+  resentAfterLoss,
+  waitForResend,
+} from "./lostPrompt";
+import { settleReact } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -17,7 +25,8 @@ beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const key of ["window", "document"] as const)
     if (saved[key]) scope[key] = saved.values[key];
     else delete scope[key];
@@ -248,4 +257,96 @@ test("a claimed lost prompt keeps its slot until its send has left", () => {
   // A send that is none of them, once it has gone, ends the chat's others.
   slot.claim("s-1", "something else", []).commit();
   expect(slot.claim("s-1", "and test it", []).promptId).toBeUndefined();
+});
+
+/// A mock acpmux whose connection drops as a prompt reaches it, before acpmux took it (an acpmux
+/// restart or update mid-send).
+async function droppingClient(onSnapshot: (rows: readonly { kind: string; text?: string }[]) => void) {
+  const { AcpmuxDirectClient } = await import("./direct");
+  const { MockAcpmuxSocket, mockHost } = await import("./mock");
+  class DropsAtPrompt extends MockAcpmuxSocket {
+    override send(raw: string): void {
+      if ((JSON.parse(raw) as { method?: string }).method !== "session/prompt") return super.send(raw);
+      this.readyState = 3;
+      queueMicrotask(() => (this.onclose as ((event: { code: number }) => void) | null)?.({ code: 1012 }));
+    }
+  }
+  return AcpmuxDirectClient.connect(
+    mockHost,
+    (snapshot) => onSnapshot(snapshot.rows as readonly { kind: string; text?: string }[]),
+    // The pane asks the host for a fresh connection; this test's client stays closed.
+    () => undefined,
+    () => new DropsAtPrompt(() => Promise.resolve()) as unknown as WebSocket,
+  );
+}
+
+test("a prompt the connection lost before acpmux took it waits for the host's resend, never 'Not sent' at once", async () => {
+  // Leo, 2026-10-21 (an acpmux restart mid-send): "why does it say it's not responding?"
+  let rows: readonly { kind: string; text?: string }[] = [];
+  const client = await droppingClient((next) => (rows = next));
+  try {
+    const sessionId = client.selectedSession!;
+    // A sender that holds its prompt until acpmux takes it (a new chat's composer, the Quick Composer).
+    const held = await client.send("continue", [], "p-held", () => undefined).catch((error: unknown) => error);
+    expect(isLostConnection(held)).toBe(true);
+    expect(lostPrompt(held)).toEqual({ sessionId, promptId: "p-held" });
+    expect(rows.filter((row) => row.kind === "notice" && row.text?.includes("Not sent"))).toEqual([]);
+  } finally {
+    client.close();
+  }
+  // A started chat's prompt, which left the composer at once, is the host's to send again too.
+  const again = await droppingClient(() => undefined);
+  try {
+    const lost = await again.send("continue", [], "p-row").catch((error: unknown) => error);
+    expect(lostPrompt(lost)?.promptId).toBe("p-row");
+  } finally {
+    again.close();
+  }
+});
+
+test("a lost prompt that shows on the next connection is sent; one that never shows, or another failure, is not", async () => {
+  const lost = Object.assign(new Error("gone"), {
+    interrupted: true,
+    lostPrompt: { sessionId: "s-1", promptId: "p-1" },
+  });
+  const from: Waiting = { name: "from", isClosed: true, awaitResent: async () => false };
+  const shows = clientWaiter<Waiting>();
+  const waited = resentAfterLoss(lost, shows, from, 1_000, 1_000);
+  shows.connected({ name: "next", isClosed: false, awaitResent: async (_s, promptId) => promptId === "p-1" });
+  expect(await waited).toBe(true);
+  // The next connection never shows it (the host did not keep it): the sender says "Not sent" then.
+  const quiet = clientWaiter<Waiting>();
+  quiet.connected({ name: "quiet", isClosed: false, awaitResent: async () => false });
+  expect(await resentAfterLoss(lost, quiet, from, 50, 10)).toBe(false);
+  // No connection comes back in time.
+  expect(await resentAfterLoss(lost, clientWaiter<Waiting>(), from, 10, 10)).toBe(false);
+  // A refusal is not a lost prompt: its sender says so at once.
+  expect(await resentAfterLoss(new Error("refused"), shows, from, 1_000, 1_000)).toBe(false);
+});
+
+// Leo, 2026-11-24: an app update restarted acpmux, which took longer than the 30 s a lost prompt's
+// sender waited for the next connection. The sender gave up, and the host's journal sent the prompt
+// again on the connection that came later all the same.
+test("a lost prompt waits for the next connection however long it takes, never for a time", async () => {
+  const { jest } = await import("bun:test");
+  const lost = Object.assign(new Error("gone"), {
+    interrupted: true,
+    lostPrompt: { sessionId: "s-1", promptId: "p-1" },
+  });
+  const from: Waiting = { name: "from", isClosed: true, awaitResent: async () => false };
+  const clients = clientWaiter<Waiting>();
+  jest.useFakeTimers();
+  try {
+    let settled: boolean | undefined;
+    const waited = resentAfterLoss(lost, clients, from).then((shown) => (settled = shown));
+    // Ten minutes with no connection: still waiting, nothing given up.
+    jest.advanceTimersByTime(10 * 60_000);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(settled).toBeUndefined();
+    clients.connected({ name: "back", isClosed: false, awaitResent: async (_s, promptId) => promptId === "p-1" });
+    expect(await waited).toBe(true);
+  } finally {
+    jest.useRealTimers();
+  }
 });

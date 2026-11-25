@@ -403,44 +403,32 @@ fn run_expiry() {
             guard.0.retain(|mux| mux.strong_count() > 0);
             (guard.0.clone(), guard.1)
         };
-        let mut next: Option<u64> = None;
-        let mut failed = false;
+        let mut pass = ExpiryPass::default();
         let mut idle: Vec<Weak<Mux>> = Vec::new();
         for weak in &muxes {
             let Some(mux) = weak.upgrade() else { continue };
             let now = crate::mux::now_ms();
-            if let Err(error) = mux.clear_owned_workspace_status(&OwnerEnd::Expired { now_ms: now })
-            {
+            let cleared = mux.clear_owned_workspace_status(&OwnerEnd::Expired { now_ms: now });
+            if let Err(error) = &cleared {
                 eprintln!("cmux-tui: status expiry failed: {error}");
-                failed = true;
             }
-            match mux.read_registry_state(status_meta::next_expiry_ms) {
-                Ok(Some(deadline)) => {
-                    next = Some(next.map_or(deadline, |current| current.min(deadline)));
-                }
+            let next = mux.read_registry_state(status_meta::next_expiry_ms);
+            if let Err(error) = &next {
+                eprintln!("cmux-tui: reading the next status expiry failed: {error}");
+            }
+            if pass.add(now, cleared.is_ok(), next.ok()) {
                 // No deadline left: leave the list until a new TTL arrives.
-                Ok(None) => idle.push(weak.clone()),
-                Err(error) => {
-                    eprintln!("cmux-tui: reading the next status expiry failed: {error}");
-                    failed = true;
-                }
+                idle.push(weak.clone());
             }
         }
-        // After a failure the expired row stays; retry with a growing delay
-        // (1 s to about 4 min) instead of spinning on a past deadline.
-        failures = if failed { failures.saturating_add(1) } else { 0 };
-        if failures > 0 {
-            next = Some(crate::mux::now_ms().saturating_add(1_000u64 << failures.min(8)));
-        }
+        let wait = pass.wait(&mut failures, crate::mux::now_ms());
         let mut guard = lock(&expiry.muxes);
         if guard.1 != generation {
             continue;
         }
         guard.0.retain(|known| !idle.iter().any(|weak| weak.ptr_eq(known)));
-        match next {
-            Some(deadline) => {
-                let wait =
-                    Duration::from_millis(deadline.saturating_sub(crate::mux::now_ms()).max(1));
+        match wait {
+            Some(wait) => {
                 drop(expiry.wake.wait_timeout_while(guard, wait, |state| state.1 == generation));
             }
             None => {
@@ -449,3 +437,61 @@ fn run_expiry() {
         }
     }
 }
+
+/// What one pass of the expiry thread found over every live daemon.
+#[derive(Default)]
+struct ExpiryPass {
+    /// The earliest deadline left.
+    next: Option<u64>,
+    /// A clear or a read failed: an expired row may stay.
+    failed: bool,
+}
+
+impl ExpiryPass {
+    /// One daemon's part: its clear of every entry due at `cleared_at_ms`
+    /// (`cleared` false when it failed), then its earliest deadline left
+    /// (`None` when it could not be read). True when it has no deadline left.
+    fn add(&mut self, cleared_at_ms: u64, cleared: bool, next: Option<Option<u64>>) -> bool {
+        self.failed |= !cleared;
+        match next {
+            Some(Some(deadline)) => {
+                // A backstop: a successful clear removes every row due at
+                // `cleared_at_ms` (`status_meta::owned_entries` and
+                // `remove_entries` share the predicate), so no known path
+                // leaves one. A deadline at or before it is a row the clear
+                // did not remove and will not remove on the next pass
+                // either: a failure, never a 1 ms retry.
+                if cleared && deadline <= cleared_at_ms {
+                    eprintln!(
+                        "cmux-tui: status expiry left deadline {deadline} due \
+                         (cleared up to {cleared_at_ms}); retrying later"
+                    );
+                    self.failed = true;
+                }
+                self.next = Some(self.next.map_or(deadline, |current| current.min(deadline)));
+                false
+            }
+            Some(None) => true,
+            None => {
+                self.failed = true;
+                false
+            }
+        }
+    }
+
+    /// How long to sleep before the next pass (`None`: until a new deadline
+    /// arrives). `failures` counts passes in a row that failed.
+    fn wait(mut self, failures: &mut u32, now_ms: u64) -> Option<Duration> {
+        // After a failure the expired row stays; retry with a growing delay
+        // (2 s to about 4 min) instead of spinning on a past deadline.
+        *failures = if self.failed { failures.saturating_add(1) } else { 0 };
+        if *failures > 0 {
+            self.next = Some(now_ms.saturating_add(1_000u64 << (*failures).min(8)));
+        }
+        self.next.map(|deadline| Duration::from_millis(deadline.saturating_sub(now_ms).max(1)))
+    }
+}
+
+#[cfg(test)]
+#[path = "status_owners_expiry_tests.rs"]
+mod expiry_tests;

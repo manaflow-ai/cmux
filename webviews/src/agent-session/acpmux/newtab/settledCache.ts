@@ -5,7 +5,7 @@
 // first frame (the machine chip's name comes with the page's context, #22211). The chat index's
 // pushes (`deviceChats`) stay the only reason to read the first page again; a blocked store only
 // leaves the page to read as before.
-import type { AllChatsDesign, AllChatsRow } from "./AllChatsList";
+import type { AllChatsDesign, AllChatsRow } from "./allChatsListModel";
 import { devicePushCount } from "./deviceChats";
 
 const CHATS_KEY = "cmux.acpmux.newTab.chats";

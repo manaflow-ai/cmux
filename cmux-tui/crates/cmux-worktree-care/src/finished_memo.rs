@@ -31,7 +31,9 @@ pub struct FinishedMemo {
     path: Option<PathBuf>,
     answers: Mutex<Answers>,
     pending: AtomicUsize,
-    _writer: Option<std::fs::File>,
+    /// The writer lock; its drop unlocks before it closes, so a child the daemon forked
+    /// meanwhile keeps no lock and the next pass's memo writes.
+    _writer: Option<cmux_file_lock::FileLock>,
 }
 
 impl FinishedMemo {
@@ -52,8 +54,7 @@ impl FinishedMemo {
                 options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
             }
             let file = options.open(path.with_extension("lock")).ok()?;
-            file.try_lock().ok()?;
-            Some(file)
+            cmux_file_lock::FileLock::try_take(file, cmux_file_lock::Kind::Exclusive).ok()
         })();
         let answers = read_memo(&path)
             .map(|entries| {
@@ -183,35 +184,5 @@ fn read_memo(path: &Path) -> Option<Vec<StoredAnswer>> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn oversized_and_corrupt_memos_are_ignored() {
-        let dir = crate::store::care_tests::scratch("bounded-memo");
-        let path = dir.join("memo.json");
-        let file = std::fs::File::create(&path).unwrap();
-        file.set_len(MAX_MEMO_BYTES + 1).unwrap();
-        assert!(read_memo(&path).is_none());
-        std::fs::write(&path, "invalid json").unwrap();
-        assert!(read_memo(&path).is_none());
-        std::fs::remove_dir_all(dir).unwrap();
-    }
-
-    #[test]
-    fn completed_answer_is_durable_without_a_pass_flush() {
-        let dir = crate::store::care_tests::scratch("incremental-memo");
-        let path = dir.join("memo.json");
-        let memo = FinishedMemo::load(path.clone());
-        let root = Path::new("/worktrees/a");
-        let head = "1".repeat(40);
-        let base = "2".repeat(40);
-        memo.remember(root, &head, &base, None);
-        let reader = FinishedMemo::load(path);
-        assert_eq!(reader.remembered(root, &head, &base), Some(None));
-        assert!(reader._writer.is_none(), "a second writer cannot overwrite progress");
-        drop(reader);
-        drop(memo);
-        std::fs::remove_dir_all(dir).unwrap();
-    }
-}
+#[path = "finished_memo_tests.rs"]
+mod tests;

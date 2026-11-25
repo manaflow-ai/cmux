@@ -64,6 +64,14 @@ final class EventLog: @unchecked Sendable {
         #expect(DeviceHubPush(text: #"{"type":"session.revoked","sessionId":"s1","reason":"device_removed"}"#)
             == .sessionRevoked(sessionID: "s1", reason: "device_removed"))
         #expect(DeviceHubPush(text: #"{"type":"session.ended","sessionId":"s1","reason":"bye"}"#) == .sessionEnded(sessionID: "s1", reason: "bye"))
+        // The hub's `ownerKind` survives the shared model (cmux Remote's host reads it after the app quits).
+        let own = #"{"type":"session.ticket","sessionId":"s2","ticket":"h.p.s","signalURL":"wss://hub.example/ws","ice":[],"peer":{"id":"v1","name":"Phone","signingKey":"K"},"role":"host","scope":"full","ownerKind":"user"}"#
+        guard case let .sessionTicket(ownTicket) = DeviceHubPush(text: own) else { Issue.record("no ticket"); return }
+        #expect(ownTicket.ownerKind == "user" && ownTicket.isOwnAccount)
+        #expect(!ticket.isOwnAccount && ticket.ownerKind == nil)
+        var team = ownTicket
+        team.ownerKind = "team"
+        #expect(!team.isOwnAccount)
         #expect(DeviceHubPush(text: #"{"type":"pong"}"#) == .pong)
         #expect(DeviceHubPush(text: #"{"type":"later.thing"}"#) == .unknown("later.thing"))
         #expect(DeviceHubPush(text: "not json") == nil)
@@ -119,6 +127,53 @@ final class EventLog: @unchecked Sendable {
         await socket.run { log.append($0) }
         #expect(log.all == [.state(.connecting), .state(.connected), .state(.removed)])
         #expect(connector.count.value == 1)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func aSignedOutDevicesSocketStopsReconnecting() async {
+        final class SignedOut: DeviceHubSocketConnection, @unchecked Sendable {
+            func receive() async throws -> String { throw DeviceHubSocket.Closed(code: 4003) }
+            func send(_ text: String) async throws {}
+            func close() {}
+        }
+        struct Once: DeviceHubSocketConnector {
+            let count = Locked(0)
+            func connect() async throws -> any DeviceHubSocketConnection {
+                count.set(count.value + 1)
+                return SignedOut()
+            }
+        }
+        let connector = Once()
+        let log = EventLog()
+        // A reconnect would loop forever on this connector (each socket closes 4003 again), so
+        // the run returning at all, after one connect and no `reconnecting`, is the check.
+        let socket = DeviceHubSocket(connector: connector, backoff: Backoff(initial: .milliseconds(1), maximum: .milliseconds(1), jitter: 0))
+        let task = Task { await socket.run { log.append($0) } }
+        let outcome = await withTaskGroup(of: Bool.self) { group in
+            group.addTask { await task.value; return true }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(5))
+                // Still reconnecting: end the socket's run so the group (and the test) can finish.
+                task.cancel()
+                return false
+            }
+            let first = await group.next() ?? false
+            group.cancelAll()
+            return first
+        }
+        task.cancel()
+        await task.value
+        #expect(outcome, "the socket kept reconnecting after a 4003 close")
+        #expect(log.all == [.state(.connecting), .state(.connected), .state(.signedOut)])
+        #expect(!log.all.contains { if case .state(.reconnecting) = $0 { true } else { false } })
+        #expect(connector.count.value == 1)
+    }
+
+    @Test func onlyTheReplacedRemovedAndSignedOutCloseCodesAreTerminal() {
+        #expect(DeviceHubSocket.terminalState(closeCode: 4000) == .replaced)
+        #expect(DeviceHubSocket.terminalState(closeCode: 4001) == .removed)
+        #expect(DeviceHubSocket.terminalState(closeCode: 4003) == .signedOut)
+        #expect(DeviceHubSocket.terminalState(closeCode: 1006) == nil)
+        #expect(DeviceHubSocket.terminalState(closeCode: 4002) == nil)
     }
 
     @Test(.timeLimit(.minutes(1))) func theSocketPings() async throws {

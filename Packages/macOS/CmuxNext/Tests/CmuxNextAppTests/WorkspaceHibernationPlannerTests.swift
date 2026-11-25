@@ -93,8 +93,13 @@ import Testing
 
     @Test func aPageCreatedWhileHiddenCanHibernateAndWakesFromItsSavedState() {
         var lifecycle = ContentLifecycle<String>()
-        // A tab opened in the background: its page exists, no pane ever showed it.
-        #expect(lifecycle.send(.adopted("bg")).isEmpty)
+        // A tab opened in the background: its page exists, no pane ever showed it. It is concealed
+        // as a hidden tab is, so its hidden clock starts (it freezes like any hidden page).
+        let adopted = lifecycle.send(.adopted("bg"))
+        guard case .conceal("bg", let token)? = adopted.first, adopted.count == 1 else {
+            Issue.record("expected one conceal, got \(adopted)"); return
+        }
+        #expect(lifecycle.accepts("bg", token))
         #expect(lifecycle.phase("bg") == .mountedHidden)
         // Its workspace hibernates: the page is released, and showing it restores (not a fresh mount).
         #expect(lifecycle.send(.hibernate("bg")).count == 1)

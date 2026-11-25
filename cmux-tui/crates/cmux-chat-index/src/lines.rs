@@ -80,10 +80,53 @@ pub(crate) fn read_first_record(path: &Path) -> io::Result<Option<Value>> {
 /// after the last complete line. A trailing partial line is left for the
 /// next read (the writer is still appending it). A line longer than
 /// `FIRST_LINE_MAX` is skipped without being held in memory.
-pub(crate) fn fold_lines(path: &Path, from: u64, mut fold: impl FnMut(&[u8])) -> io::Result<u64> {
+pub(crate) fn fold_lines(path: &Path, from: u64, fold: impl FnMut(&[u8])) -> io::Result<u64> {
     let mut file = File::open(path)?;
     file.seek(SeekFrom::Start(from))?;
-    let mut reader = BufReader::new(file);
+    fold_reader(BufReader::new(file), from, fold)
+}
+
+/// Calls `fold` for each complete line of at most the newest `max` bytes the file holds when it
+/// is opened: a bigger file is read from `max` bytes before its end, its first (partial) line
+/// skipped, and what is appended while it is read is not read. So one read is bounded however
+/// large the file is or however fast it grows. A whole read, not a resumable one: it gives no
+/// offset to read on from (that is `fold_lines`).
+pub(crate) fn fold_newest_lines(path: &Path, max: u64, fold: impl FnMut(&[u8])) -> io::Result<()> {
+    let mut file = File::open(path)?;
+    let len = file.metadata()?.len();
+    // From the byte before the cut: when that byte ends a line, only it is skipped.
+    let from = len.saturating_sub(max).saturating_sub(1);
+    file.seek(SeekFrom::Start(from))?;
+    let mut reader = BufReader::new(file.take(len.saturating_sub(from)));
+    let mut offset = from;
+    if from > 0 {
+        // The line the cut falls in is not whole.
+        let mut skipped = 0u64;
+        loop {
+            let buf = reader.fill_buf()?;
+            if buf.is_empty() {
+                return Ok(());
+            }
+            let (used, ends) = match buf.iter().position(|byte| *byte == b'\n') {
+                Some(at) => (at.saturating_add(1), true),
+                None => (buf.len(), false),
+            };
+            reader.consume(used);
+            skipped = skipped.saturating_add(used as u64);
+            if ends {
+                break;
+            }
+        }
+        offset = offset.saturating_add(skipped);
+    }
+    fold_reader(reader, offset, fold).map(|_| ())
+}
+
+fn fold_reader(
+    mut reader: impl BufRead,
+    from: u64,
+    mut fold: impl FnMut(&[u8]),
+) -> io::Result<u64> {
     let mut offset = from;
     let mut line = Vec::new();
     loop {
@@ -170,3 +213,7 @@ pub(crate) fn read_array_head(
 pub(crate) fn contains(haystack: &[u8], needle: &[u8]) -> bool {
     haystack.windows(needle.len()).any(|window| window == needle)
 }
+
+#[cfg(test)]
+#[path = "lines_tests.rs"]
+mod tests;

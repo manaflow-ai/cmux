@@ -15,6 +15,8 @@ pub(in crate::cli) struct RequestPlan {
     pub resolve: Vec<Resolve>,
     /// The part of the result the command prints.
     pub view: ResponseView,
+    /// The rows a list keeps (`--name`, `--cwd`; wire/list_filter.rs).
+    pub filter: super::list_filter::ListFilter,
 }
 
 /// The part of a result a command prints. `TerminalProgramStatus` is
@@ -27,7 +29,14 @@ pub(in crate::cli) enum ResponseView {
     #[default]
     Full,
     TerminalProgramStatus,
+    /// `terminal <t> screen read` and `terminal <t> copy` without
+    /// `--details`: human output is the result's `text` alone, as it shows;
+    /// `--json` keeps the whole record.
+    ScreenText,
     AgentRoster(AgentRosterView),
+    /// `agent report`: the reported record says `ended` where the daemon
+    /// says `done` (a session that ended), as every CLI agent list does.
+    AgentReport,
 }
 
 /// How `agent list` orders and trims its rows.
@@ -39,13 +48,17 @@ pub(in crate::cli) struct AgentRosterView {
     /// `--counts`: `--json` prints `{"agents","counts"}` instead of the
     /// bare agent array.
     pub counts: bool,
+    /// `--state <status>` (`--needs-me` is `blocked`): only the agents with
+    /// this shared status word (`ended` for a session that ended). The
+    /// daemon filters by its own state first (agent_roster.rs).
+    pub status: Option<&'static str>,
 }
 
 /// `agent list --sort`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(in crate::cli) enum AgentSort {
-    /// Blocked first, then working, then idle and done, then unknown; the
-    /// most recently updated first within each group.
+    /// Blocked first, then done, working, idle, unknown and ended; the most
+    /// recently updated first within each group.
     #[default]
     NeedsMe,
     /// The most recently updated first.
@@ -59,7 +72,16 @@ impl ResponseView {
         match self {
             // wire/agent_roster.rs shapes the roster once it has the
             // terminals' titles and folders.
-            Self::Full | Self::AgentRoster(_) => result,
+            Self::Full | Self::AgentRoster(_) | Self::ScreenText => result,
+            Self::AgentReport => {
+                let mut result = result;
+                if let Some(state) = result.pointer_mut("/value/state")
+                    && *state == "done"
+                {
+                    *state = Value::from("ended");
+                }
+                result
+            }
             Self::TerminalProgramStatus => match result.pointer("/extra/program_status") {
                 Some(Value::Array(records)) => Value::Array(records.clone()),
                 _ => Value::Array(Vec::new()),
@@ -83,6 +105,11 @@ pub(in crate::cli) enum Resolve {
     /// `system.identify` reports). `current` stays the focused object when
     /// no caller is known or the request routes to another session.
     Caller,
+    /// A terminal tab with no place, created from a person's terminal
+    /// ([`terminal_caller_place`]): `workspace`, `screen` and `pane` become
+    /// the caller's own. Without a caller on this route the request names no
+    /// place, the daemon's default (which can create a workspace).
+    CallerPlace,
     /// `field` names a state record (room or group) by id or exact name; a
     /// unique name becomes that record's id.
     StateName { field: &'static str, list: ResourceOperation },
@@ -140,6 +167,28 @@ impl super::CommandPlan {
         }
     }
 
+    /// `terminal <t> screen read` and `copy`: human output prints the text only.
+    pub(super) fn screen_text(self) -> Self {
+        match self {
+            Self::Protocol(mut plan) => {
+                plan.view = ResponseView::ScreenText;
+                Self::Protocol(plan)
+            }
+            other => other,
+        }
+    }
+
+    /// `agent report`: the reported record with the CLI's `ended` word.
+    pub(super) fn agent_report(self) -> Self {
+        match self {
+            Self::Protocol(mut plan) => {
+                plan.view = ResponseView::AgentReport;
+                Self::Protocol(plan)
+            }
+            other => other,
+        }
+    }
+
     /// `agent list`: the `agent.list` request printed as a ranked roster.
     pub(super) fn agent_roster(self, view: AgentRosterView) -> Self {
         match self {
@@ -157,53 +206,52 @@ pub(in crate::cli) const CALLER_SCOPES: [&str; 5] =
     ["workspace", "screen", "pane", "tab", "terminal"];
 
 /// `plan` with a [`Resolve::Caller`] lookup when a structural selector is
-/// `caller` or `current`, which the CLI resolves against the caller before it
-/// sends the request.
+/// `caller`, `current` or `focused`, which the CLI resolves against the
+/// caller (or the person's focus) before it sends the request, and a
+/// [`Resolve::CallerPlace`] when a person's terminal creates a tab with no
+/// place ([`terminal_caller_place`]).
 pub(super) fn with_caller_lookup(
     mut plan: super::CommandPlan,
     selectors: &std::collections::BTreeMap<&'static str, String>,
 ) -> super::CommandPlan {
     let named = CALLER_SCOPES.iter().any(|scope| {
-        selectors.get(scope).is_some_and(|value| value == "caller" || value == "current")
+        selectors
+            .get(scope)
+            .is_some_and(|value| matches!(value.as_str(), "caller" | "current" | "focused"))
     });
-    if let super::CommandPlan::Protocol(plan) = &mut plan
-        && named
-    {
-        plan.resolve.push(Resolve::Caller);
+    if let super::CommandPlan::Protocol(plan) = &mut plan {
+        let env = |key: &str| std::env::var(key).ok();
+        if terminal_caller_place(plan, env) {
+            plan.resolve.push(Resolve::CallerPlace);
+        }
+        if named {
+            plan.resolve.push(Resolve::Caller);
+        }
     }
     plan
 }
 
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-
-    use super::*;
-
-    #[test]
-    fn terminal_status_prints_only_the_program_status_records() {
-        let records = json!([{"id": "", "state": "working", "progress": 40}]);
-        let terminal =
-            json!({"id": "term_1", "extra": {"progress": null, "program_status": records}});
-        assert_eq!(ResponseView::TerminalProgramStatus.project(terminal.clone()), records);
-        assert_eq!(ResponseView::Full.project(terminal.clone()), terminal);
-        assert_eq!(
-            ResponseView::TerminalProgramStatus.project(json!({"id": "term_1"})),
-            json!([]),
-            "a terminal without records prints an empty list"
-        );
-    }
-
-    #[test]
-    fn terminal_status_is_a_terminal_get_with_the_status_view() {
-        let args =
-            ["terminal", "term_0123456789abcdef0123456789abcdef", "status"].map(str::to_owned);
-        let Ok(super::super::CommandPlan::Protocol(plan)) =
-            super::super::parse(&args, crate::cli::Surface::Cmux)
-        else {
-            panic!("terminal status parses to a protocol request");
-        };
-        assert_eq!(plan.operation.name().unwrap(), "terminal.get");
-        assert_eq!(plan.view, ResponseView::TerminalProgramStatus);
-    }
+/// Whether a terminal tab is created from a person's cmux terminal with no
+/// `--workspace`, `--screen` or `--pane`. It then opens in that terminal's
+/// own pane ([`Resolve::CallerPlace`]), not the daemon's active one, which
+/// can be a workspace the person is not in
+/// (https://github.com/manaflow-ai/cmux/issues/25590). A caller that cannot
+/// be found, or a request to another session or machine, keeps the daemon's
+/// default. An agent's goes beside its chat instead (beside.rs).
+fn terminal_caller_place(plan: &RequestPlan, env: impl Fn(&str) -> Option<String>) -> bool {
+    let set = |key: &str| env(key).is_some_and(|value| !value.is_empty());
+    // The same agent and Chief turn tests as resolve.rs `caller_path`.
+    let person_terminal = set("CMUX_TUI_TERMINAL_ID")
+        && !set("CMUX_AGENT_SESSION")
+        && env("CMUX_CALLER_HOME_CHAT").as_deref() != Some("1");
+    let creates_terminal =
+        matches!(plan.operation, WireOperation::Typed(ResourceOperation::TabCreateTerminal));
+    let unplaced = plan.params.as_object().is_some_and(|params| {
+        !["workspace", "screen", "pane"].iter().any(|key| params.contains_key(*key))
+    });
+    person_terminal && creates_terminal && unplaced
 }
+
+#[cfg(test)]
+#[path = "plan_tests.rs"]
+mod tests;

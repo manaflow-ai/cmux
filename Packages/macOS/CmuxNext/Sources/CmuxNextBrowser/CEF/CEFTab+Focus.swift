@@ -1,4 +1,6 @@
-import Foundation
+import AppKit
+import CmuxNextDesign
+import CmuxNextWakeups
 
 /// Where a Chromium focus request comes from (`cef_focus_source_t`).
 nonisolated enum CEFFocusSource: Int32, Sendable {
@@ -35,6 +37,14 @@ extension CEFRuntime {
     }
 }
 
+/// The app's key window, read and changed (AppKit's in the app, a recorder in a test).
+struct CEFKeyWindows {
+    var keyWindow: @MainActor () -> NSWindow?
+    var makeKey: @MainActor (NSWindow) -> Void
+
+    static var appKit: CEFKeyWindows { CEFKeyWindows(keyWindow: { NSApp.keyWindow }, makeKey: { $0.makeKey() }) }
+}
+
 extension CEFTab {
     /// Chromium asks to focus this page (`CefFocusHandler::OnSetFocus`).
     ///
@@ -53,9 +63,79 @@ extension CEFTab {
     /// Gives the page focus on cmux's behalf. CEF asks back through
     /// `chromiumRequestsFocus` inside this call (the shim's calls run on
     /// CEF's UI thread, the main thread).
+    ///
+    /// Chromium's model is one key window per browser window, which hands its keys to the focused page. Here the page
+    /// is a child window that must itself be key, and CEF's SetFocus is the one call that makes it so. When it gives
+    /// the page focus but moves no key (seen after an address-bar load in a fresh launch), the cmux window that shows
+    /// the page keeps the keys with itself as first responder, and a typed key reaches no view: the page window takes
+    /// them here, in the grant every path uses (a direct grant, one after the browser exists, one after the page
+    /// shows), and from another page window of the same cmux window. Still one key change per request (#24913); never
+    /// from another window or an inactive app.
     func grantFocus(_ browser: Int32) {
+        // A page detached for a resize motion (fork API 30) has no window on screen: a grant now moves no keys, and
+        // typed keys reach no view. It gets its window back first; the window is a child of this window again only
+        // after the next commit, so the grant waits for that commit. Every grant path comes here.
+        // A page shown in a recent turn waits for its first frame out of the window (`CEFLayerHosting.firstFrameHold`):
+        // the ask is kept and the hold's end grants it, so nothing re-arms a grant each pass meanwhile.
+        let hosting = host.hostView.layerHosting
+        if hosting.holdsFirstFrame() {
+            host.lifecycleTrace.record(id, "grant kept: first-frame hold")
+            traceGrant("kept: first-frame hold")
+            pendingFocus = true
+            return
+        }
+        if hosting.pageTakesFocus() {
+            host.lifecycleTrace.record(id, "grant kept: motion")
+            traceGrant("kept: motion")
+            pendingFocus = true
+            AfterFrameCommit().run { [weak self] in self?.grantPendingFocusIfShown() }
+            return
+        }
+        // A page with the focus and the keys from its last grant needs none: each SetFocus(true) dropped the keys typed
+        // in the next 20 to 50 ms (Cmd-N's drain asked again for the page that had them; cmdn-typing bench, cmux21).
+        if pageWindowHasTheKeys {
+            traceGrant("skipped: has the keys")
+            return host.lifecycleTrace.record(id, "grant skipped: has the focus and the keys")
+        }
         isGrantingFocus = true
         defer { isGrantingFocus = false }
         runtime.shim?.setFocus(browser, 1)
+        defer { keyedPageWindow = pageWindow.flatMap { keyWindows.keyWindow() === $0 ? $0 : nil } }
+        // From the cmux window, or from another page window of it: Cmd-N typed in a page left that page's window key, and
+        // the new page's held keys went to it, a page the switch hid (Lawrence 2026-11-19, "i did cmd n and started typing
+        // and it didnt have focus").
+        // `cmux app clicks`: a grant that left the page window without the keys says why (no window, not in a cmux
+        // window, another window or app key).
+        guard let window = pageWindow, let owner = window.parent, let key = keyWindows.keyWindow(), key !== window,
+              key === owner || key.parent === owner else {
+            let outcome = if pageWindow == nil {
+                "granted: no page window"
+            } else if pageWindow?.parent == nil {
+                "granted: page window out of the window"
+            } else if keyWindows.keyWindow() === pageWindow {
+                "granted"
+            } else if keyWindows.keyWindow() == nil {
+                "granted: no key window"
+            } else {
+                "granted: another window is key"
+            }
+            traceGrant(outcome)
+            return
+        }
+        keyWindows.makeKey(window)
+        traceGrant("granted")
+    }
+
+    /// `cmux app clicks`: the grant's outcome, on the newest press in the page's cmux window.
+    private func traceGrant(_ outcome: String) {
+        guard let window = pageWindow?.parent ?? container.window else { return }
+        WindowOverlayHost.existingHost(for: window)?.clickTrace.pageGrant(tab: "\(id)", outcome: outcome)
+    }
+
+    /// Whether this page has the focus of its last grant and its window still has the keys that grant gave it: no blur
+    /// since, and that window is in the cmux window and key.
+    var pageWindowHasTheKeys: Bool {
+        guard let window = keyedPageWindow, window.parent != nil, window.parent === container.window else { return false }
+        return keyWindows.keyWindow() === window
     }
 }

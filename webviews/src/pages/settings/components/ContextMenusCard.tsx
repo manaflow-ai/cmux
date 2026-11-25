@@ -7,6 +7,8 @@
 // - New Submenu makes one of the person's; Add Separator adds one; Reset brings back the app's menu.
 // Customize Menu… at the end of a menu opens this page on it (`?focus=<menu>`).
 import { useId, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
+import { Button } from "../../../ui/Button";
+import { Input } from "../../../ui/Input";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { nativeMenu, pickedId } from "../../../ui/nativeMenu";
 import { useSettingsRouter, useSettingsState, useStore } from "../context";
@@ -39,10 +41,10 @@ import {
   type Path,
   type VisibleRow,
 } from "../menuLayouts";
-import type { ContextMenuState, MenuLayout, MenuNode, MenuRow } from "../ops";
+import { SETTINGS_SENTENCES, type ContextMenuState, type MenuLayout, type MenuNode, type MenuRow } from "../ops";
+import { userMessage } from "../../shared/userMessage";
 import { sectionHref } from "../router";
 import { t } from "../strings";
-import { ResetSpacer } from "./ResetButton";
 
 const AREAS = ["workspace", "tabs", "terminal", "browser", "other"] as const;
 
@@ -108,7 +110,10 @@ function ActionButton({
   data?: string;
 }) {
   return (
-    <button
+    <Button
+      variant="ghost"
+      size="sm"
+      icon
       type="button"
       className="icon-button"
       aria-label={row ? `${action}: ${row}` : action}
@@ -118,7 +123,7 @@ function ActionButton({
       onClick={onClick}
     >
       <Icon name={icon} className={iconClass} />
-    </button>
+    </Button>
   );
 }
 
@@ -165,7 +170,7 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
     setFailure(null);
     store
       .setContextMenuLayout(menu.id, isGenerated(menu, next) ? null : next)
-      .catch((error: unknown) => setFailure(error instanceof Error ? error.message : String(error)))
+      .catch((error: unknown) => setFailure(userMessage(error, SETTINGS_SENTENCES)))
       .finally(() => setPending((current) => (current === write ? null : current)));
   };
   const openFolder = (key: string) => setOpen((current) => new Set([...current, key]));
@@ -434,7 +439,7 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
     );
     const titleView =
       renaming && renaming.key === key && group ? (
-        <input
+        <Input
           className="field menu-rename"
           aria-label={t("settingsWindow.menus.submenuName")}
           value={renaming.title}
@@ -534,10 +539,9 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
                     setFailure(null);
                     store
                       .setShowCustomizeMenuItem(next)
-                      .catch((error: unknown) => setFailure(error instanceof Error ? error.message : String(error)));
+                      .catch((error: unknown) => setFailure(userMessage(error, SETTINGS_SENTENCES)));
                   }}
                 />
-                <ResetSpacer />
               </div>
             </div>
           </div>
@@ -574,15 +578,15 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
           <header className="menus-detail-header">
             <h3 className="menus-detail-title">{menu.title}</h3>
             <span className="menus-detail-spacer" />
-            <button
+            <Button
               type="button"
               className="button"
               data-action="expand"
               onClick={() => setOpen(allOpen ? new Set() : new Set(folderKeys(layout.items)))}
             >
               {allOpen ? t("settingsWindow.menus.collapseAll") : t("settingsWindow.menus.expandAll")}
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               className="button"
               data-action="new-submenu"
@@ -593,16 +597,16 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
               }}
             >
               {t("settingsWindow.menus.newSubmenu")}
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               className="button"
               data-action="add-separator"
               onClick={() => save(addSeparator(layout))}
             >
               {t("settingsWindow.menus.addSeparator")}
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               className="button"
               data-action="reset"
@@ -610,7 +614,7 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
               onClick={() => save(menu.generated)}
             >
               {t("settingsWindow.menus.reset")}
-            </button>
+            </Button>
           </header>
           <p className="row-help menus-help">{t("settingsWindow.menus.help")}</p>
           {failure ? (
@@ -619,7 +623,9 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
             </p>
           ) : null}
           <ol
-            className="menu-preview"
+            className="menu-preview ui-popup ui-menu ui-glass"
+            // A picture of the menu in the page, not a popup that opens (ui/popupSettle.ts).
+            data-popup-settle="own"
             data-menu-preview=""
             data-reordering={dragging?.active ? "" : undefined}
             ref={list}
@@ -627,7 +633,14 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
             {shown.map((row, flat) => drawRow(row, flat))}
           </ol>
           {picker ? (
-            <div className="menus-move-picker" role="menu" aria-label={t("settingsWindow.menus.moveTo")} data-picker="">
+            <div
+              className="menus-move-picker ui-popup ui-menu ui-glass"
+              // In the page's flow beside the preview, not a floating popup (ui/popupSettle.ts).
+              data-popup-settle="own"
+              role="menu"
+              aria-label={t("settingsWindow.menus.moveTo")}
+              data-picker=""
+            >
               {moveChoices(picker.path).map((choice) => (
                 <button
                   key={choice.id}
@@ -644,9 +657,9 @@ export function ContextMenusCard({ focus }: { focus: string | null }) {
                   {choice.label}
                 </button>
               ))}
-              <button type="button" className="button" data-action="cancel-move" onClick={() => setPicker(null)}>
+              <Button type="button" className="button" data-action="cancel-move" onClick={() => setPicker(null)}>
                 {t("settingsWindow.menus.cancel")}
-              </button>
+              </Button>
             </div>
           ) : null}
         </div>

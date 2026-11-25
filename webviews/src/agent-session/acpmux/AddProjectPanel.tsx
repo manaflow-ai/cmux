@@ -1,8 +1,9 @@
+import { keycapLegend } from "../../ui/keycapLegend";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Combobox } from "../../ui/Combobox";
 import { Dialog } from "../../ui/Dialog";
 import { KeyboardScope } from "../../ui/KeyboardScope";
-import { browseFailureMessage } from "./BrowseFailure";
+import { browseFailureMessage } from "./browseFailureModel";
 import { useT } from "./i18n";
 import {
   directoryName,
@@ -11,15 +12,10 @@ import {
   type ProjectDirectoryHost,
 } from "./projectDirectory";
 import "./addProject.css";
+import { type BrowseResult, isBrowseBusy } from "./addProjectPanelModel";
 
 type Step = "environment" | "source" | "directory";
 export type BrowseRequest = { deferPick?: boolean };
-/// A second folder request while the native chooser is still active stays in its caller.
-export type BrowseBusy = { readonly status: "busy" };
-export type BrowseResult = string | BrowseBusy | undefined;
-export const BROWSE_BUSY: BrowseBusy = { status: "busy" };
-export const isBrowseBusy = (value: BrowseResult | void): value is BrowseBusy =>
-  typeof value === "object" && value !== null && value.status === "busy";
 export type AddProjectPanelProps = {
   host?: ProjectDirectoryHost;
   localName?: string;
@@ -281,7 +277,7 @@ export function AddProjectPanel({
                 disabled={!directory || loading || !!error}
                 onClick={add}
               >
-                {t("project.addFolder")} <kbd>⌘↵</kbd>
+                {t("project.addFolder")} <kbd>{keycapLegend("⌘↩")}</kbd>
               </button>
             </>
           )}
@@ -291,7 +287,7 @@ export function AddProjectPanel({
             <kbd>↑↓</kbd> {t("project.navigate")}
           </span>
           <span>
-            <kbd>↵</kbd> {t("project.select")}
+            <kbd>{keycapLegend("↩")}</kbd> {t("project.select")}
           </span>
           <span>
             <kbd>⌥←</kbd> {t("project.back")}

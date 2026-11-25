@@ -9,10 +9,14 @@ import { HarnessesScreen } from "./HarnessesScreen";
 type Props = {
   acpmux: AcpmuxSnapshot["catalog"];
   signedOut: string[];
+  /// Harnesses whose sign-in acpmux found expired.
+  expired?: string[];
   /// acpmux has not listed its harnesses yet.
   checking?: boolean;
-  /// An install command run in place keeps running, or fails.
-  install?: "running" | "fails";
+  /// An install command run in place keeps running, or fails: with npm's own error, after the network
+  /// dropped (curl could not resolve the host), with advice for a terminal user ("--force"), or it waits
+  /// for the network to come back.
+  install?: "running" | "fails" | "dropped" | "advice" | "offline";
   /// The update `harness.health` offers.
   update?: string;
   signInFails?: boolean;
@@ -29,6 +33,7 @@ type Props = {
 function GalleryHarnesses({
   acpmux,
   signedOut,
+  expired,
   checking,
   install,
   update,
@@ -51,7 +56,13 @@ function GalleryHarnesses({
               id: params.id,
               ...(authMissing?.includes(String(params.id))
                 ? {}
-                : { auth: signedOut.includes(String(params.id)) ? "signedOut" : "signedIn" }),
+                : {
+                    auth: signedOut.includes(String(params.id))
+                      ? "signedOut"
+                      : expired?.includes(String(params.id))
+                        ? "expired"
+                        : "signedIn",
+                  }),
               ...(update ? { update: { command: update, elevated: false } } : {}),
             },
           });
@@ -65,6 +76,23 @@ function GalleryHarnesses({
               next: 2,
               exit: { code: 243 },
             });
+          if (install === "dropped")
+            return Promise.resolve({
+              output: "curl: (6) Could not resolve host: opencode.ai\n",
+              next: 2,
+              exit: { code: 6 },
+            });
+          if (install === "advice")
+            return Promise.resolve({
+              output: "Installation failed. Try running with --force to override checks\n",
+              next: 2,
+              exit: { code: 1 },
+            });
+          if (install === "offline" && reads.current === 2)
+            return Promise.resolve({
+              output: "curl: (6) Could not resolve host: opencode.ai\ncmux-install: waiting for the network\n",
+              next: 2,
+            });
           return new Promise<never>(() => {});
         }
         // Record the request before simulating a rejected terminal launch so the play can
@@ -76,7 +104,7 @@ function GalleryHarnesses({
           });
         return Promise.resolve({});
       },
-    [signedOut, install, update, signInFails, healthFailure, launchFailure, authMissing],
+    [signedOut, expired, install, update, signInFails, healthFailure, launchFailure, authMissing],
   );
   return (
     <div
@@ -164,6 +192,10 @@ export default componentEntry<Props>({
       props: { acpmux: thisMac, signedOut: ["codex"] },
       play: signIn,
     },
+    "sign-in-expired": {
+      note: "Claude Code's sign-in expired: Sign In, never Ready. Codex signed out, Grok ready.",
+      props: { acpmux: thisMac, signedOut: ["codex"], expired: ["claude"] },
+    },
     hover: {
       note: "Harness action hover states without an automatic play.",
       props: { acpmux: thisMac, signedOut: ["codex"] },
@@ -209,8 +241,23 @@ export default componentEntry<Props>({
       play: installOpenCode,
     },
     "install-failed": {
-      note: "The install failed: the row says why and offers one fix, the setup guide.",
+      note: "The install failed: the row says why and offers Retry, then the setup guide.",
       props: { acpmux: thisMac, signedOut: [], install: "fails" },
+      play: installOpenCode,
+    },
+    "install-waiting-network": {
+      note: "The network dropped during the install: the row waits for it in plain words and installs again by itself.",
+      props: { acpmux: thisMac, signedOut: [], install: "offline" },
+      play: installOpenCode,
+    },
+    "install-network-dropped": {
+      note: "The install failed on a dropped network: plain words, Retry first, the raw line only in the tooltip.",
+      props: { acpmux: thisMac, signedOut: [], install: "dropped" },
+      play: installOpenCode,
+    },
+    "install-terminal-advice": {
+      note: 'The installer failed with advice for a terminal ("--force"): the row never shows it, it offers Retry.',
+      props: { acpmux: thisMac, signedOut: [], install: "advice" },
       play: installOpenCode,
     },
     "update-offered": {

@@ -45,8 +45,10 @@ const MAX_WAITING: usize = 64;
 pub(super) const MAX_ASKS: usize = 64;
 const MAX_PENDING: usize = 32;
 const MAX_PAGES: usize = 2;
-/// The records the daemon sends before the attach answer, kept for after the snapshot.
+/// The records the daemon sends before the attach answer, kept for after the snapshot (each
+/// cut first), by count and by bytes.
 const MAX_EARLY: usize = 256;
+const MAX_EARLY_BYTES: usize = 4 * 1024 * 1024;
 
 /// The prompt states that never change again.
 fn decided(state: &str) -> bool {
@@ -160,8 +162,11 @@ impl Ledger {
 
     fn remember(&mut self, prompt: &str, client_id: String) {
         if !self.clients.contains_key(prompt) && self.clients.len() >= MAX_CLIENTS {
-            let oldest =
-                self.clients.keys().min_by_key(|p| self.states.get(*p).map_or(0, |s| s.at));
+            // Never a prompt still counted (held, or sent and unanswered: at most MAX_HELD of
+            // MAX_CLIENTS), whose later state the guest must hear.
+            let oldest = (self.clients.keys())
+                .filter(|p| !self.open.contains(*p))
+                .min_by_key(|p| self.states.get(*p).map_or(0, |s| s.at));
             if let Some(oldest) = oldest.cloned() {
                 self.clients.remove(&oldest);
             }
@@ -344,8 +349,11 @@ struct Link {
     attached: bool,
     /// The room's asks that came before the attachment answered, sent once it does.
     waiting: VecDeque<Ask>,
-    /// The records the daemon sent before the attachment answered, sent after the snapshot.
-    early: VecDeque<Value>,
+    /// The records the daemon sent before the attachment answered (cut), each with the prompt
+    /// state it said (read before the cut), sent after the snapshot.
+    early: VecDeque<(Value, Option<(String, &'static str)>)>,
+    /// The bytes of `early` (at most [`MAX_EARLY_BYTES`]).
+    early_bytes: usize,
     /// This guest's prompts (kept by the bridge across relays and host sockets).
     held: Held,
 }
@@ -369,6 +377,7 @@ impl Link {
             attached: false,
             waiting: VecDeque::new(),
             early: VecDeque::new(),
+            early_bytes: 0,
             held,
         }
     }
@@ -403,8 +412,12 @@ impl Link {
                 }
                 // Before the snapshot nothing reaches the room; too many and the relay ends
                 // (the guest's next one starts from a fresh snapshot).
-                self.early.push_back(record);
-                return self.early.len() <= MAX_EARLY;
+                // The prompt state it says is read whole: a cut record no longer names it.
+                let decided = decision(&record);
+                let record = cut(record);
+                self.early_bytes = self.early_bytes.saturating_add(record.to_string().len());
+                self.early.push_back((record, decided));
+                return self.early.len() <= MAX_EARLY && self.early_bytes <= MAX_EARLY_BYTES;
             }
             // share_ended, detached, overflow: the guest's page reconnects for a fresh snapshot.
             Some("agent-session-closed") => return false,
@@ -427,9 +440,10 @@ impl Link {
             Pending::Attach => {
                 self.attached = true;
                 let watermark = self.snapshot(frame.get("data").unwrap_or(&Value::Null));
-                for record in std::mem::take(&mut self.early) {
+                self.early_bytes = 0;
+                for (record, decided) in std::mem::take(&mut self.early) {
                     if record.get("seq").and_then(Value::as_u64).is_none_or(|s| s > watermark) {
-                        self.record(record);
+                        self.relay(record, decided);
                     }
                 }
                 let view = json!({"cmd": "agent-session-view", "surface": 0, "visible": true});
@@ -580,7 +594,9 @@ impl Link {
         let watermark =
             records.iter().filter_map(|r| r.get("seq").and_then(Value::as_u64)).max().unwrap_or(0);
         let session = data.get("session").unwrap_or(&Value::Null);
-        let chat = json!({"title": session.get("title").or_else(|| session.get("name")),
+        let text =
+            |key: &'static str| session.get(key).and_then(Value::as_str).filter(|t| !t.is_empty());
+        let chat = json!({"title": text("title").or_else(|| text("name")),
             "harness": session.get("harness"), "status": session.get("status")});
         let snapshot = json!({"v": 1, "t": "snapshot", "to": self.guest_id, "chat": chat,
             "watermark": watermark, "prompts": prompts});
@@ -590,6 +606,11 @@ impl Link {
 
     fn record(&mut self, record: Value) {
         let decided = decision(&record);
+        self.relay(record, decided);
+    }
+
+    /// Sends `record` (cut) to the room, then notes the prompt state it said (read whole).
+    fn relay(&mut self, record: Value, decided: Option<(String, &'static str)>) {
         let records =
             json!({"v": 1, "t": "records", "to": [self.guest_id], "records": [cut(record)]});
         self.emit(records);
@@ -672,34 +693,5 @@ fn bounded(mut frame: Value, records: Vec<Value>, more: bool) -> Value {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn link(out: mpsc::UnboundedSender<Out>, write: OwnedWriteHalf) -> Link {
-        let mut link = Link::new(("s", "g"), 1, out, write, Held::default());
-        link.next_id = 2;
-        link
-    }
-    /// A record the daemon sends before the attach answer reaches the room after the snapshot.
-    #[test]
-    fn records_before_the_attach_answer_follow_the_snapshot() {
-        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-        runtime.block_on(async {
-            let (ours, _theirs) = tokio::net::UnixStream::pair().unwrap();
-            let (_read, write) = ours.into_split();
-            let (out, mut frames) = mpsc::unbounded_channel();
-            let mut link = link(out, write);
-            link.pending.insert(1, Pending::Attach);
-            let record = json!({"event": "agent-session-record",
-                "record": {"seq": 5, "kind": "agent_message"}});
-            assert!(link.inbound(&record.to_string()).await);
-            let reply = json!({"id": 1, "ok": true, "data": {"events": [{"seq": 4}]}});
-            assert!(link.inbound(&reply.to_string()).await);
-            let mut kinds = Vec::new();
-            while let Ok(Out::Frame(_, _, frame)) = frames.try_recv() {
-                kinds.push(frame["t"].clone());
-            }
-            assert_eq!(kinds, vec![json!("snapshot"), json!("records")]);
-        });
-    }
-}
+#[path = "agent_session_share_relay_tests.rs"]
+mod tests;

@@ -2,7 +2,9 @@
 import { expect, test } from "bun:test";
 import { isValidElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { Markdown, parseMarkdown, renderInline } from "./Markdown";
+import { Markdown } from "./Markdown";
+import { renderInline } from "./inlineMarkdown";
+import { parseMarkdown } from "./markdownModel";
 import { MathInline } from "./Math";
 import { safeTail } from "./safeTail";
 

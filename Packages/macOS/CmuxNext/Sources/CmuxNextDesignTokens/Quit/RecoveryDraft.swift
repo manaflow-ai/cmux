@@ -58,7 +58,7 @@ public nonisolated struct RecoveryDraftBase: Codable, Equatable, Sendable {
 }
 
 /// Whether `update` kept a draft.
-public nonisolated enum RecoveryDraftAcceptance: Equatable, Sendable {
+public nonisolated enum RecoveryDraftAcceptance: String, Equatable, Sendable {
     case kept
     /// Over the per-draft limit: no draft is written for this update.
     case tooLarge

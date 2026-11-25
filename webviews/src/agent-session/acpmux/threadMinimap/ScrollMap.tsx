@@ -6,7 +6,7 @@
 // mark jumps to it (a prompt as the compact rail's click does); a click on the track jumps there;
 // dragging anywhere scrubs the transcript. Geometry is the transcript's layout (mapGeometry.ts).
 import React, { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { type AcpmuxRow, type ConversationLayout } from "../model";
+import { layoutGeometry, type AcpmuxRow, type TranscriptLayout } from "../model";
 import { useT } from "../i18n";
 import { layoutScrollTop, physicalScrollTop } from "../conversation/scrollCoordinates";
 import { MinimapTick } from "../../../ui/MinimapTick";
@@ -14,7 +14,8 @@ import { useHoverIntent } from "../../../ui/hoverIntent";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { animateScroll, reducedMotion, stopScroll } from "./scrollMotion";
 import { PreviewCard } from "./PreviewCard";
-import { railEdge, useRailSide } from "./railSide";
+import type { CutoverLook } from "./cutover.experiment";
+import { RAIL_ACCESSIBILITY_ID, railEdge, useRailSide } from "./railSide";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import type { usePromptMarks } from "./promptMarks";
 import {
@@ -26,6 +27,7 @@ import {
   THREAD_PADDING_TOP,
   TICK_BOX,
   type MinimapTurn,
+  replyMore,
 } from "./model";
 import {
   MAP_MARGIN,
@@ -33,6 +35,7 @@ import {
   mapMarks,
   mapProgress,
   mapThumb,
+  mapY,
   markAt,
   marksIn,
   scrollTopAt,
@@ -56,6 +59,8 @@ const within = (element: Element | null, to: EventTarget | null) =>
 export function ScrollMap({
   rows,
   turns,
+  cutoverRow,
+  cutoverLook,
   layout,
   scroller,
   viewportHeight,
@@ -66,7 +71,9 @@ export function ScrollMap({
 }: {
   rows: readonly AcpmuxRow[];
   turns: readonly MinimapTurn[];
-  layout: ConversationLayout;
+  cutoverRow?: number;
+  cutoverLook: CutoverLook;
+  layout: TranscriptLayout;
   scroller: React.RefObject<HTMLElement | null>;
   viewportHeight: number;
   scrolls: boolean;
@@ -160,6 +167,7 @@ export function ScrollMap({
   }));
 
   if (!shown) return null;
+  const geometry = layoutGeometry(layout);
 
   const railY = (clientY: number) => clientY - (rail.current?.getBoundingClientRect().top ?? 0);
   /// Scrolls to `key`'s message: a prompt as the compact rail's click, a reply to its top.
@@ -175,7 +183,7 @@ export function ScrollMap({
       physicalScrollTop(
         node,
         Math.min(
-          Math.max(0, THREAD_PADDING_TOP + (layout.tops[mark.row] ?? 0) - LANDING_OFFSET),
+          Math.max(0, THREAD_PADDING_TOP + rowTop(layoutGeometry(layout), mark.row) - LANDING_OFFSET),
           Math.max(0, layout.totalHeight - node.clientHeight),
         ),
       );
@@ -248,11 +256,18 @@ export function ScrollMap({
   const cardTurn = cardAt?.kind === "user" ? turns[cardAt.turn] : undefined;
   const cardMarked = cardTurn ? bookmarks.has(cardTurn) : false;
   return (
-    <div className="acpmux-minimap" style={{ "--acpmux-rail-left": `${placement.left}px` } as React.CSSProperties}>
+    <div
+      className="acpmux-minimap"
+      // The scroller's mask reads the side from here, its own child (conversation.css): a `:has()`
+      // that looked deeper would be checked again for every node a streamed chunk inserts.
+      data-side={side}
+      style={{ "--acpmux-rail-left": `${placement.left}px` } as React.CSSProperties}
+    >
       <ContextMenu items={menu}>
         <nav
           ref={rail}
           className="acpmux-minimap__rail acpmux-scrollmap"
+          id={RAIL_ACCESSIBILITY_ID}
           aria-label={t("minimap.label")}
           data-side={side}
           style={{ ...railEdge(side, placement.reserve + placement.left), top: MAP_MARGIN, width: ROW_WIDTH, height }}
@@ -314,6 +329,14 @@ export function ScrollMap({
           }}
         >
           <div ref={thumb} className="acpmux-scrollmap__view" aria-hidden />
+          {cutoverRow !== undefined && cutoverRow < geometry.count && (
+            <span
+              aria-hidden="true"
+              className="acpmux-minimap__cutover"
+              data-look={cutoverLook}
+              style={{ top: mapY(geometry.topAt(cutoverRow), layout.totalHeight, height) }}
+            />
+          )}
           {marks.map((mark, index) => {
             const turn = mark.kind === "user" ? turns[mark.turn] : undefined;
             const key = keyOf(mark)!;
@@ -348,6 +371,7 @@ export function ScrollMap({
           scroller={scroller.current}
           prompt={cardTurn?.prompt}
           reply={cardTurn ? cardTurn.reply : agentReply}
+          more={cardTurn ? () => replyMore(cardTurn) : undefined}
           metadata={cardTurn?.metadata}
           bookmark={
             cardTurn && bookmarks.can(cardTurn)
@@ -449,3 +473,7 @@ const Mark = memo(function Mark({
     </MinimapTick>
   );
 });
+
+/// A row's layout top, 0 past the placed rows (as an unplaced row's `tops[index] ?? 0`).
+const rowTop = (geometry: ReturnType<typeof layoutGeometry>, index: number) =>
+  index >= 0 && index < geometry.count ? geometry.topAt(index) : 0;

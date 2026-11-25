@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// What detection needs from the system: a home directory (a fixture folder
@@ -9,12 +10,27 @@ public struct ImportEnvironment: Sendable {
     /// Finds an app by name ("Fellou" for Fellou.app), for registry rows
     /// whose bundle id is not verified; nil when it is not installed.
     public var locateAppNamed: @Sendable (String) -> URL?
+    /// The browser storage Keychain items by name (never their passwords), so
+    /// a browser the registry names no item for still finds its own.
+    public var safeStorageNames: @Sendable () -> [SafeStorageName]
+    /// Whether detection may look inside other apps' containers (Safari's cookies, a sandboxed browser's
+    /// folder): never in a `cmux app try` copy (``OtherAppContainers``), so it raises no "Data Access" prompt.
+    public var readsOtherAppContainers: Bool
 
     public init(homeDirectory: URL, locateApp: @escaping @Sendable (String) -> URL?,
-                locateAppNamed: @escaping @Sendable (String) -> URL? = { _ in nil }) {
+                locateAppNamed: @escaping @Sendable (String) -> URL? = { _ in nil },
+                safeStorageNames: @escaping @Sendable () -> [SafeStorageName] = { [] },
+                readsOtherAppContainers: Bool? = nil) {
         self.homeDirectory = homeDirectory
         self.locateApp = locateApp
         self.locateAppNamed = locateAppNamed
+        self.safeStorageNames = safeStorageNames
+        self.readsOtherAppContainers = readsOtherAppContainers ?? OtherAppContainers.mayRead  // nil: this build's own answer
+    }
+
+    /// Whether detection may look at `url`: outside other apps' containers, or in a build that may read them.
+    public func mayLook(at url: URL) -> Bool {
+        OtherAppContainers.mayLook(at: url, readsContainers: readsOtherAppContainers)
     }
 
     /// `/Applications/<name>.app` or `~/Applications/<name>.app`.
@@ -50,17 +66,20 @@ public struct ImportEnvironment: Sendable {
         locateApp: @escaping @Sendable (String) -> URL?
     ) -> ImportEnvironment {
         if allowsFixtures, let fixture = environment[fixtureHomeKey], !fixture.isEmpty {
-            return ImportEnvironment(homeDirectory: URL(fileURLWithPath: fixture, isDirectory: true), locateApp: { _ in nil })
+            // The fixture key file's services stand in for the Keychain's items.
+            let names = FixtureSafeStorage(environment: environment)?.names ?? []
+            return ImportEnvironment(homeDirectory: URL(fileURLWithPath: fixture, isDirectory: true), locateApp: { _ in nil },
+                                     safeStorageNames: { names })
         }
         return ImportEnvironment(homeDirectory: FileManager.default.homeDirectoryForCurrentUser, locateApp: locateApp,
-                                 locateAppNamed: applicationNamed)
+                                 locateAppNamed: applicationNamed, safeStorageNames: { KeychainSafeStorageNames().list() })
     }
 
     /// The browser's data folder in this home: the first registry folder
     /// that exists, else the first one.
     public func dataDirectory(_ browser: ImportBrowser) -> URL {
         let candidates = browser.dataDirectories.map { homeDirectory.appending(path: $0, directoryHint: .isDirectory) }
-        return candidates.first { FileManager.default.fileExists(atPath: $0.path) }
+        return candidates.first { mayLook(at: $0) && FileManager.default.fileExists(atPath: $0.path) }
             ?? homeDirectory.appending(path: browser.dataDirectory, directoryHint: .isDirectory)
     }
 

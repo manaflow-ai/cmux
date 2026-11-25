@@ -68,6 +68,7 @@ impl Mux {
                         entity,
                         workspace_revision: None,
                         transaction: transaction.take(),
+                        mutation: None,
                     },
                     true,
                 )
@@ -76,20 +77,12 @@ impl Mux {
                 let screen_id = self.next_id();
                 state.insert_pane(pane);
                 stamp_pane_focus(self, &mut state, pane_id);
-                state.workspaces[wi].screens.push(Screen {
-                    id: screen_id,
-                    public_id: ScreenPublicId::random()?,
-                    name: None,
-                    root: Node::Leaf(pane_id),
-                    active_pane: pane_id,
-                    zoomed_pane: None,
-                    creation_order_auto_layout: Some(vec![pane_id]),
-                    viewport_splits: Default::default(),
-                    viewport_base_width: None,
-                    layout_columns: Vec::new(),
-                    layout_revision: 0,
-                    layout_undo: Default::default(),
-                });
+                state.workspaces[wi].screens.push(Screen::with_one_pane(
+                    screen_id,
+                    ScreenPublicId::random()?,
+                    None,
+                    pane_id,
+                ));
                 state.workspaces[wi].active_screen = 0;
                 let entity = crate::server::tree_entity_json(
                     &state,
@@ -109,6 +102,7 @@ impl Mux {
                         entity,
                         workspace_revision: None,
                         transaction: None,
+                        mutation: None,
                     },
                     false,
                 )
@@ -133,11 +127,36 @@ impl Mux {
         url: String,
         runtime: Arc<BrowserRuntime>,
     ) -> anyhow::Result<bool> {
-        let _cell_pixel_lifecycle = self.cell_pixel_lifecycle.lock().unwrap();
+        let Some(surface) = self.adopt_browser_target_tab(opener_surface, url.clone())? else {
+            return Ok(false);
+        };
+        self.start_browser_bootstrap(
+            surface,
+            BrowserBootstrap::ExistingTarget { target_id, url },
+            Some(runtime),
+        );
+        Ok(true)
+    }
+
+    /// Create the adopted target's tab beside its opener and commit it, or
+    /// close it again when the commit fails. `None` when the opener's pane is
+    /// gone.
+    pub(super) fn adopt_browser_target_tab(
+        self: &Arc<Self>,
+        opener_surface: SurfaceId,
+        url: String,
+    ) -> anyhow::Result<Option<Arc<Surface>>> {
+        // Held from the creation size until the tab is in the tree, so a
+        // cell-pixel update either sees the tab or ran before its size was
+        // read. Released before the commit: a failed commit closes the tab
+        // under its workspace lifecycle, and a terminal create holds that
+        // lifecycle while it takes this one.
+        let cell_pixel_lifecycle =
+            self.cell_pixel_lifecycle.lock().unwrap_or_else(PoisonError::into_inner);
         let (pane_id, size) = {
             let state = self.state.lock().unwrap();
             let Some(pane_id) = state.pane_of(opener_surface) else {
-                return Ok(false);
+                return Ok(None);
             };
             let size = state.surfaces.get(&opener_surface).map(|surface| surface.size());
             (pane_id, size)
@@ -147,13 +166,14 @@ impl Mux {
         let size = size.unwrap_or((opts.cols, opts.rows));
         let cell_pixels = self.cell_pixel_creation_size();
         let surface =
-            browser::new_surface(id, url.clone(), size, cell_pixels, &opts, Arc::downgrade(self))?;
+            browser::new_surface(id, url, size, cell_pixels, &opts, Arc::downgrade(self))?;
         let active_at = self.next_active_at();
         let attached =
             match self.attach_browser_surface_to_pane_or_kill(pane_id, &surface, active_at) {
-                BrowserSurfaceAttach::MissingPane => return Ok(false),
+                BrowserSurfaceAttach::MissingPane => return Ok(None),
                 BrowserSurfaceAttach::Attached(delta) => delta,
             };
+        drop(cell_pixel_lifecycle);
         let identity = surface
             .resource_identity()
             .context("adopted browser surface omitted its public identity")?;
@@ -161,11 +181,22 @@ impl Mux {
             "tab_id":identity.tab_id,
             "browser_id":identity.content_id,
         });
-        if let Err(error) = self.commit_ordinary_full_resource_projection(
+        let adopted = surface.id;
+        if let Err(error) = self.commit_ordinary_surface_projection(
             &Actor::Daemon,
             "browser.target.adopt",
+            move |_| Some(adopted),
             result,
         ) {
+            #[cfg(test)]
+            if let Some(hook) = self
+                .browser_adopt_before_rollback
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone()
+            {
+                hook();
+            }
             let rollback = self.close_surface_for_resource_effect(surface.id);
             return match rollback {
                 Ok(true) => Err(error.context("could not persist adopted browser target")),
@@ -182,12 +213,7 @@ impl Mux {
         } else {
             self.emit(MuxEvent::TreeChanged);
         }
-        self.start_browser_bootstrap(
-            surface,
-            BrowserBootstrap::ExistingTarget { target_id, url },
-            Some(runtime),
-        );
-        Ok(true)
+        Ok(Some(surface))
     }
 
     pub(super) fn attach_browser_surface_to_pane_or_kill(
@@ -229,6 +255,7 @@ impl Mux {
                             entity,
                             workspace_revision: None,
                             transaction: None,
+                            mutation: None,
                         })
                     })();
                     BrowserSurfaceAttach::Attached(delta)

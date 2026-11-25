@@ -32,6 +32,14 @@ if [[ "$dir" == *$'\n'* ]]; then
   echo "r2-cache: one directory per call" >&2
   exit 2
 fi
+# Workflows pass `path: ~/.bun/install/cache` as actions/cache does, but the
+# composite action hands it over as a quoted env value, so the shell never
+# expands the tilde: saves warned "does not exist" and uploaded nothing, and
+# every restore of those keys missed (and would have unpacked into ./~).
+case "$dir" in
+  "~") dir="$HOME" ;;
+  "~/"*) dir="$HOME/${dir#\~/}" ;;
+esac
 
 # CI_CACHE_R2_NAMESPACE names a platform-independent cache (for example
 # `any` for built web bundles that a Linux job saves and a Mac restores);
@@ -85,7 +93,23 @@ unpack() { # <extension> <archive>
 }
 
 restore_key() { # <key>; returns 0 when the directory was restored
-  local candidate="$1" work extension
+  local candidate="$1" work extension target
+  # nightly_build_state.py links workspace cache paths to a persistent runner
+  # directory. Preserve that link and its populated contents: replacing it
+  # would silently move a multi-GiB cache back into the ephemeral workspace.
+  if [[ -L "$dir" ]]; then
+    target="$(python3 - "$dir" <<'PY2'
+import os
+import sys
+print(os.path.realpath(sys.argv[1]))
+PY2
+)"
+    if [[ -n "$(find "$target" -mindepth 1 -print -quit 2>/dev/null)" ]]; then
+      echo "r2-cache: preserving populated symlink target $target"
+      return 1
+    fi
+    dir="$target"
+  fi
   work="$(mktemp -d)"
   for extension in tar.zst tar.gz; do
     if [[ "$extension" == "tar.zst" ]] && ! command -v zstd >/dev/null 2>&1; then

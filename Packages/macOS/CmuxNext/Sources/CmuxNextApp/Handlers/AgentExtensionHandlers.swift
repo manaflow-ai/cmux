@@ -15,7 +15,7 @@ enum AgentExtensionHandlers {
             guard let key = context.services.cache.key(of: entry.tab) else { throw ActionFailure(message: MiscHandlerStrings.noBrowser) }
             context.services.cache.allowAgentWithExtensions(key)
             // The browser host's relay gate reads the override from `tab.access`.
-            context.services.browserHost?.provider.refreshTabs()
+            context.services.browserHost?.provider.refreshTabs([key])
         })
     }
 
@@ -41,19 +41,19 @@ enum AgentExtensionHandlers {
 
 enum AgentExtensionStrings {
     static var title: String {
-        String(localized: "confirm.allowAgent.title", defaultValue: "Allow agents in this tab?", table: "Handlers", bundle: .module)
+        String(localized: "confirm.allowAgent.title", defaultValue: "Allow agents in this tab?", table: "Handlers", bundle: .module.inAppLanguage)
     }
     static func body(_ names: String) -> String {
         String(format: String(localized: "confirm.allowAgent.body",
                               defaultValue: "%@ can read and fill this page. An agent that drives this tab could read a password that these extensions fill. This lasts until the tab closes.",
-                              table: "Handlers", bundle: .module), names)
+                              table: "Handlers", bundle: .module.inAppLanguage), names)
     }
     static var bodyNone: String {
         String(localized: "confirm.allowAgent.bodyNone",
                defaultValue: "No enabled extension can read this page now. If one is enabled later, agents can still drive this tab until it closes.",
-               table: "Handlers", bundle: .module)
+               table: "Handlers", bundle: .module.inAppLanguage)
     }
     static var button: String {
-        String(localized: "confirm.allowAgent.button", defaultValue: "Allow Agents", table: "Handlers", bundle: .module)
+        String(localized: "confirm.allowAgent.button", defaultValue: "Allow Agents", table: "Handlers", bundle: .module.inAppLanguage)
     }
 }

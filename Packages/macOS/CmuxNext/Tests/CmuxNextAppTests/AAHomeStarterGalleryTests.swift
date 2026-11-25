@@ -1,12 +1,13 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextHome
+import CmuxNextTestSupport
 import CmuxTheme
 import ImageIO
 import Testing
 
 /// Own fixture windows only: before and three chip layouts, in both appearance modes.
-@MainActor @Suite(.serialized) struct AAHomeStarterGalleryTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct AAHomeStarterGalleryTests {
     @Test(.enabled(if: ProcessInfo.processInfo.environment["CMUX_TEST_REQUIRE_GUI"] == "1"))
     func renderGallery() throws {
         _ = NSApplication.shared

@@ -2,7 +2,7 @@
 // stage, a turn that edited fourteen files:
 // - the card's Outputs section lists the turn's files, each with its own counts, in the
 //   scrollable card (Changes is the one totals row, hq#2569 item 4);
-// - a file there opens the turn's diff at that file, and the card hides behind the diff review.
+// - a file there opens the turn's diff in a tab beside the chat (5c388eb6 removed the in-page view).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
@@ -56,7 +56,7 @@ await requireBrowserLane("sources-changes.test.ts", async () => {
     await vite?.close();
   });
 
-  test("the summary card lists the turn's changed files and opens each one's diff", async () => {
+  test("the summary card lists the turn's changed files, each with its counts", async () => {
     const page = await stage("agent-pane.edited-files", "fourteen-files");
     await page.click(".acpmux-summary-button");
     const section = page.locator(".acpmux-summary-card section", { has: page.locator(".acpmux-summary-file") });
@@ -67,18 +67,6 @@ await requireBrowserLane("sources-changes.test.ts", async () => {
     const pick = files.filter({ hasText: "jitter/exponential.ts" });
     expect(await pick.count()).toBe(1);
     expect((await pick.innerText()).replace(/\s+/g, " ")).toMatch(/\+\d+/);
-    await pick.click();
-    // The card is not a popover: it stays, hidden only while the diff review covers the stage.
-    await page.waitForSelector(".acpmux-summary-card", { state: "hidden" });
-    await page.waitForSelector(".acpmux-diff-panel");
-    // The diff opens at that file: its section is the one at the top of the diff body.
-    await page.waitForFunction(() => {
-      const body = document.querySelector(".acpmux-diff-body");
-      const file = [...document.querySelectorAll<HTMLElement>(".acpmux-diff-file")].find((node) =>
-        node.dataset.path?.endsWith("jitter/exponential.ts"),
-      );
-      return Boolean(body && file && Math.abs(file.getBoundingClientRect().top - body.getBoundingClientRect().top) < 8);
-    });
     await page.close();
   });
 });

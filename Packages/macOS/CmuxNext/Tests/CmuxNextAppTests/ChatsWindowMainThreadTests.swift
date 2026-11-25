@@ -6,7 +6,7 @@ import Testing
 
 /// P-RUST item 2 (Lawrence's v2.2.9 hangs of 570 to 1,148 ms, 2026-10-30): with thousands of chats
 /// in acpmux's index, one chat change must touch O(1) rows on the main thread. The hangs were the
-/// whole-index mirror: `AcpmuxChatsStore.apply` copied every chat (the sidebar history held the same
+/// whole-index mirror (deleted in #28090): its apply copied every chat (the sidebar history held the same
 /// storage) and `SidebarChatHistoryFeed.chats`'s setter compared and freed every chat. Now acpmux
 /// keeps the sidebar history's windows (`_acpmux/chats_window`): the main thread holds only their
 /// visible rows and applies one row diff per change.
@@ -32,16 +32,16 @@ import Testing
                           updatedAt: Date(timeIntervalSince1970: Double(ms) / 1000))
     }
 
-    /// The history's Earlier window as acpmux answers it: the newest page and one more of `indexSize`.
+    /// The history's Earlier window as acpmux answers it: the newest page of `indexSize`, and more past it (`hasMore`).
     static func opened(send: @escaping @MainActor (String, [String: any Sendable]) -> Void = { _, _ in })
         -> (AcpmuxChatWindows, SidebarChatHistoryFeed.Inputs) {
         let windows = AcpmuxChatWindows()
         let inputs = SidebarChatHistoryFeed.Inputs(live: [], pinned: [], limit: SidebarChatHistory.pageSize, folded: false)
         windows.open(inputs.earlierSpec)
         windows.connected(send: send)
-        let size = SidebarChatHistory.pageSize + 1
+        let size = SidebarChatHistory.pageSize
         windows.apply(.init(window: SidebarChatHistoryFeed.earlierWindow, revision: 1, full: true, keys: (0..<size).map(key),
-                            rows: (0..<size).map { chat($0) }))
+                            rows: (0..<size).map { chat($0) }, hasMore: true))
         return (windows, inputs)
     }
 
@@ -54,14 +54,14 @@ import Testing
         let moved = Self.indexSize - 1
         windows.apply(.init(window: SidebarChatHistoryFeed.earlierWindow, revision: 2, full: false,
                             keys: [Self.key(moved)] + before.dropLast().map(\.id),
-                            rows: [Self.chat(moved, updatedMs: 1_900_000_000_000)]))
+                            rows: [Self.chat(moved, updatedMs: 1_900_000_000_000)], hasMore: true))
         // The rows the main thread holds for the sidebar history: its visible window at most.
         let held = earlier.rows.count
-        #expect(held <= SidebarChatHistory.pageSize + 1, "the main thread holds \(held) chats for a window of \(SidebarChatHistory.pageSize)")
+        #expect(held <= SidebarChatHistory.pageSize, "the main thread holds \(held) chats for a window of \(SidebarChatHistory.pageSize)")
         #expect(windows.lastTouchedRows == 1, "one changed chat is one row")
         #expect(earlier.rows.map(\.id) == [Self.key(moved)] + before.dropLast().map(\.id))
         #expect(Array(earlier.rows.dropFirst()) == Array(before.dropLast()), "the other rows are the snapshots it had")
-        let state = SidebarChatHistoryFeed.state(earlier: earlier.rows, pinned: [], inputs: inputs)
+        let state = SidebarChatHistoryFeed.state(earlier: earlier.rows, more: earlier.hasMore, pinned: [], inputs: inputs)
         #expect(state.earlier.count == SidebarChatHistory.pageSize)
         #expect(state.earlier.first?.id == Self.key(moved))
         #expect(state.hasMore)
@@ -102,7 +102,7 @@ import Testing
         windows.open(inputs.earlierSpec)
         #expect(sent.params.count == 1)
         #expect(sent.params.first?["exclude"] as? [String] == ["claude-code:s1", "claude-code:s2"])
-        #expect(sent.params.first?["limit"] as? Int == 21)
+        #expect(sent.params.first?["limit"] as? Int == 20, "the page only: acpmux says whether more wait (hasMore)")
         windows.disconnected()
         windows.connected(send: sent.record)
         #expect(sent.params.count == 2)

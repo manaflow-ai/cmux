@@ -67,8 +67,9 @@ fn kill_daemon(harness: &mut RecoveryHarness) {
 }
 
 /// cx-t2sqm D1 (Lawrence 2026-10-14): quitting or updating cmux never ends a
-/// terminal. A normal install's host (here an RC bundle) has no orphan
-/// grace at all; a tagged DEV build's host keeps the 10 min grace. The host
+/// terminal. A normal install's host (here an RC bundle) has no build
+/// orphan grace (it ends only after a week no cmux served it,
+/// `ABANDONED_HOST_GRACE`); a tagged DEV build's host keeps the 10 min grace. The host
 /// records the grace it runs with, and a normal install's host outlives its
 /// killed daemon and is adopted by the next one.
 #[test]
@@ -159,7 +160,13 @@ fn an_orphaned_host_exits_after_the_grace_and_a_served_one_does_not() {
     let _exclusive = exclusive_process_test();
     let grace = Duration::from_secs(3);
     let mut harness = start_with_orphan_grace("orphan-grace", grace.as_secs());
-    let (terminal_id, surface, _, host_pid) = run_cat(&harness, "orphan-before");
+    let (terminal_id, surface, record_path, host_pid) = run_cat(&harness, "orphan-before");
+    let record = wait_for_host_records(&harness.host_root(), 1).remove(0).1;
+    assert_eq!(
+        terminal_host_record_liveness(&record_path, &record).unwrap(),
+        TerminalHostLiveness::Live,
+        "the served host must hold its liveness proof"
+    );
 
     // Served by its live daemon, the host outlives the grace twice over.
     std::thread::sleep(grace * 2 + Duration::from_secs(1));
@@ -185,6 +192,21 @@ fn an_orphaned_host_exits_after_the_grace_and_a_served_one_does_not() {
         "an orphaned host outlived its grace"
     );
     assert!(killed.elapsed() >= grace, "the host ended before its grace");
+    // Process exit and discovery cleanup are separate observations: do not
+    // let a dead host remain discoverable when the replacement owner starts.
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    loop {
+        let liveness = terminal_host_record_liveness(&record_path, &record).unwrap();
+        if liveness == TerminalHostLiveness::Dead && !record_path.exists() {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "owner death left host {host_pid} discoverable: {liveness:?}, record={}",
+            record_path.exists()
+        );
+        std::thread::sleep(Duration::from_millis(25));
+    }
     let exits = load_terminal_host_exit_records(&harness.host_root()).unwrap();
     assert_eq!(exits.len(), 1, "the orphaned host left no exit record");
     let exit = format!("{:?}", exits[0].1.exit);
@@ -318,4 +340,45 @@ fn wait_adopted(harness: &RecoveryHarness, terminal_id: &str) {
         assert!(Instant::now() < deadline, "terminal was not adopted: {resolved}");
         std::thread::sleep(Duration::from_millis(25));
     }
+}
+
+/// #36625: a normal install's host has no orphan grace and outlives its
+/// daemon, but once its record directory is removed (a throwaway HOME
+/// deleted after a run) no daemon can adopt it again, so it ends its
+/// terminal instead of holding its PTY until reboot. While its daemon still
+/// serves it, the removal alone does not end it.
+#[test]
+fn a_host_whose_record_directory_is_removed_ends_once_unserved() {
+    let _exclusive = exclusive_process_test();
+    let mut harness = RecoveryHarness::start_unstarted("orphan-record-root");
+    let mut command = harness.daemon_command();
+    command
+        .env("CMUX_BUNDLE_ID", "com.cmuxterm.app.rc.ptyh-test")
+        .env_remove("CMUX_TUI_HOST_ORPHAN_GRACE_SECS");
+    harness.child = Some(command.spawn().unwrap());
+    wait_for_socket(&harness.socket);
+    let (_, surface, _, host_pid) = run_cat(&harness, "record-root-before");
+    let record = wait_for_host_records(&harness.host_root(), 1).remove(0).1;
+    assert_eq!(record.orphan_grace_secs, None, "a normal install's host has an orphan grace");
+
+    // Served by its live daemon, the host outlives the removal.
+    fs::remove_dir_all(harness.host_root()).unwrap();
+    std::thread::sleep(Duration::from_secs(7));
+    assert!(running(host_pid), "a served host ended when its record directory was removed");
+    request(
+        &harness.socket,
+        serde_json::json!({"cmd":"send","surface":surface,"text":"still-served\n"}),
+    );
+    assert!(wait_for_screen(&harness.socket, surface, "still-served").contains("still-served"));
+
+    // Its daemon gone too, nothing can adopt it: it ends.
+    kill_daemon(&mut harness);
+    assert!(
+        wait_until_gone(host_pid, Duration::from_secs(20)),
+        "a host no daemon can adopt outlived its record directory"
+    );
+    assert!(
+        load_terminal_host_exit_records(&harness.host_root()).unwrap_or_default().is_empty(),
+        "the ended host wrote an exit record into its removed record directory"
+    );
 }

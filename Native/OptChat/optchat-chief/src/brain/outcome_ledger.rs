@@ -19,13 +19,21 @@ use std::time::{Duration, Instant};
 use cmux_conversation::{Op, Part};
 
 use super::{Brain, Phase, Source, now_ms};
-use crate::state::Untold;
+use crate::state::{SubStatus, Untold};
 
 /// The first word of an outcome retry turn's note.
 pub const UNTOLD_TAG: &str = "[untold]";
 
-/// The wait after the turn that saw a report ended, before the check.
-pub const UNTOLD_WAIT: Duration = Duration::from_secs(5);
+/// The wait after the turn that saw a report ended, before the check: a
+/// batching window, so subagents that finish close together are told in one
+/// digest turn, not one forced turn each (Leo, 2026-11-02: 22 `[untold]`
+/// turns in four days, one per report). Each later turn end moves every
+/// pending check to its own window, up to [`UNTOLD_MAX_HOLD`] after the
+/// subagent finished.
+pub const UNTOLD_WAIT: Duration = Duration::from_secs(120);
+
+/// The longest an outcome waits for its batch, from when it finished.
+pub const UNTOLD_MAX_HOLD: Duration = Duration::from_secs(600);
 
 /// Retry turns per subagent before it is dropped.
 pub const MAX_UNTOLD_TRIES: u32 = 1;
@@ -53,6 +61,8 @@ impl Brain {
     /// runs again, and its next report is the one to tell, so this one asks
     /// for no post (persona replay, Oct 28: "this ping is noise").
     pub(super) fn outcome_resumed(&mut self, id: &str) {
+        // Nor does the running turn owe it now (landed_told.rs).
+        self.turn_landed.retain(|(i, _)| i != id);
         let before = self.state.untold.len();
         self.state.untold.retain(|u| u.id != id);
         if self.state.untold.len() != before {
@@ -62,9 +72,6 @@ impl Brain {
 
     /// The owner took Chief post `op`: every subagent it names is told.
     pub(super) fn outcome_posted(&mut self, op: &Op) {
-        if self.state.untold.is_empty() {
-            return;
-        }
         let Op::MessageSend { parts, .. } = op else {
             return;
         };
@@ -76,6 +83,27 @@ impl Brain {
             })
             .collect::<Vec<_>>()
             .join("\n");
+        // Every open subagent it names was told now (`<open-items>`).
+        let now = self.now();
+        let mut told = false;
+        for sub in self
+            .state
+            .spawns
+            .values_mut()
+            .flat_map(|r| r.subs.iter_mut())
+        {
+            let open = sub.at_work() || sub.waiting() || sub.status == SubStatus::Done;
+            if open && names(&text, &sub.id) {
+                sub.told_ms = now;
+                told = true;
+            }
+        }
+        if self.state.untold.is_empty() {
+            if told {
+                self.save();
+            }
+            return;
+        }
         let before = self.state.untold.len();
         self.state.untold.retain(|u| !names(&text, &u.id));
         if self.state.untold.len() != before {
@@ -90,12 +118,15 @@ impl Brain {
             .any(|q| matches!(&q.source, Source::Spawn(r) if r.subs.iter().any(|(s, _)| s == id)))
     }
 
-    /// A turn ended: each untold subagent whose report it saw gets a check.
+    /// A turn ended: each untold subagent whose report it saw gets a check,
+    /// and every pending check moves to the same batching window.
     pub(super) fn schedule_outcome_checks(&mut self) {
-        if self.state.untold.is_empty() {
+        // Under the loop guard no check is due: the person's next turn
+        // carries the outcomes (budget_hold.rs).
+        if self.state.untold.is_empty() || self.budget_held() {
             return;
         }
-        let due = now_ms() + UNTOLD_WAIT.as_millis() as u64;
+        let now = now_ms();
         let seen: Vec<bool> = self
             .state
             .untold
@@ -103,8 +134,8 @@ impl Brain {
             .map(|u| !self.report_queued(&u.id))
             .collect();
         for (u, seen) in self.state.untold.iter_mut().zip(seen) {
-            if seen && u.due_ms.is_none() {
-                u.due_ms = Some(due);
+            if seen || u.due_ms.is_some() {
+                u.due_ms = Some(batched_due(u.since_ms, now));
             }
         }
         self.save();
@@ -126,6 +157,19 @@ impl Brain {
             .iter()
             .any(|u| u.due_ms.is_some_and(|d| d <= now))
         {
+            return;
+        }
+        // The loop guard refuses every send: a retry turn could post nothing.
+        // The outcomes wait, kept and not retried, for the person's next
+        // message, whose turn names them (budget_hold.rs).
+        if self.budget_held() {
+            for u in self.state.untold.iter_mut() {
+                if u.due_ms.is_some_and(|d| d <= now) {
+                    u.due_ms = None;
+                }
+            }
+            self.save();
+            (self.log)("outcome checks wait: the loop guard refuses the Chief's messages");
             return;
         }
         if self.phase != Phase::Idle || self.resume_at.is_some() {
@@ -176,20 +220,45 @@ impl Brain {
 }
 
 /// Whether `text` names subagent `id` as a word (`a1` is not in `a12`).
-fn names(text: &str, id: &str) -> bool {
+pub(super) fn names(text: &str, id: &str) -> bool {
     let word = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_');
     text.match_indices(id).any(|(at, _)| {
         !word(text[..at].chars().next_back()) && !word(text[at + id.len()..].chars().next())
     })
 }
 
+/// When the check of an outcome that finished at `since_ms` is due, for a
+/// turn that ended at `now`: one window later, but no later than
+/// [`UNTOLD_MAX_HOLD`] after it finished (and never before `now`).
+pub fn batched_due(since_ms: u64, now: u64) -> u64 {
+    let window = now + UNTOLD_WAIT.as_millis() as u64;
+    let cap = since_ms.saturating_add(UNTOLD_MAX_HOLD.as_millis() as u64);
+    window.min(cap).max(now)
+}
+
 /// The retry turn's note.
 fn untold_note(ids: &[String]) -> String {
     format!(
         "{UNTOLD_TAG} These subagents finished and the person has not been told their outcome: {}.\n\
-         Tell the person now, one line each, naming each id: what changed and its link, what is \
-         still open, and what you do about it (follow up, restart, or done). If one needs nothing \
-         from them, still say its result in that one line.",
+         Tell the person now in one message, one line each, naming each id: what changed and its \
+         link, what is still open, and what you do about it (follow up, restart, or done). If one \
+         needs nothing from them, still say its result in that one line.",
         ids.join(", ")
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_check_waits_one_window_capped_by_the_max_hold() {
+        let w = UNTOLD_WAIT.as_millis() as u64;
+        let hold = UNTOLD_MAX_HOLD.as_millis() as u64;
+        assert_eq!(batched_due(1_000, 1_000), 1_000 + w);
+        // A later turn end moves it, but not past the hold.
+        assert_eq!(batched_due(1_000, 1_000 + hold - 10), 1_000 + hold);
+        // Past the hold already: due now.
+        assert_eq!(batched_due(1_000, 1_000 + hold + 5), 1_000 + hold + 5);
+    }
 }

@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { Button } from "../../../ui/Button";
+import { Input } from "../../../ui/Input";
 import { useStore } from "../context";
 import { Icon } from "../icons";
 import { rowsByKey, type Choice } from "../schema";
@@ -48,7 +50,7 @@ export function StringMapEditor({ row, value, disabled, labelId }: EditorProps) 
         ))}
       </Select>
     ) : (
-      <input
+      <Input
         className="field text"
         type="text"
         spellCheck={false}
@@ -66,15 +68,18 @@ export function StringMapEditor({ row, value, disabled, labelId }: EditorProps) 
           <span key={key} className="string-map-item" data-map-key={key}>
             <span className="string-map-key selectable">{key}</span>
             {valueControl(map[key]!, (next) => write({ ...map, [key]: next }))}
-            <button
+            <Button
               type="button"
+              icon
+              size="sm"
+              variant="ghost"
               className="icon-button"
               aria-label={`${t("settingsPage.remove")} ${key}`}
               disabled={disabled}
               onClick={() => write(Object.fromEntries(Object.entries(map).filter(([item]) => item !== key)))}
             >
               <Icon name="xmark" />
-            </button>
+            </Button>
           </span>
         ))}
       {/* A form, so Return in the site field adds as the Add button does. */}
@@ -85,7 +90,7 @@ export function StringMapEditor({ row, value, disabled, labelId }: EditorProps) 
           add();
         }}
       >
-        <input
+        <Input
           className="field token-input"
           type="text"
           spellCheck={false}
@@ -101,9 +106,9 @@ export function StringMapEditor({ row, value, disabled, labelId }: EditorProps) 
           }}
         />
         <span data-map-new-value="">{valueControl(draftValue, setDraftValue)}</span>
-        <button type="submit" className="button" data-map-add="" disabled={disabled}>
+        <Button type="submit" className="button" data-map-add="" disabled={disabled}>
           {t("settingsPage.add")}
-        </button>
+        </Button>
       </form>
       {invalid && (
         <span className="field-error" role="alert">

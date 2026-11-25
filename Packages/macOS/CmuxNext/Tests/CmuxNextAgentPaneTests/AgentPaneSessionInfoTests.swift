@@ -50,7 +50,7 @@ struct AgentPaneSessionInfoTests {
         #expect(toggles == 1)
     }
 
-    /// With `agent.inspector` off the page has no Session Info, so the action says so instead of
+    /// With `agent.sessionInfo` off the page has no Session Info, so the action says so instead of
     /// reporting a toggle that changed nothing.
     @Test func sessionInfoTurnedOffRefusesInsteadOfToggling() {
         let registry = ActionRegistry.standard()

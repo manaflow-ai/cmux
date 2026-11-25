@@ -8,16 +8,25 @@ mini (Leo, 2026-10-24: no job waits on one reserved machine).
 
 from __future__ import annotations
 
+import base64
+import contextlib
+import datetime as dt
+import gzip
+import io
+import json
 import sys
 import unittest
+from unittest import mock
 from pathlib import Path
 
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+sys.path.insert(0, str(ROOT / "tests"))
 
 import ios_internal_runner as picker  # noqa: E402
+import workflow_jobs  # noqa: E402
 
 LABEL = "glaeda-runner-mini-ios-internal"
 WORKFLOW = ROOT / ".github" / "workflows" / "ios-internal-nightly.yml"
@@ -91,18 +100,88 @@ class Pick(unittest.TestCase):
             self.assertEqual(Path(out).read_text(), f"dedicated={LABEL}\nattempt=2\n")
 
 
+class SharedFirstLook(unittest.TestCase):
+    def document(self, *, busy=False, repository=True):
+        row = dict(runner(busy=busy), id=1, name="synthetic-archive", os="macOS")
+        doc = dict(schema="runner-state/v1", repository="manaflow-ai/cmux", complete=True,
+                   generated_at=dt.datetime.now(dt.timezone.utc).isoformat(),
+                   repository_runners=[row] if repository else [],
+                   runner_groups={"glaeda-minis": [] if repository else [row]}, scale_sets={})
+        return base64.b64encode(gzip.compress(json.dumps(doc).encode())).decode()
+
+    def run_main(self, raw):
+        env = dict(GITHUB_REPOSITORY="manaflow-ai/cmux", ROUTE_TOKEN="synthetic-token",
+                   DEDICATED_LABEL=LABEL, CI_RUNNER_STATE=raw)
+        clock, output = Clock(), io.StringIO()
+        with mock.patch.object(picker.pool.GitHub, "_runner_pages", return_value=[runner()]) as pages, \
+             contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(picker.main(env, sleep=clock.sleep, clock=clock), 0)
+        return output.getvalue(), clock.now, pages
+
+    def test_idle_document_is_first_look_without_a_repository_read(self):
+        output, waited, pages = self.run_main(self.document())
+        self.assertIn(f"archive runner: {LABEL}", output)
+        self.assertEqual(waited, 0)
+        pages.assert_not_called()
+
+    def test_busy_document_is_rechecked_live_and_can_become_idle(self):
+        output, waited, pages = self.run_main(self.document(busy=True))
+        self.assertIn(f"archive runner: {LABEL}", output)
+        self.assertEqual(waited, picker.LOOK_SECONDS)
+        pages.assert_called_once_with("/repos/manaflow-ai/cmux/actions/runners")
+
+    def test_document_preserves_repository_only_scope_and_invalid_state_falls_back(self):
+        output, _, pages = self.run_main(self.document(repository=False))
+        self.assertIn("archive runner: Blacksmith", output)
+        pages.assert_not_called()
+        for raw in ("", "invalid-base64"):
+            with self.subTest(raw=raw):
+                output, _, pages = self.run_main(raw)
+                self.assertIn(f"archive runner: {LABEL}", output)
+                pages.assert_called_once_with("/repos/manaflow-ai/cmux/actions/runners")
+
+
 class Workflow(unittest.TestCase):
     def test_runs_on_never_reads_the_variable_directly(self) -> None:
         jobs = yaml.load(WORKFLOW.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)["jobs"]
         archive = jobs["archive"]
-        self.assertNotIn("CI_IOS_INTERNAL_RUNNER", archive["runs-on"])
+        cells = workflow_jobs.runs_on_cells(archive)
+        self.assertIsNotNone(cells, "archive: runs-on reads a matrix value nothing resolves")
+        self.assertEqual(len(cells), 1, cells)
+        (runs_on,) = cells
+        self.assertNotIn("CI_IOS_INTERNAL_RUNNER", runs_on)
         self.assertIn("needs.pick-archive-runner.outputs.attempt == format('{0}', github.run_attempt) && "
                       "needs.pick-archive-runner.outputs.dedicated != '' && "
-                      "needs.pick-archive-runner.outputs.dedicated || ", archive["runs-on"])
-        self.assertTrue(archive["runs-on"].rstrip("} ").endswith("|| 'blacksmith-6vcpu-macos-26'"))
+                      "needs.pick-archive-runner.outputs.dedicated || ", runs_on)
+        self.assertTrue(runs_on.rstrip("} ").endswith("|| vars.CI_OVERFLOW_MAC || 'cmux-mac'"))
         self.assertEqual(archive["needs"], "pick-archive-runner")
         self.assertIn("!cancelled()", archive["if"])
         self.assertIn("vars.CI_IOS_INTERNAL_RUNNER", jobs["pick-archive-runner"]["steps"][-1]["env"]["DEDICATED_LABEL"])
+
+
+class StoreSdk(unittest.TestCase):
+    """ITMS-90725 (2026-11-22): every INTERNAL upload built with Xcode 26.6 (iOS 26.5 SDK)
+    mailed the team. The archive and the signer pin a released Xcode 27 before Select Xcode,
+    and the archive refuses an app whose DTSDKName is below iphoneos27."""
+
+    def steps(self, job: str) -> list[dict]:
+        return yaml.safe_load(WORKFLOW.read_text())["jobs"][job]["steps"]
+
+    def test_archive_and_signer_pin_xcode_27_before_select_xcode(self) -> None:
+        for job in ("archive", "upload"):
+            with self.subTest(job=job):
+                names = [s.get("name", "") for s in self.steps(job)]
+                pin = names.index("Pin Xcode 27 (iOS 27 SDK) for App Store Connect")
+                self.assertEqual(names[pin + 1], "Select Xcode")
+                run = self.steps(job)[pin]["run"]
+                self.assertIn("CMUX_CI_XCODE_APP=$pick", run)
+                self.assertIn("--sdk iphoneos --show-sdk-version", run)
+                self.assertIn("*[Bb]eta*", run)
+
+    def test_archive_refuses_an_sdk_below_ios_27(self) -> None:
+        run = next(s["run"] for s in self.steps("archive") if s.get("name") == "App Store review rules (built app)")
+        self.assertIn("Print :DTSDKName", run)
+        self.assertIn("iphoneos27*", run)
 
 
 if __name__ == "__main__":

@@ -1,10 +1,13 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBridge
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextLayout
 import CmuxNextSettings
 import CryptoKit
 import Foundation
@@ -13,11 +16,131 @@ import Testing
 /// Bring Back Local (cmuxterm-hq#1874 slice 4) at the app boundary: a chat moved to a Cloud machine
 /// with `cmux cloud move` comes back with `cmux cloud bring-back`, both sent as the CLI sends them
 /// to the app's real action registry. This Mac and the machine are two real cmux-tui daemons, as
-/// in ``CloudMoveTests``; `cmux link sync push|pull` and `cmux link agent move` are a stand-in
+/// in ``CloudMoveTests``; `cmux link seed push, link seed pull` and `cmux link agent move` are a stand-in
 /// `cmux` that records its arguments and answers as the case asks. The Rust suites cover those
 /// CLIs against daemons (link_sync.rs, bring_back_journey.rs).
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct CloudBringBackTests {
+    @Test func twoChatsWithTimeOrderedIDsGetTheirOwnFoldersOnTheTarget() {
+        // UUIDv7 session ids made seconds apart share their first characters; each chat still gets its own folder.
+        let first = CloudMoveFolder.targetSuffix(machineID: "019a6b2c-0000-7000-8000-000000000001", session: "019a6b2c-1111-7000-8000-00000000000a")
+        let second = CloudMoveFolder.targetSuffix(machineID: "019a6b2c-0000-7000-8000-000000000001", session: "019a6b2c-1111-7000-8000-00000000000b")
+        let otherMachine = CloudMoveFolder.targetSuffix(machineID: "019a6b2c-0000-7000-8000-000000000002", session: "019a6b2c-1111-7000-8000-00000000000a")
+        #expect(Set([first, second, otherMachine]).count == 3)
+    }
+
+    @Test func aChatStartedInACopiedSubfolderCanComeBackAndUseLocalAccess() async throws {
+        try await Self.withRoundTrip("started", fromStart: true) { trip in
+            let record = try #require(trip.machineChat()?.agentSession)
+            #expect(!CloudBringBack.hiddenMenuItems(record, movedChats: trip.services.cloud.movedChats).contains(CloudBringBack.action))
+            let entry = try #require(trip.services.cloud.movedChats.entry(host: record.host, session: "chat-on-vm"))
+            #expect(entry.localRoot == trip.project.path)
+            #expect(entry.localChat == trip.project.path + "/sub")
+            #expect(entry.remoteFolder == trip.synced)
+            #expect(entry.remoteChat == trip.synced + "/sub")
+            let triage = ["link", "access", "triage", "--socket", trip.vmSocket, "--machine", "vm-move", "--session", "chat-on-vm"]
+            try await trip.waitUntil { trip.accessCalls().contains(triage) }
+            #expect(trip.accessCalls().contains(triage), "the started chat was skipped by local access triage")
+            let uploaded = await trip.upload([["name": "started.txt", "data": Data("started upload".utf8).base64EncodedString()]], gesture: true)
+            #expect(uploaded["ok"] as? Bool == true, "the started chat was skipped by uploads: \(uploaded)")
+            if let error = await trip.bringBack() { Issue.record("cmux cloud bring-back: \(error.code) \(error.message)") }
+            try await trip.waitUntil { trip.localChat() != nil && trip.machineChat() == nil }
+            #expect(trip.localChat()?.agentSession?.session == "chat-live")
+            #expect(trip.calls().contains(["link", "seed", "pull", "--socket", trip.vmSocket, trip.project.path, trip.synced, "--or-copy"]))
+            let move = try #require(trip.calls().last)
+            #expect(move.contains(trip.project.path + "/sub"), "the chat did not return to its subfolder: \(move)")
+            #expect(trip.services.cloud.movedChats.entry(host: record.host, session: "chat-on-vm") == nil)
+        }
+    }
+
+    /// Transfer to This Mac of a chat started on the machine (no move from this Mac put it there):
+    /// the machine's project comes into a new folder here (`link seed fetch --find-root --adopt`),
+    /// then the chat moves here in that folder as Bring Back Local moves it, and opens here.
+    @Test func aChatStartedOnTheMachineTransfersToANewFolderHere() async throws {
+        try await Self.withRoundTrip("back", onMachine: true) { trip in
+            let record = try #require(trip.machineChat()?.agentSession)
+            #expect(CloudBringBack.hiddenMenuItems(record, movedChats: trip.services.cloud.movedChats).contains(CloudBringBack.action))
+            #expect(!CloudTransferLocal.hiddenMenuItems(record, movedChats: trip.services.cloud.movedChats).contains(CloudTransferLocal.action))
+            let target = trip.root.appendingPathComponent("transferred").path
+            if let error = await trip.run("cloud transfer-local", tab: trip.machineKey, args: ["path": .string(target)]) {
+                Issue.record("cmux cloud transfer-local: \(error.code) \(error.message)")
+            }
+            try await trip.waitUntil { trip.localChat() != nil && trip.machineChat() == nil }
+            let calls = trip.calls()
+            #expect(calls.first == ["link", "seed", "fetch", "--socket", trip.vmSocket, target, trip.synced + "/sub", "--find-root", "--adopt"], "\(calls)")
+            #expect(calls.contains(["link", "seed", "pull", "--socket", trip.vmSocket, target, trip.synced, "--or-copy"]), "\(calls)")
+            let move = try #require(calls.last)
+            #expect(move.prefix(2) == ["link", "agent"] && move.contains(target + "/sub"), "the chat did not land in its subfolder here: \(move)")
+            #expect(trip.localChat()?.agentSession?.session == "chat-live")
+            #expect(trip.services.cloud.movedChats.entry(host: record.host, session: "chat-on-vm") == nil)
+        }
+    }
+
+    /// A teammate's chat on a team machine: the person gets their own copy of the folder, without
+    /// the machine's records, in a new workspace here; the chat stays on the machine with its owner.
+    @Test func aTeammatesChatTransfersAsTheirOwnCopyAndStaysOnTheMachine() async throws {
+        try await Self.withRoundTrip("back", onMachine: true) { trip in
+            trip.machine.machine.team = "team_shared"
+            trip.machine.machine.createdBy = "user_teammate"
+            let target = trip.root.appendingPathComponent("copied").path
+            let before = trip.services.daemon.store.workspaces.count
+            if let error = await trip.run("cloud transfer-local", tab: trip.machineKey, args: ["path": .string(target)]) {
+                Issue.record("cmux cloud transfer-local: \(error.code) \(error.message)")
+            }
+            try await trip.waitUntil { trip.services.daemon.store.workspaces.count > before }
+            #expect(trip.calls() == [["link", "seed", "fetch", "--socket", trip.vmSocket, target, trip.synced + "/sub", "--find-root"]])
+            #expect(trip.machineChat() != nil, "the chat left the machine")
+            #expect(trip.localChat() == nil)
+            let record = try #require(trip.machineChat()?.agentSession)
+            #expect(trip.services.cloud.movedChats.entry(host: record.host, session: "chat-on-vm") == nil, "a copy is not a moved chat")
+        }
+    }
+
+    /// A transfer the machine refuses (a folder here that is not empty) changes nothing and says why.
+    @Test func aTransferIntoAFolderWithFilesStopsBeforeAnythingMoves() async throws {
+        try await Self.withRoundTrip("fetchBusy", onMachine: true) { trip in
+            let target = trip.root.appendingPathComponent("busy").path
+            let error = await trip.run("cloud transfer-local", tab: trip.machineKey, args: ["path": .string(target)])
+            #expect(error?.message.contains(target) == true, "\(String(describing: error))")
+            #expect(trip.calls().count == 1)
+            #expect(trip.machineChat() != nil)
+            let record = try #require(trip.machineChat()?.agentSession)
+            #expect(trip.services.cloud.movedChats.entry(host: record.host, session: "chat-on-vm") == nil)
+        }
+    }
+
+    @Test func aNewTransferFolderNeverReusesOneThatExists() {
+        let taken: Set<String> = ["/h/Cloud Transfers/app", "/h/Cloud Transfers/app 2"]
+        #expect(CloudTransferRules.newFolder(named: "app", base: "Cloud Transfers", home: "/h", exists: taken.contains) == "/h/Cloud Transfers/app 3")
+        #expect(CloudTransferRules.newFolder(named: "", base: "Cloud Transfers", home: "/h", exists: { _ in false }) == "/h/Cloud Transfers/Cloud chat")
+        #expect(CloudTransferRules.localChat(local: "/l", remoteChat: "/r/sub/x", remoteRoot: "/r") == ("/r", "/l/sub/x"))
+        #expect(CloudTransferRules.localChat(local: "/l", remoteChat: "/r", remoteRoot: nil) == ("/r", "/l"))
+        #expect(CloudTransferRules.localChat(local: "/l", remoteChat: "/rx/a", remoteRoot: "/r") == ("/r", "/l"), "a root that is not a parent")
+    }
+
+    /// The machine's refusals each say what to do; a conflict is left to Bring Back's own message.
+    @Test func eachTransferRefusalSaysWhy() {
+        let say = { (code: String) in
+            CloudTransferLocalStrings.refusal(.init(ok: false, errorCode: code), machine: "Box", folder: "/here")
+        }
+        #expect(say("fetch.too_broad") == CloudTransferLocalStrings.tooBroad)
+        #expect(say("fetch.no_folder") == CloudTransferLocalStrings.noFolder)
+        #expect(say("fetch.folder_not_empty")?.contains("/here") == true)
+        #expect(say("fetch.base_unreachable") == CloudTransferLocalStrings.notOnRemote)
+        #expect(say("sync_conflict") == nil)
+    }
+
+    @Test func onlyTheCreatorOwnsATeamMachine() {
+        var machine = CloudMachine(id: "vm", status: .running, displayName: "VM")
+        #expect(CloudTransferRules.isOwner(machine, user: "u1"), "a personal machine with no creator is the person's")
+        machine.team = "team_a"
+        #expect(!CloudTransferRules.isOwner(machine, user: "u1"), "a team machine with no creator is no one's to move")
+        machine.createdBy = "u1"
+        #expect(CloudTransferRules.isOwner(machine, user: "u1"))
+        #expect(!CloudTransferRules.isOwner(machine, user: "u2"))
+        #expect(!CloudTransferRules.isOwner(machine, user: nil))
+    }
+
     /// The chat comes back: the machine's folder is merged into the chat's folder here, the chat
     /// moves from the machine's tab to this Mac in that folder, and opens in a local tab bound to
     /// its session on this Mac; then the machine's tab closes.
@@ -27,9 +150,12 @@ struct CloudBringBackTests {
             try await trip.waitUntil { trip.localChat() != nil && trip.machineChat() == nil }
             let calls = trip.calls()
             #expect(calls.count == 4, "\(calls)")
-            #expect(calls.dropFirst(2).first == ["link", "sync", "pull", "--socket", trip.vmSocket, trip.project.path, trip.synced])
+            #expect(calls.dropFirst(2).first == ["link", "seed", "pull", "--socket", trip.vmSocket, trip.project.path, trip.synced, "--or-copy"])
+            // A running turn moves too, with what it wrote on the machine since the pull.
             #expect(calls.dropFirst(3).first == ["link", "agent", "move", "--from-socket", trip.vmSocket, "--surface", String(trip.machineSurface),
-                                                 "--to-socket", trip.macSocket, "--cwd", trip.project.path])
+                                                 "--to-socket", trip.macSocket, "--cwd", trip.project.path, "--interrupt",
+                                                 "--sync", "pull", "--sync-socket", trip.vmSocket, "--sync-local", trip.project.path,
+                                                 "--sync-remote", trip.synced])
             let local = try #require(trip.localChat(), "no chat tab on this Mac")
             #expect(local.agentSession?.session == "chat-live")
             #expect(local.agentSession?.host == trip.services.agentTabs.localHost)
@@ -42,18 +168,79 @@ struct CloudBringBackTests {
         }
     }
 
+    /// `cmux cloud bring-back --focus` ends with the window showing the chat that came back, in a workspace whose only
+    /// tab is that chat: no terminal is made beside it, so none takes the window or focus. The cloud-ergo-handoff
+    /// capture at baf4f76ab502 ended on a new "~/Library/Application Support/…" shell, the workspace's first tab, with
+    /// the chat a background tab beside it (and `debug.agent_pane`: "no pane shows an agent tab").
+    @Test func aFocusedBringBackShowsTheChatAloneAndNoTerminal() async throws {
+        try await Self.withRoundTrip("back") { trip in
+            let services = trip.services
+            let controller = try #require(services.windows.active)
+            if let error = await trip.bringBack(focus: true) { Issue.record("cmux cloud bring-back --focus: \(error.code) \(error.message)") }
+            try await trip.waitUntil { trip.localChat() != nil && trip.machineChat() == nil }
+            let local = try #require(trip.localChat(), "no chat tab on this Mac")
+            let pane = try #require(services.daemon.store.pane(holding: local))
+            let workspace = try #require(services.daemon.store.workspace(containing: pane.handle))
+            let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
+            #expect(tabs.map(\.id) == [local.id], "the chat's workspace holds more than the chat: \(tabs.map { "\($0.kind) \($0.titleText)" })")
+            #expect(!tabs.contains { $0.kind == .pty }, "a terminal was made beside the chat that came back")
+            try await trip.waitUntil {
+                controller.content?.contentView.layoutSubtreeIfNeeded()
+                return controller.state.workspaceID == workspace.id && controller.focusedPane?.stripModel.selectedID?.rawValue == local.id
+            }
+            #expect(controller.state.workspaceID == workspace.id, "the window does not show the chat's workspace")
+            #expect(controller.focusedPane?.stripModel.selectedID?.rawValue == local.id, "the focused tab is not the chat that came back")
+        }
+    }
+
+    /// Bring Back Local with no `--focus` keeps the chat on screen in the window that drew it: the window then draws the
+    /// chat's tab on this Mac. A window that only remembers the chat (a top page over it, another screen, another
+    /// workspace) keeps what it draws (the review of #39834).
+    @Test(arguments: [nil] + CloudMoveTests.Hidden.allCases.map(Optional.some))
+    func aCLIBringBackKeepsTheChatOnScreenOnlyWhereItWasDrawn(_ hidden: CloudMoveTests.Hidden?) async throws {
+        try await Self.withRoundTrip("back") { trip in
+            let services = trip.services
+            let (controller, chat, pane, workspace) = try await CloudMoveTests.putOnScreen(trip.machineKey, machine: trip.machine.daemon, services: services)
+            var screen: LayoutScreenID?
+            if let hidden { screen = try await CloudMoveTests.hide(chat, in: pane, of: workspace, hidden, controller: controller, daemon: trip.machine.daemon) }
+            let (shown, page) = (controller.state.workspaceID, controller.state.page)
+
+            if let error = await trip.bringBack() { Issue.record("cmux cloud bring-back: \(error.code) \(error.message)") }
+            try await trip.waitUntil { trip.localChat() != nil && trip.machineChat() == nil }
+            let local = try #require(trip.localChat(), "no chat tab on this Mac")
+            let localPane = try #require(services.daemon.store.pane(holding: local))
+            guard hidden != nil else {
+                try await trip.waitUntil {
+                    controller.content?.contentView.layoutSubtreeIfNeeded()
+                    return controller.showsOnScreen(local.id, in: localPane)
+                }
+                #expect(controller.showsOnScreen(local.id, in: localPane), "the window does not draw the chat that came back")
+                return
+            }
+            // A workspace the chat had alone (the machine's, under a top page) closes with it: the window keeps its page over another.
+            if shown.map({ services.machines.workspace(id: $0) != nil }) ?? true {
+                #expect(controller.state.workspaceID == shown, "the bring back changed the window's workspace")
+            }
+            #expect(controller.state.page == page, "the bring back changed the window's top page")
+            if let screen { #expect(controller.content?.layoutModel.activeScreenID == screen, "the bring back changed the window's screen") }
+        }
+    }
+
     /// A revoke that fails after a bring back (the machine didn't answer) never fails the bring back
     /// and is tried again, until it answers ok.
     @Test func aRevokeThatFailsIsTriedAgainUntilItIsDone() async throws {
-        try await Self.withRoundTrip("revokeOnce") { trip in
+        // A short poll: the retry comes a poll after the failure, and many polls pass before the polling stops.
+        try await Self.withRoundTrip("revokeOnce", accessPoll: .milliseconds(100)) { trip in
             if let error = await trip.bringBack() { Issue.record("cmux cloud bring-back: \(error.code) \(error.message)") }
             try await trip.waitUntil { trip.localChat() != nil && trip.machineChat() == nil }
             let revoke = ["link", "access", "revoke", "--machine", "vm-move", "--session", "chat-on-vm", "--socket", trip.vmSocket, "--all"]
             @MainActor func revokes() -> Int { trip.accessCalls().filter { $0 == revoke }.count }
             try await trip.waitUntil { revokes() >= 2 }
             #expect(revokes() == 2, "the failed revoke was not tried again once, or not stopped after it was done: \(trip.accessCalls())")
-            // Done: no more tries.
-            try? await Task.sleep(for: .seconds(8))
+            // Done: nothing is left to revoke (a revoke done is never queued again), so no later poll tries again.
+            let revokesLeft = trip.services.cloud.accessAsks.revokes
+            try await trip.waitUntil { revokesLeft.isEmpty }
+            #expect(revokesLeft.isEmpty, "the revoke is still queued after it was done")
             #expect(revokes() == 2, "\(trip.accessCalls())")
         }
     }
@@ -125,8 +312,8 @@ struct CloudBringBackTests {
     }
 
     /// A file the person drops or pastes into a chat moved to a Cloud machine, which the composer
-    /// can't attach (cmuxterm-hq#1874 slice 6): the page sends its bytes as `chat.upload`, and only
-    /// with a real gesture in the pane. The app writes them under this Mac's temporary
+    /// can't attach (cmuxterm-hq#1874 slice 6): the page sends its bytes as `chat.upload`, which
+    /// needs no gesture (Leo, 2026-11-17: "go remove this"). The app writes them under this Mac's temporary
     /// `cmux-pastes` folder, runs `cmux link access upload` for the chat's machine and work root,
     /// deletes its copy, and answers the file's path on the machine. A dot file or a name with a
     /// folder in it never reaches the CLI. Fake bytes only.
@@ -136,7 +323,6 @@ struct CloudBringBackTests {
             let data = Data(bytes.utf8).base64EncodedString()
             let file: [String: Any] = ["name": "diagram.sketch", "data": data]
             @MainActor func uploads() -> [[String]] { trip.accessCalls().filter { $0.prefix(3) == ["link", "access", "upload"] } }
-            #expect(await trip.upload([file], gesture: false)["ok"] as? Bool != true, "an upload went without a gesture")
             #expect(await trip.upload([["name": ".env", "data": data]], gesture: true)["ok"] as? Bool != true, "a dot file went")
             #expect(await trip.upload([["name": "../diagram.sketch", "data": data]], gesture: true)["ok"] as? Bool != true, "a path went")
             #expect(uploads().isEmpty, "a refused upload ran the CLI: \(uploads())")
@@ -145,7 +331,9 @@ struct CloudBringBackTests {
             let root = try #require(trip.services.cloud.move.workRoots.first)
             let call = try #require(uploads().first, "no upload ran")
             #expect(Array(call.prefix(7)) == ["link", "access", "upload", "--socket", trip.vmSocket, "--remote-root", root], "\(call)")
-            #expect(call.count == 8, "\(call)")
+            // Each file goes under an upload id of the app's own, so a failed or cancelled one is removed.
+            #expect(call.count == 10 && call[7] == "--upload-id", "\(call)")
+            #expect(call.count == 10 && call[8].utf8.count == 32 && call[8].utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }, "\(call)")
             let sent = try #require(call.last)
             let temporary = ProcessInfo.processInfo.environment["TMPDIR"] ?? NSTemporaryDirectory()
             let pastes = URL(fileURLWithPath: temporary).appendingPathComponent("cmux-pastes").resolvingSymlinksInPath().path
@@ -201,8 +389,23 @@ struct CloudBringBackTests {
             try await trip.waitUntil { trip.localChat() != nil && trip.machineChat() == nil }
             let calls = Array(trip.calls().dropFirst(before))
             #expect(calls.first == ["link", "machine", "update", "--socket", trip.vmSocket], "\(calls)")
-            #expect(calls.dropFirst().map { Array($0.prefix(3)) } == [["link", "sync", "pull"], ["link", "agent", "move"]], "\(calls)")
+            #expect(calls.dropFirst().map { Array($0.prefix(3)) } == [["link", "seed", "pull"], ["link", "agent", "move"]], "\(calls)")
             #expect(trip.localChat()?.agentSession?.session == "chat-live")
+        }
+    }
+
+    /// The person's own Bring Back from a machine too old for it updates the machine, then brings the
+    /// chat back, with no stop asking them to press "Update Machine".
+    @Test func thePersonsBringBackUpdatesAnOutdatedMachineFirst() async throws {
+        try await Self.withRoundTrip("updates") { trip in
+            let before = trip.calls().count
+            let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: trip.machineKey), arguments: [:], origin: .user)
+            #expect(trip.services.registry.perform(CloudBringBack.action, invocation: invocation))
+            try await trip.waitUntil { trip.localChat() != nil && trip.machineChat() == nil }
+            let calls = trip.calls().dropFirst(before).map { Array($0.prefix(3)) }
+            #expect(calls == [["link", "seed", "pull"], ["link", "machine", "update"], ["link", "seed", "pull"], ["link", "agent", "move"]], "\(calls)")
+            #expect(trip.localChat()?.agentSession?.session == "chat-live")
+            #expect(trip.services.cloud.bringBackRetries[trip.machineKey] == nil)
         }
     }
 
@@ -240,7 +443,9 @@ struct CloudBringBackTests {
             let calls = trip.calls()
             #expect(calls.count == 8, "\(calls)")
             #expect(calls.last == ["link", "agent", "move", "--from-socket", trip.vmSocket, "--surface", String(trip.machineSurface),
-                                   "--to-socket", trip.macSocket, "--cwd", trip.project.path, "--ask-first"])
+                                   "--to-socket", trip.macSocket, "--cwd", trip.project.path, "--interrupt",
+                                   "--sync", "pull", "--sync-socket", trip.vmSocket, "--sync-local", trip.project.path,
+                                   "--sync-remote", trip.synced, "--ask-first"])
             #expect(trip.localChat()?.agentSession?.session == "chat-live")
             #expect(trip.services.cloud.bringBackRetries[trip.machineKey] == nil)
         }
@@ -275,6 +480,8 @@ struct CloudBringBackTests {
     /// retryable on the same machine (cx-rppd.8).
     @Test func aSyncPullThatThrowsKeepsTheBringBackRetryable() async throws {
         try await Self.withRoundTrip("pullTimeout") { trip in
+            // The pull is the bring back's first CLI run and never answers: a short deadline ends it sooner.
+            trip.services.cloud.move.timeout = .seconds(1)
             #expect(await trip.bringBack() != nil, "the bring back did not report that it stopped")
             #expect(trip.calls().count == 3, "\(trip.calls())")
             #expect(trip.machineChat() != nil)
@@ -293,7 +500,7 @@ struct CloudBringBackTests {
         let log: URL
         let vmSocket: String
         var macSocket = ""
-        /// The synced folder on the machine (`cmux link sync push`'s target).
+        /// The synced folder on the machine (`cmux link seed push`'s target).
         var synced = ""
         /// The moved chat's tab on the machine, as the app keys it, and its surface there.
         var machineKey = ""
@@ -376,22 +583,17 @@ struct CloudBringBackTests {
             return await model.respond(to: AgentPaneRequest(body: ["method": "chat.upload", "params": ["files": files]]))
         }
 
-        /// `cmux <action>` on tab `tab`, as the CLI sends it; its error when it stopped.
-        func run(_ action: String, tab: String, args: [String: CmuxNextSettings.JSONValue] = [:], wait: Bool = true) async -> ControlError? {
-            let bridge = RegistryControlBridge(registry: services.registry)
-            let router = ControlRouter(identity: ControlIdentity(version: "1.0", build: "1", bundleID: "com.cmuxterm.app.debug.test", tag: "test",
-                                                                 processID: getpid()),
-                                       executor: bridge, settings: nil,
-                                       configuration: ControlRouter.Configuration(requestDeadline: .seconds(60)))
-            router.updateCatalog(RegistryControlBridge.catalog(from: services.registry))
-            let params: [String: CmuxNextSettings.JSONValue] = ["action": .string(action), "cli": .bool(true), "origin": .string("cli"),
-                                                                "wait": .bool(wait), "target": .string("tab:" + tab), "args": .object(args)]
-            if case .failure(let error) = await router.handle(ControlRequest(id: "1", method: "action.run", params: params)) { return error }
-            return nil
+        /// `cmux <action>` on tab `tab`, as the CLI sends it (`focus`: with `--focus`); its error when it stopped.
+        func run(_ action: String, tab: String, args: [String: CmuxNextSettings.JSONValue] = [:], wait: Bool = true,
+                 focus: Bool = false) async -> ControlError? {
+            var params: [String: CmuxNextSettings.JSONValue] = ["action": .string(action), "cli": .bool(true), "origin": .string("cli"),
+                                                                 "wait": .bool(wait), "target": .string("tab:" + tab), "args": .object(args)]
+            if focus { params["focus"] = .bool(true) }
+            return await CloudCLIActionRun(services: services)(params)
         }
 
-        /// `cmux cloud bring-back` on the machine's chat tab.
-        func bringBack() async -> ControlError? { await run("cloud bring-back", tab: machineKey) }
+        /// `cmux cloud bring-back` on the machine's chat tab (`focus`: `cmux cloud bring-back --focus`).
+        func bringBack(focus: Bool = false) async -> ControlError? { await run("cloud bring-back", tab: machineKey, focus: focus) }
 
         /// Polls `condition` for up to a minute.
         func waitUntil(_ condition: () -> Bool) async throws {
@@ -403,7 +605,8 @@ struct CloudBringBackTests {
     /// Runs `body` once a live chat of this Mac moved to a connected Cloud machine; the stand-in CLI
     /// answers the bring back as `mode` says (`back`, `conflict`, `policy`, `pullTimeout`; `access` also
     /// has the chat ask for a file, `secret` for a secret; `revokeOnce` fails the first `link access revoke`).
-    private static func withRoundTrip(_ mode: String, _ body: (Trip) async throws -> Void) async throws {
+    private static func withRoundTrip(_ mode: String, accessPoll: Duration = .seconds(3), fromStart: Bool = false, onMachine: Bool = false,
+                                      _ body: (Trip) async throws -> Void) async throws {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = URL(fileURLWithPath: "/private/tmp/cn-back-\(UUID().uuidString.prefix(8).lowercased())", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -425,7 +628,7 @@ struct CloudBringBackTests {
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
         services.windows.ordersWindowsIn = false
-        services.cloud.move = CloudMoveSetup(cli: cli, workRoots: [workRoot.path], timeout: .seconds(5))
+        services.cloud.move = CloudMoveSetup(cli: cli, workRoots: [workRoot.path], timeout: .seconds(5), accessPoll: accessPoll)
         services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-back-test")
         services.daemon.start {
             DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: mac.endpointProvider)
@@ -439,7 +642,7 @@ struct CloudBringBackTests {
         let trip = Trip(services: services, machine: machine, project: project, log: log, vmSocket: vmSocket)
         let result: Result<Void, any Error>
         do {
-            try await moveToCloud(trip)
+            if onMachine { try await startOnMachine(trip) } else if fromStart { try await startInCloud(trip) } else { try await moveToCloud(trip) }
             try await body(trip)
             result = .success(())
         } catch {
@@ -449,6 +652,95 @@ struct CloudBringBackTests {
         await CloudMoveTests.end(machine.daemon)
         for controller in services.windows.controllers { controller.window?.close() }
         try result.get()
+    }
+
+    /// Opens a copied start, then supplies the session its daemon created before the first-send
+    /// reply arrived. As with the move fixture, the stand-in CLI supplies the daemon's landed
+    /// session receipt; the session-start retry must finish the copy mapping without another start.
+    private static func startInCloud(_ trip: Trip) async throws {
+        let services = trip.services, machine = trip.machine
+        try await trip.waitUntil {
+            services.daemon.store.workspaces.first?.screens.first?.panes.first != nil
+                && machine.daemon.connection != nil && AgentTabStore.registryHost(of: machine.daemon) != nil
+        }
+        trip.macSocket = await services.daemon.connection?.endpoint?.socketPath ?? ""
+        let local = try #require(services.daemon.connection)
+        let localPane = try #require(services.daemon.store.workspaces.first?.screens.first?.panes.first)
+        let blank = try await local.request(NewConversationTabRequest(agentSession: AgentSessionRef(host: try #require(services.agentTabs.localHost)), pane: localPane.handle))
+        try await trip.waitUntil { services.daemon.store.tab(surface: blank.surface) != nil }
+        let tab = try #require(services.daemon.store.tab(surface: blank.surface))
+        let chat = trip.project.appendingPathComponent("sub", isDirectory: true)
+        try FileManager.default.createDirectory(at: chat, withIntermediateDirectories: true)
+        let cli = CloudMoveCLI(binary: try #require(services.cloud.move.cli), timeout: .seconds(5))
+        let copied = try await cli.startChatCopy(key: UUID().uuidString, account: "test/", machine: machine.machineID,
+                                                socket: trip.vmSocket, local: trip.project.path, subpath: "sub",
+                                                workRoots: services.cloud.move.workRoots, acpmuxHome: nil)
+        try #require(copied.0.ok)
+        trip.synced = copied.1.folder
+        let connection = try #require(machine.daemon.connection)
+        let workspace = WorkspaceKey.generate()
+        try await connection.createWorkspace(name: "Started in Cloud", key: workspace)
+        try await connection.createTerminal(in: workspace, cwd: copied.1.chat)
+        try await trip.waitUntil { machine.daemon.store.workspaces.first(where: { $0.key == workspace })?.screens.first?.panes.first != nil }
+        let pane = try #require(machine.daemon.store.workspaces.first(where: { $0.key == workspace })?.screens.first?.panes.first)
+        let host = try #require(AgentTabStore.registryHost(of: machine.daemon)), tabKey = "started-copy-tab"
+        let start = AgentPaneCloudStart(task: "continue", cwd: chat.path, harness: "claude", key: UUID().uuidString)
+        let origin = CloudStartChat.Origin(tab: tab, chat: chat.path, workspace: nil, account: services.cloud.account) {
+            try? await local.closeTabs([blank.surface], endTerminals: false, reason: .sessionEnd)
+        }
+        _ = try await CloudStartChat(services: services).open(start, from: origin, on: machine, cwd: copied.1.chat,
+                                                             tabKey: tabKey,
+                                                             copy: .init(machineID: machine.machineID, host: host, session: "", harness: "claude",
+                                                                         localRoot: trip.project.path, localChat: chat.path,
+                                                                         remoteFolder: copied.1.folder, remoteChat: copied.1.chat))
+        // The stand-in move CLI uses this same receipt instead of an authenticated acpmux.
+        let state = trip.root.appendingPathComponent("vm-state")
+        let files = FileManager.default.enumerator(at: state, includingPropertiesForKeys: nil)?.compactMap { $0 as? URL } ?? []
+        let registry = try #require(files.first { $0.lastPathComponent == "workspace-registry.sqlite3" })
+        let landed = [["session": "chat-on-vm", "landed_at_ms": Int64(Date().timeIntervalSince1970 * 1000)]] as [[String: Any]]
+        try JSONSerialization.data(withJSONObject: landed).write(to: registry.deletingLastPathComponent().appendingPathComponent("agent-transfer-landed.json"))
+        let created = try await connection.request(NewConversationTabRequest(agentSession: AgentSessionRef(host: host, session: "chat-on-vm", harness: "claude"), pane: pane.handle))
+        try await trip.waitUntil { machine.daemon.store.tab(surface: created.surface) != nil }
+        let blanks = machine.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).filter { $0.agentSession != nil && $0.agentSession?.session == nil }
+        try await connection.closeTabs(blanks.map(\.surface), endTerminals: false, reason: .sessionEnd)
+        let opened = try #require(trip.machineChat())
+        trip.machineKey = opened.id
+        trip.machineSurface = opened.surface.rawValue
+        _ = try await services.agentTabs.startRemoteChat(opened.id, machine: machine.machineID, machineName: machine.machine.title, cwd: copied.1.chat,
+                                                         endpoint: { Issue.record("a retry tried to create another chat"); throw CancellationError() })
+    }
+
+    /// A chat started on the machine itself, in a subfolder of a project there: no move from this
+    /// Mac put it there, so only Transfer to This Mac takes it.
+    private static func startOnMachine(_ trip: Trip) async throws {
+        let services = trip.services, machine = trip.machine
+        try await trip.waitUntil {
+            services.daemon.store.workspaces.first?.screens.first?.panes.first != nil
+                && machine.daemon.connection != nil && AgentTabStore.registryHost(of: machine.daemon) != nil
+        }
+        trip.macSocket = await services.daemon.connection?.endpoint?.socketPath ?? ""
+        trip.synced = trip.root.appendingPathComponent("vm-home/work/app").path
+        try FileManager.default.createDirectory(atPath: trip.synced + "/sub", withIntermediateDirectories: true)
+        let connection = try #require(machine.daemon.connection)
+        let workspace = WorkspaceKey.generate()
+        try await connection.createWorkspace(name: "On the machine", key: workspace)
+        try await connection.createTerminal(in: workspace, cwd: trip.synced + "/sub")
+        try await trip.waitUntil { machine.daemon.store.workspaces.first(where: { $0.key == workspace })?.screens.first?.panes.first?.tabs.first?.cwd != nil }
+        let pane = try #require(machine.daemon.store.workspaces.first(where: { $0.key == workspace })?.screens.first?.panes.first)
+        let host = try #require(AgentTabStore.registryHost(of: machine.daemon))
+        // The machine's own chat: a session its agent host already has (the stand-in's landed receipt, as in the
+        // started-in-Cloud fixture), so the tab only reopens it; a new chat there starts through agent-session-start.
+        let state = trip.root.appendingPathComponent("vm-state")
+        let files = FileManager.default.enumerator(at: state, includingPropertiesForKeys: nil)?.compactMap { $0 as? URL } ?? []
+        let registry = try #require(files.first { $0.lastPathComponent == "workspace-registry.sqlite3" })
+        let landed = [["session": "chat-on-vm", "landed_at_ms": Int64(Date().timeIntervalSince1970 * 1000)]] as [[String: Any]]
+        try JSONSerialization.data(withJSONObject: landed).write(to: registry.deletingLastPathComponent().appendingPathComponent("agent-transfer-landed.json"))
+        let created = try await connection.request(NewConversationTabRequest(agentSession: AgentSessionRef(host: host, session: "chat-on-vm", harness: "claude"),
+                                                                              pane: pane.handle))
+        try await trip.waitUntil { machine.daemon.store.tab(surface: created.surface) != nil }
+        let opened = try #require(trip.machineChat())
+        trip.machineKey = opened.id
+        trip.machineSurface = opened.surface.rawValue
     }
 
     /// Opens a live chat in this Mac's first workspace and moves it to the machine with
@@ -482,7 +774,7 @@ struct CloudBringBackTests {
         trip.synced = try #require(trip.calls().first?.last)
     }
 
-    /// A stand-in `cmux` (calls recorded unit-separated): `link sync push` makes the synced folder
+    /// A stand-in `cmux` (calls recorded unit-separated): `link seed push` makes the synced folder
     /// and `link agent move` moves the chat to the machine, leaving the landed chat's record as the
     /// machine daemon's `agent-transfer-finish` would (see ``CloudMoveTests``); then `link sync
     /// pull` and the move back answer as `mode` says. `link access triage` lists one file ask of the
@@ -503,11 +795,20 @@ struct CloudBringBackTests {
             for arg in "$@"; do line="$line$(printf '\\037')$arg"; done
             printf '%s\\n' "${line#?}" >> '\(log.path)'
             case "$1 $2 $3" in
-            "link sync push")
+            "link start-chat copy")
+                remote='\(root.path)/vm-home/work/cloud-start/project'
+                mkdir -p "$remote/sub"
+                printf '{"ok":true,"chat":"%s/sub","folder":"%s","copied":true}' "$remote" "$remote" ;;
+            "link seed push")
                 for target in "$@"; do :; done
                 mkdir -p "$target"
                 echo '{"ok":true,"written":1,"unchanged":0,"deleted":0,"skipped":0,"bytes":4}' ;;
-            "link sync pull")
+            "link seed fetch")
+                [ '\(mode)' = fetchBusy ] && { echo '{"ok":false,"error":"not empty","error_code":"fetch.folder_not_empty"}'; exit 1; }
+                mkdir -p "$6"
+                root="$7"; case "$root" in */sub) root="${root%/sub}" ;; esac
+                printf '{"ok":true,"mode":"git","folder":"%s","remote_root":"%s"}\n' "$6" "$root" ;;
+            "link seed pull")
                 case '\(mode)' in
                 conflict) echo '{"ok":false,"error":"notes.txt changed both here and on the machine","error_code":"sync_conflict","conflicts":["notes.txt"]}'; exit 1 ;;
                 outdated) echo '{"ok":false,"error":"the machine runs an older cmux-tui (0000old) without fs-v1; update the machine","error_code":"machine_outdated","missing":["fs-v1"],"machine_build":"0000old"}'; exit 1 ;;
@@ -530,7 +831,7 @@ struct CloudBringBackTests {
                     [ -n "$registry" ] || exit 70
                     printf '[{"session":"chat-on-vm","landed_at_ms":%s000}]' "$(date +%s)" > "$(dirname "$registry")/agent-transfer-landed.json"
                     echo '{"ok":true,"session_id":"chat-on-vm","transfer_id":"tr-1","bytes":42,"resolved":false}'
-                elif [ '\(mode)' = policy ] && [ "${12}" != --ask-first ]; then
+                elif [ '\(mode)' = policy ] && case " $* " in *" --ask-first "*) false ;; *) true ;; esac; then
                     echo '{"ok":false,"error":"the machine did not take the chat: acpmux refused the request: transfer.policy: approve-all","error_code":"agent_transfer.refused"}'
                     exit 1
                 else

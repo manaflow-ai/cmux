@@ -4,9 +4,19 @@
 ///   keyboard, system shortcuts (Cmd-Tab, Cmd-Space, Mission Control and
 ///   Spaces, screenshots, Cmd-Q/W/H/M) go to the other Mac instead of acting
 ///   on this one. Needs Accessibility for cmux.
+/// - `onlyPersonStartsViewing` (off by default): a Screen Sharing tab an agent
+///   or the CLI opens waits at the Connect card for the person's click. Off,
+///   one on the person's own device starts viewing at once
+///   (`MacScreenPages.agentMayStartViewing`).
+/// - `shareWithoutAsking` (off by default): the person's standing yes to Share
+///   This Mac. On, a share request from the signed-in owner's own CLI, agents
+///   or devices turns sharing on with no sheet while Screen Recording is
+///   granted; each device's access still decides who views or controls.
+///   Finishing the Share This Mac sheet once turns it on; MDM can force it.
 public nonisolated struct MacScreenSettings: Sendable, Equatable {
-    public static let systemShortcutsPath = ["macScreen", "systemShortcuts"]
-    public var systemShortcuts = false
+    public var systemShortcuts = MacScreenSettings.systemShortcutsDefault
+    public var onlyPersonStartsViewing = MacScreenSettings.onlyPersonStartsViewingDefault
+    public var shareWithoutAsking = MacScreenSettings.shareWithoutAskingDefault
 
     public init() {}
 
@@ -14,25 +24,9 @@ public nonisolated struct MacScreenSettings: Sendable, Equatable {
         var settings = Self()
         guard var reader = ConfigFieldReader(root, at: ["macScreen"], diagnostics: &diagnostics) else { return settings }
         if let value = reader.bool("systemShortcuts") { settings.systemShortcuts = value }
+        if let value = reader.bool("onlyPersonStartsViewing") { settings.onlyPersonStartsViewing = value }
+        if let value = reader.bool("shareWithoutAsking") { settings.shareWithoutAsking = value }
         diagnostics = reader.diagnostics
         return settings
-    }
-}
-
-/// Keyboard > Mac Screen.
-nonisolated enum MacScreenSettingsSchema {
-    static var descriptors: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.group.macScreenKeyboard", "Mac Screen")
-        return [
-            SettingDescriptor(
-                MacScreenSettings.systemShortcutsPath, section: .keyboard, group: group,
-                title: SettingsText.keyed("settings.macScreen.systemShortcuts", "Send System Shortcuts to the Remote Mac"),
-                help: SettingsText.keyed("settings.macScreen.systemShortcuts.help",
-                                         "While a Mac Screen tab has the keyboard, shortcuts like ⌘Tab, ⌘Space, Mission Control and ⌘Q go to the other Mac. Needs Accessibility."),
-                summary: SettingsText.keyed("settings.macScreen.systemShortcuts.summary", "System shortcuts go to the remote Mac"),
-                kind: .toggle, default: .bool(MacScreenSettings().systemShortcuts),
-                keywords: ["mac screen", "remote", "system shortcuts", "command tab", "spotlight", "mission control", "keyboard", "accessibility"]
-            ),
-        ]
     }
 }

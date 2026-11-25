@@ -35,6 +35,8 @@ export function foregroundCalls(rows: readonly AcpmuxRow[]): string[] {
     for (const item of row.items ?? []) {
       const tool = item.tool;
       if (!tool || (tool.status !== "pending" && tool.status !== "in_progress")) continue;
+      // A call already in the background holds nothing up.
+      if (tool.background !== undefined) continue;
       if (tool.kind === "execute" || tool.kind === "think") calls.push(tool.id);
     }
   }

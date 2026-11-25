@@ -6,11 +6,22 @@ import { isRemovable } from "./model";
 import { AppIcon, Badge, Switch } from "./parts";
 import type { AppsSnapshot, AppsStore } from "./store";
 import { UpdatesView } from "./UpdatesView";
+import { UseAsNewTab } from "./UseAsNewTab";
 
 export function InstalledView({ snap, store, strings }: { snap: AppsSnapshot; store: AppsStore; strings: Strings }) {
   const { t, format } = strings;
   if (snap.installed.length === 0)
-    return <div className="apps-empty">{snap.loading ? "" : t("store.empty.noneInstalled")}</div>;
+    // Loading and empty share one apps-state box, so the swap to either result does not jump.
+    return snap.loading ? (
+      <output className="apps-empty apps-state" aria-busy="true" data-installed-state="loading">
+        <strong>{t("store.detail.loading")}</strong>
+      </output>
+    ) : (
+      <div className="apps-empty apps-state" data-installed-state="empty">
+        <strong>{t("store.empty.noneInstalled")}</strong>
+        <span>{t("store.empty.noneInstalledHint")}</span>
+      </div>
+    );
   return (
     <div className="apps-scroll">
       <div className="apps-installed">
@@ -45,6 +56,7 @@ export function InstalledView({ snap, store, strings }: { snap: AppsSnapshot; st
                     label={t("store.action.enabled")}
                     onChange={(on) => void store.setEnabled(app.id, on)}
                   />
+                  <UseAsNewTab app={app} strings={strings} />
                   {app.update && (
                     <button type="button" className="apps-button primary" onClick={() => void store.update(app.id)}>
                       {t("store.action.update")}

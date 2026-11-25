@@ -12,7 +12,8 @@
 //!
 //! Storage: one file per user, `<data dir>/cmux/openh264/<Cisco file name>`
 //! ([`default_dir`]): `$XDG_DATA_HOME` or `~/.local/share` on Linux,
-//! `~/Library/Application Support` on macOS, `%LOCALAPPDATA%` on Windows.
+//! `%LOCALAPPDATA%` on Windows; on macOS
+//! `~/Library/Application Support/cmux-next/openh264`, outside classic cmux's folder.
 //! It is written to a temporary file in the same directory, flushed, and
 //! renamed into place, so a reader never sees a partial library.
 //!
@@ -92,7 +93,9 @@ pub fn dir_from(os: &str, env: impl Fn(&str) -> Option<OsString>) -> Option<Path
         "macos" => absolute("HOME")?.join("Library").join("Application Support"),
         _ => absolute("XDG_DATA_HOME").or_else(|| Some(absolute("HOME")?.join(".local/share")))?,
     };
-    Some(base.join("cmux").join("openh264"))
+    // On macOS, cmux NEXT's own `cmux-next`, not classic cmux's `cmux` (a cache: nothing moves).
+    let app = if os == "macos" { "cmux-next" } else { "cmux" };
+    Some(base.join(app).join("openh264"))
 }
 
 /// Where the library for `platform` lives in `dir`.
@@ -271,47 +274,5 @@ fn sha256_hex(bytes: &[u8]) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{InstallError, MAX_COMPRESSED_BYTES, MAX_HEADER_BYTES, parse_response, split_url};
-
-    #[test]
-    fn other_statuses_chunked_bodies_and_short_bodies_are_refused() {
-        let cases: [&[u8]; 5] = [
-            b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n",
-            b"HTTP/1.1 301 Moved\r\nLocation: http://x/\r\n\r\n",
-            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n",
-            b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nshort",
-            b"not http at all",
-        ];
-        for raw in cases {
-            assert!(
-                matches!(parse_response(raw), Err(InstallError::Download(_))),
-                "{}",
-                String::from_utf8_lossy(raw)
-            );
-        }
-    }
-
-    #[test]
-    fn an_oversize_body_is_refused() {
-        let mut raw = b"HTTP/1.1 200 OK\r\n\r\n".to_vec();
-        raw.resize(raw.len() + MAX_COMPRESSED_BYTES + 1, 0);
-        assert!(matches!(parse_response(&raw), Err(InstallError::TooLarge)));
-        // The limit sits a little above Cisco's largest 2.6.0 file (634,264 bytes).
-        const { assert!(MAX_COMPRESSED_BYTES > 634_264 && MAX_COMPRESSED_BYTES <= 2 << 20) };
-    }
-
-    #[test]
-    fn a_truncated_body_is_refused() {
-        let raw = b"HTTP/1.1 200 OK\r\nContent-Length: 634264\r\n\r\nBZh91AY&SY";
-        assert!(matches!(parse_response(raw), Err(InstallError::Download(_))));
-    }
-
-    #[test]
-    fn an_oversize_header_is_refused() {
-        let mut raw = b"HTTP/1.1 200 OK\r\nX-Pad: ".to_vec();
-        raw.resize(raw.len() + MAX_HEADER_BYTES, b'a');
-        raw.extend_from_slice(b"\r\n\r\nbody");
-        assert!(matches!(parse_response(&raw), Err(InstallError::Download(_))));
-    }
-}
+#[path = "cisco_tests.rs"]
+mod tests;

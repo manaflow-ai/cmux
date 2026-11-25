@@ -12,6 +12,8 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 SCRIPT = ROOT / "scripts/ci/late_placement.py"
 WORKFLOW = ROOT / ".github/workflows/ci-macos.yml"
 XCODE = "/Applications/Xcode_26.6.app"
@@ -357,7 +359,7 @@ class Output(unittest.TestCase):
 
         class API:
             def __init__(self, token, repo):
-                pass
+                seen.setdefault("tokens", []).append(token)
 
             def runners(self):
                 return [*roots(idle=2), *guis(idle=0, busy=10)]
@@ -367,10 +369,12 @@ class Output(unittest.TestCase):
             return {label: 40 if label == GUI else 0 for label in labels}
         with tempfile.NamedTemporaryFile("r+", suffix=".out") as out, \
                 mock.patch.object(late.pool, "GitHub", API), mock.patch.object(late, "gui_backlog", backlog):
-            env = dict(OWNED, GITHUB_OUTPUT=out.name, ROUTE_TOKEN="t", GITHUB_REPOSITORY="o/r", GITHUB_RUN_ID="77")
+            env = dict(OWNED, GITHUB_OUTPUT=out.name, ROUTE_TOKEN="route", GITHUB_TOKEN="workflow",
+                       GITHUB_REPOSITORY="o/r", GITHUB_RUN_ID="77")
             self.assertEqual(late.main(env), 0)
             text = Path(out.name).read_text()
         self.assertEqual(seen["exclude"], 77)
+        self.assertEqual(seen["tokens"], ["route", "workflow"])
         self.assertIn(f'"cli-product": "{RETRY}"', text)
         self.assertTrue(text.endswith("onto_owned=false\n"), text)
 
@@ -398,16 +402,20 @@ class Workflow(unittest.TestCase):
                     " != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (startsWith(inputs.pr_runner, 'blacksmith-') && inputs.pr_runner"
                     " || 'blacksmith-6vcpu-macos-15') || "
                 )
-                self.assertTrue(spec["runs-on"].startswith("${{ " + late)
-                                or spec["runs-on"].startswith(owner + late)
-                                or spec["runs-on"].startswith(owner + fork_pr + late),
-                                spec["runs-on"][:200])
+                cells = workflow_jobs.runs_on_cells(spec)
+                self.assertIsNotNone(cells, f"{job}: runs-on matrix does not resolve")
+                self.assertTrue(cells, f"{job}: no runs-on")
+                for cell in cells:
+                    self.assertTrue(cell.startswith("${{ " + late)
+                                    or cell.startswith(owner + late)
+                                    or cell.startswith(owner + fork_pr + late),
+                                    cell[:200])
                 # The job-level if never requires late-placement, so a skipped or failed one
                 # leaves the consumer running where the picker put it.
                 self.assertNotIn("late-placement", spec["if"])
                 requested = [step["env"]["REQUESTED_RUNNER"] for step in spec["steps"]
                              if "REQUESTED_RUNNER" in (step.get("env") or {})]
-                self.assertEqual(requested, [spec["runs-on"]])
+                self.assertEqual(requested, cells)
 
     def test_late_placement_runs_only_where_the_picker_may_use_owned_runners(self):
         spec = self.jobs["late-placement"]
@@ -437,7 +445,9 @@ class Workflow(unittest.TestCase):
         self.assertEqual(steps["place"]["env"]["RETRY_RUNNER"], "${{ inputs.pr_retry_runner }}")
         self.assertEqual(steps["place"]["env"]["POOL_QUEUE_ROUNDS"], "${{ vars.CI_PR_POOL_QUEUE_ROUNDS }}")
         for mint in ("route-token", "route-token-repo"):
-            self.assertEqual(steps[mint]["with"]["permission-actions"], "read", mint)
+            self.assertNotIn("permission-actions", steps[mint]["with"], mint)
+        self.assertEqual(spec["permissions"], {"contents": "read", "actions": "read"})
+        self.assertEqual(steps["place"]["env"]["GITHUB_TOKEN"], "${{ github.token }}")
 
     def test_moved_jobs_leave_the_marker_the_rescue_watch_looks_for(self):
         steps = {step["name"]: step for step in self.jobs["late-placement"]["steps"]}
@@ -449,7 +459,7 @@ class Workflow(unittest.TestCase):
         self.assertEqual(marker["with"]["name"], "macos-pool-late-${{ github.run_id }}-${{ github.run_attempt }}")
         self.assertIn('LATE_JOB = "macos / late-placement"', rescue)
         # It starts nothing itself: the rescue sweeper finds the run by its marker.
-        self.assertEqual(self.jobs["late-placement"]["permissions"], {"contents": "read"})
+        self.assertEqual(self.jobs["late-placement"]["permissions"], {"contents": "read", "actions": "read"})
 
 
 if __name__ == "__main__":

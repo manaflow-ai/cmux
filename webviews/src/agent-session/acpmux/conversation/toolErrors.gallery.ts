@@ -6,11 +6,12 @@
 // person declined, a `<tool_use_error>`, a timeout; Codex's `{"status":"declined"}` and exit code;
 // an MCP server's JSON error. Compare arms shows the `tool-error-look` experiment's three looks.
 import { agentPaneEntry } from "../../../gallery/format";
-import { activity, assistant, chat, tool, user } from "../../../gallery/fixtures/acpmux";
+import { activity, assistant, chat, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
 import type { AcpmuxActivity } from "../model";
 import type { PlayContext } from "../../../gallery/play";
 import { toolErrorLook } from "./toolError.experiment";
+import { openEndedStretch } from "./endedStretchPlay";
 
 const times = (at: number) => ({ startedAt: minutesAgo(at), endedAt: minutesAgo(at - 0.02) });
 
@@ -23,8 +24,13 @@ const shell = (command: string, description: string | undefined, output: string,
     ...times(at),
   });
 
-/// Each call in its own run of a working turn, with the agent's note on it after: a note of two
+/// Each call in its own run of a working chat, with the agent's note on it after: a note of two
 /// paragraphs keeps the runs apart (turns.ts mergeShortNotes), so every call draws as its own row.
+/// The stretch ended with its summary while the chat works on: under the live-turn-work
+/// `line` a stretch still running draws none of its calls, only its notes and the live line
+/// (turns.ts `codexRuns`). The ended stretch folds under its "Worked for" line, which draws its
+/// notes and none of its calls (turnFoldReplies.experiment.ts `replies`): a variant draws its calls
+/// only when its play opens that line (endedStretchPlay.ts), as `long-label` and `exit-opened` do.
 const calls = (prompt: string, entries: [AcpmuxActivity, string][], harness = "claude") =>
   chat(
     [
@@ -33,6 +39,7 @@ const calls = (prompt: string, entries: [AcpmuxActivity, string][], harness = "c
         activity([call], 5.8 - index * 0.4),
         assistant(`${note}\n\nOn to the next step.`, 5.7 - index * 0.4),
       ]),
+      summary(5.7 - entries.length * 0.4, { status: "completed", toolCount: entries.length }),
     ],
     { isWorking: true, harness, model: harness === "codex" ? "gpt-5.5-codex" : "claude-opus-5-5" },
   );
@@ -156,8 +163,128 @@ const mcp = calls("Take a screenshot of the preview and read the inbox", [
   ],
 ]);
 
-/// Opens the traceback's call, to show its raw output under it.
+/// A finished turn whose run of four commands had one fail, as in the "Scheduled check" Leo said
+/// yes to (2026-11-02): opened, the failed step is one plain line, "failed" at its edge, and its
+/// error output waits behind the step's own chevron.
+const ok = (command: string, description: string, at: number) =>
+  tool(command, "execute", "completed", { command, description, output: "ok\n", exitCode: 0, ...times(at) });
+const failedStep = chat(
+  [
+    user("Check the lanes and summarize what is stuck", 6),
+    activity(
+      [
+        ok("acpmux ls --json > /tmp/ls.json", "Check states of my routed lanes", 5.8),
+        shell(
+          "sed -n '/^==== Stuck/,/^====/p' NOW.md | ==== ",
+          "Read NOW.md and summarize stuck lanes",
+          "Exit code 1\n(eval):1: ==== not found",
+          5.6,
+        ),
+        ok("python3 - < summarize.py", "Summarize live lane states", 5.4),
+        ok("python3 - < pending.py", "List live lanes with stuck or pending state", 5.2),
+      ],
+      5.8,
+    ),
+    assistant("One lane is paused on its queue: studio-mac/land-queue. Nothing else is stuck.", 5),
+  ],
+  { harness: "claude", model: "claude-opus-5-5" },
+);
+
+/// Failed calls whose labels are longer than the line: the label takes the ellipsis and the failure
+/// word stays whole after it, as a command's "Failed" does (ToolRow.tsx; cmux#24339 put it inside
+/// the cut words).
+const longLabels = calls("Read the retry notes and the old reference", [
+  [
+    tool(
+      "Read /Users/you/src/atlas-web/packages/network/src/retry/strategies/exponential-backoff/exponential-backoff-with-full-jitter-and-retry-budget.ts",
+      "read",
+      "failed",
+      {
+        output:
+          "<tool_use_error>File does not exist. Current working directory: /Users/you/src/atlas-web</tool_use_error>",
+        ...times(5.8),
+      },
+    ),
+    "That file moved.",
+  ],
+  [
+    tool(
+      "Fetch https://docs.example.com/reference/networking/client-behaviour/retries/exponential-backoff-and-full-jitter-with-retry-budgets",
+      "fetch",
+      "failed",
+      { output: "Request failed with status code 404 Not Found", ...times(5.4) },
+    ),
+    "The old reference is gone.",
+  ],
+  [
+    tool(
+      "Edit packages/network/src/retry/strategies/exponential-backoff/exponential-backoff-with-full-jitter-and-retry-budget.test.ts",
+      "edit",
+      "failed",
+      { output: "The user doesn't want to proceed with this tool use.", ...times(5) },
+    ),
+    "You declined the test edit.",
+  ],
+]);
+
+/// Two runs, a Read's and a command's, each with one failure, opened: the failed Read step and the
+/// failed command step both say "Failed", capitalised alike (conversation.css; cmux#33759
+/// capitalised only the command's).
+const read = (title: string, at: number) =>
+  tool(title, "read", "completed", { output: "# Retry notes\n", ...times(at) });
+const mixedFailedStep = chat(
+  [
+    user("Check the retry notes and run the checks", 6),
+    activity(
+      [
+        read("Read docs/retry.md", 5.9),
+        tool("Read docs/retry-notes.md", "read", "failed", {
+          output: "<tool_use_error>File does not exist.</tool_use_error>",
+          ...times(5.8),
+        }),
+      ],
+      5.9,
+    ),
+    assistant("One of the notes files is missing.\n\nRunning the checks next.", 5.7),
+    activity(
+      [
+        shell("bun test src/net", "Run the network tests", "Exit code 1\n1 fail", 5.4),
+        ok("git status --short", "Check the branch is clean", 5.2),
+      ],
+      5.4,
+    ),
+    assistant("The notes file is missing and one network test fails.", 5),
+  ],
+  { harness: "claude", model: "claude-opus-5-5" },
+);
+
+/// Opens every run's line, whatever it counts, to show their steps.
+const openAnyRun = async (ctx: PlayContext) => {
+  const closed = '.acpmux-row button.cv-tool.is-run[aria-expanded="false"]';
+  await ctx.waitFor(() => ctx.document.querySelector("button.cv-tool.is-run[aria-expanded]"));
+  while (ctx.document.querySelector(closed)) await ctx.click({ selector: closed });
+  await ctx.waitFor(
+    // A failed read is its own row (reads never group since 2026-11-17, readPath.ts); the command's
+    // failure is a step of its opened run.
+    () => ctx.document.querySelectorAll(".acpmux-row .cv-tool__failed, .acpmux-row .cv-command__failed").length >= 2,
+  );
+};
+
+/// Opens the run, to show its steps. A turn with no summary row draws as it came (turns.ts
+/// `shapeTurn`), so this group already starts open: a click then closed it, and the wait raced its
+/// close (it held only while the closing steps were still drawn; the reply under it rose as it shut).
+/// The play clicks only a closed group.
+const openRun = async (ctx: PlayContext) => {
+  const run = ctx.find({ role: "button", name: /Ran 4 commands/ });
+  if (run.getAttribute("aria-expanded") !== "true") await ctx.click({ role: "button", name: /Ran 4 commands/ });
+  await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-steps .cv-command__failed")));
+};
+
+/// Opens the traceback's call, to show its raw output under it. The call failed, so its row never
+/// reads as what it would have done; it reads as the fixture's own description (commandActions.ts
+/// commandSaid), which no label rule rewrites.
 const openTraceback = async (ctx: PlayContext) => {
+  await openEndedStretch(ctx);
   await ctx.click({ role: "button", name: /Check the retry schedule/ });
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__command")));
 };
@@ -172,8 +299,9 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/ToolRow.tsx",
     "agent-session/acpmux/conversation/CommandRow.tsx",
     "agent-session/acpmux/conversation/McpCallRows.tsx",
+    "agent-session/acpmux/conversation/ToolGroupRow.tsx",
   ],
-  keywords: ["error", "failed", "hook", "denied", "exit code", "timeout", "mcp"],
+  keywords: ["error", "failed", "hook", "denied", "exit code", "timeout", "mcp", "step", "group"],
   variants: {
     "claude-code": {
       note: "Claude Code: a hook refusal, Exit code 1 with a traceback, a declined edit, a tool_use_error, a timeout.",
@@ -186,6 +314,21 @@ export default agentPaneEntry({
     mcp: {
       note: "An MCP server's JSON error, an MCP result marked isError, a fetch that got a 404.",
       snapshot: mcp,
+    },
+    "failed-step": {
+      note: 'A run of four commands with one failure, opened: for Codex parity the failure draws no word, count or tint (a screen reader still hears "1 failed" and "failed"), and the step\'s error output ("(eval):1: ==== not found") waits behind its own chevron.',
+      snapshot: failedStep,
+      play: openRun,
+    },
+    "long-label": {
+      note: "Failed calls whose labels run past the line: each label takes the ellipsis to the line's end; the failure word (Failed, Denied) is for screen readers only (Codex parity).",
+      snapshot: longLabels,
+      play: openEndedStretch,
+    },
+    "failed-step-mixed": {
+      note: 'A failed Read (its own row) and a run with a failed command, opened: both say "Failed" to a screen reader and draw no word (Codex parity).',
+      snapshot: mixedFailedStep,
+      play: openAnyRun,
     },
     "exit-opened": {
       note: "The traceback's call opened: the Shell block says Exit code 1 once, under the output.",

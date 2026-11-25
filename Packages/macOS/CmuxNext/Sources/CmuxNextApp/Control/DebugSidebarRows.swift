@@ -29,7 +29,7 @@ enum DebugSidebarRows {
 
     private static func rows(services: AppServices) -> JSONValue {
         // `doc`: the sidebar document path is on, and the mirror's FFI calls so far (two per drag: drag_begin, the drop).
-        .object(["open_tab_favicons": .object(services.openTabFaviconsByOrigin().mapValues(JSONValue.string)), "doc": .object(["active": .bool(SidebarDocStore.current?.isActive == true), "ffi_calls": .object(SidebarMirror.calls.mapValues { .number(Double($0)) })]),
+        .object(["open_tab_favicons": .object(services.openTabFaviconsByOrigin().mapValues(JSONValue.string)), "doc": .object(["active": .bool(services.sidebarDoc.store?.isActive == true), "ffi_calls": .object(SidebarMirror.calls.mapValues { .number(Double($0)) })]),
                  "windows": .array(services.windows.controllers.map { controller in
             var window = controller.sidebar.container.sidebarView.debugReport()
             window["window"] = controller.state.id

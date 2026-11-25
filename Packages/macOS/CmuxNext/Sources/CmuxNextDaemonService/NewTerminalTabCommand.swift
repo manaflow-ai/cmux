@@ -34,9 +34,10 @@ public struct NewTerminalTabCommand: Sendable {
         public let tab: String
         /// Its surface.
         public let surface: SurfaceID
-        /// Sends the request; returns the daemon's tab. Throws ``NewTerminalTabFailure`` when the
-        /// daemon refused it (the stand-in is gone then), ``NewTerminalTabCancelled`` when the
-        /// person closed the stand-in first, and `PaneNotReady` when its pane is still opening (never sent).
+        /// Sends the request; returns the daemon's tab. Throws the request's own failure when it
+        /// failed (the daemon's answer or a lost connection; the stand-in is gone then), ``NewTerminalTabCancelled``
+        /// when the person closed the stand-in first, `PendingPaneNotCreated` when its pane's own create failed (never
+        /// sent), and `PaneNotReady` when the request named another stand-in (never sent).
         public let send: @MainActor () async throws -> SurfaceCreated
     }
 
@@ -55,20 +56,20 @@ public struct NewTerminalTabCommand: Sendable {
         let transaction = ClientTransactionID.generate()
         let pane = pane, sent = options
         let intent = Intent.createTab(pane: pane, provisional: provisional.terminal(terminal, cwd: options.cwd))
-        // The target at send time (as Cmd-D, New Column and New Row): a Ctrl-` pressed on a pending split's stand-in
-        // names the daemon's pane that took it over, never the stand-in (``DaemonStore/daemonTarget(_:)``).
-        let target: @MainActor @Sendable () throws -> PaneID = { try daemon.store.daemonTarget(pane) }
+        // The target at send time (as Cmd-D, New Column and New Row): a Ctrl-` pressed on a stand-in whose create is in
+        // flight (a split's, Cmd-N's first pane) waits for it and names the daemon's pane that took it over, never the
+        // stand-in (``DaemonStore/daemonTarget(_:)``). P0 STATUS 2080: refused there before, no terminal.
+        let target: @MainActor @Sendable () async throws -> PaneID = { try await daemon.store.daemonTarget(pane) }
         let send = daemon.intendNowReporting("new-tab", intent, transaction: transaction) { connection in
             var sent = sent
             if let cwd, let start = await cwd.value { sent.cwd = start }
             return try await connection.newTab(in: try await target(), options: sent)
         }
         return Pending(tab: provisional.id, surface: provisional.surface) {
-            let answer = await send()
-            // A pane still opening (``PaneNotReady``): the real refusal, already shown once where the command ended
-            // (or answered by a capturing caller), never the generic failure on top of it.
-            if case .failure(let notReady as PaneNotReady) = answer { throw notReady }
-            guard case .success(let created) = answer else { throw NewTerminalTabFailure() }
+            // A failure is the real one (the stand-in is gone then): the daemon's own answer, a lost connection, a pane
+            // still opening (``PaneNotReady``) or a stand-in whose create failed (``PendingPaneNotCreated``). FC-1: a
+            // fixed "the daemon refused the new tab" for all of them hid why the first new tab after launch failed.
+            let created = try await send().get()
             ProvisionalTab.created(transaction, surface: created.surface, in: daemon.store)
             guard !daemon.store.creations.wasCancelled(transaction) else { throw NewTerminalTabCancelled() }
             return created
@@ -79,9 +80,4 @@ public struct NewTerminalTabCommand: Sendable {
 /// An optimistic new terminal tab the person closed before the daemon made it (CancelledCreation).
 public struct NewTerminalTabCancelled: Error, CustomStringConvertible {
     public var description: String { "the tab closed before the daemon made it" }
-}
-
-/// An optimistic new terminal tab the daemon refused (the intent log removed the stand-in).
-public struct NewTerminalTabFailure: Error, CustomStringConvertible {
-    public var description: String { "the daemon refused the new tab" }
 }

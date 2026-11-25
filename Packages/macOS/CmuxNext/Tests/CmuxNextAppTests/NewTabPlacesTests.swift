@@ -31,14 +31,14 @@ struct NewTabPlacesTests {
         let build = Self.tab(.pty, title: "cargo build", cwd: Self.home + "/src/cmux")
         let docs = Self.tab(.browser, title: "Vite Guide", url: "https://vite.dev/guide/")
         let chat = Self.tab(.conversation, title: "Fix the flaky upload test", cwd: Self.home + "/src/cmux", session: "ses-1")
-        let workspaces: [NewTabPage.PlaceSource] = [
+        let workspaces: [NewTabPlaces.Source] = [
             .init(id: "w1", name: "workspace-1", tabs: [Self.newTabPage(), Self.tab(.browser, title: "Home", url: "about:blank"), build, docs, chat]),
             .init(id: "w2", name: "workspace-2", tabs: [shell]),
             .init(id: "w7", name: "workspace-7", tabs: [Self.newTabPage()]),
             .init(id: "w8", name: "workspace-8", tabs: [Self.newTabPage(), Self.tab(.pty, title: "zsh", cwd: Self.home + "/src/relay"),
                                                      Self.tab(.browser, title: "", url: "https://github.com/manaflow-ai/cmux/pull/1")]),
         ]
-        let places = NewTabPage.places(workspaces, current: "w1", excluding: nil, home: Self.home)
+        let places = NewTabPlaces(home: Self.home).places(workspaces, current: "w1", excluding: nil)
         #expect(places.tabs.map { "\($0.kind.rawValue) \($0.title) · \($0.detail ?? "-") · \($0.workspace ?? "-")" } == [
             "terminal cargo build · ~/src/cmux · workspace-1",
             "browser Vite Guide · vite.dev/guide · workspace-1",
@@ -60,11 +60,11 @@ struct NewTabPlacesTests {
     /// row now (Switch to tab, its workspace on the line under it), and not the workspace's too.
     @Test func anotherWorkspacesOnlyPlaceIsItsTabNotTheWorkspace() throws {
         let chat = Self.tab(.conversation, title: "Fix the flaky upload test", cwd: Self.home + "/src/cmux", session: "ses-2")
-        let workspaces: [NewTabPage.PlaceSource] = [
+        let workspaces: [NewTabPlaces.Source] = [
             .init(id: "w1", name: "workspace-1", tabs: [Self.newTabPage()]),
             .init(id: "w2", name: "api", tabs: [Self.newTabPage(), chat]),
         ]
-        let places = NewTabPage.places(workspaces, current: "w1", excluding: nil, home: Self.home)
+        let places = NewTabPlaces(home: Self.home).places(workspaces, current: "w1", excluding: nil)
         #expect(places.tabs.count == 1)
         let row = try #require(places.tabs.first)
         #expect(row.id == chat.id, "the row jumps to the chat's tab, not its workspace")

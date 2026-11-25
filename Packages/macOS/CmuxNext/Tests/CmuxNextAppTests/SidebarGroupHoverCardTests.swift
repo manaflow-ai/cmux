@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 import CmuxNextWakeupsTestSupport
 
@@ -8,7 +9,7 @@ import CmuxNextWakeupsTestSupport
 /// card, like summary stuff, and should be fully customizable too." Resting on a sidebar group's
 /// header for the group delay opens the shared group summary card; a shorter rest (a sweep) opens
 /// none, and `sidebar.hoverCards.groups.workspaceGroups` off opens none at all.
-@MainActor @Suite(.serialized) struct SidebarGroupHoverCardTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarGroupHoverCardTests {
     private static let groupID = GroupID("grp-agents")
 
     private static func sidebar(clock: ManualClock) -> (SidebarListView, NSWindow, HoverCardCoordinator, SidebarRow) {
@@ -55,8 +56,9 @@ import CmuxNextWakeupsTestSupport
 
     private static func tearDown(_ list: SidebarListView, _ window: NSWindow, _ coordinator: HoverCardCoordinator) {
         coordinator.dismiss(.action)
+        coordinator.cardWindow?.closeAfterTest()
         window.contentView = nil
-        window.close()
+        window.closeAfterTest()
     }
 
     @Test func restingOnAGroupHeaderShowsItsSummaryCard() async throws {
@@ -104,18 +106,21 @@ import CmuxNextWakeupsTestSupport
         coordinator.endOwned(owned)
     }
 
-    /// "For a while": a group waits its own delay, longer than a row's, so a rest that would open a
-    /// workspace card opens no group card yet.
-    @Test func aGroupWaitsLongerThanARow() async throws {
+    /// Lawrence 2026-11-15 ("consistent between every thing"): a group waits the same Chrome delay as
+    /// a row, no shorter and no longer.
+    @Test func aGroupWaitsTheSameDelayAsARow() async throws {
         let clock = ManualClock()
         let (list, window, coordinator, header) = Self.sidebar(clock: clock)
         defer { Self.tearDown(list, window, coordinator) }
-        try #require(DesignSettings.shared.groupHoverCard.delay > DesignSettings.shared.hoverCardDelay)
+        #expect(DesignSettings.shared.groupHoverCard.delay == DesignSettings.shared.hoverCardDelay)
         Self.rest(list, on: header)
         try await clock.waitForSleeper()
-        clock.advance(by: DesignSettings.shared.hoverCardDelay + .milliseconds(10))
+        clock.advance(by: DesignSettings.shared.hoverCardDelay - .milliseconds(10))
         for _ in 0..<20 { await Task.yield() }
-        #expect(coordinator.machine.shownTarget == nil)
+        #expect(coordinator.machine.shownTarget == nil, "the group card opened before the delay")
+        clock.advance(by: .milliseconds(20))
+        try await Self.settle { coordinator.machine.shownTarget != nil }
+        #expect(coordinator.machine.shownTarget != nil, "no group card after the delay")
     }
 
     @Test func turningGroupCardsOffShowsNone() async throws {

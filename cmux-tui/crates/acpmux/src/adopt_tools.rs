@@ -142,8 +142,17 @@ fn shell_command(command: &Value) -> Option<String> {
 fn codex_command(id: &str, item: &Value, at: Option<u64>) -> Option<PastTool> {
     let script = shell_command(item.get("command")?)?;
     let cwd = s(item, "cwd").map(|cwd| cwd.strip_prefix("file://").unwrap_or(cwd));
-    let actions: Vec<&Value> =
+    let mut actions: Vec<&Value> =
         item.get("parsed_cmd").and_then(Value::as_array).into_iter().flatten().collect();
+    // A name Codex parsed out of a loop keeps its shell variable (`for f in a b; do cat $f;
+    // done` is "read $f"): such a call reads as its command, so a title never shows a `$f` (Leo,
+    // 2026-11-21: "this is not a good enough tool call heading that we have derived").
+    let unexpanded = |a: &&Value| {
+        ["name", "path", "query"].iter().any(|k| s(a, k).is_some_and(|v| v.contains('$')))
+    };
+    if actions.iter().any(unexpanded) {
+        actions.clear();
+    }
     let path = actions.first().and_then(|a| s(a, "path")).map(str::to_owned);
     let (kind, title) = match actions.as_slice() {
         [a] if s(a, "type") == Some("read") => {
@@ -555,11 +564,16 @@ pub fn claude_tool_results(content: &Value, structured: Option<&Value>) -> Vec<T
         .filter(|b| s(b, "type") == Some("tool_result"))
         .filter_map(|block| {
             let failed = block.get("is_error").and_then(Value::as_bool) == Some(true);
+            // Its text, then the images it returned (a Read of a PNG), as a live turn sends them.
+            // What is kept is bounded by the transcript tail adopt reads (`adopt_replay::MAX_BYTES`),
+            // which already holds each image.
+            let mut content = result_text(block.get("content"));
+            content.extend(crate::claude_stdio::result_images(block.get("content")));
             Some(ToolResult {
                 id: s(block, "tool_use_id")?.to_owned(),
                 done: json!({
                     "status": if failed { "failed" } else { "completed" },
-                    "content": result_text(block.get("content")),
+                    "content": content,
                 }),
                 structured: structured.cloned(),
             })
@@ -570,6 +584,21 @@ pub fn claude_tool_results(content: &Value, structured: Option<&Value>) -> Vec<T
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_codex_read_parsed_from_a_loop_never_titles_its_shell_variable() {
+        let item = json!({
+            "command": ["/bin/zsh", "-lc", "for f in a.md b.md; do cat $f; done"],
+            "parsed_cmd": [{"type": "read", "cmd": "cat $f", "name": "$f", "path": "$f"}],
+            "aggregated_output": "x", "exit_code": 0, "status": "completed",
+        });
+        let tool = codex_command("c1", &item, None).unwrap();
+        assert_eq!(tool.call["kind"], "execute");
+        assert_eq!(tool.call["title"], "for f in a.md b.md; do cat $f; done");
+        assert!(tool.call.get("locations").is_none());
+        let plain = json!({"command": "cat a.md", "parsed_cmd": [{"type": "read", "name": "a.md", "path": "a.md"}]});
+        assert_eq!(codex_command("c2", &plain, None).unwrap().call["title"], "Read a.md");
+    }
 
     fn edit(id: &str) -> Value {
         json!([{"type": "tool_use", "id": id, "name": "Edit",
@@ -598,6 +627,24 @@ mod tests {
         assert_eq!(applied.done["status"], "completed");
         assert_eq!(applied.done["content"][0]["type"], "diff", "{}", applied.done);
         assert_eq!(applied.done["content"][0]["newText"], "b");
+    }
+
+    /// An adopted Read of an image keeps the image its result returned, so a reopened chat on
+    /// another machine draws it instead of "Image unavailable".
+    #[test]
+    fn an_adopted_claude_read_keeps_the_image_its_result_returned() {
+        let read = json!([{"type": "tool_use", "id": "r1", "name": "Read",
+                           "input": {"file_path": "/tmp/shot.png"}}]);
+        let [mut tool] = claude_tool_uses(&read, Some(1)).try_into().unwrap();
+        let block = json!([{"type": "tool_result", "tool_use_id": "r1", "content": [
+            {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw0K"}}]}]);
+        let [result] = claude_tool_results(&block, None).try_into().unwrap();
+        tool.settle(&result, Some(2));
+        assert_eq!(tool.done["status"], "completed");
+        assert_eq!(
+            tool.done["content"],
+            json!([{"type": "content", "content": {"type": "image", "mimeType": "image/png", "data": "iVBORw0K"}}])
+        );
     }
 
     fn write(id: &str) -> Value {

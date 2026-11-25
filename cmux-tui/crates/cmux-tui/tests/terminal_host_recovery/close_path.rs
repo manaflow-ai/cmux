@@ -102,6 +102,10 @@ fn batch_close_ends_hosts_without_waiting_for_termination_receipts() {
 /// (run 36951369512). A teardown that waits for each host in turn (the 2 s
 /// receipt wait this test caught) costs tens of seconds.
 const HUNDRED_HOST_TEARDOWN_BOUND_SECS: u64 = 10;
+#[cfg(target_os = "macos")]
+const HUNDRED_HOST_TAIL_BOUND_SECS: u64 = 3;
+#[cfg(not(target_os = "macos"))]
+const HUNDRED_HOST_TAIL_BOUND_SECS: u64 = HUNDRED_HOST_TEARDOWN_BOUND_SECS;
 
 /// A close commits and updates the tree before its host exits, and many
 /// closes end their hosts in parallel instead of one after another.
@@ -176,7 +180,7 @@ fn closing_one_hundred_terminals_updates_the_tree_at_once_and_ends_every_host() 
     // Hosts were signaled as each close committed and end in parallel, so
     // all of them end within the cost of ending 100 hosts at once.
     assert!(
-        hosts_in < closed_in + test_timeout(Duration::from_secs(HUNDRED_HOST_TEARDOWN_BOUND_SECS)),
+        hosts_in < closed_in + test_timeout(Duration::from_secs(HUNDRED_HOST_TAIL_BOUND_SECS)),
         "host exits trailed the last close by {:?}",
         hosts_in.saturating_sub(closed_in)
     );

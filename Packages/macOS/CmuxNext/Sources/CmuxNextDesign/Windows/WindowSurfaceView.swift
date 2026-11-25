@@ -18,9 +18,9 @@ public final class WindowSurfaceView: NSView, WindowSurfacePainting {
     /// - Parameter activeLook: The app's ``ActiveLookScope`` (made once by `AppServices`): the
     ///   backdrop's glass keeps its key look while the window is not key; nil follows the key state.
     public init(content: NSView, activeLook: ActiveLookScope?,
-                reduceTransparency: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency }) {
+                reduceTransparency: @escaping @MainActor () -> Bool = { ReduceTransparency.shared.isEnabled }) {
         self.content = content
-        backdropView = WindowMaterialView(frame: .zero, images: .shared, activeLook: activeLook)
+        backdropView = WindowMaterialView(frame: .zero, images: .shared, activeLook: activeLook, fillsWindow: true)
         self.reduceTransparency = reduceTransparency
         super.init(frame: content.frame.size == .zero ? NSRect(x: 0, y: 0, width: 480, height: 320) : NSRect(origin: .zero, size: content.frame.size))
         wantsLayer = true

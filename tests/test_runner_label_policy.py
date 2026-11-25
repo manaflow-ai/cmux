@@ -14,6 +14,7 @@ days because nothing reads variable values.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import sys
@@ -192,7 +193,12 @@ class DriftReportingOverVariables(unittest.TestCase):
 HEALTH_REPORT_WORKFLOW = ROOT / ".github" / "workflows" / "ci-health-report.yml"
 # RUNNER_POOLS is a JSON map of pool -> label, read as fromJSON(vars.RUNNER_POOLS).<pool>; its labels are
 # checked by runner_pools.py --check on main, which writes it (as main's copy of this test says).
-NON_LABEL_RUNNER_VARIABLES = {"CI_SEED_KEEP_LOCAL_RUNNERS", "RUNNER_POOLS"}
+# CI_RUNNER_STATE is an encoded observation, never a runs-on label.
+NON_LABEL_RUNNER_VARIABLES = {"CI_SEED_KEEP_LOCAL_RUNNERS", "RUNNER_POOLS", "CI_RUNNER_STATE"}
+# Read only by fork pull requests' operand of the one Linux label (scripts/ci/one_linux_label.py), unset means
+# GitHub-hosted Ubuntu, so it can never route a same-repo job. The report and the variable check are scheduled and
+# run main's copy (the prepush gate's Main-Twin rule), so this branch's copy cannot add it there.
+FORK_ONLY_RUNNER_VARIABLES = {"CI_FORK_LINUX_RUNNER"}
 
 
 def reported_runner_variables() -> set[str]:
@@ -205,23 +211,116 @@ class TheReportSeesEveryRunnerVariable(unittest.TestCase):
         # The report is passed an explicit list rather than toJSON(vars), which
         # would print every repository variable in a public step log. A list
         # can fall behind; this is what keeps it complete.
-        # These hold runner names matched against runner.name, not a runs-on
-        # label, so the label policy does not apply to them.
+        # Explicit non-label values hold structured state or configuration,
+        # so scalar runs-on label reporting does not apply to them.
         read = set()
         for path in (ROOT / ".github" / "workflows").glob("*.y*ml"):
             read |= {
                 name
                 for name in re.findall(r"vars\.([A-Z0-9_]*RUNNER[A-Z0-9_]*)", path.read_text(encoding="utf-8"))
-                if name not in NON_LABEL_RUNNER_VARIABLES
+                if name not in NON_LABEL_RUNNER_VARIABLES and name not in FORK_ONLY_RUNNER_VARIABLES
             }
         self.assertTrue(read)
         missing = read - reported_runner_variables()
         self.assertEqual(
             missing,
             set(),
-            f"add to CMUX_CI_RUNNER_VARIABLES in {HEALTH_REPORT_WORKFLOW.name} and ci-repo-variables.yml when it "
-            "is a runs-on label, or to NON_LABEL_RUNNER_VARIABLES here when it holds runner names",
+            f"add to CMUX_CI_RUNNER_VARIABLES in {HEALTH_REPORT_WORKFLOW.name} when it "
+            "is a runs-on label, or to NON_LABEL_RUNNER_VARIABLES here when it is not a label",
         )
+
+
+class RunnerPoolsVariable(unittest.TestCase):
+    def test_json_pool_members_reject_hosted_macs_and_fleet_labels(self) -> None:
+        for value in (
+            '{"macos_26":"macos-26"}',
+            '{"linux":"glaeda-std-xcode-26.6"}',
+            '{"linux":"self-hosted"}',
+            '{"linux":["self-hosted","Linux"]}',
+            '{"linux":"macOS"}',
+        ):
+            with self.subTest(value=value):
+                self.assertEqual([name for name, _, _ in drifted_runner_variables({"RUNNER_POOLS": value})],
+                                 ["RUNNER_POOLS"])
+
+    def test_json_pool_members_allow_trusted_blacksmith_labels_and_metadata(self) -> None:
+        value = '{"linux":"blacksmith-16vcpu-ubuntu-2404","macos_26":"blacksmith-6vcpu-macos-26","_dead":{"x":"2026-11-01T00:00:00Z"}}'
+        self.assertEqual(drifted_runner_variables({"RUNNER_POOLS": value}), [])
+        self.assertEqual(drifted_runner_variables({"RUNNER_POOLS": ""}), [])
+
+    def test_nested_pool_values_reject_all_hosted_mac_variants(self) -> None:
+        for label in ("macos-15", "macos-latest", "macos-15-xlarge", "MACOS-15"):
+            value = json.dumps({"mac": {"labels": ["blacksmith-6vcpu-macos-26", {"runner": label}]}})
+            with self.subTest(label=label):
+                self.assertEqual(
+                    [name for name, _, _ in drifted_runner_variables({"RUNNER_POOLS": value})],
+                    ["RUNNER_POOLS"],
+                )
+
+    def test_nested_valid_pool_values_and_blanks_are_allowed(self) -> None:
+        value = json.dumps({
+            "linux": ["", {"label": "blacksmith-32vcpu-ubuntu-2404"}],
+            "mac": {"labels": ["blacksmith-6vcpu-macos-26", {"note": "macos-15 is documentation"}]},
+            "_dead": {"macos": "macos-15"},
+        })
+        self.assertEqual(drifted_runner_variables({"RUNNER_POOLS": value}), [])
+
+    def test_nested_metadata_keys_other_than_dead_are_checked(self) -> None:
+        value = json.dumps({"mac": {"_labels": ["macos-15"]}})
+        self.assertEqual(
+            [name for name, _, _ in drifted_runner_variables({"RUNNER_POOLS": value})],
+            ["RUNNER_POOLS"],
+        )
+
+    def test_non_string_pool_members_are_rejected(self) -> None:
+        for value in ('{"linux":null}', '{"linux":false}', '{"linux":[0]}'):
+            with self.subTest(value=value):
+                self.assertEqual(
+                    [name for name, _, _ in drifted_runner_variables({"RUNNER_POOLS": value})],
+                    ["RUNNER_POOLS"],
+                )
+
+    def test_the_expected_wait_verdict_is_metadata(self) -> None:
+        # scripts/ci/expected_wait.py's `_admission` (label -> counts) and `hosted_saturated` (cmuxterm-hq#16113).
+        value = json.dumps({"linux": "blacksmith-4vcpu-ubuntu-2404", "hosted_saturated": True,
+                            "_admission": {"at": "2026-11-20T18:00:00Z", "target_s": 300,
+                                           "pools": {"ubuntu-24.04": {"queued": 400, "running": 20, "slots": 20,
+                                                                      "p50_s": 240, "wait_s": 5040,
+                                                                      "saturated": True}}}})
+        self.assertEqual(drifted_runner_variables({"RUNNER_POOLS": value}), [])
+
+    def test_hosted_saturated_is_true_false_or_a_time(self) -> None:
+        # The deployed spill writes the time it marked hosted saturated; expected_wait.py writes true or false.
+        for flag in ("true", "false", '"2026-11-21T00:02:24Z"'):
+            with self.subTest(flag=flag):
+                value = '{"linux":"blacksmith-4vcpu-ubuntu-2404","hosted_saturated":' + flag + "}"
+                self.assertEqual(drifted_runner_variables({"RUNNER_POOLS": value}), [])
+        for flag in ('"yes"', "1", "null", '"ubuntu-24.04"', '"2026-11-21T00:02:24"'):
+            with self.subTest(flag=flag):
+                value = '{"linux":"blacksmith-4vcpu-ubuntu-2404","hosted_saturated":' + flag + "}"
+                self.assertEqual([name for name, _, _ in drifted_runner_variables({"RUNNER_POOLS": value})],
+                                 ["RUNNER_POOLS"])
+
+    def test_spill_updated_and_raw_home_are_metadata_with_their_labels_checked(self) -> None:
+        # linux_pool_spill.py's `_spill` keeps an integer `running`; main's `_raw_home` holds {home, to} labels.
+        value = json.dumps({
+            "linux": "blacksmith-16vcpu-ubuntu-2404", "_updated": "2026-11-21T00:02:24Z",
+            "_spill": {"linux": {"from": "blacksmith-4vcpu-ubuntu-2404", "to": "blacksmith-16vcpu-ubuntu-2404",
+                                 "since": "2026-11-21T00:00:00Z", "running": 12}},
+            "_raw_home": {"LINUX_RUNNER": {"home": "blacksmith-4vcpu-ubuntu-2404",
+                                           "to": "blacksmith-16vcpu-ubuntu-2404"}}})
+        self.assertEqual(drifted_runner_variables({"RUNNER_POOLS": value}), [])
+        for bad in ({"_spill": {"linux": {"from": "blacksmith-4vcpu-ubuntu-2404", "to": "macos-15", "running": 1}}},
+                    {"_raw_home": {"LINUX_RUNNER": {"home": "macos-15", "to": "blacksmith-4vcpu-ubuntu-2404"}}},
+                    {"_spill": ["blacksmith-4vcpu-ubuntu-2404"]}, {"_spill": {"linux": 3}}):
+            with self.subTest(bad=bad):
+                value = json.dumps({"linux": "blacksmith-4vcpu-ubuntu-2404", **bad})
+                self.assertEqual([name for name, _, _ in drifted_runner_variables({"RUNNER_POOLS": value})],
+                                 ["RUNNER_POOLS"])
+
+    def test_invalid_pool_json_fails_closed(self) -> None:
+        self.assertEqual([name for name, _, _ in drifted_runner_variables({"RUNNER_POOLS": "not-json"})],
+                         ["RUNNER_POOLS"])
 
 
 class NightlyNextBuildVariable(unittest.TestCase):
@@ -233,6 +332,23 @@ class NightlyNextBuildVariable(unittest.TestCase):
                 self.assertEqual(drifted_runner_variables({name: label}), [])
         for label in ("glaeda-std-xcode-26.6", "glaeda-runner-cmux7s-mac-mini-nightly-next", "self-hosted",
                       "glaeda-nightly-nonsense", "glaeda-nightly-std"):
+            with self.subTest(label=label):
+                self.assertTrue(drifted_runner_variables({name: label}))
+
+
+class NightlySigningPoolVariable(unittest.TestCase):
+    def test_only_the_signers_label_is_allowed(self) -> None:
+        for name in ("CI_NIGHTLY_SIGNING_POOL", "CI_NIGHTLY_SIGN_RUNNER"):
+            with self.subTest(name=name):
+                self.only_the_signer(name)
+
+    def only_the_signer(self, name: str) -> None:
+        for label in ("glaeda-trusted-next-signing", ""):
+            with self.subTest(label=label):
+                self.assertEqual(drifted_runner_variables({name: label}), [])
+        for label in ("glaeda-nightly-std-xcode-26.6", "glaeda-side-std-xcode-26.6", "glaeda-std-xcode-26.6",
+                      "blacksmith-6vcpu-macos-26", "glaeda-signing-xcode-26.6", "glaeda-trusted-std-xcode-26.6",
+                      "glaeda-root-std-xcode-26.6", "glaeda-nightly-only-m4pro", "glaeda-trusted-next-signing self-hosted"):
             with self.subTest(label=label):
                 self.assertTrue(drifted_runner_variables({name: label}))
 
@@ -329,7 +445,7 @@ class TrustedPoolVariable(unittest.TestCase):
         self.assertTrue(drifted_runner_variables({"MACOS_RUNNER_26_LARGE": "glaeda-trusted-std-xcode-26.6"}))
 
     def test_the_reports_check_it(self) -> None:
-        for workflow in ("ci-health-report.yml", "ci-repo-variables.yml"):
+        for workflow in ("ci-health-report.yml",):
             text = (ROOT / ".github" / "workflows" / workflow).read_text(encoding="utf-8")
             self.assertIn("CI_SEED_TRUSTED_POOL=${{ vars.CI_SEED_TRUSTED_POOL }}", text, workflow)
             self.assertIn("CI_NIGHTLY_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_TRUSTED_RUNNER }}", text, workflow)
@@ -349,11 +465,12 @@ class NightlyRunnerVariable(unittest.TestCase):
                 )
         self.assertTrue(drifted_runner_variables({"MACOS_RUNNER_26_LARGE": "glaeda-runner-cmux15-glaeda"}))
 
-    def test_nightly_no_longer_asks_for_a_single_trusted_runner(self) -> None:
+    def test_nightly_uses_the_next_trusted_pair_only_through_the_picker(self) -> None:
         text = (ROOT / ".github/workflows/nightly.yml").read_text(encoding="utf-8")
         self.assertIn("vars.CI_SIDE_LANE_RUNNER", text)
         self.assertNotIn("vars.CI_NIGHTLY_TRUSTED_RUNNER", text)
-        self.assertNotIn("vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER", text)
+        self.assertIn("vars.CI_NIGHTLY_NEXT_TRUSTED_POOL", text)
+        self.assertIn("vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER", text)
 
 
 

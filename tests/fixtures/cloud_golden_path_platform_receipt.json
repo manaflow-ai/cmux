@@ -1,0 +1,93 @@
+{
+  "version": 1,
+  "probeId": "3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a6b",
+  "startedAt": "2026-11-06T21:04:10.003Z",
+  "endedAt": "2026-11-06T21:04:19.503Z",
+  "outcome": "failed",
+  "machineId": "vm_q7x2m9k4p1z8w3n6r5t0",
+  "stages": [
+    {
+      "stage": "machine",
+      "requestId": "3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a6b:machine",
+      "startedAt": "2026-11-06T21:04:10.004Z",
+      "endedAt": "2026-11-06T21:04:10.391Z",
+      "ok": true,
+      "value": {
+        "machineId": "vm_q7x2m9k4p1z8w3n6r5t0",
+        "workspace": "start-matrix-golden-path",
+        "created": false
+      }
+    },
+    {
+      "stage": "folder",
+      "requestId": "3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a6b:folder",
+      "startedAt": "2026-11-06T21:04:10.391Z",
+      "endedAt": "2026-11-06T21:04:10.391Z",
+      "ok": true,
+      "value": {
+        "workspace": "start-matrix-golden-path"
+      }
+    },
+    {
+      "stage": "readiness",
+      "requestId": "3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a6b:readiness",
+      "startedAt": "2026-11-06T21:04:10.392Z",
+      "endedAt": "2026-11-06T21:04:10.640Z",
+      "ok": true,
+      "value": {
+        "state": "running"
+      }
+    },
+    {
+      "stage": "lease",
+      "requestId": "3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a6b:lease",
+      "startedAt": "2026-11-06T21:04:10.640Z",
+      "endedAt": "2026-11-06T21:04:10.852Z",
+      "ok": true,
+      "value": {
+        "machineId": "vm_q7x2m9k4p1z8w3n6r5t0",
+        "connectionMachine": "vm_q7x2m9k4p1z8w3n6r5t0",
+        "generation": 0
+      }
+    },
+    {
+      "stage": "auth",
+      "requestId": "3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a6b:auth",
+      "startedAt": "2026-11-06T21:04:10.852Z",
+      "endedAt": "2026-11-06T21:04:10.940Z",
+      "ok": true,
+      "value": {
+        "allowed": true
+      }
+    },
+    {
+      "stage": "chat",
+      "requestId": "3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a6b:chat",
+      "startedAt": "2026-11-06T21:04:10.940Z",
+      "endedAt": "2026-11-06T21:04:19.502Z",
+      "ok": true,
+      "value": {
+        "events": 3,
+        "final": "done"
+      }
+    },
+    {
+      "stage": "reconnect",
+      "requestId": "3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a6b:reconnect",
+      "startedAt": "2026-11-06T21:04:19.502Z",
+      "endedAt": "2026-11-06T21:04:19.502Z",
+      "ok": false,
+      "failure": {
+        "code": "reconnect.not_observable",
+        "message": "no owner-visible route reports whether the machine's relay host socket was dialed again (MachineRelay keeps a paused machine's socket until HOST_STALE_MS and names no socket to a chat)",
+        "retryable": false
+      }
+    }
+  ],
+  "failure": {
+    "code": "reconnect.not_observable",
+    "message": "no owner-visible route reports whether the machine's relay host socket was dialed again (MachineRelay keeps a paused machine's socket until HOST_STALE_MS and names no socket to a chat)",
+    "retryable": false,
+    "stage": "reconnect"
+  }
+}

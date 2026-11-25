@@ -21,8 +21,12 @@ import Testing
     function fire(type, target) { (listeners[type] || []).forEach(function (f) { f({ type: type, target: target }); }); runTimeouts(); }
     var window = this, top = this, frames = { length: 0 }, navigator = {}, location = { href: 'https://example.com/' };
     var media = [];
+    // The observer asks the page world's hidden-sound recorder with a document event; no recorder
+    // runs here, so nothing answers: no sound outside the document.
+    function CustomEvent(type, init) { this.type = type; this.detail = init ? init.detail : null; }
     var document = {
       title: 'A page', pictureInPictureElement: null, visibilityState: 'visible', addEventListener: function () {},
+      dispatchEvent: function () { return true; },
       querySelectorAll: function (s) { return /video|audio/.test(s) ? media : []; },
     };
     function video(playing) {
@@ -108,6 +112,21 @@ import Testing
         #expect(Self.posts(context) == 3)
         #expect(context.evaluateScript("lastReport() === null").toBool())
         #expect(context.evaluateScript("observers.length").toInt32() == 0)
+    }
+
+    /// https://github.com/manaflow-ai/cmux/issues/51079: a paused session keeps a hidden page from its freeze, so a
+    /// paused element the page removed while hidden (no event, no show) kept the page awake for good. The freeze
+    /// probe asks first (`cmux-media-recheck`), and the stale report goes before the probe reads it.
+    @Test func theFreezeProbesRecheckDropsAPausedElementThePageRemoved() throws {
+        let context = try Self.context()
+        context.evaluateScript("var v = video(true); media = [v]; fire('play', v); v.paused = true; fire('pause', v);")
+        #expect(Self.posts(context) == 2)
+        context.evaluateScript("fire('cmux-media-recheck', document);")
+        #expect(Self.posts(context) == 2, "a recheck with the element still there sent a report")
+        context.evaluateScript("media = []; v.isConnected = false; document.visibilityState = 'hidden'; fire('cmux-media-recheck', document);")
+        #expect(Self.posts(context) == 3)
+        #expect(context.evaluateScript("lastReport() === null").toBool())
+        #expect(Self.timers(context) == 0)
     }
 
     /// A frame whose binding never comes (an iframe made after the last binding add) stops

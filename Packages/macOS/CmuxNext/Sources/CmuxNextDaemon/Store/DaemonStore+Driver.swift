@@ -30,6 +30,10 @@ final class EventInbox: Sendable {
         /// Events replaced by a newer one since creation (debug).
         var coalesced = 0
         var framePending = false
+        /// Includes events a collapsed inbox discarded because the next tree snapshot covers them.
+        var receivedThrough: UInt64 = 0
+        /// Only batches taken for synchronous application may be acknowledged by a snapshot.
+        var takenThrough: UInt64 = 0
         /// Set once the buffer collapsed; cleared by `take()`.
         var collapsed = false
         var echoes: Set<ClientTransactionID> = []
@@ -48,6 +52,7 @@ final class EventInbox: Sendable {
     /// Returns true when the caller must schedule a frame.
     func append(_ envelope: DaemonEventEnvelope) -> Bool {
         state.withLock { state in
+            state.receivedThrough = max(state.receivedThrough, envelope.sequence)
             if state.collapsed {
                 Self.keep(envelope, in: &state)
             } else if let key = CoalesceKey(envelope.event), let old = state.latest[key] {
@@ -85,7 +90,7 @@ final class EventInbox: Sendable {
     /// (as a `tree-changed` carrying it), drop the rest.
     private static func keep(_ envelope: DaemonEventEnvelope, in state: inout State) {
         switch envelope.event {
-        case .connected, .disconnected, .daemonShutdown, .sessionState:
+        case .connected, .disconnected, .daemonShutdown, .sessionState, .screenDeviceChanged:
             // Session state: not in the snapshot the collapse refetches.
             state.append(envelope)
         case .terminalRegistryChanged:
@@ -121,17 +126,30 @@ final class EventInbox: Sendable {
         }
     }
 
-    /// Takes everything buffered and clears the pending-frame flag.
+    /// The event frontier already handed to the store, excluding buffered or pump-delayed events.
+    var takenThrough: UInt64 { state.withLock { $0.takenThrough } }
+
+    /// Everything buffered, left in the buffer (``DaemonStore/eventHold``).
+    func peek() -> [DaemonEventEnvelope] {
+        state.withLock { $0.events.compactMap { $0 } }
+    }
+
+    /// Takes everything buffered and clears the pending-frame flag. The lock is held for a swap of the buffer only:
+    /// the holes coalescing left are dropped after it, so the pump never waits on the main thread copying and
+    /// destroying a 4,096-event batch inside the lock (hq#8685: a hang in `drain` there).
     func take() -> [DaemonEventEnvelope] {
-        state.withLock { state in
+        let events = state.withLock { state -> [DaemonEventEnvelope?] in
             state.framePending = false
+            state.takenThrough = state.receivedThrough
             state.collapsed = false
             state.echoes.removeAll(keepingCapacity: true)
             state.latest.removeAll(keepingCapacity: true)
             state.live = 0
-            defer { state.events.removeAll(keepingCapacity: true) }
-            return state.events.compactMap { $0 }
+            var events: [DaemonEventEnvelope?] = []
+            swap(&events, &state.events)
+            return events
         }
+        return events.compactMap { $0 }
     }
 
     /// Keeps new events from scheduling frames (during a resync).
@@ -207,6 +225,8 @@ extension DaemonStore {
     /// and a snapshot applies only what differs (DaemonStore+SnapshotDiff.swift).
     func drain() {
         guard let driver, !isResyncing else { return }
+        // Held (a test's late daemon): the frame flag stays set, so no new event asks for a frame until the release.
+        if let eventHold, eventHold(driver.inbox.peek()) { return }
         let batch = driver.inbox.take()
         guard !batch.isEmpty else { return }
         let connected = batch.contains { if case .connected = $0.event { true } else { false } }
@@ -218,6 +238,12 @@ extension DaemonStore {
         } else if followup == .personal {
             refetchPersonal()
         }
+    }
+
+    /// Ends ``eventHold`` and applies what it held, in this turn.
+    public func releaseHeldEvents() {
+        eventHold = nil
+        drain()
     }
 
     /// Fetches `list-personal` alone and applies it (`personal-changed`: a group's fold, a room
@@ -277,10 +303,23 @@ extension DaemonStore {
                 let diff = await snapshotDiff(of: tree)
                 apply(snapshot: tree, diff: diff)
                 snapshotBarrier = max(snapshotBarrier, barrier)
-                snapshotCoveredPersonal(through: barrier)
-                advanceAppliedSequence(to: barrier)
+                // The tree holds no session/sidebar state. Its transport barrier may include events
+                // still in the inbox or its pump; only events the store took are safe to acknowledge.
+                // Keep snapshotBarrier above uncapped: it still supersedes their tree deltas.
+                let consumed = min(barrier, driver.inbox.takenThrough)
+                snapshotCoveredPersonal(through: consumed)
+                advanceAppliedSequence(to: consumed)
                 resyncPacer.reset()
-                if seedAgents { apply(agents: try await driver.connection.agents()) }
+                if seedAgents {
+                    do {
+                        apply(agents: try await driver.connection.agents())
+                    } catch let error as DaemonError where error.isRemoteDenied {
+                        // The link refuses this read for good (a Cloud machine's Native carrier
+                        // serves no `list-agents`): the tree stands, and asking again only refuses
+                        // again. Not a failed resync, so no retry loop (566 refusals in 30 min).
+                        logger.info("resync: \(DaemonError.remoteDeniedCode, privacy: .public) for list-agents; agent rows come from events")
+                    }
+                }
             } catch {
                 logger.error("resync failed: \(String(describing: error), privacy: .public)")
                 failed = true

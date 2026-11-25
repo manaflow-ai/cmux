@@ -37,7 +37,14 @@ public final class LaunchReveal {
     /// The deadlines of regions made after the window (`LaunchRegion.hasOwnDeadline`).
     @ObservationIgnored private var ownDeadlines: [LaunchRegion: DemandTimer] = [:]
     @ObservationIgnored private let clock: any Clock<Duration>
+    /// Regions shown by their deadline, not their data (the launch marks' `reveal.<region>.by_deadline`).
+    @ObservationIgnored public private(set) var shownByDeadline: Set<LaunchRegion> = []
     @ObservationIgnored private let deadline: Duration
+    /// The launch's first window frame (the app's `FirstFrameGate`), for a region's view that holds its
+    /// own launch work until after it (``FirstFrameHold``). nil: no gate (tests), that work runs at once.
+    @ObservationIgnored public var firstFrame: FirstFrameGate?
+    /// The pending waits of ``whenReady(_:orAfter:_:)``, by timer; each leaves at its region's ready or its fire.
+    @ObservationIgnored private var waits: [ObjectIdentifier: DemandTimer] = [:]
 
     /// - Parameter deadline: How long after the first `hold` every region
     ///   shows anyway.
@@ -62,22 +69,41 @@ public final class LaunchReveal {
         table.add(view)
         guard region.hasOwnDeadline else {
             deadlineTimer.scheduleIfIdle(after: deadline) { @MainActor [weak self] in
-                for region in LaunchRegion.allCases where !region.hasOwnDeadline { self?.markReady(region) }
+                for region in LaunchRegion.allCases where !region.hasOwnDeadline { self?.expire(region) }
             }
             return
         }
         let timer = ownDeadlines[region] ?? DemandTimer(owner: "launch.reveal-deadline.\(region.rawValue)", clock: clock)
         ownDeadlines[region] = timer
         if alone {
-            timer.schedule(after: deadline) { @MainActor [weak self] in self?.markReady(region) }
+            timer.schedule(after: deadline) { @MainActor [weak self] in self?.expire(region) }
         } else {
-            timer.scheduleIfIdle(after: deadline) { @MainActor [weak self] in self?.markReady(region) }
+            timer.scheduleIfIdle(after: deadline) { @MainActor [weak self] in self?.expire(region) }
         }
     }
 
     /// Runs `work` once `region` is ready (at once when it is).
     public func whenReady(_ region: LaunchRegion, _ work: @escaping @MainActor () -> Void) {
         if isReady(region) { work() } else { waiters[region, default: []].append(work) }
+    }
+
+    /// Runs `ready` once the sidebar, the tab strips and the panes all show their content: when the
+    /// real launch window may swap in over stage 0 (LaunchShellContent.contentReady).
+    public func whenContentReady(_ ready: @escaping @MainActor () -> Void) {
+        whenReady(.sidebar) { [weak self] in self?.whenReady(.tabs) { self?.whenReady(.pane) { ready() } } }
+    }
+
+    /// Runs `work` once: when `region` is ready, or `wait` from now when it is not by then. A region
+    /// nothing holds never becomes ready (Home, when every window restores another workspace: no
+    /// hold, so no deadline), so work that must run every launch waits for it with this.
+    public func whenReady(_ region: LaunchRegion, orAfter wait: Duration, _ work: @escaping @MainActor () -> Void) {
+        guard !isReady(region) else { return work() }
+        let once = RunOnce(work)
+        let timer = DemandTimer(owner: "launch.reveal-wait.\(region.rawValue)", clock: clock)
+        let id = ObjectIdentifier(timer)
+        waits[id] = timer
+        waiters[region, default: []].append { [weak self] in self?.waits.removeValue(forKey: id)?.cancel(); once.run() }
+        timer.schedule(after: wait) { @MainActor [weak self] in self?.waits.removeValue(forKey: id); once.run() }
     }
 
     /// `region`'s data arrived: its held views fade in. Later calls do nothing.
@@ -94,6 +120,12 @@ public final class LaunchReveal {
         for work in waiters.removeValue(forKey: region) ?? [] { work() }
     }
 
+    /// The deadline passed with `region`'s data still missing: it shows anyway.
+    private func expire(_ region: LaunchRegion) {
+        if !isReady(region) { shownByDeadline.insert(region) }
+        markReady(region)
+    }
+
     /// `view` has its data before its region (a terminal's frame from the last quit): it shows at
     /// once, with no fade, while the region's other views stay held.
     public func release(_ view: NSView) {
@@ -107,5 +139,19 @@ public final class LaunchReveal {
         deadlineTimer.cancel()
         for timer in ownDeadlines.values { timer.cancel() }
         for region in LaunchRegion.allCases { markReady(region) }
+    }
+}
+
+/// Work that runs at most once, whichever of its callers comes first (``LaunchReveal/whenReady(_:orAfter:_:)``).
+@MainActor
+private final class RunOnce {
+    private var work: (@MainActor () -> Void)?
+
+    init(_ work: @escaping @MainActor () -> Void) { self.work = work }
+
+    func run() {
+        let work = self.work
+        self.work = nil
+        work?()
     }
 }

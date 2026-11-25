@@ -31,6 +31,7 @@ struct PinDragMotionTests {
                                         unreadCount: 0, pinned: i == 0)
             }
             window.contentView = view
+            view.animates = true  // this suite tests the motion itself (off by default, msg 20105)
             view.onPlacePinned = { [unowned self] id, index in
                 pinned.removeAll { $0 == id }
                 pinned.insert(id, at: min(index, pinned.count))

@@ -1,3 +1,4 @@
+public import CmuxNextAgentIntegrations
 public import AppKit
 public import CmuxNextBrowserImport
 public import Foundation
@@ -96,4 +97,8 @@ public final class MockOnboardingServices: OnboardingServices {
     public func earlierImportTargets() async -> [String: String] { earlierTargets }
 
     public var computerUsePermissions: (any ComputerUsePermissionSource)? { computerUseSource }
+
+    /// The Agents step's source; nil: this build has no acpmux.
+    public var agentSource: MockAgentSignInSource?
+    public var agentSignIns: (any AgentSignInSource)? { agentSource }
 }

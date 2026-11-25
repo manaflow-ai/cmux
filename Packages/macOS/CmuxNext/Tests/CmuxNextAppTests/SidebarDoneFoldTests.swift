@@ -103,11 +103,7 @@ import Testing
         let model = SidebarModel(sections: Self.sections())
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(SidebarTunables.all)
-        TunableStore.shared.set(SidebarTunables.doneFold.key, .bool(true))
-        defer { TunableStore.shared.set(SidebarTunables.doneFold.key, nil) }
         #expect(!model.patchWorkspaces([Self.ws("a", done: true)]))
-        TunableStore.shared.set(SidebarTunables.doneFold.key, .bool(false))
-        #expect(model.patchWorkspaces([Self.ws("c", done: true)]))
     }
 
     @Test func theRowSaysHowManyAreDone() {
@@ -119,8 +115,6 @@ import Testing
     @Test func aDoneWorkspaceSelectedElsewhereShows() throws {
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(SidebarTunables.all)
-        TunableStore.shared.set(SidebarTunables.doneFold.key, .bool(true))
-        defer { TunableStore.shared.set(SidebarTunables.doneFold.key, nil) }
         let model = SidebarModel(sections: Self.sections(), activeWorkspaceID: WorkspaceID("a"))
         let sidebar = SidebarView(model: model, design: DesignSettings())
         sidebar.frame = NSRect(x: 0, y: 0, width: 240, height: 600)

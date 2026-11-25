@@ -6,9 +6,13 @@
 # cmux-next path routing past its 10-minute limit (2026-10-27).
 # No network: origin is a local bare repo, the CDN and the GitHub API are stubs.
 set -euo pipefail
+# Name the line of any other command that ends the test (set -e exits silently).
+trap 'rc=$?; printf "%s: line %d exited %d\n" "$0" "$LINENO" "$rc" >&2' ERR
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
-git_q() { git -c user.name=t -c user.email=t@example.com -c init.defaultBranch=main "$@" >/dev/null 2>&1; }
+# git_q, and no background git maintenance in the scratch repositories.
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"
 fail() { printf '%s\n' "$1" >&2; [[ -n "${2:-}" ]] && printf 'output:\n%s\n' "$2" >&2; exit 1; }
 
 git_q init "$TMP/src"
@@ -22,7 +26,7 @@ echo base > "$TMP/src/cmux-tui/a"
 git_q -C "$TMP/src" add -A
 git_q -C "$TMP/src" commit -m base
 git_q -C "$TMP/src" branch -M feat-cmux-next
-git_q clone --bare "$TMP/src" "$TMP/origin.git"
+git_fixture_clone --bare "$TMP/src" "$TMP/origin.git"
 git -C "$TMP/origin.git" config uploadpack.allowFilter true
 
 # Lane branches, each with its own cmux-tui tree, and one commit on another
@@ -54,7 +58,8 @@ done
 
 # A git shim logs every fetch; SLOW_FETCH makes each fetch hang.
 mkdir -p "$TMP/bin"
-real_git=$(command -v git)
+# The git binary, never a wrapper on PATH that would exec this shim again (tests/real_git.py).
+real_git=$(python3 "$ROOT/tests/real_git.py") || exit 2
 cat > "$TMP/bin/git" <<SHIM
 #!/usr/bin/env bash
 for arg; do

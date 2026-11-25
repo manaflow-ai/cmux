@@ -6,7 +6,7 @@ the fix:
 
   workflow    a .github workflow or action file that does not parse as YAML, or a workflow in which
               the local actionlint finds a problem the HEAD version of the file does not have
-  test-reg    a new (untracked) tests/test_*.py with no tests/test-execution.toml entry (CI's registry check
+  test-reg    a new (untracked) tests/test_*.py with no tests/test-execution.d/ entry (CI's registry check
               fails the pull request that adds an unregistered test)
   god-file    a CmuxNext Swift or cmux-tui Rust file that grew in lines against HEAD and that
               scripts/cmux-next/check-no-godfiles.sh, run on that file with CI's 20% warning slack,
@@ -45,7 +45,8 @@ GOD_FILE = re.compile(r"^(?:Packages/macOS/CmuxNext/(?:Sources|Tests)/.+\.swift|
 GOD_FILE_SCRIPT = "scripts/cmux-next/check-no-godfiles.sh"
 # check-no-godfiles.sh lines that are about the base, not this edit.
 GOD_FILE_NOTE = re.compile(r"on the base too|did not grow|now meets the budget|shrank to|is gone|--update-baseline")
-REGISTRY = "tests/test-execution.toml"
+REGISTRY = "tests/test-execution.d"
+LEGACY_REGISTRY = "tests/test-execution.toml"  # the single file before the split, read while present
 # The hooks give this script 15 s; leave room to print.
 DEADLINE_SECONDS = 12.0
 MAX_LINES_SHOWN = 8
@@ -85,7 +86,22 @@ def payload_paths(raw: str) -> tuple[set[str], str | None]:
     return found, cwd
 
 
-def relative(root: Path, path: str, cwd: str | None) -> str | None:
+def is_edit_event(raw: str) -> bool:
+    """PostToolUse also fires for reads; those are not evidence of a lane's first edit."""
+    try:
+        payload = json.loads(raw)
+    except (TypeError, ValueError):
+        return False
+    if not isinstance(payload, dict):
+        return False
+    name = str(payload.get("tool_name", "")).split(".")[-1].lower()
+    result = payload.get("tool_response") or {}
+    if isinstance(result, dict) and (result.get("is_error") or result.get("isError")):
+        return False
+    return name in {"edit", "write", "multiedit", "apply_patch"}
+
+
+def relative(root: Path, path: str, cwd: str | None, *, must_exist: bool = True) -> str | None:
     if not os.path.isabs(path) and cwd:
         path = os.path.join(cwd, path)
     if os.path.isabs(path):
@@ -94,7 +110,7 @@ def relative(root: Path, path: str, cwd: str | None) -> str | None:
         except ValueError:
             return None
     path = os.path.normpath(path)
-    if path.startswith("..") or not (root / path).is_file():
+    if path.startswith("..") or (must_exist and not (root / path).is_file()):
         return None
     return path
 
@@ -201,12 +217,16 @@ def check_test_registration(root: Path, path: str, budget: Budget) -> list[str]:
     if tracked is None or tracked.returncode == 0:
         return []
     try:
-        registry = (root / REGISTRY).read_text(encoding="utf-8")
+        files = [root / LEGACY_REGISTRY] if (root / LEGACY_REGISTRY).is_file() else []
+        files += sorted((root / REGISTRY).glob("*.toml")) if (root / REGISTRY).is_dir() else []
+        if not files:
+            return []
+        registry = "\n".join(path.read_text(encoding="utf-8") for path in files)
     except OSError:
         return []
     if re.search(r'^\s*path\s*=\s*"' + re.escape(path) + r'"', registry, re.M):
         return []
-    return [f"{path} is a new test with no {REGISTRY} entry; CI fails a pull request that adds one. "
+    return [f"{path} is a new test with no {REGISTRY}/ entry; CI fails a pull request that adds one. "
             f"Run it from a workflow step (ci-guards.yml), then: python3 scripts/ci/validate_test_execution_registry.py "
             f"--write --only {path}"]
 
@@ -274,8 +294,22 @@ def main(argv=None) -> int:
             ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, timeout=5).stdout.strip())
         if args.paths is not None:
             paths, cwd = set(args.paths), None
+            edit_event = False
         else:
-            paths, cwd = payload_paths(sys.stdin.read())
+            raw = sys.stdin.read()
+            paths, cwd = payload_paths(raw)
+            edit_event = is_edit_event(raw)
+        if edit_event and any(relative(root, path, cwd, must_exist=False) is not None for path in paths):
+            # This timestamp is an observed edit event, not a commit date or worktree mtime.
+            # Keep it local to this worktree so a CI client can measure edit-to-first-signal.
+            import importlib.util
+
+            timing_path = root / "scripts/cmux-next/inner_loop_timing.py"
+            if timing_path.is_file():
+                spec = importlib.util.spec_from_file_location("inner_loop_timing", timing_path)
+                timing = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(timing)
+                timing.record(root, edit=True)
         found = run(root.resolve(), paths, cwd, budget)
     except Exception as error:  # noqa: BLE001 - a post-edit hook is advisory and never fails the edit
         found = [f"post-edit checks could not run ({error})"]

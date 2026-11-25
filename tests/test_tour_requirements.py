@@ -11,7 +11,9 @@ copying it. The file holds only the number.
 
 This runs reload.sh's floor block against a fake df and a temporary
 requirements file: the default comes from the file, the environment variable
-still overrides it, and a missing or malformed file stops the build.
+still overrides it, and a missing or malformed file stops the build. Under the
+floor the block warns (free space, floor, host) and the build runs anyway,
+since a busy machine makes things slower, never makes them fail.
 """
 
 import json
@@ -79,8 +81,9 @@ class TourRequirementsTest(unittest.TestCase):
     def test_the_default_floor_comes_from_the_file(self):
         self.write_requirements('{"min_free_gib": 21}\n')
         result = self.run_block()
-        self.assertEqual(result.returncode, 1, result.stderr)
-        self.assertIn("needs 21 GiB free", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("20 GiB free on the home volume of", result.stderr)
+        self.assertIn("under the 21 GiB floor; building anyway", result.stderr)
 
         self.write_requirements('{"min_free_gib": 19}\n')
         result = self.run_block()
@@ -111,8 +114,30 @@ class TourRequirementsTest(unittest.TestCase):
         self.write_requirements(text)
         floor = json.loads(text)["min_free_gib"]
         result = self.run_block()
-        self.assertIn(f"needs {floor} GiB free" if floor > 20 else f">= {floor} GiB",
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"under the {floor} GiB floor" if floor > 20 else f">= {floor} GiB",
                       result.stderr + result.stdout)
+
+    def test_under_the_floor_the_build_still_lifts_the_guard_and_runs(self):
+        self.write_requirements('{"min_free_gib": 40}\n')
+        script_tail = '\necho "allow=${CMUX_ALLOW_LOW_SPACE_BUILD:-}"\n'
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("CMUX_NEXT_MIN_FREE_GIB", "CMUX_ALLOW_LOW_SPACE_BUILD")}
+        env["PATH"] = self.bin + os.pathsep + env.get("PATH", "")
+        env["HOME"] = self.tmp.name
+        script = f'set -euo pipefail\nSCRIPT_DIR="{self.script_dir}"\n{floor_block()}{script_tail}'
+        result = subprocess.run(["bash", "-c", script], env=env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("warning: cmux-next floor: 20 GiB free", result.stderr)
+        self.assertIn("allow=1", result.stdout)
+
+    def test_an_unreadable_df_warns_and_runs(self):
+        with open(os.path.join(self.bin, "df"), "w") as f:
+            f.write("#!/bin/sh\nexit 1\n")
+        self.write_requirements('{"min_free_gib": 40}\n')
+        result = self.run_block()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("cannot read the home volume's free space", result.stderr)
 
 
 if __name__ == "__main__":

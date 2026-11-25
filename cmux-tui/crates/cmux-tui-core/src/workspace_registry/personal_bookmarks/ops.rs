@@ -410,6 +410,35 @@ fn apply_op(tx: &Transaction<'_>, op: BookmarkOp) -> anyhow::Result<(Value, Opti
     })
 }
 
+/// SHA-256 (hex) of `value`'s JSON: a replay record's fingerprint.
+fn fingerprint(value: &impl serde::Serialize) -> anyhow::Result<String> {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(serde_json::to_vec(value)?);
+    Ok(digest.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+/// The stored result of `key` with `replayed:true`, if it ran before; the
+/// same key with another request is refused.
+fn replayed(
+    tx: &Transaction<'_>,
+    key: &WorkspaceMutation,
+    operation: &str,
+    fingerprint: &str,
+) -> anyhow::Result<Option<Value>> {
+    let Some((stored_operation, stored_fingerprint, result)) = lookup_replay(tx, key)? else {
+        return Ok(None);
+    };
+    ensure_valid!(
+        stored_operation == operation && stored_fingerprint == fingerprint,
+        "mutation {} of {} was used for another request",
+        key.id,
+        key.origin
+    );
+    let mut result: Value = serde_json::from_str(&result)?;
+    result.set("replayed", json!(true));
+    Ok(Some(result))
+}
+
 impl WorkspaceRegistry {
     /// The revision and every node of one profile's tree, in depth-first
     /// pre-order.
@@ -432,30 +461,62 @@ impl WorkspaceRegistry {
         op: BookmarkOp,
     ) -> anyhow::Result<BookmarkOutcome> {
         let operation = op.name();
-        let fingerprint = {
-            use sha2::{Digest, Sha256};
-            let digest = Sha256::digest(serde_json::to_vec(&op)?);
-            digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>()
-        };
+        let fingerprint = fingerprint(&op)?;
         let db = self.connection.get();
         let tx = db.unchecked_transaction()?;
         if let Some(key) = key
-            && let Some((stored_operation, stored_fingerprint, result)) = lookup_replay(&tx, key)?
+            && let Some(result) = replayed(&tx, key, operation, &fingerprint)?
         {
-            ensure_valid!(
-                stored_operation == operation && stored_fingerprint == fingerprint,
-                "mutation {} of {} was used for another request",
-                key.id,
-                key.origin
-            );
-            let mut result: Value = serde_json::from_str(&result)?;
-            result.set("replayed", json!(true));
             return Ok(BookmarkOutcome { result, changed: None });
         }
         let (mut result, changed) = apply_op(&tx, op)?;
         if let Some(key) = key {
             record_replay(&tx, key, operation, &fingerprint, &result)?;
         }
+        let changed = match changed {
+            Some(profile) => Some((profile, bookmarks_revision(&tx)?)),
+            None => None,
+        };
+        tx.commit()?;
+        result.set("replayed", json!(false));
+        Ok(BookmarkOutcome { result, changed })
+    }
+
+    /// Removes the folder a browser source imported (`source_key` in
+    /// `profile`), in one transaction with its replay record: the lookup
+    /// and the delete see the same tree, and a retry of `key` replays even
+    /// when no folder was there, so it never deletes a folder another
+    /// import made since. `{deleted}` lists the removed ids (none without
+    /// such a folder).
+    pub fn remove_bookmark_source(
+        &mut self,
+        key: &WorkspaceMutation,
+        profile: &str,
+        source_key: &str,
+    ) -> anyhow::Result<BookmarkOutcome> {
+        const OPERATION: &str = "remove_source";
+        let fingerprint =
+            fingerprint(&json!({"browser_profile_id": profile, "source_key": source_key}))?;
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
+        if let Some(result) = replayed(&tx, key, OPERATION, &fingerprint)? {
+            return Ok(BookmarkOutcome { result, changed: None });
+        }
+        ensure_profile(&tx, profile)?;
+        let folder: Option<String> = tx
+            .query_row(
+                "SELECT bookmark_id FROM bookmarks
+                 WHERE browser_profile_id = ?1 AND kind = 'folder' AND source_key = ?2
+                 ORDER BY parent_id ASC, position ASC LIMIT 1",
+                params![profile, source_key],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let (mut result, changed) = match folder {
+            Some(bookmark) => apply_op(&tx, BookmarkOp::Delete { bookmark })?,
+            None => (json!({"deleted": []}), None),
+        };
+        record_replay(&tx, key, OPERATION, &fingerprint, &result)?;
         let changed = match changed {
             Some(profile) => Some((profile, bookmarks_revision(&tx)?)),
             None => None,

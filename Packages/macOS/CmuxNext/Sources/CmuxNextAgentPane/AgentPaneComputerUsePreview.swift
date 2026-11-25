@@ -19,15 +19,56 @@ public nonisolated struct AgentPaneComputerUsePreview: Hashable, Sendable {
     public var icon: String?
     /// Where the agent clicked last in the frame's window; the page draws its cursor there.
     public var pointer: Pointer?
+    /// The agent's cursor and the person's pointer over the frame's window, as metadata the page
+    /// draws (`telepointers`); `pointer` stays for pages that read only it.
+    public var telepointers: Telepointers?
 
     public init(session: String, app: String, done: Bool, frame: String? = nil, icon: String? = nil,
-                pointer: Pointer? = nil) {
+                pointer: Pointer? = nil, telepointers: Telepointers? = nil) {
         self.session = session
         self.app = app
         self.done = done
         self.frame = frame
         self.icon = icon
         self.pointer = pointer
+        self.telepointers = telepointers
+    }
+
+    /// A pointer over the frame's window: a fraction of it (0...1 from the top left), whether it is
+    /// inside the window, and when it last moved (the page gets its age, `ageMs`).
+    public struct Telepointer: Hashable, Sendable {
+        public var x: Double
+        public var y: Double
+        public var visible: Bool
+        public var movedAt: Date?
+        /// Still long enough to dim: in the value, so the change reaches the page once.
+        public var idle: Bool
+
+        public init(x: Double, y: Double, visible: Bool, movedAt: Date? = nil, idle: Bool = false) {
+            self.x = x
+            self.y = y
+            self.visible = visible
+            self.movedAt = movedAt
+            self.idle = idle
+        }
+
+        func json(at now: Date) -> JSONValue {
+            var value: [String: JSONValue] = ["x": .number(x), "y": .number(y), "visible": .bool(visible)]
+            if let movedAt { value["ageMs"] = .number(max(0, (now.timeIntervalSince(movedAt) * 1000).rounded())) }
+            if idle { value["idle"] = .bool(true) }
+            return .object(value)
+        }
+    }
+
+    /// The agent's and the person's telepointers, each when known.
+    public struct Telepointers: Hashable, Sendable {
+        public var agent: Telepointer?
+        public var person: Telepointer?
+
+        public init(agent: Telepointer? = nil, person: Telepointer? = nil) {
+            self.agent = agent
+            self.person = person
+        }
     }
 
     /// A point in the frame, as a fraction of it (0...1 from the top left), and the click it came
@@ -55,7 +96,10 @@ public nonisolated struct AgentPaneComputerUsePreview: Hashable, Sendable {
         case close
     }
 
-    var json: JSONValue {
+    var json: JSONValue { json(at: Date()) }
+
+    /// The page's value, its telepointers aged at `now`.
+    func json(at now: Date) -> JSONValue {
         var object: [String: JSONValue] = ["session": .string(session), "app": .string(app), "done": .bool(done)]
         if let frame { object["frame"] = .string(frame) }
         if let icon { object["icon"] = .string(icon) }
@@ -63,6 +107,12 @@ public nonisolated struct AgentPaneComputerUsePreview: Hashable, Sendable {
             var value: [String: JSONValue] = ["x": .number(pointer.x), "y": .number(pointer.y), "click": .number(Double(pointer.click))]
             if let width = pointer.windowWidth { value["windowWidth"] = .number(width) }
             object["pointer"] = .object(value)
+        }
+        if let telepointers, telepointers.agent != nil || telepointers.person != nil {
+            var value: [String: JSONValue] = [:]
+            if let agent = telepointers.agent { value["agent"] = agent.json(at: now) }
+            if let person = telepointers.person { value["person"] = person.json(at: now) }
+            object["telepointers"] = .object(value)
         }
         return .object(object)
     }

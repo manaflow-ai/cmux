@@ -70,6 +70,28 @@ final class MacScreenButton: NSButton, MacScreenInked {
     /// The first click in an inactive window (the approval panel over another app) presses it.
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+    /// A state card's button: it takes the keyboard without Full Keyboard Access and draws the focus
+    /// ring, so Tab reaches it and Space presses it (the card is all there is to act on in the pane).
+    var takesKeyFocus = false {
+        didSet { focusRingType = takesKeyFocus ? .exterior : .none }
+    }
+
+    override var acceptsFirstResponder: Bool { isEnabled && (takesKeyFocus || NSApp.isFullKeyboardAccessEnabled) }
+    override var canBecomeKeyView: Bool { acceptsFirstResponder }
+    override var focusRingMaskBounds: NSRect { bounds }
+
+    override func drawFocusRingMask() {
+        let radius = layer?.cornerRadius ?? 0
+        NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).fill()
+    }
+
+    /// An accessibility press (VoiceOver, an automation client) runs the button's action directly.
+    override func accessibilityPerformPress() -> Bool {
+        guard isEnabled else { return false }
+        onPress()
+        return true
+    }
+
     override var isEnabled: Bool { didSet { refresh() } }
     override var isHighlighted: Bool { didSet { refresh() } }
 
@@ -153,7 +175,7 @@ final class MacScreenButton: NSButton, MacScreenInked {
 
     private func refresh() {
         layer?.backgroundColor = fill.cgColor
-        layer?.cornerRadius = Metrics.itemCornerRadius
+        layer?.cornerRadius = Metrics.buttonCornerRadius
         alphaValue = isEnabled ? 1 : 0.45
         let color = foreground
         if symbol != nil {
@@ -238,6 +260,9 @@ final class MacScreenMenuButton: NSButton, MacScreenInked {
 
     /// Draws the glyph and title at the type scale's size now.
     func reloadType() { refresh() }
+
+    /// The button shows a word beside its glyph.
+    var hasTitle: Bool { !(label ?? "").isEmpty }
 
     func retitle(_ title: String) {
         guard label != nil, title != label else { return }
@@ -377,19 +402,19 @@ final class MacScreenSwitch: NSControl, MacScreenInked {
 
     private func refresh(animated: Bool) {
         guard animated else { return Motion.feedback.transaction(nil) { applyState() } }
-        Motion.feedback.transaction(spring: .selection) { applyState() }
+        Motion.feedback.transaction(spring: .selection, in: window) { applyState() }
     }
 
     private func applyState() {
         let size = bounds.size == .zero ? Self.size : bounds.size
         track.frame = CGRect(origin: .zero, size: size)
-        track.cornerRadius = size.height / 2
+        track.cornerRadius = size.height / 2 // radius-allow: the system switch's capsule track, not a button face
         let inset: CGFloat = 2
         // The system switch's knob: a capsule 1.6 times as wide as it is tall (32 × 20 in a 54 × 24 track).
         let knobHeight = size.height - inset * 2
         let knobWidth = min(size.width - inset * 2, (knobHeight * 1.6).rounded())
         knob.frame = CGRect(x: isOn ? size.width - inset - knobWidth : inset, y: inset, width: knobWidth, height: knobHeight)
-        knob.cornerRadius = knobHeight / 2
+        knob.cornerRadius = knobHeight / 2 // radius-allow: the switch knob, a capsule
         // Off, the system switch's track is the ink at 10% (light gray on light, a lift on dark) and its knob is
         // a light gray in dark mode; on, the track is the theme's focus color.
         track.backgroundColor = (isOn ? colors.focus : colors.primary.withAlphaComponent(0.1)).cgColor

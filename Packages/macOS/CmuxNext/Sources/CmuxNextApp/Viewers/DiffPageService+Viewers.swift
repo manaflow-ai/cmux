@@ -8,10 +8,13 @@ import CmuxNextDiff
 /// panel.
 extension DiffPageService: DiffViewerOpening {
     func openDiff(directory: String, turn: DiffTurn?, showTurn: Bool, in pane: PaneController, focus: Bool,
-                  created: (@MainActor (SurfaceID) -> Void)?) async throws {
+                  onPaneMachine: Bool, created: (@MainActor (SurfaceID) -> Void)?,
+                  failed: (@MainActor ((any Error)?) -> Void)?) async throws {
         do {
             try await open(folder: URL(fileURLWithPath: directory, isDirectory: true), source: turn != nil && showTurn ? .turn : .default,
-                           turn: turn, in: pane, focus: focus, created: created)
+                           turn: turn, in: pane, focus: focus, on: onPaneMachine ? pane.daemon : nil, created: created, failed: failed)
+        } catch .unavailable(let reason) {
+            throw ActionFailure(message: reason)
         } catch {
             throw ActionFailure(message: DiffPageStrings.notRepository)
         }

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/customize",
+  "name": "My views",
+  "version": "1.0.0",
+  "description": "The time and the weather where you are, in the sidebar.",
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "main.js" },
+  "implements": {
+    "cmux.section/1": {
+      "export": "renderClock",
+      "title": "Today",
+      "symbol": "clock",
+      "options": { "defaultRegion": "bottom", "maxRows": 4 }
+    }
+  },
+  "scopes": {
+    "storage:local": "Remember your city.",
+    "net:geocoding-api.open-meteo.com": "Find your city's place on the map.",
+    "net:api.open-meteo.com": "Read the weather for your city."
+  }
+}

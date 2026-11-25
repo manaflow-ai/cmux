@@ -30,9 +30,12 @@ extension CEFPaneHost {
         tab.popupOpenerHost = self
         host.add(tab)
         runtime.register(tab, browser: browser)
+        // The fork copied the opener's WebAuthn refusal (InheritWebAuthnMode): the person's input takes it back.
+        tab.webAuthnRefused = opener?.webAuthnRefused ?? false
         // Opened by a page: past a new tab's first paint (PageBackground), and
         // Chromium, not us, drives its document, so its page area is its own.
         tab.reachedFirstRealPage(settled: true)
+        tab.replayEarlyEvents()
         tab.inheritDelegates(from: opener)
         // Chromium made the popup this window's active tab. Show the opener
         // again on the next turn (this may run inside Chromium's tab
@@ -73,13 +76,33 @@ extension CEFPaneHost {
     /// (fork without `cmux_tab_move_to_window`) closes rather than take over
     /// its opener's pane.
     func movePopupsIn() {
-        guard case .live = window, let shim = runtime.shim, let anchor = anchorBrowser else { return }
+        guard case .live = window, runtime.shim != nil, anchorBrowser != nil else { return }
+        keepingKey { moveWaitingTabsIn() }
+    }
+
+    private func moveWaitingTabsIn() {
+        guard let shim = runtime.shim, let anchor = anchorBrowser else { return }
         var openers: [CEFPaneHost] = []
-        for tab in tabs where tab.awaitsWindowMove {
+        for tab in tabs where tab.awaitsWindowMove { // a copy: a tab that goes home leaves `tabs`
             guard let browser = tab.browserID else { continue }
-            if shim.tabMoveToWindow(browser, anchor, -1) == 1 {
+            #if DEBUG || CMUX_BENCH_HOOKS
+            let moved = runtime.benchMarks.span("cef.tab_move") { shim.tabMoveToWindow(browser, anchor, -1) }
+            #else
+            let moved = shim.tabMoveToWindow(browser, anchor, -1)
+            #endif
+            if moved == 1 {
                 tab.awaitsWindowMove = false
+                tab.regroupedFrom = nil
                 if let opener = tab.popupOpenerHost { openers.append(opener) }
+            } else if tab.homeHost != nil {
+                // An agent's background tab stays its pane's, open: it is drawn as before.
+                runtime.logger.error("CEF tab \(browser) could not move into an agent window; it stays in its pane")
+                tab.agentWindowRefused = true
+                returnHome(tab)
+            } else if let from = tab.regroupedFrom {
+                // A tab joining its pane's window stays open in the window it had.
+                runtime.logger.error("CEF tab \(browser) could not move into its pane's window; it stays in its own")
+                returnFromRegroup(tab, to: from)
             } else {
                 runtime.logger.error("CEF popup \(browser) could not move into its own window; closing it")
                 tab.close()

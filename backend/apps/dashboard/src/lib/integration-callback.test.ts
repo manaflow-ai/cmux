@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { integrationCompletionRequest, integrationTeamHint } from "./integration-callback"
+import { integrationCompletionRequest, integrationConfigureLink, integrationReturnLink, integrationSavedOnGitHub, integrationTeamHint } from "./integration-callback"
 
 const token = (payload: unknown) =>
   `header.${btoa(JSON.stringify(payload)).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_")}.signature`
@@ -41,4 +41,38 @@ test("completion frame uses the originating team, not the dashboard search scope
     team: "team_0123456789abcdef0123",
     idempotency_key: `complete:${state.slice(-40)}`,
   })
+})
+
+test("opens only a GitHub installation settings page", () => {
+  expect(integrationConfigureLink({ configure_url: "https://github.com/organizations/acme/settings/installations/42" })).toBe("https://github.com/organizations/acme/settings/installations/42")
+  expect(integrationConfigureLink({ configure_url: "https://github.com/settings/installations/42" })).toBe("https://github.com/settings/installations/42")
+  for (const bad of ["https://evil.example/settings/installations/42", "https://github.com.evil.example/settings/installations/42", "https://github.com/settings/installations/42/../x", "javascript:alert(1)"]) {
+    expect(integrationConfigureLink({ configure_url: bad })).toBeUndefined()
+  }
+})
+
+// backend/apps/api/test/integrations.test.ts pins both patterns to the API's.
+test("returns only to a cmux chat link the API answered", () => {
+  expect(integrationReturnLink({ status: "active", return_to: "cmux://session/01a12408-f0a2-79a0-8c59-cb472f5bb9aa" })).toBe("cmux://session/01a12408-f0a2-79a0-8c59-cb472f5bb9aa")
+  expect(integrationReturnLink({ return_to: "cmux://agent/claude/9b2f4c1e?host=build-mac" })).toBe("cmux://agent/claude/9b2f4c1e?host=build-mac")
+  expect(integrationReturnLink({ return_to: "cmux-nightly://session/ses-01#turn-turn_7" })).toBe("cmux-nightly://session/ses-01#turn-turn_7")
+  for (const bad of ["https://evil.example/x", "javascript:alert(1)", "//evil.example", "cmux://evil.example/session/a", "cmux://session/a#x", "cmux://session/a?next=https://evil", "cmux://auth-callback/x", `cmux://session/${"a".repeat(600)}`, 42]) {
+    expect(integrationReturnLink({ return_to: bad })).toBeUndefined()
+  }
+  expect(integrationReturnLink({ status: "active" })).toBeUndefined()
+  expect(integrationReturnLink(null)).toBeUndefined()
+})
+
+// #55104: Connect GitHub opened the person's own installation settings; GitHub's save came back with no state, and the
+// page asked a web sign-in that could not finish anything. A stateless save is not a connect: it says so, no sign-in.
+test("a save on GitHub's installation page with no state asks no sign-in", () => {
+  expect(integrationSavedOnGitHub({ installation_id: "183460287", setup_action: "update", code: "901636c8dc556" } as never)).toBe(true)
+  // A fresh install from the App's public page is linked to no team: not "picked up by itself".
+  expect(integrationSavedOnGitHub({ installation_id: "183460287", setup_action: "install" })).toBe(false)
+  // A connect (state), a cancel, an owner's approval request or anything without an installation is the page's as before.
+  expect(integrationSavedOnGitHub({ state: "a.b.c", installation_id: "1", setup_action: "update" })).toBe(false)
+  expect(integrationSavedOnGitHub({ installation_id: "1", setup_action: "update", error: "access_denied" })).toBe(false)
+  expect(integrationSavedOnGitHub({ installation_id: "1", setup_action: "request" })).toBe(false)
+  expect(integrationSavedOnGitHub({ setup_action: "update" })).toBe(false)
+  expect(integrationSavedOnGitHub({ installation_id: "1x", setup_action: "update" })).toBe(false)
 })

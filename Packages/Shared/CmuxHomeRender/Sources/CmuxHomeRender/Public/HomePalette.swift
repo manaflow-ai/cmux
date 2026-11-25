@@ -69,6 +69,25 @@ public struct HomeColor: Hashable, Sendable {
         return opaque.mixed(with: target, hi)
     }
 
+    /// `self` (opaque) moved the least toward black or white until it reaches `minimum` contrast on
+    /// every one of `surfaces` (the shades of one bubble); unchanged when it already does. With no
+    /// step that reaches it on all of them, black or white, whichever reads better on the worst.
+    func readable(onEvery surfaces: [HomeColor], minimum: Double = HomePalette.minimumTextContrast) -> HomeColor {
+        let opaque = with(alpha: 1), grounds = surfaces.map { $0.with(alpha: 1) }
+        func worst(_ c: HomeColor) -> Double { grounds.map { c.contrast(with: $0) }.min() ?? .infinity }
+        guard worst(opaque) < minimum else { return opaque }
+        var best: (step: CGFloat, color: HomeColor)?
+        for target in [HomeColor.gray255(0), .gray255(255)] where worst(target) >= minimum {
+            var lo: CGFloat = 0, hi: CGFloat = 1
+            for _ in 0..<20 {
+                let mid = (lo + hi) / 2
+                if worst(opaque.mixed(with: target, mid)) >= minimum { hi = mid } else { lo = mid }
+            }
+            if hi < best?.step ?? .infinity { best = (hi, opaque.mixed(with: target, hi)) }
+        }
+        return best?.color ?? (worst(.gray255(0)) >= worst(.gray255(255)) ? .gray255(0) : .gray255(255))
+    }
+
     /// The faintest step from `surface` toward `self` (opaque) that reaches
     /// `minimum` contrast on `surface`: a boundary ink that keeps the theme's
     /// hue and is as soft as WCAG 1.4.11 (3:1 for a component's edge) allows.
@@ -128,6 +147,9 @@ public struct HomePalette: Hashable, Sendable {
     public var placeholder: HomeColor
     /// The grey under the flying bubble while it is translucent (the field's glass).
     public var morphUnderlay: HomeColor
+    /// The composer field's fill over a see-through window (the web composer's surface there); nil
+    /// on an opaque window, where the field keeps its own glass.
+    public var composeFillOverGlass: HomeColor? = nil
     public var typingDot: HomeColor
     public var typingDotHighlight: HomeColor
     /// The composer's own text and symbols: the received text unless a chat
@@ -175,6 +197,11 @@ public struct HomePalette: Hashable, Sendable {
     /// receipts and captions on the page, the Chief's text on its bubble.
     public static let minimumTextContrast: Double = 4.5
 
+    /// How far system glass draws the composer field's fill toward mid grey, at most (measured 6 %
+    /// on white and on the dark field; chief-plain, b409aec1): the placeholder reads at
+    /// ``minimumTextContrast`` on the fill moved this far too.
+    static let glassFieldGreyPull: CGFloat = 0.1
+
     /// The least WCAG contrast of the field's edge against the page (1.4.11,
     /// non-text: a component's boundary needs 3:1) on a light theme, where the
     /// field's white fill is otherwise as pale as the page.
@@ -215,7 +242,10 @@ public struct HomePalette: Hashable, Sendable {
         var p = self
         let field = composeGlass.with(alpha: 1)
         p.incomingText = incomingText.readable(on: incomingBubble).readable(on: field)
-        p.placeholder = placeholder.readable(on: field)
+        // The field is system glass, which draws its fill a step toward mid grey (white came out 247,
+        // the dark field 60: 4.22:1 and 4.43:1 for a placeholder at 4.5:1 on the fill; chief-plain,
+        // b409aec1), so the placeholder reads on the fill and on the fill drawn that step and more.
+        p.placeholder = placeholder.readable(onEvery: [field, field.mixed(with: .gray255(128), Self.glassFieldGreyPull)])
         p.secondaryText = secondaryText.readable(on: background.with(alpha: 1))
         return p
     }
@@ -265,7 +295,8 @@ public struct HomePalette: Hashable, Sendable {
 
     /// This palette with a chat's chosen bubble colours (Chat Colors…, `home.bubbleColors.*`).
     /// A chosen fill draws flat (no viewport shading); a fill with no chosen
-    /// text gets black or white text, whichever has more contrast on it (``HomeColor/strongestText``). The composer
+    /// text gets black or white text, whichever has more contrast on it (``HomeColor/strongestText``); a chosen
+    /// text keeps its hue, raised to ``minimumTextContrast`` on every shade of its bubble. The composer
     /// keeps the theme's text (``composeText``) whatever the bubbles' text is.
     /// - Parameter colors: the chosen colours; empty returns this palette unchanged.
     /// - Returns: the palette the chat draws with.
@@ -277,7 +308,8 @@ public struct HomePalette: Hashable, Sendable {
             // The caret stays the theme's: it also inks links in the other side's bubbles.
             p.outgoingText = fill.strongestText
         }
-        if let ink = colors.sentText { p.outgoingText = ink.with(alpha: 1) }
+        // A chosen text keeps its hue, raised to 4.5:1 on every shade of the bubble it is drawn on.
+        if let ink = colors.sentText { p.outgoingText = ink.readable(onEvery: p.outgoingGradient.map(\.color)) }
         if colors.received != nil || colors.receivedText != nil {
             p.composeTextOverride = composeText
         }
@@ -286,7 +318,36 @@ public struct HomePalette: Hashable, Sendable {
             p.badge = fill
             p.incomingText = fill.strongestText
         }
-        if let ink = colors.receivedText { p.incomingText = ink.with(alpha: 1) }
+        if let ink = colors.receivedText { p.incomingText = ink.readable(onEvery: [p.incomingBubble]) }
+        return p
+    }
+
+    /// This palette drawn on the chat's own background: `fill` (the pane's, or `appearance.surfaces.home`,
+    /// maybe translucent) over `window`, the window's colour. The secondary text (names, times, receipts)
+    /// is raised to ``minimumTextContrast`` on what the page really shows, not on the colour the palette
+    /// was built on.
+    /// - Parameters:
+    ///   - fill: the colour the scene paints under the transcript.
+    ///   - window: the opaque colour under `fill`.
+    ///   - placeholderOverGlass: the composer's placeholder when `fill` is see-through (the host's
+    ///     secondary text token); nil keeps the field-tier placeholder.
+    ///   - fieldFillOverGlass: the composer field's fill when `fill` is see-through (the web
+    ///     composer's surface there); nil keeps the field's clear glass.
+    /// - Returns: the palette with `fill` as its background.
+    public func onBackground(_ fill: HomeColor, over window: HomeColor, placeholderOverGlass: HomeColor? = nil,
+                             fieldFillOverGlass: HomeColor? = nil) -> HomePalette {
+        var p = self
+        p.background = fill
+        p.secondaryText = secondaryText.readable(on: window.with(alpha: 1).mixed(with: fill.with(alpha: 1), fill.alpha))
+        // A see-through fill: the field is clear glass over art or the desktop, where the field-tier
+        // placeholder fell to 1.8:1 (text-inputs-glass, chief-art). It takes the host's secondary text
+        // token, the ink every web field's placeholder takes over a see-through window
+        // (--cmux-text-secondary, ui/controls.css), so native and web draw the same pixels.
+        if fill.alpha < 1, let placeholderOverGlass { p.placeholder = placeholderOverGlass }
+        // The token alone held 2.7:1 (light) and 2.4:1 (dark) on art (be805d96): the clear field shows
+        // the picture under the text. The web composer lays its surface there (the solid at the chrome
+        // glass tint, composerStates.css), so the native field takes the same fill.
+        p.composeFillOverGlass = fill.alpha < 1 ? fieldFillOverGlass : nil
         return p
     }
 

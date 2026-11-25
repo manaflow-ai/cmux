@@ -144,8 +144,9 @@ pub fn run_git_scratch_objects_within(
     )
 }
 
-/// [`run_git_scratch_objects_within`] with an optional address-space limit for
-/// the child on Linux. Other platforms keep the deadline without this limit.
+/// [`run_git_scratch_objects_within`] with an optional memory limit for the
+/// child on Linux (`RLIMIT_DATA`: the writable memory it allocates). Other
+/// platforms keep the deadline without this limit.
 #[allow(clippy::too_many_arguments)]
 pub fn run_git_scratch_objects_within_limited(
     directory: &Path,
@@ -155,24 +156,14 @@ pub fn run_git_scratch_objects_within_limited(
     deadline: Duration,
     objects: &Path,
     scratch: &Path,
-    address_space_limit: Option<u64>,
+    memory_limit: Option<u64>,
 ) -> Result<GitOutput, GitFailure> {
     let alternate = alternate_entry(objects);
     let env = [
         ("GIT_OBJECT_DIRECTORY", scratch.as_os_str()),
         ("GIT_ALTERNATE_OBJECT_DIRECTORIES", alternate.as_os_str()),
     ];
-    run(
-        directory,
-        overrides,
-        arguments,
-        max_stdout,
-        deadline,
-        None,
-        &env,
-        address_space_limit,
-        None,
-    )
+    run(directory, overrides, arguments, max_stdout, deadline, None, &env, memory_limit, None)
 }
 
 /// `path` as one entry of `GIT_ALTERNATE_OBJECT_DIRECTORIES`, a
@@ -289,11 +280,11 @@ fn run(
     deadline: Duration,
     keep: Option<fn(&[u8]) -> bool>,
     env: &[(&str, &OsStr)],
-    address_space_limit: Option<u64>,
+    memory_limit: Option<u64>,
     window_offset: Option<u64>,
 ) -> Result<GitOutput, GitFailure> {
     #[cfg(not(target_os = "linux"))]
-    let _ = address_space_limit;
+    let _ = memory_limit;
     let deadline = deadline.min(DEADLINE);
     if deadline.is_zero() {
         return Err(GitFailure::TimedOut);
@@ -322,19 +313,24 @@ fn run(
     #[cfg(target_os = "linux")]
     {
         use std::os::unix::process::CommandExt;
-        if let Some(limit) = address_space_limit {
+        if let Some(limit) = memory_limit {
+            // `RLIMIT_DATA`, not `RLIMIT_AS`: it counts the writable memory
+            // the child allocates, not address space it only reserves (a Go
+            // git wrapper's or helper's runtime, Git's read-only pack
+            // mappings). Under `RLIMIT_AS` such a child failed at random,
+            // by load, with almost nothing in use.
             // SAFETY: this closure only changes the resource limit in the
             // child, between fork and exec; it touches no shared state.
             unsafe {
                 command.pre_exec(move || {
                     let limit = limit as libc::rlim_t;
                     let mut resource = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
-                    if libc::getrlimit(libc::RLIMIT_AS as _, &mut resource) != 0 {
+                    if libc::getrlimit(libc::RLIMIT_DATA as _, &mut resource) != 0 {
                         return Err(std::io::Error::last_os_error());
                     }
                     resource.rlim_cur = resource.rlim_cur.min(limit as _);
                     resource.rlim_max = resource.rlim_max.min(limit as _);
-                    if libc::setrlimit(libc::RLIMIT_AS as _, &resource) == 0 {
+                    if libc::setrlimit(libc::RLIMIT_DATA as _, &resource) == 0 {
                         Ok(())
                     } else {
                         Err(std::io::Error::last_os_error())
@@ -379,7 +375,7 @@ fn run(
     let (stdout, truncated, window) = stdout.join().unwrap_or_default();
     let (stderr, _) = stderr.join().unwrap_or_default();
     if !status.success() {
-        if status.code() != Some(1) && address_space_limit.is_some() {
+        if status.code() != Some(1) && memory_limit.is_some() {
             return Err(GitFailure::Unavailable(format!("bounded git exited with {status}")));
         }
         return Err(GitFailure::Exit(explained(String::from_utf8_lossy(&stderr).trim())));
@@ -611,48 +607,5 @@ fn drain(mut reader: impl Read, limit: usize) -> (Vec<u8>, bool) {
 }
 
 #[cfg(test)]
-mod background_tests {
-    use super::*;
-
-    #[test]
-    fn window_keeps_only_its_bytes_but_hashes_the_complete_output() {
-        let source = "head café tail".as_bytes();
-        let (first, more, first_window) = drain_window(source, 0, 8);
-        let (second, more_second, second_window) = drain_window(source, 8, 8);
-        assert!(more);
-        assert!(!more_second);
-        assert_eq!([first, second].concat(), source);
-        let first_window = first_window.unwrap();
-        let second_window = second_window.unwrap();
-        assert_eq!(first_window.total_bytes, source.len() as u64);
-        assert_eq!(first_window.read(4, 5).unwrap(), source[4..9]);
-        assert_eq!(first_window.sha256, second_window.sha256);
-        assert_eq!(
-            first_window.sha256,
-            "62d58f00ac6da603f09e3abd398469875f74f1ce760d50daca81b2cc89febf13"
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn an_alternate_with_a_colon_or_quote_is_c_quoted() {
-        assert_eq!(alternate_entry(Path::new("/r/.git/objects")), "/r/.git/objects");
-        assert_eq!(alternate_entry(Path::new("/r:copy/objects")), "\"/r:copy/objects\"");
-        assert_eq!(alternate_entry(Path::new("/a\"b\\c\nd")), "\"/a\\\"b\\\\c\\012d\"");
-    }
-
-    #[test]
-    fn background_holds_for_the_guard_and_this_thread_only() {
-        assert!(!in_background());
-        {
-            let _outer = background();
-            assert!(in_background());
-            {
-                let _inner = background();
-            }
-            assert!(in_background(), "an inner guard restores the outer one's state");
-            assert!(!thread::spawn(in_background).join().unwrap());
-        }
-        assert!(!in_background());
-    }
-}
+#[path = "run_background_tests.rs"]
+mod background_tests;

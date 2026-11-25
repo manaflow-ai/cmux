@@ -137,9 +137,18 @@ strings_fresh() { # <sha>
 # (empty otherwise). It bounds the --tree-ready search from below, and a commit
 # it already contains is never requested again: main's promote job keeps one
 # waiting request, so a stale request would evict a newer one.
-promoted="" promoted_unknown=""
-if line="$(git ls-remote origin refs/heads/nightly-next 2>/dev/null)"; then
-  [[ ! "${line%%[[:space:]]*}" =~ ^[0-9a-f]{40}$ ]] || promoted="${line%%[[:space:]]*}"
+# One read gives nightly-next and the commit its feed last published (the publish moves the
+# nightly-next tag to it, scripts/ci/update-release-tag.py): no second round trip.
+promoted="" promoted_unknown="" published=""
+if refs="$(git ls-remote origin refs/heads/nightly-next refs/tags/nightly-next 'refs/tags/nightly-next^{}' 2>/dev/null)"; then
+  while read -r oid ref; do
+    [[ "$oid" =~ ^[0-9a-f]{40}$ ]] || continue
+    case "$ref" in
+      refs/heads/nightly-next) promoted="$oid" ;;
+      refs/tags/nightly-next) [[ -n "$published" ]] || published="$oid" ;;
+      'refs/tags/nightly-next^{}') published="$oid" ;;  # an annotated tag's commit
+    esac
+  done <<<"$refs"
 else
   promoted_unknown=1
 fi
@@ -150,12 +159,62 @@ already_promoted() { # <sha>
   git cat-file -e "$promoted^{commit}" 2>/dev/null && git merge-base --is-ancestor "$1" "$promoted" 2>/dev/null
 }
 
+# app_unchanged <sha>: 0 when nothing that can change the app the nightly publishes changed
+# between the published commit and <sha>, by scripts/ci/nightly_build_inputs.py (the classifier
+# main's nightly skips with: the cmux-next target and what it bundles, the cmux-tui client paths,
+# and every path the nightly workflow runs). Such a promotion builds and publishes the same app
+# again: of 92 NEXT nightlies published 2026-11-01/02 only 3 were app-identical, but each costs a
+# full build, signing and two notarizations. Any doubt (no published commit, history too shallow,
+# not a descendant, an unreadable classifier, a different cmux-tui tree key) answers 1, and the
+# commit is promoted.
+app_unchanged_reason=""
+# same_app <base> <sha>: 0 when nothing that reaches the app changed from <base> to <sha>.
+same_app() { # <base> <sha>
+  git cat-file -e "$1^{commit}" 2>/dev/null || return 1
+  git merge-base --is-ancestor "$1" "$2" 2>/dev/null || return 1
+  [[ -f "$repo_root/scripts/ci/nightly_build_inputs.py" ]] || return 1
+  local files verdict
+  files="$(git diff --no-renames --name-only "$1" "$2")" || return 1  # a move out of the app names its old path too
+  if [[ -z "$files" ]]; then
+    app_unchanged_reason="the same tree"
+    return 0
+  fi
+  verdict="$(printf '%s\n' "$files" | python3 "$repo_root/scripts/ci/nightly_build_inputs.py" --files-from - 2>/dev/null)" || return 1
+  [[ "$verdict" == *'"build_inputs_changed": false'* ]] || return 1
+  # The classifier does not see every input of the bundled cmux-tui binaries (workers/cmux-vm/cli,
+  # skills/cmux-browser are tree inputs it calls neutral): the tree key must match too. Read only
+  # here, after the classifier found nothing, so an app change pays nothing for it.
+  local key_base key_sha
+  key_base="$(python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2 "$1" 2>/dev/null)" || return 1
+  key_sha="$(python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2 "$2" 2>/dev/null)" || return 1
+  [[ "$key_base" =~ ^[0-9a-f]{40}$ && "$key_base" == "$key_sha" ]] || return 1
+  app_unchanged_reason="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["reason"])' "$verdict" 2>/dev/null || echo unchanged)"
+}
+app_unchanged() { # <sha>
+  app_unchanged_reason=""
+  [[ -n "$published" && "$published" != "$1" ]] || return 1
+  same_app "$published" "$1" || return 1
+  # A promotion still building (nightly-next past the published commit) publishes its own app
+  # next: <sha> must match that one too, or a revert of it would wait for it to publish first.
+  if [[ -n "$promoted" && "$promoted" != "$published" ]] \
+     && ! git merge-base --is-ancestor "$promoted" "$published" 2>/dev/null; then
+    local reason="$app_unchanged_reason"
+    same_app "$promoted" "$1" || return 1
+    app_unchanged_reason="$reason"
+  fi
+}
+
 # request <sha>: 0 = requested or already on nightly-next, 1 = not promotable
 # (no gate, stale strings), 2 = the dispatch itself failed (an API error) or
 # the promoting run has no node to check the strings with (the caller exits 1).
 request() { # <sha>
   if already_promoted "$1"; then
     echo "not requesting ${1:0:12}: it is already on nightly-next (${promoted:0:12})"
+    return 0
+  fi
+  # The tick's walk stops on "already on nightly-next": an older commit changes even less.
+  if app_unchanged "$1"; then
+    echo "not requesting ${1:0:12}: nothing that reaches the app changed since the published ${published:0:12} ($app_unchanged_reason), so its app is already on nightly-next"
     return 0
   fi
   if ! has_notary_gate "$1"; then
@@ -202,6 +261,37 @@ request() { # <sha>
   fi
 }
 
+# starved_runs <commit>: how many of the commit's queued cmux-tui-artifacts
+# push runs have a first job that has waited past CMUX_TREE_RUN_STARVED_MIN
+# (default 30) minutes with no runner. Such a run counts as no run: it is not
+# building the tree, and the rescue dispatch must not wait on it (2026-11-19:
+# 40+ feat-cmux-next preflights queued since 04:21Z on cmux-gcp-lane-build-x64
+# with every runner busy, and no tip got its tree). Only push runs: a
+# workflow_dispatch run is the rescue itself, so each tip is rescued at most
+# once. A read that fails counts nothing starved (the old, careful answer).
+starved_runs() { # <commit>
+  local limit="${CMUX_TREE_RUN_STARVED_MIN:-30}" now ids id first at age n=0
+  [[ "$limit" =~ ^[0-9]+$ ]] || limit=30
+  now="$(date -u +%s)"
+  ids="$(gh api "repos/$repo/actions/workflows/cmux-tui-artifacts.yml/runs?head_sha=$1&event=push&status=queued&per_page=20" \
+    --jq '.workflow_runs[].id' 2>/dev/null)" || { echo 0; return 0; }
+  for id in $ids; do
+    [[ "$id" =~ ^[0-9]+$ ]] || continue
+    # The run's first job (the oldest), and only while it is queued with no runner.
+    first="$(gh api "repos/$repo/actions/runs/$id/jobs?filter=latest&per_page=100" \
+      --jq '[.jobs[]] | sort_by(.created_at) | first | select(. != null and .status == "queued" and ((.runner_name // "") == "")) | .created_at' \
+      2>/dev/null)" || continue
+    [[ -n "$first" ]] || continue
+    at="$(date -u -d "$first" +%s 2>/dev/null || date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$first" +%s 2>/dev/null)" || continue
+    age=$(( (now - at) / 60 ))
+    if (( age >= limit )); then
+      echo "cmux-tui-artifacts run $id for ${1:0:12}: its first job has waited ${age} min with no runner; counted as no run" >&2
+      n=$((n + 1))
+    fi
+  done
+  echo "$n"
+}
+
 # NIGHTLY_NEXT_TREE_AT_INSTALL: the feat-cmux-next tip whose tree is a
 # confirmed 404 (never a read failure), whose own nightly.yml carries the line
 # main's promote guard reads, and whose tree a cmux-tui-artifacts run is
@@ -223,6 +313,8 @@ request_tree_pending() {
     [[ "$(python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2 "$commit" 2>/dev/null)" == "$tip_key" ]] || break
     runs="$(gh run list --repo "$repo" --workflow cmux-tui-artifacts.yml --commit "$commit" --limit 5 --json status \
       --jq '[.[] | select(.status != "completed")] | length' 2>/dev/null)" || continue
+    # A run starved of a runner builds nothing: it must not stand for the tree.
+    [[ "$runs" =~ ^[1-9][0-9]*$ ]] && runs=$((runs - $(starved_runs "$commit")))
     if [[ "$runs" =~ ^[1-9][0-9]*$ ]]; then active="$commit"; break; fi
   done < <(git rev-list --first-parent -n 40 "$sha" 2>/dev/null)
   if [[ -z "$active" ]]; then
@@ -240,9 +332,12 @@ request_tree_pending() {
 # marks every recent commit whose tree is ready (mark-tree-commits) and builds
 # the tip's tree when it has none. At most one per job (the nightly-next tick
 # calls this script once per commit it walks): a stamp in RUNNER_TEMP keyed by
-# the run. Never while an artifacts run on feat-cmux-next is queued, waiting
-# or in progress (one filtered read per state, so no older active run hides
-# behind newer finished ones), and never when that cannot be read. Two jobs
+# the run. Never while an artifacts run for the dispatch's current branch tip
+# is queued, waiting or in progress (one filtered read per state, so no older
+# active run hides behind newer finished ones), and never when that cannot be
+# read. An unrelated tree cannot publish this tip: its run must not suppress
+# recovery. request_tree_pending already reuses an active same-tree ancestor
+# before a missing tree reaches this fallback. Two jobs
 # racing past the check (the tick and an artifacts push run) start at most two
 # runs, and a dispatch's concurrency group (one per commit, never cancelled)
 # keeps one of them pending behind the other.
@@ -252,20 +347,31 @@ backfill() { # <reason>
     echo "backfill: already dispatched in this job; not dispatching again ($1)"
     return 0
   fi
-  local state count
+  local state count dispatch_tip tip_line
+  # This function also repairs older candidates' markers, but the dispatch
+  # always builds feat-cmux-next. Bind the duplicate check to that source,
+  # rather than the candidate or every publisher on the branch.
+  if ! tip_line="$(git ls-remote origin refs/heads/feat-cmux-next 2>/dev/null)" \
+      || ! [[ "${tip_line%%[[:space:]]*}" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "backfill: could not read the feat-cmux-next tip; not dispatching ($1)"
+    return 0
+  fi
+  dispatch_tip="${tip_line%%[[:space:]]*}"
   active=0
   # The REST filter, not `gh run list --status`: gh's flag refuses "pending"
   # (a run held behind its concurrency group).
   for state in queued in_progress waiting pending requested; do
-    if ! count="$(gh api "repos/$repo/actions/workflows/cmux-tui-artifacts.yml/runs?branch=feat-cmux-next&status=$state&per_page=1" \
+    if ! count="$(gh api "repos/$repo/actions/workflows/cmux-tui-artifacts.yml/runs?branch=feat-cmux-next&head_sha=$dispatch_tip&status=$state&per_page=1" \
         --jq .total_count 2>/dev/null)" || [[ ! "$count" =~ ^[0-9]+$ ]]; then
       echo "backfill: could not read the cmux-tui-artifacts runs; not dispatching ($1)"
       return 0
     fi
     active=$((active + count))
   done
+  # A tip run queued past the limit with no runner is no run (starved_runs).
+  (( active > 0 )) && active=$((active - $(starved_runs "$dispatch_tip")))
   if (( active > 0 )); then
-    echo "backfill: a cmux-tui-artifacts run on feat-cmux-next is queued or running; not dispatching ($1)"
+    echo "backfill: a cmux-tui-artifacts run for feat-cmux-next ${dispatch_tip:0:12} is queued or running; not dispatching ($1)"
     return 0
   fi
   if gh workflow run cmux-tui-artifacts.yml --repo "$repo" --ref feat-cmux-next; then
@@ -289,8 +395,18 @@ if ! resolved="$(env -u GITHUB_OUTPUT -u GITHUB_STEP_SUMMARY CMUX_TUI_TREE_DISPA
   esac
   echo "not promoting ${sha:0:12}: the nightly cannot resolve a published cmux-tui tree for it yet"
   # The feat-cmux-next tip with no cmux-tui-artifacts run at all (a push that
-  # started none, such as a GITHUB_TOKEN push) gets one. A tip whose run failed
-  # or is running gets none: a failed build is a red to fix, not to re-run here.
+  # started none, such as a GITHUB_TOKEN push) gets one, and so does a tip whose
+  # only runs are push runs starved of a runner past the limit (starved_runs). A
+  # tip whose run failed or is running gets none: a failed build is a red to
+  # fix, not to re-run here. A run that succeeded while the tip's tree is a
+  # confirmed 404 built nothing (a coalesced or superseded push: base-coalesce
+  # lets one feat-cmux-next push per window build), so it counts as no run.
+  # Without that, the tick walked past every coalesced tip to the window's
+  # older built commit: on 2026-11-23 it cut commits 40-87 min old. The
+  # dispatched build is then the tip's active run, so the next tick requests
+  # the tip with NIGHTLY_NEXT_TREE_AT_INSTALL.
+  # A green workflow_dispatch run (this backfill's own build) still counts:
+  # if it published nothing, re-dispatching it every tick would not help.
   # Only on a confirmed miss: the CDN answers 404 for the tip's tree (verify-key
   # exit 1), never on a read failure.
   if tip_line="$(git ls-remote origin refs/heads/feat-cmux-next 2>/dev/null)" && [[ "${tip_line%%[[:space:]]*}" == "$sha" ]] \
@@ -298,8 +414,10 @@ if ! resolved="$(env -u GITHUB_OUTPUT -u GITHUB_STEP_SUMMARY CMUX_TUI_TREE_DISPA
     tip_verify=0
     bash "$script_dir/pin-cmux-tui.sh" verify-key "$tip_key" >/dev/null 2>&1 || tip_verify=$?
     if (( tip_verify == 1 )) \
-        && tip_runs="$(gh run list --repo "$repo" --workflow cmux-tui-artifacts.yml --commit "$sha" --limit 5 --json status --jq length 2>/dev/null)" \
-        && [[ "$tip_runs" == 0 ]]; then
+        && tip_runs="$(gh run list --repo "$repo" --workflow cmux-tui-artifacts.yml --commit "$sha" --limit 5 --json status,conclusion,event \
+             --jq '[.[] | select(.status != "completed" or .conclusion != "success" or .event == "workflow_dispatch")] | length' 2>/dev/null)" \
+        && [[ "$tip_runs" =~ ^[0-9]+$ ]] \
+        && { (( tip_runs == 0 )) || (( tip_runs - $(starved_runs "$sha") <= 0 )); }; then
       backfill "the feat-cmux-next tip ${sha:0:12} has no cmux-tui-artifacts run"
     fi
   fi
@@ -362,6 +480,7 @@ if [[ "$mode" == release-compile-green && -n "$promoted" ]] \
   fallback=""
 fi
 refused=0
+quarantine_read="" quarantined_list=""
 max_refused="${CMUX_NIGHTLY_NEXT_MAX_REFUSED:-5}"
 [[ "$max_refused" =~ ^[1-9][0-9]?$ ]] || { echo "error: CMUX_NIGHTLY_NEXT_MAX_REFUSED must be 1 to 99" >&2; exit 2; }
 while read -r run_sha; do
@@ -388,6 +507,22 @@ while read -r run_sha; do
   fi
   # <sha> itself goes to request(), which names a missing gate.
   [[ "$run_sha" == "$sha" ]] || has_notary_gate "$run_sha" || continue
+  # A commit the direct-push quarantine holds (scripts/cmux-next/nightly_quarantine.py: cmuxterm-hq's base-red-watch
+  # found a direct push red on feat-cmux-next's push runs and no later push green) is never promoted: nightly-next
+  # stays on its last build and skips forward once a fix or revert passes. Read once a run, on the first candidate
+  # that gets this far; unreadable, nothing is held (base-red-watch still pages the base-reds owner).
+  if [[ -z "$quarantine_read" ]]; then
+    quarantine_read=1
+    if ! quarantined_list="$(python3 "$repo_root/scripts/cmux-next/nightly_quarantine.py" quarantined --repo "$repo" --tip "$tip" 2>/dev/null)"; then
+      echo "warning: the direct-push quarantine is unreadable; promoting as if none were open" >&2
+      quarantined_list=""
+    fi
+  fi
+  if held_by="$(grep -m1 "^$run_sha " <<<"$quarantined_list")"; then
+    read -r _ q_culprit q_pusher <<<"$held_by"
+    echo "not promoting ${run_sha:0:12}: quarantined since direct push $q_culprit by $q_pusher failed the direct-push gates; a later push that passes them (a fix or a revert) is promoted"
+    continue
+  fi
   rc=0
   request "$run_sha" || rc=$?
   [[ "$rc" != 0 ]] || exit 0

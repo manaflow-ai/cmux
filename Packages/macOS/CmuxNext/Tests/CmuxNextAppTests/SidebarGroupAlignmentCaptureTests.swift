@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 import UniformTypeIdentifiers
 
@@ -9,6 +10,7 @@ import UniformTypeIdentifiers
 /// the data a reorder drop under "Panes & layout"'s last row made (Perf its subgroup, one gutter in);
 /// after, the same drop with the fix (Perf stays a top-level group, aligned with the others). It checks
 /// only that each drew; `SidebarGroupAlignmentTests` checks the offsets.
+@Suite(.closesItsWindows)
 @MainActor struct SidebarGroupAlignmentCaptureTests {
     private static let size = NSSize(width: 300, height: 340)
 

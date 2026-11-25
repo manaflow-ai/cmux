@@ -8,6 +8,12 @@ use std::time::Instant;
 
 pub(in crate::server) struct ClientRecord {
     pub(in crate::server) transport: ClientTransport,
+    /// Authenticated Native role, set by remote entry before the first frame,
+    /// or the carrier grant's role a Cloud session host stamped on a unix
+    /// carrier stream (`carrier_role.rs`).
+    /// Outer None is a non-Native connection; Some(None) is a Native token
+    /// without an owner claim and must never fall back to request fields.
+    pub(in crate::server) native_vm_kind: Option<Option<cmux_link::token::VmKind>>,
     pub(in crate::server) connected_at: Instant,
     pub(in crate::server) name: Option<String>,
     pub(in crate::server) kind: Option<String>,
@@ -44,4 +50,8 @@ pub(in crate::server) struct ClientRecord {
     pub(in crate::server) owner_plugin: bool,
     #[cfg(unix)]
     pub(in crate::server) machine_catalog: Option<super::machine_catalog::Publication>,
+    /// The tabs whose chat this connection's own `agent-session-start` bound: a phone's channel
+    /// may close these (hostd's cleanup past its session limit, phone_carrier.rs).
+    #[cfg(unix)]
+    pub(in crate::server) started_tabs: HashSet<SurfaceId>,
 }

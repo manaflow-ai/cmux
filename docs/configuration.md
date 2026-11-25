@@ -104,6 +104,24 @@ Draws windows in the plain theme color.
 
 It changes only what is drawn. Your `appearance.*` values and workspace and pane pictures stay as they are, and turning it off brings them back. Change it in **Settings > Appearance > Window Background** or with `cmux settings set ui.reducedBackgrounds true`.
 
+## `appearance.fontSmoothing`
+
+How text draws in cmux's own controls (tab titles, the sidebar, the command palette, menus, toasts, dialogs) and in its web pages (chat, Settings, New Tab). It follows the CSS `-webkit-font-smoothing` values.
+
+```json
+{
+  "appearance": { "fontSmoothing": "auto" }
+}
+```
+
+- `"auto"` (default): no override. Native controls use the Mac's own font smoothing (or none, if you turned it off for every app with `defaults -currentHost write -g AppleFontSmoothing -int 0`), and each web page keeps its own CSS. This is the look cmux had before the setting existed.
+- `"antialiased"`: thin, grayscale strokes everywhere, the look of `-webkit-font-smoothing: antialiased`. Small or dim text gets lighter: about 15% less ink for dark text on light, about 27% less for light text on dark, more so on a 1x display.
+- `"subpixel"`: the heavier macOS font smoothing everywhere, the look of `-webkit-font-smoothing: subpixel-antialiased`, even if smoothing is off for every app.
+
+`"system"`, the earlier name, still reads as `"auto"`.
+
+Web pages, tab titles and the sidebar change at once. Other native controls change after cmux restarts: macOS fixes an app's text weight when the app first draws text. Terminal text is not changed; it keeps Ghostty's `font-thicken`. Change it in **Settings > Appearance > Density and Motion** or with `cmux settings set appearance.fontSmoothing subpixel`.
+
 ## `app.windowTitleTemplate`
 
 Opt-in template for the macOS `NSWindow.title`. Leave it unset or set it to an empty string to keep the default behavior, where the title follows the active workspace title or current directory.
@@ -139,21 +157,6 @@ Default: `always` for stable, nightly, and RC builds. DEV builds always behave a
 
 The older boolean `app.warnBeforeQuit` still works as a fallback when `app.confirmQuit` is not set. `true` maps to `always`; `false` maps to `never`.
 
-## `tabs.cmdWClosesPinnedTabs`
-
-What Cmd-W does on a pinned tab.
-
-```json
-{
-  "tabs": { "cmdWClosesPinnedTabs": false }
-}
-```
-
-- `true` (default): Cmd-W closes a pinned tab like any other tab, as in Chrome.
-- `false`: Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. When the pinned tab is the only tab in its pane, Cmd-W keeps it and shows a short notice. Close a pinned tab from its right-click menu.
-
-A tab closed by name (its menu, `cmux tab close`, MCP) closes with either value. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.cmdWClosesPinnedTabs false`.
-
 ## `tabs.swapCmdTAndCmdN`
 
 Which of Cmd-T and Cmd-N opens a tab and which opens a workspace.
@@ -184,9 +187,30 @@ What Cmd-1 to Cmd-9 select.
 
 A key you bind yourself in `shortcuts.bindings` for `selectWorkspaceByNumber` or `selectSurfaceByNumber` wins, and then neither moves. Change it in **Settings > Keyboard > Sidebar Navigation** or with `cmux settings set tabs.commandDigits tabs`.
 
+## `tabs.verticalTabs` and `tabs.verticalTabsExpandOnHover`
+
+Whether workspaces show their tabs as a vertical list beside their panes, as in Edge and Chrome, instead of the horizontal tab bar.
+
+```json
+{
+  "tabs": { "verticalTabs": true, "verticalTabsExpandOnHover": false }
+}
+```
+
+- `tabs.verticalTabs`: `false` (default) keeps the horizontal tab bar. `true` shows vertical tabs in every workspace. This is **Use Vertical Tabs for All Workspaces**.
+- `tabs.verticalTabsExpandOnHover`: `true` (default) widens a list collapsed to icons to show the titles while the pointer is over it.
+
+One workspace can turn vertical tabs on or off for itself: right-click the empty part of its tab bar or tab list and choose **Turn On Vertical Tabs** or **Turn Off Vertical Tabs**. That workspace's own choice wins over `tabs.verticalTabs`. Changing **Use Vertical Tabs for All Workspaces** clears every workspace's own choice.
+
+The same menu has **New Tab**, **Reopen Closed Tab**, **Bookmark All Tabs**, **Move All Tabs to a New Workspace**, **Collapse Tabs** (icons only, for every workspace), **Auto-Expand Tabs on Hover** and **Task Manager**.
+
+The list has pinned tabs at the top, tab groups with their color bar, the speaker to mute a tab, drag to reorder and the same tab right-click menu as the tab bar. A workspace showing vertical tabs lists no tab rows under its row in the sidebar, even with `sidebar.showWorkspaceTabs` on: its own list shows them.
+
+Change both in **Settings > General > Tabs** or with `cmux settings set tabs.verticalTabs true`.
+
 ## Tab bar (removed: `tabs.tabBar`)
 
-Every pane shows its horizontal tab bar: terminals, browsers, agent chats and the chat dock. A workspace is a vertical tab in the sidebar, and a pane's tab bar holds tabs inside it.
+Every pane shows its horizontal tab bar: terminals, browsers, agent chats and the chat dock. The exception is a workspace showing vertical tabs (`tabs.verticalTabs`), whose panes list their tabs on their leading edge. A workspace is a vertical tab in the sidebar, and a pane's tab bar holds tabs inside it.
 
 The only way to hide one pane's tab bar is **Hide Tab Bar** in the command palette (Cmd-Shift-P) or the pane's right-click menu. While the bar is hidden, the same entry reads **Show Tab Bar**. The CLI keeps `cmux pane toggle-tab-bar`. Cmd-T always opens a tab in the current workspace, also in a pane that hides its tab bar (the tab bar then shows); Cmd-N opens a new workspace. **New Horizontal Tab** (no default key) turns the focused pane's tab bar on and opens a tab there.
 
@@ -194,7 +218,7 @@ The `tabs.tabBar.terminal`, `tabs.tabBar.browser` and `tabs.tabBar.agent` settin
 
 ## `tabs.newTabPosition`
 
-Where Cmd-T and the + button put a new tab.
+Where Cmd-T puts a new tab.
 
 ```json
 {
@@ -206,7 +230,7 @@ Where Cmd-T and the + button put a new tab.
 - `"end"`: after the pane's last tab, as in Chrome and Edge.
 - `"start"`: first, right after the pinned tabs.
 
-The setting applies to what you open with Cmd-T and the + button. A script's `cmux tab new` still adds the tab at the end.
+The setting applies to what you open with Cmd-T. The + button has its own setting, `tabs.newTabButtonPosition` (below). A script's `cmux tab new` still adds the tab at the end.
 
 To put one new tab in a specific place, whatever the setting, use these commands (Cmd-Shift-P, the CLI, or MCP). They have no default key; you can assign one in **Settings > Keyboard Shortcuts**.
 
@@ -218,9 +242,25 @@ To put one new tab in a specific place, whatever the setting, use these commands
 
 **New Tab to the Right** in a tab's right-click menu always puts the new tab right after that tab. Change the setting in **Settings > General > Tabs** or with `cmux settings set tabs.newTabPosition end`.
 
+## `tabs.newTabButtonPosition`
+
+Where the + button after the last tab puts a new tab. The **New Tab** row of vertical tabs follows it too. It takes the same values as `tabs.newTabPosition`; the default is `"end"`.
+
+```json
+{
+  "tabs": { "newTabButtonPosition": "end" }
+}
+```
+
+- `"end"` (default): after the pane's last tab, next to the button.
+- `"afterCurrent"`: right after the selected tab, like Cmd-T's default.
+- `"start"`: first, right after the pinned tabs.
+
+Option-click on the + (a tab of the selected tab's kind) goes to the same place. Change the setting in **Settings > General > Tabs**, in the command palette, or with `cmux settings set tabs.newTabButtonPosition afterCurrent`.
+
 ## `tabs.newTabTemplate`
 
-The layout of the New Tab page. The template dots under the page switch it in place and save the choice here (on `minimal` they are a widget, see `tabs.newTabWidgets` below).
+The layout of the New Tab page. On `classic`, the template dots under the page switch it in place and save the choice here.
 
 ```json
 {
@@ -228,36 +268,34 @@ The layout of the New Tab page. The template dots under the page switch it in pl
 }
 ```
 
-- `minimal` (the default): a short greeting and the composer. Everything else is a widget you turn on, see `tabs.newTabWidgets`.
-- `cards`: one rounded field with the Search and Ask switch (Tab switches), the project and agent chips under it, and three recent chats as tall cards.
-- `default`: one field with agent rows, recent chats as cards, and Tools.
-- `composer`: one large prompt field, with nothing else.
-- `threads`: the field and the recent chats as a list.
-- `console`: a monospace field with a `>` prompt and the recent chats as lines.
+- `minimal` (the default): the composer, with its folder and machine, and nothing else.
 - `classic`: the Terminal, Browser and Agent switch.
-- `terminal`: the `cards` screen. New Tab never opens a terminal by itself; pick one on the page or use New Terminal Tab.
+- `terminal`: the `minimal` page. New Tab never opens a terminal by itself; pick one on the page or use New Terminal Tab.
 
-Cmd-T and the + button always open the New Tab page. Change the template in **Settings > General > Tabs** or with `cmux settings set tabs.newTabTemplate console`.
+Cmd-T and the + button always open the New Tab page. Change the template in **Settings > General > Tabs** or with `cmux settings set tabs.newTabTemplate classic`.
 
-## `tabs.newTabWidgets`
+The Cards, Default, Threads and Console pages no longer ship as templates: each is now a New Tab page you build and edit yourself with [`tabs.newTabApp`](#tabsnewtabapp). Start from its folder in `skills/cmux-customization/templates/` (`newtab-cards`, `newtab-calm`, `newtab-threads`, `newtab-console`): copy it to `~/.config/cmux/customize`, then run `cmux settings set tabs.newTabApp local/customize`. A config that still names `cards`, `default`, `threads`, `console` or the older `composer` shows `minimal`.
 
-The `minimal` template, the default, shows a short greeting and the composer, which keeps its folder and machine. Everything else on it is a widget you turn on; with the project card, the actions or the chats on, the page takes the `default` template's layout around the composer. The other templates ignore these keys and draw what they always drew.
+## `tabs.newTabApp`
+
+An extension that draws over the New Tab composer, by its app id. The extension implements
+`cmux.newtab/1` (see `cmux-tui/crates/cmux-extension-sdk/README.md`). Unset (the default), cmux
+draws its own page, as above.
 
 ```json
 {
-  "tabs": { "newTabWidgets": { "chats": true, "styleDots": true } }
+  "tabs": { "newTabApp": "local/showcase-newtab" }
 }
 ```
 
-| Key | Default | Shows |
-| --- | --- | --- |
-| `greeting` | `true` | A short greeting by the time of day over the composer. |
-| `projects` | `false` | A card of this Mac and its recent projects. |
-| `actions` | `false` | The chats that need you, and New Terminal, New Browser Tab and New Chat. |
-| `chats` | `false` | The recent chats, as rows under the composer. |
-| `styleDots` | `false` | The template dots under the page. |
+- The page shows only the extension's view: its greeting, buttons and lists, in the app's look.
+- If the extension is not installed, is hidden or disabled, or its view fails, cmux draws its own page.
+- Go back to cmux's own page with `cmux settings reset tabs.newTabApp`.
+- The change applies to the next New Tab page. The native New Tab page (`tabs.nativeNewTabPage`)
+  does not use it.
 
-With every widget off the page still does everything: type a URL or a prompt, and find any chat with the palette (Cmd-P). Change them in **Settings > General > Tabs** or with `cmux settings set tabs.newTabWidgets.chats true`.
+Change it in **Settings > General > Tabs**, in the command palette, or with
+`cmux settings set tabs.newTabApp local/showcase-newtab`.
 
 ## `app.forkConversationDefaultDestination`
 
@@ -417,12 +455,12 @@ Where a new workspace goes in the sidebar when you do not pick a place: Cmd-N, N
 
 ```json
 {
-  "workspaces": { "newPlacement": "top" }
+  "workspaces": { "newPlacement": "afterCurrent" }
 }
 ```
 
-- `"top"` (default): right below the workspace the window shows, inside its group, when that workspace is in a group. When it is not in a group, first in the workspace list, above every group. Pinned workspaces stay above it in the Pinned section, and it goes below the Home row when the list shows one.
-- `"afterCurrent"` (cmux classic's default): right after the workspace the window shows, inside that workspace's group when it has one. When that workspace is pinned, is Home, or is on another machine, the new one goes to the top.
+- `"afterCurrent"` (default, as in cmux classic): right after the workspace the window shows, inside that workspace's group when it has one. If that workspace closes before the new one appears, the new one takes its place. Made from a group's + while none of that group's workspaces is shown, it goes last in that group. When the shown workspace is pinned, is Home, or is on another machine, the new one goes to the top. It never goes to the end of the sidebar.
+- `"top"`: first in the group of the workspace the window shows, when that workspace is in a group. When it is not in a group, first in the workspace list, above every group. Pinned workspaces stay above it in the Pinned section, and it goes below the Home row when the list shows one.
 - `"bottom"`: last in the group of the workspace the window shows. When that workspace is not in a group, after the last workspace that is not in a group.
 
 So under every value, a new workspace opened while you are in a group stays in that group.
@@ -611,10 +649,12 @@ A binding you set yourself for either action stays when you pick a choice. Rebin
 
 | Keys | Action | Id |
 | --- | --- | --- |
-| Ctrl+Option+Cmd+Left / Right | Previous / Next Space | `space.previous` / `space.next` |
+| Ctrl+Option+Cmd+H / L | Previous / Next Space | `space.previous` / `space.next` |
+| Ctrl+Option+Cmd+Left / Right | Previous / Next Space (also; not in the code editor) | `space.previous` / `space.next` |
 | Option+Cmd+[ / ] | Previous / Next Space (also; not in the code editor) | `space.previous` / `space.next` |
 | Ctrl+Option+Cmd+1…9 | Select Space 1…9 (9 is the last) | `space.selectByNumber` |
 | Ctrl+Option+1…9 | Select Space 1…9 (the Number Keys default) | `space.selectByNumber` |
+| Ctrl+Option+Cmd+N | New Space | `space.new` |
 | Shift+Cmd+N | New Window, on a new space | `newWindow` |
 
 Ctrl+Cmd+Left / Right resize the focused pane (Ghostty's `resize_split`) and Ctrl+Cmd+1…9 focus pane 1…9, so the space keys add Option. macOS keeps Ctrl+arrows and Ctrl+digits for Mission Control. Rebinding an action (Settings > Keyboard Shortcuts or `shortcuts.bindings["space.next"]`) replaces all its default keys; `null` removes them. Every space action is also in the command palette (Shift+Cmd+P), the `cmux space …` CLI and MCP: for example `cmux space next`, `cmux space select-1-9 --index 2` and `cmux space open-in-new-window --space <space>`.
@@ -654,17 +694,17 @@ Turn it on in Settings > General > Start Agent from Any App. Its key is a separa
 
 ## Background mode and `app.hideDockIconWithoutWindows`
 
-When you close the last cmux window, cmux keeps running, and so do your terminals and agents. By default it then leaves the Dock and the app switcher (Cmd-Tab). The cmux menu bar item (`app.showMenuBarIcon`, below) stays as the way back; with that item off, a smaller menu bar item shows instead, with Show cmux, New Window, Settings and Quit. Opening any window brings the Dock icon back: the menu bar item, opening cmux again from Finder or Spotlight, a notification, a link, or the `cmux` CLI. To keep the Dock icon while no window is open:
+When you close the last cmux window, cmux keeps running, and so do your terminals and agents. By default its Dock icon stays, so a click on it opens a window again. To have cmux leave the Dock and the app switcher (Cmd-Tab) while no window is open, turn it on:
 
 ```json
 {
   "app": {
-    "hideDockIconWithoutWindows": false
+    "hideDockIconWithoutWindows": true
   }
 }
 ```
 
-Or turn off Settings > General > Hide Dock Icon When No Windows Are Open.
+Or turn on Settings > General > Hide Dock Icon When No Windows Are Open. The cmux menu bar item (`app.showMenuBarIcon`, below) then stays as the way back; with that item off, a smaller menu bar item shows instead, with Show cmux, New Window, Settings and Quit. Opening any window brings the Dock icon back: the menu bar item, opening cmux again from Finder or Spotlight, a notification, a link, or the `cmux` CLI.
 
 ## The menu bar item and `app.showMenuBarIcon`
 
@@ -694,6 +734,18 @@ Or turn off Settings > General > Show Menu Bar Icon. With the icon off and no cm
 ## Message the Chief from any app
 
 Message the Chief (command palette) shows the floating Chief pet with its reply box open. With the pet off, it shows the pet for that message only and hides it again when the box closes; `home.chiefPetEnabled` stays off. Its system-wide key is a separate Keyboard Shortcuts row, Message the Chief from Any App (default Ctrl+Option+Cmd+C), rebound with `shortcuts.bindings["home.messageChiefFromAnyApp"]`. It works from any app, cmux included, while the Chief pet is on (`home.chiefPetEnabled`, Settings > Home > Show Chief Pet or View > Show Chief Pet). With the pet off, cmux leaves the key to other apps; use Message the Chief in the command palette. When another app already holds the key, the Keyboard Shortcuts row shows a warning and the key works only inside cmux.
+
+## The Chief's + menu and `home.clipboardHistory`
+
+The + button beside the Chief's message box opens a menu. Attach Files or Images… opens the file picker (files only; to send a folder, attach its files or a ZIP of it). Below it, the Clipboard section lists text and images from your clipboard, newest first: what was on it each time you opened the menu, plus, when cmux may read the clipboard without asking (below), what you copied in other apps before switching back to cmux. Click a text row to type it at the caret, or an image row to attach the image as if you had pasted it.
+
+The history is on by default. It stays in memory on this Mac: it's never written to disk or sent anywhere, and it's gone when cmux quits. cmux reads the clipboard for it only when you open the + menu and, if macOS's clipboard privacy lets cmux read without asking (Always Allow, or a macOS before 15.4), when cmux becomes the active app. It never reads on a timer, so something you copy and replace while you're in another app doesn't show. When the history has nothing to list, the + button opens the file picker directly. It skips anything a password manager or clipboard-aware app marks as concealed, transient or auto-generated (the [nspasteboard.org](http://nspasteboard.org) types), and it skips copied files and text over 256 KB. Images of any size are kept; the oldest entries go first when the history passes its total size, but the newest one always stays. Turn it off in Settings > Privacy and Security > Clipboard History in the + Menu, or:
+
+```json
+{ "home": { "clipboardHistory": false } }
+```
+
+When it's off, cmux doesn't read your clipboard for the menu, and the Clipboard section is gone. The Chief's composer has no @-mentions, slash commands or plan mode yet, so its + menu doesn't show those rows from the agent chat's + menu.
 
 ## `palette.scopes.<scope>.prefix`
 
@@ -902,8 +954,9 @@ cmux also posts a notification when a workspace's status first reaches done, and
 
 ## `mcp.enabled` and agent sessions
 
-Agent sessions that cmux starts through acpmux get the `cmux-cua` Computer Use MCP server
-and, for Claude Code, the skills `cmux:cmux-browser` and `cmux:cmux-cua`. With
+Agent sessions that cmux starts through acpmux get the cmux Computer Use MCP server
+(`cmux-computer-use`, [docs/computer-use/README.md](computer-use/README.md)) and, for Claude
+Code, the skills `cmux:cmux-browser` and `cmux:cmux-cua`. With
 `"mcp": {"enabled": true}` they also get the `cmux` MCP server with the browser REPL tools.
 To turn all of these off, set the environment variable `ACPMUX_AGENT_TOOLS=0` for the acpmux
 daemon (or in one acpmux profile's `env`). A Claude profile that passes
@@ -994,7 +1047,7 @@ server (`optchat-chief agent-memory mcp`) with `memory_search`, `memory_get` and
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `enabled` | `false` | Register the server for the agent sessions cmux starts, and let the Agent Memory app's search use the index. Only `true` turns it on; a settings file that cannot be read keeps it off. |
-| `owner` | unset | The route of the machine that owns the index (`ssh://HOST` uses your ssh config; any `cmux remote` route works). Unset: this machine owns it. |
+| `owner` | unset | The route of the machine that owns the index (`ssh://HOST` uses your ssh config; any `cmux remote` route works). Unset: this machine owns it, and a chat that moves from here to another of your machines takes the route back with it (this machine's `remoteDaemon` through the hub carrier, `--via-machine`), so its memory still searches this index. |
 | `ownerArgs` | `[]` | Extra `cmux remote rpc` options for that route, such as `--daemon FINGERPRINT` or `--ssh-arg ARG`. |
 | `ownerCommand` | unset | The owner's `optchat-chief`, as argv, when it is not in a cmux app bundle, on its `PATH` or in `~/.local/bin`. |
 | `remember` | `true` | Whether agents may save notes. `false` hides `memory_remember`. |
@@ -1049,7 +1102,7 @@ shows the same keys.
     "omnibar": {
       "remoteSuggestions": true,
       "inlineAutocomplete": true,
-      "maxRows": 8,
+      "maxRows": 6,
       "calculator": true,
       "showFullURLs": false,
       "glass": "off",
@@ -1079,7 +1132,7 @@ shows the same keys.
 - `omnibar.inlineAutocomplete`: complete the typed text to a site's address in the field
   when the text is the start of the host and you typed that address before or visited it
   at least 4 times. Default: `true`.
-- `omnibar.maxRows`: suggestion rows shown, `3` to `15`. Default: `8`.
+- `omnibar.maxRows`: suggestion rows shown, `3` to `15`. Default: `6`.
 - `omnibar.showFullURLs`: show the whole address, with `https://` and `www.`, when you are not
   editing it (Chrome's "Always Show Full URLs"; the address bar's right-click menu toggles it).
   Default: `false`.

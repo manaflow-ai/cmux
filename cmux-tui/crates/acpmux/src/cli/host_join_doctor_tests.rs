@@ -26,6 +26,12 @@ fn healthy() -> Facts {
         binary: Binary::Ok("/home/u/.local/bin/acpmux".into()),
         service: Service::Active { linger: Some(true) },
         daemon_running: true,
+        daemon_binary: DaemonBinary {
+            path: Some("/home/u/.local/bin/acpmux".into()),
+            build: Some("9d9419a91".into()),
+            version: Some("1.0.0".into()),
+        },
+        path_binary: None,
         capabilities: Some(vec!["machine.join.stdin.v1".into(), CONSENT_GATE.into()]),
         status: Status::Json(status(json!({}))),
     }
@@ -45,7 +51,17 @@ fn a_healthy_join_is_all_ok_in_order() {
     let names: Vec<&str> = checked.iter().map(|s| s.step).collect();
     assert_eq!(
         names,
-        ["binary", "service", "daemon", "credential", "revoked", "hub", "heartbeat", "consent"]
+        [
+            "binary",
+            "service",
+            "daemon",
+            "credential",
+            "team",
+            "revoked",
+            "hub",
+            "heartbeat",
+            "consent"
+        ]
     );
     assert!(checked.iter().all(|s| s.state == StepState::Ok), "{checked:?}");
     assert_eq!(step(&checked, "credential").detail, "joined as m_1");
@@ -53,6 +69,77 @@ fn a_healthy_join_is_all_ok_in_order() {
     assert!(
         step(&checked, "consent").detail.starts_with("screen sharing off, control off; to allow")
     );
+}
+
+const APP: &str = "/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux";
+const ON_PATH: &str = "/Users/x/.local/bin/acpmux";
+
+#[test]
+fn app_daemon_and_stale_path_copy_have_distinct_steps() {
+    let daemon = DaemonBinary::from_status(
+        &json!({"exe": APP, "pid": 41, "build": "9d9419a91", "version": "1.0.0"}),
+        |_| panic!("the daemon reported its executable"),
+    );
+    for stale in ["a1143d5cc", "75d22c950"] {
+        let facts = Facts {
+            linux: false,
+            daemon_binary: daemon.clone(),
+            path_binary: Some((ON_PATH.into(), stale.into())),
+            service: Service::AppManaged,
+            ..healthy()
+        };
+        let checked = steps(&facts, NOW);
+        assert_eq!(step(&checked, "binary").detail, format!("running daemon at {APP} (9d9419a91)"));
+        let warnings: Vec<_> = checked.iter().filter(|s| s.state == StepState::Warn).collect();
+        assert_eq!(warnings.len(), 1);
+        let warn = warnings[0];
+        for expected in [APP, ON_PATH, "9d9419a91", stale] {
+            assert!(warn.detail.contains(expected), "{}", warn.detail);
+        }
+        assert_eq!(warn.fix, Some(format!("Remove or update the stale acpmux at {ON_PATH}")));
+        let service = step(&checked, "service");
+        assert_eq!(service.state, StepState::Ok);
+        assert_eq!(service.detail, "the cmux app runs the daemon");
+        assert!(service.fix.is_none());
+    }
+}
+
+#[test]
+fn only_a_different_path_with_a_known_different_build_warns() {
+    let daemon = healthy().daemon_binary;
+    let same_path = daemon.path.clone().unwrap();
+    assert!(path_warning(&daemon, None).is_none());
+    assert!(path_warning(&daemon, Some(&(same_path, "older".into()))).is_none());
+    let copy = (PathBuf::from(ON_PATH), "9d9419a91".to_owned());
+    assert!(path_warning(&daemon, Some(&copy)).is_none());
+    let unknown = DaemonBinary { build: None, ..daemon };
+    assert!(path_warning(&unknown, Some(&copy)).is_none());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_replaced_running_executable_is_still_the_same_install_path() {
+    let daemon = DaemonBinary::from_status(
+        &json!({"exe": "/bin/acpmux (deleted)", "build": "before-update"}),
+        |_| unreachable!(),
+    );
+    assert_eq!(daemon.path.as_deref(), Some(Path::new("/bin/acpmux")));
+    let installed = (PathBuf::from("/bin/acpmux"), "after-update".to_owned());
+    assert!(path_warning(&daemon, Some(&installed)).is_none());
+}
+
+#[test]
+fn older_daemon_uses_its_pid_and_keeps_its_own_version() {
+    let daemon =
+        DaemonBinary::from_status(&json!({"exe": null, "pid": 41, "version": "0.9.0"}), |pid| {
+            assert_eq!(pid, 41);
+            Some(APP.into())
+        });
+    let facts = Facts { daemon_binary: daemon, ..healthy() };
+    assert_eq!(binary_step(&facts).detail, format!("running daemon at {APP} (0.9.0)"));
+    let unknown = Facts { daemon_binary: DaemonBinary::default(), ..facts };
+    assert_eq!(binary_step(&unknown).state, StepState::Warn);
+    assert!(!binary_step(&unknown).detail.contains(".local/bin"));
 }
 
 #[test]
@@ -64,9 +151,55 @@ fn a_fresh_home_with_no_credential_fails_credential_with_the_machine_add_fix() {
         credential.fix.as_deref(),
         Some("Make a new line on your Mac: cmux machine add, and paste it here")
     );
-    for later in ["revoked", "hub", "heartbeat"] {
+    for later in ["team", "revoked", "hub", "heartbeat"] {
         assert_eq!(step(&checked, later).state, StepState::Skip, "{later}");
     }
+}
+
+/// The user of the live report (cmux16, 2026-11-22): its personal team, as the hub derives it.
+const USER: &str = "user_5921af13aa39138f191d";
+const PERSONAL: &str = "team_760c83ddd31c6360c927";
+
+#[test]
+fn the_personal_team_id_is_the_hubs() {
+    assert_eq!(personal_team_of(USER), PERSONAL);
+}
+
+#[test]
+fn a_join_in_the_personal_team_says_so() {
+    let checked = with_status(json!({"teamId": PERSONAL, "userId": USER}));
+    let team = step(&checked, "team");
+    assert_eq!(team.state, StepState::Ok);
+    assert_eq!(team.detail, format!("joined in your personal team {PERSONAL} as {USER}"));
+    assert_eq!(team.data.as_ref().unwrap()["personalTeam"], PERSONAL);
+}
+
+/// A join in a shared team heartbeats and reads healthy everywhere else, yet the person's
+/// personal-team machines get `machine.not_found` for a ticket to it and its vault pull is
+/// `vault.forbidden`: the step warns with both codes and how to move it.
+#[test]
+fn a_join_outside_the_personal_team_warns_with_the_codes_and_the_move() {
+    let shared = "team_a104498f37e7f4a3327d";
+    let checked = with_status(json!({"teamId": shared, "userId": USER}));
+    let team = step(&checked, "team");
+    assert_eq!(team.state, StepState::Warn);
+    assert!(team.detail.contains(shared) && team.detail.contains(PERSONAL), "{}", team.detail);
+    assert!(team.detail.contains("machine.not_found"), "{}", team.detail);
+    assert!(team.detail.contains("vault.forbidden"), "{}", team.detail);
+    let fix = team.fix.as_deref().unwrap();
+    assert!(fix.contains("acpmux machine leave") && fix.contains("personal team"), "{fix}");
+    assert_eq!(team.data.as_ref().unwrap()["teamId"], shared);
+    // A warning, never a failed join: a shared team may be the one meant.
+    assert!(team.healthy());
+}
+
+#[test]
+fn a_join_that_names_no_account_reports_its_team_only() {
+    let team = step(&with_status(json!({"teamId": "team_1", "userId": null})), "team").clone();
+    assert_eq!(team.state, StepState::Ok);
+    assert!(team.detail.starts_with("joined in team team_1;"), "{}", team.detail);
+    let team = step(&with_status(json!({"teamId": null})), "team").clone();
+    assert_eq!(team.state, StepState::Skip);
 }
 
 #[test]
@@ -118,6 +251,7 @@ fn missing_optional_status_fields_skip_instead_of_failing() {
     // No hub origin: the fixes name the development platform.
     let checked = steps(
         &Facts {
+            daemon_running: false,
             binary: Binary::Missing("/h/.local/bin/acpmux".into()),
             status: Status::NotRun,
             ..healthy()
@@ -127,7 +261,7 @@ fn missing_optional_status_fields_skip_instead_of_failing() {
     assert_eq!(
         step(&checked, "binary").fix.as_deref(),
         Some(
-            "Re-run the join line without a token: curl -fsSL https://cmux-platform-development.debussy.workers.dev/v1/machines/join.sh | sh"
+            "Re-run the join line without a token: curl -fsSL https://cmux-platform-production.debussy.workers.dev/v1/machines/join.sh | sh"
         )
     );
     assert_eq!(step(&checked, "credential").state, StepState::Skip);
@@ -183,6 +317,27 @@ fn service_and_daemon_failures_name_local_commands() {
 }
 
 #[test]
+fn a_daemon_that_answers_without_its_service_warns_instead_of_failing() {
+    // A headless Linux user with no systemd user session: `systemctl --user` prints nothing.
+    assert_eq!(systemd_state("", true), Service::NoManager);
+    assert_eq!(systemd_state("\n", false), Service::NoManager);
+    assert_eq!(systemd_state("active\n", true), Service::Active { linger: None });
+    assert_eq!(systemd_state("inactive\n", true), Service::Inactive { installed: true });
+    assert_eq!(systemd_state("failed\n", false), Service::Inactive { installed: false });
+    for installed in [true, false] {
+        let checked = steps(&Facts { service: Service::Inactive { installed }, ..healthy() }, NOW);
+        let service = step(&checked, "service");
+        assert_eq!(service.state, StepState::Warn, "{service:?}");
+        assert!(service.healthy() && service.fix.is_some());
+        assert!(service.detail.contains("the daemon runs without it"), "{}", service.detail);
+        let (_, ok) = render("box", "host", &checked, Print::Quiet);
+        assert!(ok, "a join whose daemon answers is healthy: {checked:?}");
+    }
+    let none = steps(&Facts { service: Service::NoManager, ..healthy() }, NOW);
+    assert!(render("box", "host", &none, Print::Quiet).1, "{none:?}");
+}
+
+#[test]
 fn consent_is_informational_and_reports_grants() {
     let granted = with_status(json!({"consent": {"screen": "granted", "control": true}}));
     let consent = step(&granted, "consent");
@@ -198,7 +353,9 @@ fn the_output_parses_as_host_step_lines_then_a_report() {
     let lines: Vec<Value> = text.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
     assert_eq!(lines.len(), checked.len() + 1);
     for line in &lines[..checked.len()] {
-        let mut keys: Vec<&str> = line.as_object().unwrap().keys().map(String::as_str).collect();
+        // `data` is optional structured readiness data (the agents and team steps).
+        let mut keys: Vec<&str> =
+            line.as_object().unwrap().keys().map(String::as_str).filter(|k| *k != "data").collect();
         keys.sort_unstable();
         assert_eq!(keys, ["detail", "fix", "state", "step"]);
         assert!(matches!(line["state"].as_str(), Some("ok" | "fixed" | "fail" | "warn" | "skip")));
@@ -251,7 +408,7 @@ fn an_unsafe_hub_origin_or_path_is_never_printed() {
         let checked = with_status(json!({"hubOrigin": hub, "hubReachable": false}));
         let text = format!("{checked:?}");
         assert!(!text.contains("cmj_") && !text.contains("cmm_"), "{text}");
-        assert!(step(&checked, "hub").detail.contains(DEV_ORIGIN), "{hub}");
+        assert!(step(&checked, "hub").detail.contains(JOIN_ORIGIN), "{hub}");
     }
     let loose = with_status(json!({"credentialMode": "0644", "credentialPath": "/h/cmm_secret"}));
     let credential = step(&loose, "credential");
@@ -316,4 +473,111 @@ fn the_daemon_consent_view_and_its_last_refusal_are_read() {
     );
     let top = with_status(json!({"lastRefusal": {"surface": "screen\u{1b}"}}));
     assert!(!step(&top, "consent").detail.contains("refused"), "only a known surface is named");
+}
+
+#[test]
+fn the_heartbeat_acpmux_stores_as_milliseconds_in_text_reads_as_a_time() {
+    // `cloud_join::record_auth_result` stores `now_ms().to_string()`, and `host join --status`
+    // reports it as that string: the Mac-1793734633586 join (2026-11-03) failed its heartbeat
+    // with heartbeats on record because only a number or RFC 3339 text was read.
+    let fresh = with_status(json!({"lastHeartbeat": (NOW - 4_000).to_string()}));
+    assert_eq!(step(&fresh, "heartbeat").state, StepState::Ok);
+    assert_eq!(step(&fresh, "heartbeat").detail, "last heartbeat 4s ago");
+    let stale = with_status(json!({"lastHeartbeat": (NOW - 600_000).to_string()}));
+    assert_eq!(step(&stale, "heartbeat").state, StepState::Fail);
+    assert_eq!(step(&stale, "heartbeat").detail, "last heartbeat 10 min ago");
+    for junk in ["", "12a", "-5"] {
+        assert_eq!(
+            step(&with_status(json!({"lastHeartbeat": junk})), "heartbeat").state,
+            StepState::Fail,
+            "{junk:?}"
+        );
+    }
+}
+
+#[test]
+fn a_join_seconds_old_waits_for_its_first_heartbeat_then_passes() {
+    let fresh = Facts { status: Status::Json(status(json!({"lastHeartbeat": null}))), ..healthy() };
+    assert!(awaits_first_heartbeat(&fresh));
+    let mut asks = 0;
+    let mut pauses = 0;
+    let waited = wait_first_heartbeat(
+        fresh,
+        FIRST_HEARTBEAT_POLLS,
+        || {
+            asks += 1;
+            let at = if asks < 3 { Value::Null } else { json!((NOW - 1_000).to_string()) };
+            Status::Json(status(json!({"lastHeartbeat": at})))
+        },
+        || pauses += 1,
+    );
+    assert_eq!((asks, pauses), (3, 3));
+    assert_eq!(step(&steps(&waited, NOW), "heartbeat").state, StepState::Ok);
+}
+
+#[test]
+fn a_heartbeat_that_never_comes_still_fails_after_a_bounded_wait() {
+    let fresh = Facts { status: Status::Json(status(json!({"lastHeartbeat": null}))), ..healthy() };
+    let mut asks = 0;
+    let waited = wait_first_heartbeat(
+        fresh,
+        FIRST_HEARTBEAT_POLLS,
+        || {
+            asks += 1;
+            Status::Json(status(json!({"lastHeartbeat": null})))
+        },
+        || {},
+    );
+    assert_eq!(asks, FIRST_HEARTBEAT_POLLS);
+    let heartbeat = step(&steps(&waited, NOW), "heartbeat").clone();
+    assert_eq!(heartbeat.state, StepState::Fail);
+    assert_eq!(heartbeat.detail, "no heartbeat reached the hub yet");
+}
+
+#[test]
+fn only_a_sound_join_with_no_heartbeat_yet_is_waited_on() {
+    let null = json!({"lastHeartbeat": null});
+    let with = |extra: Value, daemon_running: bool| Facts {
+        status: Status::Json(status(Value::Object(
+            null.as_object()
+                .unwrap()
+                .clone()
+                .into_iter()
+                .chain(extra.as_object().unwrap().clone())
+                .collect(),
+        ))),
+        daemon_running,
+        ..healthy()
+    };
+    assert!(awaits_first_heartbeat(&with(json!({}), true)));
+    assert!(awaits_first_heartbeat(&with(json!({"meshRelayConfigured": true}), true)));
+    assert!(!awaits_first_heartbeat(&with(json!({}), false)), "no daemon to heartbeat");
+    assert!(!awaits_first_heartbeat(&with(json!({"revoked": true}), true)));
+    assert!(!awaits_first_heartbeat(&with(json!({"credentialPresent": false}), true)));
+    assert!(!awaits_first_heartbeat(&with(json!({"meshRelayConfigured": false}), true)));
+    assert!(!awaits_first_heartbeat(&with(json!({"lastHeartbeat": NOW - 200_000}), true)));
+    assert!(!awaits_first_heartbeat(&healthy()));
+    let mut asks = 0;
+    wait_first_heartbeat(
+        healthy(),
+        FIRST_HEARTBEAT_POLLS,
+        || {
+            asks += 1;
+            Status::NotRun
+        },
+        || {},
+    );
+    assert_eq!(asks, 0, "a heartbeat on record is not asked again");
+}
+
+#[test]
+fn a_launch_agent_waiting_for_a_screen_login_warns_instead_of_failing() {
+    assert_eq!(launchd_state(true, false), Service::AtNextLogin);
+    assert_eq!(launchd_state(true, true), Service::Inactive { installed: true });
+    assert_eq!(launchd_state(false, false), Service::Inactive { installed: false });
+    let checked = steps(&Facts { linux: false, service: Service::AtNextLogin, ..healthy() }, NOW);
+    let service = step(&checked, "service");
+    assert_eq!(service.state, StepState::Warn);
+    assert!(service.healthy());
+    assert!(service.detail.contains("loads at the next login"), "{}", service.detail);
 }

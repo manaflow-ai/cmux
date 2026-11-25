@@ -266,6 +266,57 @@ ensure_price() {
   remember_price_id "$lookup_key" "$price_id"
 }
 
+# A one-time Price (no `recurring`), for the cmux Cloud $1 pass
+# (web/services/billing/cloudIntro.ts). A recurring Price under the same
+# lookup key would bill a subscription, so it is refused like any other drift.
+ensure_one_time_price() {
+  local product_id="$1"
+  local lookup_key="$2"
+  local unit_amount="$3"
+  local nickname="$4"
+  local response price_id
+
+  response="$(
+    stripe_get "/prices" \
+      --data-urlencode "lookup_keys[]=${lookup_key}" \
+      --data-urlencode "limit=1"
+  )"
+  price_id="$(jq -r '.data[0].id // empty' <<<"$response")"
+
+  if [[ -n "$price_id" ]]; then
+    if ! jq -e \
+      --arg amount "$unit_amount" \
+      --arg product "$product_id" \
+      '
+        .data[0]
+        | (.unit_amount | tostring) == $amount
+          and .currency == "usd"
+          and .type == "one_time"
+          and .recurring == null
+          and .product == $product
+          and .active == true
+      ' <<<"$response" >/dev/null; then
+      echo "Price ${lookup_key} exists with unexpected configuration: ${price_id}" >&2
+      exit 1
+    fi
+    echo "Found price ${lookup_key}: ${price_id}"
+    remember_price_id "$lookup_key" "$price_id"
+    return 0
+  fi
+
+  response="$(
+    stripe_post "/prices" \
+      -d "product=${product_id}" \
+      -d "currency=usd" \
+      -d "unit_amount=${unit_amount}" \
+      -d "lookup_key=${lookup_key}" \
+      -d "nickname=${nickname}"
+  )"
+  price_id="$(jq -er '.id' <<<"$response")"
+  echo "Created price ${lookup_key}: ${price_id}"
+  remember_price_id "$lookup_key" "$price_id"
+}
+
 # Price ids found or created this run, keyed by lookup key (bash 3.2 has no
 # associative arrays, so they live in PRICE_ID_<key> variables).
 remember_price_id() {
@@ -474,11 +525,16 @@ max_product_id="$(canonical_product "cmux-max-monthly-200" "cmux Max" "max")"
 echo "Resolved Max product." >&2
 team_product_id="$(canonical_product "cmux-team-monthly" "cmux Team" "team")"
 echo "Resolved Team product." >&2
+# The cmux Cloud $1 pass: charged once, 30 days, never a subscription. Checkout
+# sells it only while CMUX_CLOUD_INTRO is on (web/services/billing/cloudIntro.ts).
+cloud_intro_product_id="$(canonical_product "cmux-cloud-intro-1" "cmux Cloud pass" "cloud_intro")"
+echo "Resolved cmux Cloud pass product." >&2
 
 # Checkout shows the product description. Keep it on the plan limits in
-# web/services/vms/machineSpec.ts and entitlements.ts (5 VMs per paid seat sharing
-# vCPU and RAM pools: 20 vCPU / 40 GB per paid seat, pooled across a Team, or
-# 80 vCPU / 160 GB on Max). Updating a description is
+# web/services/vms/machineSpec.ts and entitlements.ts: paid plans have no machine
+# count and no shared pool (machines are metered beyond the included usage, and
+# the team's spending cap is the stop); seats multiply nothing; one machine goes up
+# to 16 GB / 8 vCPU, or 64 GB / 32 vCPU on Max. Updating a description is
 # idempotent, so every run converges on this copy.
 ensure_product_description() {
   local product_id="$1"
@@ -488,9 +544,10 @@ ensure_product_description() {
   echo "Set description for ${product_id}." >&2
 }
 ensure_product_description "$plus_product_id" "1 Cloud VM total, including paused machines. Choose 2, 4, or 8 vCPUs with 4, 8, or 16 GiB RAM. Disk up to 128 GiB. No monthly hour cap. Community support."
-ensure_product_description "$pro_product_id" "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM, plus the cmux iOS app."
-ensure_product_description "$max_product_id" "Everything in Pro, with up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM."
-ensure_product_description "$team_product_id" "Up to 5 Cloud VMs per paid seat, sharing 20 vCPUs and 40 GB RAM per paid seat across the team, plus the cmux iOS app and priority support."
+ensure_product_description "$pro_product_id" "Cloud VMs with no count cap, each up to 16 GB RAM and 8 vCPUs, metered beyond the included usage, plus the cmux iOS app."
+ensure_product_description "$max_product_id" "Everything in Pro, with Cloud VMs up to 64 GB RAM and 32 vCPUs each, metered beyond the included usage."
+ensure_product_description "$team_product_id" "Cloud VMs with no count cap for everyone on the team, metered beyond the included usage, with the team's spending cap as the stop, plus the cmux iOS app and priority support."
+ensure_product_description "$cloud_intro_product_id" "cmux Cloud: \$1 pass, 30 days, does not renew"
 
 # Current catalog (web/services/billing/plans.ts). Stripe Price amounts are
 # immutable, so each price change mints a new lookup key carrying the amount.
@@ -516,6 +573,9 @@ ensure_price "$pro_product_id" "cmux-pro-yearly-480" "48000" "year" "cmux Pro Ye
 # Retired annual offer; valid for existing subscribers only, never advertised
 # as a checkout or portal switch target.
 ensure_price "$team_product_id" "cmux-team-yearly-576" "57600" "year" "cmux Team Yearly (Legacy \$576)"
+
+# The $1 pass is a one-time Price; its lookup key carries the amount.
+ensure_one_time_price "$cloud_intro_product_id" "cmux-cloud-intro-1" "100" "cmux Cloud \$1 pass"
 
 ensure_personal_plan_switch_portal "$pro_product_id" "$max_product_id"
 ensure_team_portal

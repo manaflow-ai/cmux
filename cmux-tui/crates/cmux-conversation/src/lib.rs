@@ -7,19 +7,24 @@
 //! The local owner (the cmux daemon) and the cloud owner (`ConversationDO`)
 //! run the same reducer, so both speak the same ops and events.
 
+pub mod agent_sender;
 mod attachments;
 mod budget;
 mod home;
+mod home_delta;
+mod home_window;
 mod id;
 mod link;
 mod link_preview;
 mod question;
+pub mod question_reply;
 mod reducer;
 mod search;
 mod types;
+mod widget;
 
 pub use attachments::{
-    AttachmentClass, AttachmentReject, DerivedVariant, GENERIC_FILE_TYPE, MAX_ATTACHMENT_BYTES,
+    AttachmentClass, AttachmentReject, DerivedVariant, GENERIC_FILE_TYPE,
     MAX_ATTACHMENT_NAME_CHARS, MAX_DIMENSION, MAX_DURATION_MS, MAX_POSTER_BYTES,
     MAX_PREVIEW_IMAGE_BYTES, attachment_class, is_derived_image_type, is_sha256,
     valid_attachment_name, valid_attachment_part, validate_attachment_meta, validate_derived,
@@ -28,9 +33,15 @@ pub use budget::{
     BUDGET_WINDOW, MAX_AGENT_TURNS, MIN_AGENT_GAP_MS, check_agent_budget, check_agent_streak,
     in_thread, parse_rfc3339_millis, streak_of, thread_agent_streak, with_turn,
 };
+/// A message's Markdown as its preview words ([`preview_of`]), shared with the apps' Swift `MessagePreview`.
+pub use cmux_message_preview::{MessagePreview, Words as PreviewWords};
 pub use home::{
     CHIEF_NAME, ChiefState, CloudInboxEntry, HomeInboxInput, HomeKind, HomeListState, HomeRow,
-    OWNER_CLOUD, PREVIEW_CHARS, cloud_row, home_inbox, merge_rows, preview_of,
+    OWNER_CLOUD, PREVIEW_CHARS, cloud_row, home_inbox, is_markdown, merge_rows, preview_of,
+};
+pub use home_delta::{HOME_CHANGE_LOG_CAPACITY, HomeChangeLog, HomeDelta};
+pub use home_window::{
+    HomeHead, HomeOrder, HomeScope, HomeWindow, home_inbox_window, order_digest, owner_and_agents,
 };
 pub use id::{encode_id, format_rfc3339_millis};
 pub use link::{ConversationLink, MAX_LINK_BYTES, format_link, parse_link};
@@ -56,6 +67,10 @@ pub use types::{
     AgentClass, Change, ConversationHead, DerivedImage, Message, Op, Origin, Part, PartRef,
     Participant, ParticipantKind, Reaction, ReactionKind, Summary, Tapback, TextRun,
     ThreadResolution, ThreadState, ThreadStatus, WorkStatus,
+};
+pub use widget::{
+    BUILT_IN_WIDGET_PUBLISHERS, MAX_WIDGET_FALLBACK_CHARS, MAX_WIDGET_NAME_BYTES,
+    MAX_WIDGET_PROPS_BYTES, Widget, is_extension_widget_app, valid_widget, valid_widget_app,
 };
 
 /// `Summary.owner` for conversations owned by a local daemon.

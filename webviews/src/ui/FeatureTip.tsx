@@ -8,6 +8,7 @@ import { useId, type KeyboardEvent, type Ref } from "react";
 import { Tooltip as BaseTooltip } from "@base-ui/react/tooltip";
 import { usePortalContainer } from "./UiProvider";
 import { cx } from "./cx";
+import { usePopupSettle } from "./popupSettle";
 import "./featureTip.css";
 
 /** The callout's look. `glass` is the shipped one; the other two stay in the gallery. */
@@ -50,6 +51,11 @@ export function FeatureTip({
 }: FeatureTipProps) {
   const container = usePortalContainer();
   const titleId = useId();
+  // Opens at its final size and keeps it (popupSettle.ts); the host's ref gets the node too.
+  const settle = usePopupSettle<HTMLDivElement>((node) => {
+    if (typeof popupRef === "function") popupRef(node);
+    else if (popupRef) popupRef.current = node;
+  });
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== "Escape") return;
     event.stopPropagation();
@@ -67,7 +73,7 @@ export function FeatureTip({
           collisionPadding={8}
         >
           <BaseTooltip.Popup
-            ref={popupRef}
+            ref={settle}
             className={cx("ui-popup ui-glass ui-feature-tip")}
             data-look={look}
             data-feature-tip=""
@@ -84,7 +90,7 @@ export function FeatureTip({
               </span>
               <span className="ui-feature-tip-new">{newLabel}</span>
               <button type="button" className="ui-feature-tip-close" aria-label={closeLabel} onClick={onClose}>
-                <svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true">
+                <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
                   <path d="M3.5 3.5l9 9m0-9l-9 9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
                 </svg>
               </button>

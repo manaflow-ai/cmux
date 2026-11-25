@@ -25,11 +25,13 @@
 //! Warnings name the dropped key only; a caller value is never logged.
 
 /// Keys the daemon always owns. A caller value for one of them is dropped.
-pub const DAEMON_OWNED_ENV_KEYS: [&str; 14] = [
+pub const DAEMON_OWNED_ENV_KEYS: [&str; 17] = [
     "CMUX_TUI_SOCKET",
     "CMUX_BROWSER_HOST_SOCKET",
     "CMUX_MUX_SOCKET",
     "CMUX_TUI_HOOK",
+    // The absolute path of the daemon build's own `cmux` (own_build_helpers.rs).
+    "CMUX_TUI_CLI",
     "CMUX_TUI_TERMINAL_ID",
     "CMUX_TUI_SESSION_ID",
     "CMUX_SIDEBAR",
@@ -43,6 +45,13 @@ pub const DAEMON_OWNED_ENV_KEYS: [&str; 14] = [
     "CMUX_TUI_AGENT_SHIMS",
     // The terminal's launch credential (plans/cmux-next/identity.md section 2).
     "CMUX_LAUNCH_CREDENTIAL",
+    // An incognito workspace's terminal (`shell_integration::INCOGNITO_ENV`):
+    // set by the daemon from the workspace, never by a caller.
+    "CMUX_TUI_INCOGNITO",
+    // Where the terminal's shell saves its state for a freed tab
+    // (`shell_state::SHELL_STATE_ENV`): a caller value would point the
+    // shell's save and restore at another terminal's files.
+    "CMUX_TUI_SHELL_STATE",
 ];
 
 /// Ghostty shell-integration keys. The daemon owns them only when it

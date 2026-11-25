@@ -71,7 +71,7 @@ export type AgentEvent =
   | { readonly kind: "tool"; readonly update: boolean; readonly id?: string; readonly title?: string; readonly tool_kind?: string; readonly status?: string }
   | { readonly kind: "turn_start" }
   | { readonly kind: "turn_end"; readonly stop_reason?: string }
-  | { readonly kind: "error"; readonly message?: string; readonly code?: number }
+  | { readonly kind: "error"; readonly message?: string; readonly code?: number; readonly error_kind?: "auth.signed_out" | "auth.expired" }
   | { readonly kind: "permission"; readonly permission_id?: string; readonly title?: string }
   | { readonly kind: "session_end"; readonly reason?: string }
 

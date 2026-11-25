@@ -4,6 +4,7 @@
 // skipped. A disk change reloads the page when there are no local edits and raises the conflict
 // banner when there are.
 import { isPageError, type PageClient } from "../shared/pageClient";
+import { markUnsavedEdits } from "../shared/pageHealth";
 import type { SourceMap } from "./sourceMap";
 import type { DiffViewerAppearance } from "../../appearance";
 import { markdownBehavior } from "./settings";
@@ -11,6 +12,7 @@ import { createEditReporter } from "../shared/editReporter";
 import { MARKDOWN_OPEN_OP, markdownConfigNeedsPick } from "../../viewer-empty/ops";
 import {
   MARKDOWN_CHANGES,
+  MARKDOWN_UNAVAILABLE,
   MARKDOWN_LOOK,
   MARKDOWN_CONFIG_OP,
   MARKDOWN_CONFLICT,
@@ -46,6 +48,8 @@ export interface MarkdownState {
   source: string;
   /** Bumped when the document is replaced from outside (load, reload), so source views re-read. */
   revision: number;
+  /** The editor's document has a runnable shell block (runbook.ts): the toolbar shows Run all. */
+  runnable: boolean;
   /** The page's look: `markdown` settings, theme.css and the terminal appearance. */
   look: { settings: unknown; themeCSS: string | undefined; appearance: DiffViewerAppearance | undefined };
   /** Link history (files followed in this page): whether `back` and `forward` go anywhere. */
@@ -58,6 +62,10 @@ export interface MarkdownState {
   navigating: string | null;
   /** The last navigation that did not open its file (shown until the next one), or null. */
   navigationFailed: string | null;
+  /** Why the file did not open, as the host says it (its machine is offline); null: the generic message. */
+  failure: string | null;
+  /** The file's machine stopped answering (the host's reason); the page keeps what it last read. */
+  unavailable: string | null;
 }
 
 /** One file in the page's link history, with the anchor it opened at and its scroll offset. */
@@ -118,11 +126,14 @@ export class MarkdownStore {
     conflict: null,
     source: "",
     revision: 0,
+    runnable: false,
     look: { settings: undefined, themeCSS: undefined, appearance: undefined },
     canBack: false,
     canForward: false,
     navigating: null,
     navigationFailed: null,
+    failure: null,
+    unavailable: null,
   };
   private history: { entries: HistoryEntry[]; index: number } = { entries: [], index: -1 };
   /** The history state the host last heard (`cmux.markdown.history`), as `canBack:canForward`. */
@@ -184,7 +195,15 @@ export class MarkdownStore {
 
   private set(patch: Partial<MarkdownState>): void {
     this.state = { ...this.state, ...patch };
+    // Text not on disk holds the page against app health's repair reloads (pageHealth.ts).
+    if ("status" in patch) markUnsavedEdits(this.state.status !== "saved");
     for (const listener of this.listeners) listener();
+  }
+
+  /** The host reports the owner link: back up while the page is disconnected, it reads again (a
+   * launch or a daemon restart drops the link for a few seconds; the page never said so). */
+  linkChanged(connected: boolean): void {
+    if (connected && this.state.phase === "disconnected") void this.start();
   }
 
   /** Loads the config and starts watching the file. */
@@ -209,6 +228,7 @@ export class MarkdownStore {
       console.error("cmux markdown config failed", error);
       return this.set({
         phase: isPageError(error) && error.code === "cmux.protocol.closed" ? "disconnected" : "failed",
+        failure: isPageError(error) && error.code === MARKDOWN_UNAVAILABLE ? error.message : null,
       });
     }
     await this.loadConfig(client, config);
@@ -248,6 +268,8 @@ export class MarkdownStore {
       source: text,
       status: "saved",
       revision: this.state.revision + 1,
+      failure: null,
+      unavailable: null,
       look,
       mode,
     });
@@ -339,6 +361,11 @@ export class MarkdownStore {
   }
 
   /** The editor mounted (or unmounted, with null). A loaded file goes into it. */
+  /** The editor read a document (`MarkdownEditor` `onRunnable`). */
+  setRunnable(runnable: boolean): void {
+    if (runnable !== this.state.runnable) this.set({ runnable });
+  }
+
   attachEditor(editor: DocumentEditor | null): void {
     this.editor = editor;
     if (!editor || this.state.phase !== "ready") return;
@@ -558,6 +585,11 @@ export class MarkdownStore {
         readOnly,
         readOnlyReason: file.readOnlyReason,
         assetBase: file.assetBase,
+        // What belongs to this file alone: the previous file's comments, table widths and
+        // remote-image grant must not carry over to the one now shown.
+        remoteImageBase: file.remoteImageBase,
+        tableWidths: file.tableWidths,
+        comments: file.comments,
       },
       readOnly,
       readOnlyReason: readOnly ? (file.readOnlyReason ?? "outside") : null,
@@ -577,6 +609,8 @@ export class MarkdownStore {
     if (this.state.phase !== "ready") return;
     // Changes of a file the page left (its watcher may still report) are not this file's.
     if (change.path && this.state.config && change.path !== this.state.config.path) return;
+    // The file's machine went away or came back: a notice, never a change of the text.
+    if (change.unavailable !== undefined) return this.set({ unavailable: change.unavailable });
     if (this.saving) {
       this.pendingChange = change;
       return;

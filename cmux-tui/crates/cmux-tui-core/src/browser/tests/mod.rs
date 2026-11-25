@@ -6,7 +6,7 @@ use super::{
     BrowserCommand, BrowserFrame, BrowserSession, BrowserSource, BrowserStatus,
     MAX_RECONFIGURE_WAITERS_PER_RESERVATION, SequencedBrowserCommand, capture_scale_for,
     clear_attention_if_page_changed, handle_frame_navigated, handle_same_document_navigated,
-    new_surface, normalize_url, runtime_endpoint, scaled_pixels, start_surface_thread,
+    new_surface, runtime_endpoint, scaled_pixels, start_surface_thread,
     take_latest_worker_commands,
 };
 use crate::{Mux, MuxEvent, Surface, SurfaceOptions};

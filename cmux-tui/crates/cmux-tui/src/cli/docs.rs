@@ -9,9 +9,6 @@ use serde_json::Value;
 
 use super::{GlobalArgs, OutputMode, UsageError};
 
-const CATALOG_JSON: &str =
-    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../spec/resource-operations-v2.json"));
-
 #[derive(Clone, Debug)]
 pub(super) struct Plan {
     pub(super) query: String,
@@ -139,9 +136,9 @@ pub(super) const GUIDES: &[Guide] = &[
         whether each harness (default: every configured or found one) is installed, signed in \
         and outdated; a missing CLI or sign-in is needs_user with the install docs or `cmux \
         harness login ID`. `cmux setup mcp [claude|codex ...]` gives Claude Code and Codex \
-        started outside cmux the cmux MCP server through their own `mcp add`; until the \
-        person turns on `mcp.enabled` (\"mcp\": {\"enabled\": true}) in the settings file, \
-        it writes nothing and names that switch. `cmux setup computer-use` turns Computer Use \
+        started outside cmux the cmux MCP server through their own `mcp add`; agents started \
+        in cmux get cmux's tools unless the person turns `agents.cmuxMcp` off (Settings > \
+        Agents). `cmux setup computer-use` turns Computer Use \
         on once the person allows it on the sheet cmux shows, and names each missing macOS \
         grant with the command that opens its System Settings pane. `cmux setup \
         cloud-machine` is ok when cmux shows a Cloud machine; otherwise, once the person is \
@@ -217,13 +214,17 @@ pub(super) const GUIDES: &[Guide] = &[
             "effort",
             "screenshot",
             "capture",
+            "attach",
+            "attachment",
         ],
         text: "Start an ordinary agent chat the user sees in the app, as New Agent Chat and a \
         first message do, without moving their focus: `cmux agents chat new [--workspace WS | \
         --pane PANE] [--harness claude|codex|...] [--model M] [--effort \
         low|medium|high|xhigh|max] [--mode M] [--policy ask|approve-reads|deny-all] [--cwd DIR] \
-        [--name N] -- PROMPT` (MCP agents_chat_new); with neither --workspace nor --pane it gets \
-        a new workspace. It runs in the app's own acpmux (not as your subagent) and PROMPT is its \
+        [--name N] [--attach FILE]... -- PROMPT` (MCP agents_chat_new, attachments: absolute \
+        paths); with neither --workspace nor --pane it gets a new workspace. --attach sends a \
+        file of any type and size with PROMPT (`cmux chat --attach FILE TEXT` too); a send to a \
+        running chat carries text only (chat.attach_send_unsupported). It runs in the app's own acpmux (not as your subagent) and PROMPT is its \
         first prompt, as if the user typed it. Its receipt names the chat (an acpmux session \
         id), tab, pane and workspace. Drive a chat of this cmux session (never your own): `cmux \
         agents chat send CHAT -- TEXT` (agents_chat_send, an agent message), `chat read CHAT \
@@ -233,6 +234,89 @@ pub(super) const GUIDES: &[Guide] = &[
         from next_after. See a pane or tab: `cmux pane screenshot --target pane_ID --out PATH` or \
         `cmux tab screenshot --target tab_ID --out PATH` (browser pages come out blacked out; a \
         browser page's own pixels are `cmux browser page screenshot`).",
+    },
+    Guide {
+        topic: "Script cmux Computer Use: several app steps in one cmux_exec call",
+        keywords: &["cu", "computer", "desktop", "gui"],
+        text: "In cmux_exec, `cu.<tool>(args)` is `cmux.cu_<tool>(args)` (cmux Computer Use, \
+        built in): chain list_windows, get_ui_tree, click, type_text, press_key, set_value, \
+        scroll, wait and the rest with loops and conditions in ONE script. Each call is its own \
+        Computer Use call (its own call id, the person's settings and approval cards apply to \
+        each). In a script an acting call skips its settle screenshot unless you pass \
+        observe: true; read back with get_ui_tree or screenshot instead. A tool's result is its \
+        JSON, plus `images: [{type: \"image\", image: N}]` when it has a screenshot; only the \
+        images your script returns reach you as images (return r or r.images). A \
+        refused call (computer_use_off, app_denied, look_only, person_in_control) throws: stop \
+        and tell the person which setting in Settings > Computer Use would allow it. \
+        `cu.find(tree, {role, name})` finds an element in a get_ui_tree result (a RegExp \
+        matches, `cu.findAll` lists, `cu.elements(tree)` flattens); act on its `id` as \
+        element_id. Roles are plain: button, text_field, text, checkbox, link. \
+        Fill and submit a form: `const [w] = (await cu.list_windows({app_id: \"com.apple.Safari\"\
+        })).windows; const window_id = w.window_id; const t = await cu.get_ui_tree({window_id}); \
+        await cu.set_value({window_id, element_id: cu.find(t, {role: \"text_field\", name: \
+        /email/i}).id, value: \"ada@example.com\"}); await cu.click({window_id, element_id: \
+        cu.find(t, {role: \"button\", name: \"Submit\"}).id}); return await \
+        cu.screenshot({window_id});` (the screenshot comes back as an image) \
+        Click until a condition holds: `for (let i = 0; i < 10; i++) { const t = await \
+        cu.get_ui_tree({window_id}); if (cu.find(t, {name: \"Done\"})) return {pages: i}; const \
+        next = cu.find(t, {role: \"button\", name: \"Next\"}); if (!next) return {stuck: i}; \
+        await cu.click({window_id, element_id: next.id}); await cu.wait({window_id, ms: 300}); } \
+        return {pages: 10, done: false};` \
+        Read a value out of a window: `const t = await cu.get_ui_tree({window_id}); return \
+        cu.find(t, {role: \"text\", name: /total/i})?.value;` \
+        Return small values (the one field you need), not whole trees. \
+        A fixed run of steps on one window can also be one `cu.batch({window_id, actions})`: \
+        each step gets its own outcome; `require: \"confirmed\"` stops the batch unless that \
+        step read back; `{action: \"wait_for\", target: {role: \"sheet\"}}` waits for a sheet \
+        (or `until: \"disappears\"`, `value_equals`, `value_contains`); `target: {role, label}` \
+        acts on an element by what it is, refused when two match. The reply's results list \
+        every step (done, failed or not_run) and stopped_at says which step stopped it.",
+    },
+    Guide {
+        topic: "Build on cmux: which primitive to use",
+        keywords: &[
+            "primitive",
+            "primitives",
+            "api",
+            "sdk",
+            "terminal",
+            "browser",
+            "extend",
+            "extension",
+            "integrate",
+            "integration",
+            "automate",
+            "automation",
+            "automations",
+            "event",
+            "events",
+            "trigger",
+            "cron",
+            "action",
+            "actions",
+            "resource",
+            "resources",
+            "protocol",
+        ],
+        text: "cmux is built from five primitives; use the smallest one that does the job. \
+        Resources and operations: every noun (workspace, pane, tab, terminal, browser, \
+        notification) has a stable prefixed id (ws_, pane_, tab_, term_) and typed verbs named \
+        noun_verb, such as workspace_create, workspace_list, workspace_run, tab_create_terminal, \
+        tab_create_browser and tab_update. Each one returns a typed result or a coded error. \
+        The same operations are `cmux <noun> <verb>` on the CLI and cmux.protocol/2 for SDKs, so \
+        a script, an agent and an app all call one API. \
+        Events: agents_events long-polls what changed (tabs, workspaces, notifications, dialogs, \
+        agent states). Pass its next_after cursor on the next call to get no gaps or \
+        duplicates, and pass until/match to wait for one event. Never poll a list. \
+        Actions: a menu item, palette item or shortcut is an app action. Each action the app \
+        offers outside the GUI is one app_* tool (app_agent_open) and `cmux action run ID`. Use \
+        one only when no operation does the job. \
+        Automations: when (an event such as agent-idle, a schedule, or a watch command) + if (a \
+        shell condition) + do (a prompt or a command), with a record of each run. \
+        automation_events lists the events, automation_create makes an automation, \
+        automation_test checks it and automation_runs reads what ran. \
+        Composition: one cmux_exec script calls any of these in a single turn, with the same \
+        rights as a direct call and no more.",
     },
 ];
 
@@ -270,7 +354,8 @@ struct SearchResponse {
 fn catalog() -> &'static Value {
     static CATALOG: OnceLock<Value> = OnceLock::new();
     CATALOG.get_or_init(|| {
-        serde_json::from_str(CATALOG_JSON).expect("the checked-in resource operation catalog")
+        serde_json::from_str(cmux_tui_core::packed_catalogs::RESOURCE_OPERATIONS_V2)
+            .expect("the checked-in resource operation catalog")
     })
 }
 
@@ -433,87 +518,5 @@ fn catalog_target(scope: &str) -> &str {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn search_requires_all_terms_and_returns_browser_operations() {
-        let results = search("browser navigate");
-        assert!(results.iter().any(|result| result.name == "browser.navigate"));
-        assert!(results.iter().all(|result| result.name.contains("browser")));
-    }
-
-    #[test]
-    fn scope_help_is_catalog_backed() {
-        let help = scope_help("terminal");
-        assert!(help.contains("terminal.screen.read [read]"));
-        assert!(has_scope_operations("browser"));
-        assert!(has_scope_operations("sidebar"));
-        assert!(has_scope_operations("pairing"));
-        assert!(has_scope_operations("projection"));
-    }
-
-    /// An agent that wants another agent to do work finds the chat verbs.
-    #[test]
-    fn starting_another_agent_finds_its_guide() {
-        for query in ["spawn an agent", "interrupt", "screenshot a pane"] {
-            let found = guides(query);
-            assert_eq!(found.len(), 1, "{query}");
-            assert!(found[0].text.contains("agents chat new"), "{query}");
-        }
-    }
-
-    /// An agent that searches in its own words for showing its work finds
-    /// the guide, and the guide names only tools that exist.
-    #[test]
-    fn showing_work_to_the_user_finds_its_guide() {
-        for query in ["show the user", "status", "open a chat"] {
-            assert_eq!(guides(query).len(), 1, "{query}");
-        }
-        assert!(guides("browser navigate").is_empty());
-        let operations = catalog()["operations"].as_object().unwrap();
-        for op in [
-            "workspace.open_url",
-            "browser.profile.open",
-            "workspace_status.set",
-            "workspace_progress.set",
-            "workspace_log.append",
-            "notification.create",
-            "tab.focus",
-        ] {
-            assert!(operations.contains_key(op), "{op}");
-            assert!(GUIDES[0].text.contains(&op.replace('.', "_")), "{op}");
-        }
-    }
-
-    /// `cmux docs search setup` and an agent asking in its own words for
-    /// setup prompts or a remote machine find the Chief prompts guide, and it
-    /// sends them to `cmux setup list`, where the prompts live.
-    #[test]
-    fn chief_prompt_guide_is_found_by_setup_words() {
-        let topic = "Set up cmux with Chief: copyable setup prompts";
-        for query in
-            ["setup", "chief setup prompts", "set up a remote machine", "pair a tailnet mac"]
-        {
-            assert!(guides(query).iter().any(|guide| guide.topic == topic), "{query}");
-        }
-        let guide = GUIDES.iter().find(|guide| guide.topic == topic).unwrap();
-        for words in
-            ["`cmux setup list`", "`prompt`", "docs/chief-setup-prompts.md", "--prompts-md"]
-        {
-            assert!(guide.text.contains(words), "{words}");
-        }
-        assert_eq!(guides("status").len(), 1);
-    }
-
-    #[test]
-    fn docs_search_preserves_json_output_mode() {
-        let plan = parse(
-            &["search".to_owned(), "browser".to_owned(), "navigate".to_owned()],
-            OutputMode::Json,
-        )
-        .unwrap();
-        assert_eq!(plan.query, "browser navigate");
-        assert_eq!(plan.output, OutputMode::Json);
-    }
-}
+#[path = "docs_tests.rs"]
+mod tests;

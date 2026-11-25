@@ -28,6 +28,14 @@ import {
 } from "@milkdown/kit/prose/tables";
 import type { EditorView, ViewMutationRecord } from "@milkdown/kit/prose/view";
 import { $prose } from "@milkdown/kit/utils";
+import {
+  followShownScrollerFade,
+  markSidewaysEdges,
+  RESIZE_HANDLE_ATTRIBUTE,
+  SIDEWAYS_ATTRIBUTE,
+  SIDEWAYS_INK,
+  SIDEWAYS_SCROLLER_ATTRIBUTE,
+} from "../../scrollers";
 
 /**
  * Column widths, in CSS pixels, for each table of the open file. A table is known by its index in
@@ -250,8 +258,14 @@ export class ResizableTableView extends TableView {
     cellMinWidth = 100,
   ) {
     super(node, cellMinWidth);
+    // A wide table shows that it scrolls by the thin sideways scrollbar, drawn at rest too
+    // (scrollers.ts), and by a short fade on each edge with more table past it (styles.css,
+    // user 2026-11-07: "markdown missing fade now"). Set before the box is in the page: WebKit
+    // picks a scroller's kind when it makes it.
+    this.dom.setAttribute(SIDEWAYS_SCROLLER_ATTRIBUTE, "");
     this.handle = document.createElement("div");
     this.handle.className = "md-col-resize";
+    this.handle.setAttribute(RESIZE_HANDLE_ATTRIBUTE, "");
     this.handle.contentEditable = "false";
     this.handle.hidden = true;
     this.handle.setAttribute("aria-hidden", "true");
@@ -267,11 +281,14 @@ export class ResizableTableView extends TableView {
     this.resize.observe(this.dom);
     this.resize.observe(this.table);
     this.unsubscribe = widths?.subscribe(() => this.applySaved()) ?? (() => {});
+    // Its thin thumb fades in and out under the scrollbar fade (scrollers.ts SIDEWAYS_INK).
+    this.unfade = followShownScrollerFade(this.dom, SIDEWAYS_INK);
     viewsByWrapper.set(this.dom, this);
     this.applySaved();
   }
 
   private readonly unsubscribe: () => void;
+  private readonly unfade: () => void;
 
   private readonly resize: ResizeObserver;
   /** Where the pointer last was over the table's box (client coordinates); null once it left. */
@@ -282,29 +299,16 @@ export class ResizableTableView extends TableView {
    * pointer (shown only if it is on a boundary now), never stays where the pointer no longer is.
    */
   private readonly layoutChanged = (): void => {
-    this.markOverflow();
+    markSidewaysEdges(this.dom);
+    const box = this.dom;
+    const sideways = box.clientWidth < box.scrollWidth - 0.5;
+    if (box.hasAttribute(SIDEWAYS_ATTRIBUTE) !== sideways) box.toggleAttribute(SIDEWAYS_ATTRIBUTE, sideways);
     if (!this.dragging) this.refresh();
   };
 
   private readonly leave = (): void => {
     this.pointer = null;
     if (!this.dragging) this.hide();
-  };
-
-  /**
-   * Marks which edges have more table past them (`data-overflow`: "start", "end" or both; absent
-   * when the table fits). The stylesheet fades those edges, so a wide table shows that it scrolls
-   * even with overlay scrollbars hidden (MARKDOWN-TABLE-SCROLL, user 2026-10-20).
-   */
-  private readonly markOverflow = (): void => {
-    const box = this.dom;
-    const max = box.scrollWidth - box.clientWidth;
-    const edges = [box.scrollLeft > 1 && "start", box.scrollLeft < max - 1 && "end"].filter(Boolean).join(" ");
-    if (max > 1 && edges) {
-      if (box.dataset.overflow !== edges) box.dataset.overflow = edges;
-    } else if (box.dataset.overflow !== undefined) {
-      delete box.dataset.overflow;
-    }
   };
 
   /**
@@ -531,6 +535,7 @@ export class ResizableTableView extends TableView {
   }
 
   destroy(): void {
+    this.unfade();
     this.dom.removeEventListener("mousemove", this.hover);
     this.dom.removeEventListener("mouseleave", this.leave);
     this.dom.removeEventListener("scroll", this.layoutChanged);

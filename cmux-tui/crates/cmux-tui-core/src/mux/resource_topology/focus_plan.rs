@@ -119,7 +119,8 @@ pub(super) fn focus_pane_plan(
     let workspace_id = state.workspaces[workspace_index].public_id.clone();
     let screen_id = state.workspaces[workspace_index].screens[screen_index].public_id.clone();
     let pane_id = state.resource_indexes.pane_ids[&pane].clone();
-    let topology = registry.resource_topology_snapshot()?;
+    // Only the workspace the focus leaves and the one it focuses change.
+    let topology = registry.resource_topology_with_active(std::slice::from_ref(&workspace_id))?;
     let previous = topology.active_workspace.clone();
     let mut after = topology.clone();
     after.active_workspace = Some(workspace_id.clone());
@@ -137,7 +138,9 @@ pub(super) fn focus_pane_plan(
         }
         sync_layout_column_projection(&mut focused_layout);
     }
-    focused_layout.active_pane = pane;
+    // `floating-panes-v1`: the focus brings a floating pane to the front, in the same commit; the quick terminal
+    // shows and its mark names the pane that had the focus (`quick-terminal-v1`).
+    focused_layout.set_active_pane(pane);
     let durable_screen = registry_screen_from_layout(
         state,
         workspace_index,
@@ -152,8 +155,7 @@ pub(super) fn focus_pane_plan(
         .find(|screen| screen.public_id == screen_id)
         .context("pane screen is absent from durable topology")? = durable_screen.clone();
     let deltas = focus_deltas(state, &topology, &after, previous, Some(workspace_id.clone()))?;
-    let workspace_record =
-        registry_workspace(state, workspace_index, registry.session_id().as_str());
+    let workspace_record = registry_workspace(state, workspace_index, &mux.session);
     let result = json!({"pane":pane_id,"screen":screen_id});
     let mux = Arc::clone(mux);
     Ok(ResourceMutationPlan::new(
@@ -171,7 +173,8 @@ pub(super) fn focus_pane_plan(
         result,
         deltas,
         move |state| apply_focus_path(&mux, state, pane),
-    ))
+    )
+    .keeping_dock_columns())
 }
 
 pub(super) fn apply_focus_path(mux: &Mux, state: &mut State, pane: PaneId) {
@@ -180,6 +183,14 @@ pub(super) fn apply_focus_path(mux: &Mux, state: &mut State, pane: PaneId) {
     state.workspaces[workspace].active_screen = screen;
     let current = &mut state.workspaces[workspace].screens[screen];
     let previous = current.active_pane;
+    expand_focus_stacks(current, previous, pane);
+    current.set_active_pane(pane);
+    stamp_pane_focus(mux, state, pane);
+}
+
+/// Expands the stacks of `previous` and of `pane` on `current`, as a focus
+/// that goes from the one to the other shows both.
+pub(super) fn expand_focus_stacks(current: &mut Screen, previous: PaneId, pane: PaneId) {
     if current.layout_columns_active() {
         let mut expanded = false;
         for column in &mut current.layout_columns {
@@ -193,8 +204,6 @@ pub(super) fn apply_focus_path(mux: &Mux, state: &mut State, pane: PaneId) {
         current.root.expand_stack_pane(previous);
         current.root.expand_stack_pane(pane);
     }
-    current.active_pane = pane;
-    stamp_pane_focus(mux, state, pane);
 }
 
 /// Assign target-pane positions in one pass over the topology tabs.

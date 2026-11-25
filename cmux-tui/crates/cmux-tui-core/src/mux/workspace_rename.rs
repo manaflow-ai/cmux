@@ -147,6 +147,49 @@ impl Mux {
         Ok(Some((result.workspace.unwrap_or(resolved_target), result.key, result.revision)))
     }
 
+    /// Hands every user-owned workspace name back to the automatic namer.
+    ///
+    /// One loop over the per-row release (`rename-workspace` with `source: auto`
+    /// and `release: true`): each name keeps its text, becomes auto and advances
+    /// its name revision. A row already auto is skipped, so a second call
+    /// releases nothing. Returns `(released, still_pinned)`; a row renamed
+    /// between the read and its release (name no longer equal) is left pinned
+    /// and counted in `still_pinned`.
+    pub(crate) fn release_workspace_names(&self, actor: &Actor) -> anyhow::Result<(usize, usize)> {
+        let pinned: Vec<(String, String)> = {
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            state
+                .workspaces
+                .iter()
+                .filter(|workspace| workspace.name_source == crate::resource_name::NameSource::User)
+                .map(|workspace| (workspace.key.clone(), workspace.name.clone()))
+                .collect()
+        };
+        let authority = crate::resource_name::WorkspaceNameUpdate::from_request(
+            Some(crate::resource_name::NameSource::Auto),
+            None,
+            None,
+            true,
+        )?;
+        let (mut released, mut still_pinned) = (0, 0);
+        for (key, name) in pinned {
+            let mutation = WorkspaceMutation::local("cmux-tui-release-names", actor.clone());
+            match self.rename_workspace_with_name_authority(
+                None,
+                Some(&key),
+                name,
+                &authority,
+                None,
+                None,
+                &mutation,
+            ) {
+                Ok(_) => released += 1,
+                Err(_) => still_pinned += 1,
+            }
+        }
+        Ok((released, still_pinned))
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(super) fn rename_workspace_with_mutation_inner(
         &self,
@@ -168,13 +211,14 @@ impl Mux {
         if let Some(name_fingerprint) = name_authority.fingerprint() {
             fingerprint.set("name_authority", name_fingerprint);
         }
-        let notifications = self.tree_decorations();
+        // The delta serializes the renamed workspace only.
+        let notifications = self.tree_decorations_of_target(target, requested_key);
         let mut registry = self.workspace_registry.lock().unwrap();
         if let Some(commit) = registry.replay(mutation, &fingerprint)? {
             return workspace_mutation_result(&commit);
         }
         let (renamed, result) = {
-            let mut state = self.lock_state_pinned(&registry).unwrap();
+            let state = self.lock_state_pinned(&registry).unwrap();
             Self::require_workspace_revision(&state, expected_revision)?;
             let index = resolve_workspace_index(&state, target, requested_key)?;
             let workspace_id = state.workspaces[index].id;
@@ -207,45 +251,35 @@ impl Mux {
                 }),
                 true,
             )?;
-            // The commit rides the journal writer batch: state stays held
-            // across the receipt (as across a local commit's fsync), the
-            // connection pin is released for the writer. If the receipt is
-            // indeterminate, the next state holder applies the rename.
-            let settle: crate::workspace_registry::SettleState = {
-                let (key, name) = (key, name.clone());
-                Box::new(move |state: &mut State, receipt| {
-                    // Only when no later commit (built on the old name)
-                    // superseded it.
-                    if let crate::workspace_registry::RegistryReceipt::Workspace(receipt) = receipt
-                        && !receipt.commit.replayed
-                        && receipt.commit.revision > state.workspace_revision
-                        && let Some(workspace) =
-                            state.workspaces.iter_mut().find(|workspace| workspace.key == key)
-                    {
-                        workspace.name = name;
-                        workspace.name_source = name_source;
-                        workspace.name_revision = name_revision;
-                        state.workspace_revision = receipt.commit.revision;
-                    }
-                })
-            };
+            // State is released before the commit (lock order: registry ->
+            // connection -> state; the registry stays held, so no other
+            // topology writer interleaves) and taken again to apply the
+            // committed name; readers see the old name until it commits.
+            drop(state);
             let receipt = registry
-                .commit_registry_intent_with(
-                    crate::workspace_registry::RegistryIntent::Workspace(intent),
-                    || state.unpin(),
-                    Some(settle),
-                )?
+                .commit_registry_intent(crate::workspace_registry::RegistryIntent::Workspace(
+                    Box::new(intent),
+                ))?
                 .into_workspace()?;
             let commit = receipt.commit;
-            state.workspaces[index].name = name;
-            state.workspaces[index].name_source = name_source;
-            state.workspaces[index].name_revision = name_revision;
-            // A replayed receipt carries the original, possibly older,
-            // revision: never move the in-memory revisions back.
+            let mut state = self.lock_state_pinned(&registry).unwrap();
+            // The commit is durable: its revisions hold even if the workspace
+            // left state meanwhile (no path can do that while the registry
+            // is held; this keeps state and the registry agreeing anyway).
             state.workspace_revision = state.workspace_revision.max(commit.revision);
             if let Some(resource_revision) = receipt.resource_revision {
                 state.resource_revision = state.resource_revision.max(resource_revision);
             }
+            let index = state
+                .workspaces
+                .iter()
+                .position(|workspace| workspace.key == key)
+                .context("renamed workspace left state during its commit")?;
+            state.set_workspace_name(index, name);
+            state.workspaces[index].name_source = name_source;
+            state.workspaces[index].name_revision = name_revision;
+            // A replayed receipt carries the original, possibly older,
+            // revision: the max above never moves the in-memory revisions back.
             let workspace_revision = commit.revision;
             let entity = crate::server::tree_entity_json(
                 &state,
@@ -265,6 +299,7 @@ impl Mux {
                     entity,
                     workspace_revision: Some(workspace_revision),
                     transaction: None,
+                    mutation: None,
                 },
                 workspace_mutation_result(&commit)?,
             )
@@ -320,8 +355,8 @@ impl Mux {
             result.clone(),
             deltas,
             move |state| {
+                state.set_workspace_name(index, name);
                 let workspace = &mut state.workspaces[index];
-                workspace.name = name;
                 workspace.name_source = name_source;
                 workspace.name_revision = name_revision;
             },

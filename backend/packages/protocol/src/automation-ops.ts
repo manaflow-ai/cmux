@@ -10,6 +10,14 @@ import {
   AutomationListParams,
   AutomationSelector,
   AutomationUpdateParams,
+  AutomationAuditEntry,
+  AutomationAuditListParams,
+  AutomationImportParams,
+  AutomationTeleportAbortParams,
+  AutomationTeleportBeginParams,
+  AutomationTeleportBegun,
+  AutomationTeleportCompleteParams,
+  MovedAutomation,
   Run,
   RunDispatchedParams,
   RunPolicyApplyParams,
@@ -113,7 +121,7 @@ export const AutomationList = def({
   target: "automation",
   principals: ["session", "install"],
   params: AutomationListParams,
-  result: Schema.Struct({ owner: Schema.NullOr(TeamId), automations: Schema.Array(Automation), automation_count: Schema.optionalKey(Schema.Number), next_cursor: Schema.optionalKey(Schema.NullOr(Schema.String)), revision: Schema.String }),
+  result: Schema.Struct({ owner: Schema.NullOr(TeamId), automations: Schema.Array(Automation), automation_count: Schema.optionalKey(Schema.Number), next_cursor: Schema.optionalKey(Schema.NullOr(Schema.String)), moved: Schema.optionalKey(Schema.Array(MovedAutomation)), revision: Schema.String }),
   errors: ["auth.unauthenticated", "auth.forbidden"],
   docs: "List the automations of the caller's team, oldest first, with their bodies. Without params the first page holds every automation (at most 100); page with limit and cursor (keyset: pass next_cursor).",
   cli: { path: "automation list", visible: true },
@@ -236,6 +244,81 @@ export const AutomationSettingsSet = def({
   mcp: { expose: "never", group: "automation" }
 })
 
+export const AutomationImport = def({
+  name: "automation.import",
+  owner: "cloud:SchedulerDO",
+  class: "mutation",
+  risk: "mutate-shared",
+  target: "automation",
+  principals: ["session", "install"],
+  params: AutomationImportParams,
+  result: Automation,
+  errors: [...mutationErrors, "automation.limit", "trigger.invalid", ...codeErrors],
+  docs: "Accept step of a teleport (docs/automations-teleport-teams.md): make the Cloud copy of an automation another store fenced. Use the idempotency key teleport:<handoff id>; one copy per handoff id. Its next fire follows last_slot and the catch_up policy, so no slot runs twice.",
+  cli: { path: "automation import", visible: false },
+  mcp: { expose: "opt_in", group: "automation" }
+})
+
+export const AutomationTeleportBegin = def({
+  name: "automation.teleport.begin",
+  owner: "cloud:SchedulerDO",
+  class: "mutation",
+  risk: "mutate-shared",
+  target: "automation",
+  principals: ["session", "install"],
+  params: AutomationTeleportBeginParams,
+  result: AutomationTeleportBegun,
+  errors: [...mutationErrors, "selector.not_found", "automation.handoff_pending"],
+  docs: "Fence step of a teleport away from Cloud: from now on the automation neither fires nor runs here, and the answer carries its full spec, epoch and last fired slot. to is home, ssh:<host>[:<dir>] or cloud. Then automation.teleport.complete or automation.teleport.abort with the same handoff id.",
+  cli: { path: "automation teleport", visible: true },
+  mcp: { expose: "opt_in", group: "automation" }
+})
+
+export const AutomationTeleportComplete = def({
+  name: "automation.teleport.complete",
+  owner: "cloud:SchedulerDO",
+  class: "mutation",
+  risk: "mutate-shared",
+  target: "automation",
+  principals: ["session", "install"],
+  params: AutomationTeleportCompleteParams,
+  result: MovedAutomation,
+  errors: [...mutationErrors, "selector.not_found", "automation.handoff_mismatch"],
+  docs: "Release step of a teleport: the fenced Cloud automation becomes a tombstone naming its new home and id (automation.list moved).",
+  cli: { path: "automation teleport", visible: false },
+  mcp: { expose: "opt_in", group: "automation" }
+})
+
+export const AutomationTeleportAbort = def({
+  name: "automation.teleport.abort",
+  owner: "cloud:SchedulerDO",
+  class: "mutation",
+  risk: "mutate-shared",
+  target: "automation",
+  principals: ["session", "install"],
+  params: AutomationTeleportAbortParams,
+  result: Automation,
+  errors: [...mutationErrors, "selector.not_found", "automation.handoff_mismatch"],
+  docs: "Abort a teleport the destination refused: lift the fence; the automation fires here again.",
+  cli: { path: "automation teleport", visible: false },
+  mcp: { expose: "opt_in", group: "automation" }
+})
+
+export const AutomationAuditList = def({
+  name: "automation.audit.list",
+  owner: "cloud:SchedulerDO",
+  class: "read",
+  risk: "read",
+  target: "automation",
+  principals: ["session", "install"],
+  params: AutomationAuditListParams,
+  result: Schema.Struct({ entries: Schema.Array(AutomationAuditEntry), revision: Schema.String }),
+  errors: ["auth.unauthenticated", "auth.forbidden"],
+  docs: "The team's automation audit log, oldest first: who created, changed, ran, paused, deleted or moved which automation. Admins and owners read every entry; other members the entries of automations they may view. Never a body or a secret.",
+  cli: { path: "automation audit", visible: true },
+  mcp: { expose: "default", group: "automation" }
+})
+
 export const automationOps = [
   AutomationCreate,
   AutomationUpdate,
@@ -249,7 +332,12 @@ export const automationOps = [
   RunGet,
   AutomationWebhookGet,
   AutomationSettingsGet,
-  AutomationSettingsSet
+  AutomationSettingsSet,
+  AutomationImport,
+  AutomationTeleportBegin,
+  AutomationTeleportComplete,
+  AutomationTeleportAbort,
+  AutomationAuditList
 ] as const
 
 const internal = (name: string, params: Schema.Top, docs: string): CloudOpDef =>

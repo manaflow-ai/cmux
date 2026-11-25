@@ -5,11 +5,12 @@
 //! deleted file is first moved aside, and any failure puts back what the
 //! pull changed before it.
 
-use std::ffi::CString;
+use std::ffi::{CStr, CString, OsString};
 use std::fs::File;
 use std::io;
-use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd};
-use std::path::Path;
+use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd, RawFd};
+use std::os::unix::ffi::OsStringExt as _;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context as _, bail};
 use sha2::{Digest as _, Sha256};
@@ -24,12 +25,34 @@ pub(super) enum Entry {
         mode: u32,
     },
     Dir,
-    /// A symlink or special file.
+    Link,
+    /// A special file.
     Other,
 }
 
 fn c_name(name: &str) -> io::Result<CString> {
     CString::new(name).map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))
+}
+
+fn c_name_text(text: &str) -> io::Result<CString> {
+    CString::new(text).map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))
+}
+
+/// The path an open file is at now, from its descriptor.
+fn fd_path(file: &File) -> io::Result<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        let mut buffer = vec![0u8; libc::PATH_MAX as usize];
+        // SAFETY: a valid descriptor and a buffer of PATH_MAX bytes, as F_GETPATH wants.
+        check(unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETPATH, buffer.as_mut_ptr()) })?;
+        let end = buffer.iter().position(|byte| *byte == 0).unwrap_or(buffer.len());
+        buffer.truncate(end);
+        Ok(PathBuf::from(OsString::from_vec(buffer)))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        std::fs::read_link(format!("/proc/self/fd/{}", file.as_raw_fd()))
+    }
 }
 
 /// A `mode_t` (u16 on macOS, u32 on Linux) as u32.
@@ -40,6 +63,31 @@ fn widen<T: TryInto<u32>>(value: T) -> u32 {
 /// A `dev_t` or `ino_t` (their widths and signs vary) as u64.
 fn widen_u64<T: TryInto<u64>>(value: T) -> u64 {
     value.try_into().unwrap_or_default()
+}
+
+/// A folder's stream ([`Dir::names`]), closed when dropped.
+struct Stream(*mut libc::DIR);
+
+impl Drop for Stream {
+    fn drop(&mut self) {
+        // SAFETY: this owns the stream `fdopendir` answered.
+        unsafe { libc::closedir(self.0) };
+    }
+}
+
+/// Clears this thread's `errno`: `readdir` answers null both at the end and
+/// on an error, told apart only by `errno`.
+#[cfg(target_vendor = "apple")]
+fn clear_errno() {
+    // SAFETY: libc answers this thread's writable errno.
+    unsafe { *libc::__error() = 0 };
+}
+
+/// Clears this thread's `errno` (see the macOS one).
+#[cfg(not(target_vendor = "apple"))]
+fn clear_errno() {
+    // SAFETY: libc answers this thread's writable errno.
+    unsafe { *libc::__errno_location() = 0 };
 }
 
 fn check(result: libc::c_int) -> io::Result<libc::c_int> {
@@ -81,6 +129,51 @@ impl Dir {
         }
     }
 
+    /// The names in this folder (never `.` or `..`), read through this
+    /// handle: whatever is swapped in at its path since it was opened is
+    /// never listed.
+    pub(super) fn names(&self) -> io::Result<Vec<OsString>> {
+        let dot = c_name(".")?;
+        // A descriptor of its own for the stream (`fdopendir` takes it), so
+        // its offset is not this handle's.
+        // SAFETY: a valid descriptor and C string; the result is checked.
+        let fd = check(unsafe {
+            libc::openat(
+                self.0.as_raw_fd(),
+                dot.as_ptr(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC,
+            )
+        })?;
+        // SAFETY: a new descriptor; on success the stream owns it.
+        let stream = unsafe { libc::fdopendir(fd) };
+        if stream.is_null() {
+            let error = io::Error::last_os_error();
+            // SAFETY: a failed `fdopendir` did not take the descriptor.
+            unsafe { libc::close(fd) };
+            return Err(error);
+        }
+        let stream = Stream(stream);
+        let mut names = Vec::new();
+        loop {
+            clear_errno();
+            // SAFETY: the stream is open and only this loop reads it.
+            let entry = unsafe { libc::readdir(stream.0) };
+            if entry.is_null() {
+                let error = io::Error::last_os_error();
+                if error.raw_os_error().unwrap_or(0) == 0 {
+                    return Ok(names);
+                }
+                return Err(error);
+            }
+            // SAFETY: `d_name` is the entry's NUL-terminated name, valid
+            // until the next `readdir`, and copied before it.
+            let name = unsafe { CStr::from_ptr((*entry).d_name.as_ptr()) }.to_bytes();
+            if name != b"." && name != b".." {
+                names.push(OsString::from_vec(name.to_vec()));
+            }
+        }
+    }
+
     /// What is at `name`, without following a symlink.
     pub(super) fn entry(&self, name: &str) -> io::Result<Entry> {
         let c = c_name(name)?;
@@ -97,6 +190,7 @@ impl Dir {
                     Entry::File { mode: widen(stat.st_mode & 0o7777) }
                 }
                 libc::S_IFDIR => Entry::Dir,
+                libc::S_IFLNK => Entry::Link,
                 _ => Entry::Other,
             }),
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Entry::Missing),
@@ -138,7 +232,7 @@ impl Dir {
 
     /// The (device, inode) of the entry `name`, not following a symlink;
     /// None when it is missing.
-    fn inode(&self, name: &str) -> io::Result<Option<(u64, u64)>> {
+    pub(super) fn inode(&self, name: &str) -> io::Result<Option<(u64, u64)>> {
         let c = c_name(name)?;
         // SAFETY: zeroed stat is a valid out value.
         let mut stat: libc::stat = unsafe { std::mem::zeroed() };
@@ -152,6 +246,97 @@ impl Dir {
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(error),
         }
+    }
+
+    /// Writes `bytes` as the new file `name` with `mode`: to a hidden name
+    /// first, then renamed to `name` in one atomic step that takes the name
+    /// only while it is still missing. Anything already at `name` (a file,
+    /// a folder, a symlink, or one made meanwhile) stays untouched, and the
+    /// answer is `AlreadyExists`.
+    pub(super) fn new_file(&self, name: &str, bytes: &[u8], mode: u32) -> io::Result<()> {
+        use std::io::Write as _;
+        if !matches!(self.entry(name)?, Entry::Missing) {
+            return Err(io::Error::from(io::ErrorKind::AlreadyExists));
+        }
+        // A hidden name of its own, made with O_EXCL: nothing already there
+        // (anyone's file by any name) is removed or reused.
+        let (part, mut file) = {
+            let mut tries = 0u32;
+            loop {
+                let part = format!(".{name}.{}-{tries}.cmux-sync-part", std::process::id());
+                match self.create_file(&part, mode) {
+                    Ok(file) => break (part, file),
+                    Err(error) if error.kind() == io::ErrorKind::AlreadyExists && tries < 64 => {
+                        tries += 1;
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+        };
+        let written = file.write_all(bytes).and_then(|()| file.sync_all());
+        drop(file);
+        let placed = written.and_then(|()| {
+            let fd = self.0.as_raw_fd();
+            match rename_noreplace(fd, &c_name(&part)?, &c_name(name)?) {
+                Err(error) if error.raw_os_error() == Some(libc::EEXIST) => {
+                    Err(io::Error::from(io::ErrorKind::AlreadyExists))
+                }
+                other => other,
+            }
+        });
+        if placed.is_err() {
+            let _ = self.unlink(&part, false);
+        }
+        placed
+    }
+
+    /// The text of the symlink `name` (never followed).
+    /// Opens `text` (a symlink's text read from this folder) for reading as the kernel resolves
+    /// it from this folder's descriptor, never through this folder's path: a relative text
+    /// starts here even when this folder was moved or swapped since it was opened. Answers the
+    /// file and the path it ended at.
+    pub(super) fn open_link_text(&self, text: &str) -> io::Result<(File, PathBuf)> {
+        let c = c_name_text(text)?;
+        // SAFETY: a valid descriptor and C string; the result is checked.
+        let fd = check(unsafe {
+            libc::openat(
+                self.0.as_raw_fd(),
+                c.as_ptr(),
+                libc::O_RDONLY | libc::O_NONBLOCK | libc::O_CLOEXEC,
+            )
+        })?;
+        // SAFETY: a new descriptor the file owns.
+        let file = unsafe { File::from_raw_fd(fd) };
+        let at = fd_path(&file)?;
+        Ok((file, at))
+    }
+
+    pub(super) fn read_link(&self, name: &str) -> io::Result<String> {
+        let c = c_name(name)?;
+        let mut buffer = vec![0u8; 4096];
+        // SAFETY: a valid descriptor, C string and buffer of that length.
+        let read = unsafe {
+            libc::readlinkat(
+                self.0.as_raw_fd(),
+                c.as_ptr(),
+                buffer.as_mut_ptr().cast(),
+                buffer.len(),
+            )
+        };
+        let read = usize::try_from(read).map_err(|_| io::Error::last_os_error())?;
+        if read >= buffer.len() {
+            return Err(io::Error::from_raw_os_error(libc::ENAMETOOLONG));
+        }
+        buffer.truncate(read);
+        String::from_utf8(buffer).map_err(|_| io::Error::from(io::ErrorKind::InvalidData))
+    }
+
+    /// Makes the symlink `name` with `text`; `AlreadyExists` when anything
+    /// is there.
+    fn symlink(&self, name: &str, text: &str) -> io::Result<()> {
+        let (c, text) = (c_name(name)?, c_name_text(text)?);
+        // SAFETY: a valid descriptor and C strings.
+        check(unsafe { libc::symlinkat(text.as_ptr(), self.0.as_raw_fd(), c.as_ptr()) }).map(drop)
     }
 
     fn mkdir(&self, name: &str) -> io::Result<()> {
@@ -168,6 +353,11 @@ impl Dir {
             libc::renameat(self.0.as_raw_fd(), from.as_ptr(), to.0.as_raw_fd(), dest.as_ptr())
         })
         .map(drop)
+    }
+
+    /// Removes the folder `name` here when it is empty (an error otherwise).
+    pub(super) fn remove_empty_dir(&self, name: &str) -> io::Result<()> {
+        self.unlink(name, true)
     }
 
     fn unlink(&self, name: &str, folder: bool) -> io::Result<()> {
@@ -196,10 +386,146 @@ pub(super) fn parent_of(root: &Dir, relative: &str) -> io::Result<Option<(Dir, S
     Ok(Some((dir, name)))
 }
 
+/// The folders on the way to the last path asked for, held open: paths that
+/// come in order (git lists them sorted) reopen only the folders they do not
+/// share with the one before, so a listing costs one open per folder, not
+/// one per folder per file. Each folder is still opened by descriptor
+/// without following a symlink, as [`parent_of`] does.
+#[derive(Default)]
+pub(super) struct Chain {
+    open: Vec<(String, Dir)>,
+}
+
+impl Chain {
+    /// The folder holding `relative` under `root` and the name in it, as
+    /// [`parent_of`]: None when a folder on the way is missing; an error
+    /// when one is not a folder (a symlink).
+    pub(super) fn parent_of<'a>(
+        &'a mut self,
+        root: &'a Dir,
+        relative: &'a str,
+    ) -> io::Result<Option<(&'a Dir, &'a str)>> {
+        let (folders, name) = match relative.rsplit_once('/') {
+            Some((folders, name)) => (folders, name),
+            None => ("", relative),
+        };
+        let parts: Vec<&str> =
+            if folders.is_empty() { Vec::new() } else { folders.split('/').collect() };
+        let shared =
+            self.open.iter().zip(&parts).take_while(|((open, _), part)| open == *part).count();
+        self.open.truncate(shared);
+        for part in parts.iter().skip(shared) {
+            let at = self.open.last().map_or(root, |(_, dir)| dir);
+            let Some(next) = at.child(part)? else { return Ok(None) };
+            self.open.push(((*part).to_string(), next));
+        }
+        Ok(Some((self.open.last().map_or(root, |(_, dir)| dir), name)))
+    }
+}
+
 impl Dir {
+    /// Writes `bytes` at `name` with `mode`, replacing the regular file
+    /// there (or taking the name while it is missing): to a hidden name
+    /// first, then `renameat` in this folder. A symlink, folder or special
+    /// file at `name` is refused and left as it is (`InvalidInput`).
+    pub(super) fn replace_file(&self, name: &str, bytes: &[u8], mode: u32) -> io::Result<()> {
+        use std::io::Write as _;
+        if !matches!(self.entry(name)?, Entry::Missing | Entry::File { .. }) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("{name} is not a file"),
+            ));
+        }
+        let (part, mut file) = {
+            let mut tries = 0u32;
+            loop {
+                let part = format!(".{name}.{}-{tries}.cmux-sync-part", std::process::id());
+                match self.create_file(&part, mode) {
+                    Ok(file) => break (part, file),
+                    Err(error) if error.kind() == io::ErrorKind::AlreadyExists && tries < 64 => {
+                        tries += 1;
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+        };
+        let written = file.write_all(bytes).and_then(|()| file.sync_all());
+        drop(file);
+        // Checked again at the last moment: a link swapped in since is
+        // refused, never replaced (a rename would only replace the link
+        // itself, but the carried file must land where the plan saw a file).
+        let placed = written.and_then(|()| {
+            if matches!(self.entry(name)?, Entry::Missing | Entry::File { .. }) {
+                self.rename(&part, self, name)
+            } else {
+                Err(io::Error::new(io::ErrorKind::InvalidInput, format!("{name} is not a file")))
+            }
+        });
+        if placed.is_err() {
+            let _ = self.unlink(&part, false);
+        }
+        placed
+    }
+
+    /// Removes the regular file `name`; a missing one is fine, anything
+    /// else there (a symlink, a folder) is refused and left (`InvalidInput`).
+    pub(super) fn remove_file(&self, name: &str) -> io::Result<()> {
+        match self.entry(name)? {
+            Entry::Missing => Ok(()),
+            Entry::File { .. } => match self.unlink(name, false) {
+                Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+                other => other,
+            },
+            _ => Err(io::Error::new(io::ErrorKind::InvalidInput, format!("{name} is not a file"))),
+        }
+    }
+
+    /// The folder `name` here, made when missing; a symlink or file there
+    /// is an error.
+    pub(super) fn child_or_make(&self, name: &str) -> io::Result<Self> {
+        if let Some(dir) = self.child(name)? {
+            return Ok(dir);
+        }
+        match self.mkdir(name) {
+            Err(error) if error.kind() != io::ErrorKind::AlreadyExists => return Err(error),
+            _ => {}
+        }
+        self.child(name)?.ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))
+    }
+
     fn dup(&self) -> io::Result<Self> {
         Ok(Self(self.0.try_clone()?))
     }
+
+    /// This folder's device and inode.
+    fn identity(&self) -> io::Result<(u64, u64)> {
+        // SAFETY: zeroed stat is a valid out value.
+        let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+        // SAFETY: a valid descriptor and out pointer; the result is checked.
+        check(unsafe { libc::fstat(self.0.as_raw_fd(), &mut stat) })?;
+        Ok((widen_u64(stat.st_dev), widen_u64(stat.st_ino)))
+    }
+}
+
+/// A file [`open_beneath`] opened, its device and inode, and its root's.
+pub(super) type Beneath = (File, (u64, u64), (u64, u64));
+
+/// The regular file `relative` under the folder `root`, opened one name at
+/// a time with `O_NOFOLLOW`, so no symlink anywhere below `root` is
+/// followed; with the file's device and inode and the root's.
+pub(super) fn open_beneath(root: &Path, relative: &str) -> anyhow::Result<Beneath> {
+    use std::os::unix::fs::MetadataExt as _;
+    let dir = Dir::open(root)?;
+    let root_identity = dir.identity()?;
+    let Some((parent, name)) = parent_of(&dir, relative)? else {
+        bail!("{relative} is gone from {}", root.display());
+    };
+    let file = parent.open_file(&name)?;
+    let meta = file.metadata()?;
+    if !meta.is_file() {
+        bail!("{relative} in {} is not a regular file", root.display());
+    }
+    Ok((file, (meta.dev(), meta.ino()), root_identity))
 }
 
 /// What a file here must still be for the pull to replace or delete it:
@@ -233,6 +559,8 @@ enum Undo {
     Placed { relative: String, aside: Option<Aside>, placed: Option<(u64, u64)> },
     /// A file this pull deleted, moved aside.
     Removed { relative: String, aside: Aside },
+    /// A symlink this pull removed (moved aside), with its text.
+    RemovedLink { relative: String, aside: Aside, text: String },
 }
 
 /// Where a file moved aside sits: the staging folder, or (on another file
@@ -278,7 +606,9 @@ impl Transaction {
             Entry::Missing if expected.is_some() => return Err(Changed(relative.into()).into()),
             Entry::Missing => None,
             Entry::File { .. } => Some(self.take(&dir, &name, relative, expected)?),
-            Entry::Dir | Entry::Other => bail!("{relative} here is not a regular file"),
+            Entry::Dir | Entry::Link | Entry::Other => {
+                bail!("{relative} here is not a regular file")
+            }
         };
         if let Err(error) = self.place(staged, &dir, &name, relative) {
             if let Some(aside) = aside
@@ -307,6 +637,71 @@ impl Transaction {
         Ok(())
     }
 
+    /// Makes the symlink `relative` with `text`, making missing folders;
+    /// nothing may be there (one made meanwhile is [`Changed`]).
+    pub(super) fn link(&mut self, relative: &str, text: &str) -> anyhow::Result<()> {
+        let (dir, name) = self.folder_for(relative)?;
+        match dir.symlink(&name, text) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                return Err(Changed(relative.into()).into());
+            }
+            Err(error) => {
+                return Err(anyhow::Error::from(error).context(format!("cannot make {relative}")));
+            }
+        }
+        let placed = dir.inode(&name).ok().flatten();
+        self.undo.push(Undo::Placed { relative: relative.into(), aside: None, placed });
+        Ok(())
+    }
+
+    /// Removes the symlink at `relative` (moved aside until the pull ends),
+    /// once it is checked to still have `text`; one with another text, or
+    /// anything else there, is [`Changed`]. Nothing when it is gone.
+    pub(super) fn remove_link(&mut self, relative: &str, text: &str) -> anyhow::Result<()> {
+        let Some((dir, name)) = parent_of(&self.root, relative)? else {
+            return Err(Changed(relative.into()).into());
+        };
+        match dir.entry(&name)? {
+            Entry::Link => {}
+            _ => return Err(Changed(relative.into()).into()),
+        }
+        let aside =
+            self.move_aside(&dir, &name).with_context(|| format!("cannot move {relative}"))?;
+        let from = if aside.in_staging { &self.staging } else { &dir };
+        let found = match from.read_link(&aside.name) {
+            Ok(found) => found,
+            // Not a symlink any more (saved over since the look): back it goes
+            // as it is, or it stays aside for roll back.
+            Err(error) => {
+                if self.put_back(&dir, &name, &aside).is_err() {
+                    self.undo.push(Undo::Removed { relative: relative.into(), aside });
+                }
+                return Err(anyhow::Error::from(error).context(Changed(relative.into())));
+            }
+        };
+        if found == text {
+            self.undo.push(Undo::RemovedLink {
+                relative: relative.into(),
+                aside,
+                text: text.into(),
+            });
+            self.deleted.push(relative.to_string());
+            return Ok(());
+        }
+        // Not the one planned: back it goes, or it stays aside for roll back.
+        if self.put_back_link(&dir, &name, &aside, &found).is_err() {
+            self.undo.push(Undo::RemovedLink { relative: relative.into(), aside, text: found });
+        }
+        Err(Changed(relative.into()).into())
+    }
+
+    /// Makes the folder `relative` and any missing folder above it (each undone by roll back);
+    /// nothing when it is there.
+    pub(super) fn folder(&mut self, relative: &str) -> anyhow::Result<()> {
+        self.folder_for(&format!("{relative}/.")).map(drop)
+    }
+
     /// Puts back everything this pull changed, newest first. The error
     /// names what could not be put back (it stays in the staging folder or
     /// next to its file).
@@ -327,6 +722,9 @@ impl Transaction {
                 Undo::Removed { relative, aside } => {
                     self.at(relative).and_then(|(dir, name)| self.put_back(&dir, &name, aside))
                 }
+                Undo::RemovedLink { relative, aside, text } => self
+                    .at(relative)
+                    .and_then(|(dir, name)| self.put_back_link(&dir, &name, aside, text)),
                 Undo::MadeDir { folder } => {
                     self.at(folder).and_then(|(parent, name)| parent.unlink(&name, true))
                 }
@@ -335,6 +733,7 @@ impl Transaction {
                 left.push(match undo {
                     Undo::Placed { relative, .. }
                     | Undo::Removed { relative, .. }
+                    | Undo::RemovedLink { relative, .. }
                     | Undo::MadeDir { folder: relative } => relative,
                 });
             }
@@ -347,7 +746,8 @@ impl Transaction {
     pub(super) fn finish(mut self) {
         for undo in std::mem::take(&mut self.undo) {
             if let Undo::Placed { relative, aside: Some(aside), .. }
-            | Undo::Removed { relative, aside } = undo
+            | Undo::Removed { relative, aside }
+            | Undo::RemovedLink { relative, aside, .. } = undo
                 && !aside.in_staging
                 && let Ok((dir, _)) = self.at(&relative)
             {
@@ -464,6 +864,15 @@ impl Transaction {
         link_new(from, &aside.name, dir, name)
     }
 
+    /// Puts a symlink moved aside back at `name` (made again with its
+    /// text, never over anything there), then drops the aside.
+    fn put_back_link(&self, dir: &Dir, name: &str, aside: &Aside, text: &str) -> io::Result<()> {
+        dir.symlink(name, text)?;
+        let from = if aside.in_staging { &self.staging } else { dir };
+        let _ = from.unlink(&aside.name, false);
+        Ok(())
+    }
+
     /// Moves the staged file to `name` in `dir`, never over a file there.
     fn place(&self, staged: &str, dir: &Dir, name: &str, relative: &str) -> anyhow::Result<()> {
         let placed = match link_new(&self.staging, staged, dir, name) {
@@ -531,42 +940,37 @@ fn link_new(from: &Dir, from_name: &str, to: &Dir, to_name: &str) -> io::Result<
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use sha2::{Digest as _, Sha256};
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn renameat2(fd: RawFd, from: &CStr, to: &CStr, flags: libc::c_uint) -> io::Result<()> {
+    // SAFETY: both names are NUL-terminated and relative to the live
+    // descriptor. The syscall does not retain the pointers; calling it
+    // directly avoids depending on glibc's `renameat2` wrapper.
+    let done =
+        unsafe { libc::syscall(libc::SYS_renameat2, fd, from.as_ptr(), fd, to.as_ptr(), flags) };
+    if done == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
+}
 
-    use super::*;
+#[cfg(target_vendor = "apple")]
+fn renameatx(fd: RawFd, from: &CStr, to: &CStr, flags: libc::c_uint) -> io::Result<()> {
+    // SAFETY: both names are NUL-terminated and relative to the live
+    // descriptor. `renameatx_np` does not retain the pointers.
+    let done = unsafe { libc::renameatx_np(fd, from.as_ptr(), fd, to.as_ptr(), flags) };
+    if done == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
+}
 
-    fn sha256(bytes: &[u8]) -> String {
-        Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect()
-    }
-
-    /// A file edited here after the plan read it (between the last check
-    /// and its move) is never replaced or deleted: the edit stays.
-    #[test]
-    fn a_file_edited_after_the_plan_is_never_replaced_or_deleted() {
-        let top = tempfile::tempdir().unwrap();
-        let (root, staging) = (top.path().join("root"), top.path().join("staging"));
-        std::fs::create_dir_all(&root).unwrap();
-        std::fs::create_dir_all(&staging).unwrap();
-        std::fs::write(root.join("a.txt"), "edited\n").unwrap();
-        std::fs::write(root.join("b.txt"), "edited\n").unwrap();
-        std::fs::write(staging.join("file-1"), "machine\n").unwrap();
-        let planned = Expected { sha256: sha256(b"planned\n"), permissions: 0o644 };
-
-        let mut transaction = Transaction::new(&root, &staging).unwrap();
-        let error = transaction.write("a.txt", "file-1", Some(&planned)).unwrap_err();
-        assert!(error.downcast_ref::<Changed>().is_some(), "{error:#}");
-        let error = transaction.delete("b.txt", &planned).unwrap_err();
-        assert!(error.downcast_ref::<Changed>().is_some(), "{error:#}");
-        // A file made after the plan saw none is not replaced either.
-        std::fs::write(root.join("c.txt"), "made here\n").unwrap();
-        let error = transaction.write("c.txt", "file-1", None).unwrap_err();
-        assert!(error.downcast_ref::<Changed>().is_some(), "{error:#}");
-        let _ = transaction.roll_back();
-
-        assert_eq!(std::fs::read_to_string(root.join("a.txt")).unwrap(), "edited\n");
-        assert_eq!(std::fs::read_to_string(root.join("b.txt")).unwrap(), "edited\n");
-        assert_eq!(std::fs::read_to_string(root.join("c.txt")).unwrap(), "made here\n");
+/// Renames `from` to `to` in one folder only while `to` is missing.
+fn rename_noreplace(fd: RawFd, from: &CStr, to: &CStr) -> io::Result<()> {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    return renameat2(fd, from, to, libc::RENAME_NOREPLACE);
+    #[cfg(target_vendor = "apple")]
+    return renameatx(fd, from, to, libc::RENAME_EXCL);
+    #[cfg(not(any(target_os = "linux", target_os = "android", target_vendor = "apple")))]
+    {
+        let _ = (fd, from, to);
+        Err(io::Error::from(io::ErrorKind::Unsupported))
     }
 }
+
+#[cfg(test)]
+#[path = "place_tests.rs"]
+mod tests;

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxHomeCore
 import CmuxNextHome
+import CmuxNextHomeModel
 import CmuxNextSettings
 
 /// `debug.home` `page`: the Home page's conversation list as the active
@@ -12,16 +13,10 @@ extension DebugHome {
                  "width": .number(Double(rect.width)), "height": .number(Double(rect.height))])
     }
 
-    /// Contacts the user has no direct conversation with.
-    static func teammatesWithoutDM(rows: [InboxRow], contacts: [HomeContact]) -> Int {
-        let peers = Set(rows.filter { $0.kind == .direct }.flatMap { $0.summary.participants.map(\.id) })
-        return contacts.filter { !peers.contains($0.id) }.count
-    }
-
     static func page(services: AppServices) -> CmuxNextSettings.JSONValue {
         let home = services.home
         let store = home.homeStore
-        let view = services.windows.active?.topPages.views[.home] as? TopHomePageView
+        let view = HomeDockTab.view(services)?.messages ?? services.windows.active?.topPages.views[.home] as? TopHomePageView // as the fixture finds it
         let lines: [CmuxNextSettings.JSONValue] = (view?.lines ?? []).map { line in
             switch line {
             case .header(let kind): return .object(["header": .string(String(describing: kind))])
@@ -55,7 +50,7 @@ extension DebugHome {
                 return .object(["conversation": .string(id.rawValue), "count": .number(Double(items.count)), "last_seq": lastSeq])
             } ?? .null,
             // Teammates with no DM yet (the search's Teammates section draws from these).
-            "teammates_without_dm": .number(Double(Self.teammatesWithoutDM(rows: store.rows, contacts: home.contacts()))),
+            "teammates_without_dm": .number(Double(HomeContact.withoutDM(home.contacts(), rows: store.rows))),
             // The open sheet (New Message, Invite, New Chief): its window number for debug.window_snapshot.
             "sheet": view?.window?.attachedSheet.map { JSONValue($0.windowNumber) } ?? .null,
             "lines": .array(lines),
@@ -87,7 +82,7 @@ extension DebugHome {
             // Every native Home tab (`home.tab`): its key, window, shown conversation and the
             // newest texts its own transcript view holds.
             "tabs": .array(((services.pages.provider(.homeTab) as? HomePageTab)?.tabs ?? []).map { tab -> JSONValue in
-                let transcript = tab.view.host.flatMap(HomePageTab.transcript(in:))
+                let transcript = tab.view.host.flatMap(HomeNativeTranscriptView.first(in:))
                 return .object([
                     "key": .string(tab.key),
                     "window": tab.view.window.flatMap { window in services.windows.controllers.first { $0.window === window }?.state.id }

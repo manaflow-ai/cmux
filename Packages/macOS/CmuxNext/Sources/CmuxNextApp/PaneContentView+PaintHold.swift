@@ -1,18 +1,19 @@
 import AppKit
 public import CmuxNextAgentPane
+import CmuxNextCloudUI
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextWakeups
 
 /// One that painted and is shown again waits for its frame at the size it
-/// shows at (`AgentPageRedraw`).
+/// shows at (`AgentPageRedraw`, a moved Chromium page: `AgentPaneView.movedPageWaits`).
 extension AgentPaneView: PaneFirstPaintGated {
-    public var awaitsFirstPaint: Bool { !model.hasPainted || redraw.awaits(self) }
+    public var awaitsFirstPaint: Bool { !model.hasPainted || redraw.awaits(self) || movedPageWaits }
 
     public func whenFirstPainted(_ body: @escaping () -> Void) {
         guard model.hasPainted else { return model.whenPainted(body) }
         // It may answer from this view's own layout(): the hold ends once the window's pass is done.
-        redraw.when(self) { [weak self] in
+        whenDrawnAtItsSize { [weak self] in
             if let window = self?.window as? ShellWindow { window.afterLayoutPass(body) } else { body() }
         }
     }
@@ -29,17 +30,15 @@ extension InternalPageView: PaneFirstPaintGated {
     }
 }
 
+/// The Cloud progress page in a window's content area: transparent until it paints, like a page tab.
+extension CloudProgressHost: PaneFirstPaintGated {}
+
 extension PaneContentView {
     /// Re-applies page visibility after an outer alpha hold is released (for example, launch
     /// reveal). Chromium lives in a child window and does not observe that alpha transition.
     func refreshChromiumVisibility() {
         guard let content else { return }
         PageWebView.syncChromiumVisibility(in: content)
-    }
-
-    /// Whether `view` replacing `hosted` waits for its first frame.
-    func holdsForFirstPaint(_ view: NSView?, replacing hosted: NSView?) -> Bool {
-        PanePaintHold.holds(view, replacing: hosted)
     }
 
     /// `incoming` stays invisible until it paints; `outgoing` stays shown until then.
@@ -51,7 +50,7 @@ extension PaneContentView {
             // The host is not flipped: a fixed height on the strip's far side.
             outgoing.autoresizingMask = barPosition == .top ? [.width, .maxYMargin] : [.width, .minYMargin]
         }
-        paintHold.begin(outgoing: outgoing, incoming: incoming, in: contentHost, release: { [weak self] outgoing in
+        paintHold.begin(outgoing: outgoing, incoming: incoming, in: contentHost, keepingPlaceIn: holdKeepsStrip ? nil : self, release: { [weak self] outgoing in
             guard let self, outgoing.superview === contentHost, outgoing !== content else { return }
             retire(outgoing)
             (outgoing as? PaneContentChrome)?.onPaneHeaderHeightChange = nil

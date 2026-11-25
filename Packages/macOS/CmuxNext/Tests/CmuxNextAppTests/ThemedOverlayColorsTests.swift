@@ -36,7 +36,7 @@ import Testing
     @Test func theTerminalStatusPillDrawsInTheTheme() throws {
         let scope = try Self.purpleRoom()
         let banner = TerminalStatusBanner()
-        banner.show(.exited)
+        banner.show(try #require(TerminalStatusBanner.text(for: .exited)), inBetween: false, fadeIn: false)
         scope.root(banner)
 
         let fill = try #require(banner.layer?.backgroundColor.flatMap(NSColor.init(cgColor:)))
@@ -75,18 +75,18 @@ import Testing
         let settings = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: UnreachableEngine())
         let restart = TerminalRestartButton()
         let placeholder = RemoteTerminalPlaceholderView(frame: .zero)
-        let dialog = CmuxDialogView(spec: CmuxDialogSpec(title: "Move Tab", fields: [
-            .choice(id: "window", label: nil, options: [.init(label: "Window A", value: "a")], selected: "a"),
-        ], buttons: [.ok()]))
+        // A native card's choice picker (Move Tab's window list); cmux dialogs themselves draw on the overlay page.
+        let picker = ThemedPopUpButton(frame: .zero, pullsDown: false)
+        picker.addItem(withTitle: "Window A")
         let invite = HomeInviteSheet(pending: [])
-        let views: [NSView] = [settings, restart, placeholder, dialog, invite.view]
+        let views: [NSView] = [settings, restart, placeholder, picker, invite.view]
         for view in views { scope.root(view) }
 
         // The sheets' factory-made buttons keep the system's automatic style, so they are named.
         let found = views.flatMap(Self.pushButtons(in:))
-        // The Chief settings' Harness, Model, Effort and Speed pickers and its Reactions' Can Wake picker
-        // (a416); its other buttons are links and disclosures.
-        #expect(Self.pushButtons(in: settings).count == 5)
+        // The Chief settings' Harness, Model, Effort and Speed pickers, its Reactions' Can Wake picker (a416), the
+        // Computer picker and the Edit Chief… and All Chief Settings… footers; its other buttons are links and disclosures.
+        #expect(Self.pushButtons(in: settings).count == 8)
         #expect(found.count >= 4)
         let buttons = found + [invite.cancelButton]
         let fill = scope.perform { Palette.selectionFill }

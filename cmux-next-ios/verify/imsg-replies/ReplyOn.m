@@ -183,14 +183,14 @@ static BOOL appendContext(id self, SEL _cmd, id item, id previous, unsigned char
     BOOL original = ((BOOL (*)(id, SEL, id, id, unsigned char))origAppendContext)(self, _cmd, item, previous, style);
     NSString *thread = [item respondsToSelector:@selector(threadIdentifier)] ? [item valueForKey:@"threadIdentifier"] : nil;
     if (thread.length) os_log(OS_LOG_DEFAULT, "ReplyOn: appendContext %{public}s thread=%{public}@ original=%d", class_getName([item class]), thread, original);
-    return thread.length ? YES : original;
+    return getenv("REPLYON_FORCE_CONTEXT") && thread.length ? YES : original;
 }
 
 static IMP origItemsFor;
 static id itemsFor(id self, SEL _cmd, id item, id previous) {
     id result = ((id (*)(id, SEL, id, id))origItemsFor)(self, _cmd, item, previous);
     NSString *thread = [item respondsToSelector:@selector(threadIdentifier)] ? [item valueForKey:@"threadIdentifier"] : nil;
-    if (thread.length) os_log(OS_LOG_DEFAULT, "ReplyOn: itemsFor guid=%{public}@ prevItems=%lu", [item valueForKey:@"guid"], (unsigned long)[previous count]);
+    
     if (thread.length) {
         NSMutableArray *names = [NSMutableArray array];
         for (id x in ([result isKindOfClass:[NSArray class]] ? result : @[])) [names addObject:NSStringFromClass([x class])];

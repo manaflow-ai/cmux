@@ -39,7 +39,7 @@ final class HandoffNotices {
         let owner = CloudOwnerAPIClient(
             baseURL: FeedService.apiBaseURL(auth: auth),
             accessToken: { try await auth.tokens().access },
-            teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) }
+            teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) }, buildSpace: auth.configuration.buildSpace
         )
         self.follower = follower ?? SandboxRunFollower(source: .handoffs(wait: { id, after in try await owner.handoffWait(id, after: after) }))
         self.list = list ?? { try await owner.handoffs() }
@@ -98,6 +98,8 @@ final class HandoffNotices {
                     self.follower.refresh(handoff.id, changed: Date(timeIntervalSince1970: updatedAt / 1_000), running: handoff.isRunning)
                 }
             }
+            // An incognito hand-off that closed while the app was stopped is neither followed nor open: its saved id goes (#31208).
+            self.follower.keepIncognito(listed: Set(handoffs.filter(\.isOpen).map(\.id)))
         }
     }
 
@@ -106,7 +108,9 @@ final class HandoffNotices {
     func watch(handoff id: String, session: String, host: String?) {
         guard let user = currentUser() else { return }
         let handoff = CloudHandoff(id: id, sessionId: session, status: "starting", summary: nil, createdAt: Date().timeIntervalSince1970 * 1_000, version: nil)
-        follower.watch(Self.record(handoff, user: user, host: host))
+        var record = Self.record(handoff, user: user, host: host)
+        record.incognito = tab(showing: session).map { services?.cache.browserTabs.isIncognitoTab($0) == true } == true ? true : nil
+        follower.watch(record)
     }
 
     /// The record of a hand-off found in the person's list at `seen`: followed from where the list
@@ -156,12 +160,13 @@ final class HandoffNotices {
         center.note("handoff \(end.record.id) \(end.outcome.rawValue) \(decision)")
         guard !decision.acknowledge, center.desktopPostingEnabled else { return }
         center.soundGate.admit(&decision, cooldownSeconds: center.preferences.sounds.cooldownSeconds)
-        let chat = tab.flatMap { services?.locateTabOnAnyMachine($0)?.0.title }
+        let chat = tab.flatMap { services?.locateTabOnAnyMachine($0)?.0.titleText }
         let text = Self.text(end, chat: chat)
         if decision.desktop {
             // One banner per hand-off: its end replaces the needs-you banner it posted before.
             center.desktop.post(id: Self.bannerPrefix + end.record.id, title: text.title, body: text.body, surface: nil,
-                                workspace: nil, defaultSound: decision.sound == "default")
+                                workspace: nil, defaultSound: decision.sound == "default", incognito: end.record.incognito == true
+                                    || tab.map { services?.cache.browserTabs.isIncognitoTab($0) == true } == true)
             if let sound = decision.sound, sound != "default" { center.soundGate.player.play(sound, volume: decision.soundVolume, banner: true) }
         } else if let sound = decision.sound {
             center.soundGate.player.play(sound, volume: decision.soundVolume, banner: false)
@@ -175,12 +180,12 @@ final class HandoffNotices {
         let summary = summary(end.snapshot) ?? end.record.task
         let firstLine = summary.split(whereSeparator: \.isNewline).lazy.map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty }
         let named = chat.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 } ?? firstLine
-        let line = named ?? String(localized: "handoffs.notification.untitled", defaultValue: "Cloud task", table: "Handoffs", bundle: .module)
+        let line = named ?? String(localized: "handoffs.notification.untitled", defaultValue: "Cloud task", table: "Handoffs", bundle: .module.inAppLanguage)
         let title = line.count > 120 ? String(line.prefix(119)) + "…" : line
         let state = switch end.outcome {
-        case .needsYou: String(localized: "handoffs.notification.needsYou", defaultValue: "Needs you", table: "Handoffs", bundle: .module)
-        case .succeeded: String(localized: "handoffs.notification.done", defaultValue: "Done", table: "Handoffs", bundle: .module)
-        case .failed, .timedOut, .cancelled: String(localized: "handoffs.notification.failed", defaultValue: "Failed", table: "Handoffs", bundle: .module)
+        case .needsYou: String(localized: "handoffs.notification.needsYou", defaultValue: "Needs you", table: "Handoffs", bundle: .module.inAppLanguage)
+        case .succeeded: String(localized: "handoffs.notification.done", defaultValue: "Done", table: "Handoffs", bundle: .module.inAppLanguage)
+        case .failed, .timedOut, .cancelled: String(localized: "handoffs.notification.failed", defaultValue: "Failed", table: "Handoffs", bundle: .module.inAppLanguage)
         }
         let detail = summary.trimmingCharacters(in: .whitespacesAndNewlines)
         let body = end.outcome == .needsYou || detail.isEmpty || named == firstLine ? state : state + "\n" + String(detail.prefix(240))
@@ -202,6 +207,8 @@ final class HandoffNotices {
         let id = String(banner.dropFirst(Self.bannerPrefix.count))
         guard let record = follower.endedRun(id)?.record ?? follower.following.first(where: { $0.id == id }) else { return true }
         if let tab = tab(showing: record.key), services.revealTab(tab) { return true }
+        // An incognito chat's hand-off never opens outside its window.
+        if record.incognito == true { return true }
         // A hand-off found in the list names no host this app knows: the chat stays where it is, and
         // the app comes forward. (The composer's hand-off passes its host to watch(handoff:session:host:).)
         guard let host = record.host else {
@@ -219,7 +226,7 @@ final class HandoffNotices {
     /// The agent tab showing chat `session`, on this Mac or any machine the app reaches.
     private func tab(showing session: String) -> String? {
         guard let tabs = services?.agentTabs else { return nil }
-        return tabs.listTabs().first { (tabs.sessions[$0.key] ?? $0.record.session) == session }?.key
+        return tabs.listTabsScoped().first { (tabs.sessions[tabs.tabKey($0.key, machine: $0.machine)] ?? $0.record.session) == session }?.key
             ?? AgentPriorityChats.app.remoteTab(showing: session)
     }
 }

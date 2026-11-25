@@ -94,7 +94,7 @@ import Testing
         let sidebar = Self.sidebar(minimal: minimal)
         for id in [Self.busy, Self.plain, Self.reported] {
             let row = try Self.row(sidebar, id)
-            #expect(row.title.frame.minX == SidebarStyle.horizontalInset, "\(id): title at \(row.title.frame.minX) pt")
+            #expect(row.title.frame.minX == SidebarStyle.contentInset, "\(id): title at \(row.title.frame.minX) pt")
         }
         let withIcon = try Self.row(sidebar, Self.favicon)
         #expect(!withIcon.icon.isHidden && withIcon.icon.frame.maxX <= withIcon.title.frame.minX + WorkspaceRowView.labelInset)
@@ -122,7 +122,9 @@ import Testing
                                                   siblingIndex: 0, parentIndex: nil, isLastInGroup: false, isCollapsed: false,
                                                   childCount: 0, groupColor: nil))
         #expect(header.badgeText == nil)
-        #expect(header.statusTone == nil, "no dot")
+        // #26786 gives remote machine headers the shared connected-state green dot.
+        // An optional update adds no status words; its details remain in the tooltip.
+        #expect(header.statusTone == .success)
         #expect(header.themedToolTip?.contains(Strings.statusUpdateAvailable) == true, "the tooltip still says it")
     }
 }

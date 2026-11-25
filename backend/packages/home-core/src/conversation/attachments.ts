@@ -18,8 +18,6 @@ const KB = 1_000
 const MB = 1_000_000
 /** Every attachment limit in one place (decimal megabytes; backend lead decisions 2026-10-03). */
 export const ATTACHMENT_LIMITS = {
-  /** Per file, every type. */
-  maxBytes: 100 * MB,
   /** Up to this size the bytes stream through the Worker (Free plan body cap is 100 MB); larger files use a presigned R2 PUT. */
   streamMaxBytes: 32 * MB,
   /** Per user, rolling 24 h: declared bytes and intents; stored bytes per uploader across conversations. */
@@ -123,6 +121,7 @@ export const validAttachmentName = (name: unknown): name is string =>
   name !== ".."
 
 const positiveInt = (v: unknown, max: number) => Number.isInteger(v) && (v as number) > 0 && (v as number) <= max
+const positiveByteCount = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v > 0
 const optional = (v: unknown, check: (v: unknown) => boolean) => v === undefined || v === null || check(v)
 
 export interface AttachmentMeta {
@@ -145,7 +144,7 @@ export const validateAttachmentMeta = (input: unknown): MetaResult => {
   if (typeof input !== "object" || input === null) return bad("body must be an object")
   const v = input as Record<string, unknown>
   if (!isSha256(v.sha256)) return bad("sha256 must be 64 lowercase hex characters")
-  if (!Number.isInteger(v.byte_count) || (v.byte_count as number) <= 0) return bad("byte_count must be a positive integer")
+  if (!positiveByteCount(v.byte_count)) return bad("byte_count must be a positive safe integer")
   if (typeof v.mime_type !== "string") return bad("mime_type is required")
   if (!validAttachmentName(v.name)) return bad("name must be 1 to 255 characters without control characters or path separators")
   if (!optional(v.width, (x) => positiveInt(x, ATTACHMENT_LIMITS.maxDimension)) || !optional(v.height, (x) => positiveInt(x, ATTACHMENT_LIMITS.maxDimension))) return bad("width and height must be positive integers")
@@ -153,8 +152,6 @@ export const validateAttachmentMeta = (input: unknown): MetaResult => {
   const mime = v.mime_type.toLowerCase()
   const cls = ATTACHMENT_TYPES[mime]
   if (!cls) return { ok: false, code: "attachment.type_refused", message: "this file type cannot be sent" }
-  const cap = ATTACHMENT_LIMITS.maxBytes
-  if ((v.byte_count as number) > cap) return { ok: false, code: "attachment.too_large", message: `attachments are limited to ${cap} bytes` }
   return {
     ok: true,
     class: cls,
@@ -180,7 +177,7 @@ export const validateDerivedMeta = (input: unknown, cls: AttachmentClass | undef
   const rule = DERIVED_VARIANTS[variant]
   if (cls !== rule.cls) return { ok: false, code: `attachment.${variant}_refused`, message: `only ${rule.cls === "video" ? "a video" : "an image"} takes a ${variant}` }
   const v = input as Record<string, unknown>
-  if (typeof input !== "object" || !isSha256(v.sha256) || !Number.isInteger(v.byte_count) || (v.byte_count as number) <= 0 || typeof v.mime_type !== "string") {
+  if (typeof input !== "object" || !isSha256(v.sha256) || !positiveByteCount(v.byte_count) || typeof v.mime_type !== "string") {
     return { ok: false, code: "validation.invalid", message: `${variant} needs sha256, byte_count and mime_type` }
   }
   const mime = v.mime_type.toLowerCase()

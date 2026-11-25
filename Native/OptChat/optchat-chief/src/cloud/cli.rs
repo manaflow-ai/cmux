@@ -30,7 +30,7 @@ fn install_path(flags: &Flags) -> Result<PathBuf, String> {
 
 /// Runs a `cloud` verb; returns what to print.
 pub fn run(flags: &Flags) -> Result<String, String> {
-    run_with(flags, Arc::new(UreqHttp))
+    run_with(flags, Arc::new(UreqHttp::new()))
 }
 
 pub fn run_with(flags: &Flags, http: Arc<dyn Http>) -> Result<String, String> {

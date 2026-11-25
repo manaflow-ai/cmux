@@ -91,7 +91,9 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
     cwd: "/home/dev/cmux",
     title: "Long chat",
     harness: "claude",
-    family: "claude",
+    // A finished turn here folds under Worked for, whose label this test reads: the Codex family's
+    // fold (turns.ts; a Claude chat draws its runs on their own lines instead).
+    family: "codex",
     status: "ready",
     turnCount: TURNS,
     updatedAt: START,
@@ -113,6 +115,7 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
   /// The pane's read of the prompt that opened the turn its tail starts in: user_message records only.
   const isOpenerRead = (request: (typeof requests)[number]) =>
     request.method === "_acpmux/events" &&
+    request.params.promptIndex !== true &&
     Array.isArray(request.params.kinds) &&
     request.params.kinds.length === 1 &&
     request.params.kinds[0] === "user_message";
@@ -229,9 +232,15 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
     expect(openerReads.every((request) => request.params.limit <= 16)).toBe(true);
     expect(
       requests.filter(
-        (request) => request.method === "_acpmux/events" && request.params.limit > 1 && !isOpenerRead(request),
+        (request) =>
+          request.method === "_acpmux/events" &&
+          request.params.limit > 1 &&
+          !isOpenerRead(request) &&
+          request.params.promptIndex !== true,
       ),
     ).toEqual([]);
+    // And the rail's prompt index (direct.ts readPromptIndex): one read, so it lays out every turn.
+    expect(requests.filter((request) => request.params.promptIndex === true)).toHaveLength(1);
     expect(attach.params.maxBytes).toBeLessThanOrEqual(128 * 1024);
     expect(await page.getByText("Question 1", { exact: true }).count()).toBe(0);
 
@@ -297,6 +306,7 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
         request.method === "_acpmux/events" &&
         request.params.beforeSeq &&
         request.params.limit > 1 &&
+        request.params.promptIndex !== true &&
         !isOpenerRead(request),
     );
     expect(errors).toEqual([]);
@@ -310,9 +320,10 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
     // A paged-in turn is timed from its own prompt, not the newest one.
     expect([...workedLabels]).toEqual(["Worked for 4s"]);
     // Older turns came in pages, each before the oldest record the pane held, and stopped at the start.
-    expect(older.length).toBeGreaterThan(5);
-    expect(older.every((request) => Number(request.params.limit) <= 400)).toBe(true);
-    expect(older.every((request) => Number(request.params.maxBytes) <= 256 * 1024)).toBe(true);
+    // The 1 MiB page cap can cover this fixture in two reads; assert that paging still occurred.
+    expect(older.length).toBeGreaterThan(1);
+    expect(older.every((request) => Number(request.params.limit) <= 2000)).toBe(true);
+    expect(older.every((request) => Number(request.params.maxBytes) <= 1024 * 1024)).toBe(true);
     const cursors = older.map((request) => request.params.beforeSeq as number);
     expect(new Set(cursors).size).toBe(cursors.length);
     expect(cursors).toEqual([...cursors].sort((a, b) => b - a));
@@ -431,7 +442,8 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
       cwd: "/home/dev/cmux",
       title: "Very long chat",
       harness: "claude",
-      family: "claude",
+      // The Codex family's fold, which folds a finished turn's compaction under Worked for (below).
+      family: "codex",
       status: "running",
       turnCount: LONG_TURNS,
       updatedAt: START,
@@ -738,7 +750,7 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
           request.params.kinds?.includes("transcript"),
       );
       expect(older.length).toBeGreaterThan(3);
-      expect(older.every((request) => Number(request.params.maxBytes) <= 256 * 1024)).toBe(true);
+      expect(older.every((request) => Number(request.params.maxBytes) <= 1024 * 1024)).toBe(true);
       const cursors = older.map((request) => request.params.beforeSeq as number);
       expect(cursors).toEqual([...cursors].sort((a, b) => b - a));
     } finally {

@@ -14,7 +14,7 @@ p99 17 s, the app restarted acpmux on its 2 s time-outs, window-state saves got 
 
 This harness puts that load on a fleet capture mini against a tagged build of one commit, and
 measures it. It is **held out**: B fixes are measured on it, never tuned against it. It is a fleet
-bench that each agent runs itself. It is **not** a CI job or a gate (Lawrence 2026-10-23). Never
+bench that each agent runs itself. It is **not** a CI job or a gate (Lawrence 2026-10-23, since lifted). Never
 run it on a person's Mac: it fills the memory up to swap and starts 80 agents.
 
 ## Run it
@@ -55,10 +55,12 @@ to explore, and say so next to any number you cite.
   those hooks: on each tool call it runs the PreToolUse and PostToolUse hook commands
   (`$CMUX_TUI_HOOK claude <event>`) and on each turn end the Stop hook, with Claude Code's payload.
   It waits for sync hooks and lets `async` hooks run on. Each tool call is real git or file work in
-  the agent's worktree, and every third call is also one `cmux` CLI call. **That CLI rate is assumed, not
-  from Austin's data:** one `cmux workspace list` per 3 tool calls. It fills the 64-slot pool with CLI
-  calls, so hook-path fixes cannot show in refused connections (lead decision 2026-10-30: kept for
-  comparability until Austin's real client mix is measured; the scenario then changes, with a new A/A). Between tool calls it
+  the agent's worktree. **Main arm (from 2026-10-30): the agents make no `cmux` CLI calls** (`--cli-every
+  0`, the default): no shipped hook, plugin or status line calls `cmux workspace list` per turn, and hooks
+  send only `session.journal.append`. The earlier scenario's one `cmux workspace list` per 3 tool calls had
+  no evidence; it filled the 64-slot pool with CLI calls and drove 43 % of the registry lock busy share. It
+  stays as a labeled "assumed" sensitivity arm (`-- --cli-every 3`). Results of the two arms are never
+  compared with each other: the summary refuses runs with mixed rates. Between tool calls it
   draws to its terminal as Claude Code's TUI does (a spinner rewritten 10 times a second and about
   300 characters a second of streamed text) and keeps 15 % of a core busy.
 - **The shared repo**: `packs.py` builds a `--filter=blob:none` partial clone with 8 worktrees and
@@ -82,7 +84,16 @@ to explore, and say so next to any number you cite.
 - **The base is the PR's parent commit.** For a stacked PR that is the head of the PR below it, not
   the merge base with feat-cmux-next; base..head must be exactly the PR's own commits. The summary lists
   them, and a base that is not an ancestor of the head is invalid.
+- **A revert pair is a valid base too:** a "before" ref that is the head plus one commit reverting the fix
+  (the base's parent is the head and its subject starts with "Revert "). base..head is then the fix alone.
 - **The head must not change the harness** ("invalid: head edits the harness").
+- **Requested comparisons:** values a lead or a fix author asks for that are not verdict rows (the registry
+  lock held share, the lock wait p99, the app request p99, named lock sites' hold p99 and total hold) get
+  the same paired t-interval and n under "requested paired comparisons", with no verdict and no A/A check.
+  A named lock site (`NAMED_LOCK_SITES`: a function and its lock lines in the builds measured; check it
+  before using it on other builds) that is in neither top-20 list is 0 when the lock lists all its sites,
+  else unknown: that round is dropped and "dropped N" is shown, and each run's line gives an upper bound
+  instead (the smallest listed value), never mixed into the paired difference.
 - **Per metric, the base must show that metric's failure**, by a budget the product or the brief states
   (`METRIC_FAILURE` in `summarize.py`): refused connections, any; lock wait p99, over the daemon's own
   100 ms stall line; app request, p99 over 50 ms or any time-out (the B3 target); workspace close, over
@@ -101,6 +112,10 @@ to explore, and say so next to any number you cite.
 
 ## A/A self-test
 
+The A/A record (`aa-failures.json`) is kept per scenario, keyed by the agent CLI rate: `"0"` the main arm,
+`"3"` the assumed sensitivity arm. An A/B whose scenario has no A/A yet says "not A/A-checked" on every
+verdict.
+
 `austins-day.sh --aa <JOB|SHA>` runs one build in both arms, the same 5 alternating rounds. Every metric
 must show no difference: its 95 % interval must contain 0. A metric that fails is a harness defect (a
 bias from run order, warm caches, or the host), not a product result. The owner records the failed
@@ -115,7 +130,7 @@ app, daemon and acpmux over time (`growth_per_hour`, a least-squares slope), the
 count. The 5-minute arm stays the latency A/B. **Blocked:** a capture-host lease lasts at most 10 minutes
 (`MAX_SECONDS=600`), so the long arm needs a fleet step that holds an exclusive mini for an hour, and
 `cmux-ci run` takes only scripts on the controller's allowlist. Until hq allowlists an Austin's-day step,
-the long arm does not run. It is never a CI job (Lawrence 2026-10-23); it runs nightly by the owner's
+the long arm does not run. It is not a CI job (Lawrence 2026-10-23, since lifted); it runs nightly by the owner's
 schedule or a fleet timer.
 
 ## What it measures
@@ -139,9 +154,14 @@ Each run directory keeps `run.json` (all samples), `driver.log`, `app-log.txt`, 
   children it waited for (`wait4`); a helper's detached child is not counted.
 - `daemon_connections`: accepted, refused, peak, limit, and, for comparing arms, `refused_per_s` over the
   run's own server-stats window and `refused_share` of connects (the last answered server-stats comes at
-  a different time in each run, so a raw cumulative count is never compared). `pool_holders`: who fills
-  the pool, from the daemon's `list-clients` by kind/name and the live hook-helper and CLI processes, with
-  the refusals each client kind saw itself. `daemon_lock_wait_us`,
+  a different time in each run, so a raw cumulative count is never compared). Who fills the pool:
+  `pool_holders`, during the load, counts the live hook-helper and `cmux` CLI processes and the refusals
+  each client kind saw itself; `pool_holders_after_load` is the daemon's own client list (`cmux-tui client
+  list`; `client` is a scope only the `cmux-tui` name accepts) by kind/name, read once right after the
+  load. `lock_top_sites` is server-stats `locks`, the top 20 sites of the registry lock and mux.state by
+  total and by p99 hold, also read once after the load; its numbers count since the daemon started, so
+  setup and the baseline are in them. The samplers stop before these reads, so they add nothing to any
+  measured window. `daemon_lock_wait_us`,
   `daemon_lock_hold_us`, `daemon_lock_top_sites`, `journal_commit_us`: from `cmux server stats`.
 - `workspace_close_app_ms` / `workspace_close_daemon_ms`: time from the close action until the
   app's topology and the daemon's list no longer have the workspace; `workspace_close_not_done`.

@@ -25,10 +25,69 @@ extension SidebarDocStore {
     /// bands as shown). Anchors follow the earlier ops of the same list,
     /// so several adds at consecutive indexes keep their order.
     public func docOps(for ops: [SidebarLayoutOp], layout: SidebarLayoutDocument) throws(LayoutOpGap) -> [[String: Any]] {
-        var planner = LayoutOpPlanner(records: drawnRecords, confirmed: settledRecords, shown: shown, layout: layout)
+        var planner = LayoutOpPlanner(records: drawnRecords, confirmed: settledRecords, shown: shown, layout: layout,
+                                      room: newItemRoom())
         var out: [[String: Any]] = []
         for op in ops { out += try planner.ops(for: op) }
         return out
+    }
+
+    /// The `item.update` ops that store the acting window's space `room` on `items` moving into `section`: a link,
+    /// tab or app in Pinned draws only in its space (`extra.room`), and one with none stored reads as the default
+    /// space's (spaces.md), so a move into Pinned from another band stores it in the same change, as `item.add` does.
+    /// Only a link, tab or app stores one (`SidebarDocBody.belongsToASpace`); nor does a move into another band,
+    /// one with no space, or an item `records` does not confirm yet (the daemon would refuse the whole change).
+    static func roomOps(moving items: [String], into section: String, room: String?, records: SidebarDocRecords) -> [[String: Any]] {
+        guard section == pinnedSection, let room else { return [] }
+        return items.compactMap { id -> [String: Any]? in
+            guard let record = records.items[id], record.body.belongsToASpace,
+                  (record.room ?? SidebarDocItem.defaultRoom) != room else { return nil }
+            return ["op": "item.update", "id": id, "patch": ["room": room]]
+        }
+    }
+
+    /// Group `group` (a personal group id or a document group item) moved to space `room` (Move Group to Space): its
+    /// stored space follows, so it stays in `room` once no workspace of it lists there (an empty group lists only in its
+    /// own space), and so does each group under it that stored the old space (`groupSpaceOps`). `from`: the space the
+    /// group stored before the move began (`groupRoom`), for a caller that changes it first (a personal group's own
+    /// update, which syncs into the document): nil reads it now.
+    public func moveGroup(_ group: String, toSpace room: String, from: String? = nil) {
+        let id = item(group: GroupID(group))
+        let ops = Self.groupSpaceOps(id, toSpace: room, stored: from ?? records.items[id]?.room, records: records)
+        if !ops.isEmpty { send(ops: ops, title: Self.moveTitle, undoable: false) }
+    }
+
+    /// The space group `group` stores now (nil: none, or not a document group).
+    public func groupRoom(_ group: String) -> String? { records.items[item(group: GroupID(group))]?.room }
+
+    /// The ops of `moveGroup` for document group `id`: it and the groups nested under it that stored its old space
+    /// `old` take `room`. A nested group lists with its parent anyway (`Group.followsParent`); this keeps what it
+    /// stores right for when it leaves the parent. One storing another space, or none, keeps it.
+    /// A link, tab or app under it that stored the old space takes `room` too (`item.update`; one moved into Pinned
+    /// stores the acting space, `roomOps`). A member storing its group's space draws only in that space
+    /// (`Group.Listed.lists(inRoom:groupRoom:spaces:)`), so it moves with its group (#31378). One storing none, or
+    /// another space, keeps what it stores.
+    static func groupSpaceOps(_ id: String, toSpace room: String, stored old: String?, records: SidebarDocRecords) -> [[String: Any]] {
+        guard let group = records.items[id], case .group = group.body else { return [] }
+        var children: [String: [SidebarDocItem]] = [:]
+        for item in records.items.values { if let parent = item.parent { children[parent, default: []].append(item) } }
+        var moving = group.room == room ? [] : [id]
+        var members: [String] = []
+        let oldRoom = old ?? SidebarDocItem.defaultRoom
+        var seen: Set<String> = [id]
+        var queue = [id]
+        while let at = queue.popLast() {
+            for child in children[at] ?? [] where seen.insert(child.id).inserted {
+                guard case .group = child.body else {
+                    if child.body.belongsToASpace, child.room == oldRoom, oldRoom != room { members.append(child.id) }
+                    continue
+                }
+                queue.append(child.id)
+                if let old, child.room == old, old != room { moving.append(child.id) }
+            }
+        }
+        return moving.sorted().map { ["op": "group.update", "id": $0, "patch": ["profile": room]] }
+            + members.sorted().map { ["op": "item.update", "id": $0, "patch": ["room": room]] }
     }
 
     /// Sends `ops` as one document change titled `title`. Throws when an op
@@ -51,11 +110,15 @@ private struct LayoutOpPlanner {
     let confirmed: SidebarDocRecords
     let shown: SidebarDocProjection?
     let layout: SidebarLayoutDocument
+    /// The space a Pinned item is made in or moved into Pinned in (`SidebarDocStore.newItemRoom`).
+    let room: String?
     /// The top-level item ids of each band section in shown order, as the planned ops leave them.
     var siblings: [String: [String]]
     typealias Gap = SidebarDocStore.LayoutOpGap
 
-    init(records: SidebarDocRecords, confirmed: SidebarDocRecords, shown: SidebarDocProjection?, layout: SidebarLayoutDocument) {
+    init(records: SidebarDocRecords, confirmed: SidebarDocRecords, shown: SidebarDocProjection?, layout: SidebarLayoutDocument,
+         room: String? = nil) {
+        self.room = room
         self.records = records
         self.confirmed = confirmed
         self.shown = shown
@@ -115,7 +178,8 @@ private struct LayoutOpPlanner {
         case let .itemMove(id, section, index):
             guard let record = records.items[id.rawValue] else { throw .unknownItem }
             if section == Self.workspaces { return backToMachine(record) }
-            return [["op": "move", "items": [record.id], "to": target(section.rawValue, index: index, moving: record.id)]]
+            let move: [[String: Any]] = [["op": "move", "items": [record.id], "to": target(section.rawValue, index: index, moving: record.id)]]
+            return move + SidebarDocStore.roomOps(moving: [record.id], into: section.rawValue, room: room, records: confirmed)
         case let .itemRemove(id):
             guard let record = records.items[id.rawValue] else { throw .unknownItem }
             return remove(record)
@@ -186,6 +250,8 @@ private struct LayoutOpPlanner {
         guard section != Self.workspaces else { throw .unsupported }
         var wire: [String: Any] = ["id": item.id.rawValue, "body": Self.body(item), "shows_label": item.showsLabel]
         if let span = item.span { wire["span"] = span }
+        // A link, tab or app pinned in one space is that space's (spaces.md); other bands are not per space.
+        if section == SidebarLayoutDocument.pinnedSectionID, item.ref.belongsToASpace, let room = item.room ?? room { wire["extra"] = ["room": room] }
         return [["op": "item.add", "item": wire, "to": target(section.rawValue, index: index, moving: item.id.rawValue)]]
     }
 

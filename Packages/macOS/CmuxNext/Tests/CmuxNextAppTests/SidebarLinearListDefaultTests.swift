@@ -6,7 +6,7 @@ import Testing
 /// By default the sidebar is a plain linear list of workspaces (with groups): no dropdowns.
 /// Lawrence 2026-10-30 (message 18548): "by default i dont want to have workspace titlebar
 /// dropdowns at all, i just want to have linear list of workspaces (with groups ofc)". The
-/// titlebar shows the + alone (no chooser chevron), and workspace rows carry no tab disclosure.
+/// titlebar shows the + alone (no chooser chevron).
 @MainActor @Suite(.serialized) struct SidebarLinearListDefaultTests {
     func sidebar(design: DesignSettings = DesignSettings()) -> SidebarView {
         _ = NSApplication.shared
@@ -19,15 +19,8 @@ import Testing
     @Test func aFreshSidebarShowsThePlusWithNoChooserDropdown() {
         let sidebar = sidebar()
         #expect(sidebar.newWorkspaceOptionsButton.isHidden, "no workspace dropdown in the titlebar by default")
-        #expect(sidebar.newButton.frame.maxX == sidebar.bounds.width - Metrics.space3,
+        // The + alone centers on the rows' trailing column (Leo 2026-11-07).
+        #expect(abs(sidebar.newButton.frame.midX - (sidebar.bounds.width - SidebarStyle.trailingCenterFromEdge)) <= 0.5,
                 "the + alone takes the trailing slot")
-    }
-
-    @Test func aFreshSidebarListsWorkspacesWithNoTabDisclosure() {
-        let model = SidebarModel()
-        model.applyListPreferences(DesignSettings().sidebarSections)
-        let options = model.listOptions()
-        #expect(model.showWorkspaceTabs == false, "no tab rows under a workspace by default")
-        #expect(options.showWorkspaceTabs == false)
     }
 }

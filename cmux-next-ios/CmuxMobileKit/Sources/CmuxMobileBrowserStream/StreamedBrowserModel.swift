@@ -1,4 +1,5 @@
 import CmuxMobileTransport
+import enum CmuxMobileModel.UserFacingError
 import Foundation
 import Observation
 import os
@@ -60,6 +61,15 @@ extension BrowserTabState {
     }
 }
 
+/// The page view's find bar, as the model drives it.
+@MainActor
+protocol StreamedBrowserFindBar: AnyObject {
+    /// Shows the bar (Find… in the page menu, Cmd-F).
+    func present()
+    /// The model's ``StreamedBrowserModel/findResult`` changed: the bar's count follows.
+    func resultsChanged()
+}
+
 /// A browser tab whose page runs on the Mac (its browser host, the CEF fork
 /// the cmux-next app uses for remote tabs) and streams here as H.264 video
 /// over the link's `browser` service. Touches, scrolls and typing go back as
@@ -85,7 +95,15 @@ public final class StreamedBrowserModel: BrowserTabState {
     public private(set) var canGoForward = false
     public private(set) var isLoading = false
     public var progress: Double { isLoading ? 0.5 : 1 }
-    public private(set) var phase: Phase = .connecting
+    public private(set) var phase: Phase = .connecting {
+        didSet {
+            if case .waiting = phase { waitingSince = waitingSince ?? Date() }
+            else if phase == .live || phase == .unavailable { waitingSince = nil }
+        }
+    }
+    /// When the page last lost its link (the first `.waiting` since it was live): the link
+    /// chip's quiet wait counts from here, not from when the chip appeared.
+    public private(set) var waitingSince: Date?
     /// Why the Mac did not load an address (the address bar's, or a link's inside the
     /// page): shown over the page until the next navigation or a tap.
     public private(set) var notice: String?
@@ -96,6 +114,15 @@ public final class StreamedBrowserModel: BrowserTabState {
     public private(set) var meter = Meter()
     /// The last shown picture for the grid card.
     public private(set) var snapshot: CGImageBox?
+    /// The page drew a picture of its own (not held by a freeze). Until it does,
+    /// a tab opening with a frozen frame keeps that frame over the page
+    /// (`coversWithSnapshot`), as Safari keeps a tab's last frame while it loads.
+    public private(set) var showsPicture = false
+    /// The page holds the picture it showed (`freeze`).
+    @ObservationIgnored public private(set) var isFrozen = false
+    @ObservationIgnored private var closedForGood = false
+    /// A snapshot was taken (the tab's last-known picture is kept from it).
+    @ObservationIgnored public var onSnapshot: (@MainActor (CGImage) -> Void)?
     /// The page's open `<select>` popup (`rb.menu.show` of kind `select`): the page shows
     /// its options until the person picks or cancels, or the page closes it.
     public private(set) var selectMenu: OpenMenu?
@@ -111,6 +138,14 @@ public final class StreamedBrowserModel: BrowserTabState {
     @ObservationIgnored private var contextMenuAsked = false
     /// Which long press the running wait belongs to (a later press has its own).
     @ObservationIgnored private var contextMenuAsk = 0
+    /// Find in page: the running search's results (`rb.find.result`), nil while no search
+    /// has reported (none running, or its first result has not come).
+    @ObservationIgnored public private(set) var findResult: RemoteBrowserFindResult?
+    /// The query of the running search ("" when none runs).
+    @ObservationIgnored public private(set) var findQuery = ""
+    /// The page view's find bar: told when results arrive, asked to show (the page
+    /// menu's Find…). Set by the page view.
+    @ObservationIgnored weak var findBar: (any StreamedBrowserFindBar)?
     /// Opens a page's new tab or window (`rb.open_tab`) beside this tab: the new tab's id,
     /// or nil when none opened. Nil: the phone refuses every one.
     @ObservationIgnored public var openTab: (@MainActor (RemoteBrowserOpenTab) async -> String?)?
@@ -179,6 +214,8 @@ public final class StreamedBrowserModel: BrowserTabState {
     @ObservationIgnored private var stallReconnects = 0
     static let maxStallReconnects = 3
     static var reconnectingText: String { String(localized: "Reconnecting browser…") }
+    /// The page waits for the Mac's link to come back (drawn as a chip, ``linkChip(for:)``).
+    static var linkReconnectingText: String { String(localized: "Reconnecting to the Mac…") }
     /// A Back or Forward sent and not yet committed on the Mac (finding 5 of
     /// verify/parity-mac.md): the browser reports the old history while the page loads, so
     /// until the history moved the buttons follow the step, and a second step waits for it.
@@ -296,7 +333,11 @@ public final class StreamedBrowserModel: BrowserTabState {
         let before = visible
         appActive = active
         visibilityChanged(from: before)
+        if active, isFrozen { decoder.redrawLastPicture() }
     }
+
+    /// Closed (the tab went, or the directory reset with its link).
+    public var isClosed: Bool { closedForGood }
 
     /// Whether the page is on screen now (and laid out): what opens again on
     /// a new link (``StreamedBrowserDirectory/linkChanged()``).
@@ -316,6 +357,9 @@ public final class StreamedBrowserModel: BrowserTabState {
         guard visible != before else { return }
         connection?.setVisible(visible)
         if welcomed { send(wire.visibility(visible)) }
+        // Hidden (another tab shown, the workspace left): its card shows the
+        // page as it was last seen, not as it was when the grid last showed.
+        if !visible, showsPicture, !isFrozen { takeSnapshot() }
         updateWatch()
         // Shown again (on screen, app active) with its stream gone: open it.
         if visible { reconnect() }
@@ -335,6 +379,7 @@ public final class StreamedBrowserModel: BrowserTabState {
     }
 
     public func close() {
+        closedForGood = true
         connection?.close()
         connection = nil
         sink = nil
@@ -392,6 +437,7 @@ public final class StreamedBrowserModel: BrowserTabState {
                 // transport) would stay hidden, blank, under this new viewer.
                 try? connection.send(message: wire.visibility(visible))
                 if !visible { openedHidden?() }
+                resumeFind()
             }
         case "refused", "ended":
             phase = .waiting(json["reason"] as? String ?? "The Mac ended the page")
@@ -422,6 +468,12 @@ public final class StreamedBrowserModel: BrowserTabState {
             guard let token = (json["token"] as? NSNumber)?.uint64Value else { return }
             log.notice("browser \(self.tab, privacy: .public): dialog \(token) closed by the page (open: \(self.dialog?.token ?? 0))")
             if dialog?.token == token { dialog = nil }
+        case "rb.find.result":
+            // Only while a search runs: a result after Done (or before a new session's first
+            // search) is for a search the find bar no longer shows.
+            guard !findQuery.isEmpty, let result = RemoteBrowserFindResult(json: json) else { return }
+            findResult = result
+            findBar?.resultsChanged()
         case "rb.open_tab":
             guard let request = RemoteBrowserOpenTab(json: json) else { return }
             openRequestedTab(request, from: sink)
@@ -466,7 +518,7 @@ public final class StreamedBrowserModel: BrowserTabState {
                 ? String(localized: "This page is open on another device.")
                 : String(localized: "Your Mac stopped this page."))
         case .waitForLink:
-            phase = .waiting(code == "unavailable" || code == "forbidden" ? reason : String(localized: "Reconnecting to the Mac…"))
+            phase = .waiting(code == "unavailable" || code == "forbidden" ? reason : Self.linkReconnectingText)
         }
     }
 
@@ -501,6 +553,7 @@ public final class StreamedBrowserModel: BrowserTabState {
 
     private func note(_ shown: BrowserVideoDecoder.Shown) {
         if phase != .live { phase = .live }
+        if !shown.held, !showsPicture { showsPicture = true }
         reconnecting = false
         watchdog.pictureShown(at: .now)
         let instant = ContinuousClock.now
@@ -538,6 +591,11 @@ public final class StreamedBrowserModel: BrowserTabState {
     /// The Mac's page facts, read through the step or navigation in flight.
     func apply(_ page: RemoteBrowserPage) {
         let reported = URL(string: page.url).flatMap { page.url.isEmpty ? nil : $0 }
+        // A new page ends Chromium's search: the count goes (the next query searches it).
+        if let reported, reported != url, findResult != nil {
+            findResult = nil
+            findBar?.resultsChanged()
+        }
         if let (target, from) = navigating {
             // The old page (or a new tab's about:blank) while the asked-for one loads.
             let stale = reported == nil || reported?.absoluteString == "about:blank" || reported == from
@@ -634,10 +692,54 @@ public final class StreamedBrowserModel: BrowserTabState {
         send(wire.navigate(target.absoluteString))
     }
 
+    /// Freezes the page on the picture it shows (true) or lets it play again
+    /// (false). A tab zooming to the grid, resting there as its card and growing
+    /// back stays one still frame, as Safari's tabs do, instead of a video or a
+    /// moving page inside a moving card. The stream keeps decoding meanwhile
+    /// (the stall watchdog hears it), and the card's snapshot is the held frame.
+    public func freeze(_ frozen: Bool) {
+        guard frozen != isFrozen else { return }
+        isFrozen = frozen
+        decoder.setFrozen(frozen) { [weak self] drewHeld in
+            // A picture that came while frozen is the page's own once drawn.
+            guard drewHeld else { return }
+            Task { @MainActor in if let self, !self.showsPicture { self.showsPicture = true } }
+        }
+        // After the freeze on the decode queue: the snapshot is the held picture.
+        if frozen { takeSnapshot() }
+    }
+
+    /// A still kept from an earlier model of this tab (the link dropped and the
+    /// directory made the model again): the card and the opening page show it
+    /// until the stream draws.
+    public func seed(snapshot still: CGImageBox?) {
+        if snapshot == nil { snapshot = still }
+    }
+
+    /// The tab's frozen frame (its card) stays over the page: it has one, the
+    /// page has drawn nothing of its own yet, and the page is opening. A page
+    /// waiting on the Mac or the person (Reopen, unavailable) shows its status.
+    public var coversWithSnapshot: Bool {
+        Self.coversWithSnapshot(showsPicture: showsPicture, hasSnapshot: snapshot != nil, phase: phase)
+    }
+
+    /// A pure rule of its inputs, callable off the main actor (tests).
+    nonisolated static func coversWithSnapshot(showsPicture: Bool, hasSnapshot: Bool, phase: Phase) -> Bool {
+        guard hasSnapshot, !showsPicture else { return false }
+        switch phase {
+        case .connecting, .live: return true
+        case .waiting, .unavailable: return false
+        }
+    }
+
     public func takeSnapshot() {
         decoder.lastPicture { [weak self] pixels in
             guard let pixels, let image = CGImageBox(pixels) else { return }
-            Task { @MainActor in self?.snapshot = image }
+            Task { @MainActor in
+                guard let self else { return }
+                self.snapshot = image
+                self.onSnapshot?(image.image)
+            }
         }
     }
 
@@ -745,6 +847,55 @@ public final class StreamedBrowserModel: BrowserTabState {
         contextMenu = nil
         dialog = nil
         contextMenuWaitEnded()
+        // A new session's page has no search running: the old count goes.
+        if findResult != nil {
+            findResult = nil
+            findBar?.resultsChanged()
+        }
+    }
+
+    /// The new stream session's page searches again for what the find bar still shows.
+    private func resumeFind() {
+        guard !findQuery.isEmpty else { return }
+        send(wire.find(findQuery, forward: true, next: false))
+    }
+
+    /// The find bar's results are no longer current (UIKit asks before a new query): the count
+    /// goes here only; the page's search ends with Done or an empty query.
+    func clearFindResult() {
+        guard findResult != nil else { return }
+        findResult = nil
+        findBar?.resultsChanged()
+    }
+
+    // MARK: Find in page
+
+    /// Find… (the page menu, Cmd-F): the find bar over the page.
+    public func showFind() {
+        findBar?.present()
+    }
+
+    /// Finds `query` in the page: a new search (results come as `rb.find.result`), or
+    /// none for an empty query (the search and its highlights end).
+    public func find(_ query: String) {
+        guard !query.isEmpty else { return stopFind() }
+        findQuery = query
+        findResult = nil
+        send(wire.find(query, forward: true, next: false))
+    }
+
+    /// The next (or previous) match of the running search.
+    public func findNext(forward: Bool) {
+        guard !findQuery.isEmpty else { return }
+        send(wire.find(findQuery, forward: forward, next: true))
+    }
+
+    /// Ends the search: the page's highlights go, the active match stays selected.
+    public func stopFind() {
+        guard !findQuery.isEmpty else { return }
+        findQuery = ""
+        findResult = nil
+        send(wire.findStop())
     }
 
     /// The page opened a link in a new tab or window: the phone opens it beside this tab
@@ -945,9 +1096,9 @@ enum LinkErrorText {
             if error.code == "forbidden", error.message == "only http, https and about:blank load" {
                 return String(localized: "Update cmux on your Mac to open this page on your iPhone.")
             }
-            return error.message.isEmpty ? error.code : error.message
+            return UserFacingError.message(error)
         }
-        return String(describing: error)
+        return UserFacingError.message(error, fallback: "The page couldn't load. Try again.")
     }
 }
 

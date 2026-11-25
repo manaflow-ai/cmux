@@ -4,6 +4,8 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { teardownDom } from "./support/domTeardown";
+import { describedText } from "./support/factsCard";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -23,18 +25,16 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const HOUR = 3_600_000;
 // Each item of the row by its name: a control's label (Retry's wrapper by its button's), else its text.
 const labels = () =>
-  [...host.querySelectorAll(".cv-user__actions > .cv-message-footer-row > *")].map(
+  // A hidden element is a control's description (aria-describedby), not an item of the row.
+  [...host.querySelectorAll(".cv-user__actions > .cv-message-footer-row > :not([hidden])")].map(
     (node) =>
       node.getAttribute("aria-label") ??
       node.querySelector("button")?.getAttribute("aria-label") ??
@@ -43,22 +43,25 @@ const labels = () =>
 /// The tooltip text an item of the row shows on hover (its `title`, which ui/titleTooltips.ts draws).
 const tooltip = (selector: string) => host.querySelector(`.cv-user__actions ${selector}`)?.getAttribute("title");
 
-async function draw(row: AcpmuxRow, actions: object) {
+async function draw(row: AcpmuxRow, actions: object, presentation: "transcript" | "messages" = "transcript") {
   const { createRoot } = await import("react-dom/client");
   const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");
   const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
+  const { PresentationContext } = await import("../src/agent-session/acpmux/conversation/presentationContextModel");
   act(() => root?.unmount());
   root = createRoot(host);
   await act(async () =>
     root!.render(
-      <TurnActionsContext.Provider value={actions}>
-        <UserBubble row={row} text={row.text ?? ""} />
-      </TurnActionsContext.Provider>,
+      <PresentationContext.Provider value={presentation}>
+        <TurnActionsContext.Provider value={actions}>
+          <UserBubble row={row} text={row.text ?? ""} />
+        </TurnActionsContext.Provider>
+      </PresentationContext.Provider>,
     ),
   );
 }
 
-test("a read prompt shows age, Copy, Edit, Retry and Fork, without receipt checks or state dots", async () => {
+test("a read prompt shows age, Copy, Edit and Fork, without receipt checks or state dots", async () => {
   const forked: number[] = [];
   const sent: [string, string][] = [];
   const row: AcpmuxRow = {
@@ -78,8 +81,8 @@ test("a read prompt shows age, Copy, Edit, Retry and Fork, without receipt check
     promptTurns: new Map([["user-4", 5]]),
     route: { name: "Claude Code", harness: "claude" },
   });
-  // Leo's row, then the direct prompt actions: Copy, Edit, Retry and Fork.
-  expect(labels()).toEqual(["3 days ago", "Copy", "Edit", "Retry", "Fork from here"]);
+  // Leo's row, then the direct prompt actions: Copy, Edit and Fork (Retry is the reply footer's).
+  expect(labels()).toEqual(["3 days ago", "Copy", "Edit", "Fork from here", "Save as Prompt"]);
   expect(host.querySelector(".cv-message-pin")).toBeNull();
   expect(host.querySelector(".cv-user__read")).toBeNull();
   expect(host.querySelector("time.cv-user__time")?.getAttribute("dateTime")).toBe(new Date(row.at).toISOString());
@@ -97,16 +100,15 @@ test("a read prompt shows age, Copy, Edit, Retry and Fork, without receipt check
       .replace(/\s/g, " "),
   );
   expect(tooltip('button[aria-label="Copy"]')).toBe("Copy");
-  expect(tooltip('button[aria-label="Retry"]')).toBe("Retry");
   expect(tooltip('button[aria-label="Fork from here"]')).toBe("Fork from here");
   const forkButton = host.querySelector<HTMLButtonElement>('button[aria-label="Fork from here"]')!;
-  expect(forkButton.getAttribute("data-tooltip-detail")).toBe(
-    "Starts a new session from this point. This one stays as it is.",
-  );
+  // A tooltip is one line (its name); what Fork does describes the button for screen readers.
+  expect(forkButton.hasAttribute("data-tooltip-detail")).toBe(false);
+  expect(describedText(forkButton)).toBe("Starts a new session from this point. This one stays as it is.");
   act(() => forkButton.click());
   expect(forked).toEqual([5]);
-  act(() => host.querySelector<HTMLButtonElement>('button[aria-label="Retry"]')!.click());
-  expect(sent).toEqual([["user-4", "Cover it"]]);
+  expect(host.querySelector('button[aria-label="Retry"]')).toBeNull();
+  expect(sent).toEqual([]);
 });
 
 test("Fork gives same-frame pending feedback and suppresses duplicate activation", async () => {
@@ -243,22 +245,34 @@ test("Fork shows success when the live host returns a new session id", async () 
   }
 });
 
-test("a chat that cannot fork at a prompt hides Fork there rather than showing it disabled", async () => {
+// An answered prompt of an agent that forks only from its latest reply keeps Fork, dimmed, and says
+// why, rather than the control vanishing from some messages only (Leo, 2026-11-11: "why are only
+// some chats forkable").
+test("a chat that cannot fork at an earlier prompt shows Fork there dimmed, saying why", async () => {
   await draw(
     { id: "user-2", version: 1, at: Date.now(), kind: "user", seq: 2, text: "First" },
     { fork: () => {}, forkSeq: 9, promptTurns: new Map([["user-2", 3]]), retry: () => {} },
   );
-  expect(labels()).toEqual(["just now", "Copy", "Retry"]);
+  expect(labels()).toEqual([
+    "just now",
+    "Copy",
+    "Fork from here: This agent can fork only from its latest reply",
+    "Save as Prompt",
+  ]);
+  const fork = host.querySelector<HTMLButtonElement>(".cv-fork-button")!;
+  expect(fork.dataset.forkState).toBe("unavailable");
+  expect(fork.getAttribute("aria-disabled")).toBe("true");
+  expect(fork.title).toBe("This agent can fork only from its latest reply");
 });
 
 test("a prompt still being sent has no receipt, and one that cannot fork offers no Fork", async () => {
   await draw({ id: "user-9", version: 1, at: Date.now(), kind: "user", pending: true, text: "Next" }, {});
-  expect(labels()).toEqual(["just now", "Copy"]);
+  expect(labels()).toEqual(["just now", "Copy", "Save as Prompt"]);
 });
 
 test("the normal hover actions never add an unread receipt", async () => {
   await draw({ id: "user-9", version: 1, at: Date.now(), kind: "user", steer: "waiting", text: "Also this" }, {});
-  expect(labels()).toEqual(["just now", "Copy"]);
+  expect(labels()).toEqual(["just now", "Copy", "Save as Prompt"]);
   expect(host.querySelector(".cv-user__read")).toBeNull();
   // No "Steering" / "Steered" line under the bubble any more.
   expect(host.textContent).not.toContain("Steer");
@@ -266,41 +280,53 @@ test("the normal hover actions never add an unread receipt", async () => {
 
 test("a read steer shows only normal hover actions", async () => {
   await draw({ id: "user-9", version: 1, at: Date.now(), kind: "user", steer: "landed", text: "Also this" }, {});
-  expect(labels()).toEqual(["just now", "Copy"]);
+  expect(labels()).toEqual(["just now", "Copy", "Save as Prompt"]);
   // No receipt check or Steered state label.
   expect(host.querySelector(".cv-user__read")).toBeNull();
   expect(host.textContent).not.toContain("Steer");
 });
 
-test("Retry under a prompt sends it again (shown under every prompt)", async () => {
+// Leo, 2026-11-04: "Today Retry is on your prompt bubble, and appears on the reply only after a
+// failure. Put it, with the model switch, in the last turn's footer." (TurnRows.tsx TurnFooter).
+test("a sent prompt draws no Retry: the last turn's reply footer has it", async () => {
+  await draw(
+    { id: "user-4", version: 1, at: Date.now(), kind: "user", seq: 4, text: "Cover it" },
+    { retry: () => undefined },
+  );
+  expect(host.querySelector('button[aria-label="Retry"]')).toBeNull();
+  expect(host.querySelector(".cv-turn-retry-menu")).toBeNull();
+});
+
+// Both presentations keep resend in the message menu, without a prompt fallback.
+test("in the Messages view a sent prompt has no inline Retry", async () => {
   const sent: [string, string][] = [];
   await draw(
     { id: "user-4", version: 1, at: Date.now(), kind: "user", seq: 4, text: "Cover it" },
     { retry: (rowId: string, prompt: string) => sent.push([rowId, prompt]) },
+    "messages",
   );
-  const retry = host.querySelector<HTMLButtonElement>('.cv-message-retry button[aria-label="Retry"]')!;
-  act(() => retry.click());
-  expect(sent).toEqual([["user-4", "Cover it"]]);
+  expect(host.querySelector('.cv-message-retry button[aria-label="Retry"]')).toBeNull();
+  expect(sent).toEqual([]);
 });
 
 test("a recorded steer has no receipt checks in its normal hover actions", async () => {
   const delivery = { state: "read", promptId: "p-1", sessionId: "s-1", sentAt: Date.now() } as const;
   const steer: AcpmuxRow = { id: "user-7", version: 1, at: Date.now(), kind: "user", seq: 7, text: "Rebase first" };
   await draw({ ...steer, steer: "waiting", delivery }, {});
-  expect(labels()).toEqual(["just now", "Copy"]);
+  expect(labels()).toEqual(["just now", "Copy", "Save as Prompt"]);
   await draw({ ...steer, steer: "landed", delivery }, {});
-  expect(labels()).toEqual(["just now", "Copy"]);
+  expect(labels()).toEqual(["just now", "Copy", "Save as Prompt"]);
 });
 
 test("normal hover actions stay free of receipt checks across sending, delivered and read", async () => {
   const sent = { promptId: "p-2", sessionId: "s-1", sentAt: Date.now() };
   const prompt: AcpmuxRow = { id: "user-8", version: 1, at: Date.now(), kind: "user", seq: 8, text: "Ship it" };
   await draw({ ...prompt, delivery: { ...sent, state: "sending" } }, {});
-  expect(labels()).toEqual(["just now", "Copy"]);
+  expect(labels()).toEqual(["just now", "Copy", "Save as Prompt"]);
   await draw({ ...prompt, delivery: { ...sent, state: "delivered" } }, {});
-  expect(labels()).toEqual(["just now", "Copy"]);
+  expect(labels()).toEqual(["just now", "Copy", "Save as Prompt"]);
   await draw({ ...prompt, delivery: { ...sent, state: "read" } }, { route: { name: "Codex" } });
-  expect(labels()).toEqual(["just now", "Copy"]);
+  expect(labels()).toEqual(["just now", "Copy", "Save as Prompt"]);
 });
 
 test("the relative time words a message's age as Claude's hover row does, in the pane's language", async () => {

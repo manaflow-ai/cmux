@@ -6,7 +6,9 @@
 // notes (or that stopped mid-tool) has no answer.
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { turnView, turnViewFrom, toggleTurnFold } from "../src/agent-session/acpmux/conversation/turns";
+import { isVisiblyEmptyMessage } from "../src/agent-session/acpmux/conversation/visibleMessage";
+import { layoutConversation } from "../src/agent-session/acpmux/model";
 
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
@@ -18,7 +20,8 @@ const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRo
 });
 const tool = (id: string, kind = "read") =>
   row(id, "activity", { items: [{ kind: "tool", text: "", tool: { id, title: id, kind, status: "completed" } }] });
-const text = (id: string) => row(id, "assistant", { text: id });
+// Progress fixtures contain actual narration, rather than an id that could be a short answer.
+const text = (id: string) => row(id, "assistant", { text: id.startsWith("interim") ? "Let me check the files." : id });
 /// A reply longer than a short interim note (turns.ts SHORT_NOTE_CHARS).
 const reply = (id: string) =>
   row(id, "assistant", {
@@ -41,12 +44,79 @@ test("a turn that ended on a tool folds its interim text with the rest", () => {
   expect(drawn(rows)).toEqual(["user:u", "worked:worked-u", "turnSummary:end"]);
 });
 
-test("a turn stopped mid-tool folds its work under the stop line", () => {
-  const rows = [row("u", "user"), text("interim"), tool("build"), summary("cancelled")];
-  expect(drawn(rows)).toEqual(["user:u", "worked:worked-u", "turnSummary:end"]);
+test("empty and zero-width assistant messages between tool groups add no row or footer space", () => {
+  const first = tool("first");
+  const second = tool("second", "execute");
+  const base = [row("u", "user", { text: "Run both checks." }), first, second, summary()];
+  const withEmpty = [
+    row("u", "user", { text: "Run both checks." }),
+    first,
+    row("empty", "assistant", { text: "" }),
+    row("zero-width", "assistant", { text: "\u200B\u200C\u200D\uFEFF\u2060" }),
+    second,
+    summary(),
+  ];
+  const expanded = new Set(["worked-u"]);
+  const normal = turnView(base, expanded);
+  const shaped = turnView(withEmpty, expanded);
+  expect(shaped.filter((entry) => entry.kind === "assistant")).toHaveLength(0);
+  expect(shaped.filter((entry) => entry.kind === "turnSummary")).toHaveLength(1);
+  expect(layoutConversation(shaped, 760).totalHeight).toBe(layoutConversation(normal, 760).totalHeight);
 });
 
-test("a turn that edited and then ran a tool in one step folds its interim text", () => {
+test("an empty completed notification turn has no footer, while a failed one keeps recovery UI", () => {
+  const hidden = row("hidden", "user", { incoming: { kind: "hidden" } as never });
+  const empty = [hidden, row("empty", "assistant", { text: "\u200B" }), summary()];
+  expect(turnView(empty, new Set())).toEqual([]);
+  expect(turnView([row("empty-prompt", "user", { text: "" }), summary()], new Set())).toEqual([]);
+  const failed = [hidden, row("failed", "assistant", { text: "" }), summary("failed")];
+  expect(turnView(failed, new Set()).map((entry) => entry.kind)).toEqual(["turnSummary"]);
+});
+
+test("an invisible prompt keeps its logical boundary without adding layout space", () => {
+  const prompt = row("invisible-prompt", "user", { text: "\u200B" });
+  const shaped = turnView([prompt, tool("read"), text("answer"), summary()], new Set());
+  expect(shaped.map((entry) => entry.id)).toContain(prompt.id);
+  const withoutPrompt = shaped.filter((entry) => entry.id !== prompt.id);
+  expect(layoutConversation(shaped, 760).totalHeight).toBe(layoutConversation(withoutPrompt, 760).totalHeight);
+});
+
+test("an attachment-only prompt is still visible when its text is empty", () => {
+  const attachment = row("attachment", "user", {
+    text: "",
+    inlineParts: [{ kind: "file", name: "notes.txt", blockIndex: 1 }] as never,
+  });
+  expect(turnView([attachment, summary()], new Set()).map((entry) => entry.id)).toContain("attachment");
+  const received = row("received", "user", { text: "", received: {} as never });
+  expect(turnView([received, summary()], new Set()).map((entry) => entry.id)).toContain("received");
+});
+
+test("an invisible failed prompt keeps its delivery recovery row", () => {
+  const failed = row("failed-prompt", "user", {
+    text: "\u200B",
+    failed: true,
+    error: "The prompt was not sent.",
+    delivery: {
+      state: "failed",
+      promptId: "prompt-1",
+      sessionId: "session-1",
+      sentAt: 1,
+    },
+  });
+  expect(isVisiblyEmptyMessage(failed)).toBe(false);
+  expect(turnView([failed, summary("failed")], new Set()).map((entry) => entry.id)).toContain("failed-prompt");
+});
+
+test.each(["cancelled", "interrupted"])("a %s turn keeps its work open until the reader closes it", (status) => {
+  const rows = [row("u", "user"), text("interim"), tool("build"), summary(status)];
+  const opened = ["user:u", "worked:worked-u", "assistant:interim", "activity:build", "turnSummary:end"];
+  expect(drawn(rows)).toEqual(opened);
+  const closed = toggleTurnFold(rows, new Set(), "worked-u");
+  expect(drawn(rows, closed)).toEqual(["user:u", "worked:worked-u", "turnSummary:end"]);
+  expect(drawn(rows, toggleTurnFold(rows, closed, "worked-u"))).toEqual(opened);
+});
+
+test("a stopped turn keeps interim text open while its edit card stays outside a manual fold", () => {
   const step = row("step", "activity", {
     items: [
       { kind: "tool", text: "", tool: { id: "patch", title: "patch", kind: "edit", status: "completed" } },
@@ -56,7 +126,10 @@ test("a turn that edited and then ran a tool in one step folds its interim text"
   const rows = [row("u", "user"), text("interim"), step, summary("cancelled")];
   const shaped = drawn(rows);
   expect(shaped.slice(0, 2)).toEqual(["user:u", "worked:worked-u"]);
-  expect(shaped).not.toContain("assistant:interim");
+  expect(shaped).toContain("assistant:interim");
+  const closed = drawn(rows, toggleTurnFold(rows, new Set(), "worked-u"));
+  expect(closed).not.toContain("assistant:interim");
+  expect(closed.filter((entry) => entry === "activity:step")).toHaveLength(1);
 });
 
 test("an edit after the answer still joins the turn's edit card, and the answer stays open", () => {
@@ -77,7 +150,14 @@ test("an earlier turn without a summary draws as it came, its text in place (no 
     row("end-2", "turnSummary", { status: "completed", durationMs: 1_000 }),
   ];
   const shaped = drawn(rows);
-  expect(shaped.slice(0, shaped.indexOf("user:u2"))).toEqual(["user:u1", "assistant:interim", "activity:read"]);
+  // Nothing folds; the next prompt ended the turn, so it ends on its copy row (turns.ts
+  // supersededFooters, #34939).
+  expect(shaped.slice(0, shaped.indexOf("user:u2"))).toEqual([
+    "user:u1",
+    "assistant:interim",
+    "activity:read",
+    "turnSummary:superseded-read",
+  ]);
 });
 
 test("expanding the fold of a turn that ended on a tool shows the interim text and tools in order", () => {
@@ -122,11 +202,59 @@ test("the last reply stays open when short notes and tools come after it", () =>
     summary(),
   ];
   const open = drawn(rows, new Set(["worked-u"]));
+  // Commentary remains between the runs it separates when the reader opens the work.
   expect(open.filter((entry) => entry.startsWith("activity:"))).toEqual([
     "activity:read",
     "activity:grep",
     "activity:test",
   ]);
+  expect(open.indexOf("assistant:checking one more thing")).toBeGreaterThan(open.indexOf("activity:grep"));
+  expect(open.indexOf("assistant:checking one more thing")).toBeLessThan(open.indexOf("activity:test"));
   expect(open.slice(-2)).toEqual(["assistant:answer", "turnSummary:end"]);
   expect(drawn(rows)).toEqual(["user:u", "worked:worked-u", "assistant:answer", "turnSummary:end"]);
+});
+
+const dateTurn = (id: string, at: number, visible = true): AcpmuxRow[] => [
+  { id, kind: "user", at, version: 1, text: visible ? "Prompt" : "" },
+  { id: `${id}-answer`, kind: "assistant", at: at + 1_000, version: 1, text: visible ? "Answer" : "\u200B" },
+  { id: `${id}-end`, kind: "turnSummary", at: at + 2_000, version: 1, status: "completed" },
+];
+
+test("an invisible turn across days leaves the separator for the next visible turn", () => {
+  const start = Date.UTC(2026, 9, 30, 12);
+  const nextDay = start + 24 * 3_600_000;
+  const rows = [
+    ...dateTurn("old", start),
+    ...dateTurn("hidden", nextDay, false),
+    ...dateTurn("next", nextDay + 60_000),
+  ];
+  const dates = turnView(rows, new Set(), { now: nextDay + 120_000 }).filter((row) => row.kind === "date");
+  expect(dates.map((row) => row.id)).toEqual(["date-old", "date-next"]);
+  expect(dates[1]!.at).toBe(nextDay + 60_000);
+});
+
+test("a reused invisible turn does not consume the next visible turn's separator", () => {
+  const start = Date.UTC(2026, 9, 30, 12);
+  const nextDay = start + 24 * 3_600_000;
+  const folds = new Set<string>();
+  const rows = [
+    ...dateTurn("old", start),
+    ...dateTurn("hidden", nextDay, false),
+    ...dateTurn("hidden2", nextDay + 60_000, false),
+  ];
+  const previous = turnViewFrom(rows, folds, { now: nextDay + 120_000 });
+  const appended = [...rows, ...dateTurn("next", nextDay + 120_000)];
+  const updated = turnViewFrom(appended, folds, { now: nextDay + 180_000 }, previous);
+  expect(updated.rows).toEqual(turnView(appended, folds, { now: nextDay + 180_000 }));
+  expect(updated.rows.filter((row) => row.kind === "date").map((row) => row.id)).toEqual(["date-old", "date-next"]);
+});
+
+test("the first visible turn's separator ages even after an invisible first turn", () => {
+  const start = Date.UTC(2026, 9, 30, 12);
+  const folds = new Set<string>();
+  const rows = [...dateTurn("hidden", start, false), ...dateTurn("next", start + 60_000)];
+  const previous = turnViewFrom(rows, folds, { now: start + 120_000 });
+  expect(previous.rows.some((row) => row.kind === "date")).toBe(false);
+  const updated = turnViewFrom(rows, folds, { now: start + 2 * 3_600_000 }, previous);
+  expect(updated.rows.filter((row) => row.kind === "date").map((row) => row.id)).toEqual(["date-next"]);
 });

@@ -12,6 +12,19 @@ nonisolated enum SidebarRegionDragSubject: Hashable, Sendable {
 /// The rule is "take the place of what is under the pointer": over its own
 /// (moved) slot nothing changes, so the order never flips back and forth.
 nonisolated enum SidebarRegionReorder {
+    /// The ordinary document move for an app section dropped in a pinned
+    /// band's shown order. Hidden sections keep their document positions.
+    static func appSectionMove(_ id: LayoutSectionID, to region: SidebarRegion, before next: LayoutSectionID?,
+                               shown: [LayoutSection], document: SidebarLayoutDocument) -> SidebarLayoutOp? {
+        guard var section = document.section(id), section.content == .app,
+              region == .top || region == .bottom else { return nil }
+        section.region = region
+        var sections = shown.filter { $0.id != id }
+        let index = next.flatMap { next in sections.firstIndex { $0.id == next } } ?? sections.count
+        sections.insert(section, at: index)
+        return op(for: .section(id), shown: sections, document: document)
+    }
+
     /// `sections` with `subject` moved to the slot under `point` in
     /// `display` (the layout of `sections`), or nil when nothing moves.
     static func move(_ subject: SidebarRegionDragSubject, at point: CGPoint, display: SidebarRegionLayout,

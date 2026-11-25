@@ -1,3 +1,4 @@
+import CmuxNextAgentPane
 import CmuxNextRemote
 import Testing
 @testable import CmuxNextApp
@@ -7,13 +8,13 @@ import Testing
 struct SSHMachineTooltipTests {
     @Test @MainActor func theTooltipIsTheDestinationTheSessionAndTheDetail() throws {
         let destination = try SSHDestination(parsing: "dev@build-box.example.com:2222")
-        #expect(SidebarBridge.sshTooltip(destination: destination, session: RemoteSessionName.defaultName, detail: "Connected")
+        #expect(SidebarBridge.sshTooltip(destination: destination, session: RemoteSessionName.defaultName, detail: "Connected", updates: DaemonUpdateBoard())
             == "dev@build-box.example.com:2222\nConnected")
-        #expect(SidebarBridge.sshTooltip(destination: destination, session: "work", detail: "Connected")
+        #expect(SidebarBridge.sshTooltip(destination: destination, session: "work", detail: "Connected", updates: DaemonUpdateBoard())
             == "dev@build-box.example.com:2222 · work\nConnected")
-        #expect(SidebarBridge.sshTooltip(destination: destination, session: RemoteSessionName.defaultName, detail: nil)
+        #expect(SidebarBridge.sshTooltip(destination: destination, session: RemoteSessionName.defaultName, detail: nil, updates: DaemonUpdateBoard())
             == "dev@build-box.example.com:2222")
-        #expect(SidebarBridge.sshTooltip(destination: destination, session: RemoteSessionName.defaultName, detail: "")
+        #expect(SidebarBridge.sshTooltip(destination: destination, session: RemoteSessionName.defaultName, detail: "", updates: DaemonUpdateBoard())
             == "dev@build-box.example.com:2222", "an empty line is left out")
     }
 }

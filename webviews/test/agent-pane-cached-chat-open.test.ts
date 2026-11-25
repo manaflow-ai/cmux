@@ -9,13 +9,16 @@
 //   - the frame back draws the chat, before its attach answers;
 //   - a chat that ran on past one attach page comes back without a hole in its transcript;
 //   - an ask answered while away does not come back as a card;
-//   - a turn that ended while away does not come back as a running turn;
+//   - a turn that ended while away does not come back as a running turn, nor drawn open (#50987);
 //   - a queued prompt keeps its whole text, not acpmux's preview;
 //   - a chat whose attach fails does not stay on screen as if it had been read.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
+import { turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
+import { NO_FOLD_TOGGLES as NO_FOLDS } from "../src/agent-session/acpmux/conversation/viewFolds";
+import { settleReact } from "./support/domTeardown";
 
 const START = Date.UTC(2026, 9, 20, 9, 0, 0);
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
@@ -27,7 +30,8 @@ beforeAll(() => {
   scope.document = dom.window.document;
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   if (saved.had) Object.assign(scope, { window: saved.window, document: saved.document });
   else {
     delete scope.window;
@@ -38,7 +42,14 @@ afterAll(() => {
 type Message = { id?: number; method: string; params?: Record<string, unknown> };
 type Step = [dir: string, kind: string, msg: Record<string, unknown>];
 /** An attach reply: the page acpmux answers for a chat, and whether it holds older records. */
-type Page = { events: Step[]; from?: number; hasMore?: boolean; queue?: { promptId: string; prompt: string }[] };
+type Page = {
+  events: Step[];
+  from?: number;
+  hasMore?: boolean;
+  queue?: { promptId: string; prompt: string }[];
+  /** Answers with a settled view (`settled-attach-v1`), so a page that meets the kept tail is laid on it. */
+  settled?: boolean;
+};
 
 const events = (sessionId: string, page: Page) =>
   page.events.map(([dir, kind, msg], at) => {
@@ -95,6 +106,15 @@ class Daemon {
   fail?: string;
   /// Refuses a detach, as acpmux does for a chat it no longer resolves.
   refuseDetach = false;
+  /// Holds every detach of this chat unanswered while set, as a busy acpmux does.
+  holdDetach?: string;
+  private heldDetaches: Message[] = [];
+  /** Answers a detach held back: the oldest, or the newest (acpmux runs each request on its own
+   * task, so a later detach can be answered first). */
+  releaseDetach(which: "oldest" | "newest" = "oldest"): void {
+    const message = which === "oldest" ? this.heldDetaches.shift() : this.heldDetaches.pop();
+    if (message) this.answer(message);
+  }
   private held?: Message;
   private holding?: () => void;
   /** Resolves when the held attach has been asked for. */
@@ -123,6 +143,10 @@ class Daemon {
     this.sent.push(message);
     if (message.id === undefined) return;
     const sessionId = String(message.params?.sessionId ?? "");
+    if (message.method === "_acpmux/detach" && sessionId === this.holdDetach) {
+      this.heldDetaches.push(message);
+      return;
+    }
     if (message.method === "_acpmux/attach" && sessionId === this.hold) {
       this.held = message;
       this.hold = undefined;
@@ -222,6 +246,7 @@ class Daemon {
         lastSeq: records.at(-1)?.seq ?? 0,
         events: records,
         hasMore: page.hasMore === true,
+        ...(page.settled ? { settled: { lastSeq: records.at(-1)?.seq ?? 0, forkSeqs: [] } } : {}),
       };
     } else if (message.method === "_acpmux/events") {
       const older = message.params?.beforeSeq !== undefined ? this.older.get(sessionId) : undefined;
@@ -435,6 +460,83 @@ test("a turn that ended while away does not come back as a running turn", async 
   }
 });
 
+// #50987: the tail kept while the turn ran ends without its turn_result. Drawn as it came, that
+// turn showed every call open for the second the attach took, then folded under the reader.
+for (const settled of [false, true])
+  test(`a turn that ended while away draws folded on the frame back, before its attach answers (${settled ? "laid on the tail" : "read again"})`, async () => {
+    const daemon = new Daemon(`turn-ended-folded-${settled}`);
+    const [A, B] = [daemon.sessionA, daemon.sessionB];
+    const started: Step = ["mux", "turn_started", { turnId: "turn-1" }];
+    const call: Step = [
+      "in",
+      "tool_call",
+      {
+        method: "session/update",
+        params: {
+          sessionId: A,
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: "c1",
+            title: "git status",
+            kind: "execute",
+            status: "completed",
+            rawInput: { command: "git status" },
+          },
+        },
+      },
+    ];
+    const running = [prompt("Run it"), started, reply(A, "Checking."), call];
+    daemon.pages.set(A, [
+      { events: running },
+      {
+        events: [...running, reply(A, "All done."), ["mux", "turn_result", { status: "completed", turnId: "turn-1" }]],
+        settled,
+      },
+    ]);
+    daemon.pages.set(B, [{ events: [prompt("Docs"), reply(B, "Docs updated.")] }]);
+    daemon.status.set(A, "running");
+    const { client, last } = await paneOn(daemon);
+    try {
+      expect(last().isWorking).toBe(true);
+      expect(last().rows.some((row) => row.kind === "turnSummary")).toBe(false);
+      await client.select(B);
+      daemon.status.set(A, "idle");
+      daemon.changed(A);
+      daemon.hold = A;
+      const back = client.select(A);
+      await daemon.asked;
+      // The frame back, from the kept tail: the turn already ended, under its result's own row.
+      const kept = last();
+      expect(kept.isWorking).toBe(false);
+      expect(text(kept)).toContain("Checking.");
+      const shapedKept = turnView(kept.rows, NO_FOLDS, { agentFamily: "codex" });
+      expect(shapedKept.some((row) => row.kind === WORKED)).toBe(true);
+      // The call is inside the closed fold, not drawn as a row of its own.
+      expect(shapedKept.some((row) => row.kind === "activity")).toBe(false);
+      expect(kept.rows.filter((row) => row.kind === "turnSummary").map((row) => row.id)).toEqual(["summary-turn-1"]);
+      daemon.release();
+      await back;
+      // The attach keeps that row and fold, and only brings the rest of the turn.
+      expect(
+        last()
+          .rows.filter((row) => row.kind === "turnSummary")
+          .map((row) => row.id),
+      ).toEqual(["summary-turn-1"]);
+      expect(text(last())).toContain("All done.");
+      const shapedRead = turnView(last().rows, NO_FOLDS, { agentFamily: "codex" });
+      expect(shapedRead.find((row) => row.kind === WORKED)?.id).toBe(shapedKept.find((row) => row.kind === WORKED)?.id);
+      // The turn ends after all of its rows, the reply the attach brought included: a page laid on
+      // the tail reopens the provisional end before its records (direct.ts `reopenKeptTurn`).
+      const ids = last().rows.map((row) => row.id);
+      expect(ids.at(-1)).toBe("summary-turn-1");
+      expect(text(last()).indexOf("All done.")).toBeGreaterThan(-1);
+      expect(last().rows.findIndex((row) => JSON.stringify(row).includes("All done."))).toBeLessThan(ids.length - 1);
+      expect(last().rows.find((row) => row.id === "summary-turn-1")?.turnStartedAtMs).toBeDefined();
+    } finally {
+      client.close();
+    }
+  });
+
 test("a chat still running when the reader comes back draws as working at once", async () => {
   const daemon = new Daemon("still-running");
   const [A, B] = [daemon.sessionA, daemon.sessionB];
@@ -493,6 +595,98 @@ test("a refused detach of the chat being left does not stop the chat being opene
     // acpmux no longer resolves the chat being left (it was archived from elsewhere).
     daemon.refuseDetach = true;
     expect(await client.select(A)).toBe(A);
+    expect(text(last())).toContain("Retry added.");
+  } finally {
+    client.close();
+  }
+});
+
+/** Lets every queued microtask (the stand-in daemon's replies, the client's awaits on them) run. */
+const drain = async () => {
+  for (let turn = 0; turn < 20; turn += 1) await new Promise<void>((resolve) => queueMicrotask(resolve));
+};
+
+test("a switch attaches the next chat without waiting for the detach of the chat left", async () => {
+  const daemon = new Daemon("detach-parallel");
+  const [A, B] = [daemon.sessionA, daemon.sessionB];
+  daemon.pages.set(A, [{ events: [prompt("Look at it"), reply(A, "Retry added.")] }]);
+  daemon.pages.set(B, [{ events: [prompt("Docs"), reply(B, "Docs updated.")] }]);
+  const { client, last } = await paneOn(daemon);
+  try {
+    // acpmux is slow to answer the detach of the chat being left: the next chat opens anyway (on
+    // the base the select waited for that reply and this await never returned).
+    daemon.holdDetach = A;
+    expect(await client.select(B)).toBe(B);
+    expect(text(last())).toContain("Docs updated.");
+    const order = daemon.sent.map((message) => `${message.method} ${String(message.params?.sessionId ?? "")}`);
+    expect(order.indexOf(`_acpmux/attach ${B}`)).toBeGreaterThan(order.indexOf(`_acpmux/detach ${A}`));
+    daemon.releaseDetach();
+  } finally {
+    client.close();
+  }
+});
+
+test("a switch straight back waits for that chat's own detach before attaching it", async () => {
+  const daemon = new Daemon("detach-back");
+  const [A, B] = [daemon.sessionA, daemon.sessionB];
+  daemon.pages.set(A, [{ events: [prompt("Look at it"), reply(A, "Retry added.")] }]);
+  daemon.pages.set(B, [{ events: [prompt("Docs"), reply(B, "Docs updated.")] }]);
+  const { client, last } = await paneOn(daemon);
+  try {
+    daemon.holdDetach = A;
+    await client.select(B);
+    const attachesOfA = () =>
+      daemon.sent.filter((message) => message.method === "_acpmux/attach" && message.params?.sessionId === A).length;
+    const before = attachesOfA();
+    // Back to A while its detach is still out: an attach sent now could be answered before the
+    // detach and lose its subscription, so it waits for the detach's reply.
+    let settled = false;
+    const back = client.select(A).finally(() => (settled = true));
+    await drain();
+    expect(settled).toBe(false);
+    expect(attachesOfA()).toBe(before);
+    daemon.releaseDetach();
+    expect(await back).toBe(A);
+    expect(attachesOfA()).toBe(before + 1);
+    expect(text(last())).toContain("Retry added.");
+  } finally {
+    client.close();
+  }
+});
+
+test("switching away from a chat twice before its detaches answer attaches it after both, in any order", async () => {
+  const daemon = new Daemon("detach-rapid");
+  const [A, B] = [daemon.sessionA, daemon.sessionB];
+  daemon.pages.set(A, [{ events: [prompt("Look at it"), reply(A, "Retry added.")] }]);
+  daemon.pages.set(B, [{ events: [prompt("Docs"), reply(B, "Docs updated.")] }]);
+  const { client, last } = await paneOn(daemon);
+  try {
+    const attachesOfA = () =>
+      daemon.sent.filter((message) => message.method === "_acpmux/attach" && message.params?.sessionId === A).length;
+    daemon.holdDetach = A;
+    // A -> B -> A -> B -> A, every detach of A still out.
+    await client.select(B);
+    const before = attachesOfA();
+    const first = client.select(A);
+    expect(await client.select(B)).toBe(B);
+    let settled = false;
+    const back = client.select(A).finally(() => (settled = true));
+    await drain();
+    expect(attachesOfA()).toBe(before);
+    // The second detach answers first: the last switch still waits for the first one, which acpmux
+    // could otherwise answer after its attach and so drop the chat's new subscription.
+    daemon.releaseDetach("newest");
+    await drain();
+    expect(settled).toBe(false);
+    expect(attachesOfA()).toBe(before);
+    daemon.releaseDetach();
+    // The first switch was superseded by B, but the newer select of the same chat (A) decides for it
+    // (direct.ts `select`, issue 44964): it resolves with that open's outcome, never undefined.
+    expect(await first).toBe(A);
+    expect(await back).toBe(A);
+    expect(attachesOfA()).toBe(before + 1);
+    const order = daemon.sent.map((message) => `${message.method} ${String(message.params?.sessionId ?? "")}`);
+    expect(order.lastIndexOf(`_acpmux/attach ${A}`)).toBeGreaterThan(order.lastIndexOf(`_acpmux/detach ${A}`));
     expect(text(last())).toContain("Retry added.");
   } finally {
     client.close();

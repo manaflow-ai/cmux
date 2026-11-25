@@ -1,0 +1,10 @@
+{
+  "_doc": "Commits a NEXT nightly must not ship without their fix. nightly.yml's publish-nightly (Final publication gate) reads this file live from feat-cmux-next just before it publishes, and holds a build whose commit contains a listed 'bad' without its 'fix' (scripts/ci/nightly_publish_guard.py known-bad). Full SHAs only. Landing a pair here holds every run that has not yet published, including runs that started before it landed.",
+  "pairs": [
+    {
+      "bad": "fca2e5f462f66949c1fb41a37da80c47daff7971",
+      "fix": "c8b7f59ea4d4271274acbe8d795846de3e2805a0",
+      "note": "#32056 SessionInfo.tsx temporal-dead-zone read: every agent pane 'could not be drawn'; fixed by #32160"
+    }
+  ]
+}

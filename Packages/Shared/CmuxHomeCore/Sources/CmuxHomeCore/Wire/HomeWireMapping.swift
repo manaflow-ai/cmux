@@ -59,6 +59,9 @@ struct HomeWireMapping: Sendable {
                 return .question(question)
             }
             return .text("question")
+        case "widget":
+            // Chat widgets are gone; a message an older build stored with one shows its fallback text.
+            return .text(json["fallback"].string ?? json["url"].string ?? "")
         default:
             // A part type this build does not know: its link when it has one, else its type.
             if let url = json["url"].string, !url.isEmpty { return .text(url) }
@@ -131,7 +134,8 @@ struct HomeWireMapping: Sendable {
             lastMessage: lastMessage ?? message(head["last_message"]),
             readCursors: cursors, declaredKind: kind(head["kind"].string),
             memberCount: head["member_count"].int,
-            chiefReplies: head["settings"]["wake_policy"].string.flatMap(ChiefReplyPolicy.init(rawValue:)))
+            chiefReplies: head["settings"]["wake_policy"].string.flatMap(ChiefReplyPolicy.init(rawValue:)),
+            channelChief: head["channel_chief"].string.map(ParticipantID.init(rawValue:)))
     }
 
     /// A conversation known only from its inbox entry (no head read yet): no

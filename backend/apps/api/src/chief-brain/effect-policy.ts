@@ -28,6 +28,7 @@ export const messageEffectAuthorized = (
   owner: string,
   agent: string
 ): boolean => {
+  if (message.author.startsWith("slack:")) return (message as conversation.Message & { slack?: { isOwner?: boolean } }).slack?.isOwner === true
   if (message.author === owner) return true
   const replyTo = message.reply_to?.message_id
   const target = replyTo === undefined ? undefined : view.find((m) => m.id === replyTo)

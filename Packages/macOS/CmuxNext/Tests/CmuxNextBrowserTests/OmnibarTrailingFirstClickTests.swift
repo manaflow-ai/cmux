@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -9,6 +10,7 @@ import Testing
 /// `hitTest` finds there only when that view accepts the first mouse; else the
 /// press only makes the window key and the second press acts.
 @MainActor
+@Suite(.closesItsWindows)
 struct OmnibarTrailingFirstClickTests {
     private func shownBar() -> (AddressBarView, NSWindow) {
         let bar = AddressBarView()
@@ -60,6 +62,7 @@ struct OmnibarTrailingFirstClickTests {
 
     @Test func everyTrailingBadgeTakesTheFirstClickOfAWindowThatIsNotKey() throws {
         let (bar, window) = shownBar()
+        defer { window.closeAfterTest() }
         let shown = badges(bar)
         #expect(shown.count == 4)
         for (name, badge) in shown {
@@ -73,6 +76,7 @@ struct OmnibarTrailingFirstClickTests {
 
     @Test func oneFirstClickOnTheStarPressesIt() throws {
         let (bar, window) = shownBar()
+        defer { window.closeAfterTest() }
         var presses = 0
         bar.onBookmarkStar = { _ in presses += 1 }
         let event = firstClickPress(bar.starButton, in: window)

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CryptoKit
 import Foundation
 
@@ -39,16 +40,26 @@ nonisolated enum AgentPaneImageCopies {
     /// no control or format characters; "Image" when nothing readable is left), a short hash of its
     /// bytes, and its type's extension.
     static func fileName(_ name: String, data: Data, type: String) -> String {
+        "\(baseName(name)) \(shortHash(data)).\(extensions[type] ?? "img")"
+    }
+
+    /// `name` as one plain file name without its extension (no folders, no leading dot, no control
+    /// or format characters, at most ``maximumNameBytes``); `fallback` when nothing readable is left.
+    static func baseName(_ name: String, fallback: String = "Image") -> String {
         var base = name.replacingOccurrences(of: "\\.[A-Za-z0-9]{1,5}$", with: "", options: .regularExpression)
         var scalars = String.UnicodeScalarView()
         for scalar in base.unicodeScalars where scalar.properties.generalCategory != .format {
             scalars.append(CharacterSet.controlCharacters.contains(scalar) || "/:\\".unicodeScalars.contains(scalar) ? "-" : scalar)
         }
         base = String(scalars).trimmingCharacters(in: CharacterSet(charactersIn: ".- ").union(.whitespacesAndNewlines))
-        if !base.unicodeScalars.contains(where: { CharacterSet.alphanumerics.contains($0) }) { base = "Image" }
+        if !base.unicodeScalars.contains(where: { CharacterSet.alphanumerics.contains($0) }) { base = fallback }
         while base.utf8.count > maximumNameBytes { base.removeLast() }
-        let hash = SHA256.hash(data: data).prefix(4).map { String(format: "%02x", $0) }.joined()
-        return "\(base) \(hash).\(extensions[type] ?? "img")"
+        return base
+    }
+
+    /// The first 8 hex digits of `data`'s SHA-256.
+    static func shortHash(_ data: Data) -> String {
+        SHA256.hash(data: data).prefix(4).map { String(format: "%02x", $0) }.joined()
     }
 
     /// Writes `src`'s copy into `folder` (once per image) and returns its file. An SVG is written
@@ -73,8 +84,7 @@ nonisolated enum AgentPaneImageCopies {
 
     /// The default folder: `Agent Images` in this app's caches.
     static func defaultFolder() -> URL {
-        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        let caches = NextSupport.cachesDirectory()
         return caches.appendingPathComponent(Bundle.main.bundleIdentifier ?? "cmux", isDirectory: true)
             .appendingPathComponent("Agent Images", isDirectory: true)
     }
@@ -114,6 +124,40 @@ extension AgentPaneImageCopies {
             return model.replyLinks.startDrag(out) ? AgentPaneReply.success() : AgentPaneModel.replyFailure(.openFailed)
         case .quickLookImage(let src, let name):
             return await withCopy(src, name: name, in: model) { model.replyLinks.quickLookFile($0) }
+        case .copyComposer(let text, let items):
+            return await copyComposer(text: text, items: items, in: model)
+        case .stageComposer(let request):
+            return await model.replyLinks.composerStaging.respond(request, in: model)
+        case .copyStagedComposer(let textReference, let items, let orderReference):
+            let tokens = [textReference] + [orderReference].compactMap { $0 } + items.compactMap { item -> String? in
+                if case .reference(let token) = item.payload { return token }
+                return nil
+            }
+            let generation = model.droppedPaths.generation
+            let revision = model.replyLinks.composerCopyRevision
+            guard let work = model.replyLinks.copyWork,
+                  let files = model.replyLinks.composerStaging.take(tokens, owner: generation, revision: revision, work: work) else {
+                return AgentPaneModel.replyFailure(.openFailed)
+            }
+            let answer: [String: Any]
+            if let textFile = files[textReference], let text = await stagedText(textFile),
+               model.droppedPaths.generation == generation, model.replyLinks.composerCopyRevision == revision {
+                let order = if let orderReference, let file = files[orderReference] { await stagedText(file) } else { nil as String? }
+                if (orderReference == nil || order != nil), model.droppedPaths.generation == generation,
+                   model.replyLinks.composerCopyRevision == revision {
+                    answer = await copyComposer(text: text, items: items, in: model, references: files, order: order) { published in
+                        let keeping = Set(items.enumerated().compactMap { index, item -> String? in
+                            guard published.contains(index), case .reference(let token) = item.payload else { return nil }
+                            // SVGs publish a sanitized copy elsewhere; discard their original stage.
+                            let ext = composerExtension(item.name, mimeType: item.mimeType, fallback: "bin")
+                            return ext.lowercased() != "svg" && item.mimeType.lowercased() != "image/svg+xml" ? token : nil
+                        })
+                        model.replyLinks.composerStaging.published(keeping)
+                    }
+                } else { answer = AgentPaneModel.replyFailure(.openFailed) }
+            } else { answer = AgentPaneModel.replyFailure(.openFailed) }
+            await model.replyLinks.composerStaging.settle(tokens, work: work)
+            return answer
         default: return AgentPaneModel.replyFailure(.openFailed)
         }
     }
@@ -165,7 +209,7 @@ extension AgentPaneImageCopies {
     /// folder for its path in `folder`. An agent may write the SVG; outside the pane's `<img>` its
     /// script and links would count (media-safety R7). An `.svgz` goes out as on base: the rebuild
     /// reads plain XML only. The folder is named by 16 bytes of the path's hash, so no two paths share it.
-    static func handedOut(_ file: URL, in folder: URL) -> URL {
+    nonisolated static func handedOut(_ file: URL, in folder: URL) -> URL {
         guard !file.hasDirectoryPath, file.pathExtension.lowercased() == "svg" else { return file }
         let hash = SHA256.hash(data: Data(file.path.utf8)).prefix(16).map { String(format: "%02x", $0) }.joined()
         return folder.appendingPathComponent(hash, isDirectory: true).appendingPathComponent(file.lastPathComponent, isDirectory: false)

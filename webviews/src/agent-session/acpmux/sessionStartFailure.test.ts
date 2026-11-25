@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { settleReact } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -10,7 +11,8 @@ beforeAll(() => {
   scope.document = dom.window.document;
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, descriptor] of saved) {
     if (descriptor) Object.defineProperty(scope, key, descriptor);
     else delete scope[key];
@@ -124,14 +126,19 @@ test("a retained New Tab start rejects Trust refusal when this remote origin can
   const { client, requests } = fixture;
   try {
     const start = client.create("claude", undefined, undefined, true, undefined, true);
-    const refused = expect(start).rejects.toThrow("Trust must be answered on the host");
+    // Held as a value: an un-awaited expect(start).rejects waits for the start to settle right
+    // there, before the refusal below is sent, and the test hangs.
+    const refused = start.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
     await fixture.requested;
     fixture.rejectStart(
       Object.assign(new Error("Trust must be answered on the host"), {
         data: { reason: "trust.pending", cwd: "/tmp/remote-trust" },
       }),
     );
-    await refused;
+    expect(((await refused) as Error | undefined)?.message).toBe("Trust must be answered on the host");
     expect(client.shownSession()).toBeUndefined();
     expect(requests.filter((request) => request.method === "session/prompt")).toEqual([]);
     // Once the host has answered, an explicit retry must be able to start again.

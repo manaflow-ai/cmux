@@ -62,9 +62,12 @@ struct DensityPaletteTests {
         #expect(f.registry.action(for: "appearance.density.cozy")?.paletteState?() == true)
     }
 
+    /// Compact Workspace List (`sidebar.compactList.toggle`, #27883) is the DEV-only one-line workspace
+    /// list, not a density, so it is not a second Compact density row.
     @Test func onePaletteRowSaysCompact() {
         let f = Self.fixture()
-        let titles = RegistryPaletteProvider(registry: f.registry).makeItems().map(\.title).filter { $0.contains("Compact") }
+        let titles = RegistryPaletteProvider(registry: f.registry).makeItems()
+            .filter { $0.id != "action:sidebar.compactList.toggle" }.map(\.title).filter { $0.contains("Compact") }
         #expect(titles == ["Density: Compact (current)"], "\(titles)")
         let densityRows = RegistryPaletteProvider(registry: f.registry).makeItems().map(\.title).filter { $0.hasPrefix("Density: ") }
         #expect(densityRows.count == DensityPreset.allCases.count, "\(densityRows)")
@@ -80,13 +83,13 @@ struct DensityPaletteTests {
         #expect(custom.id == "my-tight" && custom.basedOn == "ultraCompact" && custom.fontSize == 11)
         #expect(f.design.densityTokens == custom)
         _ = f.registry.perform("appearance.density.spacious")
-        let rows = DensityPaletteRows.items(design: f.design, registry: f.registry)
+        let rows = DensityPaletteRows(currentMark: DensityStrings.current, useTitle: DensityStrings.use).items(design: f.design, registry: f.registry)
         let row = try #require(rows.first)
         #expect(rows.count == 1 && row.title == "Density: My Tight")
         guard case .perform(let run) = row.primary.effect else { Issue.record("the row runs Set Density"); return }
         run()
         #expect(f.design.densityTokens == custom)
-        #expect(DensityPaletteRows.items(design: f.design, registry: f.registry).first?.title == "Density: My Tight (current)")
+        #expect(DensityPaletteRows(currentMark: DensityStrings.current, useTitle: DensityStrings.use).items(design: f.design, registry: f.registry).first?.title == "Density: My Tight (current)")
     }
 
     @Test func setDensityTakesAnyIDAndRefusesAnUnknownOne() {

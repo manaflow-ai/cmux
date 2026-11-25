@@ -6,6 +6,7 @@ nonisolated final class ManualMemoryPressureSource: MemoryPressureSource {
     private nonisolated struct State {
         var deliver: (@MainActor @Sendable (MemoryPressureLevel) -> Void)?
         var isCancelled = false
+        var level: MemoryPressureLevel?
     }
 
     // The events start and cancel the source on whichever thread runs their init and deinit; a test sends on main.
@@ -18,6 +19,14 @@ nonisolated final class ManualMemoryPressureSource: MemoryPressureSource {
     func cancel() {
         state.withLock { $0.isCancelled = true }
     }
+
+    /// The level the kernel would read now (nil: the source cannot tell); ``currentLevel()`` returns it.
+    var level: MemoryPressureLevel? {
+        get { state.withLock { $0.level } }
+        set { state.withLock { $0.level = newValue } }
+    }
+
+    func currentLevel() -> MemoryPressureLevel? { level }
 
     /// Whether the events cancelled the source.
     var isCancelled: Bool {

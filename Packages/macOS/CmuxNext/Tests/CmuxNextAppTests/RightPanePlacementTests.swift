@@ -1,3 +1,4 @@
+import CmuxNextAgentPane
 import AppKit
 @testable import CmuxNextApp
 import Testing

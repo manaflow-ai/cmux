@@ -1,3 +1,4 @@
+import CmuxNextBrowser
 @testable import CmuxNextApp
 import Foundation
 import Testing

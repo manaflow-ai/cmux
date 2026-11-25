@@ -7,7 +7,8 @@
 //!   whether it is granted, and whether the app is sandboxed.
 //! - `logs`: the last lines of the app's log ring (no stream; the page
 //!   reads again).
-//! - `asset.get`: an image file of the package (its icon) as a `data:` URL.
+//! - `asset.get`: an image file of the package (its icon, a screenshot) as a
+//!   `data:` URL.
 //! - `hidden.set`: Hide or Show. It changes what the user sees, never what
 //!   an app may do, so the Apps page needs only the person's gesture.
 //! - `grant.set`: allow or revoke one scope (the Apps page asks on a native
@@ -25,8 +26,22 @@ use super::mirror::{Origin, SetOp};
 use super::store::{params, risk, text, to_value};
 use super::supervisor::{ApiError, Supervisor};
 
+#[derive(Debug, Serialize)]
+struct SessionInfoPanel {
+    app: String,
+    section: String,
+    title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    symbol: Option<String>,
+    #[serde(rename = "maxRows", skip_serializing_if = "Option::is_none")]
+    max_rows: Option<u64>,
+}
+
 /// The largest asset `asset.get` answers (an icon, never a bundle).
 const MAX_ASSET_BYTES: usize = 512 * 1024;
+/// The largest screenshot `asset.get` answers: a path the manifest lists in
+/// `screenshots` (an image or a short animated loop).
+const MAX_SCREENSHOT_BYTES: usize = 4 << 20;
 /// The most log lines `logs` answers.
 const MAX_LOG_LINES: usize = 500;
 
@@ -35,6 +50,10 @@ const MAX_LOG_LINES: usize = 500;
 struct AppParams {
     app: String,
 }
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EmptyParams {}
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -107,6 +126,32 @@ fn image_type(path: &str) -> Option<&'static str> {
 }
 
 impl Supervisor {
+    /// The Session Info sections (`cmux.session.info.section/1`) of installed,
+    /// enabled and visible apps. A v2 app implements an interface once, so
+    /// the section id is the interface name (as the native `AppImplementation.id`).
+    pub(super) fn session_info_panels(&self) -> Value {
+        const INTERFACE: &str = "cmux.session.info.section/1";
+        let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let panels: Vec<SessionInfoPanel> = inner
+            .mirror
+            .apps
+            .iter()
+            .filter(|(_, record)| record.installed && record.enabled && !record.hidden)
+            .filter_map(|(app, _)| {
+                let entry =
+                    inner.catalog.packages.get(app)?.manifest.get("implements")?.get(INTERFACE)?;
+                Some(SessionInfoPanel {
+                    app: app.clone(),
+                    section: INTERFACE.to_string(),
+                    title: entry.get("title").map_or_else(|| app.clone(), text),
+                    symbol: entry.get("symbol").and_then(Value::as_str).map(str::to_string),
+                    max_rows: entry.pointer("/options/maxRows").and_then(Value::as_u64),
+                })
+            })
+            .collect();
+        json!({ "panels": panels })
+    }
+
     /// One panel op, or `None` when `op` is not one.
     pub(super) fn panel_call(
         &self,
@@ -116,6 +161,19 @@ impl Supervisor {
         origin: Origin,
     ) -> Option<Result<Value, ApiError>> {
         Some(match op {
+            "apps.panels.list" => params::<EmptyParams>(args).map(|_| self.session_info_panels()),
+            "apps.settings.list" => params::<EmptyParams>(args).map(|_| self.settings_list()),
+            "apps.settings.set" => params(args).and_then(|p| self.settings_set(client, p, origin)),
+            "apps.composer.list" => params::<EmptyParams>(args).map(|_| self.composer_list()),
+            "apps.composer.mentions" => params(args).map(|p| self.composer_mentions(p)),
+            "apps.toolbar.list" => params::<EmptyParams>(args).map(|_| self.toolbar_list()),
+            "apps.status.list" => params::<EmptyParams>(args).map(|_| self.status_items()),
+            "apps.chat_actions.list" => params(args).and_then(|p| self.chat_actions_list(p)),
+            "apps.meters" => params::<EmptyParams>(args).map(|_| self.meters()),
+            "apps.chat_widgets.route" => self.chat_widget_route(args),
+            op if op.starts_with("apps.widgets.") => {
+                return self.widget_call(client, op, args, origin);
+            }
             "apps.grants.get" => params(args).and_then(|p| to_value(self.grants_get(p)?)),
             "apps.logs" => params(args).and_then(|p| self.logs_tail(client, p)),
             "apps.asset.get" => params(args).and_then(|p| self.asset_get(p)),
@@ -217,14 +275,23 @@ impl Supervisor {
             .cloned()
             .ok_or_else(|| ApiError::new("apps.unknown", "no such app"))?;
         let missing = || ApiError::new("apps.asset.missing", "the package has no such file");
+        let screenshot =
+            package.manifest.get("screenshots").and_then(Value::as_array).is_some_and(|paths| {
+                paths.iter().any(|path| path.as_str() == Some(p.path.as_str()))
+            });
+        let (max, limit) = if screenshot {
+            (MAX_SCREENSHOT_BYTES, "the screenshot is larger than 4 MiB")
+        } else {
+            (MAX_ASSET_BYTES, "the asset is larger than 512 KiB")
+        };
         let size = std::fs::metadata(package.dir.join(&p.path)).map_err(|_| missing())?.len();
-        if size > MAX_ASSET_BYTES as u64 {
-            return Err(ApiError::new("apps.asset.too_large", "the asset is larger than 512 KiB"));
+        if size > max as u64 {
+            return Err(ApiError::new("apps.asset.too_large", limit));
         }
         // `read` refuses a path (or a symlink on the way) that leaves the package.
         let bytes = package.read(&p.path).ok_or_else(missing)?;
-        if bytes.len() > MAX_ASSET_BYTES {
-            return Err(ApiError::new("apps.asset.too_large", "the asset is larger than 512 KiB"));
+        if bytes.len() > max {
+            return Err(ApiError::new("apps.asset.too_large", limit));
         }
         Ok(json!({
             "app": p.app,

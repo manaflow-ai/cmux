@@ -12,7 +12,7 @@ import CmuxNextIcons
 /// profile exists.
 @MainActor
 enum BrowserProfileLinkMenu {
-    static func items(for link: URL?, target: ActionTargetRef?, services: AppServices) -> [NSMenuItem] {
+    static func items(for link: URL?, target: ActionTargetRef?, machineID: String? = nil, services: AppServices) -> [NSMenuItem] {
         let profiles = services.browserProfiles.ordered
         guard let link, link.scheme == "http" || link.scheme == "https", profiles.count > 1, let title = services.registry.descriptor(for: "browserProfile.openLink")?.title else { return [] }
         let submenu = NSMenu()
@@ -23,7 +23,7 @@ enum BrowserProfileLinkMenu {
         for item in profileItems(profiles, asset: asset, run: { [weak services] record in
             services?.registry.perform("browserProfile.openLink", invocation: ActionInvocation(
                 target: target,
-                arguments: ["browserProfile": .string(record.id), "url": .string(link.absoluteString)]))
+                arguments: ["browserProfile": .string(record.id), "url": .string(link.absoluteString)]).onMachine(machineID))
         }) {
             submenu.addItem(item)
         }

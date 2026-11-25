@@ -40,7 +40,12 @@ pub(crate) fn explain(
     if command.has_subcommands() {
         return None;
     }
-    let takes = |c: &clap::Command| c.get_arguments().any(|a| a.get_long() == Some(long));
+    // By its name or a hidden alias: `--host` is `--machine`'s old spelling.
+    let takes = |c: &clap::Command| {
+        c.get_arguments().any(|a| {
+            a.get_long() == Some(long) || a.get_all_aliases().is_some_and(|all| all.contains(&long))
+        })
+    };
     let taken_by: Vec<&str> = cli
         .get_subcommands()
         .filter(|c| c.get_name() != name && !c.is_hide_set() && takes(c))
@@ -144,44 +149,5 @@ fn send_from_file(send: &clap::Command, rest: &[String], program: &str) -> Optio
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use clap::CommandFactory;
-
-    fn refusal(args: &[&str]) -> Option<AppError> {
-        let mut cli = crate::cli::command::Cli::command();
-        let argv: Vec<OsString> =
-            std::iter::once("acpmux").chain(args.iter().copied()).map(Into::into).collect();
-        let e = cli.try_get_matches_from_mut(argv.clone()).err()?;
-        let at = argv.iter().skip(1).position(|a| a != "--json").map(|i| i + 1)?;
-        explain(&e, &cli, &argv, at, "acpmux")
-    }
-
-    #[test]
-    fn send_prompt_file_names_new_and_reads_the_file_on_stdin() {
-        let e = refusal(&["send", "--no-wait", "--prompt-file", "my brief.md", "lane"]).unwrap();
-        let data = e.data.clone().unwrap();
-        assert_eq!(data["try"], "acpmux send --no-wait lane - < 'my brief.md'", "{data}");
-        assert_eq!(data["takenBy"], json!(["new"]), "{data}");
-        assert!(
-            e.message.starts_with("send takes no --prompt-file: `new` (also "),
-            "{}",
-            e.message
-        );
-        assert!(e.message.contains("`run`") && e.message.contains("`exec`"), "{}", e.message);
-        assert!(e.message.ends_with("Try: acpmux send --no-wait lane - < 'my brief.md'"));
-        // A value flag before it keeps its value; no session yet names the place for one.
-        let e = refusal(&["send", "--from", "me", "--prompt-file=b.md"]).unwrap();
-        assert_eq!(e.data.unwrap()["try"], "acpmux send --from me NAME - < b.md");
-        // Prompt words too: send would send them, not the file, so the try is its help.
-        let e = refusal(&["send", "lane", "hi", "--prompt-file", "b.md"]).unwrap();
-        assert_eq!(e.data.unwrap()["try"], "acpmux send --help");
-    }
-
-    #[test]
-    fn a_flag_no_command_takes_keeps_clap_s_error() {
-        assert!(refusal(&["send", "lane", "--no-such-flag"]).is_none());
-        assert!(refusal(&["send", "lane", "-Z"]).is_none());
-        assert!(refusal(&["--json", "send", "lane"]).is_none(), "parses");
-    }
-}
+#[path = "unknown_flag_tests.rs"]
+mod tests;

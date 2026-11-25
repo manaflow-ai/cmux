@@ -10,9 +10,13 @@ import { FolderListEditor } from "./FolderListEditor";
 import { HostListEditor } from "./HostListEditor";
 import { MenuEditor } from "./MenuEditor";
 import { NumberEditor } from "./NumberEditor";
+import { ZoomEditor } from "./ZoomEditor";
+import { DurationEditor, isDuration } from "./DurationEditor";
 import { NumberListEditor } from "./NumberListEditor";
+import { JsonEditor } from "./JsonEditor";
 import { OrderedChoicesEditor } from "./OrderedChoicesEditor";
-import { SegmentedEditor } from "./SegmentedEditor";
+import { RowLayoutEditor } from "./RowLayoutEditor";
+import { isLayoutKey } from "../rowLayout";
 import { SoundEditor } from "./SoundEditor";
 import { StringMapEditor } from "./StringMapEditor";
 import { TextEditor } from "./TextEditor";
@@ -34,17 +38,17 @@ export function Editor(props: EditorProps): ReactNode {
     case "choice":
       // The accent is a swatch popup like the Theme section's, wherever it shows.
       if (row.key === ACCENT_KEY) return <AccentRowEditor {...props} />;
-      return (row.choices?.length ?? 0) <= 3 && row.default !== null ? (
-        <SegmentedEditor {...props} />
-      ) : (
-        <MenuEditor {...props} />
-      );
+      // Every choice is a menu (Lucas 2026-11-12, after segments read as "containers inside
+      // containers" in the cards): one control shape for every row, as Aside's settings draw it.
+      return <MenuEditor {...props} />;
     case "choice_or_number":
       return <ChoiceOrNumberEditor {...props} />;
     case "choice_or_url":
       return <ChoiceOrUrlEditor {...props} />;
     case "number":
-      return <NumberEditor {...props} />;
+      if (row.key === "app.uiScale") return <ZoomEditor {...props} />;
+      // A time row with a wide range is a menu of durations; a slider would park its value at the start.
+      return isDuration(row) ? <DurationEditor {...props} /> : <NumberEditor {...props} />;
     case "color":
       return <ColorEditor {...props} />;
     case "theme":
@@ -79,5 +83,9 @@ export function Editor(props: EditorProps): ReactNode {
     case "string_map":
       // A site per line with its engine (browser.siteEngines); appearance.themeEdits never shows as a row.
       return <StringMapEditor {...props} />;
+    case "json":
+      // The sidebar row layouts (CMUX-383) share one editor, a tab per key; any other nested value
+      // is JSON text the daemon checks.
+      return isLayoutKey(row.key) ? <RowLayoutEditor {...props} /> : <JsonEditor {...props} />;
   }
 }

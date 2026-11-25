@@ -400,127 +400,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install cmux on your iPhone and sign in with the same account as this Mac. This Mac then appears under Workspaces."
+            "value": "Install cmux on your iPhone and sign in with the same account as this Mac. This Mac then appears under Workspaces. No cmux on your iPhone yet? It’s in beta: get it through TestFlight."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ثبّت cmux على جهاز iPhone وسجّل الدخول بالحساب نفسه المستخدم على هذا الـ Mac. سيظهر هذا الـ Mac بعدها ضمن مساحات العمل."
+            "value": "ثبّت cmux على جهاز iPhone وسجّل الدخول بالحساب نفسه المستخدم على هذا الـ Mac. سيظهر هذا الـ Mac بعدها ضمن مساحات العمل. ليس لديك cmux على iPhone بعد؟ إنه في مرحلة تجريبية: احصل عليه عبر TestFlight."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Instalirajte cmux na iPhone i prijavite se istim računom kao na ovom Macu. Ovaj Mac će se zatim pojaviti pod Radnim prostorima."
+            "value": "Instalirajte cmux na iPhone i prijavite se istim računom kao na ovom Macu. Ovaj Mac će se zatim pojaviti pod Radnim prostorima. Još nemate cmux na iPhoneu? U beta je fazi: preuzmite ga putem TestFlighta."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Installer cmux på din iPhone, og log ind med samme konto som på denne Mac. Denne Mac vises derefter under Arbejdsområder."
+            "value": "Installer cmux på din iPhone, og log ind med samme konto som på denne Mac. Denne Mac vises derefter under Arbejdsområder. Har du ikke cmux på din iPhone endnu? Den er i beta: hent den via TestFlight."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Installiere cmux auf deinem iPhone und melde dich mit demselben Konto wie auf diesem Mac an. Dieser Mac erscheint dann unter „Arbeitsbereiche“."
+            "value": "Installiere cmux auf deinem iPhone und melde dich mit demselben Konto wie auf diesem Mac an. Dieser Mac erscheint dann unter „Arbeitsbereiche“. Noch kein cmux auf deinem iPhone? Es ist in der Beta: Hol es dir über TestFlight."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Instala cmux en tu iPhone e inicia sesión con la misma cuenta que en este Mac. Este Mac aparecerá en Espacios de trabajo."
+            "value": "Instala cmux en tu iPhone e inicia sesión con la misma cuenta que en este Mac. Este Mac aparecerá en Espacios de trabajo. ¿Aún no tienes cmux en tu iPhone? Está en beta: consíguelo con TestFlight."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Installez cmux sur votre iPhone et connectez-vous avec le même compte que sur ce Mac. Ce Mac apparaît alors dans Espaces de travail."
+            "value": "Installez cmux sur votre iPhone et connectez-vous avec le même compte que sur ce Mac. Ce Mac apparaît alors dans Espaces de travail. Pas encore cmux sur votre iPhone ? Il est en bêta : obtenez-le via TestFlight."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Installa cmux sul tuo iPhone e accedi con lo stesso account di questo Mac. Questo Mac comparirà quindi in Spazi di lavoro."
+            "value": "Installa cmux sul tuo iPhone e accedi con lo stesso account di questo Mac. Questo Mac comparirà quindi in Spazi di lavoro. Non hai ancora cmux sul tuo iPhone? È in beta: scaricalo con TestFlight."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "iPhone に cmux をインストールし、この Mac と同じアカウントでサインインしてください。すると、この Mac がワークスペースに表示されます。"
+            "value": "iPhone に cmux をインストールし、この Mac と同じアカウントでサインインしてください。すると、この Mac がワークスペースに表示されます。iPhoneにまだcmuxがない場合は、ベータ版をTestFlightで入手できます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ដំឡើង cmux នៅលើ iPhone របស់អ្នក ហើយចូលដោយប្រើគណនីដូចគ្នានឹង Mac នេះ។ បន្ទាប់មក Mac នេះនឹងបង្ហាញនៅក្រោមកន្លែងធ្វើការ។"
+            "value": "ដំឡើង cmux នៅលើ iPhone របស់អ្នក ហើយចូលដោយប្រើគណនីដូចគ្នានឹង Mac នេះ។ បន្ទាប់មក Mac នេះនឹងបង្ហាញនៅក្រោមកន្លែងធ្វើការ។ មិនទាន់មាន cmux នៅលើ iPhone របស់អ្នកទេ? វាស្ថិតក្នុងកំណែ beta៖ ទាញយកវាតាម TestFlight។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "iPhone에 cmux를 설치하고 이 Mac과 같은 계정으로 로그인하세요. 그러면 이 Mac이 작업 공간에 표시됩니다."
+            "value": "iPhone에 cmux를 설치하고 이 Mac과 같은 계정으로 로그인하세요. 그러면 이 Mac이 작업 공간에 표시됩니다. iPhone에 아직 cmux가 없나요? 베타 버전을 TestFlight로 받으세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Installer cmux på iPhonen og logg på med samme konto som på denne Macen. Denne Macen vises da under Arbeidsområder."
+            "value": "Installer cmux på iPhonen og logg på med samme konto som på denne Macen. Denne Macen vises da under Arbeidsområder. Har du ikke cmux på iPhonen ennå? Den er i beta: hent den via TestFlight."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zainstaluj cmux na iPhonie i zaloguj się tym samym kontem co na tym Macu. Ten Mac pojawi się wtedy w obszarach roboczych."
+            "value": "Zainstaluj cmux na iPhonie i zaloguj się tym samym kontem co na tym Macu. Ten Mac pojawi się wtedy w obszarach roboczych. Nie masz jeszcze cmux na iPhonie? Jest w wersji beta: pobierz go przez TestFlight."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Instale o cmux no seu iPhone e entre com a mesma conta deste Mac. Este Mac aparecerá em Espaços de trabalho."
+            "value": "Instale o cmux no seu iPhone e entre com a mesma conta deste Mac. Este Mac aparecerá em Espaços de trabalho. Ainda não tem o cmux no iPhone? Ele está em beta: baixe pelo TestFlight."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Установите cmux на iPhone и войдите в ту же учётную запись, что и на этом Mac. После этого Mac появится в разделе «Рабочие пространства»."
+            "value": "Установите cmux на iPhone и войдите в ту же учётную запись, что и на этом Mac. После этого Mac появится в разделе «Рабочие пространства». Ещё нет cmux на iPhone? Он в бета-версии: установите его через TestFlight."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ติดตั้ง cmux บน iPhone แล้วลงชื่อเข้าใช้ด้วยบัญชีเดียวกับ Mac เครื่องนี้ จากนั้น Mac เครื่องนี้จะแสดงในพื้นที่ทำงาน"
+            "value": "ติดตั้ง cmux บน iPhone แล้วลงชื่อเข้าใช้ด้วยบัญชีเดียวกับ Mac เครื่องนี้ จากนั้น Mac เครื่องนี้จะแสดงในพื้นที่ทำงาน ยังไม่มี cmux บน iPhone ใช่ไหม แอปอยู่ในช่วงเบต้า: ดาวน์โหลดผ่าน TestFlight"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "iPhone’unuza cmux’i yükleyin ve bu Mac’teki hesapla giriş yapın. Bu Mac daha sonra Çalışma Alanları altında görünür."
+            "value": "iPhone’unuza cmux’i yükleyin ve bu Mac’teki hesapla giriş yapın. Bu Mac daha sonra Çalışma Alanları altında görünür. iPhone’unda henüz cmux yok mu? Beta aşamasında: TestFlight üzerinden edin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Установіть cmux на iPhone і увійдіть у той самий обліковий запис, що й на цьому Mac. Після цього Mac з’явиться в розділі «Робочі простори»."
+            "value": "Установіть cmux на iPhone і увійдіть у той самий обліковий запис, що й на цьому Mac. Після цього Mac з’явиться в розділі «Робочі простори». Ще немає cmux на iPhone? Він у бета-версії: установіть його через TestFlight."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cài cmux trên iPhone và đăng nhập bằng cùng tài khoản với máy Mac này. Sau đó máy Mac này sẽ xuất hiện trong mục Không gian làm việc."
+            "value": "Cài cmux trên iPhone và đăng nhập bằng cùng tài khoản với máy Mac này. Sau đó máy Mac này sẽ xuất hiện trong mục Không gian làm việc. Chưa có cmux trên iPhone? Ứng dụng đang ở bản beta: tải qua TestFlight."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "在 iPhone 上安装 cmux，并使用与这台 Mac 相同的账户登录。之后这台 Mac 会显示在“工作区”中。"
+            "value": "在 iPhone 上安装 cmux，并使用与这台 Mac 相同的账户登录。之后这台 Mac 会显示在“工作区”中。iPhone 上还没有 cmux？它正在测试中：可通过 TestFlight 获取。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "在 iPhone 上安裝 cmux，並使用與這台 Mac 相同的帳號登入。之後這台 Mac 會顯示在「工作區」中。"
+            "value": "在 iPhone 上安裝 cmux，並使用與這台 Mac 相同的帳號登入。之後這台 Mac 會顯示在「工作區」中。iPhone 上還沒有 cmux？它正在測試中：可透過 TestFlight 取得。"
           }
         }
       }
@@ -1180,133 +1180,526 @@
         }
       }
     },
+    "iphone.pair.machineBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It is your Mac, signed in as %@. Once allowed, it can see this Mac’s name and what it may do here, nothing more: it cannot see your work until you choose what it may do in Settings > Devices. Remove it there to stop it at once."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ でサインインしているあなたの Mac です。許可すると、この Mac の名前と、ここで許可された操作だけを確認できます。「設定 > デバイス」で許可を選ぶまで、作業内容は見えません。そこで削除するとすぐに止まります。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إنه جهاز Mac الخاص بك، مسجّل الدخول باسم %@. بعد السماح له، يمكنه رؤية اسم هذا الـ Mac وما يُسمح له بفعله هنا، لا أكثر: لا يمكنه رؤية عملك حتى تختار ما يُسمح له بفعله في الإعدادات > الأجهزة. أزِله من هناك لإيقافه فورًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovo je vaš Mac, prijavljen kao %@. Kada ga dozvolite, može vidjeti naziv ovog Maca i šta smije raditi ovdje, ništa više: ne može vidjeti vaš rad dok ne odaberete šta smije raditi u Postavke > Uređaji. Uklonite ga tamo da ga odmah zaustavite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Det er din Mac, logget ind som %@. Når den er tilladt, kan den se denne Macs navn og hvad den må gøre her, intet andet: den kan ikke se dit arbejde, før du vælger, hvad den må gøre, i Indstillinger > Enheder. Fjern den der for at stoppe den med det samme."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das ist dein Mac, angemeldet als %@. Sobald er erlaubt ist, sieht er den Namen dieses Macs und was er hier tun darf, sonst nichts: Deine Arbeit sieht er erst, wenn du unter Einstellungen > Geräte auswählst, was er tun darf. Entferne ihn dort, um ihn sofort zu stoppen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Es tu Mac, con la sesión iniciada como %@. Una vez permitido, puede ver el nombre de este Mac y lo que puede hacer aquí, nada más: no puede ver tu trabajo hasta que elijas lo que puede hacer en Ajustes > Dispositivos. Quítalo allí para detenerlo al instante."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "C’est votre Mac, connecté en tant que %@. Une fois autorisé, il peut voir le nom de ce Mac et ce qu’il a le droit de faire ici, rien de plus : il ne peut pas voir votre travail tant que vous n’avez pas choisi ce qu’il peut faire dans Réglages > Appareils. Retirez-le là-bas pour l’arrêter aussitôt."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "È il tuo Mac, con accesso eseguito come %@. Una volta consentito, può vedere il nome di questo Mac e cosa può fare qui, nient’altro: non può vedere il tuo lavoro finché non scegli cosa può fare in Impostazioni > Dispositivi. Rimuovilo da lì per fermarlo subito."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "នេះជា Mac របស់អ្នក ដែលបានចូលជា %@។ នៅពេលអនុញ្ញាតហើយ វាអាចមើលឃើញឈ្មោះរបស់ Mac នេះ និងអ្វីដែលវាអាចធ្វើនៅទីនេះ មិនលើសពីនេះទេ៖ វាមិនអាចមើលការងាររបស់អ្នកបានទេ រហូតដល់អ្នកជ្រើសរើសអ្វីដែលវាអាចធ្វើនៅក្នុង ការកំណត់ > ឧបករណ៍។ ដកវាចេញនៅទីនោះ ដើម្បីបញ្ឈប់វាភ្លាមៗ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@(으)로 로그인한 내 Mac입니다. 허용하면 이 Mac의 이름과 여기서 할 수 있는 작업만 볼 수 있으며 그 이상은 볼 수 없습니다. 설정 > 기기에서 할 수 있는 작업을 선택하기 전까지는 내 작업을 볼 수 없습니다. 그곳에서 제거하면 즉시 중지됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Det er din Mac, logget på som %@. Når den er tillatt, kan den se navnet på denne Macen og hva den kan gjøre her, ikke noe mer: den kan ikke se arbeidet ditt før du velger hva den kan gjøre i Innstillinger > Enheter. Fjern den der for å stoppe den med en gang."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "To Twój Mac, zalogowany jako %@. Po zezwoleniu widzi nazwę tego Maca i to, co może tu robić, nic więcej: nie widzi Twojej pracy, dopóki nie wybierzesz, co może robić, w Ustawienia > Urządzenia. Usuń go tam, aby od razu go zatrzymać."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "É o seu Mac, com sessão iniciada como %@. Depois de permitido, ele pode ver o nome deste Mac e o que pode fazer aqui, nada mais: ele não pode ver seu trabalho até você escolher o que ele pode fazer em Ajustes > Dispositivos. Remova-o lá para pará-lo na hora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Это ваш Mac, вход выполнен как %@. После разрешения он видит имя этого Mac и то, что ему можно здесь делать, и ничего больше: вашу работу он не увидит, пока вы не выберете, что ему можно делать, в разделе «Настройки» > «Устройства». Удалите его там, чтобы сразу остановить."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "นี่คือ Mac ของคุณ ซึ่งลงชื่อเข้าใช้เป็น %@ เมื่ออนุญาตแล้ว จะเห็นชื่อของ Mac เครื่องนี้และสิ่งที่ทำได้ที่นี่เท่านั้น ไม่มีอะไรมากกว่านั้น: จะไม่เห็นงานของคุณจนกว่าคุณจะเลือกสิ่งที่ทำได้ใน การตั้งค่า > อุปกรณ์ ลบออกที่นั่นเพื่อหยุดทันที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu, %@ olarak oturum açmış Mac’iniz. İzin verildiğinde bu Mac’in adını ve burada neler yapabileceğini görebilir, fazlasını değil: Ayarlar > Aygıtlar’da neler yapabileceğini seçene kadar çalışmanızı göremez. Hemen durdurmak için onu oradan kaldırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Це ваш Mac, вхід виконано як %@. Після дозволу він бачить назву цього Mac і те, що йому дозволено тут робити, і більше нічого: вашої роботи він не бачить, доки ви не виберете, що йому можна робити, у «Налаштування» > «Пристрої». Вилучіть його там, щоб одразу зупинити."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đây là máy Mac của bạn, đã đăng nhập với tên %@. Khi được cho phép, nó có thể thấy tên của máy Mac này và những gì nó được làm ở đây, không gì hơn: nó không thể thấy công việc của bạn cho đến khi bạn chọn những gì nó được làm trong Cài đặt > Thiết bị. Gỡ nó ở đó để dừng ngay lập tức."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "这是你的 Mac，以 %@ 身份登录。允许后，它只能看到这台 Mac 的名称以及它在这里可以做什么，仅此而已：在你于“设置 > 设备”中选择它可以做什么之前，它看不到你的工作。在那里移除它即可立即停止。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "這是你的 Mac，以 %@ 身分登入。允許後，它只能看到這台 Mac 的名稱以及它在這裡可以做什麼，僅此而已：在你於「設定 > 裝置」中選擇它可以做什麼之前，它看不到你的工作。在那裡移除它即可立即停止。"
+          }
+        }
+      }
+    },
     "iphone.pair.title": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Allow “%@” to connect to this Mac?"
+            "value": "Allow “%1$@” (%2$@) to connect to this Mac?"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "هل تريد السماح لـ «%@» بالاتصال بهذا الـ Mac؟"
+            "value": "هل تريد السماح لـ «%1$@» (%2$@) بالاتصال بهذا الـ Mac؟"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dozvoliti da se „%@“ poveže s ovim Macom?"
+            "value": "Dozvoliti da se „%1$@“ (%2$@) poveže s ovim Macom?"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vil du tillade, at “%@” forbinder til denne Mac?"
+            "value": "Vil du tillade, at “%1$@” (%2$@) forbinder til denne Mac?"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "„%@“ erlauben, sich mit diesem Mac zu verbinden?"
+            "value": "„%1$@“ (%2$@) erlauben, sich mit diesem Mac zu verbinden?"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "¿Permitir que “%@” se conecte a este Mac?"
+            "value": "¿Permitir que “%1$@” (%2$@) se conecte a este Mac?"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Autoriser « %@ » à se connecter à ce Mac ?"
+            "value": "Autoriser « %1$@ » (%2$@) à se connecter à ce Mac ?"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Consentire a “%@” di connettersi a questo Mac?"
+            "value": "Consentire a “%1$@” (%2$@) di connettersi a questo Mac?"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "“%@”にこの Mac への接続を許可しますか？"
+            "value": "“%1$@”（%2$@）にこの Mac への接続を許可しますか？"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "អនុញ្ញាតឱ្យ “%@” តភ្ជាប់ទៅ Mac នេះឬ?"
+            "value": "អនុញ្ញាតឱ្យ “%1$@” (%2$@) តភ្ជាប់ទៅ Mac នេះឬ?"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "“%@”이(가) 이 Mac에 연결하도록 허용하시겠습니까?"
+            "value": "“%1$@” (%2$@)이(가) 이 Mac에 연결하도록 허용하시겠습니까?"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vil du tillate at «%@» kobler til denne Macen?"
+            "value": "Vil du tillate at «%1$@» (%2$@) kobler til denne Macen?"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zezwolić urządzeniu „%@” na połączenie z tym Makiem?"
+            "value": "Zezwolić urządzeniu „%1$@” (%2$@) na połączenie z tym Makiem?"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Permitir que “%@” se conecte a este Mac?"
+            "value": "Permitir que “%1$@” (%2$@) se conecte a este Mac?"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Разрешить «%@» подключаться к этому Mac?"
+            "value": "Разрешить «%1$@» (%2$@) подключаться к этому Mac?"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "อนุญาตให้ “%@” เชื่อมต่อกับ Mac เครื่องนี้หรือไม่"
+            "value": "อนุญาตให้ “%1$@” (%2$@) เชื่อมต่อกับ Mac เครื่องนี้หรือไม่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "“%@” bu Mac’e bağlanabilsin mi?"
+            "value": "“%1$@” (%2$@) bu Mac’e bağlanabilsin mi?"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Дозволити «%@» підключатися до цього Mac?"
+            "value": "Дозволити «%1$@» (%2$@) підключатися до цього Mac?"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cho phép “%@” kết nối với máy Mac này?"
+            "value": "Cho phép “%1$@” (%2$@) kết nối với máy Mac này?"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "允许“%@”连接到这台 Mac 吗？"
+            "value": "允许“%1$@”（%2$@）连接到这台 Mac 吗？"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "允許「%@」連線到這台 Mac 嗎？"
+            "value": "允許「%1$@」（%2$@）連線到這台 Mac 嗎？"
+          }
+        }
+      }
+    },
+    "iphone.phone.transport.next": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · cmux next"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux next"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux next"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux next"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux next"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux next"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux next"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux next"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux next"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux next"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux next"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux next"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux next"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux next"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux next"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux next"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux next"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux next"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux next"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux next"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux next"
+          }
+        }
+      }
+    },
+    "iphone.phone.transport.ios": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ · cmux (iOS)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux (iOS)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux (iOS)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux (iOS)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux (iOS)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux (iOS)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux (iOS)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux (iOS)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux (iOS)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux (iOS)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux (iOS)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux (iOS)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux (iOS)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux (iOS)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux (iOS)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux (iOS)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux (iOS)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux (iOS)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux (iOS)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux (iOS)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ · cmux (iOS)"
           }
         }
       }
@@ -1962,6 +2355,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "中繼 (TURN/TLS)"
+          }
+        }
+      }
+    },
+    "iphone.path.httpsRelay": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relayed (cmux over HTTPS)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عبر مُرحِّل (cmux, HTTPS)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preko releja (cmux, HTTPS)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Videresendt (cmux, HTTPS)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Über Relay (cmux, HTTPS)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Retransmitida (cmux, HTTPS)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Relayée (cmux, HTTPS)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tramite relay (cmux, HTTPS)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "中継 (cmux, HTTPS)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តាមរយៈការបញ្ជូនត (cmux, HTTPS)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "중계(cmux, HTTPS)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Videresendt (cmux, HTTPS)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przez przekaźnik (cmux, HTTPS)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Retransmitida (cmux, HTTPS)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Через ретранслятор (cmux, HTTPS)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ผ่านรีเลย์ (cmux, HTTPS)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aktarmalı (cmux, HTTPS)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Через ретранслятор (cmux, HTTPS)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Qua chuyển tiếp (cmux, HTTPS)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "中继 (cmux, HTTPS)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "中繼 (cmux, HTTPS)"
           }
         }
       }
@@ -4189,6 +4713,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "狀態"
+          }
+        }
+      }
+    },
+    "iphone.status.keychainLocked": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for the login keychain to unlock. iPhones connect once it does."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "في انتظار فتح سلسلة مفاتيح تسجيل الدخول. تتصل أجهزة iPhone بعد ذلك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Čeka se otključavanje login keychaina. iPhone uređaji se tada povezuju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venter på, at login-nøgleringen låses op. iPhones forbinder derefter."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Warten auf das Entsperren des Anmeldeschlüsselbunds. Danach verbinden sich iPhones."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esperando a que se desbloquee el llavero de inicio de sesión. Los iPhone se conectarán entonces."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En attente du déverrouillage du trousseau de session. Les iPhone se connecteront ensuite."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In attesa dello sblocco del portachiavi di login. Poi gli iPhone si collegheranno."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ログインキーチェーンのロック解除を待っています。解除されると iPhone が接続します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងរង់ចាំការដោះសោ login keychain។ បន្ទាប់មក iPhone នឹងភ្ជាប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "로그인 키체인 잠금 해제를 기다리는 중입니다. 해제되면 iPhone이 연결됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Venter på at påloggingsnøkkelringen låses opp. Deretter kobler iPhone til."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oczekiwanie na odblokowanie pęku kluczy logowania. Potem iPhone’y się połączą."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aguardando o desbloqueio das chaves de login. Os iPhones se conectam em seguida."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ожидание разблокировки связки ключей входа. После этого iPhone подключатся."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังรอให้พวงกุญแจเข้าสู่ระบบปลดล็อก จากนั้น iPhone จะเชื่อมต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Giriş anahtar zincirinin kilidinin açılması bekleniyor. Ardından iPhone’lar bağlanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Очікування розблокування в’язки ключів входу. Після цього iPhone під’єднаються."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang chờ mở khóa chuỗi khóa đăng nhập. Sau đó iPhone sẽ kết nối."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在等待登录钥匙串解锁。解锁后 iPhone 即可连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在等待登入鑰匙圈解鎖。解鎖後 iPhone 即可連線。"
           }
         }
       }

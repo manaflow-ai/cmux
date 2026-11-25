@@ -400,7 +400,7 @@ describe("dashboard billing screen", () => {
     expect(html).toMatch(/href="[^"]*\/api\/billing\/checkout\?plan=max[^"]*"[^>]*>Upgrade to Max/);
     expect(html).not.toContain("Switch to Max");
     expect(html).not.toContain("Cancel plan");
-    expect(html).toContain("Founder&#x27;s Edition includes Pro for life.");
+    expect(html).toContain("Your lifetime purchase includes Pro.");
   });
 
   test("a Founder on Max is offered Pro by ending Max, not a paid Pro switch", async () => {
@@ -417,7 +417,7 @@ describe("dashboard billing screen", () => {
 
     expect(html).toMatch(/data-plan="max"[^>]*aria-current="true"/);
     expect(html).toMatch(/data-plan="pro"[\s\S]*?<button[^>]*>Switch to Pro<\/button>/);
-    expect(html).toContain("Founder&#x27;s Edition includes Pro for life.");
+    expect(html).toContain("Your lifetime purchase includes Pro.");
     expect(html).not.toContain("Cancel plan");
   });
 
@@ -606,6 +606,23 @@ describe("dashboard billing screen", () => {
     expect(html).toMatch(/data-plan="free"[^>]*aria-current="true"/);
     expect(html).not.toContain("/api/billing/subscription");
     expect(html).not.toContain("/api/billing/portal");
+  });
+
+  test("welcomes a $1 pass buyer only while the pass checkout is on", async () => {
+    const previous = process.env.CMUX_CLOUD_INTRO;
+    try {
+      delete process.env.CMUX_CLOUD_INTRO;
+      expect(await renderBillingPage({ welcome: "intro" })).not.toContain('data-testid="cloud-intro-welcome"');
+      process.env.CMUX_CLOUD_INTRO = "1";
+      const html = await renderBillingPage({ welcome: "intro" });
+      expect(html).toContain('data-testid="cloud-intro-welcome"');
+      expect(html).toContain("Your $1 pass is on");
+      expect(html).toContain("It runs for 30 days. 25 Chief hours and 750 machine-minutes are released each week.");
+      expect(html).not.toContain('data-testid="plan-welcome"');
+    } finally {
+      if (previous === undefined) delete process.env.CMUX_CLOUD_INTRO;
+      else process.env.CMUX_CLOUD_INTRO = previous;
+    }
   });
 
   for (const [billing, message] of [

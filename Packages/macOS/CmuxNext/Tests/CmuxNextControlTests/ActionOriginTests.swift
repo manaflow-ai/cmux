@@ -189,7 +189,7 @@ import Testing
     /// An agent's or a script's window, pane or tab screenshot runs (Leo 2026-10-21: agents
     /// need before/after captures of the real app) and reaches the handler marked as a socket
     /// run, whatever origin it claims, `user` included: the handler then masks every browser
-    /// page and chat (ScreenshotHandlers.isPersonsRun, MaskedScreenshotTests in the app tests).
+    /// page and chat (ActionInvocation.isPersonsOwnRun, MaskedScreenshotTests in the app tests).
     /// Only a run from inside the app is unmarked.
     @Test func windowPaneAndTabScreenshotsRunOverTheSocketAsAutomation() async throws {
         let registry = ActionRegistry.standard()
@@ -243,6 +243,22 @@ import Testing
         #expect(ran.isEmpty)
         for id in ids { #expect(registry.perform(id)) }
         #expect(ran == ids)
+    }
+
+    /// Computer Use's grant actions start the grant's Allow (which can turn Computer Use on) only
+    /// on the person's own run (cmux#48541): an agent's socket run that asks for focus, or claims
+    /// the `user` origin, may bring the window forward but is never the person's own run.
+    @Test func aFocusRequestOrAClaimedUserOriginOverTheSocketIsNeverThePersonsOwnRun() async throws {
+        let (_, asked) = await run(["focus": true])
+        #expect(asked?.allowsViewChange == true)
+        #expect(asked?.isPersonsOwnRun == false)
+        let (_, claimed) = await run(["origin": "user", "focus": true])
+        #expect(claimed?.allowsViewChange == true)
+        #expect(claimed?.isPersonsOwnRun == false)
+        #expect(ActionInvocation().isPersonsOwnRun)
+        var page = ActionInvocation(); page.origin = .page; page.focusRequested = true
+        #expect(page.allowsViewChange)
+        #expect(!page.isPersonsOwnRun)
     }
 
     @Test func inAppRunsAreTheUsers() {

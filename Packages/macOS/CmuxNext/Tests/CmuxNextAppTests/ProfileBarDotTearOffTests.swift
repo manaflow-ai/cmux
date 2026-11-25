@@ -1,12 +1,13 @@
 import AppKit
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// A space dot dragged out of the window opens that space in a new window (Lawrence 14223,
 /// plans/cmux-next/spaces-overhaul-DESIGN.md rule 4), the action Open Space in New Window runs
 /// (`SidebarIntent.openProfileInNewWindow`, `space.openInNewWindow`). It never reorders, and a drop on
 /// the footer band still reorders as before. Real mouse events on the bar, as `ProfileBarDotReorderTests`.
-@MainActor @Suite(.serialized) struct ProfileBarDotTearOffTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct ProfileBarDotTearOffTests {
     static let keys = (0..<3).map { ProfileKey("space\($0)") }
 
     final class Bar {
@@ -54,7 +55,7 @@ import Testing
 
     @Test func aDotDroppedOutsideTheWindowOpensItsSpaceInANewWindow() {
         let bar = Bar()
-        defer { bar.window.orderOut(nil) }
+        defer { bar.window.closeAfterTest() }
         let start = bar.center(1)
         bar.drag(1, through: [NSPoint(x: start.x + 6, y: start.y), NSPoint(x: start.x + 20, y: start.y + 120), NSPoint(x: start.x + 40, y: start.y + 300)])
         #expect(bar.opens == [.openProfileInNewWindow(Self.keys[1])], "\(bar.intents)")
@@ -65,7 +66,7 @@ import Testing
     /// The pointer left and came back over the band: a reorder, no new window.
     @Test func aDotThatComesBackToTheBandStillReorders() {
         let bar = Bar()
-        defer { bar.window.orderOut(nil) }
+        defer { bar.window.closeAfterTest() }
         let start = bar.center(0), last = bar.center(2)
         bar.drag(0, through: [NSPoint(x: start.x + 6, y: start.y), NSPoint(x: start.x, y: start.y + 300), NSPoint(x: last.x + 4, y: last.y)])
         #expect(bar.opens.isEmpty, "\(bar.intents)")
@@ -75,7 +76,7 @@ import Testing
     /// A drop on the band opens nothing.
     @Test func aDropOnTheBandOpensNoWindow() {
         let bar = Bar()
-        defer { bar.window.orderOut(nil) }
+        defer { bar.window.closeAfterTest() }
         let y = bar.center(2).y
         bar.drag(2, through: [NSPoint(x: bar.center(2).x - 6, y: y), NSPoint(x: bar.center(1).x - 2, y: y)])
         #expect(bar.opens.isEmpty, "\(bar.intents)")

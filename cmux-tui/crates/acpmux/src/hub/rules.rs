@@ -48,6 +48,8 @@ pub fn tokens(request: &Value) -> Vec<String> {
         out.push(k.to_lowercase());
     }
     if let Some(t) = tc.get("title").and_then(Value::as_str) {
+        // A subagent's command is matched as it was written, not on the hook's mark line.
+        let t = crate::bg_hook::without_subagent_mark(t);
         out.push(t.to_lowercase());
         let head = t.split(|c: char| c == ':' || c.is_whitespace()).next().unwrap_or("").trim();
         if !head.is_empty() {
@@ -91,3 +93,7 @@ pub fn decide(rules: &Value, request: &Value) -> Option<RuleDecision> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+#[path = "rules_tests.rs"]
+mod tests;

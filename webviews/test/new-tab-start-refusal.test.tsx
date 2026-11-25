@@ -4,6 +4,9 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { translate as t } from "../src/agent-session/acpmux/i18n";
+import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
+import { settleReact } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, { had: boolean; value: unknown }>();
@@ -19,6 +22,7 @@ beforeAll(() => {
     document: dom.window.document,
     location: dom.window.location,
     navigator: dom.window.navigator,
+    ...proseMirrorGlobals(dom.window as unknown as Window & typeof globalThis),
     Node: dom.window.Node,
     Element: dom.window.Element,
     Event: dom.window.Event,
@@ -68,6 +72,7 @@ afterEach(async () => {
 afterAll(async () => {
   // The pane marked the page as the mock daemon's (App.tsx): later files see a plain page again.
   (await import("../src/agent-session/acpmux/newtab/chatStore")).markMockPage(false);
+  await settleReact();
   dom.window.close();
   for (const [key, entry] of saved) {
     if (entry.had) scope[key] = entry.value;
@@ -80,11 +85,54 @@ const tick = () =>
   act(async () => {
     await new Promise((done) => setTimeout(done, 0));
   });
+
+async function promptField() {
+  const field = host.querySelector<MarkdownFieldElement>(".nt-field")!;
+  for (let turn = 0; turn < 200 && !(field.acpmuxMarkdownField && field.querySelector("[contenteditable]")); turn++)
+    await tick();
+  return field;
+}
+
+async function writePrompt(text: string) {
+  const field = await promptField();
+  const handle = field.acpmuxMarkdownField!;
+  await act(async () => handle.writeText(text, text.length, text.length));
+  return { field, editor: field.querySelector<HTMLElement>("[contenteditable]")! };
+}
+
+const promptValue = () => host.querySelector<MarkdownFieldElement>(".nt-field")?.acpmuxMarkdownField?.plainText() ?? "";
 /// Waits for `check` to hold, a turn at a time; fails with `what` if it never does.
 async function until(check: () => boolean, what: string, within = 10_000) {
   const deadline = Date.now() + within;
   while (!check() && Date.now() < deadline) await tick();
   expect(check(), what).toBe(true);
+}
+
+const machineButton = () =>
+  host.querySelector<HTMLButtonElement>('.acpmux-location-picker[data-kind="computer"] button');
+/// Picks the SSH machine devbox. The machine chip's main list is This Mac and Cloud; every machine is
+/// in Machines… on its right-click menu (#28999).
+async function pickDevbox() {
+  await until(() => machineButton() !== null, "the machine chip");
+  await act(async () =>
+    machineButton()!.dispatchEvent(
+      new dom.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }),
+    ),
+  );
+  const machinesItem = () =>
+    [...dom.window.document.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')].find(
+      (candidate) => candidate.textContent === t("composer.machinesList"),
+    );
+  await until(() => !!machinesItem(), "Machines… on the machine chip's right-click menu");
+  await act(async () => machinesItem()!.click());
+  await until(
+    () => [...dom.window.document.querySelectorAll(".acpmux-menu-label")].some((node) => node.textContent === "devbox"),
+    "devbox pick",
+  );
+  const remote = [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-menu-item")].find(
+    (node) => node.querySelector(".acpmux-menu-label")?.textContent === "devbox",
+  )!;
+  await act(async () => remote.click());
 }
 
 for (const [remoteStart, trust, reconnectStart, decline, promptTrust] of [
@@ -182,30 +230,10 @@ for (const [remoteStart, trust, reconnectStart, decline, promptTrust] of [
       const start = actions["chat.new"];
       actions["chat.new"] = (params: Record<string, unknown>) => start({ ...params, harness: "claude" });
     }
-    const machine = () => host.querySelector<HTMLButtonElement>('.acpmux-location-picker[data-kind="computer"] button');
-    const pickRemote = async () => {
-      await act(async () => machine()!.click());
-      await until(
-        () =>
-          [...dom.window.document.querySelectorAll(".acpmux-menu-label")].some((node) => node.textContent === "devbox"),
-        "devbox pick",
-      );
-      const remote = [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-menu-item")].find(
-        (node) => node.querySelector(".acpmux-menu-label")?.textContent === "devbox",
-      )!;
-      await act(async () => remote.click());
-    };
-    if (remoteStart) await pickRemote();
-    const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value")!.set!.call(
-        field,
-        "inspect the failed build",
-      );
-      field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
-    });
+    if (remoteStart) await pickDevbox();
+    const { field, editor } = await writePrompt("inspect the failed build");
     await act(async () =>
-      field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
+      editor.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
     );
     await until(() => starts.length === 1, "session/new refused");
     if (reconnectStart) {
@@ -226,28 +254,27 @@ for (const [remoteStart, trust, reconnectStart, decline, promptTrust] of [
       () =>
         trust
           ? !!host.querySelector(".acpmux-trust-ask-primary")
-          : [...host.querySelectorAll('[role="alert"]')].some((node) =>
-              node.textContent?.includes("agent unavailable"),
-            ),
+          : // The refusal says why in plain words, its raw words under Details (newtab/StartFailure.tsx).
+            !!host.querySelector('[role="alert"]') &&
+            !!host.querySelector("[data-error-detail]")?.textContent?.includes("agent unavailable"),
       "inline refusal",
     );
     expect(starts[0]._meta.acpmux.peer).toBe(remoteStart ? "devbox" : undefined);
+    if (!remoteStart && !trust) {
+      // A local start that fails before any chat opened comes back to New Tab, the failure said in
+      // place (Retry, Details) and the prompt still in its field, never the chat view's empty-chat
+      // hero (Leo, 2026-11-17: "this is an old a** deprecated view. this should not have been shown.";
+      // test/new-tab-start-frames.test.ts).
+      await until(() => !!host.querySelector(".nt-field"), "the failed local start is back on New Tab");
+      await until(() => promptValue() === "inspect the failed build", "the refused prompt is kept in New Tab's field");
+      expect(host.querySelector("[data-error-detail]")?.textContent).toContain("agent unavailable");
+      expect(prompts).toHaveLength(0);
+      return;
+    }
     if (!remoteStart) {
       // A local start becomes its chat at once, with the prompt queued in it (Leo 2026-10-30: "I
-      // SHOULD BE ALWAYS ABLE TO SATRT NEW FUCKGN CHATS"): the refusal shows in the chat, and the
-      // prompt is never lost, back in the chat's composer.
+      // SHOULD BE ALWAYS ABLE TO SATRT NEW FUCKGN CHATS"); Trust is asked in the chat.
       await until(() => !host.querySelector(".nt-field"), "the local start becomes its chat");
-      if (!trust) {
-        // The refusal says why in the chat, and the prompt is still on the page (its failed row or the
-        // chat's composer): nothing typed is lost.
-        await until(() => !!host.textContent?.includes("agent unavailable"), "the chat says why it did not start");
-        const kept = () =>
-          host.textContent?.includes("inspect the failed build") ||
-          [...host.querySelectorAll("textarea")].some((node) => node.value.includes("inspect the failed build"));
-        await until(() => !!kept(), "the refused prompt is kept");
-        expect(prompts).toHaveLength(0);
-        return;
-      }
       await until(() => !!host.querySelector(".acpmux-trust-ask-primary"), "Trust in the chat");
       await act(async () => host.querySelector<HTMLButtonElement>(".acpmux-trust-ask-primary")!.click());
       await until(() => prompts.length === 1, "Trust sends the prompt exactly once");
@@ -257,8 +284,9 @@ for (const [remoteStart, trust, reconnectStart, decline, promptTrust] of [
       return;
     }
     expect(host.querySelector(".nt-field")).toBe(field);
-    expect(field.value).toBe("inspect the failed build");
-    expect(machine()?.textContent).toContain("devbox");
+    expect(promptValue()).toBe("inspect the failed build");
+    // The strip names the machine (the machine chip; the Where chip says where it runs).
+    expect(host.querySelector(".acpmux-location-leading")?.textContent).toContain("devbox");
     if (trust) {
       await until(() => !!host.querySelector(".acpmux-trust-ask-primary"), "Trust control on the retained New Tab");
       expect(host.querySelector(".nt-field")).toBe(field);
@@ -267,12 +295,16 @@ for (const [remoteStart, trust, reconnectStart, decline, promptTrust] of [
           (button) => button.textContent === t("trust.notNow"),
         )!;
         await act(async () => notNow.click());
-        await until(() => !!host.querySelector('[role="alert"]'), "declined start settles with the draft retained");
+        const undoButton = () =>
+          [...host.querySelectorAll<HTMLButtonElement>(".acpmux-trust-ask-action")].find(
+            (button) => button.textContent === t("trust.undo"),
+          );
+        await until(() => undoButton() !== undefined, "declined start settles with the draft retained");
+        // Not now cancelled the start; it did not fail, so no failure notice shows (#28543 review).
+        expect(host.querySelector('.acpmux-switch-notice[role="alert"]')).toBeNull();
         expect(host.querySelector(".nt-field")).toBe(field);
         expect(prompts).toHaveLength(0);
-        const undo = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-trust-ask-action")].find(
-          (button) => button.textContent === t("trust.undo"),
-        )!;
+        const undo = undoButton()!;
         await act(async () => undo.click());
         await until(() => !!host.querySelector(".acpmux-trust-ask-primary"), "Undo offers Trust again");
       }
@@ -280,7 +312,7 @@ for (const [remoteStart, trust, reconnectStart, decline, promptTrust] of [
       if (decline) {
         expect(prompts).toHaveLength(0);
         await act(async () =>
-          field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
+          editor.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
         );
       }
       await until(() => prompts.length === 1, "Trust resumes the retained request exactly once");
@@ -293,11 +325,11 @@ for (const [remoteStart, trust, reconnectStart, decline, promptTrust] of [
       return;
     }
     await act(async () =>
-      field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
+      editor.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
     );
     await until(() => starts.length === 2, "retry on the same machine");
     expect(starts[1]._meta.acpmux.peer).toBe(remoteStart ? "devbox" : undefined);
-    expect(field.value).toBe("inspect the failed build");
+    expect(promptValue()).toBe("inspect the failed build");
   }, 15_000);
 
 // Return twice while a chat start has not answered: the page's one-ask guard (NewTabScreen
@@ -352,27 +384,11 @@ test("Return twice while a start has not answered asks once", async () => {
   root = createRoot(host);
   await act(async () => root!.render(<AcpmuxApp />));
   await until(() => !!(dom.window as any).cmuxAcpmuxActions?.["chat.new"], "mock handshake");
-  const machine = () => host.querySelector<HTMLButtonElement>('.acpmux-location-picker[data-kind="computer"] button');
-  await act(async () => machine()!.click());
-  await until(
-    () => [...dom.window.document.querySelectorAll(".acpmux-menu-label")].some((node) => node.textContent === "devbox"),
-    "devbox pick",
-  );
-  const remote = [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-menu-item")].find(
-    (node) => node.querySelector(".acpmux-menu-label")?.textContent === "devbox",
-  )!;
-  await act(async () => remote.click());
-  const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
-  await act(async () => {
-    Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value")!.set!.call(
-      field,
-      "fix the flaky upload test",
-    );
-    field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
-  });
+  await pickDevbox();
+  const { editor } = await writePrompt("fix the flaky upload test");
   for (let press = 0; press < 2; press++) {
     await act(async () =>
-      field.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })),
+      editor.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })),
     );
     await until(() => starts.length >= 1, "the start is asked");
   }
@@ -385,3 +401,76 @@ test("Return twice while a start has not answered asks once", async () => {
   expect(prompts).toHaveLength(1);
   expect(prompts[0].prompt[0].text).toBe("fix the flaky upload test");
 }, 15_000);
+
+// The 2026-11-12 failure as a person met it (#44964): the app's relay refused every chat's start
+// frame, and each chat said only "Couldn't start <agent>: Something went wrong, so that didn't go
+// through." Typed on New Tab, a start the host refuses says the start was blocked, and the refusal
+// (the param the relay refused, its code) waits under Details.
+for (const remoteStart of [false, true])
+  test(`a host-refused ${remoteStart ? "SSH" : "local"} start says the start was blocked, the refused param under Details`, async () => {
+    const { MockAcpmuxSocket } = await import("../src/agent-session/acpmux/mock");
+    type Answer = (method: string, params: Record<string, any>) => Promise<any>;
+    const proto = MockAcpmuxSocket.prototype as unknown as { answer: Answer };
+    const answer = proto.answer;
+    restoreAnswer = () => (proto.answer = answer);
+    const starts: Record<string, any>[] = [];
+    proto.answer = async function (method, params) {
+      if (method === "session/new") {
+        starts.push(params);
+        // The relay's refusal frame (AcpmuxPaneMethods.refusal) for a frame that broke its params rule.
+        throw Object.assign(new Error("Refused by the cmux host"), {
+          data: {
+            code: "transport.intent_invalid",
+            origin: "native",
+            detail: 'unknown _meta.acpmux key "launchProfile"',
+          },
+        });
+      }
+      const result = await answer.call(this, method, params);
+      return method === "_acpmux/status"
+        ? { ...result, peers: [{ name: "devbox", kind: "ssh", connected: true }] }
+        : result;
+    };
+    const { createRoot } = await import("react-dom/client");
+    const { AcpmuxApp } = await import("../src/agent-session/acpmux/App");
+    Object.assign(dom.window, {
+      webkit: {
+        messageHandlers: {
+          agentSession: {
+            postMessage: (message: { method: string }) =>
+              Promise.resolve({
+                ok: true,
+                value:
+                  message.method === "ready"
+                    ? {
+                        protocolVersion: 1,
+                        transport: "mock",
+                        newSession: true,
+                        machineName: "Mac",
+                        newTab: { template: "minimal", layout: "b", lastAgent: "claude", cwd: "/tmp/demo-project" },
+                      }
+                    : undefined,
+              }),
+          },
+        },
+      },
+    });
+    root = createRoot(host);
+    await act(async () => root!.render(<AcpmuxApp />));
+    await until(() => !!(dom.window as any).cmuxAcpmuxActions?.["chat.new"], "mock handshake");
+    if (remoteStart) await pickDevbox();
+    const { editor } = await writePrompt("inspect the failed build");
+    await act(async () =>
+      editor.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
+    );
+    await until(() => starts.length === 1, "session/new refused");
+    const details = () => [...host.querySelectorAll("[data-error-detail]")].map((node) => node.textContent ?? "");
+    await until(
+      () => details().some((text) => text.includes('unknown _meta.acpmux key "launchProfile"')),
+      "the refused param under Details",
+    );
+    const alerts = [...host.querySelectorAll('[role="alert"]')].map((node) => node.textContent ?? "").join("\n");
+    expect(alerts).toContain(t("transport.intentInvalidStart"));
+    expect(alerts).not.toContain(t("transport.intentInvalid"));
+    expect(details().some((text) => text.includes("code transport.intent_invalid"))).toBe(true);
+  }, 15_000);

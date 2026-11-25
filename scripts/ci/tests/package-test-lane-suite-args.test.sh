@@ -19,7 +19,27 @@ refuse "ends with '.'" "CmuxNextAppTests."
 refuse "ends with '.'" "CmuxNextAgentPaneTests,CmuxNextAppTests."
 refuse "ends with '/'" "CmuxNextAppTests.SomeSuite/"
 refuse "test filters such as" "CmuxNextAppTests,,CmuxNextPagesTests"
+# each:WORD (every suite whose name holds WORD, one process each) takes one word.
+refuse "each: takes one word" "each:"
+refuse "each: takes one word" "each:Side.bar"
+refuse "each: takes one word" "CmuxNextAppTests,each:Side/bar"
 # Crash program phase 3: an unknown sanitizer is refused before any build.
 CMUX_SWIFT_SANITIZE=memory refuse "CMUX_SWIFT_SANITIZE must be" "CmuxNextAppTests"
+# The package: under Packages/, or the iPhone app's kit (its only Mac route besides the simulator class).
+pkg_refused() {
+  local out code=0
+  out=$(bash scripts/ci/package-test-lane.sh suite "$1" SomeTests 2>&1) || code=$?
+  if [ "$code" -ne 2 ] || [[ "$out" != *"needs a package directory under Packages/"* ]]; then
+    echo "FAIL: suite $1 exited $code, output: $out" >&2; fails=$((fails + 1))
+  fi
+}
+pkg_refused cmux-next-ios/CmuxMobileKit/../CmuxMobileKit
+pkg_refused cmux-next-ios
+pkg_refused cmux-tui
+# The kit passes the package check: a bad filter is what refuses it.
+out=$(bash scripts/ci/package-test-lane.sh suite cmux-next-ios/CmuxMobileKit "ChatTurnBoundTests." 2>&1) || true
+if [[ "$out" != *"ends with '.'"* ]]; then
+  echo "FAIL: suite cmux-next-ios/CmuxMobileKit was refused as a package: $out" >&2; fails=$((fails + 1))
+fi
 if [ "$fails" -ne 0 ]; then exit 1; fi
 echo "package-test-lane suite args: ok"

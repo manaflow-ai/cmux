@@ -3,6 +3,7 @@ import CmuxNextBridge
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import Foundation
 import QuartzCore
 import Testing
@@ -13,7 +14,7 @@ import Testing
 /// `TAB-SWITCH-PATH n=<count> apply p50/p90 <ms> turn p50/p90 <ms> snapshots/switch <x> moves <n>`.
 /// The checks are behavioral, at every tab count: a warm switch maps no strip (`structure()`), moves
 /// no content view between superviews or windows, and leaves exactly the selected tab's view shown.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(4)))
+@MainActor @Suite(.serialized, .timeLimit(.minutes(4)), .closesItsWindows)
 struct TabSwitchPathBench {
     final class Provider: InternalPageProvider {
         let page = InternalPageID(rawValue: "switch-path-bench")

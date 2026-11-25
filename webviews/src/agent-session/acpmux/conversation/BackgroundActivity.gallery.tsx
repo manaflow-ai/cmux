@@ -431,7 +431,7 @@ export default componentEntry<Props>({
       import("../styles.css"),
       import("./conversation.css"),
       import("../summary/summary.css"),
-      import("../inspector/inspector.css"),
+      import("../session-info/sessionInfo.css"),
       import("../subagents/subagents.css"),
     ]),
   load: async () => BackgroundActivityGallery,

@@ -23,6 +23,7 @@ export function installChipHost(fixture: ChipHostFixture | undefined): void {
     return { ...(icon ? { src: icon } : {}), ...(glyph ? { glyph } : {}) };
   });
   setChipHost(async (method, params) => {
+    if (fixture.refused?.includes(method)) return { ok: false, error: { code: "refused", message: "refused" } };
     if (method === "link.inspect") {
       const paths = (params.paths as string[] | undefined) ?? [];
       const urls = (params.urls as string[] | undefined) ?? [];
@@ -43,6 +44,10 @@ export function installChipHost(fixture: ChipHostFixture | undefined): void {
       const src = params.src;
       const url = typeof src === "string" ? fixture.media?.[src] : undefined;
       return typeof url === "string" ? { src: url } : null;
+    }
+    if (method === "video.info") {
+      const src = params.src;
+      return (typeof src === "string" ? fixture.videos?.[src] : undefined) ?? null;
     }
     if (method === "pr.inspect") {
       const url = typeof params.url === "string" ? params.url : "";

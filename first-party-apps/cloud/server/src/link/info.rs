@@ -4,8 +4,8 @@
 //! may dial); files use its daemon capabilities as their gate
 //! (crate::fs::link_files). Answers are cached ([`InfoCache`]).
 
-use crate::api::models::ConnectInfo;
-use crate::api::{CloudError, ControlPlane, Request, codes, decode_answer};
+use crate::api::models::{ConnectInfo, decode_connect_info};
+use crate::api::{CloudError, ControlPlane, Request, codes};
 use crate::clock::{Clock, SystemClock};
 use crate::ops::Server;
 use serde_json::json;
@@ -25,7 +25,7 @@ pub(crate) fn connect_info<C: ControlPlane>(
         return Ok(info);
     }
     let answer = server.handle(&Request::new(OP, json!({ "machine": machine })))?;
-    let info: ConnectInfo = decode_answer(OP, answer)?;
+    let info = decode_connect_info(OP, answer)?;
     let plain = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-';
     let host = info.host.as_str();
     if host.is_empty() || host.len() > 128 || host.starts_with('-') || !host.chars().all(plain) {

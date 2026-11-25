@@ -3,8 +3,8 @@
 // written around days and the update, not builds:
 //  - After an update: "What's new since your last update", every human change of the span's
 //    builds once (New / Improved / Fixed / Security, a hero when one has media), then every
-//    change by area with its pull request, internal work folded "Under the hood". The span's
-//    nightly reels come first, one card each.
+//    change by area with its pull request, internal work folded "Under the hood". No nightly
+//    reel video: a stitched recording of the span's tours showed no change (Leo, 2026-10-31).
 //  - Then one section per release day ("Today", "Yesterday", "Oct 6"), its builds merged; the
 //    build numbers are small and selectable, never a headline.
 //  - A run of builds with no human change says "Maintenance and fixes", never a blank row.
@@ -16,7 +16,15 @@ import { KeyboardScope } from "../../ui/KeyboardScope";
 import type { Strings } from "../shared/i18n";
 import { dayLabel, groupByDay, mergedView, releaseTitle } from "./model";
 import { cardVersion } from "./UpdateSurfaces";
-import { BuildNumbers, ChangesFold, Groups, Hero, Maintenance, ReelPlayer, type PartsContext } from "./ReleaseParts";
+import {
+  BuildNumbers,
+  ChangesFold,
+  Groups,
+  Hero,
+  Maintenance,
+  NotesUnavailable,
+  type PartsContext,
+} from "./ReleaseParts";
 import { SpanNews } from "./SpanNews";
 import type { ChangelogSnapshot, ChangelogStore } from "./store";
 import type { IndexEntry, NewsLayout, ReleaseNotes } from "./types";
@@ -41,7 +49,7 @@ export function JournalPage({
   return (
     <KeyboardScope className="clw" handleKeyDown={journalKeys}>
       <main aria-label={strings.t("changelog.page.title")}>
-        {s.span && <SpanSection s={s} fresh={fresh} ctx={ctx} failed={s.failed} />}
+        {s.span && <SpanSection s={s} fresh={fresh} ctx={ctx} failed={s.failed} store={store} />}
         <div className={ledger ? "clj cll" : "clj"}>
           {!s.span && s.failed && <p className="cl-error">{s.failed}</p>}
           {!s.span && <h1 className="clj-title">{strings.t("changelog.page.title")}</h1>}
@@ -72,11 +80,13 @@ function SpanSection({
   fresh,
   ctx,
   failed,
+  store,
 }: {
   s: ChangelogSnapshot;
   fresh: IndexEntry[];
   ctx: PartsContext;
   failed?: string;
+  store: ChangelogStore;
 }) {
   const loaded = fresh.map((b) => s.loaded[b.build]).filter((n): n is ReleaseNotes => !!n);
   const pending = fresh.some((b) => !s.loaded[b.build] && !s.unavailable[b.build]);
@@ -99,8 +109,14 @@ function SpanSection({
           {span.to}
         </span>
       </div>
-      <ReelPlayer builds={fresh} reels={s.reels} strings={ctx.strings} />
-      <SectionBody view={view} pending={pending} ctx={ctx} unpublished={fresh.length === 0} news />
+      <SectionBody
+        view={view}
+        pending={pending}
+        ctx={ctx}
+        // The span's builds are not in the list yet: Try again reads the list again (store.ts `retry`).
+        onRetryUnpublished={fresh.length === 0 ? () => void store.retry() : undefined}
+        news
+      />
     </section>
   );
 }
@@ -122,22 +138,7 @@ function DaySection({
 }) {
   const loaded = builds.map((b) => s.loaded[b.build]).filter((n): n is ReleaseNotes => !!n);
   const pending = builds.some((b) => !s.loaded[b.build] && !s.unavailable[b.build]);
-  const near = (el: HTMLElement | null) => {
-    if (!el || !pending) return;
-    const load = () => builds.forEach((b) => void store.ensure(b.build));
-    // A day already near the viewport loads now: the first frame waits for it (paintGate.ts).
-    if (typeof IntersectionObserver === "undefined" || nearViewport(el)) return load();
-    const observer = new IntersectionObserver(
-      (records) => {
-        if (!records.some((r) => r.isIntersecting)) return;
-        observer.disconnect();
-        load();
-      },
-      { rootMargin: `${NEAR_MARGIN}px 0px` },
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  };
+  const near = loadNear(builds, store, pending);
   const view = mergedView(loaded, ctx.strings.language);
   const installed = builds.some((b) => b.build === s.current);
   const title = ledger ? releaseTitle(loaded, ctx.strings.language) : undefined;
@@ -174,6 +175,26 @@ function DaySection({
   );
 }
 
+/** A day section's ref: it loads the notes of `builds` once the section nears the viewport (at once
+    when it already is: the first frame waits for it, paintGate.ts). Nothing while none is pending. */
+export function loadNear(builds: IndexEntry[], store: ChangelogStore, pending: boolean) {
+  return (el: HTMLElement | null) => {
+    if (!el || !pending) return;
+    const load = () => builds.forEach((b) => void store.ensure(b.build));
+    if (typeof IntersectionObserver === "undefined" || nearViewport(el)) return load();
+    const observer = new IntersectionObserver(
+      (records) => {
+        if (!records.some((r) => r.isIntersecting)) return;
+        observer.disconnect();
+        load();
+      },
+      { rootMargin: `${NEAR_MARGIN}px 0px` },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  };
+}
+
 /** How far outside the viewport a day starts loading its notes. */
 const NEAR_MARGIN = 800;
 
@@ -187,18 +208,20 @@ function SectionBody({
   view,
   pending,
   ctx,
-  unpublished = false,
+  onRetryUnpublished,
   heroTitled = true,
   news = false,
 }: {
   view: ReturnType<typeof mergedView>;
   pending: boolean;
   ctx: PartsContext;
-  unpublished?: boolean;
+  /** Set when the section's builds are not published in the list yet: its line and Try again. */
+  onRetryUnpublished?: () => void;
   heroTitled?: boolean;
   /** The update's own section reads as happy news (SpanNews.tsx); a day keeps its hero and lists. */
   news?: boolean;
 }) {
+  const unpublished = onRetryUnpublished !== undefined;
   // The update waits for every build of its span (they load at once): drawn early, its fold would
   // open on the first build's bare changes and close again when a later build's notes arrive.
   if (pending && (news || (view.count === 0 && view.changes.length === 0)))
@@ -207,7 +230,7 @@ function SectionBody({
     <>
       {!news && view.hero && <Hero item={view.hero} ctx={ctx} titled={heroTitled} />}
       {view.count === 0 && view.changes.length === 0 && !unpublished && <Maintenance strings={ctx.strings} />}
-      {unpublished && <p className="cl-muted">{ctx.strings.t("changelog.page.unavailable")}</p>}
+      {onRetryUnpublished && <NotesUnavailable strings={ctx.strings} onRetry={onRetryUnpublished} />}
       {news ? <SpanNews view={view} ctx={ctx} /> : <Groups view={view} ctx={ctx} />}
       {/* With no curated notes the changes are the news, so the update opens them. */}
       <ChangesFold
@@ -222,7 +245,7 @@ function SectionBody({
 
 /** J and K (from any focused control in the page) jump to the next or previous section. The
     document scrolls, so Space, Page Down and the arrows work with nothing focused. */
-function journalKeys(event: KeyboardEvent<HTMLDivElement>) {
+export function journalKeys(event: KeyboardEvent<HTMLDivElement>) {
   if (event.metaKey || event.ctrlKey || event.altKey || event.defaultPrevented) return;
   const key = event.key.toLowerCase();
   if (key !== "j" && key !== "k") return;

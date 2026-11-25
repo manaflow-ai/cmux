@@ -1,42 +1,25 @@
-import CoreGraphics
+import QuartzCore
 
-/// The Chrome group rail, in the sidebar's flipped y-down coordinates.
-/// Both ends round only on the right; the left edge stays one straight line.
+/// The left bar beside a group's member rows (the group rail, `GroupLineView`), in the rail's flipped y-down
+/// coordinates: a capsule, both ends rounded by half its width (Lawrence 2026-11-17: "group left bar is not pixel
+/// perfect, it needs proper even roundness"; the katana's one-sided tip of 2026-11-08 read as a lopsided top). The
+/// rounding is the rail layer's corner clip, so it follows the layer's presentation bounds through every frame of the
+/// rows' spring; the body is a plain bar. A `joined` rail (the solid band's one shape with its header) keeps its top
+/// square, where it runs out of the bar.
 enum SidebarGroupLineShape {
-    /// A connected rail's clipped shoulder; its containing layer rounds the visible terminal cap.
-    /// Keeping the body taller than the view lets that cap follow the bounds spring while shrinking.
-    static func connected(width: CGFloat, height: CGFloat) -> CGPath {
-        let width = max(0, width), height = max(0, height)
-        let notch = min(width / 2, height)
-        let path = CGMutablePath()
-        path.move(to: .zero)
-        path.addLine(to: CGPoint(x: width - notch, y: 0))
-        path.addLine(to: CGPoint(x: width, y: notch))
-        path.addLine(to: CGPoint(x: width, y: height))
-        path.addLine(to: CGPoint(x: 0, y: height))
-        path.closeSubpath()
-        return path
+    /// The clip's rounded corners: all four, or the bottom two for a rail that joins its header's bar (`flipped`: the
+    /// layer's y runs down).
+    static func capCorners(flipped: Bool, joined: Bool = false) -> CACornerMask {
+        let bottom: CACornerMask = flipped ? [.layerMinXMaxYCorner, .layerMaxXMaxYCorner] : [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+        guard !joined else { return bottom }
+        return [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
     }
 
-    /// A flat rail with a quarter-circle radius equal to its full width at both right corners.
-    static func line(width: CGFloat, height: CGFloat) -> CGPath {
-        let width = max(0, width)
-        let height = max(0, height)
-        let radius = min(width, height / 2)
-        let path = CGMutablePath()
-        path.move(to: .zero)
-        path.addLine(to: CGPoint(x: width - radius, y: 0))
-        if radius > 0 {
-            path.addArc(center: CGPoint(x: width - radius, y: radius), radius: radius,
-                        startAngle: -.pi / 2, endAngle: 0, clockwise: false)
-            path.addLine(to: CGPoint(x: width, y: height - radius))
-            path.addArc(center: CGPoint(x: width - radius, y: height - radius), radius: radius,
-                        startAngle: 0, endAngle: .pi / 2, clockwise: false)
-        } else {
-            path.addLine(to: CGPoint(x: width, y: height))
-        }
-        path.addLine(to: CGPoint(x: 0, y: height))
-        path.closeSubpath()
-        return path
+    /// Half the bar's width: a full semicircle at each end (Core Animation clamps it on a rail shorter than wide).
+    static func cornerRadius(width: CGFloat) -> CGFloat { max(0, width) / 2 }
+
+    /// The body the rail's clipping layer rounds: a plain bar.
+    static func body(width: CGFloat, height: CGFloat) -> CGPath {
+        CGPath(rect: CGRect(x: 0, y: 0, width: max(0, width), height: max(0, height)), transform: nil)
     }
 }

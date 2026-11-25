@@ -1,5 +1,6 @@
 @preconcurrency import AppKit
 import CmuxNextDesign
+import CmuxNextFocusUI
 import CmuxNextUpdater
 import CmuxNextWakeups
 import os
@@ -88,15 +89,11 @@ extension InputVerificationService {
                 guardian.appDidBecomeActive()
             }
         })
-        keyboardGuardObservers.append(center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { guardian.appDidBecomeActive() } // main-proof: observer on queue: .main
-        })
-        keyboardGuardObservers.append(center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { guardian.appDidResignActive() } // main-proof: observer on queue: .main
-        })
-        keyboardGuardObservers.append(center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { guardian.windowDidBecomeKey() } // main-proof: observer on queue: .main
-        })
+        for name in NoActivateKeyboardGuard.appNotifications {
+            keyboardGuardObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { guardian.observed(name) } // main-proof: observer on queue: .main
+            })
+        }
         let application = NSApp as? CmuxApplication
         let journalObserver = application?.inputObserver
         application?.inputObserver = { [weak self] event in
@@ -104,7 +101,7 @@ extension InputVerificationService {
             case .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown:
                 guard application?.currentEventIsSynthetic != true else { break }
                 if !relaunchOnly {
-                    guardian.userInput()
+                    guardian.userInput(pointer: event.type != .keyDown)
                 } else if event.type != .keyDown {
                     self?.endRelaunchBehind("user click")
                 }
@@ -124,6 +121,10 @@ extension InputVerificationService {
             guardian.appDidBecomeActive()
         }
     }
+
+    /// The app was asked to reopen (a Dock click, the Tag Opener or Finder opening the running
+    /// app): under `CMUX_NEXT_NO_ACTIVATE=1` the activation it brings is the user's and stays.
+    func noteReopenRequested() { keyboardGuard?.reopenRequested() }
 
     /// Ends an update relaunch's startup behind the user's app: the guard stops and the app
     /// activates as always. `activating` (a Dock click) activates it too, in case the front went back

@@ -1,4 +1,4 @@
-import type { AllChatsDesign } from "./AllChatsList";
+import type { AllChatsDesign } from "./allChatsListModel";
 import { useNt } from "./strings";
 import "./allChatsLoading.css";
 

@@ -6,113 +6,77 @@ import CmuxNextDaemonService
 import CmuxNextHistory
 import CmuxNextStash
 import CmuxNextTabs
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
 /// Stash (a native OneTab, cx-rws36) through the app against a same-tree cmux-tui daemon: the
-/// Stashed page's model follows stash changes another client makes, restores and deletes
-/// through the daemon, and pasted OneTab text imports as groups; Save and Close (StashHandlers)
-/// closes a tab or a whole workspace into a stash, and Show Stashed Tabs opens the page.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+/// Stashed Tabs page (React, webviews/src/pages/stash) restores and deletes through
+/// ``StashService``, which these tests drive directly; Save and Close (StashHandlers) closes a tab
+/// or a whole workspace into a stash, and Show Stashed Tabs opens the page. The page's list,
+/// search and OneTab paste parsing are covered by webviews/test/stash-page.test.tsx and the
+/// daemon's page relay by cmux-tui/tests/page_router.rs.
+@MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"), .closesItsWindows)
 struct StashTests {
-    /// A stash stored or deleted outside the page (as the CLI, MCP or another window does, here
-    /// straight on the connection) shows without a reload: the daemon's `session.events` stash
-    /// change makes the model list again.
-    @Test func theModelFollowsTheDaemonsStashChanges() async throws {
-        try await PinnedPageTests.withApp { services, connection in
-            let model = services.historyPage.stash.model
-            try await PinnedPageTests.until({ services.daemon.store.session.stashChanges > 0 })
-            let url = "https://stash-\(UUID().uuidString.prefix(6).lowercased()).example/"
-            _ = try await connection.state.importOneTab([.init(name: nil, pages: [.init(url: url, title: "Other client")])], engine: "webkit")
-            try await PinnedPageTests.until({ model.groups.contains { $0.tabs.map(\.url) == [url] } },
-                                            report: { "groups: \(model.groups)" })
-
-            let group = try #require(model.groups.first { $0.tabs.map(\.url) == [url] })
-            try await connection.state.deleteStash(group.id)
-            try await PinnedPageTests.until({ !model.groups.contains { $0.id == group.id } }, report: { "groups: \(model.groups)" })
-        }
-    }
-
-    @Test func thePageRestoresAndDeletesTabsAndGroups() async throws {
-        try await PinnedPageTests.withApp { services, _ in
-            let model = services.historyPage.stash.model
+    @Test func theServiceRestoresAndDeletesTabsAndGroups() async throws {
+        try await AppHarnessWindows.withApp { services, connection in
+            let stash = services.historyPage.stash
             let store = services.daemon.store
             let urls = (0..<3).map { "https://stash-\(UUID().uuidString.prefix(6).lowercased()).example/\($0)" }
-            let draft = StashImportDraft()
-            draft.text = urls.map { "\($0) | Page" }.joined(separator: "\n")
-            await model.importPasted(draft)
-            let imported = try #require(model.groups.first { $0.tabs.map(\.url) == urls }, "groups: \(model.groups)")
+            _ = try await connection.state.importOneTab([.init(name: nil, pages: urls.map { .init(url: $0, title: "Page") })],
+                                                        engine: stash.importEngine)
+            let imported = try #require(try await Self.group(urls: urls, connection))
 
             // A row's ×: that tab goes for good.
-            await model.delete(imported, tab: imported.tabs[0])
-            let afterDelete = try #require(model.groups.first { $0.id == imported.id })
-            #expect(afterDelete.tabs.map(\.url) == Array(urls[1...]))
+            try await stash.delete(imported.id, members: [imported.members[0].id])
+            let afterDelete = try #require(try await Self.group(id: imported.id, connection))
+            #expect(afterDelete.members.compactMap(\.url) == Array(urls[1...]))
 
             // A row's click: that tab comes back; the group keeps the rest.
-            await model.restore(afterDelete, tab: afterDelete.tabs[0])
+            try await stash.restore(imported.id, members: [afterDelete.members[0].id], inNewWorkspace: false)
             try await PinnedPageTests.until({ Self.tab(url: urls[1], store) != nil }, report: { "no tab at \(urls[1])" })
-            #expect(model.groups.first { $0.id == imported.id }?.tabs.map(\.url) == [urls[2]])
+            #expect(try await Self.group(id: imported.id, connection)?.members.compactMap(\.url) == [urls[2]])
             #expect(Self.tab(url: urls[0], store) == nil, "the deleted tab never came back")
 
             // Restore in New Workspace: every tab left, in a workspace of its own; the emptied group goes.
             let workspaces = Set(store.workspaces.map(\.id))
-            await model.restoreInNewWorkspace(try #require(model.groups.first { $0.id == imported.id }))
-            #expect(!model.groups.contains { $0.id == imported.id })
+            try await stash.restore(imported.id, members: nil, inNewWorkspace: true)
+            #expect(try await Self.group(id: imported.id, connection) == nil)
             try await PinnedPageTests.until({
                 store.workspaces.contains { !workspaces.contains($0.id) && Self.urls(of: $0).contains(urls[2]) }
             }, report: { "no new workspace with \(urls[2])" })
 
             // Delete Group.
-            let other = StashImportDraft()
-            other.text = "https://stash-delete.example/ | Gone"
-            await model.importPasted(other)
-            let doomed = try #require(model.groups.first { $0.tabs.first?.url == "https://stash-delete.example/" })
-            await model.delete(doomed)
-            #expect(!model.groups.contains { $0.id == doomed.id })
+            let gone = "https://stash-delete-\(UUID().uuidString.prefix(6).lowercased()).example/"
+            _ = try await connection.state.importOneTab([.init(name: nil, pages: [.init(url: gone, title: "Gone")])], engine: stash.importEngine)
+            let doomed = try #require(try await Self.group(urls: [gone], connection))
+            try await stash.delete(doomed.id, members: nil)
+            #expect(try await Self.group(id: doomed.id, connection) == nil)
         }
     }
 
-    @Test func pastedOneTabTextImportsOneGroupPerBlankLineSeparatedBlock() async throws {
-        try await PinnedPageTests.withApp { services, _ in
-            let model = services.historyPage.stash.model
-            let draft = StashImportDraft()
-            draft.open()
-            draft.text = """
-            https://a.example/one | One
-            https://a.example/two | Two | with a bar
-
-            https://b.example/ | B
-            https://e.example/ |\u{20}
-            not a page
-            """
-            await model.importPasted(draft)
-            #expect(!draft.isOpen, "the paste box closes once the import went through")
-            let groups = model.groups.map { $0.tabs.map(\.url) }
-            #expect(Set(groups) == [
-                ["https://a.example/one", "https://a.example/two"], ["https://b.example/", "https://e.example/"],
-            ], "a `url | ` line is that page with no title")
-            let a = try #require(model.groups.first { $0.tabs.first?.url == "https://a.example/one" })
-            #expect(a.tabs.map(\.title) == ["One", "Two | with a bar"])
-
-            // An imported page reopens in the app's browser engine.
-            let b = try #require(model.groups.first { $0.tabs.first?.url == "https://b.example/" })
-            #expect(b.tabs.map(\.title) == ["B", nil])
-            await model.restore(b)
+    /// An imported page reopens in the app's browser engine (the page's import adds it).
+    @Test func anImportedPageReopensInTheAppsBrowserEngine() async throws {
+        try await AppHarnessWindows.withApp { services, connection in
+            let stash = services.historyPage.stash
+            let url = "https://stash-\(UUID().uuidString.prefix(6).lowercased()).example/b"
+            _ = try await connection.state.importOneTab([.init(name: nil, pages: [.init(url: url, title: "B")])], engine: stash.importEngine)
+            let group = try #require(try await Self.group(urls: [url], connection))
+            try await stash.restore(group.id, members: nil, inNewWorkspace: false)
             let store = services.daemon.store
-            try await PinnedPageTests.until({ Self.tab(url: "https://b.example/", store) != nil })
+            try await PinnedPageTests.until({ Self.tab(url: url, store) != nil })
             guard case .open(let choice) = services.cache.browserTabs.resolve(requested: nil) else {
                 Issue.record("no browser engine resolves")
                 return
             }
-            #expect(Self.tab(url: "https://b.example/", store)?.browserEngine == choice.engine.rawValue)
+            #expect(Self.tab(url: url, store)?.browserEngine == choice.engine.rawValue)
         }
     }
 
     /// Save and Close Tab on a browser tab: the page goes into a stash and leaves its pane, as the
     /// tab menu, the palette and `cmux tab stash` run it.
     @Test func saveAndCloseTabStashesTheBrowserPage() async throws {
-        try await PinnedPageTests.withApp { services, connection in
-            let model = services.historyPage.stash.model
+        try await AppHarnessWindows.withApp { services, connection in
             let store = services.daemon.store
             let pane = try #require(store.workspaces.first?.screens.first?.panes.first?.handle)
             let url = "https://stash-\(UUID().uuidString.prefix(6).lowercased()).example/tab"
@@ -125,14 +89,13 @@ struct StashTests {
             let failures = try await Self.perform("tab.stash", target, services)
             #expect(failures.isEmpty, "\(failures)")
             try await PinnedPageTests.until({ Self.tab(url: url, store) == nil }, report: { "the page is still open" })
-            await model.reload()
-            #expect(model.groups.contains { $0.tabs.map(\.url) == [url] }, "groups: \(model.groups)")
+            #expect(try await Self.group(urls: [url], connection) != nil, "the page is in no stash")
         }
     }
 
     /// A terminal tab is no web page: its menu shows Save and Close Tab disabled with the reason.
     @Test func saveAndCloseTabRefusesATerminal() async throws {
-        try await PinnedPageTests.withApp { services, connection in
+        try await AppHarnessWindows.withApp { services, connection in
             let store = services.daemon.store
             let created = try await connection.state.createWorkspace(name: "stash-pty", ephemeral: false, terminal: true, focus: false)
             @MainActor func terminal() -> TabModel? {
@@ -148,7 +111,7 @@ struct StashTests {
     /// Save and Close Other Tabs on one of several selected tabs keeps every selected tab, as Close
     /// Other Tabs does (`closedByCloseOthers(keepingAll:)`): only the pages outside the selection go.
     @Test func saveAndCloseOtherTabsKeepsTheWholeSelection() async throws {
-        try await PinnedPageTests.withApp { services, connection in
+        try await AppHarnessWindows.withApp { services, connection in
             let store = services.daemon.store
             let pane = try #require(services.windows.active?.workspaceContent?.panes.values.first)
             let tag = UUID().uuidString.prefix(6).lowercased()
@@ -177,9 +140,8 @@ struct StashTests {
                                             report: { "a page outside the selection is still open" })
             #expect(Self.tab(url: urls[1], store) != nil, "a selected page was saved and closed")
             #expect(Self.tab(url: urls[2], store) != nil, "a selected page was saved and closed")
-            let model = services.historyPage.stash.model
-            await model.reload()
-            let stashed = model.groups.first { $0.tabs.contains { $0.url == urls[0] } }.map { Set($0.tabs.map(\.url)) }
+            let stashed = try await connection.state.stashes().first { $0.members.contains { $0.url == urls[0] } }
+                .map { Set($0.members.compactMap(\.url)) }
             #expect(stashed == [urls[0], urls[3]], "the stash holds \(String(describing: stashed))")
         }
     }
@@ -187,9 +149,8 @@ struct StashTests {
     /// Save and Close Workspace: the workspace closes whole, its terminal too, into one stash of
     /// one workspace member, and Restore All brings the workspace back.
     @Test func saveAndCloseWorkspaceStashesItWhole() async throws {
-        try await PinnedPageTests.withApp { services, connection in
+        try await AppHarnessWindows.withApp { services, connection in
             try #require(services.daemon.supports(DaemonCapability.stashWorkspaces.rawValue), "the same-tree daemon stashes whole workspaces")
-            let model = services.historyPage.stash.model
             let store = services.daemon.store
             let name = "stash-ws-\(UUID().uuidString.prefix(6).lowercased())"
             let created = try await connection.state.createWorkspace(name: name, ephemeral: false, terminal: true, focus: false)
@@ -200,15 +161,13 @@ struct StashTests {
             let failures = try await Self.perform("workspace.stash", target, services)
             #expect(failures.isEmpty, "\(failures)")
             try await PinnedPageTests.until({ !store.workspaces.contains { $0.name == name } }, report: { "the workspace is still open" })
-            await model.reload()
-            let group = try #require(model.groups.first { $0.tabs.first?.title == name }, "groups: \(model.groups)")
-            #expect(group.tabs.count == 1)
-            #expect(group.tabs.first?.isWorkspace == true)
-            #expect(model.groups(matching: name).map(\.id) == [group.id], "search finds the workspace by its name")
+            let group = try #require(try await Self.group(workspace: name, connection), "no stash holds the workspace")
+            #expect(group.members.count == 1)
+            #expect(group.members.first?.kind == .workspace)
 
             try await services.historyPage.stash.restoreAll(group.id, workspaces: true)
             try await PinnedPageTests.until({ store.workspaces.contains { $0.name == name } }, report: { "the workspace did not come back" })
-            #expect(!model.groups.contains { $0.id == group.id })
+            #expect(try await Self.group(id: group.id, connection) == nil)
         }
     }
 
@@ -216,9 +175,8 @@ struct StashTests {
     /// tab (its placeholder, live surface and title follow go, as a close lets them go), and
     /// Restore All brings the tab back on the same terminal, which the stash kept.
     @Test func saveAndCloseWorkspaceLetsGoOfItsRemoteTerminalTabs() async throws {
-        try await PinnedPageTests.withApp { services, connection in
+        try await AppHarnessWindows.withApp { services, connection in
             try #require(services.daemon.supports(DaemonCapability.stashWorkspaces.rawValue), "the same-tree daemon stashes whole workspaces")
-            let model = services.historyPage.stash.model
             let store = services.daemon.store
             let name = "stash-remote-\(UUID().uuidString.prefix(6).lowercased())"
             let created = try await connection.state.createWorkspace(name: name, ephemeral: false, terminal: true, focus: false)
@@ -244,8 +202,7 @@ struct StashTests {
             try await PinnedPageTests.until({ !store.workspaces.contains { $0.name == name } }, report: { "the workspace is still open" })
             #expect(services.remoteTerminals.existingPlaceholder(tab.id) == nil, "the stashed remote-terminal tab is still followed")
 
-            await model.reload()
-            let group = try #require(model.groups.first { $0.tabs.first?.title == name }, "groups: \(model.groups)")
+            let group = try #require(try await Self.group(workspace: name, connection), "no stash holds the workspace")
             try await services.historyPage.stash.restoreAll(group.id, workspaces: true)
             try await PinnedPageTests.until({
                 store.workspaces.first { $0.name == name }?.screens.flatMap(\.panes).flatMap(\.tabs).contains { $0.remote == ref } == true
@@ -278,27 +235,24 @@ struct StashTests {
         }
     }
 
-    /// Undo of a Save and Close lists the stashes again on every path: the restored stash leaves
-    /// the page even when the host that shows restored pages is gone by the time the daemon answers.
-    @Test func restoreAllReloadsThePageWhenNothingShowsTheRestoredPages() async throws {
-        try await PinnedPageTests.withApp { services, connection in
+    /// Undo of a Save and Close restores on every path: the stash goes even when the host that
+    /// shows restored pages is gone by the time the daemon answers.
+    @Test func restoreAllRestoresWhenNothingShowsTheRestoredPages() async throws {
+        try await AppHarnessWindows.withApp { services, connection in
             let url = "https://stash-\(UUID().uuidString.prefix(6).lowercased()).example/undo"
             _ = try await connection.state.importOneTab([.init(name: nil, pages: [.init(url: url, title: "Undo")])], engine: "webkit")
             let service = StashService(host: VanishingStashHost(services))
-            // The list reads through the app's own service, which outlives the vanishing host.
-            service.model.source = services.historyPage.stash
-            await service.model.reload()
-            let group = try #require(service.model.groups.first { $0.tabs.map(\.url) == [url] }, "groups: \(service.model.groups)")
+            let group = try #require(try await Self.group(urls: [url], connection))
 
             try await service.restoreAll(group.id, workspaces: false)
             try await PinnedPageTests.until({ Self.tab(url: url, services.daemon.store) != nil }, report: { "the page did not come back" })
-            #expect(!service.model.groups.contains { $0.id == group.id }, "the page still lists the restored stash")
+            #expect(try await Self.group(id: group.id, connection) == nil, "the daemon still lists the restored stash")
         }
     }
 
     /// Show Stashed Tabs from automation opens the page as a tab without moving the window's view.
     @Test func showStashedTabsOpensThePage() async throws {
-        try await PinnedPageTests.withApp { services, _ in
+        try await AppHarnessWindows.withApp { services, _ in
             try #require(services.pages.keys(of: .stashed).isEmpty, "a Stashed Tabs page was open before the action")
             let failures = try await Self.perform("stash.show", ActionInvocation(origin: .cli), services)
             #expect(failures.isEmpty, "\(failures)")
@@ -312,28 +266,12 @@ struct StashTests {
     /// `<scheme>://stashed` opened from another app (ExternalOpenRouter's deep link) or Open Link…
     /// goes through `link.open`, which shows the Stashed Tabs page instead of refusing the link.
     @Test func theStashedLinkOpensThePage() async throws {
-        try await PinnedPageTests.withApp { services, _ in
+        try await AppHarnessWindows.withApp { services, _ in
             try #require(services.pages.keys(of: .stashed).isEmpty, "a Stashed Tabs page was open before the link")
             let link = "\(services.linkScheme)://stashed"
             let failures = try await Self.perform("link.open", ActionInvocation(arguments: ["url": .string(link)], origin: .cli), services)
             #expect(failures.isEmpty, "\(failures)")
             #expect(!services.pages.keys(of: .stashed).isEmpty, "the link opened no Stashed Tabs page")
-        }
-    }
-
-    /// Search keeps a group whose name matches whole, else only the members that match.
-    @Test func searchFiltersGroupsAndMembers() async throws {
-        try await PinnedPageTests.withApp { services, _ in
-            let model = services.historyPage.stash.model
-            let tag = UUID().uuidString.prefix(6).lowercased()
-            let draft = StashImportDraft()
-            draft.text = "https://alpha-\(tag).example/ | Alpha \(tag)\nhttps://beta-\(tag).example/ | Beta"
-            await model.importPasted(draft)
-            let shown = model.groups(matching: "alpha-\(tag)")
-            #expect(shown.count == 1)
-            #expect(shown.first?.tabs.map(\.title) == ["Alpha \(tag)"])
-            #expect(model.groups(matching: "  ").count == model.groups.count, "a blank query shows everything")
-            #expect(model.groups(matching: "nothing-\(tag)").isEmpty)
         }
     }
 
@@ -373,6 +311,18 @@ struct StashTests {
         func showRestored(_ reopened: StateResourceClient.ReopenedItem, asWorkspace: Bool) {
             app.showRestored(reopened, asWorkspace: asWorkspace)
         }
+    }
+
+    private static func group(id: String, _ connection: DaemonConnection) async throws -> StashRecord? {
+        try await connection.state.stashes().first { $0.id == id }
+    }
+
+    private static func group(urls: [String], _ connection: DaemonConnection) async throws -> StashRecord? {
+        try await connection.state.stashes().first { $0.members.compactMap(\.url) == urls }
+    }
+
+    private static func group(workspace name: String, _ connection: DaemonConnection) async throws -> StashRecord? {
+        try await connection.state.stashes().first { $0.members.first?.name == name }
     }
 
     private static func tab(url: String, _ store: DaemonStore) -> TabModel? {

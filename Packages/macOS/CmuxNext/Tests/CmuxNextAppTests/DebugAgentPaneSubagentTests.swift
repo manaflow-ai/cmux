@@ -31,12 +31,12 @@ struct DebugAgentPaneSubagentTests {
         -> (model: AgentPaneModel, placement: Placement, tabs: AgentTabStore) {
         let tabs = AgentTabStore(build: nil, registry: ActionRegistry(), environment: [:], showcase: true)
         let placement = Placement()
-        tabs.openInMainPane = { target, focus, _, made, _ in
-            placement.mainPane.append((chat: target, focus: focus))
+        tabs.openInMainPaneScoped = { target, focus, _, made, _ in
+            placement.mainPane.append((chat: target.key, focus: focus))
             if placed == true { made?(created) }
             return placed
         }
-        tabs.locate = { key in placement.located.append(key); return nil }
+        tabs.locateScoped = { key in placement.located.append(key.key); return nil }
         let model = AgentPaneModel(host: NoHost(), sessionId: sessionId)
         tabs.wireHeader(model, key: chat)
         return (model, placement, tabs)
@@ -64,7 +64,9 @@ struct DebugAgentPaneSubagentTests {
         #expect(placement.mainPane.map(\.chat) == ["chat-tab"])
         #expect(placement.mainPane.map(\.focus) == [false])
         // The page's session's tracker holds the new tab: a repeat open shows it instead of opening another.
-        #expect(AgentSubagentPanes.session(session).tab(for: "fixture-helper-1", isOpen: { _ in true }) == "subagent-tab")
+        #expect(AgentSubagentPanes.session("\(session):chat-tab").tab(for: "fixture-helper-1", isOpen: { _ in true }) == "subagent-tab")
+        #expect(AgentSubagentPanes.session(session).tab(for: "fixture-helper-1", isOpen: { _ in true }) == nil,
+                "a session tracker must not reuse a subagent opened beside another chat")
         withExtendedLifetime(tabs) {}
     }
 
@@ -78,7 +80,7 @@ struct DebugAgentPaneSubagentTests {
         #expect(result == .object(["pane": .string("pane-1"), "opened": .bool(true), "agent": .string("fixture-reviewer")]))
         #expect(placement.pageReads == 0)
         #expect(placement.mainPane.map(\.focus) == [true])
-        #expect(AgentSubagentPanes.session(session).tab(for: "fixture-reviewer", isOpen: { _ in true }) == "reviewer-tab")
+        #expect(AgentSubagentPanes.session("\(session):chat-tab").tab(for: "fixture-reviewer", isOpen: { _ in true }) == "reviewer-tab")
         withExtendedLifetime(tabs) {}
     }
 

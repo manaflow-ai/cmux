@@ -1,3 +1,4 @@
+public import AppKit
 import Foundation
 
 /// One live Chromium page (a browser tab or one of cmux's own pages, such as the agent page) and
@@ -7,8 +8,23 @@ public nonisolated struct CEFRendererPage: Sendable, Equatable {
     /// The page URL's scheme and host (`cmux-page://cmux.agent`, `http://t3.localhost`), never its
     /// path or query.
     public var origin: String
+    /// The full page URL and title, for `renderers.list` (`cmux app renderers`), which names the
+    /// page a busy renderer pid hosts. `debug.cef_pages` keeps reporting only ``origin``.
+    public var url: String = ""
+    public var title: String = ""
     /// The content lifecycle hid the page (a background tab, a parked page).
     public var hidden: Bool
+    /// Chromium still loads the page (its last loading-state report): Chrome's tab icon spins
+    /// while it does, so a page that never ends its load keeps a compositor animation at idle.
+    public var loading: Bool = false
+    /// Chromium reports the page's renderer hung ("Page unresponsive").
+    public var unresponsive: Bool = false
+    /// The page's renderer ended and the sad tab shows (or shows when the tab is next shown).
+    public var exited: Bool = false
+    /// The person sees the page: its pane shows it and the content lifecycle did not hide it.
+    public var onScreen: Bool = false
+    /// Renderers the hidden-hang bound ended for this page (``BrowserHiddenHangBound``).
+    public var hangEnds: Int = 0
     /// Renderer client ids (the `--renderer-client-id=` of the helper processes that host its frames).
     public var rendererClients: [Int32]
 }
@@ -20,9 +36,30 @@ extension CEFEngine {
     public var rendererPages: [CEFRendererPage] {
         CEFRuntime.shared.tabsByBrowser.sorted { $0.key < $1.key }.map { browser, tab in
             let clients: [Int32] = if case .chromiumRendererClients(let ids) = tab.contentProcesses { ids } else { [] }
-            return CEFRendererPage(browserID: browser, origin: Self.origin(of: tab.state.url),
-                                   hidden: tab.isContentHidden, rendererClients: clients)
+            var page = CEFRendererPage(browserID: browser, origin: Self.origin(of: tab.state.url),
+                                       hidden: tab.isContentHidden, rendererClients: clients)
+            page.url = tab.state.url?.absoluteString ?? ""
+            page.title = tab.state.title ?? ""
+            page.loading = tab.chromiumLoading
+            page.unresponsive = tab.state.isUnresponsive
+            page.exited = tab.state.processExit != nil
+            page.onScreen = tab.isOnScreenForHang
+            page.hangEnds = tab.hiddenHangBound.ends
+            return page
         }
+    }
+
+    /// Runs DevTools `method` on the live page `browserID` (`debug.cef_page_devtools`: the idle
+    /// bench's page metrics and CPU profile). Nil when no live page has that id.
+    public func devTools(browserID: Int32, method: String, params: [String: any Sendable]) async throws -> String? {
+        guard let tab = CEFRuntime.shared.tabsByBrowser[browserID] else { return nil }
+        return try await tab.devTools(method: method, params: params)
+    }
+
+    /// The browser id of the live page whose content view is `view` (a cmux page's Chromium view,
+    /// such as an agent pane's ``focusTarget``), so `renderers.list` can name its owning tab.
+    public func browserID(showing view: NSView) -> Int32? {
+        CEFRuntime.shared.tabsByBrowser.first { $0.value.contentView === view }?.key
     }
 
     nonisolated static func origin(of url: URL?) -> String {

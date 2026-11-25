@@ -1,8 +1,9 @@
-import { address as homeAddress, conversation as homeConversation, invites } from "@cmux/home-core"
+import { conversation as homeConversation, invites } from "@cmux/home-core"
 import type { OwnerFrame, Principal } from "@cmux/ownership"
 import type { RequestPreview } from "./conversation-do.ts"
 import type { Env } from "./env.ts"
 import type { SubmitResult } from "./owner-do.ts"
+import { declared } from "./do-stub.ts"
 
 /**
  * Message requests and email ownership (plans/cmux-next/home-messaging-invites/DESIGN.md):
@@ -17,24 +18,9 @@ import type { SubmitResult } from "./owner-do.ts"
 
 const CONVERSATION_ID = /^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$/
 
-interface AddressRequestStub {
-  linkOwner(address: string, user: string, channel: "email" | "sms", value: string): Promise<void>
-  linkedUser(address: string): Promise<string | null>
-  requests(address: string): Promise<ReadonlyArray<homeAddress.AddressRequest>>
-  dismissRequest(address: string, invite: string, block: boolean): Promise<{ ok: boolean; code?: string }>
-}
-interface ConversationRequestStub {
-  requestPreview(entity: string, invite: string, addresses: ReadonlyArray<string>): Promise<RequestPreview | null>
-  acceptVerified(entity: string, principal: Principal, idempotencyKey: string): Promise<SubmitResult>
-}
-interface UserDomainStub {
-  homeVerifiedEmailDomain(entity: string): Promise<string | null>
-  homeSameDomainReach(entity: string, senderDomain: string): Promise<{ display_name: string; allow_requests_from: homeConversation.AllowRequestsFrom } | null>
-}
-
-const addressStub = (env: Env, id: string) => env.ADDRESS_DO.get(env.ADDRESS_DO.idFromName(id)) as unknown as AddressRequestStub
-const conversationStub = (env: Env, id: string) => env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(id)) as unknown as ConversationRequestStub
-const userStub = (env: Env, id: string) => env.USER_DO.get(env.USER_DO.idFromName(id)) as unknown as UserDomainStub
+const addressStub = (env: Env, id: string) => env.ADDRESS_DO.get(env.ADDRESS_DO.idFromName(id))
+const conversationStub = (env: Env, id: string) => declared(env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(id)))
+const userStub = (env: Env, id: string) => env.USER_DO.get(env.USER_DO.idFromName(id))
 
 const reject = (key: string, code: string, message: string): SubmitResult => ({
   frames: [{ t: "reject", tx: "", idempotency_key: key, code, message, retryable: false, replayed: false } as OwnerFrame]

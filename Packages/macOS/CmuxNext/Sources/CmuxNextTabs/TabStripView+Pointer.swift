@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 import QuartzCore
 // Hit testing, hover, clicks, context menu, and wheel scrolling.
 extension TabStripView {
@@ -25,7 +25,7 @@ extension TabStripView {
         guard let cell = cells[id], let rect = cell.closeButtonRect else { return false }
         let local = convert(point, to: tabsClip)
         let inCell = CGPoint(x: local.x - cell.frame.minX, y: local.y - cell.frame.minY)
-        return rect.insetBy(dx: -2, dy: -2).contains(inCell)
+        return cell.metrics.closeHitRect(rect).contains(inCell)
     }
 
     /// Whether `point` (strip coordinates) is on tab `id`'s speaker, with a
@@ -54,7 +54,6 @@ extension TabStripView {
         hoveredID = id
         if let id { cells[id]?.isHovered = true }
         onHoverTab?(id)
-        TabSeparatorVisibility.apply(to: self)
     }
 
     /// `moved`: a pointer event (true) or content that moved under a still
@@ -107,9 +106,7 @@ extension TabStripView {
 
     public override func mouseEntered(with event: NSEvent) {
         if closingWatch.trackingEvent(event, entered: true) { return }
-        buttonReveal.pointerInStrip = true
-        closingWatch.pointerReturned()
-        updateHover(at: convert(event.locationInWindow, from: nil), moved: true)
+        pointerEntered(at: event.locationInWindow)
     }
 
     public override func mouseMoved(with event: NSEvent) {
@@ -119,8 +116,7 @@ extension TabStripView {
 
     public override func mouseExited(with event: NSEvent) {
         if closingWatch.trackingEvent(event, entered: false) { return }
-        pointerLeft()
-        hoverCards.pointerMoved(to: window.map { $0.convertPoint(toScreen: event.locationInWindow) })
+        pointerExited(at: event.locationInWindow)
     }
 
     /// An exit, or the strip moved away under a still pointer (`geometryDidChange`).
@@ -139,6 +135,8 @@ extension TabStripView {
         let point = convert(event.locationInWindow, from: nil)
         // A press before the strip's model sync (right after a close) catches up first.
         if model.orderedTabs.map(\.id) != lastModelOrder { sync(fromModel: true) }
+        // Titlebar space (the gaps between pills too, #48653): the window moved or ran its double-click action.
+        if pressIsTitlebar(at: point) { return }
         if isInNewTabMenuButton(point) {
             showNewTabMenu(anchor: newTabMenuButton)
             return
@@ -200,7 +198,13 @@ extension TabStripView {
             return
         }
         if pressedNewTab {
-            newTabButton.isPressed = isInNewTabButton(point)
+            let inside = isInNewTabButton(point)
+            newTabButton.isPressed = inside
+            if !inside {
+                // Leaving + cancels the hold. A later release inside still
+                // performs the ordinary click, without restarting the timer.
+                _ = newTabHold.end()
+            }
             return
         }
         if let id = pressedAudioID {
@@ -275,7 +279,7 @@ extension TabStripView {
     public override func menu(for event: NSEvent) -> NSMenu? {
         let menu = contextMenu(for: event)
         if let menu { menuTracking.begin(menu) }
-        return menu
+        return NSMenu.withoutSystemItems(menu)
     }
 
     private func contextMenu(for event: NSEvent) -> NSMenu? {
@@ -333,11 +337,14 @@ extension TabStripView {
         hoverCards.dismiss(.action)
         let anchor = anchor ?? newTabButton
         let fromChooser = anchor === newTabMenuButton
+        // Runs last (defers run in reverse): a ⌄ shown only on hover hides again once the menu and its light are gone.
+        defer { updateChooserReveal() }
         if fromChooser { newTabMenuButton.isHighlighted = true }
         defer { if fromChooser { newTabMenuButton.isHighlighted = false } }
         let origin = CmuxPopoverAnchor.menuPoint(for: anchor, in: self, gap: 2)
         // Only the control that opened the menu stays lit: the + for hold/right-click, the chooser for its own press.
         menuTracking.begin(menu, fromNewTabButton: !fromChooser)
+        updateChooserReveal()
         presentNewTabMenu(menu, origin, self)
         menuTracking.end()
     }
@@ -348,9 +355,7 @@ extension TabStripView {
         guard model.tab(id) != nil else { return }
         if source.entersClosingMode {
             closingModeWidth = TabLayoutEngine.closingModeWidth(afterClosing: id, in: result, current: closingModeWidth)
-            if let point, let frame = TabClosingModeHit.laidOut(self).first(where: { $0.id == id })?.frame {
-                closingHit.closePressed(at: convert(point, to: tabsClip), on: frame)
-            }
+            if let point { closingHit.closePressed(at: convert(point, to: tabsClip)) }
         }
         model.send(.close(id, source: source))
     }

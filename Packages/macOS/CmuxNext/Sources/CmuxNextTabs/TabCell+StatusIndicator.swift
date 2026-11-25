@@ -32,6 +32,7 @@ extension TabCell: StatusIndicatorConfigClient {
             let spinner = makeSpinner()
             let wasHidden = spinner.layer.isHidden || spinner.plan.glyph == .none || isSpinnerExiting
             isSpinnerExiting = false
+            spinnerExitsInSlot = false
             spinner.apply(plan, config: StatusIndicatorAppearance.shared.config)
             if wasHidden {
                 showSpinner(spinner, animated: item.indicator.isLoading)
@@ -40,7 +41,12 @@ extension TabCell: StatusIndicatorConfigClient {
             }
         } else {
             if let spinnerLayer {
-                hideSpinner(spinnerLayer, animated: TabTunables.loadingAnimation.value != .instant)
+                // The unread dot takes the spinner's place in one mark (`TabBusyUnreadMark`): the two cross-fade there.
+                let handsToDot = combinedBusyUnread != nil
+                let variant = handsToDot && TabTunables.loadingAnimation.value == .instant ? .fade : TabTunables.loadingAnimation.value
+                hideSpinner(spinnerLayer, variant: variant)
+                dotFadesIn = handsToDot && spinnerLayer === self.spinnerLayer
+                spinnerExitsInSlot = dotFadesIn
             }
         }
         layoutLayers()
@@ -66,7 +72,7 @@ extension TabCell: StatusIndicatorConfigClient {
         case .fade:
             break
         case .fadeScale:
-            if Motion.indicators.animatesMovement {
+            if Motion.indicators.animatesMovement(in: Motion.window(showing: layer)) {
                 layer.transform = prototypeTransform(scale: 0.86)
                 Motion.indicators.set(layer, "transform", to: NSValue(caTransform3D: prototypeTransform()), movementFade: .fadeIn,
                            from: NSValue(caTransform3D: prototypeTransform(scale: 0.86)))
@@ -74,7 +80,7 @@ extension TabCell: StatusIndicatorConfigClient {
                 layer.transform = CATransform3DIdentity
             }
         case .fadeSlide:
-            if Motion.indicators.animatesMovement {
+            if Motion.indicators.animatesMovement(in: Motion.window(showing: layer)) {
                 layer.transform = prototypeTransform(y: 2)
                 Motion.indicators.set(layer, "transform", to: NSValue(caTransform3D: prototypeTransform()), movementFade: .fadeIn,
                            from: NSValue(caTransform3D: prototypeTransform(y: 2)))
@@ -90,8 +96,7 @@ extension TabCell: StatusIndicatorConfigClient {
     /// Retains the indicator for the duration of a prototype exit so a busy
     /// tab does not flicker out. A new busy update cancels this transition and
     /// retargets the same layer in `showSpinner`.
-    private func hideSpinner(_ spinner: StatusIndicatorLayer, animated: Bool) {
-        let variant = animated ? TabTunables.loadingAnimation.value : .instant
+    private func hideSpinner(_ spinner: StatusIndicatorLayer, variant: TabLoadingAnimation) {
         let layer = spinner.layer
         layer.removeAnimation(forKey: "opacity")
         layer.removeAnimation(forKey: "transform")
@@ -111,11 +116,11 @@ extension TabCell: StatusIndicatorConfigClient {
         case .fade:
             break
         case .fadeScale:
-            if Motion.indicators.animatesMovement {
+            if Motion.indicators.animatesMovement(in: Motion.window(showing: layer)) {
                 Motion.indicators.set(layer, "transform", to: NSValue(caTransform3D: prototypeTransform(scale: 0.86)), movementFade: .fadeOut)
             }
         case .fadeSlide:
-            if Motion.indicators.animatesMovement {
+            if Motion.indicators.animatesMovement(in: Motion.window(showing: layer)) {
                 Motion.indicators.set(layer, "transform", to: NSValue(caTransform3D: prototypeTransform(y: 2)), movementFade: .fadeOut)
             }
         case .instant:
@@ -137,6 +142,7 @@ extension TabCell: StatusIndicatorConfigClient {
         spinner.layer.removeFromSuperlayer()
         spinnerLayer = nil
         isSpinnerExiting = false
+        spinnerExitsInSlot = false
     }
 
     /// Checks the indicator again (the app came back, a window became main, the Mac woke): now
@@ -153,6 +159,7 @@ extension TabCell: StatusIndicatorConfigClient {
 
     func statusIndicatorConfigDidChange(_ config: StatusIndicatorConfig) {
         if item.status != .none { updateStatusGlyph() }
+        updateNeedsYouGlowMotion() // loops on or off (the system's Reduce Motion reaches here on the app's return)
         guard item.isBusy else { return }
         updateSpinner()
         updateColors(animated: false)

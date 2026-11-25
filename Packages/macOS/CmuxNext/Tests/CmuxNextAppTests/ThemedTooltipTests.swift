@@ -3,11 +3,12 @@ import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 import Testing
+import CmuxNextTestSupport
 
 /// Leo, 2026-10-12: cmux-next's tooltips were macOS's stock yellow-gray bubble ("Default" on the
 /// sidebar's space tile). Controls hand their tooltip to the app's themed one instead: no AppKit
 /// `toolTip`, while VoiceOver still reads the same text as the control's help.
-@MainActor @Suite(.serialized) struct ThemedTooltipTests {
+@MainActor @Suite(.closesItsWindows, .serialized) struct ThemedTooltipTests {
     @Test func controlsUseTheThemedTooltipNotAppKits() {
         let views: [(NSView, String)] = [
             (SidebarIconButton(icon: .actionClose, label: "Close Workspace"), "Close Workspace"),
@@ -36,7 +37,7 @@ import Testing
         #expect(button.accessibilityHelp() == "New Tab")
 
         let presenter = Self.instantPresenter()
-        defer { presenter.timing = nil }
+        defer { Self.putAway(presenter) }
         let tracker = try #require(TooltipTracker.whole(of: button))
         presenter.dismiss()
         // The hover delay is TooltipHoverIntentTests'; here it is zero, so the tooltip shows on enter.
@@ -46,7 +47,10 @@ import Testing
         let panel = presenter.panel
         #expect(panel.isVisible)
         #expect(Self.same(try #require(panel.text.textColor), scope.perform { Palette.textPrimary }))
-        #expect(Self.same(try #require(panel.hint.textColor), scope.perform { Palette.textSecondary }))
+        // The shortcut's keys on the keycap plate, in the secondary ink (TooltipDesignTests holds its shape).
+        let keycap = try #require(panel.content.keycap)
+        #expect(keycap.label.stringValue == "⌘T")
+        #expect(Self.same(try #require(keycap.label.textColor), scope.perform { Palette.textSecondary }))
         // The shared overlay glass, drawn in the button's theme scope (Leo 2026-10-21: glass, never solid).
         #expect(panel.glass.themeScope === scope.fullStrength)
         #expect(!panel.glass.isCard)
@@ -62,8 +66,8 @@ import Testing
         #expect(presenter.shown?.text == "New Window")
         button.themedToolTip = nil
         #expect(presenter.shown == nil)
-        #expect(!panel.isVisible || panel.isFadingOut)
-        window.orderOut(nil)
+        #expect(!panel.isVisible, "the tooltip lingered: it goes in one frame")
+        window.closeAfterTest()
     }
 
     @Test func theDeepestTooltipUnderThePointerShowsAndRegionsWin() throws {
@@ -71,11 +75,13 @@ import Testing
                               backing: .buffered, defer: false)
         let header = NSView(frame: NSRect(x: 0, y: 100, width: 300, height: 28))
         let add = NSButton(frame: NSRect(x: 270, y: 2, width: 24, height: 24))
+        add.title = "" // an icon-only button: one that shows its own title has no tooltip (cut 2)
         header.addSubview(add)
         window.contentView?.addSubview(header)
         header.themedToolTip = "This Mac"
         add.themedToolTip = "New Workspace"
         let presenter = Self.instantPresenter()
+        defer { Self.putAway(presenter) }
         presenter.dismiss()
 
         // The pointer comes straight onto the button: whichever enter arrives last, the button's shows.
@@ -93,8 +99,7 @@ import Testing
         #expect(presenter.shown?.text == "Default")
         presenter.dismiss()
         #expect(presenter.shown == nil)
-        presenter.timing = nil
-        window.orderOut(nil)
+        window.closeAfterTest()
     }
 
     /// Review of #19902: with no hover delay, scrolling a list under a resting pointer flashed each
@@ -105,6 +110,9 @@ import Testing
                               backing: .buffered, defer: false)
         let first = NSButton(frame: NSRect(x: 0, y: 100, width: 300, height: 28))
         let second = NSButton(frame: NSRect(x: 0, y: 72, width: 300, height: 28))
+        // Rows that show no title of their own: one that shows its text has no tooltip (cut 2).
+        first.title = ""
+        second.title = ""
         window.contentView?.addSubview(first)
         window.contentView?.addSubview(second)
         first.themedToolTip = "First"
@@ -112,9 +120,8 @@ import Testing
         let presenter = Self.instantPresenter()
         presenter.dismiss()
         defer {
-            presenter.dismiss()
-            presenter.timing = nil
-            window.orderOut(nil)
+            Self.putAway(presenter)
+            window.closeAfterTest()
         }
 
         presenter.enter(try #require(TooltipTracker.whole(of: first)))
@@ -131,10 +138,13 @@ import Testing
     @Test func aTooltipWithNoRoomBelowGoesAboveAndStaysOnScreen() {
         let screen = NSRect(x: 0, y: 0, width: 1000, height: 800)
         let size = NSSize(width: 120, height: 20)
+        let gap = TooltipPresenter.gap, edge = TooltipPresenter.edge
+        // Above the control and kept the edge's room from the screen's right side.
         let low = TooltipPresenter.origin(for: size, below: NSRect(x: 980, y: 10, width: 20, height: 20), on: screen)
-        #expect(Self.near(low, NSPoint(x: 874, y: 36)), "\(low)")
+        #expect(Self.near(low, NSPoint(x: 1000 - edge - size.width, y: 30 + gap)), "\(low)")
+        // Below the control, centred on it.
         let high = TooltipPresenter.origin(for: size, below: NSRect(x: 100, y: 500, width: 40, height: 20), on: screen)
-        #expect(Self.near(high, NSPoint(x: 60, y: 474)), "\(high)")
+        #expect(Self.near(high, NSPoint(x: 120 - size.width / 2, y: 500 - gap - size.height)), "\(high)")
     }
 
     /// The shared presenter with no hover delay (the delay and warm group are TooltipHoverIntentTests').
@@ -144,6 +154,15 @@ import Testing
         timing.tooltipDelay = .zero
         presenter.timing = timing
         return presenter
+    }
+
+    /// Hides the shared tooltip, closes its panel and restores the tunables' timing. The shared
+    /// presenter keeps its panel for the process and only orders it out, so a test that showed it
+    /// closes it (`.closesItsWindows`); the next show orders the same panel back in.
+    static func putAway(_ presenter: TooltipPresenter) {
+        presenter.dismiss()
+        presenter.timing = nil
+        presenter.panel.close()
     }
 
     static func near(_ lhs: NSPoint, _ rhs: NSPoint) -> Bool {

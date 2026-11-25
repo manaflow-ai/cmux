@@ -4,6 +4,7 @@ import CmuxNextBridge
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -13,6 +14,7 @@ import Testing
 /// forced apply rebuilt the whole focus topology (O(N)) a second time, and the perf gate's split
 /// scenario measured 3 applies and 3 topology sends per split+close pair against its budget of 2
 /// (bca04e862d8d, scripts/cmux-next/perf-gate.py).
+@Suite(.closesItsWindows)
 @MainActor struct PaneCloseApplyTests {
     private static func tree(split: Bool) -> DaemonTree {
         let first = PaneSnapshot(id: PaneID(rawValue: 1), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 1), title: "~")])

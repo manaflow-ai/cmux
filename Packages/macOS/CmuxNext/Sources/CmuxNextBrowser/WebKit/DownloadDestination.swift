@@ -81,9 +81,8 @@ public nonisolated enum DownloadDestination {
         return withoutLeadingDots.isEmpty ? "download" : withoutLeadingDots
     }
 
-    /// The user's Downloads folder.
-    public static var defaultDirectory: URL {
-        FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-            ?? FileManager.default.homeDirectoryForCurrentUser.appending(path: "Downloads")
-    }
+    /// Where downloads go without a chosen file: the user's Downloads folder,
+    /// or in a Debug or bench build `CMUX_NEXT_DOWNLOADS_DIR` (`DownloadsFolder`),
+    /// read once per launch.
+    public static var defaultDirectory: URL { DownloadsFolder.launch.url }
 }

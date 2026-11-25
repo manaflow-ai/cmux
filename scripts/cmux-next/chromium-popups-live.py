@@ -26,6 +26,8 @@ import urllib.parse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -152,7 +154,8 @@ def raise_app():
     cua("bring_to_front", {"pid": app.pid})
     if WINDOW_ID:
         rpc("debug.window.focus", {"window": WINDOW_ID})
-    time.sleep(0.6)
+    if not quiet_wait(app_active, 5):
+        print("note: the app did not become active after raising it", flush=True)
 
 
 def page_origin():
@@ -189,12 +192,23 @@ def real_click(point):
         top = front_owner(point)
         if top and top.get("pid") != app.pid:
             OCCLUDED.append(f"({x:.0f}, {y:.0f}) under {top.get('owner')}")
+    journal_before = {json.dumps(e, sort_keys=True) for e in mouse_entries()}
     reply = cua("click", {"x": round(x * SCALE), "y": round(y * SCALE), "scope": "desktop"})
     print(f"real click at ({x:.0f}, {y:.0f}) pt on window {top and top.get('id')} ({top and top.get('owner')}):",
           (reply.get("summary") or json.dumps(reply))[:120], flush=True)
-    time.sleep(0.3)
-    mice = [e for e in ((rpc("debug.journal", {"last": 12}) or {}).get("entries") or []) if "mouse" in json.dumps(e)]
+    # The app took the click: a mouse entry the journal did not have before it (best effort, it is only printed).
+    if not quiet_wait(lambda: any(json.dumps(e, sort_keys=True) not in journal_before for e in mouse_entries()), 5):
+        print("  note: no new mouse entry in the journal 5 s after the click", flush=True)
+    mice = mouse_entries()
     print("  journal (mouse):", json.dumps(mice[-2:])[:400], flush=True)
+
+
+def mouse_entries():
+    return [e for e in ((rpc("debug.journal", {"last": 12}) or {}).get("entries") or []) if "mouse" in json.dumps(e)]
+
+
+def focused_id():
+    return js("document.activeElement ? document.activeElement.id : ''")
 
 
 def real_move(point):
@@ -253,7 +267,8 @@ def open_popup(element_id, opener):
 
 def reset(element_id, value=""):
     js(f"(() => {{ const e = document.getElementById('{element_id}'); e.value = {json.dumps(value)}; e.blur(); return true }})()")
-    time.sleep(0.3)
+    wait_for(lambda: js(f"document.getElementById('{element_id}').value") == value and focused_id() != element_id,
+             f"the {element_id} field reset and blurred", 5)
 
 
 def value(element_id):
@@ -281,9 +296,20 @@ def measure_idle_cpu(url, seconds):
     for _ in range(3):
         rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": url}, "focus": True})
         time.sleep(3)
-    time.sleep(20)  # settle: page loads, warm-up timers
+    # The tabs' loads and warm-up timers end: the bundle's CPU over a 1 s window stays under a fifth of a core twice.
+    calm = [0, bundle_cpu(), time.monotonic()]
+
+    def quieter():
+        time.sleep(1)  # sleep-ok: the 1 s window the CPU delta is read over
+        now, at = bundle_cpu(), time.monotonic()
+        used = sum(cpu - calm[1].get(pid, (0.0, name))[0] for pid, (cpu, name) in now.items())
+        calm[0] = calm[0] + 1 if used / max(1e-3, at - calm[2]) < 0.2 else 0
+        calm[1], calm[2] = now, at
+        return calm[0] >= 2
+    if not quiet_wait(quieter, 90):
+        print("note: the app's CPU never went quiet in 90 s after opening the tabs; measuring anyway", flush=True)
     before, start = bundle_cpu(), time.monotonic()
-    time.sleep(seconds)  # the measurement window (wall clock), not app synchronization
+    time.sleep(seconds)  # sleep-ok: the measurement window (wall clock), not app synchronization
     after, wall = bundle_cpu(), time.monotonic() - start
     rows, total = [], 0.0
     for pid, (cpu, name) in after.items():
@@ -368,30 +394,31 @@ try:
 
     # A launch can open on Home with no workspace: make one, so openBrowser has a pane.
     if not quiet_wait(focused_pane, 15):
-        print("run newTab", rpc("action.run", {"action": "newTab", "origin": "script", "focus": True}), flush=True)
+        safe_print("run newTab", rpc("action.run", {"action": "newTab", "origin": "script", "focus": True}), flush=True)
     wait_for(focused_pane, "a focused pane", 60)
     url = serve()
     if opts.idle_cpu:
         measure_idle_cpu(url, opts.idle_cpu)
         raise SystemExit(0)
     reply = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": url}, "focus": True})
-    print("openBrowser.chromium", json.dumps(reply)[:200], flush=True)
+    safe_print("openBrowser.chromium", json.dumps(reply)[:200], flush=True)
     wait_for(lambda: js("document.title") == "popups", "the local page loads in a Chromium tab", 90)
     found = [w for w in (cua("list_windows", {"pid": app.pid}).get("windows") or []) if w.get("title") == "cmux"]
     MAIN_WINDOW = found[0]["window_id"] if found else None
     WINDOW_ID = (((rpc("debug.focus") or {}).get("windows") or [{}])[0]).get("id")
     pages = [w for w in ((rpc("debug.window_list") or {}).get("windows") or []) if w.get("class") == "CefNSWindow" and w.get("visible")]
     PAGE_WINDOW = max(pages, key=lambda w: w["frame"]["width"] * w["frame"]["height"])["id"] if pages else None
-    print("windows: main", MAIN_WINDOW, "page", PAGE_WINDOW, "state id", WINDOW_ID, flush=True)
+    safe_print("windows: main", MAIN_WINDOW, "page", PAGE_WINDOW, "state id", WINDOW_ID, flush=True)
     raise_app()
-    time.sleep(1.0)
-    print("snapshot", rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "0-page.png")}), flush=True)
-    print("page origin", page_origin(), "datalist input at", element_center("list"), flush=True)
+    wait_stable(lambda: (page_origin(), element_center("list")), "the page's place on screen after raising the app",
+                timeout=10, interval=0.1)
+    safe_print("snapshot", rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "0-page.png")}), flush=True)
+    safe_print("page origin", page_origin(), "datalist input at", element_center("list"), flush=True)
 
     # 1. <datalist>: a real click on the first suggestion.
     def open_datalist():
         real_click(element_center("list"))
-        time.sleep(0.4)
+        quiet_wait(lambda: focused_id() == "list", 5)  # the click focused the field (a first click may not: open_popup retries)
         page_key("down")
 
     popup = open_popup("list", open_datalist)
@@ -445,11 +472,11 @@ try:
     #    from the page, so a pointer elsewhere on a shared host cannot steal it), then a real click
     #    on the saved entry fills the field.
     js("(() => { document.getElementById('auto').focus(); return true })()")
-    time.sleep(0.4)
+    wait_for(lambda: focused_id() == "auto", "the autofill field takes focus", 5)
     for character in SAVED:
         page_key(character)
     typed = value("auto")
-    print("typed into the autofill field:", repr(typed), flush=True)
+    safe_print("typed into the autofill field:", repr(typed), flush=True)
     page_key("return")
     wait_for(lambda: js("document.title") == "done", "the form submits", 20)
     rpc("browser.page.navigate", {"url": url})
@@ -457,7 +484,7 @@ try:
 
     def open_autocomplete():
         real_click(element_center("auto"))
-        time.sleep(0.4)
+        quiet_wait(lambda: focused_id() == "auto", 5)  # the click focused the field (a first click may not: open_popup retries)
         page_key("down")
 
     popup = open_popup("auto", open_autocomplete)

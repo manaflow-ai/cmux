@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-"""Live check that every Chrome tab key moves between sidebar items from any focus.
+"""Live check that the sidebar keys move between sidebar items from any focus.
 
-Leo 2026-10-12: "chrome/chatgpt/claude has them all the same". Sidebar items are what Chrome
-calls tabs, so by default, with no preset and no rebinding:
-  - Ctrl-Cmd-] and Ctrl-PageDown select the next sidebar item;
-  - Ctrl-Cmd-[ and Ctrl-PageUp select the previous one;
-  (Cmd-Opt-Left / Right are Ghostty's pane focus keys, reserved: Lawrence 2026-10-20.)
+By default, with no preset and no rebinding (Lawrence 2026-10-20):
+  - Ctrl-Cmd-] selects the next sidebar item and Ctrl-Cmd-[ the previous one;
   - Cmd-1 to Cmd-8 select the nth item and Cmd-9 the last.
-They win over the focused surface: a terminal (and its Ghostty keybinds), the New Tab page's
+Cmd-Opt arrows focus panes (Ghostty's `goto_split`) and Ctrl-PageDown / PageUp have no cmux
+default, so neither is checked here.
+They win over the focused surface (the user's own Ghostty keybinds win over them, #22418): a terminal, the New Tab page's
 field and an agent chat's composer, in a pane with one tab and in a pane with two (where the
 old Previous / Next switched the pane's tabs). `--surfaces` adds terminal copy mode (which
 takes every other key), a web page, the Settings page and Home (cx-9ce.18); their focus is
@@ -41,10 +40,12 @@ parser.add_argument("--surfaces", default="terminal,terminal2,newtab,newtab2,com
                     help="also copymode, page, settings, home")
 parser.add_argument("--tidy", action="store_true",
                     help="first close every other workspace (a tag's workspaces persist between launches)")
-parser.add_argument("--keys", help="only these key labels, comma separated (e.g. Ctrl-Cmd-],Ctrl-PageDown)")
+parser.add_argument("--keys", help="only these key labels, comma separated (e.g. Ctrl-Cmd-],Cmd-9)")
 parser.add_argument("--out", default="/tmp")
 opts = parser.parse_args()
 ROWS = []
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from state_wait import wait_stable  # noqa: E402
 
 NEXT, PREV = "nextSidebarTab", "prevSidebarTab"
 KEYS = [
@@ -52,8 +53,6 @@ KEYS = [
     # 2026-10-15), never workspaces: CtrlTabCyclesPaneTabsTests.
     ("Ctrl-Cmd-]", "]", ["ctrl", "cmd"], NEXT, None),
     ("Ctrl-Cmd-[", "[", ["ctrl", "cmd"], PREV, None),
-    ("Ctrl-PageDown", "pagedown", ["ctrl"], NEXT, None),
-    ("Ctrl-PageUp", "pageup", ["ctrl"], PREV, None),
     ("Cmd-1", "1", ["cmd"], "selectWorkspaceByNumber", 1),
     ("Cmd-2", "2", ["cmd"], "selectWorkspaceByNumber", 2),
     ("Cmd-9", "9", ["cmd"], "selectWorkspaceByNumber", 9),
@@ -146,7 +145,9 @@ def run(action, args=None):
 def settle(before):
     """The selection once it stops changing (a key may move it a turn late)."""
     wait(lambda: selected() != before or None, 2)
-    time.sleep(0.3)  # test harness: let a late second move show
+    # A late second move: the selection held for 0.3 s (4 reads 0.1 s apart).
+    wait_stable(selected, "the sidebar selection after the key", timeout=5, interval=0.1, reads=4,
+                raise_on_timeout=False)
     return selected()
 
 
@@ -203,6 +204,13 @@ def show(title):
     return selected() == title
 
 
+def shown_tab():
+    """The focused pane's shown tab (debug.surfaces)."""
+    panes = [p for w in (rpc("debug.surfaces") or {}).get("windows") or [] for p in w.get("panes") or []]
+    focused = next((p for p in panes if p.get("focused")), None) or {}
+    return focused.get("selected_tab") or focused.get("shown_tab")
+
+
 def context_keys():
     """The key window's context keys (`context.keys`): surfaceKind, terminal.copyMode, ..."""
     return (rpc("context.keys") or {}).get("keys") or {}
@@ -255,27 +263,38 @@ def create(surface):
         # The New Tab page becomes a chat; its composer has the keyboard.
         wait(lambda: (rpc("debug.new_tab", {"action": "field"}) or {}).get("focused") is True, 10)
         print("new_chat", rpc("debug.agent_pane", {"action": "new_chat"}), flush=True)
-        time.sleep(2)  # test harness: the page swaps to the chat
+        # The page swaps to the chat: the New Tab field is gone and the router sees the chat page.
+        if not wait(lambda: (rpc("debug.new_tab", {"action": "field"}) or {}).get("focused") is not True
+                    and "agentpage" in str(focus_kind()).lower(), 15, 0.1):
+            print("new_chat: the page did not swap to the chat in 15 s", flush=True)
     if made and surface == "page":
         server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Page)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         print("openBrowser", run("openBrowser", {"url": f"http://127.0.0.1:{server.server_address[1]}/"}), flush=True)
         wait(lambda: context_keys().get("surfaceKind") == "page" or None, 15)
-        time.sleep(1)  # test harness: the page's title renames the workspace
+        # The page's title ("keys <pid>") renames the workspace.
+        if not wait(lambda: f"keys {os.getpid()}" in str(selected()), 10, 0.1):
+            print(f"page: the workspace never took the page's title (selected {selected()!r})", flush=True)
         made = [selected()]
     if made and surface == "settings":
         print("openSettings", run("openSettings"), flush=True)
         wait(lambda: context_keys().get("surfaceKind") == "settings" or None, 10)
-        time.sleep(1)  # test harness: the tab's title may rename the workspace
+        # The tab's title may rename the workspace: the selection's title once it holds.
+        wait_stable(selected, "the settings workspace's title", timeout=5, interval=0.1, reads=5,
+                    raise_on_timeout=False)
         made = [selected()]
     if made and surface.endswith("2"):
         # A second tab in the pane: a key that switches the pane's tabs instead of the
         # sidebar item no longer looks right.
+        first_tab = shown_tab()
         print(f"{surface} second tab", run("newSurface"), flush=True)
-        time.sleep(2)  # test harness: the tab opens and takes the keyboard
+        # The tab opens and the focused pane shows it.
+        if not wait(lambda: shown_tab() not in (None, first_tab), 10, 0.1):
+            print(f"{surface}: the second tab never showed in the focused pane", flush=True)
         if surface == "newtab2":
             run("prevSurface")  # back to the New Tab page, the pane's first tab
-            time.sleep(1)  # test harness
+            if not wait(lambda: shown_tab() == first_tab, 10, 0.1):
+                print(f"{surface}: prevSurface never showed the first tab again", flush=True)
     return made[0] if made else None
 
 

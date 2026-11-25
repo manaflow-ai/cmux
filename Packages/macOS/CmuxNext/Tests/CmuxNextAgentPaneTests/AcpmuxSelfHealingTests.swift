@@ -14,9 +14,12 @@ struct AcpmuxSelfHealingTests {
         }
     }
 
-    @Test func theBannerNamesTheCause() {
+    @Test func theBannerNamesTheCause() throws {
         let message = AgentPaneHostError.userMessage(for: AgentPaneHostError.daemonFailed(logPath: "/l/daemon.log", cause: .exited))
-        #expect(message.contains("/l/daemon.log"))
+        // The cause in plain words, never the daemon's log path (it stays in the failure log).
+        #expect(message.contains(try #require(AcpmuxFailureCause.exited.userText)))
+        #expect(!message.contains("/l/daemon.log"))
+        #expect(!message.contains("acpmux"))
         #expect(message != AgentPaneHostError.userMessage(for: AgentPaneHostError.daemonFailed(logPath: "/l/daemon.log")))
         // A healing daemon says it restarts, not that it failed.
         #expect(!AgentPaneHostError.userMessage(for: AgentPaneHostError.daemonRestarting).contains("did not start"))

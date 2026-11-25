@@ -8,7 +8,11 @@
 //! them shells idle at a prompt for a median 148 h with no client; every
 //! new workspace then failed to spawn).
 //!
-//! When free PTYs fall under [`PTY_RESERVE`], the owner parks idle shells
+//! When free PTYs fall under [`PTY_RESERVE`], the owner first ends the terminals
+//! of closed tabs that wait out the reap grace (no tab shows them; longest closed
+//! first, never a kept or attached one), since a burst of tab closes otherwise
+//! holds the machine's PTYs for the whole grace (STATUS 7938). If that is not
+//! enough, it parks idle shells
 //! (`park-tabs`, `tab-park-v1`) until [`PTY_REFILL`] are free: the tab stays,
 //! shows `relaunch: {cwd}`, and the app starts it again when it is shown. A
 //! shell is parked only when all of these hold, so no work is ever lost:
@@ -77,11 +81,48 @@ pub(crate) fn pick_reclaim(
     eligible.into_iter().take(want).flat_map(|(_, c)| c.surfaces.iter().copied()).collect()
 }
 
+/// `surfaces` without the views of a terminal a client is attached to or that is kept
+/// (`set-terminal-keep`): what `park-tabs` may park. A surface no candidate shows is kept as
+/// given; `park_terminal_tabs` skips it when it shows no live terminal.
+pub(crate) fn drop_watched(
+    candidates: &[ReclaimCandidate],
+    surfaces: &[SurfaceId],
+) -> Vec<SurfaceId> {
+    let watched: HashSet<SurfaceId> = candidates
+        .iter()
+        .filter(|c| c.attached || c.kept)
+        .flat_map(|c| c.surfaces.iter().copied())
+        .collect();
+    surfaces.iter().copied().filter(|surface| !watched.contains(surface)).collect()
+}
+
 /// How many PTYs to free given `used` of `max`: none while at least
 /// [`PTY_RESERVE`] are free, else enough to reach [`PTY_REFILL`] free.
 pub(crate) fn reclaim_need(used: usize, max: usize) -> usize {
     let free = max.saturating_sub(used);
     if free >= PTY_RESERVE { 0 } else { PTY_REFILL.min(max).saturating_sub(free) }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// A unit test's PTY usage in place of the machine's (`set_pty_usage_for_test`).
+    static PTY_USAGE_FOR_TEST: std::cell::Cell<Option<(usize, usize)>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// Sets the PTY usage a reclaim pass on this thread reads; `None` reads the machine again.
+#[cfg(test)]
+pub(crate) fn set_pty_usage_for_test(usage: Option<(usize, usize)>) {
+    PTY_USAGE_FOR_TEST.with(|cell| cell.set(usage));
+}
+
+/// The usage a reclaim pass reads: the machine's, or a unit test's.
+fn current_pty_usage() -> Option<(usize, usize)> {
+    #[cfg(test)]
+    if let Some(usage) = PTY_USAGE_FOR_TEST.with(std::cell::Cell::get) {
+        return Some(usage);
+    }
+    pty_usage()
 }
 
 /// PTYs in use on this machine and its limit; `None` where it cannot be read.
@@ -175,14 +216,37 @@ impl Mux {
     }
 
     /// One reclaim pass (module docs). Returns the tab surfaces parked.
+    #[cfg(test)]
     pub(crate) fn reclaim_ptys_if_low(&self, clock: &mut ReclaimClock) -> Vec<SurfaceId> {
+        self.reclaim_ptys_if_low_leaving(clock, &HashSet::new())
+    }
+
+    /// [`Self::reclaim_ptys_if_low`], never ending a closed tab's terminal in `held`: the
+    /// terminals a new owner holds until the app attaches to them again (terminal_reap.rs,
+    /// "Cold adoption"), which look detached until it does.
+    pub(crate) fn reclaim_ptys_if_low_leaving(
+        &self,
+        clock: &mut ReclaimClock,
+        held: &HashSet<String>,
+    ) -> Vec<SurfaceId> {
         let forced = self.pty_reclaim_forced.swap(false, Ordering::AcqRel);
         if !clock.due(Instant::now(), forced) {
             return Vec::new();
         }
-        let Some((used, max)) = pty_usage() else { return Vec::new() };
+        let Some((used, max)) = current_pty_usage() else { return Vec::new() };
         let want = reclaim_need(used, max);
         if want == 0 {
+            return Vec::new();
+        }
+        // Closed tabs' terminals waiting out the reap grace go first: no tab shows them, and a
+        // burst of closes held the machine's PTYs with them until every new tab was refused
+        // (STATUS 7938). Each ends through the reaper's own guarded close.
+        let ended = self.end_unplaced_terminals_for_ptys(want, held);
+        let want = want.saturating_sub(ended);
+        if want == 0 {
+            eprintln!(
+                "cmux-tui: PTYs low ({used} of {max} in use): ended {ended} closed tabs' terminals"
+            );
             return Vec::new();
         }
         let now_ms = std::time::SystemTime::now()
@@ -210,6 +274,56 @@ impl Mux {
                 Vec::new()
             }
         }
+    }
+
+    /// Ends up to `want` terminals that no tab shows and that wait out the reap grace, longest
+    /// unplaced first; returns how many ended. A kept terminal, or one a client is attached to, is
+    /// never one of them (`reap_unplaced_terminal` checks again atomically with the close).
+    fn end_unplaced_terminals_for_ptys(&self, want: usize, held: &HashSet<String>) -> usize {
+        let mut rows_empty = false;
+        let unplaced = match self.reapable_terminals_unplaced_for(&mut rows_empty) {
+            Ok(unplaced) => unplaced,
+            Err(error) => {
+                self.report_internal_diagnostic(format!(
+                    "PTY reclaim could not list closed terminals: {error:#}"
+                ));
+                return 0;
+            }
+        };
+        let mut oldest: Vec<(Duration, String)> = unplaced
+            .into_iter()
+            .filter(|(terminal_id, _)| !held.contains(terminal_id))
+            .map(|(terminal_id, unplaced_for)| (unplaced_for, terminal_id))
+            .collect();
+        oldest.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+        let mut ended = 0;
+        for (_, terminal_id) in oldest {
+            if ended == want {
+                break;
+            }
+            match self.reap_unplaced_terminal(&terminal_id) {
+                Ok(terminal_reap::ReapOutcome::Reaped) => ended += 1,
+                Ok(_) => {}
+                Err(error) => self.report_internal_diagnostic(format!(
+                    "PTY reclaim could not end closed terminal {terminal_id}: {error:#}"
+                )),
+            }
+        }
+        ended
+    }
+
+    /// `park-tabs`: parks the terminals at `surfaces` except one a client is attached to
+    /// or that is kept ([`drop_watched`]): a shell another Mac or the phone shows keeps running.
+    /// Returns the surfaces parked.
+    pub(crate) fn park_unwatched_terminal_tabs(
+        &self,
+        surfaces: &[SurfaceId],
+    ) -> anyhow::Result<Vec<SurfaceId>> {
+        let surfaces = drop_watched(&self.reclaim_candidates(), surfaces);
+        if surfaces.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.park_terminal_tabs(&surfaces)
     }
 
     /// Every running terminal of this owner with the facts
@@ -258,72 +372,5 @@ impl Mux {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    const HOUR_MS: u64 = 60 * 60 * 1000;
-
-    fn sid(id: u64) -> SurfaceId {
-        id
-    }
-
-    fn idle(surface: u64, since_ms: u64) -> ReclaimCandidate {
-        ReclaimCandidate {
-            surfaces: vec![sid(surface)],
-            prompt_since_ms: Some(since_ms),
-            attached: false,
-            kept: false,
-            last_output_ms: Some(since_ms),
-            program_reported: false,
-        }
-    }
-
-    #[test]
-    fn parks_only_idle_quiet_unwatched_unkept_shells_oldest_first() {
-        let now = 200 * HOUR_MS;
-        let busy = ReclaimCandidate { prompt_since_ms: None, ..idle(2, 0) };
-        let watched = ReclaimCandidate { attached: true, ..idle(3, 0) };
-        let kept = ReclaimCandidate { kept: true, ..idle(4, 0) };
-        let agent = ReclaimCandidate { program_reported: true, ..idle(5, 0) };
-        let printing = ReclaimCandidate { last_output_ms: Some(now - 1000), ..idle(6, 0) };
-        let fresh = idle(7, now - 10 * 60 * 1000);
-        let candidates =
-            [idle(1, 50 * HOUR_MS), busy, watched, kept, agent, printing, fresh, idle(8, HOUR_MS)];
-        assert_eq!(
-            pick_reclaim(&candidates, now, 10),
-            [sid(8), sid(1)],
-            "the oldest prompt first; nothing busy, watched, kept, reporting, printing or fresh"
-        );
-        assert_eq!(pick_reclaim(&candidates, now, 1), [sid(8)]);
-        assert!(pick_reclaim(&candidates, now, 0).is_empty());
-    }
-
-    #[test]
-    fn reclaims_only_under_the_reserve_and_refills_past_it() {
-        assert_eq!(reclaim_need(100, 511), 0);
-        assert_eq!(reclaim_need(511 - PTY_RESERVE, 511), 0);
-        assert_eq!(reclaim_need(511 - PTY_RESERVE + 1, 511), PTY_REFILL - PTY_RESERVE + 1);
-        assert_eq!(reclaim_need(511, 511), PTY_REFILL);
-        assert_eq!(reclaim_need(527, 511), PTY_REFILL, "more nodes than the limit");
-        assert_eq!(reclaim_need(40, 50), 50 - 10, "a limit under the refill frees what it can");
-    }
-
-    #[test]
-    fn counts_only_numbered_pty_nodes() {
-        assert!(is_pty_node("ttys000"));
-        assert!(is_pty_node("ttys510"));
-        assert!(!is_pty_node("ttys0"), "legacy node");
-        assert!(!is_pty_node("ttysf"));
-        assert!(!is_pty_node("ttyp000"));
-    }
-
-    #[test]
-    fn a_failed_launch_forces_the_next_pass() {
-        let mut clock = ReclaimClock::default();
-        let start = Instant::now();
-        assert!(clock.due(start, false));
-        assert!(!clock.due(start + Duration::from_millis(10), false));
-        assert!(clock.due(start + Duration::from_millis(20), true));
-        assert!(clock.due(start + RECLAIM_CHECK_EVERY * 2, false));
-    }
-}
+#[path = "pty_reclaim_tests.rs"]
+mod tests;

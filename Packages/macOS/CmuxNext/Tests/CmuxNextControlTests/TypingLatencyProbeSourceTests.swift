@@ -19,6 +19,23 @@ import Testing
         FileManager.default.temporaryDirectory.appendingPathComponent("typing-probe-\(UUID().uuidString).csv").path
     }
 
+    /// `debug.key` opens its sample before the key router (cmux#45273) and withdraws it when the key goes through the
+    /// app's sendEvent, which opens its own: the withdrawn sample writes no row, complete or not.
+    @Test func aWithdrawnSampleWritesNoRow() throws {
+        let path = csvPath()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let probe = TypingLatencyProbe(path: path)
+        probe.keyDown(eventTimestamp: 0)
+        probe.withdraw()
+        probe.keyDown(eventTimestamp: 0)
+        probe.closeAtCommit()
+        probe.mark(.dispatchEnd)
+        probe.mark(.commit)
+        let written = try rows(path, probe)
+        try #require(written.count == 1, "the withdrawn sample was written")
+        #expect(written[0][1] == "1", "the app's own sample is complete")
+    }
+
     @Test func aBusyNeighborsEchoDoesNotCloseThePress() throws {
         let path = csvPath()
         defer { try? FileManager.default.removeItem(atPath: path) }
@@ -45,6 +62,29 @@ import Testing
         let written = try rows(path, probe)
         try #require(written.count == 1)
         #expect(written[0][1] == "1", "the press is complete")
+    }
+
+    /// Each row names its key's own event time (`event_uptime_ns`, CLOCK_UPTIME_RAW nanoseconds), so a row can be
+    /// joined to a HID post time, the main-thread watchdog's stalls (`debug.hangs` start_uptime_ns) and a screen
+    /// recording's frame times (TYPING UNDER LOAD); the other columns are milliseconds after it.
+    @Test func eachRowNamesItsKeysEventTime() throws {
+        let path = csvPath()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let probe = TypingLatencyProbe(path: path)
+        let lane = Token(), layer = Token()
+        probe.keyDown(eventTimestamp: 1234.5)
+        probe.mark(.ioWrite)
+        probe.mark(.socketSubmit, source: .terminal(1))
+        probe.mark(.outputDecoded, source: .terminal(1))
+        probe.mark(.outputReceived, source: .terminal(1), next: .object(ObjectIdentifier(lane)))
+        probe.mark(.outputParsed, source: .object(ObjectIdentifier(lane)), next: .object(ObjectIdentifier(layer)))
+        probe.mark(.contents, source: .object(ObjectIdentifier(layer)))
+        probe.flush()
+        let lines = try String(contentsOfFile: path, encoding: .utf8).split(separator: "\n").map(String.init)
+        let header = lines[0].split(separator: ",").map(String.init)
+        let column = try #require(header.firstIndex(of: "event_uptime_ns"), "no event_uptime_ns column: \(header)")
+        let row = try #require(try rows(path, probe).first)
+        #expect(row[column] == "1234500000000")
     }
 
     @Test func onlyTheSendingTerminalGetsTheFlow() {

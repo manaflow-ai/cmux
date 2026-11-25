@@ -36,12 +36,12 @@ extension AppServices {
     }
 
     /// The decision for splitting `pane` on `edge`. `source` is the pane a moved tab leaves; when that
-    /// was its only tab the pane disappears in the same step, which frees room. The chat dock never
-    /// splits. A pane no window shows (a background workspace driven from the CLI) always splits.
-    func splitRoom(for pane: PaneModel, edge: PaneEdge, movingFrom source: PaneModel? = nil) -> SplitRoomDecision {
+    /// was its only tab the pane disappears in the same step, which frees room. The chat dock splits only `growsChatDock`
+    /// (Split Down, #29848). A pane no window shows (a background workspace driven from the CLI) always splits.
+    func splitRoom(for pane: PaneModel, edge: PaneEdge, movingFrom source: PaneModel? = nil, growsChatDock: Bool = false) -> SplitRoomDecision {
         guard let controller = paneController(for: pane), let content = controller.workspace else { return .split }
         let layoutPane = controller.layoutPaneID
-        if ChatDockRules.isChatDock(pane, services: self) { return .refused(RefusalStrings.chatDockCannotSplit) }
+        if !growsChatDock, ChatDockRules.isChatDock(pane, services: self) { return .refused(RefusalStrings.chatDockCannotSplit) }
         let axis = edge.splitAxis
         let removing = source.flatMap { source -> LayoutPaneID? in
             guard source !== pane, source.tabs.count == 1 else { return nil }
@@ -78,14 +78,16 @@ extension AppServices {
     /// Right/Down, from the chat header's Terminal and Browser buttons, the palette, menus,
     /// shortcuts and the CLI) (cx-yihq). A person's split from the docked agent chat opens the tool
     /// as a tab in the scrolling strip, as New Terminal and New Browser do there (cx-ic0); a script's
-    /// split there is refused, so its result stays predictable. From Home's pinned dock alone
+    /// split there is refused, so its result stays predictable; Split Down splits in the dock, as classic Cmd-Shift-D (#29848).
+    /// From Home's pinned dock alone
     /// (`pinned-dock-alone-v1`), which has no strip, a person's split opens the tool in a new column
     /// right of the dock, as New Tab does there (Lawrence 2026-10-20: "Command-D in home does not
     /// work"). Elsewhere it splits when the pane has room, and is refused when it has none: a split
     /// never opens a column (column-sizing.md).
     func toolSplit(from pane: PaneModel, edge: PaneEdge, byPerson: Bool) -> ToolSplitDecision {
-        if byPerson, let route = chatDockRoute(for: pane) { return route }
-        switch splitRoom(for: pane, edge: edge) {
+        let growsChatDock = edge == .bottom && ChatDockRules.splitsDownInDock(pane, services: self)
+        if !growsChatDock, byPerson, let route = chatDockRoute(for: pane) { return route }
+        switch splitRoom(for: pane, edge: edge, growsChatDock: growsChatDock) {
         case .split: return .split
         case .refused(let reason): return .refused(reason)
         case .newColumn: return .refused(RefusalStrings.columnTooNarrowToSplit)
@@ -105,21 +107,15 @@ extension AppServices {
         }
     }
 
-    /// The width to send with a new column next to `pane`, from every path
-    /// that opens one, and `commit`, which the caller runs once the new
-    /// column exists: on a shown workspace it shrinks a lone full-width
-    /// column so both fit (`LayoutModel.commitNewColumnResize`; cmux-tui
-    /// refuses the width while the lone column has no viewport). `source`
-    /// is the pane a moved tab leaves.
-    func newColumnWidth(nextTo pane: PaneModel, movingFrom source: PaneModel? = nil) -> NewColumnSpawn {
+    /// The width of a new column next to `pane`, from every path that opens one; no column there
+    /// resizes (R3b). `source` is the pane a moved tab leaves.
+    func newColumnWidth(nextTo pane: PaneModel, movingFrom source: PaneModel? = nil) -> Double {
         guard let controller = paneController(for: pane), let content = controller.workspace else {
-            return NewColumnSpawn(width: DesignSettings.shared.defaultColumnWidth, commit: {})
+            return DesignSettings.shared.defaultColumnWidth
         }
         // A pane whose only tab moves out closes, even the anchor itself.
         let removing = source.flatMap { $0.tabs.count == 1 ? content.handles.paneIDs[$0.handle] : nil }
-        let model = content.layoutModel
-        let request = model.prepareNewColumn(nextTo: controller.layoutPaneID, removing: removing)
-        return NewColumnSpawn(width: request.width, commit: { [weak model] in model?.commitNewColumnResize(request) })
+        return content.layoutModel.newColumnWidth(nextTo: controller.layoutPaneID, removing: removing)
     }
 }
 
@@ -134,12 +130,6 @@ enum ToolSplitDecision {
     case besideDock(PaneController)
     /// No split; the localized reason for the caller to report.
     case refused(String)
-}
-
-/// A new column's width and the lone column's width change to run after it exists.
-struct NewColumnSpawn {
-    let width: Double
-    let commit: @MainActor () -> Void
 }
 
 /// Whether a move's split sizing went out (`AppServices.splitSizing`).

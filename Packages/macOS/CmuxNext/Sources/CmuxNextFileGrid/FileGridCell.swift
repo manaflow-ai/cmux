@@ -19,10 +19,8 @@ final class FileGridCell: NSCollectionViewItem {
     override func loadView() {
         let root = NSView()
         root.wantsLayer = true
-        root.layer?.cornerRadius = 8
         picture.imageScaling = .scaleProportionallyUpOrDown
         picture.wantsLayer = true
-        picture.layer?.cornerRadius = 6
         picture.layer?.masksToBounds = true
         name.lineBreakMode = .byTruncatingMiddle
         name.alignment = .center
@@ -50,7 +48,12 @@ final class FileGridCell: NSCollectionViewItem {
         let badgeSize = CGSize(width: size.width + 8, height: size.height + 2)
         badge.frame = CGRect(x: picture.frame.maxX - badgeSize.width - 4, y: picture.frame.minY + 4,
                              width: badgeSize.width, height: badgeSize.height)
-        badge.layer?.cornerRadius = 4
+        // Concentric: the tile takes the outer radius, the thumbnail `inset` inside it, the badge 4 pt inside that.
+        let look = appearanceValues
+        view.layer?.cornerRadius = look.cornerRadius
+        let thumbnail = look.nestedCornerRadius(look.cornerRadius, inset, nil)
+        picture.layer?.cornerRadius = thumbnail
+        badge.layer?.cornerRadius = look.nestedCornerRadius(thumbnail, 4, badgeSize)
     }
 
     override var isSelected: Bool {
@@ -69,6 +72,7 @@ final class FileGridCell: NSCollectionViewItem {
     /// Shows `item`, starting its thumbnail (and length) load.
     func configure(_ item: FileGridItem, appearance: FileGridAppearance, cache: ThumbnailCache, scale: CGFloat) {
         appearanceValues = appearance
+        view.needsLayout = true // the corners follow `appearance.cornerRadius`
         name.stringValue = item.name
         name.textColor = appearance.text
         picture.layer?.backgroundColor = appearance.tileFill.cgColor

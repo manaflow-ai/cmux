@@ -33,3 +33,26 @@ export function useLasting(active: boolean, graceMs: number = defaultGrace): boo
   }, [active, graceMs]);
   return active && (lasting || graceMs <= 0);
 }
+
+/// How long a page's plain "Loading…" waits before it shows: most reads answer well within it,
+/// and a line that flashes on for a moment is noise (Leo, 2026-11-05: "We don't need to have so
+/// much ceremony").
+export const LOADING_SHOWN_MS = 1_000;
+
+/// `useLasting` for a page's loading line: true once `active` has held for `LOADING_SHOWN_MS`. The
+/// gallery's zero grace (`setLastingGrace(0)`) shows it at once, as it does every lasting state.
+export function useLoadingShown(active: boolean): boolean {
+  return useLasting(active, defaultGrace <= 0 ? 0 : LOADING_SHOWN_MS);
+}
+
+/// How long a connection state the person can do nothing about (reconnecting, retrying, restoring, offline,
+/// disconnected) stays out of sight: the copy of schemas/notice-timing/notice-timing.json `connectionQuietMs`, checked
+/// against it by scripts/cmux-next/check-connection-notices.py, which also fails a new connection state drawn with no
+/// action and no bound. A state the person can act on (one button that fixes it) may show at once.
+export const CONNECTION_QUIET_MS = 10_000;
+
+/// `useLasting` for a connection state: true once `down` has held for `CONNECTION_QUIET_MS`. The gallery's zero
+/// grace (`setLastingGrace(0)`) shows it at once, as it does every lasting state.
+export function useConnectionQuiet(down: boolean): boolean {
+  return useLasting(down, defaultGrace <= 0 ? 0 : CONNECTION_QUIET_MS);
+}

@@ -37,9 +37,11 @@ async fn a_claude_background_shell_reports_how_it_ended() {
         ends(&hub, &id),
         vec![
             json!({"sessionUpdate": "background_task_update", "taskId": "b1", "toolCallId": "toolu_bg1",
-                   "command": "npm run dev", "state": "stopped", "reason": "Stopped by the agent"}),
+                   "command": "npm run dev", "description": "Run npm run dev", "state": "stopped",
+                   "reason": "Stopped by the agent"}),
             json!({"sessionUpdate": "background_task_update", "taskId": "b2", "toolCallId": "toolu_bg2",
-                   "command": "cargo test", "state": "completed", "summary": "Tests passed"}),
+                   "command": "cargo test", "description": "Run cargo test", "state": "completed",
+                   "summary": "Tests passed"}),
         ]
     );
     hub.shutdown_all().await;
@@ -104,7 +106,8 @@ async fn a_shell_moved_to_the_background_reports_how_it_ended() {
     c.request(method::SESSION_PROMPT, prompt).await.unwrap();
     let want = vec![json!({"sessionUpdate": "background_task_update", "taskId": "m1",
                            "toolCallId": "toolu_mv", "command": "npm run build",
-                           "state": "completed", "summary": "Build finished"})];
+                           "description": "Build", "state": "completed",
+                           "summary": "Build finished"})];
     assert_eq!(ends(&hub, &id), want);
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
@@ -193,6 +196,13 @@ async fn a_chat_starts_claude_with_its_limits_lifted_unless_the_profile_sets_one
             "BASH_MAX_TIMEOUT_MS": "2147483647",
             // The foreground default stays Claude Code's own.
             "BASH_DEFAULT_TIMEOUT_MS": null,
+            // A helper (Agent tool) waits out a capacity outage in the chat's own process;
+            // a spend or plan limit still fails fast.
+            "CLAUDE_CODE_RETRY_WATCHDOG": "1",
+            "CLAUDE_CODE_RETRY_WATCHDOG_SCOPE": null,
+            "CLAUDE_CODE_RETRY_WATCHDOG_MAX_WAIT_MS": "300000",
+            "CLAUDE_CODE_MAX_RETRIES": "14",
+            "CLAUDE_CODE_RETRY_WATCHDOG_MAX_USAGE_LIMIT_WAIT_MS": "0",
         })
     );
     hub.shutdown_all().await;

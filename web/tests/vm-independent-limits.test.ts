@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import * as Effect from "effect/Effect";
 import postgres, { type Sql } from "postgres";
 import { closeCloudDbForTests } from "../db/client";
-import { maxActiveVmsForPlan } from "../services/vms/entitlements";
+import { maxActiveVmsForPlan, PAID_MACHINE_GUARD } from "../services/vms/entitlements";
 import { VmRepository, VmRepositoryLive, type VmRepositoryShape } from "../services/vms/repository";
 
 const serialTest = (test as typeof test & { serial: typeof test }).serial;
@@ -22,11 +22,11 @@ const runRepo = <T>(operation: (repo: VmRepositoryShape) => Effect.Effect<T, unk
   Effect.runPromise(Effect.flatMap(VmRepository, operation).pipe(Effect.provide(VmRepositoryLive)));
 
 describe("independent Cloud VM limits", () => {
-  test("retired deployment overrides cannot reduce the advertised paid allowance", () => {
+  test("retired deployment overrides cannot lower the paid guard to an allowance", () => {
     const env = { CMUX_VM_PAID_MAX_ACTIVE_VMS: "1", CMUX_VM_PLAN_PRO_MAX_ACTIVE_VMS: "1" };
-    expect(maxActiveVmsForPlan("pro", env)).toBe(5);
-    expect(maxActiveVmsForPlan("founders", env)).toBe(5);
-    expect(maxActiveVmsForPlan("team", env, { seats: 4 })).toBe(20);
+    expect(maxActiveVmsForPlan("pro", env)).toBe(PAID_MACHINE_GUARD);
+    expect(maxActiveVmsForPlan("founders", env)).toBe(PAID_MACHINE_GUARD);
+    expect(maxActiveVmsForPlan("team", env)).toBe(PAID_MACHINE_GUARD);
   });
 
   dbTest("admits the third machine, all 50 sizes, and exactly one concurrent final slot", async () => {

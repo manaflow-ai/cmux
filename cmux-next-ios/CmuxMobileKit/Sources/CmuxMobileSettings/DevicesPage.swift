@@ -1,14 +1,18 @@
+import CmuxMobileModel
+import Foundation
+import Observation
 #if os(iOS)
 import CmuxMobileDesign
-import CmuxMobileModel
 import SwiftUI
 
 private let theme = CmuxMobileTheme.standard
+#endif
 
 /// The live service behind Settings → Devices and account deletion (the
 /// shell supplies it; mock mode has none).
 @MainActor
 public protocol SettingsDeviceDirectory: AnyObject {
+    var terminalSizingPeers: TerminalSizingPeers? { get }
     func devices() async throws -> [SettingsDevice]
     func remove(_ device: SettingsDevice) async throws
     /// Whether the service has a TURN relay (nil: not known yet).
@@ -19,13 +23,10 @@ public protocol SettingsDeviceDirectory: AnyObject {
     /// its pairing keys are replaced, and the next connection asks the Mac
     /// again. Sign-out does not do this (verify/persistence.md).
     func removeThisPhoneFromMacs() async
-    /// A scanned Mac pairing code (`cmux-next://pair?…`): the phone moves to
-    /// that Mac and pairs with it. False when the text is no live code for this account.
-    func openPairingCode(_ text: String) -> Bool
 }
 
 extension SettingsDeviceDirectory {
-    public func openPairingCode(_ text: String) -> Bool { false }
+    public var terminalSizingPeers: TerminalSizingPeers? { nil }
 }
 
 /// The account's devices from the service, shared by the Settings root (its
@@ -33,34 +34,60 @@ extension SettingsDeviceDirectory {
 @MainActor
 @Observable
 final class SettingsDeviceList {
-    /// The service's list; nil until it loads (or with no service).
-    private(set) var devices: [SettingsDevice]?
+    struct RefreshSource: Hashable {
+        let directory: ObjectIdentifier?
+        let macCount: Int?
+    }
+
+    private let cache: LastKnownList?
+    // SettingsScreen's value may be rebuilt many times. Read the kept rows only on the
+    // model SwiftUI actually retains, the first time a page asks for them.
+    @ObservationIgnored private lazy var keptDevices = cache?.read([SettingsDevice].self)
+    private var receivedDevices: [SettingsDevice]?
+    var devices: [SettingsDevice]? { receivedDevices ?? keptDevices }
     private(set) var loadError: String?
+    @ObservationIgnored private var revision = 0
+
+    init(cache: LastKnownList?) {
+        self.cache = cache
+    }
 
     func load(_ directory: (any SettingsDeviceDirectory)?) async {
         guard let directory else { return }
+        revision &+= 1
+        let request = revision
         do {
-            devices = try await directory.devices()
+            let rows = try await directory.devices()
+            guard !Task.isCancelled, revision == request else { return }
+            receivedDevices = rows
+            cache?.save(rows)
             loadError = nil
         } catch is CancellationError {
         } catch {
+            guard !Task.isCancelled, revision == request else { return }
             loadError = String(localized: "mobile.devices.loadFailed", defaultValue: "Couldn't load devices. Pull to retry.", bundle: .module)
         }
     }
 
     func removed(_ device: SettingsDevice) {
-        devices?.removeAll { $0.id == device.id }
+        // A response already on its way can still list the device that was just removed.
+        revision &+= 1
+        guard let devices else { return }
+        let remaining = devices.filter { $0.id != device.id }
+        receivedDevices = remaining
+        cache?.save(remaining)
     }
 
     /// The Mac rows (see `SettingsDeviceRows.macs`); nil while loading.
     func macs(store: AppStore, hasService: Bool) -> [SettingsDevice]? {
-        SettingsDeviceRows.macs(service: devices, hasService: hasService, liveMacs: store.teams.flatMap(\.macs),
+        SettingsDeviceRows.macs(service: devices, hasService: hasService || cache != nil, liveMacs: store.teams.flatMap(\.macs),
                                 teamOf: store.teams.reduce(into: [:]) { out, team in for mac in team.macs where out[mac.id] == nil { out[mac.id] = team.id } })
     }
 
     var phones: [SettingsDevice] { SettingsDeviceRows.phones(service: devices) }
 }
 
+#if os(iOS)
 /// Settings → Devices: the account's Macs and phones from the service, with
 /// real presence; stale ones can be removed.
 struct DevicesPage: View {
@@ -73,13 +100,17 @@ struct DevicesPage: View {
     @State private var removalError: ServiceFailureMessage?
     /// Rows whose removal is in flight (shown dimmed, not removable twice).
     @State private var removing: Set<String> = []
-    /// "Scan QR on your Mac" is open.
+    /// "Scan QR on your Mac" (a Pair Another Machine invite) is open.
     @State private var scanning = false
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .body) private var dotSize: CGFloat = 8
     @ScaledMetric(relativeTo: .body) private var dotLift: CGFloat = 6
 
     var body: some View {
+        // Once per pass, not once per row (each row's subtitle rebuilt the Mac
+        // rows and the same-name tags).
+        let macs = macs
+        let rows = DeviceRowContext(sameNames: sameNames, otherBuilds: SettingsDeviceRows.otherBuilds(macs, picked: SettingsDeviceRows.picks(store.teams)))
         List {
             if let relay = directory?.relayAvailable, !relay {
                 Section {
@@ -95,12 +126,13 @@ struct DevicesPage: View {
             }
             Section {
                 if macs.isEmpty {
+                    // placeholder-ok: No device directory has ever been returned for this account.
                     Text(loadedMacs == nil ? "Loading…" : String(localized: "mobile.devices.empty", defaultValue: "Sign in to cmux on your Mac to connect it.", bundle: .module))
                         .font(theme.type.meta).foregroundStyle(theme.colors.label2)
                         .cmuxMobileTextColumn()
                 }
                 ForEach(macs) { mac in
-                    removableRow(mac)
+                    removableRow(mac, rows)
                 }
                 .onDelete { offsets in pendingRemoval = offsets.first.map { macs[$0] } }
                 if directory != nil {
@@ -122,10 +154,10 @@ struct DevicesPage: View {
                     Text(String(localized: "mobile.devices.macsFooter", defaultValue: "Removed Macs can return when you sign in again.", bundle: .module))
                 }
             }
-            if directory != nil, !phones.isEmpty {
+            if !phones.isEmpty {
                 Section {
                     ForEach(phones) { phone in
-                        removableRow(phone)
+                        removableRow(phone, rows)
                     }
                     .onDelete { offsets in pendingRemoval = offsets.first.map { phones[$0] } }
                 } header: {
@@ -153,12 +185,10 @@ struct DevicesPage: View {
             }
         }
         .settingsPage("Devices")
-        .sheet(isPresented: $scanning) {
-            PairCodeScannerSheet { directory?.openPairingCode($0) ?? false }
-        }
+        .sheet(isPresented: $scanning) { PairCodeScannerSheet() }
         .toolbar { if directory != nil { EditButton() } }
         .refreshable { await list.load(directory) }
-        .task { await list.load(directory) }
+        .task(id: directory.map(ObjectIdentifier.init)) { await list.load(directory) }
         // A centered alert, with no arrow: a popover from the page pointed at
         // whichever row it chose, so with same-name Macs it could point at the
         // other Mac. A dialog attached to the swiped row does not present in a
@@ -189,8 +219,12 @@ struct DevicesPage: View {
 
     private var loadedMacs: [SettingsDevice]? { list.macs(store: store, hasService: directory != nil) }
     private var macs: [SettingsDevice] { loadedMacs ?? [] }
-    /// Mac rows that are another cmux build of a listed Mac.
-    private var otherBuilds: Set<String> { SettingsDeviceRows.otherBuilds(macs) }
+    /// What every row reads from the whole list, worked out once per pass.
+    private struct DeviceRowContext {
+        let sameNames: MacNameDisambiguation
+        /// Mac rows that are another cmux build of a listed Mac.
+        let otherBuilds: Set<String>
+    }
     private var phones: [SettingsDevice] { list.phones }
 
     /// Tags for Macs that share a name ("Aziz's MacBook Pro" twice), so
@@ -213,8 +247,8 @@ struct DevicesPage: View {
     /// A row with its Remove paths: the trailing swipe, the context menu, and
     /// Edit's delete control (`onDelete`). The confirmation is a centered
     /// alert (see `body`).
-    @ViewBuilder private func removableRow(_ device: SettingsDevice) -> some View {
-        row(device)
+    @ViewBuilder private func removableRow(_ device: SettingsDevice, _ rows: DeviceRowContext) -> some View {
+        row(device, rows)
             .opacity(removing.contains(device.id) ? 0.5 : 1)
             .swipeActions(edge: .trailing) {
                 if canRemove(device) {
@@ -265,7 +299,7 @@ struct DevicesPage: View {
         return parts.joined(separator: " ")
     }
 
-    @ViewBuilder private func row(_ device: SettingsDevice) -> some View {
+    @ViewBuilder private func row(_ device: SettingsDevice, _ rows: DeviceRowContext) -> some View {
         // The dot or glyph in the icon column; the name at the headers' x.
         CmuxMobileGutterRow(alignment: .firstTextBaseline) {
             Group {
@@ -282,7 +316,7 @@ struct DevicesPage: View {
             .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + dotLift }
         } content: {
             VStack(alignment: .leading, spacing: 2) {
-                let tag = device.kind == .mac ? sameNames.tag(for: device.id) : nil
+                let tag = device.kind == .mac ? rows.sameNames.tag(for: device.id) : nil
                 if typeSize.isAccessibilitySize {
                     // The tag on its own line: beside the name it would squeeze
                     // the name into one word per line.
@@ -294,7 +328,7 @@ struct DevicesPage: View {
                         if let tag { MacNameTag(tag) }
                     }
                 }
-                Text(subtitle(device)).font(theme.type.meta).foregroundStyle(theme.colors.label2)
+                Text(subtitle(device, rows)).font(theme.type.meta).foregroundStyle(theme.colors.label2)
 
             }
         }
@@ -304,7 +338,7 @@ struct DevicesPage: View {
         .deleteDisabled(!canRemove(device))
     }
 
-    private func subtitle(_ device: SettingsDevice) -> String {
+    private func subtitle(_ device: SettingsDevice, _ rows: DeviceRowContext) -> String {
         if device.kind == .phone {
             let notifications = device.receivesNotifications ? "Notifications on" : "Notifications off"
             return device.isThisDevice ? "This iPhone · \(notifications)" : notifications
@@ -319,9 +353,9 @@ struct DevicesPage: View {
         } else {
             presence = "Offline"
         }
-        let build = otherBuilds.contains(device.id) ? ["Another cmux build on this Mac"] : []
+        let build = rows.otherBuilds.contains(device.id) ? ["Another cmux build on this Mac"] : []
         // Same-name Macs: when each was added (the tag is next to the name).
-        let added = sameNames.added(for: device.id, addedAt: device.addedAt).map { [$0] } ?? []
+        let added = rows.sameNames.added(for: device.id, addedAt: device.addedAt).map { [$0] } ?? []
         return ([presence] + build + added).joined(separator: " · ")
     }
 
@@ -363,7 +397,7 @@ struct DevicesPage: View {
             removalError = failure
             theme.haptics.error()
         } catch {
-            removalError = ServiceFailureMessage(text: "Couldn't remove \(displayName(device)): \(error.localizedDescription)")
+            removalError = ServiceFailureMessage(text: "Couldn't remove \(displayName(device)). \(UserFacingError.message(error))")
             theme.haptics.error()
         }
     }

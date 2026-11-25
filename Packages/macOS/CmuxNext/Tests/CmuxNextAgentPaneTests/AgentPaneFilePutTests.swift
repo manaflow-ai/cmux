@@ -73,6 +73,42 @@ struct AgentPaneFilePutTests {
         #expect(methods == ["_acpmux/file_put_begin", "_acpmux/file_put_chunk", "_acpmux/file_put_chunk", "_acpmux/file_put_chunk", "_acpmux/file_put_finish"])
     }
 
+    /// A file past the former 1 GiB peer limit starts its chunked put: the begin declares its whole
+    /// size. The bytes are declared (`Data(count:)`, zero pages never touched); the begin's answer
+    /// names no upload, so the put stops there, before any chunk is read.
+    @Test func aChunkedPutOfAnySizeBegins() async throws {
+        let size = (1 << 30) + 1
+        let calls = CallLog()
+        await #expect(throws: AgentPaneFilePutFailure.failed) {
+            try await AcpmuxStatusClient.putFileChunked(sessionId: "s", name: "recording.mov", data: Data(count: size)) { method, params in
+                await calls.add("\(method) \(params["size"] as? Int ?? -1)")
+                return [:]
+            }
+        }
+        #expect(await calls.methods() == ["_acpmux/file_put_begin \(size)"])
+    }
+
+    /// A cancelled RPC refuses to send: cleanup must use a fresh task, or the peer retains its
+    /// stage. Exercise both a chunk and finish in flight without a polling loop or fixed wait.
+    @Test(.timeLimit(.minutes(1)), arguments: [AcpmuxStatusClient.filePutChunkMethod, AcpmuxStatusClient.filePutFinishMethod])
+    func cancellingAnInFlightPutCleansThePeerFromAnUncancelledTask(blockedMethod: String) async throws {
+        let peer = CancellablePeer(blockedMethod: blockedMethod)
+        let put = Task {
+            try await AcpmuxStatusClient.putFileChunked(sessionId: "s", name: "large.bin",
+                                                       data: Data(repeating: 7, count: AcpmuxStatusClient.filePutChunkBytes + 3)) { method, params in
+                let reply = try await peer.send(method, params: params)
+                return reply.mapValues { $0 as Any }
+            }
+        }
+        await peer.waitUntilBlocked()
+        put.cancel()
+        let result = await put.result
+        #expect((try? result.get()) == nil, "a cancelled transfer must not publish a path")
+        let (stageRemains, cancellations) = await peer.snapshot()
+        #expect(!stageRemains, "the peer's staged file is removed before the put returns")
+        #expect(cancellations == [false], "one cleanup call runs outside the cancelled upload task")
+    }
+
     /// Review of #27012 (P2): a chunked put cancelled while its finish was pending (the page's x on
     /// a dictation upload to a peer) sent its `file_put_cancel` from the cancelled task, whose call
     /// is torn down at once, so the peer kept the upload it staged. The cleanup now runs in a fresh
@@ -140,6 +176,52 @@ struct AgentPaneFilePutTests {
             return next.data
         }
         func writes() -> [Data] { sent }
+    }
+
+    private actor CancellablePeer {
+        let blockedMethod: String
+        private var stageRemains = false
+        private var cancellations: [Bool] = []
+        private var blocked = false
+        private var entered: CheckedContinuation<Void, Never>?
+
+        init(blockedMethod: String) { self.blockedMethod = blockedMethod }
+
+        func waitUntilBlocked() async {
+            if blocked { return }
+            await withCheckedContinuation { entered = $0 }
+        }
+
+        func snapshot() -> (Bool, [Bool]) { (stageRemains, cancellations) }
+
+        func send(_ method: String, params: [String: any Sendable]) async throws -> [String: any Sendable] {
+            if method == AcpmuxStatusClient.filePutCancelMethod {
+                cancellations.append(Task.isCancelled)
+                // Acpmux's exchange checks cancellation before sending the cleanup request.
+                try Task.checkCancellation()
+                stageRemains = false
+                return [:]
+            }
+            try Task.checkCancellation()
+            if method == AcpmuxStatusClient.filePutBeginMethod {
+                stageRemains = true
+                return ["uploadId": "0190a000-0000-7000-8000-000000000000"]
+            }
+            if method == blockedMethod {
+                blocked = true
+                entered?.resume()
+                entered = nil
+                // A pending RPC stays blocked until its caller cancels; its sole timeout is
+                // cancelled with that task. The test's time limit bounds a broken fixture too.
+                try await Task.sleep(for: .seconds(600))
+            }
+            if method == AcpmuxStatusClient.filePutChunkMethod {
+                let offset = params["offset"] as? Int ?? 0
+                let count = Data(base64Encoded: params["data"] as? String ?? "")?.count ?? 0
+                return ["offset": offset + count]
+            }
+            return ["path": "/uploads/s/large.bin"]
+        }
     }
 
     private actor CallLog {

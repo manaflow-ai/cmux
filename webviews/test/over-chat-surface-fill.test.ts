@@ -1,13 +1,13 @@
 // A surface that lies over the chat never takes its fill from the page color. `--agent-page-bg`
 // (AgentPaneTheme.pageColor) is clear in a translucent window, where the window root paints the one
-// backdrop, so a dialog or the overlay Inspector filled with it showed the transcript through it,
-// unblurred: the Inspector before #23477 and the PDF attachment viewer after it. Such a surface is the
+// backdrop, so a dialog or the overlay Session Info filled with it showed the transcript through it,
+// unblurred: Session Info before #23477 and the PDF attachment viewer after it. Such a surface is the
 // liquid glass (.ui-glass) or mixes from the opaque surface (`--cmux-surface-solid`); the page color
 // may stay only as a var() fallback for a page with no host theme.
 //
 // The check reads the sources: the classes each agent-pane `<Dialog>` and `.ui-glass` element gets
-// (its className in the TSX), and the overlay Inspector, then every stylesheet rule whose selector
-// names one of those classes. Rules for the pushed Inspector (`data-placement="push"`), a column
+// (its className in the TSX), and the overlay Session Info, then every stylesheet rule whose selector
+// names one of those classes. Rules for the pushed Session Info (`data-placement="push"`), a column
 // beside the chat on its own page, are not over the chat and are not checked.
 import { expect, test } from "bun:test";
 import fs from "node:fs";
@@ -37,12 +37,12 @@ const attributes = (text: string, start: number) => {
   return text.slice(start);
 };
 
-// The classes of every surface over the chat: a <Dialog>'s className, a .ui-glass element's, and
-// the overlay Inspector (ChatInspector.tsx gives it its class only in a ternary).
-const surfaces = new Set<string>(["acpmux-chat-inspector"]);
+// The classes of every surface over the chat: a dialog or popover's className, a .ui-glass element's, and
+// the overlay Session Info (SessionInfo.tsx gives it its class only in a ternary).
+const surfaces = new Set<string>(["acpmux-session-info"]);
 for (const file of files(source, /\.tsx$/)) {
   const text = fs.readFileSync(file, "utf8");
-  for (const open of text.matchAll(/<Dialog\b/g)) {
+  for (const open of text.matchAll(/<(?:Dialog|Popover)\b/g)) {
     const className = attributes(text, open.index).match(/\bclassName="([^"]+)"/);
     for (const name of classNames(className?.[1] ?? "")) if (!shared.has(name)) surfaces.add(name);
   }
@@ -61,7 +61,13 @@ const pageColorFill = (value: string) =>
   });
 
 test("finds the dialogs and glass surfaces over the chat", () => {
-  for (const name of ["acpmux-pdf-viewer", "acpmux-image-viewer", "acpmux-chat-gallery", "acpmux-add-project-dialog"]) {
+  for (const name of [
+    "acpmux-pdf-viewer",
+    "acpmux-image-viewer",
+    "acpmux-chat-gallery",
+    "acpmux-add-project-dialog",
+    "acpmux-add-project-palette",
+  ]) {
     expect(surfaces.has(name)).toBe(true);
   }
 });

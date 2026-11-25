@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextRemote
@@ -31,8 +32,8 @@ enum RemoteGroupHandlers {
             // `cmux workspace group create --remote HOST --name N` names the group's header.
             let name = invocation["name"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
             let make = { (text: String) throws in
-                let session = try ssh.connect(destination: text, session: nil, offerInstall: interactive)
-                markWhenNamed(session, name: name)
+                let session = try ssh.connect(destination: text, session: nil, offerInstall: interactive, byPerson: invocation.isPersonsRequest)
+                markWhenNamed(session, name: name, doc: context.services.sidebarDoc)
                 if interactive { RemoteHandlers.showWhenConnected(session, context) }
             }
             if let text = invocation["destination"]?.stringValue { return try make(text) }
@@ -52,10 +53,10 @@ enum RemoteGroupHandlers {
             guard let session = session(invocation, context) else {
                 throw ActionFailure.invalidTarget(WorkspaceVerbStrings.noMachine)
             }
-            guard let store = SidebarDocStore.current, SidebarDocWiring.isActive else {
+            guard let store = context.services.sidebarDoc.activeStore else {
                 throw ActionFailure.invalidTarget(WorkspaceVerbStrings.subgroupNeedsDocument)
             }
-            let ops = try removalOps(session: session, records: store.records)
+            let ops = try removalOps(session: session, store: store)
             do throws(SidebarDocSendRefusal) {
                 try store.sendChecked(ops: ops, title: RemoteStrings.newGroupTitle)
             } catch {
@@ -63,15 +64,17 @@ enum RemoteGroupHandlers {
             }
         })
         // Reconnect on a paired server's or a Cloud machine's header (an SSH host has remote.reconnect).
+        // A joined machine's row id (`joined:<id>`, `machine.list`) reconnects the daemon it is reached by.
         registry.bind("machine.reconnect", run: { invocation in
-            guard let machine = invocation.target?.id ?? invocation["machine"]?.stringValue else {
+            guard let given = invocation.target?.id ?? invocation["machine"]?.stringValue else {
                 throw ActionFailure.invalidTarget(WorkspaceVerbStrings.noMachine)
             }
+            let machine = JoinedMachine.linkedMachine(given, in: context.services.joinedMachines.machines)
             let machines = context.services.machines
             switch route(machine, machines) {
             case .wakeServer: machines.server(machine)?.wake()
             case .retryCloud: machines.session(machine)?.retry()
-            case .ssh: _ = registry.perform("remote.reconnect", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: machine)))
+            case .ssh: _ = registry.perform("remote.reconnect", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: machine), origin: invocation.origin))
             case .none: throw ActionFailure.invalidTarget(WorkspaceVerbStrings.noMachine)
             }
         })
@@ -81,15 +84,15 @@ enum RemoteGroupHandlers {
         }
         // Only a remote group's header offers it.
         ActionTargetVisibility.hide("remote.removeGroup", in: registry) { invocation in
-            guard let session = session(invocation, context), let store = SidebarDocStore.current else { return true }
+            guard let session = session(invocation, context), let store = context.services.sidebarDoc.store else { return true }
             return store.records.sections["sec_m_\(session)"]?.hostGroup != true
         }
     }
 
     /// The ops that turn daemon session `session`'s remote group back into rows of the one list.
     /// Throws when its machine section is not a remote group: nothing to remove is not a success.
-    static func removalOps(session: String, records: SidebarDocRecords) throws(ActionFailure) -> [[String: Any]] {
-        let ops = SidebarDocHostGroupPlan(session: session, records: records, on: false).ops
+    static func removalOps(session: String, store: SidebarDocStore) throws(ActionFailure) -> [[String: Any]] {
+        let ops = store.hostGroupRemovalOps(session: session)
         guard !ops.isEmpty else { throw ActionFailure.invalidTarget(RemoteStrings.notARemoteGroup) }
         return ops
     }
@@ -107,13 +110,13 @@ enum RemoteGroupHandlers {
 
     /// Marks `session`'s machine section a remote group once its daemon names its session; gives up
     /// when the machine stops connecting.
-    static func markWhenNamed(_ session: SSHMachineSession, name: String? = nil) {
+    static func markWhenNamed(_ session: SSHMachineSession, name: String? = nil, doc: SidebarDocument) {
         let daemon = session.daemon, groupName = name
         // task-owner: ends when the daemon names its session or the machine stops connecting
         Task { @MainActor in
             for await (name, status) in ObservationStream({ (daemon.store.registryID, session.linkStatus) }) {
                 if let registryID = name {
-                    mark(session: registryID, name: groupName)
+                    mark(session: registryID, name: groupName, doc: doc)
                     return
                 }
                 if Self.shouldContinueMarking(status: status) { continue }
@@ -123,8 +126,9 @@ enum RemoteGroupHandlers {
     }
 
     /// Makes the machine section of daemon session `session` a remote group; nothing for an unnamed session.
-    /// New Remote Group, New Cloud Workspace and a new Cloud machine call it: a Cloud machine's workspaces sit in one group.
-    static func mark(session: String?, name: String? = nil) {
-        if let session, SidebarDocWiring.isActive { SidebarDocStore.current?.markHostGroup(session: session, title: RemoteStrings.newGroupTitle, name: name) }
+    /// Only New Remote Group, which a person asks for, calls it: a Cloud workspace goes where any new workspace goes, in no
+    /// group of its machine's (Leo 2026-11-06). `doc`: the app's own sidebar document.
+    static func mark(session: String?, name: String? = nil, doc: SidebarDocument) {
+        if let session { doc.activeStore?.markHostGroup(session: session, title: RemoteStrings.newGroupTitle, name: name) }
     }
 }

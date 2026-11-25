@@ -115,7 +115,11 @@ which may put the iOS jobs on an owned pool with the glaeda-ios-sim capability
 label, and uploads the same marker; from attempt 2 on every macOS job takes
 its retry_runs_on, the Blacksmith pool. A job asking for a capability label no
 idle mini carries waits like any other queued owned job, so it is moved after
-the same budget.
+the same budget. A simulator job the picker put on glaeda's sim-first label
+(pr_runner_pool.SIM_FIRST_LABEL, `glaeda-sim-xcode-<version>`, requested
+alone) is an owned job here too (job_pool()): queued past the budget, held in
+its runner's setup for CPU units past SETUP_WAIT_SECONDS, or refused, it is
+moved to retry_runs_on like a job on the pool label.
 
 Dispatches of iroh-release-gate.yml are watched the same way. Its `runner`
 job runs e2e_runner_pool.py for the Tailscale version-skew job alone, and
@@ -194,10 +198,11 @@ It stops watching, doing nothing, when:
   that job uploaded its marker (it moved jobs onto owned root runners);
 - the run finished, or the watch limit passed.
 
-Request budget: the reads use a manaflow-glaeda-route App token when the
-workflow could mint one (READ_TOKEN; its own 5000 requests an hour), else
-GITHUB_TOKEN, which allows about 1000 requests an hour for the whole
-repository. Cancels and re-runs always use GITHUB_TOKEN (GitHub.__doc__). A run on an ephemeral pool costs a jobs listing every
+Request budget: the reads use the workflow's existing token (READ_TOKEN,
+which is the cmux-bot token when the workflow can mint one, otherwise
+GITHUB_TOKEN). They never mint or fall back to the runner-routing App, so
+polling cannot drain that installation's quota. Cancels and re-runs always
+use GITHUB_TOKEN (GitHub.__doc__). A run on an ephemeral pool costs a jobs listing every
 POLL_SECONDS until `changes` finishes (usually two or three) plus one artifact
 listing. A run on a persistent pool adds a jobs listing every POLL_SECONDS
 while one of its jobs waits for a runner and every IDLE_POLL_SECONDS otherwise,
@@ -250,6 +255,7 @@ from pr_runner_pool import MAX_QUEUE_ROUNDS, QUEUE_ROUND_MINUTES, nightly_dedica
 CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
 IOS_TEST_WORKFLOW_PATH = ".github/workflows/test-ios.yml"
 IOS_SCREENSHOTS_WORKFLOW_PATH = ".github/workflows/ios-screenshots.yml"
+IOS_KIT_WORKFLOW_PATH = ".github/workflows/cmux-next-ios-kit.yml"
 IROH_RELEASE_GATE_WORKFLOW_PATH = ".github/workflows/iroh-release-gate.yml"
 # The DEV publisher's runner job offers its secret-free verify job to an owned
 # Mac while one is free, then leaves the workflow's Blacksmith fallback.
@@ -257,7 +263,7 @@ CMUX_NEXT_DEV_DAILY_WORKFLOW_PATH = ".github/workflows/cmux-next-dev-daily.yml"
 # workflow_dispatch runs watched as dispatch runs: each has a `runner` job that
 # picks the pool and uploads the marker.
 DISPATCH_WORKFLOW_PATHS = (IOS_TEST_WORKFLOW_PATH, IOS_SCREENSHOTS_WORKFLOW_PATH, IROH_RELEASE_GATE_WORKFLOW_PATH,
-                           CMUX_NEXT_DEV_DAILY_WORKFLOW_PATH)
+                           CMUX_NEXT_DEV_DAILY_WORKFLOW_PATH, IOS_KIT_WORKFLOW_PATH)
 # Workflows whose picker may queue a run's jobs on an owned pool within
 # CI_PR_POOL_QUEUE_ROUNDS (ios_runner_pool.py reads it since run 36136190497).
 QUEUEING_WORKFLOW_PATHS = (CI_WORKFLOW_PATH, IOS_TEST_WORKFLOW_PATH)
@@ -272,10 +278,115 @@ NIGHTLY_EVENTS = frozenset({"push", "schedule"})
 # The one job of a nightly run the watch judges (the visual gate must never
 # cancel signing or notarization siblings).
 NIGHTLY_APP_JOB = "build-nightly-app"
+# nightly.yml's first job: attempt 1 of a nightly-next push asks for the nightly slot (NIGHTLY_SLOT_LABEL), and
+# the rescue moves it when no slot takes it, so the re-run takes Blacksmith Linux. Every other job waits on it.
+NIGHTLY_DECIDE_JOB = "decide"
 # The trusted owned pool's labels: minis with no pull request runners, whose
 # job-started hook admits only main's push and schedule jobs. Only nightly.yml's
 # app build asks for one through this watch.
 TRUSTED_LABEL = re.compile(r"glaeda-(?:root-)?trusted-(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
+# glaeda's nightly slot (glaeda#1684, runner.nightlySlot): one runner per mini that takes only nightly jobs, which
+# nightly-next's build picker offers first (nightly_build_runner.NIGHTLY_SLOT_LABEL). main's copy of this watch (the
+# one workflow_run runs) matches it through pr_runner_pool.LANE_LABEL; this copy matches it too.
+NIGHTLY_SLOT_LABEL = re.compile(r"glaeda-(?:aws-)?nightly-(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
+# NEXT's all-nightly reservation is a set of labels rather than a normal
+# persistent pool.  The app build can be queued on the reservation while the
+# rest of the run is still healthy, so it must be visible to this rescue too.
+# Keep the prefix here in sync with nightly_build_runner.py's declared
+# NIGHTLY_ONLY_* labels; a new dedicated class remains covered without making
+# the rescue depend on a second workflow checkout.
+NIGHTLY_ONLY_LABEL_PREFIX = "glaeda-nightly-only-"
+
+
+def nightly_owned_label(label: object) -> bool:
+    """Whether a label is a NEXT nightly-owned route judged by the rescue."""
+    value = str(label or "")
+    return (bool(TRUSTED_LABEL.fullmatch(value)) or bool(NIGHTLY_SLOT_LABEL.fullmatch(value))
+            or nightly_dedicated(value) or value.startswith(NIGHTLY_ONLY_LABEL_PREFIX))
+# feat-cmux-next-only owned workflows the rescue leaves to a person. main's copy of this file is the one the
+# workflow_run runs and holds the full UNRESCUED_WORKFLOW_PATHS; an entry here changes no behaviour (an unlisted
+# workflow is already not watched) and only records the acknowledgement while main takes no merges.
+# tests/test_ci_owned_pool_sources.py accepts an entry from either copy.
+# Secretless Linux jobs moved from a hard-coded Blacksmith size to vars.RUNNER_POOLS.linux (cmux#30878): the
+# pool reconciler keeps it on a live Linux member and the queue janitor re-runs jobs queued on a dead one, so
+# nothing here is an owned Mac the rescue would move; its job timeout or a person's cancel clears a stuck run.
+_POOL_READ_WHY = ("its secretless Linux jobs read vars.RUNNER_POOLS.linux (cmux#30878), which the pool reconciler keeps "
+                  "on a live Linux member; the queue janitor re-runs a job queued on a dead one, and no owned Mac is "
+                  "involved for the rescue to move")
+UNRESCUED_WORKFLOW_PATHS = {
+    ".github/workflows/cloud-composer-journey.yml":
+        "never takes an owned pool: pick-runner runs e2e_runner_pool.py with --owned 0 and keeps only a Blacksmith "
+        "macOS 26 label, because the journey job holds a Stack account pair; a re-run takes the declared macos_26 "
+        "pool, and the scheduled dispatcher on main starts the next run",
+    ".github/workflows/first-user-journey-ios.yml":
+        "feat-cmux-next only (main's copy only dispatches it), nightly and manual, no pull request: the walk takes "
+        "the screenshots lane's pick (an owned simulator mini when CI_IOS_OWNED allows) on attempt 1 and "
+        "retry_runs_on (Blacksmith macOS) from attempt 2, so a stuck or refused job ends at its 75-minute timeout "
+        "and the next night's run or a person's re-run takes Blacksmith",
+    ".github/workflows/ios-reliability-matrix.yml":
+        "feat-cmux-next only, with no copy on main to list in SIDE_WORKFLOW_PATHS yet: its phone cells take the kit "
+        "lane's pick (an owned simulator mini) on attempt 1 and Blacksmith macOS 26 from attempt 2, so a stuck or "
+        "refused job ends at its 60-minute timeout and a person's re-run lands on Blacksmith",
+    ".github/workflows/ios-review-gate.yml":
+        "feat-cmux-next only: its reviewer-path legs take the review-gate lane's pick in plan (an owned simulator mini) on "
+        "attempt 1 and Blacksmith macOS 26 from attempt 2, so a stuck or refused leg ends at its 120-minute timeout "
+        "and a person's re-run lands on Blacksmith",
+    ".github/workflows/cloud-chat-proof.yml":
+        "a manual proof that never takes an owned pool: pick-proof-runner runs e2e_runner_pool.py with --owned 0 and "
+        "keeps only a Blacksmith macOS 26 label, because each proof job holds a Stack account pair; a re-run takes "
+        "the declared macos_26 pool, and the person re-dispatches",
+    ".github/workflows/gateway-e2e.yml":
+        "a manual proof (the inference gateway on an owned Mac on the tailnet): its mac job holds the dev stack pair "
+        "and must stay on an owned Mac to reach the subscription router, so a Blacksmith rescue could only fail it; "
+        "its 45-minute timeout clears a stuck run and the person re-dispatches",
+    ".github/workflows/backend.yml":
+        "migrations-push-guard reads vars.RUNNER_POOLS.linux (cmux#30685, kept by #30761), which runner_pools.py "
+        "keeps on a live Linux member, and it holds no secret; its job timeout or a person's cancel clears a stuck "
+        "run (cancel-in-progress is false), and the deploy jobs take bounded Blacksmith routes the rescue does not "
+        "act on",
+    ".github/workflows/automation-bench.yml": _POOL_READ_WHY,
+    ".github/workflows/ci-artifact-transport.yml": _POOL_READ_WHY,
+    ".github/workflows/ci-fast-guards.yml": _POOL_READ_WHY,
+    ".github/workflows/ci-repo-variables.yml": _POOL_READ_WHY,
+    ".github/workflows/cloud-vm-guest-install.yml": _POOL_READ_WHY,
+    ".github/workflows/cloud-vm-image-bake.yml": _POOL_READ_WHY,
+    ".github/workflows/cloud-vm-image-lock.yml": _POOL_READ_WHY,
+    ".github/workflows/cmux-next-base-tier-kick.yml": _POOL_READ_WHY,
+    ".github/workflows/cmux-next-chromium-currency.yml": _POOL_READ_WHY,
+    ".github/workflows/cmux-next-crash-class.yml": _POOL_READ_WHY,
+    ".github/workflows/cmux-next-dev-kick.yml": _POOL_READ_WHY,
+    ".github/workflows/cmux-next-fast-gates.yml": _POOL_READ_WHY,
+    ".github/workflows/cmux-next-notices.yml": _POOL_READ_WHY,
+    ".github/workflows/cmux-next-perf-budgets.yml": _POOL_READ_WHY,
+    ".github/workflows/cmux-next-remote-daemon.yml": _POOL_READ_WHY,
+    ".github/workflows/cmux-next-web-bundles.yml": _POOL_READ_WHY,
+    ".github/workflows/cmux-tui-sdks.yml": _POOL_READ_WHY,
+    ".github/workflows/cmux-tui-spec.yml": _POOL_READ_WHY,
+    ".github/workflows/fleet-test-compile.yml": _POOL_READ_WHY,
+    ".github/workflows/gallery-health.yml": _POOL_READ_WHY,
+    ".github/workflows/indexnow.yml": _POOL_READ_WHY,
+    ".github/workflows/ios-e2e.yml": _POOL_READ_WHY,
+    ".github/workflows/ios-internal-nightly-trigger.yml": _POOL_READ_WHY,
+    ".github/workflows/labels-sync.yml": _POOL_READ_WHY,
+    ".github/workflows/mux.yml": _POOL_READ_WHY,
+    ".github/workflows/pr-body-checks.yml": _POOL_READ_WHY,
+    ".github/workflows/pr-checks.yml":
+        "one advisory job (CI v2 step 6) that holds a pull-requests write token, so it takes a one-job VM: the "
+        "Blacksmith (the CI_TRUSTED_RUNNER selector, or 4 vCPU for a fork), never an "
+        "owned Mac; none of its steps can fail a pull request, and the next push or a re-run answers again",
+    ".github/workflows/required-checks-drift.yml": _POOL_READ_WHY,
+    ".github/workflows/risk-tier-tests.yml": _POOL_READ_WHY,
+    ".github/workflows/signing-keychain-macos.yml": _POOL_READ_WHY,
+    ".github/workflows/web-validation.yml": _POOL_READ_WHY,
+    ".github/workflows/docs-only-fallback.yml":
+        "its own gate is one small Linux job; it only calls ci.yml (and the other docs-only workflows) in the pull "
+        "request's context when none started, and the rescue already watches each of those workflows' own runs; a "
+        "called job stuck on a mini ends at its timeout and a person's re-run takes the declared fallback",
+    ".github/workflows/measure-swift-typecheck.yml":
+        "a path-filtered 15-minute type-check of scripts/measure/*.swift: attempt 1 takes the light mini when "
+        "CI_PR_POOL_OWNED allows and a re-run (attempt 2 on) takes the declared macos_15 pool, so a stuck or "
+        "refused job ends at its timeout and a person's re-run lands off the minis",
+}
 SIDE_WORKFLOW_PATHS = frozenset({
     # cmux NEXT Stable: its UI tests, suites, perf and dry-run signing take the owned gui pool on attempt 1
     # and Blacksmith macOS on a re-run (stable-next.yml).
@@ -291,20 +402,35 @@ SIDE_WORKFLOW_PATHS = frozenset({
     # feat-cmux-next only; on attempt 1 its placement job (side_lane_placement.py) puts a Mac job on the
     # side label only while a side runner is idle, and uploads the owned-pool-watch marker when one is.
     ".github/workflows/cmux-next.yml",
+    ".github/workflows/cmux-next-car-guards.yml",
     ".github/workflows/cmux-tui-artifacts.yml",
     ".github/workflows/cmux-tui.yml",
+    ".github/workflows/cmux-rd-windows.yml",
     ".github/workflows/iroh-v2.yml",
     # The post-publish launch smoke's Mac job takes the side label on attempt 1.
     ".github/workflows/nightly-next-launch-smoke.yml",
+    ".github/workflows/macos-cross-parity.yml",
     ".github/workflows/relay-tls.yml",
     ".github/workflows/reload-build.yml",
     ".github/workflows/remote-daemon.yml",
     ".github/workflows/terminal-hang-diagnostics.yml",
-    ".github/workflows/test-feed-reply-providers.yml",
+    ".github/workflows/test-feed-reply-providers.yml",  # feat-cmux-next only
+})
+# Side workflows whose Mac jobs take an owned label on every attempt (feat-cmux-next only), so no
+# re-run moves them off the minis (bot_rerun_leaves_owned()). This includes workflows whose
+# CI_BLACKSMITH_MACOS-off fallback is CI_SIDE_LANE_RUNNER: unlike the historical side route,
+# that expression has no github.run_attempt gate.
+OWNED_EVERY_ATTEMPT_PATHS = frozenset({
+    ".github/workflows/cmux-next-car-guards.yml",
+    ".github/workflows/cmux-next-base-autofix.yml",
+    ".github/workflows/cmux-next-pr-autofix.yml",
+    ".github/workflows/cmux-rd-windows.yml",
+    ".github/workflows/macos-cross-parity.yml",
 })
 # cmux-next is the side lane whose placement and retry route are minis-first;
 # other side workflows keep their existing fallback policy.
 CMUX_NEXT_WORKFLOW_PATH = ".github/workflows/cmux-next.yml"
+OWNED_RERUN_WORKFLOW_PATHS = (CI_WORKFLOW_PATH, CMUX_NEXT_WORKFLOW_PATH, *sorted(OWNED_EVERY_ATTEMPT_PATHS))
 # Events whose code is this repository's own: a push or schedule runs a branch
 # of it, and a workflow_dispatch needs write access. A side-lane run of one of
 # these is owned-eligible like a same-repository pull request. merge_group,
@@ -389,6 +515,12 @@ def owned_rerun(run: Mapping[str, Any]) -> bool:
     if attempt <= 1:
         return False
     actor = str((run.get("triggering_actor") or {}).get("login") or "")
+    if run.get("path") in OWNED_EVERY_ATTEMPT_PATHS:
+        # These side workflows keep their owned label on the rescue bot's
+        # third attempt too. Follow that one extra attempt so a refused or
+        # unclaimed mini job cannot sit queued after the first rescue; a
+        # fourth bot attempt is outside this bounded rescue loop.
+        return actor != RESCUE_ACTOR or attempt <= LAST_OWNED_ATTEMPT + 1
     if run.get("path") == CMUX_NEXT_WORKFLOW_PATH:
         # Manual side-lane reruns stay minis-first at any attempt. The bot's
         # second attempt takes a free Blacksmith slot, else the owned side label
@@ -455,11 +587,23 @@ def parse_time(value: object) -> dt.datetime | None:
 
 
 def job_pool(job: Mapping[str, Any]) -> str | None:
-    """The owned pool a job asked for, if any: a pull request pool or the trusted one."""
+    """The owned pool a job asked for, if any: a pull request pool, the trusted one or the sim-first label."""
     for label in job.get("labels") or []:
-        if persistent(str(label)) or TRUSTED_LABEL.fullmatch(str(label)) or nightly_dedicated(str(label)):
+        if (persistent(str(label)) or nightly_owned_label(label) or pr_runner_pool.sim_first(str(label))):
             return str(label)
     return None
+
+
+def nightly_control_label(label: object) -> bool:
+    """Whether a nightly decide label is a fleet control runner.
+
+    Control labels are configured repository variables, so the rescue cannot
+    enumerate them. Treat only non-hosted, non-Blacksmith labels as fleet
+    control labels; the nightly slot and trusted pools remain covered by their
+    explicit matchers above.
+    """
+    value = str(label or "")
+    return bool(value) and not value.startswith(("blacksmith-", "ubuntu-", "macos-", "windows-"))
 
 
 def nightly_watched(job: Mapping[str, Any]) -> bool:
@@ -472,8 +616,12 @@ def nightly_watched(job: Mapping[str, Any]) -> bool:
     minutes past the signed build (visual-gate-nightly-verdict), so a queued
     gate holds nothing.
     """
-    return job.get("name") == NIGHTLY_APP_JOB or any(TRUSTED_LABEL.fullmatch(str(label))
-                                                     for label in job.get("labels") or [])
+    return job.get("name") == NIGHTLY_APP_JOB or any(
+        TRUSTED_LABEL.fullmatch(str(label)) or nightly_dedicated(str(label))
+        for label in job.get("labels") or []) \
+        or job.get("name") == NIGHTLY_DECIDE_JOB and any(
+            nightly_owned_label(label) or nightly_control_label(label)
+            for label in job.get("labels") or [])
 
 
 def queued_pool(job: Mapping[str, Any], *, include_blacksmith_macos: bool = False) -> str | None:
@@ -488,6 +636,10 @@ def queued_pool(job: Mapping[str, Any], *, include_blacksmith_macos: bool = Fals
     owned = job_pool(job)
     if owned:
         return owned
+    if job.get("name") == NIGHTLY_DECIDE_JOB:
+        for label in job.get("labels") or ():
+            if nightly_control_label(label):
+                return str(label)
     if include_blacksmith_macos:
         for label in job.get("labels") or ():
             label = str(label)
@@ -699,14 +851,15 @@ def _headers(token: str) -> dict[str, str]:
 class GitHub:
     """The Actions API. Reads may use `read_token`, writes always use `token`.
 
-    `read_token` is a manaflow-glaeda-route App installation token, so the
-    watch's polling draws on the App's own 5000 requests an hour instead of
-    the repository's GITHUB_TOKEN budget. Cancels and re-runs keep
-    GITHUB_TOKEN: a re-run's triggering actor must stay github-actions[bot],
-    which ci-macos.yml's attempt-2 routing checks. An installation token
-    lasts an hour and a watch may outlive it, so a 401 on a read drops back to
-    `token` for the rest of the watch. A 403 is a read the App may not make
-    (branch_head needs contents, which it lacks): that one read uses `token`.
+    The workflow supplies its existing cmux-bot token (or GITHUB_TOKEN) for
+    both values. Keeping reads on that workflow token avoids minting the
+    runner-routing App, whose installation quota is shared with the pickers.
+    Cancels and re-runs keep GITHUB_TOKEN: a re-run's triggering actor must
+    stay github-actions[bot], which ci-macos.yml's attempt-2 routing checks.
+    An installation token lasts an hour and a watch may outlive it, so a 401
+    on a read drops back to `token` for the rest of the watch. A 403 is a read
+    the App may not make (branch_head needs contents, which it lacks): that
+    one read uses `token`.
     """
 
     def __init__(self, token: str, repo: str, read_token: str = "") -> None:
@@ -825,7 +978,7 @@ class GitHub:
         (owned_rerun()): a re-run of failed jobs uploads no marker. GitHub lists a run as `queued` while a job of it waits for a
         runner, so both statuses are read."""
         found: list[tuple[int, int]] = []
-        for workflow in (CI_WORKFLOW_PATH, CMUX_NEXT_WORKFLOW_PATH):
+        for workflow in OWNED_RERUN_WORKFLOW_PATHS:
             name = workflow.rsplit("/", 1)[-1]
             for status in ("queued", "in_progress"):
                 data = self.request("GET", f"/actions/workflows/{name}/runs?status={status}&per_page={count}")
@@ -937,6 +1090,9 @@ class Target:
     push_branch: str = ""
     # Preserve the triggering event for delivery workflows' failover policy.
     event: str = ""
+    # Shared workflows identify delivery runs in their API run title.
+    name: str = ""
+    display_title: str = ""
 
     @property
     def picker_job(self) -> str:
@@ -947,6 +1103,17 @@ class Target:
         if self.side:
             return SIDE_WATCH_LIMIT_SECONDS
         return E2E_WATCH_LIMIT_SECONDS if self.e2e else WATCH_LIMIT_SECONDS
+
+
+def is_delivery_target(target: Target) -> bool:
+    """Runs that build or publish a feed must not lose started work to queue rescue."""
+    if target.nightly:
+        return True
+    if target.path in (NIGHTLY_WORKFLOW_PATH, CMUX_NEXT_DEV_DAILY_WORKFLOW_PATH):
+        return not target.event or target.event not in {"pull_request", "pull_request_target", "merge_group"}
+    return (target.path == CMUX_NEXT_WORKFLOW_PATH and target.event in TRUSTED_SIDE_EVENTS
+            and any(title.startswith("cmux NEXT DEV daily · ")
+                    for title in (target.name, target.display_title)))
 
 
 def never_fails_over(path: str, event: str | None) -> bool:
@@ -970,11 +1137,12 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
             and run.get("head_branch") == MAIN_BRANCH)
     # test-ios.yml also runs for pull requests: watched as an E2E run, but
     # against its pull request's head like a CI run.
-    ios_pull = path == IOS_TEST_WORKFLOW_PATH and run.get("event") == "pull_request"
+    ios_pull = path in (IOS_TEST_WORKFLOW_PATH, IOS_KIT_WORKFLOW_PATH) and run.get("event") == "pull_request"
+    kit_push = path == IOS_KIT_WORKFLOW_PATH and run.get("event") == "push"
     expected = "workflow_dispatch" if e2e else "pull_request"
     # A side lane's trusted non-PR run (push, schedule, dispatch) is watched too.
     side_trusted = side and run.get("event") in TRUSTED_SIDE_EVENTS
-    if run.get("event") != expected and not on_main and not ios_pull and not side_trusted:
+    if run.get("event") != expected and not on_main and not ios_pull and not kit_push and not side_trusted:
         what = f"{expected} or a dispatch on {MAIN_BRANCH}" if path == CI_WORKFLOW_PATH else expected
         return f"a {run.get('event') or 'unknown'} run of {path}, not a {what}"
     head = (run.get("head_repository") or {}).get("full_name") or ""
@@ -984,21 +1152,30 @@ def target_from_event(event: Mapping[str, Any], repository: str) -> Target | str
     if attempt != 1 and not (run.get("status") == "completed" and run.get("conclusion") == "failure"):
         return f"attempt {attempt}; its first attempt's watch follows it"
     if e2e and not ios_pull:
+        # Kit push runs have branch-scoped concurrency just like the other
+        # push lanes. Keep their branch so a rescue cannot replace a newer
+        # push while the older run is stalled in the owned-pool queue.
+        push_branch = str(run.get("head_branch") or "") if kit_push else ""
         return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, e2e=True,
-                      path=str(path), attempt_started_at=attempt_started, event=str(run.get("event") or ""))
+                      path=str(path), attempt_started_at=attempt_started, push_branch=push_branch,
+                      event=str(run.get("event") or ""),
+                      name=str(run.get("name") or ""), display_title=str(run.get("display_title") or ""))
     if on_main:
         return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, path=str(path), main=True,
-                      attempt_started_at=attempt_started, event=str(run.get("event") or ""))
+                      attempt_started_at=attempt_started, event=str(run.get("event") or ""),
+                      name=str(run.get("name") or ""), display_title=str(run.get("display_title") or ""))
     if side_trusted:
         # No pull request: no head to re-check (pull_moved), like a dispatch.
         push_branch = str(run.get("head_branch") or "") if run.get("event") == "push" else ""
         return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, side=True, path=str(path),
-                      attempt_started_at=attempt_started, push_branch=push_branch, event=str(run.get("event") or ""))
+                      attempt_started_at=attempt_started, push_branch=push_branch, event=str(run.get("event") or ""),
+                      name=str(run.get("name") or ""), display_title=str(run.get("display_title") or ""))
     pulls = [pr for pr in run.get("pull_requests") or [] if isinstance(pr, Mapping) and pr.get("number")]
     if len(pulls) != 1:
         return "the run does not name exactly one pull request"
     return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), int(pulls[0]["number"]),
-                  e2e=e2e, side=side, path=str(path), attempt_started_at=attempt_started, event=str(run.get("event") or ""))
+                  e2e=e2e, side=side, path=str(path), attempt_started_at=attempt_started, event=str(run.get("event") or ""),
+                  name=str(run.get("name") or ""), display_title=str(run.get("display_title") or ""))
 
 
 def recover_cmux_next_pull(client: GitHub, run: Mapping[str, Any], sleep: Callable[[float], None],
@@ -1025,7 +1202,8 @@ def nightly_target(run: Mapping[str, Any], repository: str) -> Target | str:
     if attempt != 1:
         return f"attempt {attempt}; its first attempt's watch follows it"
     return Target(int(run["id"]), attempt, str(run.get("head_sha") or ""), 0, path=NIGHTLY_WORKFLOW_PATH,
-                  side=True, nightly=True, push_branch=str(run["head_branch"]), event=str(run.get("event") or ""))
+                  side=True, nightly=True, push_branch=str(run["head_branch"]), event=str(run.get("event") or ""),
+                  name=str(run.get("name") or ""), display_title=str(run.get("display_title") or ""))
 
 
 def marker_name(target: Target) -> str:
@@ -1068,6 +1246,7 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
     """
     if deadline is None:
         deadline = now() + dt.timedelta(seconds=target.watch_limit)
+    # sleep-ok: the poll's first interval; no job can wait long enough to rescue before it, and a look costs quota
     sleep(FIRST_LOOK_SECONDS)
     looks = 0
     on_persistent = False
@@ -1152,7 +1331,7 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                           judged=nightly_watched if target.nightly else None,
                           include_blacksmith_macos=target.side and not target.nightly,
                           health_snapshot=health)
-            if look.action == "refused" and not finished and seen_at < deadline and not target.main:
+            if look.action == "refused" and not finished and seen_at < deadline and not target.main and target.path != IOS_KIT_WORKFLOW_PATH:
                 # GitHub re-runs no job of a run still in progress (403 "already
                 # running", for one job or the failed ones), and cancelling
                 # the run to re-run it killed every healthy sibling (run
@@ -1241,6 +1420,34 @@ def pull_moved(api: GitHub, target: Target, sleep: Callable[[float], None],
     return ""
 
 
+_DELIVERY_CONTROL_JOBS = frozenset({
+    "changes", "decide", "runner", "pick-nightly-app-runner", "pick-nightly-build-runner",
+    "pick-nightly-sign-runner", "find-nightly-next-recovery", "resolve-nightly-cmux-tui-client",
+    "route-visual-gate-nightly",
+})
+
+
+def started_delivery_work(api: GitHub, target: Target, sleep: Callable[[float], None],
+                          log: Callable[[str], None]) -> str:
+    """Return started delivery jobs; queued/unassigned jobs remain eligible for capacity rescue."""
+    if not is_delivery_target(target):
+        return ""
+    jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
+    started: list[str] = []
+    for job in jobs:
+        name = str(job.get("name") or job.get("id") or "").split("(", 1)[0].strip()
+        if name in _DELIVERY_CONTROL_JOBS:
+            continue
+        status = job.get("status")
+        assigned = bool(job.get("runner_name") or job.get("runner_id"))
+        if status in {"queued", "waiting", "pending", "requested"} and not assigned:
+            continue
+        if status == "completed" and not assigned and job.get("conclusion") in {"skipped", "cancelled", "action_required"}:
+            continue
+        started.append(str(job.get("name") or job.get("id")))
+    return ", ".join(sorted(started))
+
+
 def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep: Callable[[float], None],
            log: Callable[[str], None], failed_only: bool = False,
            deadline: dt.datetime | None = None, refused: bool | None = None, refusal: bool = False) -> str:
@@ -1259,13 +1466,11 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
     keep_main = target.main and refusal
     moved = "" if keep_main else pull_moved(api, target, sleep, log)
     if moved and target.push_branch and target.path == CMUX_NEXT_WORKFLOW_PATH:
-        # cmux-next.yml queues each push Mac job in a group per branch (one
-        # runs, one waits, a newer push replaces only the waiting one), so a
-        # newer push never makes this run cancel. Cancelling here killed every
-        # tip run's running jobs at one push a minute (2026-10-07: no tip swift
-        # test completed from 00:20Z to 01:05Z). Not re-run either: a re-run
-        # would join the branch group and replace the newer run's waiting job.
-        return f"not rescued: {moved}; a cmux-next push run is never cancelled for a newer push"
+        # These workflows queue each push Mac job in a group per branch (one
+        # runs, one waits, and pushes do not cancel in progress), so a newer
+        # push never makes this run cancel. Not re-run either: a re-run would
+        # join the branch group and replace the newer run's waiting job.
+        return f"not rescued: {moved}; a push run is never cancelled for a newer push"
     if moved and target.side and target.pr_number:
         # A superseded pull-request run may still hold its concurrency slot.
         # Cancel it only when nothing in this attempt has started; killing a
@@ -1280,6 +1485,9 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
         if any(job.get("status") == "in_progress" for job in jobs):
             return f"not rescued: {moved}; a sibling already started"
+        busy = "" if refusal else started_delivery_work(api, target, sleep, log)
+        if busy:
+            return f"not rescued: {moved}; started delivery work ({busy}) is never cancelled"
         api.cancel(target.run_id)
         return f"cancelled run {target.run_id}, not re-run: {moved}"
     if moved and (target.main or target.nightly or target.push_branch):
@@ -1293,6 +1501,9 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
             return "not rescued: someone else already re-ran the run"
         if run.get("status") == "completed":
             return f"not rescued: {moved}"
+        busy = "" if refusal else started_delivery_work(api, target, sleep, log)
+        if busy:
+            return f"not rescued: {moved}; started delivery work ({busy}) is never cancelled"
         api.cancel(target.run_id)
         return f"cancelled run {target.run_id}, not re-run: {moved}"
     if moved:
@@ -1310,12 +1521,15 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
             return "not rescued: the run already finished"
         api.rerun_failed(target.run_id, target.attempt + 1)
         return f"re-ran the failed jobs of run {target.run_id}; {next_attempt(target)}"
-    if target.pr_number:
+    if target.pr_number and target.path != IOS_KIT_WORKFLOW_PATH:
         # Actions cannot re-run a queued job while its run is active, and a
         # job-level retry would retain the successful upstream placement.
         # Never cancel an open PR at its current head to obtain a new attempt.
         return ("not rescued: the current pull-request run is active; Actions requires "
                 "it to finish before re-running with fresh placement")
+    busy = "" if refusal else started_delivery_work(api, target, sleep, log)
+    if busy:
+        return f"not rescued: started delivery work ({busy}) is never cancelled"
     api.cancel(target.run_id)
     log(f"cancelled run {target.run_id}")
     started = now()
@@ -1445,6 +1659,8 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
     rescue_sleep = rescue_sleep or sleep
     clock = now
     effective_seconds = side_seconds if target.path == CMUX_NEXT_WORKFLOW_PATH and side_seconds is not None else seconds
+    if target.path == IOS_KIT_WORKFLOW_PATH:
+        effective_seconds = min(effective_seconds, 180)
 
     def capped(deadline: dt.datetime) -> dt.datetime:
         return min(deadline, latest) if latest is not None else deadline

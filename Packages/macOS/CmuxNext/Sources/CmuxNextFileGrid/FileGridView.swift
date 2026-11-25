@@ -22,7 +22,7 @@ public import AppKit
 /// ```
 public final class FileGridView: NSView {
     private let cache: ThumbnailCache
-    private let scrollView = NSScrollView()
+    private let scrollView = FileGridScrollView()
     let collectionView = FileGridCollectionView()
     private let layoutValues = NSCollectionViewFlowLayout()
     private let emptyLabel = NSTextField(wrappingLabelWithString: "")
@@ -174,7 +174,7 @@ public final class FileGridView: NSView {
         scrollView.autohidesScrollers = true
         scrollView.drawsBackground = false
         scrollView.wantsLayer = true
-        scrollView.layer?.cornerRadius = 8
+        scrollView.layer?.cornerRadius = appearanceValues.cornerRadius
         addSubview(scrollView)
         emptyLabel.alignment = .center
         emptyLabel.font = .systemFont(ofSize: NSFont.systemFontSize)
@@ -186,6 +186,7 @@ public final class FileGridView: NSView {
         let side = appearanceValues.tileSide
         layoutValues.itemSize = CGSize(width: side + 12, height: side + 12 + FileGridCell.nameHeight)
         emptyLabel.textColor = appearanceValues.secondaryText
+        scrollView.layer?.cornerRadius = appearanceValues.cornerRadius
         layoutValues.invalidateLayout()
         for case let cell as FileGridCell in collectionView.visibleItems() {
             guard let item = cell.item else { continue }
@@ -275,5 +276,16 @@ extension FileGridView: NSCollectionViewDelegate {
                                indexPath: IndexPath, dropOperation: NSCollectionView.DropOperation) -> Bool {
         setDropHighlight(false)
         return onDrop?(draggingInfo.draggingPasteboard) ?? false
+    }
+}
+
+/// The grid's scroll view, overlay whatever the system's scroller style, as CmuxNextDesign's
+/// `OverlayScrollView` (this target links system frameworks only). A legacy style, which AppKit sets
+/// whenever a mouse comes or goes (Universal Control's shared mouse too), took the scroller's width
+/// from the clip and reflowed every tile.
+final class FileGridScrollView: NSScrollView {
+    override var scrollerStyle: NSScroller.Style {
+        get { super.scrollerStyle }
+        set { super.scrollerStyle = .overlay }
     }
 }

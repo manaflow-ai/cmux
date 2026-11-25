@@ -33,6 +33,9 @@ Checks per scenario (CHECKS.json and stdout PASS/FAIL):
 import argparse, json, os, re, shutil, socket, subprocess, sys, tempfile, threading, time, atexit
 
 from sidebar_v2_motion_checks import analyse
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS", "/tmp"))
@@ -298,7 +301,20 @@ def trace_start():
     proc = subprocess.Popen(["xcrun", "xctrace", "record", "--template", "Animation Hitches", "--attach", str(Target.pid or app_pid()),
                              "--output", path, "--time-limit", "120s"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
                             env={**os.environ, "TMPDIR": scratch + "/"})
-    time.sleep(4)  # test harness: xctrace attaches before the first drag
+    # xctrace has attached once it prints that it started recording: the first drag waits for that line.
+    proc.log_lines, started = [], threading.Event()
+
+    def read():
+        for line in proc.stdout or []:
+            proc.log_lines.append(line)
+            if "Starting recording" in line or "Ctrl-C to stop" in line:
+                started.set()
+        started.set()  # xctrace ended (an error): nothing more to wait for
+
+    proc.log_reader = threading.Thread(target=read, daemon=True)
+    proc.log_reader.start()
+    if not started.wait(60):
+        print("xctrace printed no 'Starting recording' in 60 s:", "".join(proc.log_lines[-3:])[-300:], flush=True)
     return proc, path
 
 
@@ -308,7 +324,9 @@ def trace_stop(handle):
     proc, path = handle
     proc.send_signal(2)
     try:
-        log = proc.communicate(timeout=180)[0]
+        proc.wait(timeout=180)
+        proc.log_reader.join(10)
+        log = "".join(proc.log_lines)
     except subprocess.TimeoutExpired:
         proc.kill()
         log = "timeout"
@@ -353,7 +371,7 @@ def trace_stop(handle):
             entry["ratio_ms_per_s"] = round(total_ns / 1e6 / summary["trace_seconds"], 2)
         summary[schema] = entry
     TRACE.update(summary)
-    print(f"TRACE {json.dumps(summary)}", flush=True)
+    safe_print(f"TRACE {json.dumps(summary)}", flush=True)
 
 
 def start_ticks(seconds=180, tick_ms=250):
@@ -397,7 +415,10 @@ def record(name, path, dragged, dropped_key=None, refused=False, **kwargs):
     seconds = 10 if opts.real_pointer else min(8, kwargs.get("seconds", 1.2) + kwargs.get("hold", 0.35) + 1.6)
     rpc("debug.window_record", {"dir": folder, "seconds": seconds})
     gesture(path, **kwargs)
-    time.sleep(1.2)  # test harness: let the drop settle on screen
+    # The drop's motion ends: the rows' frames stop changing (the recording keeps the frames up to here).
+    if wait_stable(lambda: [(r.get("key"), r.get("window_frame")) for r in window().get("rows", [])], f"{name}: the rows after the drop",
+                   timeout=10, interval=0.3, raise_on_timeout=False) is None:
+        print(f"{name}: the rows still moved 10 s after the drop", flush=True)
     frames = (rpc("debug.sidebar_rows", {"motion": "stop"}, timeout=60) or {}).get("frames") or []
     os.makedirs(folder, exist_ok=True)
     json.dump(frames, open(os.path.join(folder, "motion.json"), "w"))
@@ -412,7 +433,9 @@ def launch():
     subprocess.run(["open", "-n", APP, *[arg for pair in env for arg in ("--env", pair)]], check=True)
     if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.surfaces") or {}).get("windows"), 120):
         sys.exit("FAIL the tagged app did not come up")
-    time.sleep(1.5)  # test harness: let the window settle
+    # The window settled: its sidebar's rows stop changing.
+    wait_stable(lambda: [(r.get("key"), r.get("window_frame")) for r in window().get("rows", [])], "the sidebar after launch",
+                timeout=15, interval=0.1, reads=4, raise_on_timeout=False)
 
 
 launch()
@@ -423,7 +446,8 @@ try:
     wait(lambda: {"Alpha", "Foxtrot"} <= set(rows()), 20)
     for name in ("Beta", "Gamma"):
         rpc("debug.toast", {"perform": "palette.toggleWorkspacePin", "target_kind": "workspace", "target_id": row_id(rows().get(name))})
-    time.sleep(1.0)  # test harness: let the pins land
+    if not wait(lambda: len(section_items("sec_pinned")) >= 2, 10):
+        print("the pins did not land: Pinned holds", len(section_items("sec_pinned")), "items 10 s after the toggles", flush=True)
     # --empty: no terminal per stress workspace (hitch11 started ~790 terminal hosts and used every PTY on the host).
     ptys_before = ptys_in_use()
     print("PTYs in use before the stress setup:", ptys_before, flush=True)
@@ -463,7 +487,8 @@ try:
         # last rows (hitch13: 12 trackpad gestures over ~17000 pt jumped both ways and never reached the top).
         if newest:
             print("focus newest", newest[0], cli("workspace", newest[0], "focus")[:120], "pinned block y", pinned_block_y(), flush=True)
-            time.sleep(0.5)  # test harness: let the reveal scroll apply
+            # The reveal scroll applied: the Pinned block's position stops changing.
+            wait_stable(pinned_block_y, "the reveal scroll", timeout=10, interval=0.1, reads=4, raise_on_timeout=False)
         before, stuck, sign = pinned_block_y(), 0, 1
         for attempt in range(80):
             if at_top():
@@ -521,7 +546,7 @@ try:
     if "3" in WANTED:
         cli("workspace", "group", "create", "--name", "Grp")
         cli("workspace", "group", "Grp", "add", "--workspace", "Foxtrot")
-        time.sleep(1.0)  # test harness: let the group show
+        wait(lambda: any(str(r.get("key", "")).startswith("group") for r in window().get("rows", [])), 10)  # the group shows
         group = next((r for r in window().get("rows", []) if str(r.get("key", "")).startswith("group")), None)
         pinned = section_items("sec_pinned")
         if group and pinned:

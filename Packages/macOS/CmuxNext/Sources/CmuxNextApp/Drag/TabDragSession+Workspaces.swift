@@ -71,7 +71,7 @@ extension TabDragSession {
         let sourceID = drag.source.window?.state.id
         let sourceMembers = sourceID.map(services.windows.registry.members(of:)) ?? []
         drag.workspaceOutcome = WorkspaceDragResolver.outcome(
-            windowID: controller?.state.id, sidebarHit: sidebarHit, layoutHit: layoutHit, placesBeside: SidebarTunables.multiView.value, sourceWindowID: sourceID,
+            windowID: controller?.state.id, sidebarHit: sidebarHit, layoutHit: layoutHit, placesBeside: SidebarTunables.multiViewOn, sourceWindowID: sourceID,
             draggingAllOfSource: !sourceMembers.isEmpty && Set(ids).isSuperset(of: sourceMembers),
             isGroup: group != nil, screenPoint: point, besideEdge: controller?.besideEdge(at: point, dragging: ids, group: group)
         )
@@ -108,7 +108,7 @@ extension TabDragSession {
         case let .newWindow(point):
             let size = drag.source.window?.window?.frame.size ?? .zero
             if let controller = services.windows.openWindow(workspaces: ids, frame: tearOffFrame(drag, at: point, size: size)) {
-                services.windows.bringToFront(controller)
+                services.windows.bringToFront(controller); WindowOwnSpace.give(controller.state.id, in: services.windows)
             }
         case let .window(id, target):
             guard let controller = services.windows.controller(for: id) else { break }

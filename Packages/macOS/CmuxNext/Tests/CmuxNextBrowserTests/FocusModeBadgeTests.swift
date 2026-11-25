@@ -1,13 +1,14 @@
 import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
 /// Classic cmux shows browser focus mode as a toolbar chip ("Focus Mode", then "Esc again to
 /// exit" after the first Escape) that leaves focus mode on click. cmux-next showed only a 2 pt
 /// outline, so nothing said how to get out (Lawrence 2026-10-20).
-@MainActor @Suite(.serialized) struct FocusModeBadgeTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct FocusModeBadgeTests {
     private func chrome() -> (BrowserChromeView, NSWindow) {
         let engine = MockBrowserEngine()
         let tab = engine.makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/")))

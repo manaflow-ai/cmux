@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextDesign
 import Testing
 
 /// Perceived speed (cmux NEXT, Cmd-Shift-L): a new browser tab's toolbar showed Stop and a load
@@ -9,10 +10,17 @@ import Testing
 /// the toolbar shows its settled Reload button and no progress line from the first frame. A
 /// real page still shows Stop and the line while it loads.
 @MainActor @Suite(.serialized) struct NewTabQuietLoadTests {
-    static func chrome(loading address: String) -> BrowserChromeView {
+    /// Settings with `browser.showLoadingBar` on (it is off by default, `LoadingBarSettingTests`).
+    static func loadingBarOn() -> DesignSettings {
+        let design = DesignSettings()
+        design.browserShowsLoadingBar = true
+        return design
+    }
+
+    static func chrome(loading address: String, design: DesignSettings = loadingBarOn()) -> BrowserChromeView {
         let engine = MockBrowserEngine(kind: .cef, completesNavigationsImmediately: false)
         let page = engine.makeMockTab(BrowserTabConfiguration(initialURL: URL(string: address)))
-        let chrome = BrowserChromeView(tab: page)
+        let chrome = BrowserChromeView(tab: page, design: design)
         chrome.frame = NSRect(x: 0, y: 0, width: 900, height: 600)
         chrome.layoutSubtreeIfNeeded()
         #expect(page.state.isLoading, "the page is still loading when the tab first shows")
@@ -49,7 +57,7 @@ import Testing
     @Test func aPageOpenedFromTheNewTabPageShowsItsLoadBeforeItCommits() async {
         let engine = MockBrowserEngine(kind: .cef, completesNavigationsImmediately: false)
         let page = engine.makeMockTab(BrowserTabConfiguration(initialURL: URL(string: BrowserNewTabPage.chromiumURL)))
-        let chrome = BrowserChromeView(tab: page)
+        let chrome = BrowserChromeView(tab: page, design: Self.loadingBarOn())
         chrome.frame = NSRect(x: 0, y: 0, width: 900, height: 600)
         chrome.layoutSubtreeIfNeeded()
         let newTab = page.state.activeNavigation!

@@ -53,10 +53,15 @@ public final class ReduceTransparency {
     /// Always opaque: for a card floating over content that must not show through it.
     public static let alwaysOpaque = ReduceTransparency(system: { true }, changes: NotificationCenter())
 
-    /// Pins the state (tests, Debug); nil follows `system`. Changing it
-    /// redraws every live surface at once.
+    /// Pins the state (tests, Debug, `debug.reduce_transparency`); nil follows `system`. Changing it
+    /// redraws every live surface at once, and posts the display-options change on `changes`, so the
+    /// window backdrops that read `shared` (`WindowRootView`, `WindowSurfaceView`) repaint too.
     public var override: Bool? {
-        didSet { if override != oldValue { refreshSurfaces() } }
+        didSet {
+            guard override != oldValue else { return }
+            refreshSurfaces()
+            changes.post(name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
+        }
     }
 
     /// Whether overlays draw opaque now.
@@ -66,6 +71,8 @@ public final class ReduceTransparency {
     private let changes: NotificationCenter
     private let surfaces = NSHashTable<OverlaySurfaceView>.weakObjects()
     private let cards = NSHashTable<CardSurfaceView>.weakObjects()
+    private let painted = NSHashTable<NSView>.weakObjects()
+    private let followers = NSHashTable<AnyObject>.weakObjects()
     private var observer: (any NSObjectProtocol)?
 
     /// `system` reads the setting; `changes` posts
@@ -88,6 +95,20 @@ public final class ReduceTransparency {
         observeChanges()
     }
 
+    /// Makes `view`, which paints a role's veil and rim itself (a sidebar group's header and pane, `SurfaceRole.group`),
+    /// draw again when this state changes, until it is deallocated.
+    public func register(repainting view: NSView) {
+        painted.add(view)
+        observeChanges()
+    }
+
+    /// Makes `follower`, which paints layers of its own rather than drawing (a tab group chip), recolor when this
+    /// state changes, until it is deallocated.
+    public func register(following follower: any ReduceTransparencyFollower) {
+        followers.add(follower)
+        observeChanges()
+    }
+
     private func observeChanges() {
         guard observer == nil else { return }
         observer = changes.addObserver(
@@ -101,7 +122,16 @@ public final class ReduceTransparency {
     private func refreshSurfaces() {
         for surface in surfaces.allObjects { surface.refreshMaterial() }
         for card in cards.allObjects { card.needsDisplay = true }
+        for view in painted.allObjects { view.needsDisplay = true }
+        for case let follower as any ReduceTransparencyFollower in followers.allObjects { follower.reduceTransparencyChanged() }
     }
+}
+
+/// An object that paints its own layers from `ReduceTransparency.isEnabled` and recolors when it changes
+/// (`ReduceTransparency.register(following:)`).
+@MainActor
+public protocol ReduceTransparencyFollower: AnyObject {
+    func reduceTransparencyChanged()
 }
 
 extension ThemeTokens {

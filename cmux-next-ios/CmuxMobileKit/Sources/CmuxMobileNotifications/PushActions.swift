@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(UserNotifications)
 import UserNotifications
+#endif
 
 /// The notification categories (PROTOCOL.md "Push notifications", `category`).
 public enum PushCategory: String, CaseIterable, Sendable {
@@ -10,6 +12,12 @@ public enum PushCategory: String, CaseIterable, Sendable {
     case failed = "CMUX_MOBILE_FAILED"
     case chief = "CMUX_MOBILE_CHIEF"
     case terminal = "CMUX_MOBILE_TERMINAL"
+    /// Cloud attention pushes navigate to the Cloud chat and never carry
+    /// reply buttons. These categories still need registration so APNs does
+    /// not silently fall back to an unknown category.
+    case cloudQuestion = "CLOUD_QUESTION"
+    case cloudPermission = "CLOUD_PERMISSION"
+    case cloudDone = "CLOUD_DONE"
     /// The phone's own "Couldn't reach <Mac>" notification.
     case retry = "CMUX_MOBILE_RETRY"
     /// A sealed push before it opened, and any push that is not to be acted
@@ -65,8 +73,8 @@ public enum PushAction: Equatable, Hashable, Sendable {
         }
     }
 
-    /// Opens the app: an Allow and an answer are signed after Face ID, which
-    /// iOS shows only in a foreground app (verify/rich-push.md).
+    /// Opens the app: an Allow and an answer are signed and sent by the app
+    /// in the foreground (verify/rich-push.md); no Face ID is asked.
     public var opensApp: Bool {
         switch self {
         case .option, .answer, .allowOnce, .allowAlways, .retry: true
@@ -116,6 +124,7 @@ public struct PushActions: Sendable {
         button.opensApp || (requireFaceID && (button == .deny || button == .reply || button == .terminalReply))
     }
 
+    #if canImport(UserNotifications)
     /// The buttons the content extension sets: the payload's own, or nil to
     /// keep the static buttons, as with Show previews off (their titles never
     /// name an option on the lock screen; PR #24156 review L1). With
@@ -153,7 +162,7 @@ public struct PushActions: Sendable {
         case .question, .questionForm: [action(.answer)]
         case .permission: [action(.allowOnce), action(.deny)]
         case .completed, .failed, .chief: [action(.reply)]
-        case .terminal, .sealed: []
+        case .terminal, .sealed, .cloudQuestion, .cloudPermission, .cloudDone: []
         case .retry: [action(.retry)]
         }
     }
@@ -162,6 +171,7 @@ public struct PushActions: Sendable {
     public func actions(for payload: PushPayload) -> [UNNotificationAction] {
         plan(for: payload).map { action($0.action, title: $0.title) }
     }
+    #endif
 
     /// The buttons as data: what `actions(for:)` builds.
     public func plan(for payload: PushPayload) -> [(action: PushAction, title: String)] {
@@ -172,6 +182,7 @@ public struct PushActions: Sendable {
             if question.allowsOther { out.append((.answer, title(.answer))) }
             return out
         case .permission:
+            // A terminal agent's approval is answered in its terminal: "Answer…" opens the tab.
             // None listed (a v1 push, or a sealed one the Mac trimmed to fit): the app opens on it.
             guard !payload.options.isEmpty else { return [(.answer, title(.answer))] }
             // As the Feed (`PushPayload.phoneOptions`): Always allow only when the agent offers no
@@ -186,7 +197,8 @@ public struct PushActions: Sendable {
             if options.contains(where: \.isReject) { out.append((.deny, title(.deny))) }
             return out
         case .completed, .failed, .chief:
-            return [(.reply, title(.reply))]
+            // A terminal agent's event names no chat to reply to: a tap opens its tab.
+            return payload.fromTerminalAgent ? [] : [(.reply, title(.reply))]
         case .terminal:
             // Text into the terminal (device unlock), only when its poster takes a reply.
             return payload.replyable && payload.notificationId != nil ? [(.terminalReply, title(.terminalReply))] : []
@@ -205,6 +217,7 @@ public struct PushActions: Sendable {
         }
     }
 
+    #if canImport(UserNotifications)
     func action(_ action: PushAction, title: String? = nil) -> UNNotificationAction {
         let title = title ?? self.title(action)
         switch action {
@@ -222,6 +235,7 @@ public struct PushActions: Sendable {
             )
         }
     }
+    #endif
 }
 
 /// Settings → Require Face ID, shared with the content extension. The push

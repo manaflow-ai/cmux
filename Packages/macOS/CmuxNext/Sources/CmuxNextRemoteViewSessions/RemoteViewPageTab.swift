@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextBrowser
+public import CmuxNextCompat
 import CmuxNextIcons
 public import CmuxNextRemoteView
 import Foundation
@@ -34,11 +35,13 @@ public final class RemoteViewPageTab: BrowserTab {
     @ObservationIgnored private let session: RemoteViewPageSession?
 
     /// `decision` is `RemoteViewTabPolicy`'s answer for the record at `url`; `cloudTransport`
-    /// reaches a Cloud machine's desktop over the app's Cloud tunnel.
+    /// reaches a Cloud machine's desktop over the app's Cloud tunnel; `loginKeychain` is the app's one
+    /// guard of the Keychain UI switch (a VNC sign-in).
     public init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, url: URL, decision: RemoteViewTabDecision,
          closeTab: @escaping @MainActor () -> Void, connect: @escaping @MainActor (URL) -> Void,
          cloudTransport: RemoteViewPageSession.CloudDesktopTransport? = nil,
-         cloudRd: RemoteViewPageSession.CloudRdTransport? = nil, displayName: String? = nil) {
+         cloudRd: RemoteViewPageSession.CloudRdTransport? = nil, displayName: String? = nil,
+         personInput: (@MainActor () -> Void)? = nil, connectionTarget: RemoteConnectionTarget? = nil, loginKeychain: LoginKeychain) {
         self.id = id
         self.engineKind = engine
         self.profileID = profile
@@ -51,15 +54,22 @@ public final class RemoteViewPageTab: BrowserTab {
         var state = BrowserTabState(url: url, title: displayName ?? RemoteViewTabRecord.tabTitle(parsed))
         state.phase = .finished
         self.state = state
+        // The machine as the Connect card names it; the connecting card keeps that name in the same frame.
+        func gateTarget(_ record: RemoteViewTabRecord) -> RemoteConnectionTarget {
+            connectionTarget ?? RemoteConnectionTarget(name: record.cloudDesktop ? (displayName ?? "") : (displayName ?? record.host), kind: .desktop)
+        }
         switch decision {
         case let .connect(record):
             let session = RemoteViewPageSession.make(record: record, closeTab: closeTab, cloudTransport: cloudTransport, cloudRd: cloudRd,
-                                                     displayName: displayName)
+                                                     displayName: displayName, personInput: personInput)
+            session?.useLoginKeychain(loginKeychain)
+            (session?.view as? RemoteDesktopPaneView)?.connectionTarget = gateTarget(record)
             self.session = session
             contentView = session?.view ?? RemoteViewUnavailableView(content: .unavailable(.noTransport(host: record.host)))
         case let .confirm(record):
             session = nil
-            let notice = RemoteViewUnavailableView(content: .confirm(host: record.host))
+            let target = gateTarget(record)
+            let notice = RemoteViewUnavailableView(content: .confirmTarget(target))
             // Connect starts view mode; control is the toolbar toggle.
             notice.onConnect = { connect(record.url) }
             contentView = notice
@@ -67,22 +77,35 @@ public final class RemoteViewPageTab: BrowserTab {
             session = nil
             contentView = RemoteViewUnavailableView(content: .unavailable(reason))
         }
-        #if DEBUG
         Self.live.add(self)
-        #endif
     }
 
-    #if DEBUG
-    /// Every live remote view tab, for `debug.remote_view` (weak).
-    // singleton-allow: a DEBUG-only weak registry the debug socket method reads; moved from CmuxNextApp as is, only public for the move.
+    /// Every live remote view tab, for `remote_view.*` and `debug.remote_view` (weak).
+    // singleton-allow: a weak registry the control socket's remote view methods read; it holds no tab alive.
     public static let live = NSHashTable<RemoteViewPageTab>.weakObjects()
 
     /// The Connect button of a tab that asks first; nil for any other tab.
     public var debugConnect: (() -> Void)? { (contentView as? RemoteViewUnavailableView)?.onConnect }
 
-    /// The tab's session, when it streams (development path or mock).
+    /// The tab's session, when it streams.
     public var debugSession: RemoteViewPageSession? { session }
-    #endif
+
+    /// Whether the tab shows a remote desktop session (not a Connect prompt or an unavailable notice).
+    public var streams: Bool { session != nil }
+
+    /// Sets the session's quality preset (`remote.setQuality`); false when the tab streams no session.
+    @discardableResult
+    public func selectQuality(_ preset: RemoteQualityPreset) -> Bool {
+        guard let session else { return false }
+        session.selectQuality(preset)
+        return true
+    }
+
+    /// What a row of the session toolbar's Quality menu runs (the App routes it to `remote.setQuality`).
+    public var onPickQuality: ((RemoteQualityPreset) -> Void)? {
+        get { session?.pickQuality }
+        set { session?.pickQuality = newValue }
+    }
 
     public func load(_ url: URL) {
         if RemoteViewTabRecord.matches(url) { return }

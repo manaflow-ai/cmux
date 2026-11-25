@@ -227,13 +227,16 @@ private struct LockScreen: View {
                 Image(systemName: "lock.fill")
                     .font(.system(size: 40, weight: .semibold))
                     .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
                 Text("cmux is locked")
                     .font(.title3.weight(.semibold))
                 if controller.locked {
                     Button { controller.unlock() } label: {
                         Label("Unlock with Face ID", systemImage: "faceid")
                     }
-                    .buttonStyle(.borderedProminent)
+                    // The app's primary capsule: the lock screen sits outside
+                    // the shell's tint, where .borderedProminent drew system blue.
+                    .buttonStyle(CmuxMobileCapsuleButtonStyle(.primary))
                     .disabled(controller.evaluating)
                     .accessibilityIdentifier("cmuxMobile.appLock.unlock")
                 }

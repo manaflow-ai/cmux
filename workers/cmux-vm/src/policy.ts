@@ -13,6 +13,13 @@
  * MANAFLOW_TEAM_TENANT_IDS may create without billing during the internal phase.
  * They stay product tenants (no dev/test idle cap). Who pays after the internal
  * phase is Lawrence's decision.
+ *
+ * Entitled services (CMUX_VM_ENTITLED_SERVICE_IDS): a request made with one of
+ * these service keys (CMUX_VM_SERVICE_KEYS ids) is entitled for the team it
+ * acts for. The service (cmux-platform) has already decided that team's plan,
+ * for example the company grant for @cmux.com members, so this Worker does not
+ * keep a second, hand-written list of those teams. The key's own team list,
+ * scopes and labels still apply.
  */
 import { Context, Layer } from "effect";
 import { httpsOrigin } from "./network-origin.ts";
@@ -31,7 +38,21 @@ export interface TenantPolicyService {
   readonly isDevTest: (tenantId: TenantId) => boolean;
   /** Listed in MANAFLOW_TEAM_TENANT_IDS: entitled without billing (the manaflow-team flag), still a product tenant. */
   readonly isManaflowTeam: (tenantId: TenantId) => boolean;
-  /** Live VMs a tenant may hold. */
+  /** Listed in CMUX_VM_ENTITLED_SERVICE_IDS: this service key's requests are entitled for the team they act for. */
+  readonly isEntitledService: (serviceId: string) => boolean;
+  /**
+   * Listed in CMUX_VM_SIZED_IMAGE_SERVICE_IDS: this service key's image creates boot the image's large snapshot when
+   * they ask for exactly its size (proofs/vm-image.ts), so no resize follows the create. Unset: every create boots the
+   * image's own snapshot and is resized, as before.
+   */
+  readonly bootsSizedImage: (serviceId: string) => boolean;
+  /**
+   * Listed in CMUX_VM_CREATE_NO_READS_SERVICE_IDS: this service key's creates send no provider read before the
+   * create (upstream/live-create.ts): no exact-slug read when the VM id was minted in the request, and no boot image
+   * read. Unset: both reads come first, as before.
+   */
+  readonly createsWithoutReads: (serviceId: string) => boolean;
+  /** Live VMs a tenant may hold; NO_VM_COUNT_CAP for a product tenant with no TENANT_VM_QUOTAS entry. */
   readonly maxVms: (tenantId: TenantId) => number;
   /** Live snapshots per tenant; a budget separate from VMs. */
   readonly maxSnapshots: (tenantId: TenantId) => number;
@@ -48,6 +69,12 @@ export interface PolicyConfig {
   readonly devTestTenantIds?: ReadonlyArray<string>;
   /** Stack team ids under the manaflow-team flag (MANAFLOW_TEAM_TENANT_IDS). */
   readonly manaflowTenantIds?: ReadonlyArray<string>;
+  /** Service key ids whose requests are entitled for the team they act for (CMUX_VM_ENTITLED_SERVICE_IDS). */
+  readonly entitledServiceIds?: ReadonlyArray<string>;
+  /** Service key ids whose image creates may boot a large snapshot (CMUX_VM_SIZED_IMAGE_SERVICE_IDS). */
+  readonly sizedImageServiceIds?: ReadonlyArray<string>;
+  /** Service key ids whose creates send no provider read first (CMUX_VM_CREATE_NO_READS_SERVICE_IDS). */
+  readonly createNoReadsServiceIds?: ReadonlyArray<string>;
   /** Live VMs per tenant for every tenant (tests); overrides the defaults. */
   readonly maxVms?: number;
   /** Per-tenant live VM limits, by Stack team id, from TENANT_VM_QUOTAS. */
@@ -59,12 +86,26 @@ export interface PolicyConfig {
 }
 
 /**
- * Defaults until plan-based limits exist. TODO(cx-b4h, billing owner Lawrence
- * Chen): take maxVms from the tenant's plan (web/services/vms/entitlements.ts
- * maxActiveVms) once the entitlement source is reachable from this Worker.
+ * A product tenant has no machine-count cap: the ledger is handed this bound, which no tenant reaches, so the
+ * reservation (and its idempotent create) still runs. Paid machines are metered (running compute per vCPU-hour and
+ * GB-hour, saved and paused disk per GB-month) and the team's spending cap in cmux-platform is the only stop (Leo,
+ * 2026-11-10: "you can have arbitrarily many VMs and we just build based off of that"). cmux-platform's own paid
+ * machine guard (CLOUD_PAID_MAX_*) is the abuse brake; a TENANT_VM_QUOTAS entry still holds one tenant to a number.
  */
-export const DEFAULT_MAX_VMS = 20;
-export const DEFAULT_DEV_TEST_MAX_VMS = 20;
+export const NO_VM_COUNT_CAP = Number.MAX_SAFE_INTEGER;
+export const DEFAULT_MAX_VMS = NO_VM_COUNT_CAP;
+/**
+ * Dev/test tenants (every tenant off production) keep a cap so a leaked test loop stops early. It is NEXT Max's
+ * machines kept (cmux-platform Plan.ts `next_max.max_machines`, paused ones too), the largest plan count, so on
+ * development the team's plan is the stop and never this cap: at 20 it refused a company or NEXT Pro team holding
+ * 20 machines, most of them paused, below its plan's 100 or 50 (manaflow-ai/cmux#45885).
+ */
+export const DEFAULT_DEV_TEST_MAX_VMS = 300;
+/**
+ * A production tenant listed in DEV_TEST_TENANT_IDS (the smoke service) runs on the real account, so a leaked smoke
+ * loop still stops at 20 there; only off production does a dev/test tenant get DEFAULT_DEV_TEST_MAX_VMS.
+ */
+export const PRODUCTION_DEV_TEST_MAX_VMS = 20;
 /** Warm-start pools keep many snapshots per team; snapshots cost storage, not compute. */
 export const DEFAULT_MAX_SNAPSHOTS = 100;
 export const DEFAULT_RATE_PER_MINUTE: Readonly<Record<RateClass, number>> = { read: 600, write: 60, exec: 300, files: 300 };
@@ -75,13 +116,22 @@ export const makeTenantPolicy = (config: PolicyConfig): TenantPolicyService => {
   const listed = new Set(config.devTestTenantIds ?? []);
   const isDevTest = (tenantId: TenantId) => config.environment !== "production" || listed.has(tenantId);
   const manaflow = new Set(config.manaflowTenantIds ?? []);
+  const entitledServices = new Set(config.entitledServiceIds ?? []);
   return {
     httpsProxyOrigins: new Set((config.httpsProxyOrigins ?? []).flatMap((value) => { const origin = httpsOrigin(value); return origin === null ? [] : [origin]; })),
     environment: config.environment,
     isDevTest,
     isManaflowTeam: (tenantId) => manaflow.has(tenantId),
+    isEntitledService: (serviceId) => entitledServices.has(serviceId),
+    // Read per call (the lists hold a few ids): the test harness changes them between two attempts of one create.
+    bootsSizedImage: (serviceId) => (config.sizedImageServiceIds ?? []).includes(serviceId),
+    createsWithoutReads: (serviceId) => (config.createNoReadsServiceIds ?? []).includes(serviceId),
     maxVms: (tenantId) =>
-      config.maxVms ?? config.vmQuotas?.[tenantId] ?? (isDevTest(tenantId) ? DEFAULT_DEV_TEST_MAX_VMS : DEFAULT_MAX_VMS),
+      config.maxVms ?? config.vmQuotas?.[tenantId] ?? (config.environment !== "production"
+        ? DEFAULT_DEV_TEST_MAX_VMS
+        : listed.has(tenantId)
+          ? PRODUCTION_DEV_TEST_MAX_VMS
+          : DEFAULT_MAX_VMS),
     maxSnapshots: () => config.maxSnapshots ?? DEFAULT_MAX_SNAPSHOTS,
     rate: (rateClass) => ({ perMinute: config.ratePerMinute?.[rateClass] ?? DEFAULT_RATE_PER_MINUTE[rateClass] }),
     maxUploadBytes: config.maxUploadBytes ?? DEFAULT_MAX_UPLOAD_BYTES,
@@ -103,6 +153,19 @@ export const parseTenantList = (value: string | undefined): ReadonlyArray<string
  * (for example a team that needs more than the default). Bad entries are
  * ignored, never widened.
  */
+/**
+ * The live-VM quota of each CI trust row's team is at most the row's maxVms. The tenant ledger enforces it atomically
+ * with every create, so concurrent jobs cannot pass the row's own (read-then-create) budget check together.
+ */
+export const withCiTeamQuotas = (
+  quotas: Readonly<Record<string, number>>,
+  rows: ReadonlyArray<{ readonly team: string; readonly maxVms: number }>,
+): Readonly<Record<string, number>> => {
+  const merged: Record<string, number> = { ...quotas };
+  for (const row of rows) merged[row.team] = Math.min(merged[row.team] ?? row.maxVms, row.maxVms);
+  return merged;
+};
+
 export const parseVmQuotas = (value: string | undefined): Readonly<Record<string, number>> => {
   if (value === undefined || value.trim() === "") return {};
   let parsed: unknown;

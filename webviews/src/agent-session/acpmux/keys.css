@@ -1,15 +1,18 @@
-/* Keycaps inside controls (Keycap.tsx): the key that runs the control, in monospace like the
-   menus' hints, tinted from the control's own text color so they read on any theme. */
+/* Keycaps inside controls (Keycap.tsx): the key that runs the control, its legend as a Mac keyboard
+   prints it ("return", "esc", ⌘) in the UI font as the card and Send menu caps draw it, tinted from the
+   control's own text color so they read on any theme. A word grows the cap; a glyph keeps it square. */
 .acpmux-keycap {
   display: inline-block;
   min-width: 16px;
   margin-right: 6px;
   padding: 0 4px;
   box-sizing: border-box;
-  border-radius: 4px;
+  /* Concentric with the button it sits in (Lawrence 2026-11-15): the button's corner less the chip's inset. */
+  border-radius: calc(var(--ds-radius-control, 8px) - var(--ds-space-1, 4px));
   background: color-mix(in srgb, currentColor 18%, transparent);
-  font: 11px/16px ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: 11px/16px var(--font-ui);
   text-align: center;
+  white-space: nowrap;
 }
 
 /* A permission ask is a fieldset (PermissionCard.tsx) so its keys belong to a group; drop the
@@ -17,4 +20,9 @@
 fieldset.acpmux-permission-card {
   margin: 0;
   min-inline-size: 0;
+}
+
+/* Focused from code for its keys (a notification click): the card's own border marks it. */
+fieldset.acpmux-permission-card:focus:not(:focus-visible) {
+  outline: none;
 }

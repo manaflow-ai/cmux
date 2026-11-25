@@ -19,10 +19,16 @@ public final class AgentInventoryProviderBridge {
     private var dirty = false
     private var disabled = false
     private var retiring: Task<Void, Never>?
+    /// Change feeds of other provided families: they send on a carrier only while it is registered.
+    private let feeds: [AppProviderChangeFeed]
 
     /// Creates the bridge over the registry's observable admitted-ready projection.
-    /// - Parameter routes: Reads policy, membership, ready connection and route epoch.
-    public init(routes: @escaping @MainActor @Sendable () -> [AgentInventoryWatchRoute]) { self.routes = routes }
+    /// - Parameters:
+    ///   - feeds: Change feeds of the app's other families (`agent_chat`), attached to each registered carrier.
+    ///   - routes: Reads policy, membership, ready connection and route epoch.
+    public init(feeds: [AppProviderChangeFeed] = [], routes: @escaping @MainActor @Sendable () -> [AgentInventoryWatchRoute]) {
+        self.feeds = feeds; self.routes = routes
+    }
 
     /// Starts event-driven registry observation; repeated calls are harmless.
     public func start() {
@@ -51,6 +57,8 @@ public final class AgentInventoryProviderBridge {
     ///   - snapshot: Exact native demand, nil when the owner is legacy.
     public func registered(_ session: AppProviderSession, snapshot: AgentInventoryProviderDemand?) {
         guard provider === session, !Task.isCancelled else { return }
+        // After a legacy reset too: the families are registered on this carrier either way.
+        defer { for feed in feeds { feed.attach { try await session.changed(family: $0) } } }
         guard let snapshot else { reset(); return }
         registered = true
         accept(snapshot)
@@ -81,6 +89,7 @@ public final class AgentInventoryProviderBridge {
 
     /// Retires this provider generation without redirecting any cleanup to a replacement.
     public func reset() {
+        for feed in feeds { feed.attach(nil) }
         provider = nil; registered = false; demand = nil
         notifying?.cancel(); notifying = nil; dirty = false
         for slot in slots { retire(slot) }

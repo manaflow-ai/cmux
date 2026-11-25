@@ -6,7 +6,13 @@ import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { normalizeCatalog } from "../acpmux/direct";
 import { AgentMark, hasAgentMark } from "./AgentMark";
-import { harnessIcon, parseHarnessIconSpec } from "./harnessIcons";
+import {
+  harnessIcon,
+  harnessSymbolsSnapshot,
+  loadHarnessSymbol,
+  parseHarnessIconSpec,
+  setHarnessSymbolHost,
+} from "./harnessIcons";
 
 const draw = (agent: string, fallback?: string) =>
   renderToStaticMarkup(<AgentMark agent={agent} size={16} {...(fallback ? { fallback } : {})} />);
@@ -56,4 +62,38 @@ test("an iconSpec is only one of the shapes acpmux sends", () => {
     brand: "goose",
     source: "default",
   });
+});
+
+test("replacing the native symbol host ignores stale replies and retains the new request", async () => {
+  const name = "gearshape.fill";
+  const oldPng = "data:image/png;base64,T0xE";
+  const newPng = "data:image/png;base64,TkVX";
+  let oldReply: (url: string | null) => void = () => {};
+  let newReply: (url: string | null) => void = () => {};
+  let newRequests = 0;
+  const releaseOld = setHarnessSymbolHost(() => new Promise<string | null>((resolve) => (oldReply = resolve)));
+  loadHarnessSymbol(name);
+  const releaseNew = setHarnessSymbolHost(
+    () =>
+      new Promise<string | null>((resolve) => {
+        newRequests++;
+        newReply = resolve;
+      }),
+  );
+  try {
+    // Old and new hosts both had a request for this symbol in flight.
+    // The old cleanup, and its late answer, must never disturb the newer owner.
+    releaseOld();
+    loadHarnessSymbol(name);
+    oldReply(oldPng);
+    await Promise.resolve();
+    expect(harnessSymbolsSnapshot().has(name)).toBe(false);
+    loadHarnessSymbol(name);
+    expect(newRequests).toBe(1);
+    newReply(newPng);
+    await Promise.resolve();
+    expect(harnessSymbolsSnapshot().get(name)).toBe(newPng);
+  } finally {
+    releaseNew();
+  }
 });

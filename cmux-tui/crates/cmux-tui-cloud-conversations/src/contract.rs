@@ -283,7 +283,7 @@ fn error_fields(body: &Value) -> Option<(String, String, bool)> {
 }
 
 /// HTTP status handling shared by reads and mutations.
-fn classify(reply: &HttpReply) -> Result<(), CloudError> {
+pub(crate) fn classify(reply: &HttpReply) -> Result<(), CloudError> {
     match reply.status {
         200..=299 => Ok(()),
         401 => Err(CloudError::Unauthenticated),
@@ -536,22 +536,5 @@ pub(crate) fn inbox_entries(frame: &Value) -> Option<Vec<Value>> {
 }
 
 #[cfg(test)]
-mod chief_replies_tests {
-    use super::*;
-
-    /// A group's "Chiefs Reply" setting (plans/cmux-next/chief-group-chats-DESIGN.md) goes to the
-    /// owner as `conversation.settings.set {wake_policy}`: the daemon forwards it unchanged.
-    #[test]
-    fn conversation_settings_set_is_forwarded() {
-        let request = OpRequest {
-            conversation: Some("conv_0Y05MEWEFMQQB63VDHQB9MXAJT".into()),
-            idempotency_key: "k1".into(),
-            origin: Some("user".into()),
-            op: json!({"kind": "conversation.settings.set", "wake_policy": "all"}),
-        };
-        let body = op_body(&request).expect("forwarded");
-        assert_eq!(body["op"], "conversation.settings.set");
-        assert_eq!(body["params"]["wake_policy"], "all");
-        assert_eq!(body["params"]["conversation"], "conv_0Y05MEWEFMQQB63VDHQB9MXAJT");
-    }
-}
+#[path = "contract_chief_replies_tests.rs"]
+mod chief_replies_tests;

@@ -1,18 +1,24 @@
 import Darwin
 import Foundation
 
-/// Pins a recording from macOS's floating preview before the drop returns and the OS may unlink
-/// it. Only the descriptor is opened on the main actor; bytes are read off-main, within the
-/// existing local-upload limits, then saved by the app's existing Chat Uploads owner.
+/// Pins a file from macOS's floating screenshot or recording preview before the drop returns and
+/// the OS may unlink it. Only the descriptor is opened on the main actor. The saved copy is an APFS
+/// clone of that descriptor (instant at any size, no bytes read), else a copy a chunk at a time off
+/// the main thread: never the whole file in memory, and no size cap (Leo, 2026-10-26: "I ALREADY SAID
+/// WE NEED ARBITARRILY LARGE FILES OF ANY TYPE").
 nonisolated struct AgentPaneRecordingSnapshot: Sendable {
     private let name: String
     let size: Int
     private let handle: FileHandle
 
-    /// Whether this is a movie in macOS's temporary floating-preview folder. Ordinary files keep
-    /// their own paths. Comparing the two `/var` spellings needs no file-system work at drag time.
+    /// The most one fallback copy step holds in memory.
+    static let copyChunkBytes = 4 * 1024 * 1024
+
+    /// Whether this is a file in macOS's temporary floating-preview folder: a recording, or a
+    /// screenshot whose original the page uploads after its preview. Ordinary files keep their own
+    /// paths. Comparing the two `/var` spellings needs no file-system work at drag time.
     static func needsSnapshot(_ url: URL) -> Bool {
-        guard url.isFileURL, ["mov", "mp4", "m4v", "webm"].contains(url.pathExtension.lowercased()) else { return false }
+        guard url.isFileURL else { return false }
         func spelling(_ path: String) -> String { path.hasPrefix("/private/var/") ? String(path.dropFirst(8)) : path }
         let root = spelling(FileManager.default.temporaryDirectory.appendingPathComponent("TemporaryItems", isDirectory: true).path)
         let path = spelling(url.standardizedFileURL.path)
@@ -27,29 +33,67 @@ nonisolated struct AgentPaneRecordingSnapshot: Sendable {
         let descriptor = open(url.path, O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC)
         guard descriptor >= 0 else { return nil }
         var info = stat()
-        guard fstat(descriptor, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG,
-              info.st_size > 0, info.st_size <= AgentPaneUpload.maximumFileBytes else {
+        guard fstat(descriptor, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG, info.st_size > 0 else {
             close(descriptor)
             return nil
         }
         return Self(name: url.lastPathComponent, size: Int(info.st_size), handle: FileHandle(fileDescriptor: descriptor, closeOnDealloc: true))
     }
 
-    /// The pinned bytes, even after the original path disappeared. A changing or unreadable file
-    /// is refused instead of advertising the temporary path. The descriptor closes on every exit.
-    @concurrent func upload() async -> AgentPaneUpload? {
+    /// Saves the pinned bytes, even after the original path disappeared, as `folder/<name>` (the
+    /// folder made owner-only, the file owner-only): its path, or nil. A file that changed size
+    /// since the drop, or that could not be read or written, is refused (and nothing is left at the
+    /// target) instead of advertising the temporary path. The descriptor closes on every exit.
+    @concurrent func save(into folder: URL) async -> URL? {
         defer { try? handle.close() }
-        var bytes = Data()
+        let target = folder.appending(path: name, directoryHint: .notDirectory)
         do {
-            while bytes.count < size {
-                guard !Task.isCancelled,
-                      let chunk = try handle.read(upToCount: min(size - bytes.count, 1 << 20)), !chunk.isEmpty else { return nil }
-                bytes.append(chunk)
-            }
-            guard try handle.read(upToCount: 1)?.isEmpty != false else { return nil }
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         } catch {
             return nil
         }
-        return AgentPaneUpload(name: name, data: bytes)
+        let source = handle.fileDescriptor
+        var info = stat()
+        guard fstat(source, &info) == 0, Int(info.st_size) == size else { return nil }
+        if fclonefileat(source, AT_FDCWD, target.path, 0) == 0 {
+            guard chmod(target.path, 0o600) == 0 else {
+                unlink(target.path)
+                return nil
+            }
+            return target
+        }
+        guard !Task.isCancelled, copy(from: source, to: target) else {
+            unlink(target.path)
+            return nil
+        }
+        return target
+    }
+
+    /// Copies `size` bytes of `source` to a new owner-only `target` a chunk at a time, and checks
+    /// the source did not grow meanwhile.
+    private func copy(from source: Int32, to target: URL) -> Bool {
+        let output = open(target.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard output >= 0 else { return false }
+        defer { close(output) }
+        var buffer = [UInt8](repeating: 0, count: Self.copyChunkBytes)
+        var offset = 0
+        while offset < size {
+            if Task.isCancelled { return false }
+            let want = min(Self.copyChunkBytes, size - offset)
+            let read = buffer.withUnsafeMutableBytes { pread(source, $0.baseAddress, want, off_t(offset)) }
+            guard read > 0 else { return false }
+            var written = 0
+            while written < read {
+                let wrote = buffer.withUnsafeBytes { bytes -> Int in
+                    guard let base = bytes.baseAddress else { return -1 }
+                    return write(output, base + written, read - written)
+                }
+                guard wrote > 0 else { return false }
+                written += wrote
+            }
+            offset += read
+        }
+        var extra: UInt8 = 0
+        return pread(source, &extra, 1, off_t(size)) == 0
     }
 }

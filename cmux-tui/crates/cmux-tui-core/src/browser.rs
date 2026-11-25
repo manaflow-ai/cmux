@@ -1,6 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, SyncSender, TrySendError, sync_channel};
+use std::sync::mpsc::{Receiver, Sender, SyncSender, TrySendError, sync_channel};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
@@ -24,11 +24,10 @@ mod navigation_hold_tests;
 mod surface_input;
 mod surface_navigation;
 mod surface_paint_verification;
-mod url_input;
 use cdp_events::{
     dialog_response, handle_frame_navigated, handle_same_document_navigated, handle_target_created,
 };
-pub use url_input::normalize_url;
+pub use cmux_url_input::normalize_url;
 mod runtime;
 mod surface_authority;
 mod surface_frames;
@@ -43,12 +42,12 @@ use event_lanes::SurfaceRoute;
 use runtime::runtime_endpoint;
 use runtime::{browser_geometry_locked, capture_scale_for, scaled_pixels};
 pub(crate) use runtime::{new_surface, new_surface_with_resource_identity};
+use worker::{BrowserCommandTx, is_cdp_timeout_error, start_browser_worker, start_surface_thread};
 #[cfg(test)]
 use worker::{
     clear_attention_if_page_changed, next_pointer_lifecycle_deadline, record_browser_worker_result,
     release_abandoned_pointer_presses, take_latest_worker_commands,
 };
-use worker::{is_cdp_timeout_error, start_browser_worker, start_surface_thread};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BrowserSource {
@@ -111,7 +110,7 @@ impl Drop for BrowserFrameStream {
 /// a natively hosted page wakes the worker, which stops its screencast.
 struct FrameViewer {
     viewers: Arc<AtomicUsize>,
-    command_tx: Arc<Mutex<Option<SyncSender<SequencedBrowserCommand>>>>,
+    command_tx: Arc<Mutex<Option<BrowserCommandTx>>>,
     command_order: Arc<Mutex<BrowserCommandOrder>>,
 }
 
@@ -684,7 +683,7 @@ pub struct BrowserSurface {
     dead: AtomicBool,
     cell_pixels: Mutex<(u16, u16)>,
     capture_options: BrowserCaptureOptions,
-    command_tx: Arc<Mutex<Option<SyncSender<SequencedBrowserCommand>>>>,
+    command_tx: Arc<Mutex<Option<BrowserCommandTx>>>,
     /// Live [`BrowserFrameStream`]s (attached viewers) of this surface.
     frame_viewers: Arc<AtomicUsize>,
     command_order: Arc<Mutex<BrowserCommandOrder>>,

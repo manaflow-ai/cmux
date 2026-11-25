@@ -27,7 +27,6 @@ SOURCES = "Packages/macOS/CmuxNext/Sources"
 GRID = "CmuxNextDesign/MenuMetrics.swift"
 # Menus not yet on the grid: each moves to MenuMetrics in its own follow-up and leaves this list.
 DEBT = {
-    "CmuxNextSidebar/Views/GroupEditor/SidebarGroupEditorControls.swift",
     "CmuxNextTabs/Groups/Editor/TabGroupEditorControls.swift",
     "CmuxNextPalette/PaletteActionsMenuView.swift",
     "CmuxNextDesign/Overlay/PopupRowView.swift",
@@ -42,6 +41,9 @@ NOT_MENUS = {
     # The DEBUG `debug.object_menu` capture command: its NSPoint is where it pops the pane's own menu up
     # (80 pt into a pane whose tab bar is hidden), a click location, not a row of a menu it draws.
     "CmuxNextApp/Control/DebugObjectMenu.swift",
+    # The Chief's live computer screen over the Messages page: a glass card around a screenshot, with no
+    # rows; its inset frames the screen and its ✕ sits in the card's corner.
+    "CmuxNextHomeEngine/HomeChiefComputerPopup.swift",
 }
 # The system menu bar's status item (`MenuBarIcon`) is an icon, not a menu.
 NOT_SURFACE = re.compile(r"MenuBar")

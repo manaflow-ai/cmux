@@ -22,4 +22,17 @@ impl Mux {
     pub(crate) fn subscribe_conversations(&self) -> MuxEventReceiver {
         self.subscribers.subscribe_conversations()
     }
+
+    /// A receiver of the events `accepts` takes (`MuxEventBroadcaster::subscribe_matching`).
+    pub(crate) fn subscribe_matching(&self, accepts: fn(&MuxEvent) -> bool) -> MuxEventReceiver {
+        self.subscribers.subscribe_matching(accepts)
+    }
+
+    /// A receiver of the events a stateful `accepts` takes (`MuxEventBroadcaster::subscribe_where`).
+    pub(crate) fn subscribe_where(
+        &self,
+        accepts: impl Fn(&MuxEvent) -> bool + Send + 'static,
+    ) -> MuxEventReceiver {
+        self.subscribers.subscribe_where(accepts)
+    }
 }

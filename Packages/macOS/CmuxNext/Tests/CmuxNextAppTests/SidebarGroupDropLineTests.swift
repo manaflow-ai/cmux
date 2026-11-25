@@ -1,13 +1,14 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Lawrence 2026-10-19 (u2455): "If I drag a workspace group around a little
 /// and then I go, the left bar for the color disappears. If I click on a
 /// workspace ... it reappears." The group's members' line must show again the
 /// moment the dropped (or cancelled) card lands, with no click.
-@MainActor @Suite(.serialized) struct SidebarGroupDropLineTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct SidebarGroupDropLineTests {
     static let group = GroupID("g-drop-line")
 
     static func list() -> (SidebarListView, NSWindow) {

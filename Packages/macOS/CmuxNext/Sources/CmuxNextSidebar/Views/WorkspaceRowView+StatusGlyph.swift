@@ -17,6 +17,27 @@ extension WorkspaceRowView {
         return NSRect(x: snapped(trailing - side), y: snapped(centerY - side / 2), width: side, height: side)
     }
 
+    /// The status mark that draws in the leading icon slot (`sidebar.workspaceRow.statusPlacement` `leading`): the
+    /// row badge, else the agent mark standing in for the status, else the status glyph, as `layoutColumnMark` picks
+    /// them on the trailing column. Nil when the status trails or the row is idle (the slot shows its icon or nothing).
+    var leadingStatusMark: NSView? {
+        guard statusLeads else { return nil }
+        if !rowBadge.isHidden { return rowBadge }
+        if !agentMark.isHidden && agentMarkVariant == .replacesStatus { return agentMark }
+        return activity.showsGlyph ? activity : nil
+    }
+
+    /// Places the leading status `mark` in the icon slot whose box starts at `leading`, centered in it (a dot, a
+    /// spinner and a warning differ in ink width, so a centered mark does not shift as the state changes), on
+    /// `centerY`, on the pixel grid. The workspace's icon hides while the mark shows; the title keeps its x.
+    func layoutLeadingStatus(_ mark: NSView, leading: CGFloat, slot: CGFloat, centerY: CGFloat) {
+        let size = mark === rowBadge ? CGSize(width: rowBadge.preferredWidth, height: rowBadge.cellSide)
+            : CGSize(width: SidebarStyle.statusGlyphSize, height: SidebarStyle.statusGlyphSize)
+        let scale = window?.backingScaleFactor ?? 1
+        mark.frame = NSRect(x: SidebarStyle.pixelSnapped(leading + (slot - size.width) / 2, scale: scale),
+                            y: SidebarStyle.pixelSnapped(centerY - size.height / 2, scale: scale), width: size.width, height: size.height)
+    }
+
     /// The agent mark's image size: the status mark's when it stands in for the status, the
     /// indicator size when it sits beside the title, so its brand variant matches the box it fills.
     var agentMarkSize: CGFloat {
@@ -48,28 +69,25 @@ extension WorkspaceRowView {
 
 
 extension WorkspaceRowView {
-    /// These image decisions also determine the title column while the parent row is offscreen.
     static func agentMarkImage(_ workspace: SidebarWorkspace, variant: SidebarAgentMarkVariant, placeholder: Bool) -> NSImage? {
         guard variant != .off, !placeholder else { return nil }
         let side = variant == .replacesStatus ? SidebarStyle.statusGlyphSize : SidebarStyle.indicatorSize
-        return workspace.agentIcon.flatMap { agentIconImage($0, side: side) }
+        return registeredAgentMark(workspace, side: side)
+            // A harness workspace with no registered mark draws its kind's symbol, in its stable colour.
+            ?? (workspace.kind == .harness ? NSImage.icon(symbol: workspace.kind.symbol, size: side) : nil)
+    }
+
+    /// The workspace's own icon or its brand's mark, when one is registered.
+    static func registeredAgentMark(_ workspace: SidebarWorkspace, side: CGFloat) -> NSImage? {
+        workspace.agentIcon.flatMap { agentIconImage($0, side: side) }
             ?? workspace.agentBrand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: side) }
     }
 
-    static func machineMarkImage(_ mark: SidebarMachineMark, side: CGFloat) -> NSImage {
-        if let emoji = mark.emoji { return SidebarItemRowView.emojiImage(emoji, side: side) }
-        return mark.symbol.map { NSImage.icon(symbol: $0, size: side) } ?? NSImage.icon(mark.kindIcon, size: side)
-    }
-
-    static func titleColumn(workspace: SidebarWorkspace, row: SidebarRow) -> CGFloat {
-        let content = row.content ?? WorkspaceRowContent()
-        let placeholder = workspace.rowState == .placeholder && workspace.title.isEmpty
-        var x = SidebarStyle.workspaceTitleX(icon: content.icon, treeDepth: content.treeDepth)
-        let variant = SidebarTunables.agentMark.value
-        if variant == .besideTitle, agentMarkImage(workspace, variant: variant, placeholder: placeholder) != nil {
-            x = SidebarStyle.titleXAfterLeadingMark(x)
-        }
-        if !placeholder, content.machine != nil { x = SidebarStyle.titleXAfterLeadingMark(x) }
-        return x
+    /// The tint of a harness workspace's fallback mark (its stable per-item colour, resolved in the
+    /// row's theme scope when drawn); nil for a registered mark, which keeps its own tint.
+    static func agentMarkFallbackColor(_ workspace: SidebarWorkspace, variant: SidebarAgentMarkVariant) -> GroupColor? {
+        let side = variant == .replacesStatus ? SidebarStyle.statusGlyphSize : SidebarStyle.indicatorSize
+        guard workspace.kind == .harness, registeredAgentMark(workspace, side: side) == nil else { return nil }
+        return SidebarItemInfo.stableAgentColor(for: workspace.id.rawValue)
     }
 }

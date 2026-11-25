@@ -28,7 +28,7 @@ final class HomeDropState {
 /// drop outline. Drawn only; it never takes a click or a drag.
 final class HomeDropHighlightView: NSView {
     static let inset: CGFloat = 6
-    static let cornerRadius: CGFloat = 12
+    static var cornerRadius: CGFloat { Metrics.surfaceCornerRadius }
     static let lineWidth: CGFloat = 2
     static let fillAlpha: CGFloat = 0.06
 

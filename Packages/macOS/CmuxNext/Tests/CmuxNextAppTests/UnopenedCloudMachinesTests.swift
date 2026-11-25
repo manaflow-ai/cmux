@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextCloud
 @testable import CmuxNextDaemon
@@ -246,6 +247,66 @@ struct UnopenedCloudMachinesTests {
         #expect(services.windows.registry.value.owner(of: "ws-two-more") == window, "the second machine's other workspace stayed out")
     }
 
+    /// Issue #28609: an agent's or the CLI's create on a machine nobody opened (no focus, so its claim
+    /// on the active window is quiet) is not the person opening that machine: neither the new
+    /// workspace nor the image's own joins the window.
+    @Test func aCreateWithoutFocusOpensNoMachine() throws {
+        let services = Self.services()
+        defer { Self.closeWindows(services) }
+        let session = Self.machine(services, id: "vm-cli", workspaces: ["ws-cli-image"])
+        _ = services.windows.registry.apply { $0.openWindow(id: "w-person", workspaceIDs: ["ws-person"]) }
+        services.windows.reconcileMembership()
+
+        ActionRunScope.$current.withValue(ActionRunScope(origin: .cli, allowsViewChange: false)) {
+            services.windows.claimNew(workspaceID: "ws-cli-made", window: "w-person")
+        }
+        session.daemon.store.apply(snapshot: DaemonTree(registryID: "s-vm-cli", workspaces: [
+            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: "ws-cli-image"), name: "workspace-1"),
+            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 2), key: WorkspaceKey(rawValue: "ws-cli-made"), name: "workspace-2"),
+        ]))
+        services.windows.reconcileMembership()
+
+        #expect(services.windows.registry.value.owner(of: "ws-cli-made") == nil, "a create without focus put its workspace in the window")
+        #expect(services.windows.registry.value.owner(of: "ws-cli-image") == nil, "a create without focus opened the machine")
+    }
+
+    /// cmux#45947: New Cloud Chat opens the chat in a workspace of its own on the new machine and shows
+    /// it. That opened the machine, so the image's starter workspace and its terminal joined the sidebar
+    /// as a second workspace. A workspace holding only agent chats now joins by itself: the starter stays
+    /// out, also on the next reconcile (a relaunch), until the person opens the machine.
+    @Test func aCloudChatsOwnWorkspaceDoesNotOpenItsMachine() throws {
+        let services = Self.services()
+        defer { Self.closeWindows(services) }
+        Self.chatMachine(services, id: "vm-chat")
+        services.windows.reconcileMembership()
+
+        CloudHandlers.show("ws-chat", AppActionContext(services: services))
+        services.windows.reconcileMembership()
+
+        let registry = services.windows.registry.value
+        #expect(registry.owner(of: "ws-chat") != nil, "the chat's workspace is not shown")
+        #expect(registry.owner(of: "ws-image-terminal") == nil, "the machine's starter terminal workspace joined the sidebar")
+    }
+
+    /// Opening the machine (Open Machine shows its first workspace) still brings every workspace in.
+    @Test func openingTheMachineAfterItsCloudChatBringsTheStarterIn() throws {
+        let services = Self.services()
+        defer { Self.closeWindows(services) }
+        Self.chatMachine(services, id: "vm-chat-open")
+        CloudHandlers.show("ws-chat", AppActionContext(services: services))
+
+        services.windows.reveal(workspaceID: "ws-image-terminal")
+
+        let registry = services.windows.registry.value
+        #expect(registry.owner(of: "ws-image-terminal") != nil && registry.owner(of: "ws-chat") != nil)
+    }
+
+    @Test func onlyAWorkspaceOfAgentChatsLeavesItsMachineUnopened() {
+        let held = WindowManager.unopenedCloudWorkspaces([["ws-chat", "ws-image"], ["ws-term", "ws-other"]],
+                                                         opensMachine: { $0 != "ws-chat" }) { $0 == "ws-chat" || $0 == "ws-term" }
+        #expect(held == ["ws-image"])
+    }
+
     // MARK: Fixtures
 
     static func services() -> AppServices {
@@ -258,15 +319,28 @@ struct UnopenedCloudMachinesTests {
     /// A running Cloud machine whose tree lists `workspaces` (keys), loaded.
     @discardableResult
     static func machine(_ services: AppServices, id: String, workspaces: [String]) -> CloudMachineSession {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-unopened-\(UUID().uuidString.prefix(8))")
-        let paths = CloudPaths(root: root), binary = URL(fileURLWithPath: "/usr/bin/false"), api = services.cloud.api
-        let hub = CloudTunnelHub(api: api, paths: paths, binary: binary, deviceName: "cn-unopened-test")
-        let link = CloudMachineLink(machineID: id, api: api, hub: hub, paths: paths, binary: binary, deviceName: "cn-unopened-test")
-        let session = CloudMachineSession(machine: CloudMachine(id: id, status: .running, displayName: id), link: link, mainWork: services.mainWork)
+        let session = CloudTestLink.session(id: id, status: .running, name: id, mainWork: services.mainWork)
         services.machines.add(session)
         session.daemon.store.apply(snapshot: DaemonTree(registryID: "s-\(id)", workspaces: workspaces.enumerated().map { index, key in
             WorkspaceSnapshot(id: WorkspaceHandle(rawValue: UInt64(index + 1)), key: WorkspaceKey(rawValue: key), name: "workspace-\(index + 1)")
         }))
+        return session
+    }
+
+    /// A running Cloud machine whose image's workspace `ws-image-terminal` holds a terminal, and whose
+    /// `ws-chat` holds only an agent chat (a New Cloud Chat's own workspace).
+    @discardableResult
+    static func chatMachine(_ services: AppServices, id: String) -> CloudMachineSession {
+        let session = CloudTestLink.session(id: id, status: .running, name: id, mainWork: services.mainWork)
+        services.machines.add(session)
+        let terminal = TabSnapshot(surface: SurfaceID(rawValue: 1), kind: .pty, cwd: nil)
+        var chat = TabSnapshot(surface: SurfaceID(rawValue: 2), kind: .conversation, cwd: nil)
+        chat.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "registry:\(id)", hostName: id, session: "s-chat", harness: "claude"))
+        let screen = { (pane: UInt64, tab: TabSnapshot) in ScreenSnapshot(id: ScreenID(rawValue: pane), layout: .leaf(PaneID(rawValue: pane)), panes: [PaneSnapshot(id: PaneID(rawValue: pane), tabs: [tab])]) }
+        session.daemon.store.apply(snapshot: DaemonTree(registryID: "s-\(id)", workspaces: [
+            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: "ws-image-terminal"), name: "workspace-1", screens: [screen(1, terminal)]),
+            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 2), key: WorkspaceKey(rawValue: "ws-chat"), name: "chat", screens: [screen(2, chat)]),
+        ]))
         return session
     }
 

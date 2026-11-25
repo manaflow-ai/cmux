@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextLayout
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// A strip divider partly scrolled under a docked column showed its resize cursor over the docked
@@ -9,6 +10,7 @@ import Testing
 /// strip handle's rect under it. The handle's cursor rect, and the mouse area a page's click catcher
 /// covers, now stop where the dock begins.
 @MainActor
+@Suite(.closesItsWindows)
 struct DividerCursorUnderDockTests {
     final class Panes: LayoutPaneContentProvider {
         func makeContentView(for pane: PaneID) -> NSView { NSView() }
@@ -31,7 +33,7 @@ struct DividerCursorUnderDockTests {
             ])
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: layout)], activeScreenID: "s", focusedPane: "p1")
             // A pinned style with divider lines (`borders`): the live one follows the process-wide
-            // DesignSettings, which a settings test leaves at the app's defaults (flat-sidebar-line, whose
+            // DesignSettings, which a settings test may leave at another style (flat-sidebar-line's
             // `none` separation draws no hover line) when it runs earlier in the same process.
             model.followsDesignMetrics = false
             root = LayoutRootView(model: model, contentProvider: provider)
@@ -50,6 +52,7 @@ struct DividerCursorUnderDockTests {
     @Test(arguments: [DockMode.docked, DockMode.overlay])
     func aStripDividerUnderADockKeepsItsCursorOutOfTheDock(_ mode: DockMode) throws {
         let fixture = Fixture(mode: mode)
+        defer { fixture.window.closeAfterTest() }
         let screen = fixture.screen
         let cover = try #require(screen.geometry.dock.first { $0.column == "dock" }).cover
         let handle = try #require(screen.dividerViews[.split("x")])
@@ -73,6 +76,7 @@ struct DividerCursorUnderDockTests {
     @Test(arguments: [DockMode.docked, DockMode.overlay])
     func aStripDividerUnderADockIsNotHoveredOrDrawnThere(_ mode: DockMode) throws {
         let fixture = Fixture(mode: mode)
+        defer { fixture.window.closeAfterTest() }
         let screen = fixture.screen
         let cover = try #require(screen.geometry.dock.first { $0.column == "dock" }).cover
         let handle = try #require(screen.dividerViews[.split("x")])
@@ -91,7 +95,9 @@ struct DividerCursorUnderDockTests {
         pointer = CGPoint(x: beside.midX, y: beside.midY)
         screen.refreshDividerHover()
         #expect(handle.isHovered, "beside the dock the divider still hovers")
-        let lines = screen.dividerLineRects.filter { $0.intersects(handle.frame) }
+        // Only the split's own line: the dock's inner edge draws a line at rest too (#37655), a full-height
+        // one that crosses this handle's end and rightly sits on the dock's edge.
+        let lines = ScreenDividers(screen: screen).lineRects.filter { handle.frame.insetBy(dx: -1, dy: -1).contains($0) }
         try #require(!lines.isEmpty, "the hovered divider draws its line")
         for line in lines {
             let drawnUnder = line.intersection(cover)

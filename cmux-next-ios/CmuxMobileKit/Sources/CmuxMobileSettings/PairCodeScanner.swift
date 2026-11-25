@@ -1,51 +1,37 @@
 #if os(iOS)
 @preconcurrency import AVFoundation
 import CmuxMobileDesign
+import CmuxMobileModel
+import CmuxSpinner
 import SwiftUI
 import UIKit
 
 private let theme = CmuxMobileTheme.standard
 
-/// Settings → Devices → "Scan QR on your Mac": the camera reads the pairing
-/// code cmux shows on the Mac and hands its text to `open`
-/// (``SettingsDeviceDirectory/openPairingCode(_:)``).
+/// Settings → Devices → "Scan QR on your Mac": the camera reads a Mac's invite for a new machine
+/// (Pair Another Machine…, `https://cmux.com/pair?i=…`) and opens ``MachineInviteSheet`` here, with
+/// its code filled in. This iPhone itself needs no code: signed in to the Mac's account, it pairs
+/// on its own and the Mac allows it.
 struct PairCodeScannerSheet: View {
-    /// Takes a scanned code's text; true when the app took it as a pairing code.
-    let open: (String) -> Bool
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @State private var access = AVCaptureDevice.authorizationStatus(for: .video)
-    /// A code was read that is no live pairing code for this account.
+    /// A code was read that is no machine invite.
     @State private var rejected = false
+    /// A scanned invite for a new machine: the sheet shows it in place of the camera.
+    @State private var invite: MachineInvite?
 
     var body: some View {
         NavigationStack {
             Group {
-                switch access {
-                case .authorized:
-                    PairCodeCameraView { code in
-                        if open(code) { dismiss() } else { rejected = true }
-                    }
-                    .ignoresSafeArea()
-                    .overlay(alignment: .bottom) { hint }
-                case .notDetermined:
-                    ProgressView()
-                default:
-                    ContentUnavailableView {
-                        Label("Camera access is off", systemImage: "camera")
-                    } description: {
-                        Text("Allow cmux to use the camera in Settings to scan the code on your Mac.")
-                    } actions: {
-                        Button("Open Settings") {
-                            if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
-                        }
-                    }
+                if let invite {
+                    MachineInviteSheet(invite: invite)
+                } else {
+                    scanner
                 }
             }
-            .navigationTitle("Scan QR on your Mac")
-            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button(invite == nil ? "Cancel" : "Done") { dismiss() } }
             }
         }
         .task {
@@ -55,10 +41,41 @@ struct PairCodeScannerSheet: View {
         }
     }
 
+    private var scanner: some View {
+        Group {
+            switch access {
+            case .authorized:
+                PairCodeCameraView { code in
+                    if let scanned = MachineInvite(text: code) {
+                        invite = scanned
+                    } else {
+                        rejected = true
+                    }
+                }
+                .ignoresSafeArea()
+                .overlay(alignment: .bottom) { hint }
+            case .notDetermined:
+                CmuxSpinner()
+            default:
+                ContentUnavailableView {
+                    Label("Camera access is off", systemImage: "camera")
+                } description: {
+                    Text("Allow cmux to use the camera in Settings to scan the code on your Mac.")
+                } actions: {
+                    Button("Open Settings") {
+                        if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                    }
+                }
+            }
+        }
+        .navigationTitle("Scan QR on your Mac")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
     private var hint: some View {
         Text(rejected
-             ? "That isn't a pairing code for this account, or it expired. Show a new code on your Mac."
-             : "Point the camera at the pairing code cmux shows on your Mac.")
+             ? "That isn't a cmux invite. On your Mac, choose Pair Another Machine… to show one."
+             : "Point the camera at the invite code cmux shows on your Mac.")
             .font(theme.type.meta)
             .multilineTextAlignment(.center)
             .padding()

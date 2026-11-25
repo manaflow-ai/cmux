@@ -77,6 +77,8 @@ import CmuxNextWakeups
     /// Handles an enter or exit of the extended rect; false for any other tracking area's event. The
     /// pointer's own position decides (inside the pad cancels the exit, outside starts it).
     func trackingEvent(_ event: NSEvent, entered: Bool) -> Bool {
+        // Screen hit-testing can deliver a move as a hover transition; only enter/exit events have tracking metadata.
+        guard event.type == .mouseEntered || event.type == .mouseExited else { return false }
         guard let trackingArea, event.trackingArea === trackingArea else { return false }
         if entered { exitTimer.cancel() } else { pointerMoved(to: pointerInStrip) }
         return true

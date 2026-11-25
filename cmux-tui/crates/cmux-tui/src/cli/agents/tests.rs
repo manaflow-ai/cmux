@@ -315,3 +315,44 @@ fn snapshot_shows_agent_chat_tabs_the_daemon_lists_as_browsers() {
     assert_eq!(browsers.len(), 1, "{browsers:?}");
     assert_eq!(browsers[0]["id"], "browser_web");
 }
+
+#[test]
+fn dialog_answers_name_who_answers() {
+    let env = |pairs: &'static [(&'static str, &'static str)]| {
+        move |key: &str| {
+            pairs.iter().find(|(name, _)| *name == key).map(|(_, value)| (*value).to_owned())
+        }
+    };
+    let params = json!({"request_id": "r", "selections": ["start"]});
+    // The person's terminal: cli, no caller.
+    let person = with_answerer(params.clone(), "agents", env(&[("CMUX_TUI_TERMINAL_ID", "t1")]));
+    assert_eq!(person, json!({"request_id": "r", "selections": ["start"], "origin": "cli"}));
+    // An agent's shell names its session.
+    let agent = with_answerer(params.clone(), "agents", env(&[("CMUX_AGENT_SESSION", "s1")]));
+    assert_eq!(agent["origin"], "cli");
+    assert_eq!(agent["caller"], json!({"agent_session": "s1"}));
+    // A Chief turn names the Home chat; the MCP tool is mcp.
+    let chief = with_answerer(params, "mcp", env(&[("CMUX_CALLER_HOME_CHAT", "1")]));
+    assert_eq!(chief["origin"], "mcp");
+    assert_eq!(chief["caller"], json!({"home_chat": true}));
+}
+
+/// `cmux agents chat new --help` prints that verb's lines and its `--on` start, not the whole
+/// agents help (the Cloud and remote command matrix).
+#[test]
+fn each_agents_verb_has_its_own_help() {
+    let words = |text: &str| text.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
+    let new = verb_help(&words("chat new --help")).expect("chat new");
+    assert!(
+        new.starts_with("Usage: cmux agents chat new\n\n  cmux agents chat new [--workspace"),
+        "{new}"
+    );
+    assert!(new.contains("--on vm:ID|NAME|new"), "{new}");
+    assert!(!new.contains("chat send"), "{new}");
+    let send = verb_help(&words("chat send abc --help")).expect("chat send");
+    assert!(send.starts_with("Usage: cmux agents chat send\n"), "{send}");
+    let dialog = verb_help(&words("dialog --help")).expect("dialog");
+    assert_eq!(dialog.lines().filter(|line| line.contains("agents dialog")).count(), 4, "{dialog}");
+    assert_eq!(verb_help(&words("--help")), None);
+    assert_eq!(verb_help(&words("no-such --help")), None);
+}

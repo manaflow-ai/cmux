@@ -1,11 +1,21 @@
-// Settings > Accounts, Teams: one row per team with your role, the open team's details (members,
-// pending invitations for admins, plan), and the create, rename and delete forms. Like the rest of
+// Settings > Accounts, Teams: invitations addressed to you (Join Team, Decline), one row per team
+// with your role, the open team's details (members, pending invitations for admins, plan), and the
+// create, rename and delete forms. Like the rest of
 // Accounts, the host sends every text and decides what each person may do (members get no Rename
 // or Delete); the page draws it and forwards `team.*` gestures. A typed name lives in the form's
 // own state until it is submitted.
 import { useState, type KeyboardEvent } from "react";
+import { Button } from "../../../ui/Button";
+import { Input } from "../../../ui/Input";
 import { useStore } from "../context";
-import type { AccountsButton, AccountsTeamDetails, AccountsTeamForm, AccountsTeamList, AccountsTeamRow } from "../ops";
+import type {
+  AccountsButton,
+  AccountsReceivedInvitations,
+  AccountsTeamDetails,
+  AccountsTeamForm,
+  AccountsTeamList,
+  AccountsTeamRow,
+} from "../ops";
 
 export function TeamsGroup({ list }: { list: AccountsTeamList }) {
   const store = useStore();
@@ -20,6 +30,7 @@ export function TeamsGroup({ list }: { list: AccountsTeamList }) {
           {list.notice.text}
         </output>
       )}
+      {list.received && <ReceivedGroup received={list.received} />}
       <div className="rows">
         {list.create && (
           <div className="row accounts-row" data-team-create="">
@@ -41,9 +52,49 @@ export function TeamsGroup({ list }: { list: AccountsTeamList }) {
   );
 }
 
+// Invitations to You: each team that invited one of your verified emails, with Join Team and
+// Decline. The host sends the texts; the invitation's id goes as `team`.
+function ReceivedGroup({ received }: { received: AccountsReceivedInvitations }) {
+  const store = useStore();
+  return (
+    <div className="accounts-team-list" data-team-received="">
+      <div className="row-title">{received.title}</div>
+      {received.error && (
+        <div className="row-error" role="alert">
+          {received.error}
+        </div>
+      )}
+      <div className="rows">
+        {received.rows.map((invitation) => (
+          <div className="row accounts-row" key={invitation.id} data-team-received-invitation={invitation.id}>
+            <div className="row-main">
+              <div className="row-label">
+                <div className="row-title accounts-team-title">{invitation.team}</div>
+                <div className="row-help">{invitation.detail}</div>
+                {invitation.expires && <div className="row-help">{invitation.expires}</div>}
+              </div>
+              <div className="row-control accounts-buttons">
+                <TeamButton
+                  button={invitation.accept}
+                  onRun={() => void store.runAccounts({ action: invitation.accept.id, team: invitation.id })}
+                />
+                <TeamButton
+                  button={invitation.decline}
+                  onRun={() => void store.runAccounts({ action: invitation.decline.id, team: invitation.id })}
+                />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function TeamButton({ button, onRun }: { button: AccountsButton; onRun: () => void }) {
   return (
-    <button
+    <Button
+      danger={button.destructive}
       type="button"
       className={button.destructive ? "button danger" : "button"}
       disabled={button.disabled}
@@ -52,7 +103,7 @@ function TeamButton({ button, onRun }: { button: AccountsButton; onRun: () => vo
       onClick={onRun}
     >
       {button.title}
-    </button>
+    </Button>
   );
 }
 
@@ -71,7 +122,7 @@ function TeamRow({ row }: { row: AccountsTeamRow }) {
           </div>
         </div>
         <div className="row-control">
-          <button
+          <Button
             type="button"
             className="button"
             aria-expanded={row.open}
@@ -80,7 +131,7 @@ function TeamRow({ row }: { row: AccountsTeamRow }) {
             onClick={() => void store.runAccounts({ action: "team.details", team: row.id })}
           >
             {row.toggle.title}
-          </button>
+          </Button>
         </div>
       </div>
       {row.detail && <TeamDetails team={row.id} detail={row.detail} />}
@@ -153,7 +204,8 @@ function TeamDetails({ team, detail }: { team: string; detail: AccountsTeamDetai
             </div>
           )}
           <div className="accounts-buttons">
-            <button
+            <Button
+              danger
               type="button"
               className="button danger"
               disabled={detail.confirm.busy}
@@ -161,8 +213,8 @@ function TeamDetails({ team, detail }: { team: string; detail: AccountsTeamDetai
               onClick={() => run("team.confirmDelete")}
             >
               {detail.confirm.confirm}
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               className="button"
               disabled={detail.confirm.busy}
@@ -170,7 +222,7 @@ function TeamDetails({ team, detail }: { team: string; detail: AccountsTeamDetai
               onClick={() => run("team.cancel")}
             >
               {detail.confirm.cancel}
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -207,7 +259,7 @@ function TeamNameForm({ form, team }: { form: AccountsTeamForm; team?: string })
         <div className="row-title">{form.title}</div>
         <div className="row-help">{form.help}</div>
       </div>
-      <input
+      <Input
         className="field"
         type="text"
         aria-label={form.title}
@@ -225,7 +277,7 @@ function TeamNameForm({ form, team }: { form: AccountsTeamForm; team?: string })
         </div>
       )}
       <div className="accounts-buttons">
-        <button
+        <Button
           type="button"
           className="button"
           disabled={blank || form.busy}
@@ -233,10 +285,10 @@ function TeamNameForm({ form, team }: { form: AccountsTeamForm; team?: string })
           onClick={submit}
         >
           {form.submit}
-        </button>
-        <button type="button" className="button" disabled={form.busy} data-team-button="team.cancel" onClick={cancel}>
+        </Button>
+        <Button type="button" className="button" disabled={form.busy} data-team-button="team.cancel" onClick={cancel}>
           {form.cancel}
-        </button>
+        </Button>
       </div>
     </div>
   );

@@ -32,16 +32,25 @@ public struct CodeCard: View {
         VStack(alignment: .leading, spacing: 0) {
             header
             ScrollView(.horizontal) {
-                Text(CodeHighlightCache.shared.highlighted(code, language: language))
-                    .font(.system(size: codeSize, design: .monospaced))
-                    .lineSpacing(codeSize * 0.46)
+                SelectableText(CodeHighlightCache.shared.highlighted(code, language: language, size: codeSize))
+                    .selectionMenu { label in
+                        [
+                            SelectionMenu.action("Copy Code", "doc.on.doc") { copy() },
+                            SelectionMenu.action("Select Code Text", "selection.pin.in.out") {
+                                SelectableTextView(code, monospaced: true).present()
+                            },
+                            SelectionMenu.action("Copy as Markdown", "text.document") {
+                                UIPasteboard.general.string = "```\(language ?? "")\n\(code)\n```"
+                            },
+                            SelectionMenu.share(code, from: label, title: "Share Code")
+                        ]
+                    }
                     .fixedSize(horizontal: !wrapCode, vertical: true)
                     .padding(.horizontal, 16)
                     .padding(.top, 4)
                     .padding(.bottom, 16)
                     // Wrapping: as wide as the card, so lines break instead of scrolling.
                     .containerRelativeFrame(wrapCode ? .horizontal : [], alignment: .leading)
-                    .textSelection(.enabled)
             }
             .scrollIndicators(.hidden)
             .trailingOverflowFade()
@@ -53,7 +62,7 @@ public struct CodeCard: View {
                         LinearGradient(colors: [.cmuxMobileCodeBackground.opacity(0), .cmuxMobileCodeBackground], startPoint: .top, endPoint: .bottom)
                             .frame(height: 48)
                         Button("Show all \(lineCount) lines") {
-                            withAnimation(.cmuxMobileSmooth) { expanded = true }
+                            withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { expanded = true }
                         }
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
@@ -67,13 +76,6 @@ public struct CodeCard: View {
         .overlay {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .strokeBorder(Color(uiColor: .separator).opacity(0.5), lineWidth: 0.5)
-        }
-        .contextMenu {
-            Button("Copy", systemImage: "doc.on.doc") { copy() }
-            Button("Copy as Markdown", systemImage: "text.document") {
-                UIPasteboard.general.string = "```\(language ?? "")\n\(code)\n```"
-            }
-            ShareLink(item: code) { Label("Share", systemImage: "square.and.arrow.up") }
         }
     }
 
@@ -96,7 +98,7 @@ public struct CodeCard: View {
                     .contentShape(.rect)
                     .padding(-6)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.cmuxPressFill)
             .accessibilityLabel(copied ? "Copied" : "Copy code")
         }
         .foregroundStyle(.secondary)
@@ -120,10 +122,10 @@ public struct CodeCard: View {
 
     private func copy() {
         UIPasteboard.general.string = code
-        withAnimation(.cmuxMobileSnap) { copied = true }
+        withAnimation(.cmuxMobileSnap.unlessReduceMotion) { copied = true }
         Task {
             try? await Task.sleep(for: .seconds(1.5))
-            withAnimation(.cmuxMobileSnap) { copied = false }
+            withAnimation(.cmuxMobileSnap.unlessReduceMotion) { copied = false }
         }
     }
 }
@@ -132,22 +134,32 @@ public struct CodeCard: View {
 @MainActor
 final class CodeHighlightCache {
     static let shared = CodeHighlightCache()
-    private var cache: [String: AttributedString] = [:]
-    private var order: [String] = []
+    private struct Key: Hashable {
+        let language: String?
+        let code: String
+        let size: CGFloat
+    }
 
-    func highlighted(_ code: String, language: String?) -> AttributedString {
-        let key = (language ?? "") + "\u{0}" + code
+    private var cache: [Key: NSAttributedString] = [:]
+    private var order: [Key] = []
+
+    func highlighted(_ code: String, language: String?, size: CGFloat) -> NSAttributedString {
+        let key = Key(language: language, code: code, size: size)
         if let hit = cache[key] { return hit }
-        let value: AttributedString
-        if language?.lowercased() == "diff" {
-            value = Self.diff(code)
-        } else {
-            value = SyntaxHighlighter(language: language).highlight(code)
+        let highlighted = language?.lowercased() == "diff" ? Self.diff(code) : SyntaxHighlighter(language: language).highlight(code)
+        let font = UIFont.monospacedSystemFont(ofSize: size, weight: .regular)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineSpacing = size * 0.46
+        let text = NSMutableAttributedString()
+        for run in highlighted.runs {
+            let color = run.swiftUI.foregroundColor.map { UIColor($0) } ?? .label
+            text.append(NSAttributedString(string: String(highlighted[run.range].characters),
+                                           attributes: [.font: font, .foregroundColor: color, .paragraphStyle: paragraph]))
         }
-        cache[key] = value
+        cache[key] = text
         order.append(key)
         if order.count > 200 { cache[order.removeFirst()] = nil }
-        return value
+        return text
     }
 
     /// ChatGPT-style diff card: text colors only (SPEC 6.8).

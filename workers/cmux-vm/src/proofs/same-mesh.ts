@@ -19,7 +19,7 @@ import { defineProof, type Named, type Proof } from "@gdp-ts/core";
 import { Effect, Option } from "effect";
 import { MeshStore, type MeshRuleRow } from "../db/mesh.ts";
 import type { StoreError } from "../db/sql.ts";
-import { OwnershipStore } from "../db/stores.ts";
+import { OwnershipStore, type OwnedResource } from "../db/stores.ts";
 import type { Principal } from "../domain/principal.ts";
 import type { DeviceId, MeshId, UpstreamId, VmId } from "../lib/ids.ts";
 import { isAddressRuleKey } from "../mesh/acl.ts";
@@ -90,6 +90,56 @@ export const sameMeshVm = <C, M, R>(
     const proof: SameMesh<C, M, R> = Object.freeze({ ...SameMeshProof.prove(caller, mesh, vm), memberKind: "vm" });
     endpoints.set(proof, owned.value.upstreamId);
     return proof;
+  });
+
+/**
+ * SameMesh proofs for many devices and VMs from one read of the mesh: the
+ * same checks as sameMeshDevice and sameMeshVm (an ownership row of the
+ * caller's tenant, a live device row or member row of exactly `mesh`), read
+ * with two ownership queries and two mesh queries instead of two queries per
+ * rule. An ACL apply that creates one rule per (device, VM, port) needs a
+ * proof for each end of every rule; read per rule, a new VM in a mesh of 40
+ * devices cost hundreds of sequential database round trips on the request's
+ * one connection. Take it under the mesh's writer, right before the creates.
+ */
+export interface SameMeshSnapshot<C, M> {
+  readonly device: <R>(device: Named<R, DeviceId>) => SameMesh<C, M, R> | null;
+  readonly vm: <R>(vm: Named<R, VmId>) => SameMesh<C, M, R> | null;
+}
+
+export const sameMeshSnapshot = <C, M>(
+  caller: Named<C, Principal>,
+  mesh: Named<M, MeshId>,
+  _ownsMesh: TenantOwnsResource<C, M>,
+  deviceIds: ReadonlyArray<string>,
+  vmIds: ReadonlyArray<string>,
+): Effect.Effect<SameMeshSnapshot<C, M>, StoreError, OwnershipStore | MeshStore> =>
+  Effect.gen(function* () {
+    const tenantId = caller.value.tenantId;
+    const ownership = yield* OwnershipStore;
+    const store = yield* MeshStore;
+    const [ownedDevices, ownedVms, devices, members] = yield* Effect.all(
+      [
+        ownership.findMany(tenantId, "device", [...new Set(deviceIds)]),
+        ownership.findMany(tenantId, "vm", [...new Set(vmIds)]),
+        deviceIds.length === 0 ? Effect.succeed([]) : store.listDevices(tenantId, mesh.value),
+        vmIds.length === 0 ? Effect.succeed([]) : store.listMembers(tenantId, mesh.value),
+      ],
+      { concurrency: "unbounded" },
+    );
+    const liveDevices = new Set(devices.filter((row) => row.meshId === mesh.value).map((row) => row.deviceId));
+    const liveVms = new Set(members.filter((row) => row.meshId === mesh.value).map((row) => row.vmId));
+    const prove = <R>(resource: Named<R, DeviceId | VmId>, owned: ReadonlyMap<string, OwnedResource>, live: ReadonlySet<string>, memberKind: "device" | "vm") => {
+      const row = owned.get(resource.value);
+      if (row === undefined || row.tenantId !== tenantId || !live.has(resource.value)) return null;
+      const proof: SameMesh<C, M, R> = Object.freeze({ ...SameMeshProof.prove(caller, mesh, resource), memberKind });
+      endpoints.set(proof, row.upstreamId);
+      return proof;
+    };
+    return {
+      device: (device) => prove(device, ownedDevices, liveDevices, "device"),
+      vm: (vm) => prove(vm, ownedVms, liveVms, "vm"),
+    };
   });
 
 /** Every live provider rule mesh `mesh` created, each with its proof. */

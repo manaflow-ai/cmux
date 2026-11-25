@@ -69,6 +69,103 @@ async fn an_agent_that_dies_mid_turn_is_restarted_on_its_conversation_and_its_qu
     assert_eq!(summary["status"], "ready", "{summary}");
 }
 
+/// Leo, 2026-11-21: "i dont think 429 should just cause a process to just exit on its own, this
+/// is pretty weird". An agent that prints its account's 429 and quits between turns, with no
+/// Stop, close or idle exit asking, is logged `exited` with why (`rate_limit` and the line), never
+/// `stopped`; the chat stays open under its name, held until the reset (`rate_hold.rs`
+/// `hold_at_exit`), and the next prompt runs after it on the same conversation.
+#[tokio::test]
+async fn an_agent_that_quits_on_a_429_between_turns_is_exited_with_why_and_resumes() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![300, 300]);
+    let id = new_session(&mut c, "quit-429").await;
+    let sid = agent_sid(&hub, &id);
+    assert!(sid.is_some());
+    let line =
+        "API Error: Request rejected (429) · This request would exceed your account's rate limit";
+    c.request(method::SESSION_PROMPT, prompt(&id, &format!("quit-after: {line}"), Some("p-1")))
+        .await
+        .unwrap();
+    until("the agent quit", || !records(&hub, &id, "exited").is_empty()).await;
+    let exited = records(&hub, &id, "exited");
+    assert_eq!(exited.len(), 1, "{:?}", kinds(&hub, &id));
+    assert_eq!(exited[0]["code"], 0, "{exited:?}");
+    assert_eq!(exited[0]["reason"], "rate_limit", "{exited:?}");
+    assert_eq!(exited[0]["error"], line, "{exited:?}");
+    assert!(records(&hub, &id, "stopped").is_empty(), "{:?}", kinds(&hub, &id));
+    assert_ne!(status(&hub, &id), "closed");
+    assert_eq!(hub.resolve("quit-429").unwrap().id, id, "it keeps its name");
+    // The next prompt runs after the reset, on the same conversation.
+    c.request(method::SESSION_PROMPT, prompt(&id, "hello again", Some("p-2"))).await.unwrap();
+    let until = records(&hub, &id, "rate_limit_held")[0]["until"].as_u64().unwrap();
+    let started = hub.events(&id, 0, 10_000).unwrap();
+    let second = started.iter().filter(|e| e.kind == "turn_started").nth(1).unwrap();
+    assert!(second.at >= until, "it ran after the reset: {} < {until}", second.at);
+    assert!(kinds(&hub, &id).iter().any(|k| k == "resumed"), "{:?}", kinds(&hub, &id));
+    assert_eq!(agent_sid(&hub, &id), sid);
+    assert_eq!(status(&hub, &id), "ready");
+}
+
+/// The person's messages steered into a turn whose agent process then died before it read them
+/// reach the agent after the crash, each once: the continuation carries them. Claude Code holds
+/// a steer until its next tool step, so a crash before that step took it with the process, and
+/// the resumed conversation never had it. Three crashes in a row, eight steers into each.
+#[tokio::test]
+async fn steers_an_agent_died_before_reading_reach_it_after_the_crash() {
+    const ROUNDS: usize = 3;
+    const STEERS: usize = 8;
+    // A FIFO nobody writes: the fake Claude Code never reaches the tool step that reads a steer.
+    let step = std::env::temp_dir().join(format!("acpmux-crash-steer-{}", uuid::Uuid::now_v7()));
+    assert!(Command::new("mkfifo").arg(&step).status().unwrap().success());
+    let env = BTreeMap::from([
+        ("FAKE_CLAUDE_STEER".to_owned(), "1".to_owned()),
+        ("FAKE_STEER_STEP".to_owned(), step.display().to_string()),
+    ]);
+    let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![50]);
+    let id = new_session(&mut c, "died-steered").await;
+    for round in 0..ROUNDS {
+        let ended = records(&hub, &id, "turn_result").len();
+        let die = format!("p-die-{round}");
+        c.send(
+            method::SESSION_PROMPT,
+            prompt(&id, &format!("die-later: crash {round}"), Some(&die)),
+        )
+        .await;
+        c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "dying ").await;
+        let turn = hub.resolve(&id).unwrap().turn().expect("the dying turn runs").turn_id;
+        for n in 0..STEERS {
+            let steer = json!({"sessionId": id, "prompt": [{"type": "text", "text": format!("steer {round}-{n}")}],
+                               "_meta": {"acpmux": {"promptId": format!("s-{round}-{n}"), "steer": true}}});
+            c.send(method::SESSION_PROMPT, steer).await;
+        }
+        let steered = || {
+            records(&hub, &id, "user_message")
+                .iter()
+                .filter(|m| m["steer"] == true && m["turnId"] == turn.as_str())
+                .count()
+        };
+        until("every steer went into the dying turn", || steered() == STEERS).await;
+        // The crash, its continuation, and that continuation's end.
+        until("the continuation ended", || records(&hub, &id, "turn_result").len() >= ended + 2)
+            .await;
+        let turns: Vec<String> = records(&hub, &id, "user_message")
+            .into_iter()
+            .filter(|m| m["steer"] != true)
+            .filter_map(|m| m["text"].as_str().map(str::to_owned))
+            .collect();
+        for n in 0..STEERS {
+            let text = format!("steer {round}-{n}");
+            let got = turns.iter().filter(|t| t.contains(&text)).count();
+            assert_eq!(
+                got, 1,
+                "{text:?} reached the agent {got} times after the crash: {turns:#?}"
+            );
+        }
+    }
+    let _ = std::fs::remove_file(step);
+}
+
 #[tokio::test]
 async fn stop_during_the_wait_keeps_a_dead_agent_from_resuming() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
@@ -85,7 +182,7 @@ async fn stop_during_the_wait_keeps_a_dead_agent_from_resuming() {
 }
 
 #[tokio::test]
-async fn a_limit_is_never_resumed_even_when_the_agent_dies_of_it() {
+async fn a_limit_is_resumed_even_when_the_agent_dies_of_it() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     hub.config.write().await.auto_resume_delays_ms = Some(vec![20]);
     let id = new_session(&mut c, "limit").await;
@@ -94,23 +191,19 @@ async fn a_limit_is_never_resumed_even_when_the_agent_dies_of_it() {
     let r = c
         .request(
             method::SESSION_PROMPT,
-            prompt(&died, "die: You've hit your limit · resets 3pm", None),
+            // Keep this integration test fast; the real Claude clock hint is covered by
+            // reset_hint unit tests, while this exercises the same usage-limit recovery path.
+            prompt(&died, "die: You've hit your limit · retry after 20ms", None),
         )
         .await;
     assert!(r.unwrap_err().contains("hit your limit"));
-    tokio::time::sleep(Duration::from_millis(400)).await;
-    for id in [&id, &died] {
-        assert!(
-            !kinds(&hub, id).iter().any(|k| k.starts_with("auto_resume")),
-            "{:?}",
-            kinds(&hub, id)
-        );
-        assert_eq!(prompt_ids(&hub, id).len(), 1);
-    }
+    until("the limit continuation completes", || records(&hub, &died, "turn_result").len() >= 2)
+        .await;
+    assert!(kinds(&hub, &died).iter().any(|k| k == "auto_resume_scheduled"));
+    assert!(prompt_ids(&hub, &died).len() >= 2);
     let summary = hub.session_summary(&hub.resolve(&died).unwrap());
-    assert_eq!(summary["status"], "disconnected", "{summary}");
-    assert_eq!(summary["lastTurn"]["status"], "failed", "{summary}");
-    assert!(summary["lastTurn"]["errorText"].as_str().unwrap().contains("hit your limit"));
+    assert_eq!(summary["status"], "ready", "{summary}");
+    assert_eq!(summary["lastTurn"]["status"], "completed", "{summary}");
 }
 
 fn git(dir: &Path, args: &[&str]) -> String {

@@ -3,9 +3,10 @@
 // rebuilt one from a stale schema dropped another branch's labels. No branch may carry them.
 import { expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { LOCALES, PAGES } from "../scripts/pages/gen-strings.mjs";
+import { LOCALES, PAGES, writeStrings } from "../scripts/pages/gen-strings.mjs";
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const git = (...args: string[]) => execFileSync("git", args, { cwd: repo, encoding: "utf8" });
@@ -31,4 +32,41 @@ test("every strings table gen-strings.mjs writes is ignored", () => {
     .trim()
     .split("\n");
   expect(ignored.sort()).toEqual([...files].sort());
+});
+
+// test/preload.ts writes the agent pane's table in every `bun test` process. A touch of a current
+// table is a change to every agent pane dev server watching it, which full-reloads the page of each
+// browser test running beside that process (agent-pane-older-rows-fade lost its page mid-test that way).
+test("writing an unchanged table that is already current leaves it untouched", () => {
+  expect(writeStrings({ only: ["agentPane"], log: () => {} })).toBe(0);
+  const table = path.join(repo, PAGES.agentPane.out);
+  const inputs = [
+    path.join(repo, "webviews/scripts/pages/gen-strings.mjs"),
+    ...PAGES.agentPane.catalogs.map((catalog: { file: string }) => path.join(repo, catalog.file)),
+  ];
+  // Newer than every input but in the past, so a touch (to now) would show.
+  const current = new Date(Math.max(...inputs.map((file) => fs.statSync(file).mtimeMs)) + 1000);
+  fs.utimesSync(table, current, current);
+  const before = fs.statSync(table).mtimeMs;
+  expect(before).toBe(current.getTime());
+  expect(writeStrings({ only: ["agentPane"], log: () => {} })).toBe(0);
+  expect(fs.statSync(table).mtimeMs).toBe(before);
+});
+
+// The preload checks the agent pane's table by content (`ifUnchanged`), not time: a table edited or
+// restored from an old cache, newer than its inputs, is still rewritten, and a current one is left alone.
+test("ifUnchanged rewrites a changed table newer than its inputs and leaves a current one alone", () => {
+  expect(writeStrings({ only: ["agentPane"], log: () => {} })).toBe(0);
+  const table = path.join(repo, PAGES.agentPane.out);
+  const made = fs.readFileSync(table, "utf8");
+  // Still valid JSON for any test reading the table meanwhile.
+  fs.writeFileSync(table, `${made} `);
+  const later = new Date(Date.now() + 60_000);
+  fs.utimesSync(table, later, later);
+  expect(writeStrings({ only: ["agentPane"], ifUnchanged: true, log: () => {} })).toBe(0);
+  expect(fs.readFileSync(table, "utf8")).toBe(made);
+  const past = new Date(Date.now() - 60_000);
+  fs.utimesSync(table, past, past);
+  expect(writeStrings({ only: ["agentPane"], ifUnchanged: true, log: () => {} })).toBe(0);
+  expect(fs.statSync(table).mtimeMs).toBe(past.getTime());
 });

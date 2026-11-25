@@ -30,6 +30,17 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "daemon stats",
+        &[
+            ("The busiest callers over the last minute", "acpmux daemon stats"),
+            (
+                "The busiest methods over the last 10 minutes",
+                "acpmux daemon stats --by method --since 10m",
+            ),
+            ("Every caller's counts as JSON", "acpmux --json daemon stats --top 100"),
+        ],
+    ),
+    (
         "daemon start",
         &[
             ("Start the daemon and wait until it accepts clients", "acpmux daemon start"),
@@ -37,8 +48,44 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "daemon prune",
+        &[
+            (
+                "List every daemon home, what a prune would clear and why the rest stay",
+                "acpmux daemon prune",
+            ),
+            ("Clear the records dead daemons left", "acpmux daemon prune --apply"),
+            ("The same list as JSON", "acpmux --json daemon prune"),
+        ],
+    ),
+    (
         "daemon restart",
         &[("Restart the daemon; hosted sessions resume after", "acpmux daemon restart")],
+    ),
+    (
+        "daemon service",
+        &[
+            ("Keep the daemon running across logouts and reboots", "acpmux daemon service install"),
+            ("Whether the service is installed and running", "acpmux daemon service status"),
+        ],
+    ),
+    (
+        "daemon service install",
+        &[
+            (
+                "Install the LaunchAgent or systemd unit and start the daemon under it",
+                "acpmux daemon service install",
+            ),
+            ("The same, as JSON (manager, path, state)", "acpmux --json daemon service install"),
+        ],
+    ),
+    (
+        "daemon service uninstall",
+        &[("Stop the service's daemon and remove the service", "acpmux daemon service uninstall")],
+    ),
+    (
+        "daemon service status",
+        &[("Whether the service is installed and running", "acpmux daemon service status")],
     ),
     (
         "daemon shutdown",

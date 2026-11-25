@@ -41,6 +41,9 @@ import UIKit
     }
 
     @Test func probeCountsTheResetAndAnIdleEchoShowsAtOnce() async throws {
+        // No other suite's screen adds its bytes to the probe's count.
+        await TerminalScreenTestLock.acquire()
+        defer { TerminalScreenTestLock.release() }
         let probe = TerminalBenchProbe()
         TerminalBenchProbe.shared = probe
         defer { TerminalBenchProbe.shared = nil }
@@ -81,11 +84,20 @@ import UIKit
             latencies += probe.take().echoLatencies
             return !latencies.isEmpty
         }
+        let seen = CACurrentMediaTime()
         let after = probe.take()
+        // Nothing is written after the echo's byte: a probe that ran behind
+        // the stream (the bug) would wait for two more keystrokes and never
+        // count it here. Counted, with nothing pending, is the property; how
+        // many milliseconds the parse and frame took depends on the load of
+        // the machine running the tests (161 ms in a full kit run), so the
+        // latency is checked against the wait that saw it, not a wall clock.
         #expect(after.processed == streamEnd)
         #expect(after.pendingEchoes == 0, "the echo is still waiting for bytes that were parsed")
         let latency = try #require(latencies.first, "the echo never counted as shown")
-        #expect(latency < 150, "echo \(latency) ms on an idle terminal")
+        #expect(latencies.count == 1, "one keystroke, \(latencies.count) echo latencies")
+        let waited = (seen - typed) * 1000
+        #expect(latency >= 0 && latency <= waited, "echo \(latency) ms, but it was seen \(waited) ms after the keystroke")
     }
 
     /// The drain is timed when its last byte is parsed, not at the bench's

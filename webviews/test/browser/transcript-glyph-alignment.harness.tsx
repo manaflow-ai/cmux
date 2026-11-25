@@ -6,7 +6,7 @@ import "../../src/ui/popupSurface.css";
 import "../../src/agent-session/shared/styles.css";
 import "../../src/agent-session/acpmux/styles.css";
 import "../../src/agent-session/acpmux/conversation/conversation.css";
-import "../../src/agent-session/acpmux/inspector/inspector.css";
+import "../../src/agent-session/acpmux/session-info/sessionInfo.css";
 import { ToolRow } from "../../src/agent-session/acpmux/conversation/ToolRow";
 import { CommandRow } from "../../src/agent-session/acpmux/conversation/CommandRow";
 import { TurnFooter, WorkedFor } from "../../src/agent-session/acpmux/conversation/TurnRows";
@@ -15,8 +15,8 @@ import { PlanList } from "../../src/agent-session/acpmux/conversation/PlanList";
 import { UserBubble } from "../../src/agent-session/acpmux/conversation/UserBubble";
 import { ReadReceipt, ReceivedActions } from "../../src/agent-session/acpmux/conversation/MessageActions";
 import { TurnActionsContext, type TurnActions } from "../../src/agent-session/acpmux/conversation/turnActions";
-import { InspectorSection } from "../../src/agent-session/acpmux/inspector/InspectorSection";
-import { EnvironmentSection } from "../../src/agent-session/acpmux/inspector/EnvironmentSection";
+import { SessionInfoSection } from "../../src/agent-session/acpmux/session-info/SessionInfoSection";
+import { EnvironmentSection } from "../../src/agent-session/acpmux/session-info/EnvironmentSection";
 import strings from "../../src/agent-session/acpmux/generated/strings.json";
 import type { AcpmuxActivity, AcpmuxRow } from "../../src/agent-session/acpmux/model";
 
@@ -42,6 +42,9 @@ const row: AcpmuxRow = {
   at: Date.now() - 300_000,
   text: "Check the alignment of this sent message.",
 };
+const PENDING_SENT_AT = Date.now() - 10_000;
+const PENDING_TEXT =
+  "A prompt long enough to be wider than its pending note, so the note grows left of Copy, which stays at the bubble's right edge.";
 const item: AcpmuxActivity = {
   kind: "tool",
   text: "",
@@ -84,7 +87,6 @@ function App() {
           <TurnActionsContext.Provider
             value={{
               reauthenticate: () => undefined,
-              transferCloudCredentials: async () => undefined,
               route: { name: "Claude Code", harness: "claude", hostKind: "cloud" },
             }}
           >
@@ -144,6 +146,52 @@ function App() {
         <div className="cv-user" data-version-footer-row>
           <UserBubble row={{ ...row, id: "glyph-versioned-prompt" }} text="The same footer with message versions." />
         </div>
+        <div className="acpmux-row" style={{ position: "relative", width: 640, height: 96 }} data-pending-row>
+          <div className="cv-user" style={{ position: "relative" }}>
+            <UserBubble
+              row={{
+                ...row,
+                id: "glyph-pending-prompt",
+                text: PENDING_TEXT,
+                delivery: {
+                  state: "sending",
+                  promptId: "glyph-pending",
+                  sessionId: "glyph-session",
+                  sentAt: PENDING_SENT_AT,
+                },
+              }}
+              text={PENDING_TEXT}
+            />
+          </div>
+        </div>
+        {/* A prompt queued behind the running turn says nothing of it in its footer (Leo, 2026-11-17:
+            "Queued, sends when the turn ends" / "it's not really useful to see ever"). */}
+        <div className="acpmux-row" style={{ position: "relative", width: 640, height: 96 }} data-queued-row>
+          <div className="cv-user" style={{ position: "relative" }}>
+            <UserBubble
+              row={{
+                ...row,
+                id: "glyph-queued-prompt",
+                text: PENDING_TEXT,
+                steer: "waiting",
+                delivery: {
+                  state: "sending",
+                  queued: true,
+                  promptId: "glyph-queued",
+                  sessionId: "glyph-session",
+                  sentAt: PENDING_SENT_AT,
+                },
+              }}
+              text={PENDING_TEXT}
+            />
+          </div>
+        </div>
+        {/* The same prompt sent, in the same box: the pending row's buttons end where its do. */}
+        <div className="acpmux-row" style={{ position: "relative", width: 640, height: 96 }} data-sent-twin-row>
+          <div className="cv-user" style={{ position: "relative" }}>
+            <UserBubble row={{ ...row, id: "glyph-pending-prompt" }} text={PENDING_TEXT} />
+          </div>
+        </div>
         <div className="fixture-rhythm" data-glyph-row="tool">
           <ToolRow item={item} />
         </div>
@@ -168,7 +216,7 @@ function App() {
         </div>
         <div data-glyph-row="session-info">
           <EnvironmentSection machineName="Studio" />
-          <InspectorSection
+          <SessionInfoSection
             id="glyph-session-info"
             title="Session Info"
             icon="status.complete"
@@ -181,10 +229,10 @@ function App() {
           <span data-read-label>Sent and read</span>
         </div>
         <div className="fixture-received" data-received-row="nonretryable">
-          <ReceivedActions row={row} text="Earlier peer message" />
+          <ReceivedActions row={row} />
         </div>
         <div className="acpmux-row fixture-received" data-retryable data-received-row="retryable">
-          <ReceivedActions row={row} text="Latest peer message" />
+          <ReceivedActions row={row} />
         </div>
       </TurnActionsContext.Provider>
     </main>

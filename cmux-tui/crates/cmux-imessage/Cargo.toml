@@ -1,0 +1,18 @@
+[package]
+name = "cmux-imessage"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Read-only reader of the macOS Messages database (chat.db) for cmux's opt-in Messages mirror: threads, group chats, messages and a watermark for live updates"
+
+[dependencies]
+rusqlite = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

@@ -95,6 +95,7 @@ pub(crate) fn create_state_schema(transaction: &Transaction<'_>) -> anyhow::Resu
     // triggers drop an archive with its group.
     crate::workspace_registry::terminal_archive_store::create_schema(transaction)?;
     super::agent_folder::create_agent_folder_schema(transaction)?;
+    super::created_by::create_schema(transaction)?;
     super::agent_message_schema::create_agent_message_schema(transaction)?;
     super::window_record_store::create_window_record_schema(transaction)?;
     super::sidebar_layout_store::create_sidebar_layout_schema(transaction)?;
@@ -102,6 +103,7 @@ pub(crate) fn create_state_schema(transaction: &Transaction<'_>) -> anyhow::Resu
     super::projects_store::create_projects_schema(transaction)?;
     super::palette_usage_store::create_palette_usage_schema(transaction)?;
     super::stash_store::create_stash_schema(transaction)?;
+    super::conductor_import_store::create_conductor_import_schema(transaction)?;
     super::kept_tab_store::create_kept_tab_schema(transaction)?;
     super::status_meta::create_status_meta_schema(transaction)?;
     super::workspace_checklist_store::create_checklist_schema(transaction)?;
@@ -160,11 +162,23 @@ pub(crate) fn migrate_saved_tab_groups_to_personal(connection: &Connection) -> a
 pub(crate) struct StateChanges {
     pub(crate) result: Value,
     pub(crate) changes: Vec<Value>,
+    /// The mutation found the stored state equal to what it asks for and
+    /// wrote nothing ([`StateChanges::unchanged`]).
+    pub(crate) unchanged: bool,
 }
 
 impl StateChanges {
     pub(crate) fn new(result: Value, changes: Vec<Value>) -> Self {
-        Self { result, changes }
+        Self { result, changes, unchanged: false }
+    }
+
+    /// The answer of a mutation that changes nothing: the stored state is
+    /// already what it asks for, and `apply` wrote no row. The registry then
+    /// commits nothing: no revision, no ledger row, no journal record, no
+    /// WAL frame. A retry under the same key applies again and gets the same
+    /// answer, so no ledger row is needed to replay it.
+    pub(crate) fn unchanged(result: Value) -> Self {
+        Self { result, changes: Vec::new(), unchanged: true }
     }
 }
 
@@ -264,7 +278,18 @@ impl WorkspaceRegistry {
         let sqlite_revision =
             i64::try_from(revision).context("resource revision exceeds SQLite range")?;
         let personal_before = personal_revision(&tx)?;
-        let StateChanges { result, changes } = apply(&tx)?;
+        let StateChanges { result, changes, unchanged } = apply(&tx)?;
+        if unchanged {
+            // `apply` wrote nothing: the transaction ends with no write, and
+            // the answer names the revision that already holds this state.
+            drop(tx);
+            return Ok(StateCommit {
+                revision: previous_revision,
+                result,
+                replayed: false,
+                personal_revision: None,
+            });
+        }
         let changes = Value::Array(finish_changes(changes));
         // Personal mutations advance `personal_revision` and append their own
         // `personal.*` fact; the raw `personal-changed` event follows it.
@@ -329,12 +354,36 @@ impl WorkspaceRegistry {
         Ok(None)
     }
 
+    /// Write registry metadata that is no resource and no state change in one transaction:
+    /// it takes no resource revision, writes no journal record and publishes nothing.
+    pub(crate) fn write_meta<T>(
+        &self,
+        write: impl FnOnce(&Transaction<'_>) -> anyhow::Result<T>,
+    ) -> anyhow::Result<T> {
+        let db = self.connection.get();
+        let transaction = db.unchecked_transaction()?;
+        let value = write(&transaction)?;
+        transaction.commit()?;
+        Ok(value)
+    }
+
     /// Run a read against the registry connection.
     pub(crate) fn read_state<T>(
         &self,
         read: impl FnOnce(&Connection) -> anyhow::Result<T>,
     ) -> anyhow::Result<T> {
         read(&self.connection.get())
+    }
+
+    /// Run a read against the registry connection with one try for it:
+    /// `None` while another thread holds the connection (the journal writer
+    /// at a commit), and the read did not run.
+    pub(crate) fn try_read_state<T>(
+        &self,
+        read: impl FnOnce(&Connection) -> anyhow::Result<T>,
+    ) -> Option<anyhow::Result<T>> {
+        let connection = self.connection.try_get()?;
+        Some(read(&connection))
     }
 }
 
@@ -380,6 +429,76 @@ pub(crate) fn mark_workspace_ephemeral(
          ON CONFLICT(workspace_id) DO UPDATE SET ephemeral = 1",
         [workspace_id],
     )?;
+    note_ephemeral(workspace_id);
+    Ok(())
+}
+
+/// Every workspace this process marked or found ephemeral, by public id
+/// (never reused). A remote device's event filter judges a closed incognito
+/// workspace's late events by it, after the workspace left the registry
+/// (server/incognito_remote.rs, #31210). A rolled-back mark leaves an id no
+/// workspace has.
+static NOTED_EPHEMERAL: std::sync::Mutex<std::collections::BTreeSet<String>> =
+    std::sync::Mutex::new(std::collections::BTreeSet::new());
+
+/// Remember that workspace `workspace_id` is ephemeral.
+pub(crate) fn note_ephemeral(workspace_id: &str) {
+    use crate::panic_free::RecoverPoison;
+    NOTED_EPHEMERAL.lock().recover_poison().insert(workspace_id.to_string());
+}
+
+/// Whether any workspace was ever ephemeral in this process: a remote
+/// device's `list-workspaces` revision is then a digest of what it may see
+/// (server.rs `list_workspaces_reply_since`).
+pub(crate) fn any_ephemeral_noted() -> bool {
+    use crate::panic_free::RecoverPoison;
+    !NOTED_EPHEMERAL.lock().recover_poison().is_empty()
+}
+
+/// Whether workspace `workspace_id` was ever ephemeral in this process.
+pub(crate) fn was_ephemeral(workspace_id: &str) -> bool {
+    use crate::panic_free::RecoverPoison;
+    NOTED_EPHEMERAL.lock().recover_poison().contains(workspace_id)
+}
+
+/// Saved tab and screen groups this process saw saved from, or synced with,
+/// a group of an ephemeral workspace, by saved id (random, never reused).
+/// Their records keep that workspace's titles, directories and URLs, so a
+/// remote device never lists or reopens them (#31210), even once the
+/// workspace closed.
+static NOTED_INCOGNITO_SAVED: std::sync::Mutex<std::collections::BTreeSet<String>> =
+    std::sync::Mutex::new(std::collections::BTreeSet::new());
+
+/// Remember that saved group `saved_id` holds an incognito workspace's group.
+pub(crate) fn note_incognito_saved(saved_id: &str) {
+    use crate::panic_free::RecoverPoison;
+    NOTED_INCOGNITO_SAVED.lock().recover_poison().insert(saved_id.to_string());
+}
+
+/// Every saved group noted by [`note_incognito_saved`].
+pub(crate) fn incognito_saved() -> Vec<String> {
+    use crate::panic_free::RecoverPoison;
+    NOTED_INCOGNITO_SAVED.lock().recover_poison().iter().cloned().collect()
+}
+
+/// Note saved tab group `saved_id` when pane `pane_id` (public id), whose
+/// strip holds the group it was written from, is in an ephemeral workspace.
+pub(crate) fn note_saved_from_pane(
+    connection: &Connection,
+    pane_id: &str,
+    saved_id: &str,
+) -> anyhow::Result<()> {
+    let incognito: i64 = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM resource_panes AS p
+           JOIN resource_screens AS s ON s.public_id = p.screen_id
+           JOIN workspace_state AS w ON w.workspace_id = s.workspace_id
+           WHERE p.public_id = ?1 AND w.ephemeral = 1)",
+        [pane_id],
+        |row| row.get(0),
+    )?;
+    if incognito != 0 {
+        note_incognito_saved(saved_id);
+    }
     Ok(())
 }
 
@@ -391,4 +510,82 @@ pub(crate) fn ephemeral_workspaces(connection: &Connection) -> anyhow::Result<Ve
          WHERE s.ephemeral = 1 AND rw.deleted_revision IS NULL",
     )?;
     Ok(statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?)
+}
+
+/// Whether workspace `workspace_key` is ephemeral (incognito). False before
+/// the state tables exist.
+pub(crate) fn workspace_key_is_ephemeral(
+    connection: &Connection,
+    workspace_key: &str,
+) -> anyhow::Result<bool> {
+    if !state_tables_ready(connection)? {
+        return Ok(false);
+    }
+    Ok(connection
+        .query_row(
+            "SELECT 1 FROM resource_workspaces AS rw
+             JOIN workspace_state AS ws ON ws.workspace_id = rw.public_id
+             WHERE rw.workspace_key = ?1 AND ws.ephemeral != 0",
+            [workspace_key],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some())
+}
+
+/// Whether terminal `terminal_id` (internal id) was created in an ephemeral
+/// workspace that still carries the flag. Its flag row goes when that
+/// workspace closes, so callers that need the answer after the close keep
+/// it (`OutputStore::mark_private`).
+fn terminal_is_ephemeral(connection: &Connection, terminal_id: &str) -> anyhow::Result<bool> {
+    if !state_tables_ready(connection)? {
+        return Ok(false);
+    }
+    Ok(connection
+        .query_row(
+            "SELECT 1 FROM terminal_hosts AS th
+             JOIN resource_workspaces AS rw ON rw.workspace_key = th.workspace_key
+             JOIN workspace_state AS ws ON ws.workspace_id = rw.public_id
+             WHERE th.terminal_id = ?1 AND ws.ephemeral != 0",
+            [terminal_id],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some())
+}
+
+/// The public ids of the terminals created in workspace `workspace_id`
+/// (a public id), placed or not.
+pub(crate) fn workspace_terminal_public_ids(
+    connection: &Connection,
+    workspace_id: &str,
+) -> anyhow::Result<Vec<String>> {
+    let mut statement = connection.prepare(
+        "SELECT rt.public_id FROM resource_terminals AS rt
+         JOIN terminal_hosts AS th ON th.terminal_id = rt.terminal_id
+         JOIN resource_workspaces AS rw ON rw.workspace_key = th.workspace_key
+         WHERE rw.public_id = ?1 AND rt.deleted_revision IS NULL",
+    )?;
+    Ok(statement
+        .query_map([workspace_id], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?)
+}
+
+/// [`terminal_is_ephemeral`] by public terminal id; `None` for a terminal
+/// the session does not (yet) have.
+pub(crate) fn public_terminal_is_ephemeral(
+    connection: &Connection,
+    public_id: &str,
+) -> anyhow::Result<Option<bool>> {
+    let terminal = connection
+        .query_row(
+            "SELECT terminal_id FROM resource_terminals WHERE public_id = ?1",
+            [public_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    match terminal {
+        Some(terminal) => terminal_is_ephemeral(connection, &terminal).map(Some),
+        None => Ok(None),
+    }
 }

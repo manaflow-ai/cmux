@@ -178,12 +178,17 @@ public struct ACPToolCall: Hashable, Sendable, Codable, Identifiable {
     public var locations: [Location]
     public var rawInput: JSONValue?
     public var rawOutput: JSONValue?
+    /// The Mac sent this call's output cut short (a page's oversized tool output); the whole
+    /// record loads when the person opens it (``AgentChatStore/loadFullOutput(of:)``). Nil: whole.
+    public var outputCut: ACPToolOutputCut?
     /// Client-side timing (first event, first terminal status).
     public var startedAt: Date?
     public var endedAt: Date?
 
     private enum CodingKeys: String, CodingKey {
         case id = "toolCallId", title, kind, status, content, locations, rawInput, rawOutput
+        /// Client-side only (never on the wire): kept when a transcript spills to disk (`RowSpill`).
+        case startedAt, endedAt, outputCut
     }
 
     public init(
@@ -210,6 +215,9 @@ public struct ACPToolCall: Hashable, Sendable, Codable, Identifiable {
         locations = try container.decodeIfPresent([Location].self, forKey: .locations) ?? []
         rawInput = try container.decodeIfPresent(JSONValue.self, forKey: .rawInput)
         rawOutput = try container.decodeIfPresent(JSONValue.self, forKey: .rawOutput)
+        startedAt = try container.decodeIfPresent(Date.self, forKey: .startedAt)
+        endedAt = try container.decodeIfPresent(Date.self, forKey: .endedAt)
+        outputCut = try container.decodeIfPresent(ACPToolOutputCut.self, forKey: .outputCut) ?? ACPToolOutputCut.marked(in: decoder)
     }
 
     /// Applies a `tool_call_update`: only present fields change; `content` replaces.
@@ -221,6 +229,13 @@ public struct ACPToolCall: Hashable, Sendable, Codable, Identifiable {
         if let locations = update.locations { self.locations = locations }
         if let rawInput = update.rawInput { self.rawInput = rawInput }
         if let rawOutput = update.rawOutput { self.rawOutput = rawOutput }
+        // A cut update's marker is the call's; content that replaces the shown output whole
+        // ends it. A rawOutput-only update leaves a cut content marked.
+        if let cut = update.outputCut {
+            outputCut = cut
+        } else if update.content != nil {
+            outputCut = nil
+        }
     }
 
     /// The shell command for execute calls: `rawInput.command` as a string or argv (`sh -lc script` shows the script).
@@ -254,6 +269,29 @@ public struct ACPToolCall: Hashable, Sendable, Codable, Identifiable {
             return nil
         }.joined(separator: "\n")
     }
+
+    /// The images in this call's output (ACP `image` content blocks: a screenshot, a read PNG),
+    /// base64 `data` with its MIME type. `outputText` leaves them out; the row draws them.
+    public var images: [(mimeType: String, data: String)] {
+        content.compactMap {
+            if case .content(.image(let mimeType, let data)) = $0 { return (mimeType: mimeType, data: data) }
+            return nil
+        }
+    }
+
+    public var hasImages: Bool {
+        content.contains { if case .content(.image) = $0 { return true }; return false }
+    }
+
+    /// An image the agent put in its message (`agent_message_chunk` with `image` content), as a
+    /// finished call holding it, so the transcript draws it as a picture under its own row. Its
+    /// id is the same each time the record is read (a replay places it, never a second copy).
+    public static func agentImage(_ block: ACPContentBlock, messageId: String?) -> ACPToolCall {
+        var mark = "0"
+        if case .image(_, let data) = block { mark = "\(data.utf8.count)-\(data.suffix(16))" }
+        return ACPToolCall(id: "image-\(messageId ?? "message")-\(mark)", title: "Image", kind: .other, status: .completed,
+                           content: [.content(block)])
+    }
 }
 
 /// `tool_call_update`: every field optional.
@@ -266,10 +304,13 @@ public struct ACPToolCallUpdate: Hashable, Sendable, Codable {
     public var locations: [ACPToolCall.Location]?
     public var rawInput: JSONValue?
     public var rawOutput: JSONValue?
+    /// The Mac cut this update's output (`_meta.acpmux.cut`); nil: it is whole.
+    public var outputCut: ACPToolOutputCut?
 
     public init(
         toolCallId: String, title: String? = nil, kind: ACPToolCall.Kind? = nil, status: ACPToolCall.Status? = nil,
-        content: [ACPToolCall.Content]? = nil, locations: [ACPToolCall.Location]? = nil, rawInput: JSONValue? = nil, rawOutput: JSONValue? = nil
+        content: [ACPToolCall.Content]? = nil, locations: [ACPToolCall.Location]? = nil, rawInput: JSONValue? = nil, rawOutput: JSONValue? = nil,
+        outputCut: ACPToolOutputCut? = nil
     ) {
         self.toolCallId = toolCallId
         self.title = title
@@ -279,6 +320,52 @@ public struct ACPToolCallUpdate: Hashable, Sendable, Codable {
         self.locations = locations
         self.rawInput = rawInput
         self.rawOutput = rawOutput
+        self.outputCut = outputCut
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case toolCallId, title, kind, status, content, locations, rawInput, rawOutput, outputCut
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        toolCallId = try container.decode(String.self, forKey: .toolCallId)
+        title = try container.decodeIfPresent(String.self, forKey: .title)
+        kind = try container.decodeIfPresent(ACPToolCall.Kind.self, forKey: .kind)
+        status = try container.decodeIfPresent(ACPToolCall.Status.self, forKey: .status)
+        content = try container.decodeIfPresent([ACPToolCall.Content].self, forKey: .content)
+        locations = try container.decodeIfPresent([ACPToolCall.Location].self, forKey: .locations)
+        rawInput = try container.decodeIfPresent(JSONValue.self, forKey: .rawInput)
+        rawOutput = try container.decodeIfPresent(JSONValue.self, forKey: .rawOutput)
+        outputCut = try container.decodeIfPresent(ACPToolOutputCut.self, forKey: .outputCut) ?? ACPToolOutputCut.marked(in: decoder)
+    }
+}
+
+/// A tool call's output the Mac sent cut to its head (`_acpmux/events` `toolOutputMaxBytes`,
+/// cmux-tui acpmux `hub/tool_output_cut.rs`): the whole record's size, and its seq, which reads it
+/// whole.
+public struct ACPToolOutputCut: Hashable, Sendable, Codable {
+    /// The whole record's bytes on the Mac.
+    public var bytes: Int
+    /// The record's seq in the chat's log.
+    public var seq: Int
+
+    public init(bytes: Int, seq: Int) {
+        self.bytes = bytes
+        self.seq = seq
+    }
+
+    private enum MetaKeys: String, CodingKey { case meta = "_meta" }
+    private struct Meta: Decodable {
+        struct Acpmux: Decodable { var cut: ACPToolOutputCut? }
+        var acpmux: Acpmux?
+    }
+
+    /// The marker in an update's `_meta.acpmux.cut`, if any; a malformed `_meta` reads as none.
+    static func marked(in decoder: any Decoder) -> ACPToolOutputCut? {
+        guard let container = try? decoder.container(keyedBy: MetaKeys.self),
+              let meta = try? container.decodeIfPresent(Meta.self, forKey: .meta) else { return nil }
+        return meta.acpmux?.cut
     }
 }
 
@@ -334,22 +421,64 @@ public struct ACPPermissionOption: Hashable, Sendable, Codable, Identifiable {
 }
 
 /// `session/request_permission` as acpmux relays it (`_acpmux/permission_pending`).
-public struct ACPPermissionRequest: Hashable, Sendable, Identifiable {
+public struct ACPPermissionRequest: Hashable, Sendable, Codable, Identifiable {
     public var id: String
     public var toolCall: ACPToolCall
     public var options: [ACPPermissionOption]
     public var cwd: String?
+    /// The plan a plan approval asks about, as Markdown (Claude Code's ExitPlanMode, Grok's and
+    /// Cursor's plan modes; `plan(toolCall:)`). Nil for any other ask.
+    public var plan: String?
 
-    public init(id: String, toolCall: ACPToolCall, options: [ACPPermissionOption], cwd: String? = nil) {
+    public init(id: String, toolCall: ACPToolCall, options: [ACPPermissionOption], cwd: String? = nil, plan: String? = nil) {
         self.id = id
         self.toolCall = toolCall
         self.options = options
         self.cwd = cwd
+        self.plan = plan
+    }
+
+    /// The plan of a `session/request_permission` tool call, as the Mac pane reads it (webviews
+    /// direct.ts `permissionPlan`): one acpmux attached (`_meta.acpmux.plan.markdown`), Claude
+    /// Code's ExitPlanMode input `plan`, or the plan of the
+    /// `switch_mode` ask acpmux builds from Grok's and Cursor's plan approvals, from its input or
+    /// else its text content. Nil for any other ask and for a plan approval with no plan text.
+    public static func plan(toolCall: JSONValue) -> String? {
+        if let attached = toolCall["_meta"]?["acpmux"]?["plan"]?["markdown"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !attached.isEmpty {
+            return attached
+        }
+        let exitPlanMode = toolCall["_meta"]?["claude"]?["tool"]?.stringValue == "ExitPlanMode"
+        guard exitPlanMode || toolCall["kind"]?.stringValue == "switch_mode" else { return nil }
+        if let input = toolCall["rawInput"]?["plan"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !input.isEmpty {
+            return input
+        }
+        let text = (toolCall["content"]?.arrayValue ?? [])
+            .compactMap { item -> String? in
+                guard item["type"]?.stringValue == "content", item["content"]?["type"]?.stringValue == "text" else { return nil }
+                return item["content"]?["text"]?.stringValue
+            }
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .joined(separator: "\n\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? nil : text
+    }
+
+    /// An option's button words: a plan approval's Approve plan and Keep planning, as the Mac
+    /// pane's plan card says them; any other ask's `phoneLabel`.
+    public func label(for option: ACPPermissionOption) -> String {
+        guard plan != nil else { return option.phoneLabel }
+        switch option.kind {
+        case .allowOnce: return "Approve plan"
+        case .rejectOnce: return "Keep planning"
+        default: return option.phoneLabel
+        }
     }
 
     /// What a phone may answer: allow once or deny once. acpmux refuses a lasting grant
     /// (`allow_always`, `reject_always`) from a paired device (`remote.lasting_grant_refused`),
-    /// so offering one cost a Face ID and then failed. A request with no single-use option
+    /// so offering one only failed. A request with no single-use option
     /// keeps its options, so acpmux's refusal says why.
     public var phoneOptions: [ACPPermissionOption] {
         // Without a single-use Allow the options stay as the agent sent them (acpmux's
@@ -478,7 +607,14 @@ extension ACPSessionUpdate: Decodable {
         switch kind {
         case "agent_message_chunk":
             let block = try container.decode(ACPContentBlock.self, forKey: .content)
-            self = .agentMessageChunk(text: block.text ?? "", messageId: try container.decodeIfPresent(String.self, forKey: .messageId))
+            let messageId = try container.decodeIfPresent(String.self, forKey: .messageId)
+            // An image the agent sent in its message drew nothing (its text is empty): it is
+            // drawn as the picture it is, in a row of its own (`ACPToolCall.agentImage`).
+            if case .image = block {
+                self = .toolCall(ACPToolCall.agentImage(block, messageId: messageId))
+            } else {
+                self = .agentMessageChunk(text: block.text ?? "", messageId: messageId)
+            }
         case "agent_thought_chunk":
             self = .agentThoughtChunk(text: try container.decode(ACPContentBlock.self, forKey: .content).text ?? "")
         case "tool_call":

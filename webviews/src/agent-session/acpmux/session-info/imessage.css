@@ -1,0 +1,50 @@
+.acpmux-imessage-body {
+  margin-inline-start: calc(var(--grid-icon-box) + var(--grid-gap) * 2);
+  padding-block: var(--ds-space-1) var(--ds-space-2);
+  padding-inline-end: var(--grid-gap);
+}
+.acpmux-imessage-copy {
+  display: block;
+  margin: 0 0 var(--ds-space-2);
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  overflow-wrap: anywhere;
+}
+.acpmux-imessage > .acpmux-imessage-copy {
+  margin-inline: calc(var(--grid-icon-box) + var(--grid-gap) * 2) var(--grid-gap);
+}
+.acpmux-imessage-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-2);
+}
+.acpmux-imessage-actions > .acpmux-session-info-link {
+  padding-inline: 0;
+}
+.acpmux-imessage-heading {
+  margin: var(--ds-space-2) 0 var(--ds-space-1);
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  font-weight: var(--weight-emphasis);
+}
+.acpmux-imessage-thread {
+  display: flex;
+  align-items: center;
+  gap: var(--grid-gap);
+  min-height: var(--grid-row);
+}
+.acpmux-imessage-thread > svg {
+  flex: none;
+  width: var(--grid-icon-box);
+  height: var(--grid-icon-box);
+  color: var(--agent-muted);
+}
+.acpmux-imessage-thread > span {
+  min-width: 0;
+}
+.acpmux-imessage-thread-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -81,5 +81,35 @@ public nonisolated struct FocusTopology: Hashable, Sendable, Codable {
 
     public func contains(pane id: String) -> Bool { panes.contains { $0.id == id } }
 
+    public func contains(tab id: String) -> Bool { panes.contains { $0.tab(id) != nil } }
+
+    /// This topology without `pane`, as the daemon's tree without it will show it: its column keeps
+    /// its id and loses the pane, and a column left empty goes (`PaneController.showPaneClose`).
+    public func removing(pane id: String) -> FocusTopology {
+        var topology = self
+        topology.panes.removeAll { $0.id == id }
+        topology.screens = screens.map { columns in
+            columns.compactMap { column in
+                var column = column
+                column.panes.removeAll { $0 == id }
+                return column.panes.isEmpty ? nil : column
+            }
+        }
+        return topology
+    }
+
+    /// Without pane `id`, each of its tabs `carry` gives a pane (moves that empty it) carried there first, as
+    /// `carry` returns it (the kind its store reports): a moved tab never leaves the topology, so its browser
+    /// focus mode stays. A tab whose destination the topology lacks leaves with the pane.
+    public func removing(pane id: String, carrying carry: (Tab) -> (pane: String, tab: Tab)?) -> FocusTopology {
+        var topology = self
+        for tab in pane(id)?.tabs ?? [] {
+            guard let moved = carry(tab), let index = topology.panes.firstIndex(where: { $0.id == moved.pane }),
+                  topology.panes[index].tab(moved.tab.id) == nil else { continue }
+            topology.panes[index].tabs.append(moved.tab)
+        }
+        return topology.removing(pane: id)
+    }
+
     public var allTabIDs: Set<String> { Set(panes.flatMap { $0.tabs.map(\.id) }) }
 }

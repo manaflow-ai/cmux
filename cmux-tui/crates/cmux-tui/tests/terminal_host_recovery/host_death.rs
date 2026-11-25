@@ -441,6 +441,12 @@ mod terminal_respawn;
 #[path = "output_store.rs"]
 mod output_store;
 
+#[path = "lazy_start.rs"]
+mod lazy_start;
+
+#[path = "kill_all_restore.rs"]
+mod kill_all_restore;
+
 #[path = "archive_on_close.rs"]
 mod archive_on_close;
 

@@ -13,7 +13,6 @@ layout so a single table compares builds:
   column / column-close         newColumn, then its closePane
   ws-switch / ws-back           goToWorkspace to a 4-pane workspace and back
   sidebar-hide / sidebar-show   toggleSidebar twice
-  right-open / right-close      toggleRightSidebar twice
   group-collapse / -expand      toggleFocusedWorkspaceGroupCollapsed twice (a sidebar group of 3 workspaces)
   home-show / home-leave        home.show, then goToWorkspace back
   chat-open / -next / -prev     home.openConversation of the first of 4 seeded chats (the bench's own Chief home),
@@ -29,10 +28,12 @@ enforced ones.
 Usage: anim-perf-terminal.py --tag <tag> --app PATH [--anims a,b] [--rounds 3] [--json PATH] [--out DIR] [--gate]
 Fleet: scripts/measure/split-spring.sh --arg=--suite=anim-perf (scripts/measure/anim-perf.sh once allowlisted).
 """
-import argparse, glob, json, os, signal, subprocess, sys, tempfile, time
+import argparse, glob, json, os, signal, subprocess, sys, tempfile, threading, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import LaunchError, launch_app  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
+from state_wait import wait_until, wait_stable, StateWaitTimeout  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "../.."))
@@ -87,8 +88,16 @@ def rpc(method, params=None, timeout=30):
 def action(name, args=None, settle=0.0, timeout=60):
     reply = rpc("action.run", {"action": name, "args": args or {}, "focus": True, "origin": "script"}, timeout=timeout)
     if settle:
-        time.sleep(settle)  # test harness: the layout settles before the next step
+        # The layout settled: the topology read the same several times in a row (`settle` s scales the deadline).
+        layout_settled(f"the layout after {name}", timeout=max(5.0, settle * 10))
     return reply
+
+
+def layout_settled(what, timeout=10.0):
+    try:
+        wait_stable(topology, what, timeout=timeout, interval=0.05, reads=4)
+    except StateWaitTimeout:
+        print(f"  (warning: {what} never settled in {timeout:g} s)", flush=True)
 
 
 def error_of(reply):
@@ -147,7 +156,8 @@ def setup():
         action("workspace.newBelow", settle=1.0)
     state["chats"] = seed_home()
     action("goToWorkspace", {"workspace": state["a"]}, settle=1.0)
-    time.sleep(1.5)  # test harness: launch and setup work settles
+    wait_until(lambda: shown_workspace() == state["a"], "workspace A shown after setup", timeout=15)
+    layout_settled("the layout after setup", timeout=15)
 
 
 def go(workspace):
@@ -167,7 +177,7 @@ def at_a(panes=1):
     if panes_of(state.get("a")) is None:
         make_a()
     go(state["a"])
-    time.sleep(0.4)  # test harness: the switch lands
+    wait_until(lambda: shown_workspace() == state["a"], "the switch to workspace A", timeout=10)
     while len(panes_of(state["a"]) or []) > panes:
         action("focusRight", settle=0.2)
         action("closePane", settle=0.8)
@@ -291,8 +301,6 @@ def anims():
         ("ws-back", None, lambda: go(state["a"])),
         ("sidebar-hide", lambda: at_a(1), run("toggleSidebar")),
         ("sidebar-show", None, run("toggleSidebar")),
-        ("right-open", lambda: at_a(1), run("toggleRightSidebar")),
-        ("right-close", None, run("toggleRightSidebar")),
         ("group-collapse", lambda: go(state["group_ws"]), run("toggleFocusedWorkspaceGroupCollapsed")),
         ("group-expand", None, run("toggleFocusedWorkspaceGroupCollapsed")),
         ("home-show", lambda: at_a(1), run("home.show")),
@@ -310,9 +318,11 @@ def measure(name, perform):
     rpc("debug.hangs", {"clear": True})
     rpc("debug.frames", {"action": "start"})
     rpc("debug.main_cpu", {"action": "start"})
-    time.sleep(0.1)  # test harness: frames at rest before the gesture, so the first interval is a real one
+    # sleep-ok: recording lead-in, frames at rest before the gesture so the first interval is a real one
+    time.sleep(0.1)
     error = perform()
-    time.sleep(1.0)  # test harness: the springs land (rest is under 0.6 s)
+    # sleep-ok: the fixed frame-recording window (springs rest under 0.6 s), the same length for every animation
+    time.sleep(1.0)
     cpu = rpc("debug.main_cpu", {"action": "stop"}) or {}
     frames = rpc("debug.frames", {"action": "stop"}) or {}
     if isinstance(cpu, dict) and not cpu.get("error"):
@@ -344,8 +354,18 @@ def profile(name, prepare, perform, undo):
     if prepare:
         prepare()
     sampler = subprocess.Popen(["/usr/bin/sample", str(app.pid), str(seconds), "1", "-mayDie", "-file", path],
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    time.sleep(0.5)  # test harness: the sampler attaches
+                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace")
+    attached = threading.Event()
+
+    def drain():
+        # `sample` prints "Sampling process PID for N seconds ..." once it is attached; read the rest so it never blocks.
+        for line in sampler.stdout:
+            if line.startswith("Sampling process"):
+                attached.set()
+        attached.set()
+    threading.Thread(target=drain, daemon=True).start()
+    if not attached.wait(5):
+        print(f"  (warning: sample never said it attached to {app.pid} in 5 s)", flush=True)
     for _ in range(opts.sample_repeats):
         perform()
         time.sleep(0.55)  # test harness: each spring lands before the next press
@@ -495,7 +515,7 @@ def main():
         if error.reason == "no-gui-session":
             sys.exit(1)
         # macOS 27 minis: a first launch can stall before its socket (NSXPCSharedListener interrupted); one relaunch.
-        print("the tagged app did not come up in 120 s; relaunching once", flush=True)
+        safe_print("the tagged app did not come up in 120 s; relaunching once", flush=True)
         if app and app.poll() is None:
             app.kill()  # the pid this script started
             app.wait(timeout=30)
@@ -503,8 +523,10 @@ def main():
             app, SOCKET = launch_app(APP, env, log_path, timeout=120, on_start=started)
         except LaunchError:
             sys.exit(1)
-    print(f"launched pid {app.pid} macOS {macos} host {host}", flush=True)
-    time.sleep(5)  # test harness: launch work settles
+    safe_print(f"launched pid {app.pid} macOS {macos} host {host}", flush=True)
+    # Launch work settled: a window's topology is there and read the same several times in a row.
+    wait_until(lambda: topology().get("workspaces"), "the launched app's first workspace", timeout=30)
+    layout_settled("the layout after launch", timeout=30)
     setup()
     wanted = set(filter(None, opts.anims.split(",")))
     plan = [(n, p, f) for n, p, f in anims() if not wanted or n in wanted]
@@ -522,7 +544,7 @@ def main():
             time.sleep(0.3)  # test harness: idle between runs
     by_name = {n: (p, f) for n, p, f in anims()}
     undo_of = {"tab-new": "tab-close", "tab-move": "tab-move-back", "split-right": "split-close", "column": "column-close",
-            "ws-switch": "ws-back", "sidebar-hide": "sidebar-show", "right-open": "right-close", "group-collapse": "group-expand",
+            "ws-switch": "ws-back", "sidebar-hide": "sidebar-show", "group-collapse": "group-expand",
             "palette-open": "palette-close", "tab-to-pane": "tab-back", "split-down": "split-down-close"}
     for name in filter(None, opts.sample.split(",")):
         if name in by_name:
@@ -536,8 +558,8 @@ def main():
     def worst(runs, key):
         values = [v for v in (r.get(key) for r in runs) if v is not None]
         return max(values) if values else None
-    print("\n== summary (median over rounds; max is the worst round)")
-    print(f"  {'anim':<17} {'p50':>6} {'p95':>6} {'max':>6} {'drop':>5} {'>8.3':>5} {'mainp95':>7} {'mainmx':>7} {'maintot':>7} {'err'}")
+    safe_print("\n== summary (median over rounds; max is the worst round)")
+    safe_print(f"  {'anim':<17} {'p50':>6} {'p95':>6} {'max':>6} {'drop':>5} {'>8.3':>5} {'mainp95':>7} {'mainmx':>7} {'maintot':>7} {'err'}")
     for name, _, _ in plan:
         runs = [r for r in report["runs"] if r["anim"] == name]
         summary = {"anim": name, **{k: med(runs, k) for k in ("p50_ms", "p95_ms", "dropped", "over_8_33", "main_ms_p95",
@@ -545,9 +567,9 @@ def main():
                    "max_ms": worst(runs, "max_ms"), "main_ms_max": worst(runs, "main_ms_max"),
                    "errors": sorted({r["error"] for r in runs if r["error"]})}
         report.setdefault("summary", []).append(summary)
-        print(f"  {name:<17} {fmt(summary['p50_ms']):>6} {fmt(summary['p95_ms']):>6} {fmt(summary['max_ms']):>6} "
-              f"{fmt(summary['dropped']):>5} {fmt(summary['over_8_33']):>5} {fmt(summary['main_ms_p95']):>7} "
-              f"{fmt(summary['main_ms_max']):>7} {fmt(summary['main_ms_total']):>7} {'; '.join(summary['errors'])[:60]}", flush=True)
+        safe_print(f"  {name:<17} {fmt(summary['p50_ms']):>6} {fmt(summary['p95_ms']):>6} {fmt(summary['max_ms']):>6} "
+                   f"{fmt(summary['dropped']):>5} {fmt(summary['over_8_33']):>5} {fmt(summary['main_ms_p95']):>7} "
+                   f"{fmt(summary['main_ms_max']):>7} {fmt(summary['main_ms_total']):>7} {'; '.join(summary['errors'])[:60]}", flush=True)
         row(f"{name}: ran", "no error", "; ".join(summary["errors"]) or "None", not summary["errors"] or False)
     for budget in budgets():
         anim, key, limit = budget.get("anim"), budget.get("metric"), budget.get("limit")

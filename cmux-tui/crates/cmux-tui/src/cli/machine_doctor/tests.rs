@@ -66,7 +66,10 @@ fn a_healthy_joined_machine_is_all_ok() {
 
 #[test]
 fn no_sign_in_and_a_refused_sign_in_fail_signed_in() {
-    for list in [None, Some(Err(CallError::Status { status: 401, code: "auth.unauthenticated" }))] {
+    for list in [
+        None,
+        Some(Err(CallError::Status { status: 401, code: "auth.unauthenticated", facts: None })),
+    ] {
         let checked = remote_steps(ORIGIN, "lane-vm-3", list, None, 0);
         let signed_in = state(&checked, "signed-in");
         assert_eq!(signed_in.state, StepState::Fail);
@@ -78,8 +81,8 @@ fn no_sign_in_and_a_refused_sign_in_fail_signed_in() {
 }
 
 #[test]
-fn a_platform_with_joining_off_points_at_development() {
-    let off = Some(Err(CallError::Status { status: 404, code: "machine.not_found" }));
+fn a_platform_with_joining_off_points_at_production() {
+    let off = Some(Err(CallError::Status { status: 404, code: "machine.not_found", facts: None }));
     let checked = remote_steps(ORIGIN, "lane-vm-3", off, None, 0);
     let platform = state(&checked, "platform");
     assert_eq!(platform.state, StepState::Fail);
@@ -87,7 +90,7 @@ fn a_platform_with_joining_off_points_at_development() {
     assert_eq!(
         platform.fix.as_deref(),
         Some(
-            "Point at development: --platform https://cmux-platform-development.debussy.workers.dev"
+            "Point at production: --platform https://cmux-platform-production.debussy.workers.dev"
         )
     );
     let down = Some(Err(CallError::Unreachable("connection refused".into())));
@@ -132,7 +135,7 @@ fn a_stale_heartbeat_and_a_missing_mesh_daemon_fail_with_the_joined_end_fix() {
     let heartbeat = state(&checked, "heartbeat");
     assert_eq!(heartbeat.state, StepState::Fail);
     assert_eq!(heartbeat.detail, "last heartbeat 10 min ago");
-    let fix = "Run cmux machine doctor (or acpmux host doctor --here) on lane-vm-3";
+    let fix = "Run cmux machine doctor (or acpmux machine doctor --here) on lane-vm-3";
     assert_eq!(heartbeat.fix.as_deref(), Some(fix));
     let mesh = state(&checked, "mesh");
     assert_eq!(mesh.state, StepState::Fail);
@@ -150,13 +153,13 @@ fn the_mesh_step_degrades_without_a_mesh_id_or_a_mesh() {
     no_peer.as_object_mut().unwrap().remove("meshPeerId");
     let checked = remote_steps(ORIGIN, "m_1", Some(Ok(vec![no_peer])), None, now);
     assert_eq!(state(&checked, "mesh").state, StepState::Skip);
-    let off = Some(Err(CallError::Status { status: 404, code: "" }));
+    let off = Some(Err(CallError::Status { status: 404, code: "", facts: None }));
     let checked = remote_steps(ORIGIN, "m_1", Some(Ok(vec![entry(5_000, now)])), off, now);
     let mesh = state(&checked, "mesh");
     assert_eq!(mesh.state, StepState::Fail, "a mesh that is off fails the check");
     assert_eq!(
         mesh.fix.as_deref(),
-        Some("Run cmux machine doctor (or acpmux host doctor --here) on lane-vm-3")
+        Some("Run cmux machine doctor (or acpmux machine doctor --here) on lane-vm-3")
     );
     let (text, ok) = doctor::render("lane-vm-3", "joined machine", &checked, Print::Lines);
     assert!(!ok);
@@ -171,9 +174,9 @@ fn the_mesh_step_degrades_without_a_mesh_id_or_a_mesh() {
 fn an_unread_joined_list_is_named_when_the_ssh_check_runs_instead() {
     assert_eq!(unread(Some(&Ok(vec![]))), None);
     assert!(unread(None).unwrap().starts_with("not signed in"));
-    let off = Err(CallError::Status { status: 404, code: "" });
+    let off = Err(CallError::Status { status: 404, code: "", facts: None });
     assert!(unread(Some(&off)).unwrap().contains("isn't available"));
-    let denied = Err(CallError::Status { status: 401, code: "" });
+    let denied = Err(CallError::Status { status: 401, code: "", facts: None });
     assert_eq!(unread(Some(&denied)).unwrap(), "the platform answered 401");
     let down = Err(CallError::Unreachable("tcp".into()));
     assert_eq!(unread(Some(&down)).unwrap(), "the platform did not answer");
@@ -210,4 +213,15 @@ fn fixes_name_the_listed_machine_and_never_echo_a_secret_key() {
             Some("Not joined (or revoked): cmux machine add --name NAME")
         );
     }
+}
+
+/// `cmux machine doctor --help` is this verb's usage, not the machine overview.
+#[test]
+fn doctor_help_is_its_own() {
+    let words = |text: &str| text.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
+    assert!(asks_help(&words("machine doctor --help")));
+    assert!(asks_help(&words("machine doctor box -h")));
+    assert!(!asks_help(&words("machine doctor box --fix")));
+    assert!(!asks_help(&words("machine list --help")));
+    assert!(USAGE.starts_with("usage: cmux machine doctor"));
 }

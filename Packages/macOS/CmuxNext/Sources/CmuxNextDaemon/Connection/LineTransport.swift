@@ -18,7 +18,9 @@ public enum TransportCloseReason: Sendable, Equatable {
 /// A dedicated reader thread splits lines and routes them without touching
 /// any actor: responses resume their waiter by `id` (FIFO fallback for the
 /// id-less `bad request` envelope, which is safe because commands start
-/// serially per connection), and events go to `onEvent` on the reader thread.
+/// serially per connection; a plain `identify` and `ping` are answered before
+/// the queue, #32724, but always carry an id), and events go to `onEvent` on
+/// the reader thread.
 /// The server drops slow readers (4,096-event mailbox, 2 s write deadline),
 /// so the reader never blocks on the main actor.
 final class LineTransport: Sendable {
@@ -55,10 +57,47 @@ final class LineTransport: Sendable {
         var sawShutdown = false
         /// The daemon refused this connection at its connection limit (`server.busy`).
         var sawBusyRefusal = false
+        /// The machine's link refused this stream (`link.refused`): its stated reason.
+        var linkRefusal: String?
         /// Events routed so far; responses capture it as their barrier.
         var eventCount: UInt64 = 0
+        /// Lines read so far, every kind, in socket order: the daemon counts the lines it writes the same way.
+        var lineCount: UInt64 = 0
+        /// The line numbers of the latest events (at most ``LineTransport/eventLineHistory``), oldest first.
+        var eventLines: [UInt64] = []
+        /// ``eventLines`` dropped its oldest lines: it no longer holds every event.
+        var eventLinesTrimmed = false
+        /// ``eventCount`` when each pending request was written: a lower bound of its barrier.
+        var eventCountAtSend: [UInt64: UInt64] = [:]
         /// Gets resource API stream lines (`stream_item`, `stream_end`).
         var streamHandler: (@Sendable (_ streamID: String, _ line: Data) -> Void)?
+
+        /// Records an event on line `line` and returns its index.
+        mutating func noteEvent(line: UInt64) -> UInt64 {
+            eventCount += 1
+            eventLines.append(line)
+            if eventLines.count > 2 * LineTransport.eventLineHistory {
+                eventLines.removeFirst(eventLines.count - LineTransport.eventLineHistory)
+                eventLinesTrimmed = true
+            }
+            return eventCount
+        }
+
+        /// The events a reply's state holds. A reply that names the lines written before its read
+        /// (`linesWrittenBeforeRead`) holds only the events on those lines: the daemon writes events
+        /// on another thread than replies, so one emitted after the read can come before the reply
+        /// (#32408). Else every event read before the reply. Never more than ``eventCount``; when the
+        /// history no longer reaches that line, the count at the request's send (every event before
+        /// it was written before the daemon read the request).
+        func barrier(linesWrittenBeforeRead lines: UInt64?, sentAt: UInt64?) -> UInt64 {
+            guard let lines else { return eventCount }
+            var later: UInt64 = 0
+            for line in eventLines.reversed() {
+                guard line > lines else { return eventCount - later }
+                later += 1
+            }
+            return eventLinesTrimmed ? min(eventCount - later, sentAt ?? 0) : eventCount - later
+        }
 
         /// Marks a pending reply expired; its command and slot, or nil when
         /// `id` is not waiting for a reply.
@@ -74,9 +113,9 @@ final class LineTransport: Sendable {
         }
     }
 
-    /// An `ok:true` response line plus the number of events routed before it
-    /// on this transport. Every event with index <= `eventBarrier` was
-    /// emitted before the command's result, so a snapshot supersedes it.
+    /// An `ok:true` response line plus its event barrier: every event with index <= `eventBarrier` was
+    /// emitted before the command read its state, so a snapshot supersedes it. The daemon's own count
+    /// when the reply names it (`lines_written_before_read`), else the events routed before the reply.
     struct Response: Sendable {
         var line: Data
         var eventBarrier: UInt64
@@ -92,14 +131,23 @@ final class LineTransport: Sendable {
     private let socket: Mutex<Socket>
     /// Nonblocking, ordered writes (never parks the calling actor's thread).
     private let writer: SocketWriter
+    /// When bytes last moved for this connection's requests: a request's deadline is silence since then.
+    let progress: TransportProgress
     let path: String
+    /// The daemon-request probe this transport records into; nil: none.
+    private let latency: DaemonRequestLatency?
+    /// The slow request log this transport's requests are recorded in (``SlowRequestLog``); nil: none.
+    let slowLog: SlowRequestLog?
 
     /// The bridge child of this connection (``DaemonBridge``), killed and
     /// reaped when the connection closes.
     private let child: BridgeChild?
 
     /// - Parameter writerLimit: The most bytes the writer queues before it refuses a write (``SocketWriter``).
-    init(path: String, bridge: DaemonBridge? = nil, writerLimit: Int = 64 << 20) throws(DaemonError) {
+    init(path: String, bridge: DaemonBridge? = nil, latency: DaemonRequestLatency? = nil, slowLog: SlowRequestLog? = nil,
+         writerLimit: Int = 64 << 20) throws(DaemonError) {
+        self.latency = latency
+        self.slowLog = slowLog
         self.path = path
         let fd: Int32
         if let bridge {
@@ -111,7 +159,9 @@ final class LineTransport: Sendable {
             child = nil
         }
         socket = Mutex(Socket(fd: fd))
-        writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write", limit: writerLimit)
+        let progress = TransportProgress()
+        self.progress = progress
+        writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write", limit: writerLimit, onProgress: { progress.note() })
     }
 
     private static func connect(_ path: String) throws(DaemonError) -> Int32 {
@@ -192,10 +242,44 @@ final class LineTransport: Sendable {
 
     /// Sends one command and returns the raw `ok:true` response line.
     /// `body` receives the allocated id and returns the encoded JSON object
-    /// without the trailing newline. With a `timeout`, a reply that has not
-    /// arrived in time fails the request with `DaemonError.timedOut`; the
-    /// late reply is dropped when it comes (architecture.md 5a).
+    /// without the trailing newline. With a `timeout`, a request whose connection moves no byte for that long
+    /// (none of a request written, none of a line read: ``TransportProgress``) fails with `DaemonError.timedOut`;
+    /// the late reply is dropped when it comes (architecture.md 5a). A reply still arriving is never cut off.
     func request(cmd: String, timeout: Duration?, _ body: (UInt64) throws -> Data) async throws -> Response {
+        // The daemon-request probe (`debug.daemon_requests`) and the slow request log: send to reply, or to the failure.
+        guard latency != nil || slowLog != nil else { return try await exchange(cmd: cmd, timeout: timeout, body) }
+        let sent = uptime()
+        // The line as sent, kept only for the ids a slow or failed request's record names (``SlowRequestLog/idKeys``).
+        var line: Data?
+        do {
+            let response = try await exchange(cmd: cmd, timeout: timeout) { id in
+                let encoded = try body(id)
+                if slowLog != nil, encoded.count <= SlowRequestLog.maxKeptLineBytes { line = encoded }
+                return encoded
+            }
+            let waited = uptime() &- sent
+            latency?.record(nanoseconds: waited, outcome: .reply)
+            if waited > SlowRequestLog.slowNanoseconds {
+                slowLog?.noteRequest(name: cmd, line: line, nanoseconds: waited, replyBytes: response.line.count, timeout: timeout, failure: nil)
+            }
+            return response
+        } catch {
+            let waited = uptime() &- sent
+            if let latency {
+                let outcome: DaemonRequestLatency.Outcome
+                if case DaemonError.timedOut = error { outcome = .timedOut } else { outcome = .error }
+                latency.record(nanoseconds: waited, outcome: outcome)
+            }
+            slowLog?.noteRequest(name: cmd, line: line, nanoseconds: waited, replyBytes: nil, timeout: timeout, failure: error)
+            throw error
+        }
+    }
+
+    /// The monotonic clock of the probe and of the slow request log (`CLOCK_UPTIME_RAW`, nanoseconds).
+    func uptime() -> UInt64 { slowLog?.uptime() ?? clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
+
+    /// ``request(cmd:timeout:_:)`` without the probe.
+    private func exchange(cmd: String, timeout: Duration?, _ body: (UInt64) throws -> Data) async throws -> Response {
         let slot = ReplySlot()
         #if DEBUG || CMUX_BENCH_HOOKS
         // A traced new terminal: the request naming its id, and that request's reply.
@@ -217,7 +301,7 @@ final class LineTransport: Sendable {
         guard case .success(let id) = submitted else { return try await slot.value() }
         let timer = DemandTimer(owner: "LineTransport.deadline")
         defer { timer.cancel() }
-        if let timeout { timer.schedule(after: timeout) { [weak self] in self?.expire(id: id, after: timeout) } }
+        if let timeout { progress.arm(timer, quiet: timeout) { [weak self] in self?.expire(id: id, after: timeout) } }
         #if DEBUG || CMUX_BENCH_HOOKS
         let response = try await slot.value()
         if let traced { NewTerminalTrace.shared.mark(.reply, terminal: traced) }
@@ -231,7 +315,7 @@ final class LineTransport: Sendable {
     func expire(id: UInt64, after timeout: Duration) {
         let expired: (String, ReplySlot)? = state.withLock { state in state.expireReply(id) }
         guard let (cmd, slot) = expired else { return }
-        slot.resolve(.failure(DaemonError.timedOut("\(cmd) (no reply within \(timeout))")))
+        slot.resolve(.failure(DaemonError.timedOut("\(cmd) (no progress for \(timeout))")))
     }
 
     /// Sends one command without waiting. The response is consumed and
@@ -276,6 +360,7 @@ final class LineTransport: Sendable {
             state.withLock { state in
                 state.pending.updateValue(waiter, forKey: id)
                 state.order.append(id)
+                state.eventCountAtSend[id] = state.eventCount
             }
             submittedID = id
             var line = payload
@@ -323,8 +408,9 @@ final class LineTransport: Sendable {
     /// (`{"type":"refused","code":"server.busy"}`, then EOF): the daemon is alive and busy.
     static let busyRefusal = "refused: the session is at its connection limit (server.busy)"
 
-    /// The `code` of a `cmux.protocol/2` refusal line (`type: "refused"`).
-    private struct Refusal: Decodable { var code: String? }
+    /// The `code` of a `cmux.protocol/2` refusal line (`type: "refused"`); a machine's link
+    /// refusal (`link.refused`) adds its reason, failed check and detail.
+    private struct Refusal: Decodable { var code: String?; var reason: String?; var check: String?; var detail: String? }
 
     /// The daemon's busy refusal line is waiting unread at the front of `fd`'s receive buffer
     /// (`MSG_PEEK`, never blocks): the connection was refused, not broken.
@@ -357,6 +443,7 @@ final class LineTransport: Sendable {
             let waiters = state.waitersInSendOrder()
             state.pending.removeAll()
             state.order.removeAll()
+            state.eventCountAtSend.removeAll()
             return waiters
         }
         let error = Self.closedError(reason)
@@ -383,6 +470,8 @@ final class LineTransport: Sendable {
                 break
             }
             lines.append(chunk.prefix(count)) { route($0, decoder: decoder, onEvent: onEvent) }
+            // Part of a line is still on its way: a reply arriving is progress for the requests waiting on it.
+            if !lines.pending.isEmpty { progress.note() }
             if lines.pending.count > Self.maxLineBytes {
                 closeDetail = "line exceeds \(Self.maxLineBytes) bytes"
                 break reading
@@ -391,7 +480,8 @@ final class LineTransport: Sendable {
         let reason: TransportCloseReason = state.withLock { state in
             if let closed = state.closed { return closed }
             if state.sawShutdown { return .daemonShutdown }
-            return .lost(state.sawBusyRefusal ? Self.busyRefusal : closeDetail)
+            if state.sawBusyRefusal { return .lost(Self.busyRefusal) }
+            return .lost(state.linkRefusal.map { "refused by the machine's link: \($0)" } ?? closeDetail)
         }
         failAll(reason)
         writer.close()
@@ -404,11 +494,28 @@ final class LineTransport: Sendable {
         onClose(reason)
     }
 
+    /// Event line numbers kept for reply barriers: more events than this between a command's read and its
+    /// reply fall back to the count at its send.
+    static let eventLineHistory = 4096
+
     /// Events routed so far. Read after a command's reply, it bounds every
     /// event the daemon emitted before that reply (a write barrier).
     var routedEventCount: UInt64 { state.withLock { $0.eventCount } }
 
     private func route(_ line: Data, decoder: JSONDecoder, onEvent: EventHandler) {
+        let lineNumber = state.withLock { state -> UInt64 in
+            state.lineCount += 1
+            return state.lineCount
+        }
+        // The hot event (an attach `output`) names itself from one byte scan, not a JSON tree.
+        if let fast = AttachLineScanner.scanOutput(line, decodeData: false), let name = fast.event, !fast.hasType {
+            let index = state.withLock { state -> UInt64 in
+                if name == "daemon-shutdown" { state.sawShutdown = true }
+                return state.noteEvent(line: lineNumber)
+            }
+            onEvent(name, line, index)
+            return
+        }
         guard let envelope = try? decoder.decode(Envelope.self, from: line) else { return }
         // A v2 stream line goes to the stream handler of a dedicated
         // connection (`SessionJournalRead`); on the control connection it
@@ -420,15 +527,20 @@ final class LineTransport: Sendable {
         if let name = streamed ? Self.streamEvent : envelope.event {
             let index = state.withLock { state -> UInt64 in
                 if name == "daemon-shutdown" { state.sawShutdown = true }
-                state.eventCount += 1
-                return state.eventCount
+                return state.noteEvent(line: lineNumber)
             }
             onEvent(name, line, index)
             return
         }
         if envelope.type == "refused" {
             // The one line of a connection refused at the limit, then EOF: no request ran.
-            if (try? decoder.decode(Refusal.self, from: line))?.code == "server.busy" { state.withLock { $0.sawBusyRefusal = true } }
+            let refusal = try? decoder.decode(Refusal.self, from: line)
+            if refusal?.code == "server.busy" { state.withLock { $0.sawBusyRefusal = true } }
+            if let refusal, refusal.code == "link.refused" {
+                // The machine refused the stream before any daemon byte; the close names why, not a bare EOF.
+                let stated = [refusal.reason, refusal.check, refusal.detail].compactMap(\.self).joined(separator: ": ")
+                state.withLock { $0.linkRefusal = stated.isEmpty ? "link.refused" : stated }
+            }
             return
         }
         guard envelope.ok != nil || envelope.id != nil else { return }
@@ -436,7 +548,8 @@ final class LineTransport: Sendable {
             let id = envelope.id ?? state.order.first
             guard let id, let waiter = state.pending.removeValue(forKey: id) else { return nil }
             state.order.removeAll { $0 == id }
-            return (state.eventCount, waiter)
+            let sentAt = state.eventCountAtSend.removeValue(forKey: id)
+            return (state.barrier(linesWrittenBeforeRead: envelope.linesWrittenBeforeRead, sentAt: sentAt), waiter)
         }
         guard let (barrier, waiter) = waiter else { return }
         if envelope.ok == true {

@@ -17,6 +17,11 @@
 //!   the blob below is the one the kernel enforces;
 //! - the CMS signature over that CodeDirectory verifies, and its certificate
 //!   chain ends at Apple Root CA (`anchor apple generic`);
+//! - that chain is valid at the signature's secure timestamp (RFC 3161, the
+//!   one Apple's notary requires), else at the current time: a timestamped
+//!   signature stays valid after its certificate expires, as macOS treats it;
+//!   one without a secure timestamp does not. The CMS `signingTime` attribute
+//!   is the signer's own claim and never moves that time;
 //! - the signing certificate's OU, the CodeDirectory's team ID and its
 //!   identifier are the team ID and identifier of the acpmux this host runs
 //!   ([`of_file`], itself Apple-anchored).
@@ -55,8 +60,18 @@ const APPLE_ROOT_CA_SHA256: &str =
     "b0b1730ecbc7ff4505142c49f1295e6eda6bcaed7e2c68c5be91b5a11001f024";
 
 /// Checks `signature` (a running process's) against `ours` (see the module
-/// doc); the error says which rule failed.
+/// doc) now; the error says which rule failed.
 pub fn verify(signature: &KernelSignature, ours: &Signer) -> Result<(), String> {
+    verify_at(signature, ours, std::time::SystemTime::now())
+}
+
+/// [`verify`], with `now` as the current time: the time its certificate
+/// chain must be valid at when the signature has no secure timestamp.
+pub fn verify_at(
+    signature: &KernelSignature,
+    ours: &Signer,
+    now: std::time::SystemTime,
+) -> Result<(), String> {
     use sha2::Digest as _;
     if signature.flags & CS_VALID == 0 {
         return Err("the kernel does not mark its code valid".into());
@@ -86,7 +101,7 @@ pub fn verify(signature: &KernelSignature, ours: &Signer) -> Result<(), String> 
     if team != ours.team {
         return Err(format!("its team is {team:?}, not {:?}", ours.team));
     }
-    let leaf_team = cms_signer_team(cms, directory)?;
+    let leaf_team = cms_signer_team(cms, directory, now)?;
     if leaf_team != ours.team {
         return Err(format!(
             "its signing certificate's team (OU) is {leaf_team:?}, not {:?}",
@@ -145,7 +160,7 @@ fn c_string_at(bytes: &[u8], at: usize) -> Result<String, String> {
 pub use macos::{of_file, running_peer};
 
 #[cfg(not(target_os = "macos"))]
-fn cms_signer_team(_: &[u8], _: &[u8]) -> Result<String, String> {
+fn cms_signer_team(_: &[u8], _: &[u8], _: std::time::SystemTime) -> Result<String, String> {
     Err("code signatures are checked on macOS only".into())
 }
 
@@ -184,6 +199,8 @@ mod macos {
         fn CFArrayGetTypeID() -> usize;
         fn CFDictionaryGetTypeID() -> usize;
         fn CFDataCreate(alloc: CFTypeRef, bytes: *const u8, len: isize) -> CFTypeRef;
+        fn CFDateCreate(alloc: CFTypeRef, at: f64) -> CFTypeRef;
+        fn CFErrorGetCode(error: CFTypeRef) -> isize;
         fn CFDataGetBytePtr(data: CFTypeRef) -> *const u8;
         fn CFDataGetLength(data: CFTypeRef) -> isize;
         fn CFArrayGetCount(array: CFTypeRef) -> isize;
@@ -227,7 +244,17 @@ mod macos {
             trust: *mut CFTypeRef,
             cert_verify_result: *mut OSStatus,
         ) -> OSStatus;
+        static kSecPolicyAppleTimeStamping: CFTypeRef;
+        fn CMSDecoderCopySignerTimestampWithPolicy(
+            d: CFTypeRef,
+            policy: CFTypeRef,
+            index: usize,
+            timestamp: *mut f64,
+        ) -> OSStatus;
+        fn SecPolicyCreateWithProperties(kind: CFTypeRef, properties: CFTypeRef) -> CFTypeRef;
         fn SecPolicyCreateBasicX509() -> CFTypeRef;
+        fn SecTrustSetVerifyDate(trust: CFTypeRef, date: CFTypeRef) -> OSStatus;
+        fn SecTrustEvaluateWithError(trust: CFTypeRef, error: *mut CFTypeRef) -> bool;
         fn SecTrustCopyCertificateChain(trust: CFTypeRef) -> CFTypeRef;
         fn SecCertificateCopyData(cert: CFTypeRef) -> CFTypeRef;
         fn SecCertificateCopyValues(
@@ -263,6 +290,8 @@ mod macos {
     }
 
     const UTF8: u32 = 0x0800_0100;
+    /// Seconds from the Unix epoch to Core Foundation's (2001-01-01 UTC).
+    const CF_EPOCH: f64 = 978_307_200.0;
     const CMS_SIGNER_VALID: u32 = 1;
     const SIGNING_INFORMATION: u32 = 1 << 1;
     const CS_OPS_STATUS: u32 = 0;
@@ -385,9 +414,22 @@ mod macos {
         })
     }
 
+    /// `at` (seconds since the Unix epoch) as RFC 3339 UTC, for errors.
+    fn utc(at: f64) -> String {
+        chrono::DateTime::from_timestamp(at.floor() as i64, 0).map_or_else(
+            || format!("{at} s after 1970"),
+            |at| at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        )
+    }
+
     /// The team ID (certificate OU) of the single CMS signer over
-    /// `directory`, once its signature and its chain to Apple Root CA verify.
-    pub(super) fn cms_signer_team(cms: &[u8], directory: &[u8]) -> Result<String, String> {
+    /// `directory`, once its signature verifies and its chain to Apple Root
+    /// CA is valid at its secure timestamp, or at `now` when it has none.
+    pub(super) fn cms_signer_team(
+        cms: &[u8],
+        directory: &[u8],
+        now: std::time::SystemTime,
+    ) -> Result<String, String> {
         use sha2::Digest as _;
         let mut decoder: CFTypeRef = std::ptr::null();
         // SAFETY: decoder is a valid out-pointer.
@@ -427,6 +469,12 @@ mod macos {
             "SecPolicyCreateBasicX509",
         )?;
         let (mut status, mut trust, mut verify) = (0u32, std::ptr::null(), 0);
+        // The signature only; the chain is evaluated below at a time this
+        // code chooses. CMSDecoder's own evaluation falls back from the
+        // secure timestamp to the signingTime attribute, which the signer
+        // picks: a holder of an expired or revoked leaf's key could backdate it.
+        // This call also verifies the unsigned attributes (the RFC 3161
+        // token's signature and imprint): a broken token fails it here.
         // SAFETY: decoder and policy are live; the out-pointers are valid.
         check(
             unsafe {
@@ -434,7 +482,7 @@ mod macos {
                     decoder.0,
                     0,
                     policy.0,
-                    1,
+                    0,
                     &mut status,
                     &mut trust,
                     &mut verify,
@@ -445,7 +493,54 @@ mod macos {
         let trust = Cf::new(trust, "the signer's trust")?;
         if status != CMS_SIGNER_VALID || verify != 0 {
             return Err(format!(
-                "its CMS signature does not verify (signer status {status}, certificate result {verify})"
+                "its CMS signature does not verify (signer status {status}, result {verify})"
+            ));
+        }
+        // The RFC 3161 timestamp token over this signer's signature (an
+        // unsigned attribute, so the signer's signature does not cover it).
+        // Its time is trusted only because the status check above verified
+        // the token: Security caches the time while it decodes, before its
+        // imprint check, and returns the cache here (the policy is then not
+        // used). Keep this call after that check.
+        // SAFETY: kSecPolicyAppleTimeStamping is Security's constant.
+        let stamping = Cf::new(
+            unsafe { SecPolicyCreateWithProperties(kSecPolicyAppleTimeStamping, std::ptr::null()) },
+            "the time stamping policy",
+        )?;
+        let mut since_cf_epoch = 0f64;
+        // SAFETY: decoder and stamping are live; since_cf_epoch is a valid out-pointer.
+        let found = unsafe {
+            CMSDecoderCopySignerTimestampWithPolicy(decoder.0, stamping.0, 0, &mut since_cf_epoch)
+        } == 0;
+        let (at, when) = match found.then_some(since_cf_epoch + CF_EPOCH) {
+            Some(at) => (at, format!("its secure timestamp ({})", utc(at))),
+            None => {
+                let at = match now.duration_since(std::time::UNIX_EPOCH) {
+                    Ok(since) => since.as_secs_f64(),
+                    Err(before) => -before.duration().as_secs_f64(),
+                };
+                (at, format!("{} (it has no secure timestamp)", utc(at)))
+            }
+        };
+        // SAFETY: no pointer arguments.
+        let date = Cf::new(
+            unsafe { CFDateCreate(std::ptr::null(), at - CF_EPOCH) },
+            "CFDateCreate",
+        )?;
+        // SAFETY: trust and date are live.
+        check(
+            unsafe { SecTrustSetVerifyDate(trust.0, date.0) },
+            "SecTrustSetVerifyDate",
+        )?;
+        let mut error: CFTypeRef = std::ptr::null();
+        // SAFETY: trust is live; error is a valid out-pointer.
+        if !unsafe { SecTrustEvaluateWithError(trust.0, &mut error) } {
+            let code = Cf::new(error, "SecTrustEvaluateWithError")
+                // SAFETY: the error is a live CFError.
+                .map(|error| unsafe { CFErrorGetCode(error.0) })
+                .unwrap_or(0);
+            return Err(format!(
+                "its signing certificate chain is not valid at {when} (OSStatus {code})"
             ));
         }
         // SAFETY: trust is live.

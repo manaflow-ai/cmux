@@ -5,6 +5,8 @@ import { join } from "node:path";
 const css = readFileSync(join(import.meta.dir, "conversation.css"), "utf8");
 const agentRowCss = readFileSync(join(import.meta.dir, "AgentMessageRow.css"), "utf8");
 const gallery = readFileSync(join(import.meta.dir, "transcript.gallery.ts"), "utf8");
+const desktopCss = readFileSync(join(import.meta.dir, "../../../pages/shared/desktop.css"), "utf8");
+const noticeCss = readFileSync(join(import.meta.dir, "../../../ui/notice.css"), "utf8");
 
 test("selected message surfaces are borderless while the prompt keeps stronger glass", () => {
   expect(css).toContain("--glass-tint: color-mix(in srgb, var(--cv-fg) 10%, transparent);");
@@ -24,6 +26,23 @@ test("gallery keeps the bordered before arm and two borderless alternatives", ()
   expect(agentRowCss).toContain(':root[data-message-surfaces="soft"]');
 });
 
+test("transient surfaces share the generated role aliases", () => {
+  for (const token of [
+    "--role-toast-radius",
+    "--transient-surface-veil",
+    "--transient-surface-shadow",
+    "--transient-surface-gap",
+  ]) {
+    expect(desktopCss).toContain(token);
+  }
+  expect(noticeCss).toContain("border-radius: var(--role-toast-radius);");
+  // The turn error card is a transcript card, not transient glass (design/chat-surfaces.md): only its
+  // actions take the transient roles.
+  expect(css).not.toContain(".ui-transient-error");
+  expect(css).toContain("border-radius: var(--grid-cards-radius);");
+  expect(css).toContain("background: var(--transient-action-fill);");
+});
+
 /** Each rule's selector (comments stripped) and body, for a stylesheet's innermost rules. */
 const rules = (sheet: string) =>
   [...sheet.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, selector, body]) => ({
@@ -37,7 +56,7 @@ test("the user bubble's rim is off in Plain, Lens and Spectrum glass", () => {
   const glass = rules(readFileSync(join(import.meta.dir, "../../../ui/glass/glass.css"), "utf8"));
   // Every mode's rim shadow is built only from these terms, and each but the edge scales with
   // --glass-rim, so --glass-rim 0 plus a clear edge on the bubble clears it in every mode.
-  const scaled = ["--glass-specular", "--glass-shade", "--glass-fringe-red", "--glass-fringe-cyan"];
+  const scaled = ["--glass-specular", "--glass-shade", "--glass-fringe-red", "--glass-fringe-cyan", "--glass-edge-top"];
   const modes = {
     lens: glass.filter(({ selector }) => selector === ":root, .ui-glass"),
     plain: glass.filter(({ selector }) =>
@@ -59,7 +78,11 @@ test("the user bubble's rim is off in Plain, Lens and Spectrum glass", () => {
   const bubble = rules(css).filter(({ selector }) => /(^|\s)\.cv-user__bubble$/.test(selector));
   const selected = bubble.filter(({ selector }) => !selector.includes("data-message-surfaces"));
   expect(selected.flatMap(({ body }) => declared(body, "--glass-rim"))).toEqual(["0"]);
-  expect(selected.flatMap(({ body }) => declared(body, "--glass-edge"))).toEqual(["transparent"]);
+  // Clear unless a look names a hairline (--cv-user-bubble-edge, style-tokens.json): the default
+  // stays transparent, and a look's edge is the only rim the bubble can get.
+  expect(selected.flatMap(({ body }) => declared(body, "--glass-edge"))).toEqual([
+    "var(--cv-user-bubble-edge, transparent)",
+  ]);
   // The bubble never sets a rim shadow or a rim term of its own past the zeroed vars.
   for (const prop of ["--glass-rim-shadow", ...scaled])
     expect(

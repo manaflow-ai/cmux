@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import importlib.util
 import os
 import re
 import subprocess
@@ -132,14 +133,37 @@ def collect_flags() -> tuple[list[dict], list[str]]:
     return flags, [WEB_REGISTRY_REL, *swift_registries]
 
 
+GREP_PATHS = ["web", "Packages", "ios", ":!*node_modules*"]
+
+
 def grep_key_files(key: str) -> set[str]:
+    return key_files([key]).get(key, set())
+
+
+def key_files(keys) -> dict[str, set[str]]:
+    """The files mentioning each key, from one `git grep` for all of them (#53771): a search per key made the
+    lint's cost grow with the number of flags. The search lists the files naming any key; each is then read once
+    and checked for every key, the same substring match `git grep --fixed-strings` makes."""
+    keys = sorted(set(keys))
+    if not keys:
+        return {}
+    patterns = [arg for key in keys for arg in ("-e", key)]
     out = subprocess.run(
-        ["git", "grep", "-l", "--untracked", "--fixed-strings", key, "--",
-         "web", "Packages", "ios",
-         ":!*node_modules*"],
+        ["git", "grep", "-l", "--untracked", "--fixed-strings", *patterns, "--", *GREP_PATHS],
         cwd=REPO, capture_output=True, text=True,
     )
-    return {line.strip() for line in out.stdout.splitlines() if line.strip()}
+    found: dict[str, set[str]] = {key: set() for key in keys}
+    for name in (line.strip() for line in out.stdout.splitlines()):
+        if not name:
+            continue
+        try:
+            text = (Path(REPO) / name).read_text(errors="ignore")
+        except OSError:
+            continue
+        for key in keys:
+            if key in text:
+                found[key].add(name)
+    return found
 
 
 def git_ok(*args: str) -> str | None:
@@ -218,6 +242,22 @@ def touches(flag: dict, changes: dict[str, list[tuple[int, int]]]) -> bool:
     return False
 
 
+def _load_clock():
+    # The one CMUX_NOW_EPOCH parser, shared with ci/asc_developer_id_app.py; by path, as -I drops this folder.
+    spec = importlib.util.spec_from_file_location("cmux_now_epoch", Path(__file__).resolve().parent / "ci" / "cmux_now_epoch.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def today_utc() -> datetime.date:
+    """CMUX_NOW_EPOCH when set, else today; a malformed value exits 2 with one line
+    (scripts/ci/cmux_now_epoch.py). Tests pass --today; the tooling-tests time-bomb row sets
+    CMUX_NOW_EPOCH far in the future, so a test leaning on the real clock goes red there, not on
+    the day a fixture date passes."""
+    return _load_clock().utc_now().date()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Lint PostHog feature flag declarations.")
     parser.add_argument(
@@ -225,7 +265,12 @@ def main(argv: list[str] | None = None) -> int:
         help="fail an expired reviewBy only where the diff since REF edits that flag "
              "(default: FEATURE_FLAG_LINT_BASE, HEAD^1 in CI, else the merge-base "
              "with the remote default branch)")
+    parser.add_argument(
+        "--today", metavar="YYYY-MM-DD", type=datetime.date.fromisoformat,
+        help="the date reviewBy is judged against (default: CMUX_NOW_EPOCH when set, else today)")
     args = parser.parse_args([] if argv is None else argv)
+    # Before any scan: a malformed CMUX_NOW_EPOCH stops here with one line.
+    today = args.today or today_utc()
     warnings.clear()
     flags, registry_files = collect_flags()
 
@@ -233,7 +278,6 @@ def main(argv: list[str] | None = None) -> int:
         print("lint-feature-flags: no flags declared")
         return 0
 
-    today = datetime.date.today()
     base = args.base or default_base()
     changes = changed_lines(base, registry_files) if base else None
     if base and changes is None:
@@ -250,6 +294,9 @@ def main(argv: list[str] | None = None) -> int:
             for line in RETIRED.read_text().splitlines()
             if line.strip() and not line.startswith("#")
         }
+
+    # One search for every declared and retired key, not one per key (#53771).
+    uses = key_files([flag["key"] for flag in flags if flag.get("key")] + list(retired))
 
     for flag in flags:
         key = flag.get("key")
@@ -296,7 +343,7 @@ def main(argv: list[str] | None = None) -> int:
         if key in retired:
             fail(f"{where}: '{key}' is retired (scripts/retired-feature-flags.txt); never reuse keys")
 
-        usage = grep_key_files(key) - registries
+        usage = uses.get(key, set()) - registries
         # One evaluation site per surface keeps flags removable.
         web_uses = [f for f in usage if f.startswith("web/")]
         swift_uses = [f for f in usage if not f.startswith("web/")]
@@ -306,7 +353,7 @@ def main(argv: list[str] | None = None) -> int:
             fail(f"'{key}' evaluated in multiple app files: {sorted(swift_uses)}")
 
     for key in retired:
-        for f in grep_key_files(key):
+        for f in sorted(uses.get(key, set())):
             fail(f"retired flag key '{key}' still referenced in {f}")
 
     for warning in warnings:

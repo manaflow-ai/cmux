@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDaemonService
@@ -43,7 +44,7 @@ extension AppOnboardingServices {
     /// with its window, group, color and pin. `progress` hears the share of classic workspaces
     /// handled, 0...1. See ``migrateClassic(_:firstWorkspace:confirmation:progress:)``.
     func importClassicSessions(progress: (@MainActor (Double) -> Void)? = nil) async throws -> ClassicImportSummary? {
-        let outcome = try await migrateClassic(.manual, confirmation: confirmClassicImport, progress: progress)
+        let outcome = try await migrateClassic(.manual, confirmation: { await self.confirmClassicImport($0) }, progress: progress)
         return outcome.confirmed ? outcome.summary : nil
     }
 
@@ -102,13 +103,13 @@ extension AppOnboardingServices {
             await created(id)
             guard let connection = daemon.connection else { throw ClassicImportFailure.noDaemon }
             try await restoreClassicLayout(node, workspaceID: id, browsers: browsers, daemon: daemon, connection: connection)
-            let placed = try await restoreClassicTitles(layout, workspaceID: id, connection: connection)
+            let placed = try await restoreClassicTitles(layout, workspaceID: id, daemon: daemon, connection: connection)
             // Adopted chats run in this Mac's acpmux, which has only this
             // Mac's sessions: an SSH workspace's agent stays a terminal.
             if daemon.isLocal { await openClassicChats(placed, on: daemon, connection: connection) }
             // The run sets the workspace's classic group next. A slot placement still queued would land after
             // that, take the workspace out of the group again and delete the group it emptied (#26153).
-            await Self.placementLanded(listed, queue: services.personalPlacements)
+            await Self.placementLanded(listed, queue: services.personalPlacements, doc: services.sidebarDoc)
             summary.opened += 1
             return id
         } catch {
@@ -123,19 +124,20 @@ extension AppOnboardingServices {
     /// through the queue. A workspace whose window went away is never listed. On the
     /// sidebar document the slot is a document move instead (`sidebar.apply`, not the
     /// queue): its reply must come before the group write too (#28425).
-    private static func placementLanded(_ listed: FirstOutcome<Void>, queue: PersonalPlacementQueue) async {
+    /// `doc`: the app's own sidebar document.
+    private static func placementLanded(_ listed: FirstOutcome<Void>, queue: PersonalPlacementQueue, doc: SidebarDocument) async {
         let bound = DemandTimer(owner: "ClassicImport.placementLanded")
         bound.schedule(after: .seconds(5)) { listed.resolve(()) }
         await listed.value()
         bound.cancel()
         await queue.drained()
         let started = ContinuousClock.now
-        await SidebarDocStore.current?.settled()
+        await doc.store?.settled()
         // The wait this adds per imported workspace, recorded only while a DEBUG bench runs (ClassicUpgradeSimulationPerfTests).
         BenchSpans.mark(Self.documentSettledSpan, milliseconds: BenchSpans.ms(.now - started))
     }
 
-    /// The bench span of ``placementLanded(_:queue:)``'s wait for the sidebar document.
+    /// The bench span of ``placementLanded(_:queue:doc:)``'s wait for the sidebar document.
     static let documentSettledSpan = "classicImport.documentSettled"
 
     /// The daemon a classic workspace opens on: this Mac's, or the one for
@@ -208,13 +210,13 @@ extension AppOnboardingServices {
             .webkit
         }
         var builder = WorkspaceBlueprintBuilder(
-            connection: connection,
+            daemon: daemon, connection: connection,
             key: WorkspaceKey(rawValue: workspaceID),
             browsers: browsers,
             defaultEngine: engine
         )
         // A replaying terminal names its own environment: this Mac's terminal one.
-        if daemon.isLocal { builder.replayEnvironment = await services.environment.terminalEnvironmentProvider()() }
+        if daemon.isLocal { builder.replayEnvironment = await services.environment.terminalEnvironmentProvider(prefersGhosttyTerm: { [weak services] in services?.settings?.snapshot.terminalTerm == .xtermGhostty })() }
         try await builder.build(blueprint)
     }
 
@@ -240,35 +242,46 @@ extension AppOnboardingServices {
         }
     }
 
-    /// `scrollback` written for its terminal's shell to print once; nil when
-    /// there is none or it cannot be written (the terminal then starts empty).
+    /// `scrollback` (the daemon's replay text) written for its terminal's shell to print once
+    /// (`CMUX_RESTORE_SCROLLBACK_FILE`); nil when there is none or it cannot be written (the terminal then starts empty).
     private func replayFile(_ scrollback: String?) -> String? {
-        guard let replay = scrollback.flatMap(ClassicScrollbackReplay.init) else { return nil }
+        guard let scrollback, !scrollback.isEmpty else { return nil }
         do {
-            return try replay.write().path
+            return try Self.writeReplay(scrollback).path
         } catch {
             services.daemon.logger.error("classic scrollback not written: \(String(describing: error), privacy: .public)")
             return nil
         }
     }
 
-    /// Names each tab as classic did and returns where each one landed.
-    private func restoreClassicTitles(_ layout: ClassicSessionLayout, workspaceID: String,
+    /// Writes `text` to a new file only this user can read, in a folder only this user can open,
+    /// under `directory` (the user's temporary folder).
+    nonisolated static func writeReplay(_ text: String, in directory: URL = FileManager.default.temporaryDirectory) throws -> URL {
+        let folder = directory.appendingPathComponent("cmux-next-scrollback", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
+        let file = folder.appendingPathComponent(UUID().uuidString.lowercased())
+        guard FileManager.default.createFile(atPath: file.path, contents: Data(text.utf8), attributes: [.posixPermissions: 0o600]) else {
+            throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: file.path])
+        }
+        return file
+    }
+
+    /// Names each tab as classic did and returns where each one landed (read from the store, never the whole tree).
+    private func restoreClassicTitles(_ layout: ClassicSessionLayout, workspaceID: String, daemon: DaemonService,
                                       connection: DaemonConnection) async throws -> [ClassicPlacedTab] {
-        let tree = try await connection.listWorkspaces()
-        guard let workspace = tree.workspaces.first(where: { $0.key?.rawValue == workspaceID }),
-              let screen = workspace.screens.first else { return [] }
+        guard let screen = try await daemon.shape(of: WorkspaceKey(rawValue: workspaceID), after: connection)?.screens.first else { return [] }
         var placed: [ClassicPlacedTab] = []
         for paneID in screen.layout.paneIDs {
-            guard let pane = screen.panes.first(where: { $0.id == paneID }) else { continue }
-            placed += pane.tabs.enumerated().map { ClassicPlacedTab(pane: paneID, index: $0.offset, surface: $0.element.surface) }
+            guard let pane = screen.panes.first(where: { $0.handle == paneID }) else { continue }
+            placed += pane.surfaces.enumerated().map { ClassicPlacedTab(pane: paneID, index: $0.offset, surface: $0.element) }
         }
         for (index, tab) in layout.tabs.enumerated() where index < placed.count {
             placed[index].tab = tab
             guard let title = tab.title, !title.isEmpty else { continue }
             // A page whose tab takes no name keeps the page's title.
             if tab.url != nil { try? await connection.renameTab(placed[index].surface, to: title) }
-            else { try await connection.renameTab(placed[index].surface, to: title) }
+            else { try await daemon.renameTab(placed[index].surface, to: title, in: WorkspaceKey(rawValue: workspaceID), on: connection) }
         }
         return placed
     }

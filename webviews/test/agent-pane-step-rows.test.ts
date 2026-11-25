@@ -4,20 +4,26 @@
 // they share a transcript row or not. An opened run's steps sit in one card (`.cv-steps`,
 // #27896, the card the message groups draw, #27864): each is still one 22px row, the card's steps
 // on one equal pitch of their own, and the rows outside cards keep the rhythm with no gap. A
-// finished thought is one quiet row like the others that opens to its full text, wrapped, with no
-// tooltip (Leo 2026-10-20), and a row shows nothing more on hover: its disclosure chevron is there
-// at rest.
+// finished thought is one quiet row like the others, its brain glyph and its words on one line, that
+// opens to its full text, wrapped, with no tooltip (Leo 2026-10-20; Codex parity). Inner tool rows
+// show their chevron at rest, as every row that opens does (design/chat-row-anatomy.md; Leo,
+// 2026-11-21: "inconsistent chevrons"), and hover lights their words, never their glyph; the group
+// header keeps its own disclosure.
 //
 // Before: the background task's end used a smaller font in a 22px row with its own margins, a
 // step in the next transcript row sat 10px further down than one in the same row, a thought was
-// cut to one line with the rest in a tooltip, and a hover brightened the row and showed its chevron.
+// cut to one line with the rest in a tooltip, and inner rows kept a visible chevron at rest.
 //
 // The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux.
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
+//
+// This file tests the `runs` arm of live-turn-work, not the shipped `line` arm: its steps are finished
+// calls and thoughts of a turn that still runs, which only `runs` draws (support/liveTurnRuns.ts).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
+import { pinLiveTurnRuns } from "./support/liveTurnRuns";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -72,8 +78,8 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
       }),
     ],
     ...call("c3", "Read build-acpmux.sh", "read", { locations: [{ path: "/home/dev/cmux/scripts/build-acpmux.sh" }] }),
-    // The turn is still running. Its finished steps fold under their run's line (Debug toggle
-    // agentPane.debug.codexToolRuns, on by default), which the tests open (`openRun`).
+    // The turn is still running. Its finished steps stay in sight in their open group, as nothing
+    // folds before the turn ends (cmux#38339); `openRun` opens it only if it is closed.
   ];
   const events = steps.map(([dir, kind, msg], index) => ({
     sessionId: CHAT,
@@ -119,6 +125,7 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
   };
   const open = async (): Promise<Page> => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await pinLiveTurnRuns(page);
     await page.goto(url());
     await page.getByText("build-acpmux.sh").first().waitFor();
     // Rows place by their drawn heights a frame after they mount: two painted frames later they have.
@@ -128,9 +135,10 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
   };
   /// Opens the group of the first two commands and the thought between them ("Ran 2 commands",
   /// conversation/ToolGroupRow.tsx; the thought stays in the group, toolGroups.ts), so each step in
-  /// it draws its own row.
+  /// it draws its own row. A running turn draws it open already (cmux#38339): then nothing is clicked.
   const openRun = async (page: Page) => {
-    await page.locator(".acpmux-row button.cv-tool", { hasText: "Ran 2 commands" }).click();
+    const line = page.locator(".acpmux-row button.cv-tool", { hasText: "Ran 2 commands" });
+    if ((await line.getAttribute("aria-expanded")) !== "true") await line.click();
     await page.locator(".cv-thought").waitFor();
     // The fold plays (a Web Animation, fold.ts), then the rows below it place by their drawn heights.
     await page.evaluate(async () => {
@@ -174,6 +182,8 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
     for (let attempt = 1; ; attempt++) {
       const warm = await browser.newPage();
       try {
+        // The same look as the pages under test (it also passed with no pin: shards of 3aff677f6a5f).
+        await pinLiveTurnRuns(warm);
         await warm.goto(url());
         await warm.getByText("build-acpmux.sh").first().waitFor({ timeout: 25_000 });
         await warm.close();
@@ -233,13 +243,19 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
     const page = await open();
     await openRun(page);
     const toggle = page.locator("button.cv-thought");
-    expect((await toggle.innerText()).trim()).toBe("Thought");
+    // Closed, its brain glyph and its own first line cut to one line (Codex parity); open, the same
+    // line wrapped, with no "Thought" over it (Leo, 2026-11-22: "had the whole line be the line").
+    expect((await toggle.locator(".cv-thought__preview").textContent())?.trim()).toBe(THOUGHT);
+    expect(await toggle.locator(".cv-tool__icon svg").count()).toBe(1);
     expect(await page.locator(".cv-thought__body, .cv-thought__text").count()).toBe(0);
     await toggle.click();
-    // The fold plays, then the text has its height.
-    const thought = page.locator(".cv-thought__body");
+    await page.locator('button.cv-thought[aria-expanded="true"]').waitFor();
+    expect(await page.locator("button.cv-thought .cv-thought__label").count()).toBe(0);
+    // The line grows, then the wrapped words have their height.
+    const thought = page.locator("button.cv-thought .cv-thought__preview");
     await page.waitForFunction(
-      () => (document.querySelector(".cv-thought__body")?.getBoundingClientRect().height ?? 0) > 26,
+      () =>
+        (document.querySelector("button.cv-thought .cv-thought__preview")?.getBoundingClientRect().height ?? 0) > 26,
       undefined,
       { timeout: 5_000 },
     );
@@ -257,22 +273,83 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
     await page.close();
   });
 
-  test("a step row shows nothing more on hover; its chevron is there at rest", async () => {
+  test("a tool run's summary line lights its words on hover only and keeps its glyph's tone", async () => {
     const page = await open();
-    const row = page.locator(".acpmux-row button.cv-tool").first();
+    const run = page.locator(".acpmux-row button.cv-tool.is-run", { hasText: "Ran 2 commands" });
+    const look = () =>
+      run.evaluate((node) => ({
+        text: getComputedStyle(node.querySelector(".cv-tool__text")!).color,
+        icon: getComputedStyle(node.querySelector(".cv-tool__icon")!).color,
+      }));
+    await page.mouse.move(0, 0);
+    const rest = await look();
+    await run.hover();
+    await page.waitForFunction((before) => {
+      const text = document.querySelector(".acpmux-row button.cv-tool.is-run .cv-tool__text");
+      return text && getComputedStyle(text).color !== before && !text.getAnimations().length;
+    }, rest.text);
+    const hovered = await look();
+    expect(hovered.text).not.toBe(rest.text);
+    expect(hovered.icon).toBe(rest.icon);
+    // Open and still focused from the click, with the pointer gone, it is back at rest: only hover lights it.
+    // A running turn draws the group open (cmux#38339): the first click closes it, the second opens it.
+    if ((await run.getAttribute("aria-expanded")) === "true") await run.click();
+    await run.click();
+    await page.mouse.move(0, 0);
+    await page.waitForFunction((before) => {
+      const text = document.querySelector(".acpmux-row button.cv-tool.is-run .cv-tool__text");
+      return text && getComputedStyle(text).color === before && !text.getAnimations().length;
+    }, rest.text);
+    expect(await run.getAttribute("aria-expanded")).toBe("true");
+    expect(await run.evaluate((node) => node === document.activeElement)).toBe(true);
+    expect(await look()).toEqual(rest);
+    await page.close();
+  });
+
+  // Its chevron is there at rest, as on every row that opens (design/chat-row-anatomy.md); hover
+  // lights the step's words, never its glyph (Codex parity). Opened by a click, with the pointer gone,
+  // it keeps its chevron and its words go back to rest.
+  test("an inner step row shows its chevron at rest and lights only its words on hover", async () => {
+    const page = await open();
+    await openRun(page);
+    const row = page.locator(".cv-steps > .cv-step > .cv-tool").first();
     const look = () =>
       row.evaluate((node) => {
         const chevron = node.querySelector<SVGElement>(".cv-tool__chevron");
+        const icon = node.querySelector<HTMLElement>(".cv-tool__icon");
+        const text = node.querySelector<HTMLElement>(".cv-tool__text, .cv-command__text");
         return {
           color: getComputedStyle(node).color,
-          chevron: chevron ? getComputedStyle(chevron).visibility : "none",
+          icon: icon ? getComputedStyle(icon).color : "none",
+          text: text ? getComputedStyle(text).color : "none",
+          chevron: chevron ? getComputedStyle(chevron).opacity : "none",
+          width: node.getBoundingClientRect().width,
         };
       });
+    const waitForChevron = (opacity: string) =>
+      page.waitForFunction((expected) => {
+        const chevron = document.querySelector<SVGElement>(".cv-steps > .cv-step > .cv-tool .cv-tool__chevron");
+        return chevron && getComputedStyle(chevron).opacity === expected;
+      }, opacity);
     await page.mouse.move(0, 0);
+    await waitForChevron("1");
     const rest = await look();
-    expect(rest.chevron).toBe("visible");
+    expect(rest.chevron).toBe("1");
     await row.hover();
-    expect(await look()).toEqual(rest);
+    await waitForChevron("1");
+    const hovered = await look();
+    expect(hovered.chevron).toBe("1");
+    expect(hovered.color).toBe(rest.color);
+    expect(hovered.icon).toBe(rest.icon);
+    expect(hovered.text).not.toBe(rest.text);
+    expect(hovered.width).toBe(rest.width);
+    await row.click();
+    await page.mouse.move(0, 0);
+    await waitForChevron("1");
+    const opened = await look();
+    expect(opened.chevron).toBe("1");
+    expect(opened.icon).toBe(rest.icon);
+    expect(opened.text).toBe(rest.text);
     await page.close();
   });
 });

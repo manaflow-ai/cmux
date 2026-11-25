@@ -4,6 +4,7 @@
 // size, a real file name shows as itself, and an image that cannot be drawn says so.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -45,6 +46,8 @@ const { SentImages } = await import("../src/agent-session/acpmux/conversation/Us
 const { TurnActionsContext } = await import("../src/agent-session/acpmux/conversation/turnActions");
 const { ImageViewerContext } = await import("../src/agent-session/acpmux/conversation/imageViewerContext");
 const { AttachmentStrip } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
+const { localImagePreview } = await import("../src/agent-session/acpmux/composer/imagePool");
+const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
 const { imageLabel } = await import("../src/agent-session/acpmux/imageLabel");
 const { translate } = await import("../src/agent-session/acpmux/i18n");
 
@@ -106,6 +109,78 @@ try {
     expect(imageLabel(translate, { width: 640, height: 480 })).toBe("Screenshot · 640×480");
   });
 
+  test("a disk image chip shows its remove control before the host returns its preview", async () => {
+    const path = "/tmp/disk-photo.png";
+    const chip = {
+      id: "disk-photo",
+      kind: "link" as const,
+      name: "disk-photo.png",
+      mimeType: "image/png",
+      path,
+      size: 100,
+    };
+    const requests: unknown[] = [];
+    let finish!: (reply: unknown) => void;
+    const preview = new Promise((resolve) => {
+      finish = resolve;
+    });
+    setChipHost(async (method, params) => {
+      requests.push([method, params]);
+      return preview;
+    });
+    try {
+      await act(async () => {
+        root.render(<AttachmentStrip attachments={[chip]} onRemove={() => {}} />);
+      });
+      expect(requests).toContainEqual(["image.load", { src: path }]);
+      expect(host.querySelector(".acpmux-attachment-remove")).not.toBeNull();
+      expect(host.querySelector(".acpmux-attachment img")).toBeNull();
+      await act(async () => {
+        finish({ src: SRC });
+      });
+      expect(host.querySelector(".acpmux-attachment img")?.getAttribute("src")).toBe(SRC);
+      expect(chip).not.toHaveProperty("data");
+    } finally {
+      setChipHost(undefined);
+    }
+  });
+
+  test("a fresh local image displays its worker thumbnail and loads the original only on expand", async () => {
+    const path = "/tmp/fresh.png";
+    const thumb = { url: "data:image/png;base64,AQ==", width: 800, height: 600 };
+    const chip = {
+      id: "fresh-photo",
+      kind: "link" as const,
+      name: "fresh.png",
+      mimeType: "image/png",
+      size: 12,
+      path,
+      [localImagePreview]: async () => thumb,
+    };
+    const requests: unknown[] = [];
+    setChipHost(async (method, params) => {
+      requests.push([method, params]);
+      return { src: SRC };
+    });
+    try {
+      await act(async () => {
+        root.render(
+          <ImageViewerContext.Provider value={(src, alt) => opened.push({ src, alt })}>
+            <AttachmentStrip attachments={[chip]} onRemove={() => {}} />
+          </ImageViewerContext.Provider>,
+        );
+      });
+      expect(host.querySelector(".acpmux-attachment img")?.getAttribute("src")).toBe(thumb.url);
+      expect(requests).not.toContainEqual(["image.load", { src: path }]);
+      await act(async () => (host.querySelector(".acpmux-attachment-open") as HTMLElement).click());
+      expect(requests).toContainEqual(["image.load", { src: path }]);
+      expect(opened.at(-1)).toEqual({ src: SRC, alt: "fresh.png" });
+      expect(chip).not.toHaveProperty("data");
+    } finally {
+      setChipHost(undefined);
+    }
+  });
+
   test("a sent pasted image names its natural size on hover and in the viewer", async () => {
     opened.length = 0;
     await renderSent("image.png");
@@ -114,7 +189,11 @@ try {
     await load(img, 2458, 2324);
     const button = host.querySelector(".cv-user__images button")!;
     expect(button.getAttribute("title")).toBe("Screenshot · 2458×2324");
-    expect(host.innerHTML).not.toContain("image.png");
+    // Nothing drawn or read names it image.png. The image's id, which the send's move uses to find
+    // its thumbnail (data-send-key, conversation/sendMorph.ts), is neither.
+    const shown = host.cloneNode(true) as HTMLElement;
+    for (const keyed of shown.querySelectorAll("[data-send-key]")) keyed.removeAttribute("data-send-key");
+    expect(shown.innerHTML).not.toContain("image.png");
     await act(async () => (button as HTMLElement).click());
     expect(opened.at(-1)?.alt).toBe("Screenshot · 2458×2324");
   });
@@ -169,12 +248,8 @@ try {
     expect(host.querySelector(".acpmux-attachment-image-failed")).not.toBeNull();
   });
 } finally {
-  afterAll(() => {
+  afterAll(async () => {
     act(() => root.unmount());
-    dom.window.close();
-    for (const [key, had, value] of saved) {
-      if (had) scope[key] = value;
-      else delete scope[key];
-    }
+    await teardownDom(saved, { window: dom.window, scope });
   });
 }

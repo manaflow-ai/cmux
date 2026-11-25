@@ -1,0 +1,4 @@
+interface:
+  display_name: "cmux Live"
+  short_description: "Edit cmux's web UI while it runs: saved edits show at once, no build."
+  default_prompt: "Use this skill to change cmux's web UI live: run `cmux live start --worktree <checkout>`, edit files under webviews/, and let the person watch the running app change with no build or relaunch; `cmux live stop` when done."

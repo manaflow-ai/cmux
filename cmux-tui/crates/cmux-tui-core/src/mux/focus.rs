@@ -102,7 +102,7 @@ impl Mux {
             let selected = if let Some(index) = index.filter(|index| *index < len) {
                 index
             } else if let Some(delta) = delta {
-                ((pane.active_tab as isize + delta).rem_euclid(len as isize)) as usize
+                ring_step(pane.active_tab, delta, len)
             } else {
                 pane.active_tab
             };

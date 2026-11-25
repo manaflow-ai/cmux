@@ -7,6 +7,13 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from pathlib import Path
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/published_in_comments.py"
@@ -360,6 +367,32 @@ class PublishedInTests(unittest.TestCase):
             self.assertEqual(module.publish("o/r", 7, line, comments, 0), "written")
         self.assertEqual([method for method, _, _ in calls if method != "GET"], ["DELETE"])
         self.assertEqual(len(comments), 1)
+
+    def test_a_pr_already_noted_for_this_build_costs_no_read_or_write(self):
+        # nightly-next run 41982716550 spent 40 min on 247 PRs; a rerun read each PR again by REST.
+        line = module.build_line("v1", "https://x/v1", "a" * 40)
+        noted = [{"id": 1, "body": module.pr_status.render({"published": "Shipped in:\n" + line}),
+                  "user": {"login": "github-actions[bot]"}}]
+        legacy_too = noted + [{"id": 2, "body": module.MARKER + "\nShipped in:\n" + line,
+                               "user": {"login": "github-actions[bot]"}}]
+        calls = []
+
+        def api(method, path, payload=None):
+            calls.append((method, path))
+            if method == "DELETE":
+                legacy_too.pop()
+            return noted if "/issues/8/" in path else legacy_too
+
+        argv = ["published_in_comments.py", "--repo", "o/r", "--since", "a", "--head", "a" * 40,
+                "--name", "v1", "--url", "https://x/v1"]
+        with patch.object(module, "git_subjects", return_value=["x (#8)", "y (#9)"]), \
+                patch.object(module, "existing_comments", return_value=({8: noted, 9: legacy_too}, set())), \
+                patch.object(module, "status_api", api), patch.object(module.time, "sleep"), \
+                patch.object(sys, "argv", argv), patch("builtins.print") as printed:
+            self.assertEqual(module.main(), 0)
+        self.assertFalse([c for c in calls if "/issues/8/" in c[1]], "#8 already carries the line")
+        self.assertTrue([c for c in calls if "/issues/9/" in c[1]], "#9 still has a legacy copy to fold")
+        self.assertIn("1 already noted", str(printed.call_args_list[-1]))
 
     def test_settle_preserves_prior_build_after_stale_writer(self):
         old = module.build_line("v1", "https://x/v1", "a" * 40)

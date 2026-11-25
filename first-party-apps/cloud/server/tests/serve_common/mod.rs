@@ -131,7 +131,17 @@ impl Host {
             if line["type"] == "relay.session" {
                 let status = self.cloud.session().expect("fake session");
                 self.send(&json!({ "type": "relay.session", "id": line["id"],
-                    "signed_in": status.signed_in, "team": status.team }));
+                    "signed_in": status.signed_in, "team": status.team, "backend": status.backend }));
+                continue;
+            }
+            if line["type"] == "relay.carrier" {
+                let machine = line["machine"].as_str().expect("machine");
+                let answer = match self.cloud.carrier_socket(machine) {
+                    Ok(reply) => relay_result(&line["id"], reply),
+                    Err(_) => json!({ "type": "relay.error", "id": line["id"],
+                        "code": "not_signed_in", "message": "sign in to cmux" }),
+                };
+                self.send(&answer);
                 continue;
             }
             if line["type"] == "relay.op" {
@@ -140,14 +150,11 @@ impl Host {
                     params: line["params"].clone(),
                     idempotency_key: line["idempotency_key"].as_str().map(str::to_owned),
                     origin: None,
+                    expected_backend: line["expected_backend"].as_str().map(str::to_owned),
+                    expected_team: line["expected_team"].as_str().map(str::to_owned),
+                    expected_revision: line["expected_revision"].as_str().map(str::to_owned),
                 };
-                let answer = match self.cloud.call(&call).expect("fake reply") {
-                    WireReply::Result(r) => json!({ "type": "relay.result", "id": line["id"],
-                        "ok": true, "value": r.value, "revision": r.revision, "replayed": r.replayed }),
-                    WireReply::Error(e) => json!({ "type": "relay.result", "id": line["id"],
-                        "ok": false, "error": { "code": e.code, "message": e.message,
-                        "retryable": e.retryable, "details": e.details } }),
-                };
+                let answer = relay_result(&line["id"], self.cloud.call(&call).expect("fake reply"));
                 self.send(&answer);
                 continue;
             }
@@ -177,6 +184,17 @@ impl Host {
         let result = lines.last().expect("result").clone();
         assert_eq!(result["ok"], true, "{op}: {result}");
         result["result"].clone()
+    }
+}
+
+/// The `relay.result` line of a wire answer.
+fn relay_result(id: &Value, reply: WireReply) -> Value {
+    match reply {
+        WireReply::Result(r) => json!({ "type": "relay.result", "id": id,
+            "ok": true, "value": r.value, "revision": r.revision, "replayed": r.replayed }),
+        WireReply::Error(e) => json!({ "type": "relay.result", "id": id,
+            "ok": false, "error": { "code": e.code, "message": e.message,
+            "retryable": e.retryable, "details": e.details } }),
     }
 }
 

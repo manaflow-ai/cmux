@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import CmuxTheme
 import Foundation
 import Testing
@@ -11,7 +12,7 @@ import Testing
 /// sidebar, dark, two spaces and a profile avatar, the pointer away and over it, with
 /// `sidebar.controlsOnHover` off and on. `CMUX_TEST_REQUIRE_GUI=1`; writes
 /// `sidebar-footer-gallery.tar` for `cmux-ci run --artifact`.
-@MainActor @Suite(.serialized) struct AASidebarFooterGalleryTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct AASidebarFooterGalleryTests {
     static func render(minimal: Bool, hovered: Bool) async throws -> CGImage {
         _ = NSApplication.shared
         let previousMotion = Motion.reduceMotionOverride

@@ -493,6 +493,21 @@ import Testing
         #expect(lines[3]["surface"] as? Int == 41)
     }
 
+    /// The Mac's Fork Conversation to New Column Right: the copy opens beside the chat, then
+    /// goes to a new column right of the chat's pane (`move-tab-to-column`).
+    @Test func forkToANewColumnRight() async throws {
+        let seen = Seen()
+        let (backend, workspace) = try await connected(seen)
+        let chat = try #require(workspace.tabs.first { $0.id == "s12" })
+        let copy = try await backend.forkAgentChat(chat, to: .column, in: workspace)
+        #expect(copy.id == "s41")
+        let lines = seen.mutations
+        #expect(seen.commands == ["new-conversation-tab", "move-tab-to-column"])
+        #expect(lines[1]["surface"] as? Int == 41)
+        #expect(ChatForkDestination.column.macTitle == "Fork Conversation to New Column Right")
+        #expect(ChatForkDestination.column.splitEdge == nil)
+    }
+
     @Test func theMacsForkTitles() {
         #expect(ChatForkDestination.right.macTitle == "Fork Conversation to the Right")
         #expect(ChatForkDestination.allCases.compactMap(\.splitEdge?.daemonEdge) == ["right", "left", "top", "bottom"])

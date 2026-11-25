@@ -1,5 +1,6 @@
 public import CmuxNextMobile
 public import CmuxNextSettings
+import CmuxNextDesign
 import Foundation
 
 /// The Mobile page's iPhone card (`iphone` in `cmux.settings.host.lists`), every text localized
@@ -12,7 +13,12 @@ extension IPhoneHostService {
             "allowed": .bool(allowed),
             "status_title": .string(IPhoneHostStrings.statusTitle),
             "status": .string(statusText),
+            // Msg 3790: where the status says to sign in, the card shows the Sign In button.
+            "sign_in": statusText == IPhoneHostStrings.signedOut ? .string(SignInButton.defaultTitle) : .null,
             "phase": .string(phaseName),
+            // This Mac's mobile device id once hostd registered it (the id phones list it under;
+            // cmux-next-ios review.sh focuses the same tag's phone on it). Not a secret.
+            "device_id": state.deviceID.map(JSONValue.string) ?? .null,
             "account_title": .string(IPhoneHostStrings.accountTitle),
             "account": account.map { .string(IPhoneHostStrings.registered(as: $0.email ?? $0.userID)) } ?? .null,
             "space_title": .string(IPhoneHostStrings.spaceTitle),
@@ -38,13 +44,13 @@ extension IPhoneHostService {
         ]
     }
 
-    /// `mobile.allowIPhoneConnections` as the service follows it (the Mobile Pairing page's switch).
+    /// `mobile.allowIPhoneConnections` as the service follows it (Settings > Accounts > iPhone's switch).
     public var allowsConnections: Bool { allowed }
 
-    /// hostd's phase (the Mobile Pairing page's step).
+    /// hostd's phase (Settings > Accounts > iPhone's status line).
     public var phase: MobileHostState.Phase { state.phase }
 
-    /// What a removed Mac says (the Mobile Pairing page's detail line).
+    /// What a removed Mac says (Settings > Accounts > iPhone's detail line).
     public static var removedText: String { IPhoneHostStrings.removed }
 
     /// The waiting pairing requests, oldest first: who asks, as which account, since when.
@@ -73,6 +79,18 @@ extension IPhoneHostService {
     }
 
     private var phoneRows: [JSONValue] {
+        let local = (pairedStore.current?.devices ?? []).filter { $0.transport == .iroh }.map { phone -> JSONValue in
+            ["id": .string("iroh:" + phone.id), "title": .string(IPhoneHostStrings.phoneAccessPhone(phone.name)),
+             "subtitle": .string(IPhoneHostStrings.pairKey(phone.identityKey)), "paired": .bool(true),
+             "fingerprint": .string(phone.identityKey), "connected": .bool(false), "removable": .bool(true),
+             "transport": .string("iroh"), "path": .null]
+        }
+        // Phones a person allowed through the removed Phone Access (iroh) listener stay listed, whatever
+        // the iPhone-host toggle, so they can be removed from the shared list.
+        return hostdPhoneRows + local
+    }
+
+    private var hostdPhoneRows: [JSONValue] {
         guard allowed else { return [] }
         let links = state.phones
         var rows: [JSONValue] = knownPhones.map { phone in
@@ -80,7 +98,7 @@ extension IPhoneHostService {
             // Paired here (cmux-next-ios verify/phone-approvals.md): its links and Face ID approvals
             // count; Remove also forgets the pairing.
             let pairing = paired?.pairing(of: phone)
-            return ["id": .string(phone.id), "title": .string(phone.name),
+            return ["id": .string(phone.id), "title": .string(IPhoneHostStrings.legacyPhone(phone.name)),
                     "subtitle": .string(link.map(Self.subtitle) ?? IPhoneHostStrings.notConnected),
                     "connected": .bool(link != nil), "removable": .bool(true),
                     "paired": .bool(pairing != nil), "fingerprint": pairing.map { .string($0.fingerprint) } ?? .null,

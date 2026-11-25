@@ -6,6 +6,7 @@
 // same report as the person's bubble (claude-sr2, 2026-10-24). A task's result (`acpmux task done`,
 // acpmux hub/tasks.rs) is the lane's card too, opening its chat.
 import { agentPaneEntry } from "../../../gallery/format";
+import type { Play } from "../../../gallery/play";
 import { SESSION_ID, assistant, chat, session, summary, user } from "../../../gallery/fixtures/acpmux";
 import { incomingPrompt } from "./incomingMessage";
 
@@ -21,6 +22,37 @@ function report(minutes: number, from?: string) {
     ? user(incoming.message.text, minutes, { incoming, resend: REPORT, untyped: true })
     : user(REPORT, minutes);
 }
+
+/// The report from a chat someone gave a name (`acpmux rename @ Mango --handle`): acpmux stamps it
+/// as `fromDisplayName` beside the session it sent from (prompt_provenance.rs).
+function namedReport(minutes: number, sessionId: string, fromName: string) {
+  const provenance = {
+    kind: "agent_message",
+    from: `acp:${sessionId}`,
+    fromName,
+    fromDisplayName: "Mango",
+    fromHarness: "claude",
+    to: SESSION_ID,
+  };
+  const incoming = incomingPrompt(REPORT, { client: CLIENT, _meta: { provenance } });
+  return incoming?.kind === "message"
+    ? user(incoming.message.text, minutes, { incoming, resend: REPORT, untyped: true })
+    : user(REPORT, minutes);
+}
+
+/// Mango is the coordinator chat `coordinator-old` on studio-mac.
+const mangoSessions = (displayName?: string) => [
+  session({ sessionId: SESSION_ID, title: "claude-sr2", name: "claude-sr2" }),
+  session({
+    sessionId: "coordinator-old-1",
+    title: "coordinator-old",
+    name: "studio-mac/coordinator-old",
+    peer: "studio-mac",
+    host: "studio-mac",
+    hostKind: "cloud",
+    ...(displayName && { displayName }),
+  }),
+];
 
 const TASK_CARD =
   'Task t-1a2b3c4d "Land #24927" done: Merged at squash 6f0c2d1 after a Codex xhigh SHIP\nPR: https://github.com/example/app/pull/24927\nSHA: 6f0c2d1';
@@ -41,7 +73,43 @@ function taskResult(minutes: number) {
     : user(TASK_CARD, minutes);
 }
 
-function snapshot(from?: string, last = report(3, from)) {
+/// codex-lane runs on studio-mac beside two more chats; one chat there is archived (off its menu).
+const ON_STUDIO = { host: "studio-mac", hostKind: "cloud" as const };
+const studioSessions = [
+  session({ sessionId: SESSION_ID, title: "claude-sr2", name: "claude-sr2" }),
+  session({ sessionId: "codex-lane-1", title: "codex-lane", name: "codex-lane", harness: "codex", ...ON_STUDIO }),
+  session({
+    sessionId: "studio-2",
+    title: "perf-diff-poll-events",
+    name: "perf-diff-poll-events",
+    harness: "codex",
+    ...ON_STUDIO,
+  }),
+  session({
+    sessionId: "studio-3",
+    title: "studio-mac/session-info",
+    name: "studio-mac/session-info",
+    peer: "studio-mac",
+    ...ON_STUDIO,
+  }),
+  session({ sessionId: "studio-4", title: "old-lane", name: "old-lane", archived: true, ...ON_STUDIO }),
+];
+
+/// Opens the sender's machine menu.
+const openMachine: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector('[data-menu="sender-machine"]'));
+  ctx.document.querySelector<HTMLButtonElement>('[data-menu="sender-machine"]')!.click();
+  await ctx.waitFor(() => ctx.document.querySelectorAll('[role="menuitem"]').length >= 2);
+};
+
+function snapshot(
+  from?: string,
+  last = report(3, from),
+  sessions = [
+    session({ sessionId: SESSION_ID, title: "claude-sr2", name: "claude-sr2" }),
+    session({ sessionId: "codex-lane-1", title: "codex-lane", name: "codex-lane" }),
+  ],
+) {
   return chat(
     [
       user("Land #24927 once its review passes, then report here.", 9),
@@ -51,10 +119,7 @@ function snapshot(from?: string, last = report(3, from)) {
     ],
     {
       title: "claude-sr2",
-      sessions: [
-        session({ sessionId: SESSION_ID, title: "claude-sr2", name: "claude-sr2" }),
-        session({ sessionId: "codex-lane-1", title: "codex-lane", name: "codex-lane" }),
-      ],
+      sessions,
     },
   );
 }
@@ -72,6 +137,31 @@ export default agentPaneEntry({
     named: {
       note: "acpmux recorded codex-lane as the sender: its card, with the chip.",
       snapshot: snapshot("codex-lane"),
+    },
+    machine: {
+      note: "codex-lane runs on studio-mac: the line names the machine after the name, and the machine is a control of its own.",
+      snapshot: snapshot("codex-lane", report(3, "codex-lane"), studioSessions),
+    },
+    "machine-menu": {
+      note: "Play: the machine opens a menu of the chats on studio-mac (archived ones left out), each opening beside this chat, and Copy machine name.",
+      snapshot: snapshot("codex-lane", report(3, "codex-lane"), studioSessions),
+      play: openMachine,
+    },
+    "given-name": {
+      note: "The sender has a given name (acpmux rename @ Mango --handle): the line reads Mango, and its machine, studio-mac, follows.",
+      snapshot: snapshot(
+        undefined,
+        namedReport(3, "coordinator-old-1", "studio-mac/coordinator-old"),
+        mangoSessions("Mango"),
+      ),
+    },
+    "given-name-unlisted": {
+      note: "A given name from a chat this Mac does not list: the message carries the name (fromDisplayName), and the line reads Mango.",
+      snapshot: snapshot(undefined, namedReport(3, "unlisted-9", "studio-mac/coordinator-old")),
+    },
+    "given-name-old-peer": {
+      note: "The same chat listed by a peer on an older acpmux, with no displayName in its row: the message's own name still reads Mango.",
+      snapshot: snapshot(undefined, namedReport(3, "coordinator-old-1", "studio-mac/coordinator-old"), mangoSessions()),
     },
     "task-result": {
       note: "codex-lane ended its task with acpmux task done: one card from the lane, its PR and squash under the summary.",

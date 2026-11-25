@@ -18,6 +18,12 @@ export type DiffViewerPayload = {
    * (Native/DiffSidecar/src/protocol.rs): `session.ignoreWhitespace` turns on Hide white space.
    */
   sessionCapabilities?: string[];
+  /** The host sends the saved comments to the chat that owns this diff (`comments.send`). */
+  commentsSend?: boolean;
+  /** The host supports persisted replies, resolution and threaded sends. */
+  commentsThreads?: boolean;
+  /** A chat owns this diff and the host serves its review brief (`cmux.diff.brief`). */
+  reviewBrief?: boolean;
   [key: string]: any;
 };
 

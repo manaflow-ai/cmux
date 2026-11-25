@@ -14,7 +14,7 @@ import Testing
         let url = home.appending(path: "cmux-next.json")
         try Data(json.utf8).write(to: url)
         let registry = ActionRegistry.standard()
-        let settings = SettingsController(registry: registry, design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: registry, design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         return (settings, registry, home)
     }
@@ -45,14 +45,17 @@ import Testing
         #expect((mine?["items"] as? [Any])?.first as? String == "workspace.duplicate")
         #expect(workspace?["hidden"] as? [String] == ["home.messageAbout"])
 
-        try await settings.setShowsCustomizeMenuItem(false)
-        #expect(!registry.showsCustomizeMenuItem)
+        // Off by default (Lawrence 2026-11-20: "drastically simplify all parts of the UI"): turning it
+        // on writes the key, turning it off again removes it.
+        try await settings.setShowsCustomizeMenuItem(true)
+        #expect(registry.showsCustomizeMenuItem)
+        #expect((try Self.file(home)?["contextMenus"] as? [String: Any])?["showCustomizeItem"] as? Bool == true)
 
         // Reset: the menu's key goes, then the emptied layouts object; the menu is generated again.
         try await settings.setContextMenuLayout(nil, for: .workspaceRow)
-        try await settings.setShowsCustomizeMenuItem(true)
+        try await settings.setShowsCustomizeMenuItem(false)
         #expect(registry.contextMenuLayouts[.workspaceRow] == nil)
-        #expect(registry.showsCustomizeMenuItem)
+        #expect(!registry.showsCustomizeMenuItem)
         #expect(try Self.file(home)?["contextMenus"] == nil)
     }
 
@@ -61,6 +64,7 @@ import Testing
     @Test func theCustomizeMenuSwitchIsASettingOnEverySurface() async throws {
         let row = try #require(SettingsSchema.descriptor(for: ContextMenusSetting.showCustomizeItemPath))
         #expect(row.kind == .toggle)
+        #expect(row.defaultValue == .bool(false), "right-click menus end without Customize Menu… by default")
         #expect(row.isPaletteExposed)
         #expect(!row.isShownOnSettingsPage)
         #expect(SettingsSchema.agentSettableKeys.contains(row.id))
@@ -91,7 +95,7 @@ import Testing
         #expect(setting.layouts[.newTab] == ContextMenuLayout(items: [
             .item("newSurface"), .folder(key: ContextMenuLayout.moreKey, title: nil, items: [.item("newTab.page"), .separator]),
         ]))
-        #expect(setting.showsCustomizeItem)
+        #expect(!setting.showsCustomizeItem, "a bad value keeps the default, off")
         #expect(Set(diagnostics.map(\.path)) == ["contextMenus.showCustomizeItem", "contextMenus.layouts.notAMenu",
                                                  "contextMenus.layouts.pane", "contextMenus.layouts.screen"])
     }

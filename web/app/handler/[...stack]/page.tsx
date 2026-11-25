@@ -6,8 +6,9 @@ import { Suspense } from "react";
 import { stackServerApp } from "../../lib/stack";
 import { CliAuthConfirmation, type CliAuthIdentityMessages } from "../cli-auth-confirmation";
 import { CmuxOAuthCallback, CmuxSignIn, type CmuxSignInMessages } from "../cmux-sign-in";
+import { chatGPTSignInEnabled } from "../chatgpt/chatgpt-enabled";
 import { EndSavedSessions } from "../end-saved-sessions";
-import { SignInSpinner } from "../sign-in-spinner";
+import { Spinner } from "../../components/spinner";
 import { hostedAuthErrorRedirect } from "../sign-in-entry";
 import hosted from "../hosted.module.css";
 import { preferredLocaleFromAcceptLanguage } from "../../../i18n/accept-language";
@@ -72,7 +73,7 @@ export default async function StackHandlerPage(
   ) : page === "sign-in" || page === "sign-up" ? (
     // cmux's own sign-in and sign-up screens. Every callback, reset and
     // verification route below stays with the hosted handler.
-    <CmuxSignIn mode={page} messages={(await messages()).cmuxSignIn as CmuxSignInMessages} />
+    <CmuxSignIn mode={page} messages={(await messages()).cmuxSignIn as CmuxSignInMessages} chatgpt={chatGPTSignInEnabled()} />
   ) : (
     // The hosted pages spin a circular-arrow icon; the stylesheet redraws it
     // in place as cmux's spinner so every loading state matches.
@@ -111,7 +112,7 @@ function StackHandlerLoading() {
       aria-busy="true"
       className="flex min-h-screen items-center justify-center"
     >
-      <SignInSpinner className="h-5 w-5" />
+      <Spinner className="h-5 w-5 text-muted" />
     </main>
   );
 }

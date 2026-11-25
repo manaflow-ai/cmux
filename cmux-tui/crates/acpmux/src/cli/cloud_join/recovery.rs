@@ -7,7 +7,7 @@ use std::io::Write;
 use std::path::Path;
 use zeroize::Zeroizing;
 
-const FILE: &str = "machine-join.pending.json";
+use crate::machine_record::recovery::FILE;
 #[derive(Serialize, Deserialize)]
 struct Pending {
     version: u8,
@@ -18,6 +18,128 @@ struct Pending {
     platform: String,
     wg_public_key: String,
     prior: Option<MachineCredential>,
+    /// The box this proposal was made on (`host_fingerprint`). A pending join copied to
+    /// another box is set aside unsent: its proposed credential is the original box's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    host_fingerprint: Option<String>,
+    /// What began this join (`joined_by` of the record it completes): `sign-in` for a sign-in's
+    /// enroll, None for a pasted join line. Kept here so a join resumed later, by whatever
+    /// asks, completes as what began it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    joined_by: Option<String>,
+    /// The capabilities its redeem sends (`machine_capabilities`). None on an older build's
+    /// pending: its redeem, if done, sent none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    capabilities: Option<Vec<String>>,
+    /// The account a sign-in's join is for: the signed-in person who minted its token. The
+    /// record it completes is recorded under it, whatever the hub's redeem names. None on a
+    /// pasted join line's, and on an older build's: that record names no account.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    owner: Option<String>,
+    /// The person named this machine (`machine join --name`): the record it completes is
+    /// `named` (`MachineCredential::named`). False on an older build's.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    named: bool,
+}
+
+/// What began a join made by signing in: its `joined_by`, and the account that minted its token.
+pub(super) struct Began<'a> {
+    pub joined_by: &'a str,
+    pub owner: &'a str,
+}
+
+/// The pending file of a join made on another box, kept beside unread.
+const COPIED: &str = "machine-join.pending.copied.json";
+
+/// Sets aside a pending join proposed on another box, before anything could send its
+/// credential. A pending file with no fingerprint (an older build's) cannot be told apart and
+/// is kept and resumed as before; the daemon-start check covers the record it completes. The caller
+/// holds the join lock.
+fn set_aside_copied_pending(current: Option<&str>) -> Result<bool> {
+    let Some(p) = read()? else { return Ok(false) };
+    // The shared comparison (`other_box`, what `home_copy_state` asks of a pending join).
+    let copied = other_box(&state_dir(), p.host_fingerprint.as_deref(), current);
+    if copied {
+        // The node key beside it is the original box's too: recorded before anything here
+        // could join with it or replace the record that would show the copy (the key in place
+        // now: the caller holds the join lock, under which alone it is replaced).
+        crate::cli::mesh_node_key::record_copied_key(&state_dir()).map_err(store_error_from)?;
+        crate::home_fs::rename(state_dir().join(FILE), state_dir().join(COPIED))
+            .map_err(store_error_from)?;
+        sync_ancestors(&state_dir()).map_err(store_error_from)?;
+    }
+    Ok(copied)
+}
+
+/// Sets aside the sign-in's join proposal in `home`, if one is pending, where no join resumes
+/// it (a later sign-in, by anyone, would finish it as the one that signed out): its credential is
+/// queued to be revoked at the hub (`to_revoke`), beside any queued before it, and only then is
+/// the proposal removed. A record a stopped `complete` wrote with that same credential is revoked
+/// as the record, once. A pasted join line's proposal stays: a sign-out leaves only what signing
+/// in began. One that does not parse cannot be resumed either and stays as it is, and one
+/// proposed on another box (`current` is this box's fingerprint) is left to
+/// `set_aside_copied_pending`. The caller holds the join lock.
+pub(super) fn retire_sign_in_pending_at(
+    home: &Path,
+    current: Option<&str>,
+    accounts: &[String],
+) -> Result<()> {
+    let path = home.join(FILE);
+    if std::fs::symlink_metadata(&path).is_err() {
+        return Ok(());
+    }
+    let Ok(p) = crate::config::private_state_file(&path)
+        .and_then(|f| Ok(serde_json::from_reader::<_, Pending>(f)?))
+    else {
+        return Ok(());
+    };
+    // A proposal copied from another box is that box's: revoking it would retire its join.
+    let copied = matches!((p.host_fingerprint.as_deref(), current), (Some(made), Some(here)) if made != here);
+    if copied || p.joined_by.as_deref() != Some(super::enroll::JOINED_BY_SIGN_IN) {
+        return Ok(());
+    }
+    // Only a signing-out account's own proposal: another's, or one naming none, stays.
+    if super::enroll::owner_among(p.owner.as_deref(), accounts) != super::enroll::Owner::Mine {
+        return Ok(());
+    }
+    if load_at(home)?.is_none_or(|record| record.credential != p.credential) {
+        to_revoke::queue(
+            home,
+            &to_revoke::Row {
+                machine_id: String::new(),
+                hub_origin: p.hub.clone(),
+                host_fingerprint: p.host_fingerprint.clone().or_else(|| current.map(str::to_owned)),
+                credential: Some(p.credential.clone()),
+            },
+        )?;
+    }
+    crate::home_fs::remove_file(&path)?;
+    sync_ancestors(home)
+}
+
+/// Sets aside a sign-in's join proposal made for an account other than `account`, which now
+/// signs in (an account switch whose sign-out acpmux never got): a new join must not reuse that
+/// proposal and keep its owner. Its credential is queued to be revoked, as a sign-out's would.
+/// The caller holds the join lock.
+pub(super) fn retire_other_account_pending_at(
+    home: &Path,
+    current: Option<&str>,
+    account: &str,
+) -> Result<()> {
+    let Ok(p) = crate::config::private_state_file(&home.join(FILE))
+        .and_then(|f| Ok(serde_json::from_reader::<_, Pending>(f)?))
+    else {
+        return Ok(());
+    };
+    let Some(owner) =
+        p.owner.filter(|_| p.joined_by.as_deref() == Some(super::enroll::JOINED_BY_SIGN_IN))
+    else {
+        return Ok(());
+    };
+    if super::enroll::owner_of(Some(&owner), Some(account)) != super::enroll::Owner::Theirs {
+        return Ok(());
+    }
+    retire_sign_in_pending_at(home, current, &[owner])
 }
 
 pub(super) fn pending_origin() -> Result<Option<String>> {
@@ -27,12 +149,12 @@ fn read() -> Result<Option<Pending>> {
     let path = state_dir().join(FILE);
     match std::fs::symlink_metadata(&path) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(_) => return Err(store_error().into()),
+        Err(e) => return Err(store_error_from(e).into()),
         Ok(_) => {}
     }
     let p: Pending = crate::config::private_state_file(&path)
         .and_then(|f| Ok(serde_json::from_reader(f)?))
-        .map_err(|_| store_error())?;
+        .map_err(store_error_from)?;
     let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(p.credential.strip_prefix("cmm_").unwrap_or_default());
     let valid = decoded.is_ok_and(|bytes| {
@@ -44,7 +166,7 @@ fn read() -> Result<Option<Pending>> {
         || !valid
         || origin(Some(p.hub.clone())).ok().as_deref() != Some(&p.hub)
         || !valid_name(&p.name)
-        || !matches!(p.platform.as_str(), "macos" | "linux")
+        || !matches!(p.platform.as_str(), "macos" | "linux" | "windows")
     {
         return Err(store_error().into());
     }
@@ -64,7 +186,6 @@ pub(super) fn write_durable(path: &Path, bytes: &[u8], replace: bool) -> Result<
 
 #[cfg(unix)]
 fn write_with_temp(path: &Path, bytes: &[u8], replace: bool, temp: &Path) -> Result<()> {
-    use std::os::unix::fs::OpenOptionsExt;
     let parent = path.parent().ok_or_else(store_error)?;
     crate::config::private_state_dir(parent)?;
     match std::fs::symlink_metadata(path) {
@@ -75,7 +196,7 @@ fn write_with_temp(path: &Path, bytes: &[u8], replace: bool, temp: &Path) -> Res
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(e.into()),
     }
-    let mut file = std::fs::OpenOptions::new()
+    let mut file = crate::home_fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .mode(0o600)
@@ -95,19 +216,64 @@ fn write_with_temp(path: &Path, bytes: &[u8], replace: bool, temp: &Path) -> Res
             Err(e) => return Err(e.into()),
         }
         if replace {
-            std::fs::rename(temp, path)?;
+            crate::home_fs::rename(temp, path)?;
         } else {
-            std::fs::hard_link(temp, path)?;
+            crate::home_fs::hard_link(temp, path)?;
         }
         sync_ancestors(parent)?;
         Ok(())
     })();
-    let _ = std::fs::remove_file(temp); // only the file this call created
+    let _ = crate::home_fs::remove_file(temp); // only the file this call created
     result
 }
-#[cfg(not(unix))]
-pub(super) fn write_durable(_: &Path, _: &[u8], _: bool) -> Result<()> {
-    Err(store_error().into())
+/// The same write on Windows: an owner-only temporary file (`owner_only::create_new`), flushed
+/// and closed, then renamed over the destination (`replace`) or hard-linked to it (a destination
+/// that appeared meanwhile fails the link, as `create_new` would). NTFS journals the folder's
+/// names, and a folder handle cannot be flushed there, so no ancestor is synced.
+#[cfg(windows)]
+pub(super) fn write_durable(path: &Path, bytes: &[u8], replace: bool) -> Result<()> {
+    let parent = path.parent().ok_or_else(store_error)?;
+    crate::config::private_state_dir(parent)?;
+    let check = || -> Result<()> {
+        match std::fs::symlink_metadata(path) {
+            Ok(_) => {
+                anyhow::ensure!(replace, "pending already exists");
+                crate::config::private_state_file(path)?;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e.into()),
+        }
+        Ok(())
+    };
+    check()?;
+    let temp = parent.join(format!(".machine-join-{}.tmp", uuid::Uuid::new_v4()));
+    let mut file = crate::config::private_state_create_new(&temp)?;
+    let result = (|| {
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        // Closed first: Windows renames no file that is still open without delete sharing.
+        drop(file);
+        check()?;
+        if replace {
+            crate::home_fs::rename(&temp, path)?;
+        } else {
+            crate::home_fs::hard_link(&temp, path)?;
+        }
+        Ok(())
+    })();
+    let _ = crate::home_fs::remove_file(&temp); // only the file this call created
+    result
+}
+
+/// The `platform` a join proposes: the hub's `macos`, `linux` or `windows`.
+pub(super) fn this_platform() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "macos"
+    } else if cfg!(windows) {
+        "windows"
+    } else {
+        "linux"
+    }
 }
 
 fn valid_name(name: &str) -> bool {
@@ -120,7 +286,11 @@ fn valid_name(name: &str) -> bool {
 
 // Sync every ancestor, including newly created custom state roots. A leaf
 // directory fsync alone does not make that directory's own name durable.
-fn sync_ancestors(dir: &Path) -> Result<()> {
+pub(super) fn sync_ancestors(dir: &Path) -> Result<()> {
+    // Windows opens no folder as a file to flush it; NTFS journals the names (`write_durable`).
+    if cfg!(windows) {
+        return Ok(());
+    }
     sync_ancestors_with(dir, |path| {
         std::fs::File::open(path)?.sync_all()?;
         Ok(())
@@ -144,53 +314,48 @@ fn hub_error() -> anyhow::Error {
 }
 
 enum Probe {
-    Live(MachineCredential),
+    Live(Box<MachineCredential>),
     Unknown,
     Revoked,
 }
 async fn probe(p: &Pending) -> Result<Probe> {
-    let response = http_client()
+    let answer = hub_client(&p.hub, Some(&p.credential))
         .map_err(|_| hub_error())?
-        .get(format!("{}/v1/machines/credentials/self", p.hub))
-        .bearer_auth(&p.credential)
-        .send()
-        .await
-        .map_err(|_| hub_error())?;
-    let status = response.status();
-    let body: Value = response.json().await.map_err(|_| hub_error())?;
-    if status.as_u16() == 401 {
-        return match body["code"].as_str() {
-            Some("machine.unknown") => Ok(Probe::Unknown),
-            Some("machine.revoked") => Ok(Probe::Revoked),
-            _ => Err(hub_error()),
-        };
-    }
-    if !status.is_success() {
-        return Err(hub_error());
-    }
-    let id = |key: &str| -> Result<String> {
-        let value = body[key]
-            .as_str()
+        .machine_redeem_self()
+        .await;
+    let body = match answer {
+        Ok(body) => body.into_inner(),
+        Err(error) => {
+            let error = cmux_cloud_client::ApiError::from_api(error).await;
+            return match (error.status, error.code.as_deref()) {
+                (Some(401), Some("machine.unknown")) => Ok(Probe::Unknown),
+                (Some(401), Some("machine.revoked")) => Ok(Probe::Revoked),
+                _ => Err(hub_error()),
+            };
+        }
+    };
+    let id = |value: &str| -> Result<String> {
+        Some(value)
             .filter(|s| {
                 !s.is_empty()
                     && !s.contains("cmj_")
                     && !s.contains("cmm_")
                     && !s.chars().any(char::is_control)
             })
-            .ok_or_else(hub_error)?;
-        Ok(value.to_owned())
+            .map(str::to_owned)
+            .ok_or_else(hub_error)
     };
-    let machine_id = id("machineId")?;
-    let team_id = id("teamId")?;
-    let name = id("name")?;
+    let machine_id = id(&body.machine_id)?;
+    let team_id = id(&body.team_id)?;
+    let name = id(&body.name)?;
     let generation =
-        body["credentialGeneration"].as_u64().filter(|n| *n > 0).ok_or_else(hub_error)?;
-    if body["wgPublicKey"] != p.wg_public_key
-        || body["platform"] != p.platform
-        || body["hostname"] != p.hostname
+        u64::try_from(body.credential_generation).ok().filter(|n| *n > 0).ok_or_else(hub_error)?;
+    if body.wg_public_key != p.wg_public_key
+        || body.platform != p.platform
+        || body.hostname != p.hostname
         || name != p.name
-        || body["joinTokenId"].as_str().is_none_or(str::is_empty)
-        || body["expiresAt"].as_str().is_none_or(str::is_empty)
+        || body.join_token_id.is_empty()
+        || body.expires_at.is_empty()
     {
         return Err(hub_error());
     }
@@ -201,7 +366,7 @@ async fn probe(p: &Pending) -> Result<Probe> {
     {
         return Err(hub_error());
     }
-    Ok(Probe::Live(MachineCredential {
+    Ok(Probe::Live(Box::new(MachineCredential {
         credential: p.credential.clone(),
         machine_id,
         team_id,
@@ -211,25 +376,78 @@ async fn probe(p: &Pending) -> Result<Probe> {
         revoked: false,
         wg_public_key: p.wg_public_key.clone(),
         credential_generation: generation,
-    }))
+        // Optional until every hub names it: a missing or malformed one only means no
+        // automatic same-person control, never a failed join.
+        user_id: body.user_id.as_ref().and_then(|user| safe_id(&user.to_string())),
+        // Joined on this box: a later start on another box finds the copy.
+        host_fingerprint: host_fingerprint::current(),
+        cloned: false,
+        // `complete` sets what joined it and what it said it can do.
+        joined_by: None,
+        capabilities: None,
+        cloned_on: None,
+        named: p.named,
+    })))
 }
 
-fn complete(p: &Pending, record: &MachineCredential, json_out: bool) -> Result<()> {
-    authority().and_then(|a| a.enroll()).map_err(|_| store_error())?;
-    let bytes = Zeroizing::new(serde_json::to_vec(record).map_err(|_| store_error())?);
-    write_durable(&credential_path(), &bytes, true).map_err(|_| store_error())?;
-    configure_mesh_relay(&p.hub).map_err(|_| store_error())?;
-    // Remove the immutable recovery proof only after final + relay are durable.
-    crate::config::private_state_file(&state_dir().join(FILE)).map_err(|_| store_error())?;
-    std::fs::remove_file(state_dir().join(FILE)).map_err(|_| store_error())?;
-    sync_ancestors(&state_dir()).map_err(|_| store_error())?;
-    warn_existing_helpers();
-    if json_out {
-        crate::cli::output::print_json(
-            &json!({"joined":true,"alreadyJoined":false,"machineId":record.machine_id,"teamId":record.team_id,"name":record.name,"hubOrigin":record.hub_origin}),
-        );
+/// The record a probed join stores: what began it, whose it is, and what its redeem said it can
+/// do come from the proposal, never from whoever finishes it. A sign-in's join is recorded under
+/// the account that minted it; the hub's `userId`, when it names one, only has to agree. A
+/// sign-in's join with no account is recorded under none (never under the hub's alone).
+fn completed_record(p: &Pending, probed: &MachineCredential) -> Result<MachineCredential> {
+    let user_id = if by_sign_in(p) {
+        if let (Some(owner), Some(redeemed)) = (p.owner.as_deref(), probed.user_id.as_deref())
+            && owner != redeemed
+        {
+            return Err(error(3, "the hub joined this machine for another account"));
+        }
+        p.owner.clone()
     } else {
-        println!("joined {} ({})", record.name, record.machine_id);
+        probed.user_id.clone()
+    };
+    Ok(MachineCredential {
+        joined_by: p.joined_by.clone(),
+        capabilities: p.capabilities.clone(),
+        user_id,
+        ..probed.clone()
+    })
+}
+
+/// Whether `p` is a sign-in's join (`enroll.rs`), for the consent marker.
+fn by_sign_in(p: &Pending) -> bool {
+    p.joined_by.as_deref() == Some(super::enroll::JOINED_BY_SIGN_IN)
+}
+
+fn complete(p: &Pending, record: &MachineCredential, report: Report) -> Result<()> {
+    let record = &completed_record(p, record)?;
+    // The record replaced here may be the only evidence that this home is a copy whose node
+    // key is the original's: a copy it shows is recorded (`copied_here`) before it goes.
+    if let Some(old) = load().map_err(store_error_from)? {
+        let _ = copied_here(&state_dir(), &old, host_fingerprint::current().as_deref());
+    }
+    authority().and_then(|a| a.enroll_as(by_sign_in(p))).map_err(store_error_from)?;
+    let bytes = Zeroizing::new(serde_json::to_vec(record).map_err(store_error_from)?);
+    write_durable(&credential_path(), &bytes, true).map_err(store_error_from)?;
+    relay_for_join_at(&crate::config::Config::path(), &p.hub, by_sign_in(p))
+        .map_err(store_error_from)?;
+    // Remove the immutable recovery proof only after final + relay are durable.
+    crate::config::private_state_file(&state_dir().join(FILE)).map_err(store_error_from)?;
+    crate::home_fs::remove_file(state_dir().join(FILE)).map_err(store_error_from)?;
+    // A join made here ends what this hub's revoke kept from enrolling on its own.
+    to_revoke::clear_revoked(&state_dir(), &p.hub);
+    sync_ancestors(&state_dir()).map_err(store_error_from)?;
+    match report {
+        Report::Quiet => {}
+        Report::Json => {
+            warn_existing_helpers();
+            crate::cli::output::print_json(
+                &json!({"joined":true,"alreadyJoined":false,"machineId":record.machine_id,"teamId":record.team_id,"name":record.name,"hubOrigin":record.hub_origin}),
+            );
+        }
+        Report::Text => {
+            warn_existing_helpers();
+            println!("joined {} ({})", record.name, record.machine_id);
+        }
     }
     Ok(())
 }
@@ -238,30 +456,31 @@ fn complete(p: &Pending, record: &MachineCredential, json_out: bool) -> Result<(
 /// credential as replacement proof; unknown/expired credentials cannot prove
 /// replacement either. The server still refuses any active key without proof.
 async fn replacement_proof(mut old: MachineCredential) -> Result<Option<MachineCredential>> {
-    let hub = origin(Some(old.hub_origin.clone())).map_err(|_| store_error())?;
-    let response = http_client()
+    let hub = origin(Some(old.hub_origin.clone())).map_err(store_error_from)?;
+    let answer = hub_client(&hub, Some(&old.credential))
         .map_err(|_| hub_error())?
-        .get(format!("{hub}/v1/machines/credentials/self"))
-        .bearer_auth(&old.credential)
-        .send()
-        .await
-        .map_err(|_| hub_error())?;
-    let status = response.status();
-    let body: Value = response.json().await.map_err(|_| hub_error())?;
-    if status.as_u16() == 401
-        && matches!(body["code"].as_str(), Some("machine.revoked" | "machine.unknown"))
-    {
-        return Ok(None);
-    }
-    if !status.is_success()
-        || body["machineId"] != old.machine_id
-        || body["teamId"] != old.team_id
-        || body["wgPublicKey"] != old.wg_public_key
+        .machine_redeem_self()
+        .await;
+    let body = match answer {
+        Ok(body) => body.into_inner(),
+        Err(error) => {
+            let error = cmux_cloud_client::ApiError::from_api(error).await;
+            if error.status == Some(401)
+                && matches!(error.code.as_deref(), Some("machine.revoked" | "machine.unknown"))
+            {
+                return Ok(None);
+            }
+            return Err(hub_error());
+        }
+    };
+    if *body.machine_id != old.machine_id
+        || *body.team_id != old.team_id
+        || body.wg_public_key != old.wg_public_key
     {
         return Err(hub_error());
     }
-    old.credential_generation = body["credentialGeneration"]
-        .as_u64()
+    old.credential_generation = u64::try_from(body.credential_generation)
+        .ok()
         .filter(|n| *n > 0 && *n >= old.credential_generation)
         .ok_or_else(hub_error)?;
     Ok(Some(old))
@@ -270,11 +489,18 @@ async fn replacement_proof(mut old: MachineCredential) -> Result<Option<MachineC
 fn new_pending(
     hub: String,
     name: String,
+    named: bool,
     prior: Option<MachineCredential>,
     overwrite: bool,
+    joined_by: Option<String>,
+    owner: Option<String>,
 ) -> Result<Pending> {
     let mut random = Zeroizing::new([0u8; 32]);
-    getrandom::fill(&mut *random).map_err(|_| store_error())?;
+    getrandom::fill(&mut *random).map_err(store_error_from)?;
+    // A node key recorded as copied from another machine is never proposed: it is replaced
+    // first, as the daemon's start does, under the same join lock the caller holds (a pending
+    // join set aside, or a leave, may have left it with no record to settle).
+    crate::cli::mesh_node_key::replace_copied_at(&state_dir()).map_err(store_error_from)?;
     let p = Pending {
         version: 1,
         credential: format!(
@@ -283,15 +509,20 @@ fn new_pending(
         ),
         hub,
         name,
-        hostname: crate::pairing::machine_name(),
-        platform: if cfg!(target_os = "macos") { "macos" } else { "linux" }.to_owned(),
-        wg_public_key: crate::cli::mesh_node_key::load_or_create()
-            .map_err(|_| store_error())?
+        hostname: crate::pairing::host_label(),
+        platform: this_platform().to_owned(),
+        wg_public_key: leave::node_key_for_join_at(&state_dir())
+            .map_err(store_error_from)?
             .public_key_b64(),
         prior,
+        host_fingerprint: host_fingerprint::current(),
+        joined_by,
+        capabilities: Some(machine_capabilities()),
+        owner,
+        named,
     };
-    let bytes = Zeroizing::new(serde_json::to_vec(&p).map_err(|_| store_error())?);
-    write_durable(&state_dir().join(FILE), &bytes, overwrite).map_err(|_| store_error())?;
+    let bytes = Zeroizing::new(serde_json::to_vec(&p).map_err(store_error_from)?);
+    write_durable(&state_dir().join(FILE), &bytes, overwrite).map_err(store_error_from)?;
     Ok(p)
 }
 
@@ -299,11 +530,20 @@ pub(super) async fn join(
     hub: Option<String>,
     name: Option<String>,
     replace: bool,
-    json_out: bool,
+    report: Report,
     token: Option<String>,
+    began: Option<Began<'_>>,
 ) -> Result<()> {
+    // Every join (a pasted line, a sign-in's) checks its home before it can redeem.
+    crate::cli::join_input::refuse_symlinked_home()?;
+    if set_aside_copied_pending(host_fingerprint::current().as_deref())? && report != Report::Quiet
+    {
+        eprintln!(
+            "a join begun on another machine was set aside; this join makes this machine's own"
+        );
+    }
     let existing = read()?;
-    let pending = if let Some(p) = existing {
+    let mut pending = if let Some(p) = existing {
         // Retry a failed directory fsync before any request can redeem this
         // proof. Reading a surviving directory entry alone is not durability.
         crate::config::private_state_file(&state_dir().join(FILE))
@@ -311,40 +551,53 @@ pub(super) async fn join(
                 f.sync_all()?;
                 Ok(())
             })
-            .map_err(|_| store_error())?;
-        sync_ancestors(&state_dir()).map_err(|_| store_error())?;
+            .map_err(store_error_from)?;
+        sync_ancestors(&state_dir()).map_err(store_error_from)?;
         if hub.as_ref().is_some_and(|h| origin(Some(h.clone())).ok().as_deref() != Some(&p.hub))
             || name.as_ref().is_some_and(|n| n != &p.name)
         {
             return Err(error(2, "join incomplete; retry with the original hub and name"));
         }
         match probe(&p).await? {
-            Probe::Live(record) => return complete(&p, &record, json_out),
+            // Completes as what began it (`Pending::joined_by`), whatever resumes it.
+            Probe::Live(record) => return complete(&p, &record, report),
             Probe::Revoked if replace && token.is_some() => {
                 // Definitive revocation makes the proposal unusable. Only an
                 // explicit replacement with fresh stdin may replace this proof.
                 // If this was a replacement, its old final is already retired.
-                new_pending(p.hub, p.name, None, true)?
+                new_pending(p.hub, p.name, p.named, None, true, p.joined_by, p.owner)?
             }
             Probe::Revoked => return Err(error(3, "revoked: run machine add again")),
             Probe::Unknown => p,
         }
     } else {
-        if already_joined(replace, json_out)? {
+        // A home copied from another box: mark it and give this box its own node key before
+        // anything proposes one (the caller holds the join lock).
+        settle_clone_at(&state_dir(), host_fingerprint::current().as_deref())
+            .map_err(store_error_from)?;
+        if already_joined(replace, report)? {
             return Ok(());
         }
         if token.is_none() {
             return Err(error(2, "join token must be provided on stdin"));
         }
         let hub = origin(hub).map_err(|_| error(2, "hub origin is malformed"))?;
+        // Named by the person (`--name`), not a sign-in's own name for it (`enroll_name`).
+        let named = name.is_some() && began.is_none();
         let name = local_name(name);
         if !valid_name(&name) {
             return Err(error(2, "machine name is malformed"));
         }
         let prior = if replace {
-            match load().map_err(|_| store_error())? {
-                Some(old) => replacement_proof(old).await?,
-                None => None,
+            match load().map_err(store_error_from)? {
+                // A copy never proves a replacement with the original box's credential: that
+                // would retire the original's enrollment from here.
+                Some(old)
+                    if !copied_here(&state_dir(), &old, host_fingerprint::current().as_deref()) =>
+                {
+                    replacement_proof(old).await?
+                }
+                _ => None,
             }
         } else {
             None
@@ -352,32 +605,53 @@ pub(super) async fn join(
         if prior.as_ref().is_some_and(|old| old.hub_origin != hub) {
             return Err(error(3, "existing enrollment cannot authorize replacement"));
         }
-        new_pending(hub, name, prior, false)?
+        new_pending(
+            hub,
+            name,
+            named,
+            prior,
+            false,
+            began.as_ref().map(|began| began.joined_by.to_owned()),
+            began.map(|began| began.owner.to_owned()),
+        )?
     };
+    // An older build's proposal sent no list; the redeem now does, and the record says so.
+    pending.capabilities.get_or_insert_with(machine_capabilities);
     let token =
         token.ok_or_else(|| error(2, "join incomplete; original join token required on stdin"))?;
-    authority().and_then(|a| a.enroll()).map_err(|_| store_error())?;
+    authority().and_then(|a| a.enroll_as(by_sign_in(&pending))).map_err(store_error_from)?;
     let mut body = json!({"token":token,"proposedCredential":pending.credential,
-        "name":pending.name,"hostname":pending.hostname,"platform":pending.platform,"wgPublicKey":pending.wg_public_key});
+        "name":pending.name,"hostname":pending.hostname,"platform":pending.platform,"wgPublicKey":pending.wg_public_key,
+        "capabilities":pending.capabilities});
     if let Some(old) = &pending.prior {
         body.set("replaceCredential", json!(old.credential));
     }
-    let response = http_client()
-        .map_err(|_| hub_error())?
-        .post(format!("{}/v1/machines/join-tokens/redeem", pending.hub))
-        .json(&body)
-        .send()
-        .await
-        .map_err(|_| hub_error())?;
-    if !response.status().is_success() {
-        let status = response.status().as_u16();
-        return Err(error(
-            if matches!(status, 400 | 401 | 404 | 409 | 410) { 3 } else { 4 },
+    let refused = || {
+        error(
+            3,
             "join incomplete; enrollment refused; rerun with the original token or obtain fresh enrollment",
-        ));
+        )
+    };
+    // The spec's own limits (name and hostname length) are checked here as
+    // the hub would: a body it would refuse is never sent. The generated type
+    // keeps `platform` a string; the pending record's check (macos or linux)
+    // already holds it to the spec's two values.
+    let body: cmux_cloud_client::types::JoinRedeem =
+        serde_json::from_value(body).map_err(|_| refused())?;
+    let answer =
+        hub_client(&pending.hub, None).map_err(|_| hub_error())?.machine_redeem_redeem(&body).await;
+    if let Err(e) = answer {
+        let e = cmux_cloud_client::ApiError::from_api(e).await;
+        return Err(match e.status {
+            Some(400 | 401 | 404 | 409 | 410) => refused(),
+            _ => error(
+                4,
+                "join incomplete; enrollment refused; rerun with the original token or obtain fresh enrollment",
+            ),
+        });
     }
     match probe(&pending).await? {
-        Probe::Live(record) => complete(&pending, &record, json_out),
+        Probe::Live(record) => complete(&pending, &record, report),
         Probe::Revoked => Err(error(3, "revoked: run machine add again")),
         Probe::Unknown => Err(hub_error()),
     }
@@ -387,6 +661,69 @@ pub(super) async fn join(
 mod tests {
     use super::*;
     use std::os::unix::fs::{PermissionsExt, symlink};
+
+    fn pending(joined_by: Option<&str>, capabilities: Option<Vec<String>>) -> Pending {
+        Pending {
+            version: 1,
+            credential: "cmm_x".into(),
+            hub: "https://hub.example".into(),
+            name: "box".into(),
+            hostname: "box".into(),
+            platform: "linux".into(),
+            wg_public_key: "key".into(),
+            prior: None,
+            host_fingerprint: None,
+            joined_by: joined_by.map(str::to_owned),
+            capabilities,
+            owner: joined_by.map(|_| "user_me".to_owned()),
+            named: false,
+        }
+    }
+
+    #[test]
+    fn a_join_completes_as_what_began_it_whoever_resumes_it() {
+        // A sign-in's redeem landed, its probe failed: the proposal stays on disk and says so.
+        let begun =
+            pending(Some(super::super::enroll::JOINED_BY_SIGN_IN), Some(machine_capabilities()));
+        let on_disk = serde_json::to_vec(&begun).unwrap();
+        let resumed: Pending = serde_json::from_slice(&on_disk).unwrap();
+        let probed = MachineCredential { credential: "cmm_x".into(), ..Default::default() };
+        let record = completed_record(&resumed, &probed).unwrap();
+        assert_eq!(record.joined_by.as_deref(), Some("sign-in"), "a sign-out then leaves it");
+        assert_eq!(record.capabilities, Some(vec!["vault.proxy.v1".to_owned()]));
+        // A pasted join line's stays the person's, even when a sign-in finishes it.
+        let pasted = completed_record(&pending(None, Some(Vec::new())), &probed).unwrap();
+        assert_eq!(pasted.joined_by, None);
+        // An older build's proposal: no provenance, no list (the next sign-in rotates once).
+        let older: Pending = serde_json::from_value(
+            json!({"version":1,"credential":"cmm_x","hub":"https://hub.example","name":"box",
+                "hostname":"box","platform":"linux","wg_public_key":"key","prior":null}),
+        )
+        .unwrap();
+        let record = completed_record(&older, &probed).unwrap();
+        assert_eq!((record.joined_by, record.capabilities), (None, None));
+    }
+
+    #[test]
+    fn a_sign_in_join_with_no_redeemed_user_records_the_minting_account() {
+        let begun = pending(Some(super::super::enroll::JOINED_BY_SIGN_IN), None);
+        // The hub's redeem named no account: the minting account is recorded.
+        let probed = MachineCredential { credential: "cmm_x".into(), ..Default::default() };
+        let record = completed_record(&begun, &probed).unwrap();
+        assert_eq!(record.user_id.as_deref(), Some("user_me"));
+        // The hub named the same account: recorded once, the same.
+        let same = MachineCredential { user_id: Some("user_me".into()), ..probed.clone() };
+        assert_eq!(completed_record(&begun, &same).unwrap().user_id.as_deref(), Some("user_me"));
+        // The hub named another: nothing is recorded.
+        let other = MachineCredential { user_id: Some("user_b".into()), ..probed.clone() };
+        assert!(completed_record(&begun, &other).is_err());
+        // A sign-in's proposal from before owners were kept: no account, never the hub's alone.
+        let older = Pending { owner: None, ..pending(Some("sign-in"), None) };
+        assert_eq!(completed_record(&older, &other).unwrap().user_id, None);
+        // A pasted join line's: what the hub says, as before.
+        let pasted = pending(None, None);
+        assert_eq!(completed_record(&pasted, &other).unwrap().user_id.as_deref(), Some("user_b"));
+    }
 
     #[test]
     fn custom_state_ancestors_are_synced_and_errors_stop_the_commit() {

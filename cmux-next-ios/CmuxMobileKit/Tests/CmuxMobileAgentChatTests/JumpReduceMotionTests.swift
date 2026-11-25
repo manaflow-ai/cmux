@@ -19,8 +19,8 @@ import UIKit
     struct Transcript {
         let controller: ChatTranscriptController
         let scroll: UIScrollView
-        /// The hosted transcript (the view the long jump hid).
-        let content: UIView
+        /// The transcript's rows (the list's collection view; its opacity is read too).
+        var content: UIView { scroll }
         let window: UIWindow
         var bottomY: CGFloat { scroll.contentSize.height + scroll.contentInset.bottom - scroll.bounds.height }
         /// What a jump wrote on its way: every scroll offset and every
@@ -80,24 +80,25 @@ import UIKit
 
     /// A transcript many screens tall, read from its top.
     func transcript(reducesMotion: Bool) throws -> Transcript {
+        let store = AgentChatStore(source: SmoothChatTests.Silent())
+        store.nextFrame = nil
+        store.apply(.batch((0..<120).flatMap { SmoothChatTests.turn($0) }))
         let controller = ChatTranscriptController(
-            placement: .owned, surface: AgentChatSurface(),
-            content: AnyView(Color.gray.frame(height: 9000)), empty: AnyView(EmptyView()),
-            dock: AnyView(Color.clear.frame(height: 96)), jump: nil
+            placement: .owned, surface: AgentChatSurface(), store: store,
+            empty: AnyView(EmptyView()), dock: AnyView(Color.clear.frame(height: 96)), jump: nil
         )
         controller.reducesMotion = { reducesMotion }
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
         window.rootViewController = controller
         window.makeKeyAndVisible()
         controller.view.layoutIfNeeded()
-        let scroll = try #require(controller.view.subviews.lazy.compactMap { $0 as? ChatTranscriptScrollView }.first)
-        // SwiftUI reports the content's height on a later turn of the run loop.
+        let scroll = try #require(controller.view.subviews.lazy.compactMap { $0 as? ChatTranscriptCollectionView }.first)
+        // The list lays its rows out over later turns of the run loop.
         for _ in 0 ..< 100 where scroll.contentSize.height < 8000 {
             RunLoop.main.run(until: Date().addingTimeInterval(0.02))
             controller.view.layoutIfNeeded()
         }
         try #require(scroll.contentSize.height >= 8000, "content measured \(scroll.contentSize.height)")
-        let content = try #require(controller.children.first?.view)
         // Up at the first turn, no longer following the newest one.
         controller.scrollTranscript(toContentY: 0, animated: false)
         #expect(scroll.contentOffset.y < scroll.bounds.height)
@@ -109,7 +110,7 @@ import UIKit
         controller.view.layoutIfNeeded()
         CATransaction.flush()
         #expect(scroll.contentOffset.y < scroll.bounds.height)
-        return Transcript(controller: controller, scroll: scroll, content: content, window: window)
+        return Transcript(controller: controller, scroll: scroll, window: window)
     }
 
     @Test func aLongJumpLandsAtOnceWithTheTranscriptShown() throws {
@@ -125,16 +126,18 @@ import UIKit
     }
 
     /// The oracle sees motion: without Reduce Motion the long jump still
-    /// cuts to one screen short, hides the transcript for a frame, and
-    /// springs the last screen.
+    /// cuts to one screen short and springs the last screen. (The list's
+    /// jump never hides the transcript: its rows are cells laid out ahead.)
     @Test func withoutReduceMotionTheLongJumpStillAnimates() throws {
         let transcript = try transcript(reducesMotion: false)
         defer { transcript.window.isHidden = true }
         let path = transcript.jump()
         let cut = try #require(transcript.cut(path), "the long jump cuts first: \(path.offsets)")
-        #expect(abs(transcript.bottomY - cut - transcript.scroll.bounds.height) < 1, "one screen short")
-        #expect(path.opacities.contains(0), "the transcript is hidden for the cut: \(path.opacities)")
-        #expect(abs(transcript.scroll.contentOffset.y - transcript.bottomY) < 1)
+        // One screen short of where the jump lands: rows measured as the cut lays them out can
+        // move the newest turn's bottom by a few points, which the jump follows (it re-targets).
+        let landed = transcript.scroll.contentOffset.y
+        #expect(abs(landed - cut - transcript.scroll.bounds.height) < 12, "one screen short: cut \(cut), landed \(landed)")
+        #expect(abs(landed - transcript.bottomY) < 12)
     }
 }
 #endif

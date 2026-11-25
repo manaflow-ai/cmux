@@ -2,6 +2,8 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextFocus
+import CmuxNextFocusUI
+import CmuxNextTestSupport
 import Testing
 import WebKit
 
@@ -13,7 +15,7 @@ import WebKit
 /// Before: in an agent chat Cmd-P ran the chat's own Search Files… (the page's file picker in the
 /// composer), and in the floating Start Agent chat (an `NSPanel` with a web view, which the key
 /// dispatcher never decided) Cmd-Shift-P reached the page, which kept the panel on top.
-@MainActor @Suite struct WebViewNativePaletteKeysTests {
+@MainActor @Suite(.closesItsWindows) struct WebViewNativePaletteKeysTests {
     /// The router holds the registry `unowned`; the suite keeps it.
     let registry: ActionRegistry
     let ran: Ran
@@ -104,10 +106,11 @@ import WebKit
     @Test func aWebViewInAPanelGetsTheNativePalettes() throws {
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 320, height: 240), styleMask: [.titled, .nonactivatingPanel],
                             backing: .buffered, defer: true)
+        defer { panel.closeAfterTest() }
         let webView = WKWebView(frame: panel.contentView?.bounds ?? .zero)
         panel.contentView?.addSubview(webView)
         #expect(panel.makeFirstResponder(webView))
-        #expect(KeyRouter.webContentHasKeys(in: panel))
+        #expect(panel.webContentHasKeys)
         let router = router()
         let cmdShiftP = try Self.cmdShiftP()
         #expect(router.routesNativePaletteKey(cmdShiftP, in: panel))
@@ -125,10 +128,11 @@ import WebKit
     @Test func aNativeFieldInAPanelIsNotWebContent() throws {
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 320, height: 240), styleMask: [.titled],
                             backing: .buffered, defer: true)
+        defer { panel.closeAfterTest() }
         let field = NSTextView(frame: panel.contentView?.bounds ?? .zero)
         panel.contentView?.addSubview(field)
         #expect(panel.makeFirstResponder(field))
-        #expect(!KeyRouter.webContentHasKeys(in: panel))
+        #expect(!panel.webContentHasKeys)
         #expect(!router().routesNativePaletteKey(try Self.cmdShiftP(), in: panel))
         #expect(ran.ids.isEmpty)
     }
@@ -138,6 +142,7 @@ import WebKit
         registry.setShortcutOverride(Shortcut("e", modifiers: [.command, .shift]), for: "commandPalette")
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 320, height: 240), styleMask: [.titled],
                             backing: .buffered, defer: true)
+        defer { panel.closeAfterTest() }
         let webView = WKWebView(frame: panel.contentView?.bounds ?? .zero)
         panel.contentView?.addSubview(webView)
         #expect(panel.makeFirstResponder(webView))

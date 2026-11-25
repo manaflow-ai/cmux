@@ -6,6 +6,11 @@ use crate::wire::{valid_circuit_id, valid_opaque_identifier, websocket_upgrade};
 
 const MAX_SLOT_ID_BYTES: usize = 128;
 
+/// The commit this Worker was built from, set at deploy with
+/// `wrangler deploy --var CMUX_SOURCE_REVISION:<sha>` (.github/workflows/cloudflare-relay.yml).
+/// A deploy that does not set it answers `unknown`.
+const SOURCE_REVISION_VAR: &str = "CMUX_SOURCE_REVISION";
+
 #[derive(Debug, Clone, Copy)]
 enum AdmissionRoute<'a> {
     DaemonControl { slot: &'a str },
@@ -17,6 +22,10 @@ pub(crate) async fn route(request: Request, env: Env) -> Result<Response> {
     let path = request.path();
     if path == "/healthz" {
         return Response::ok("ok");
+    }
+    if path == "/version" {
+        let revision = env.var(SOURCE_REVISION_VAR).map(|value| value.to_string()).ok();
+        return Response::from_json(&version_body(revision.as_deref()));
     }
     if request.method() != Method::Get {
         return Response::error("Method not allowed", 405);
@@ -44,7 +53,17 @@ pub(crate) async fn route(request: Request, env: Env) -> Result<Response> {
     }
 
     match admission {
-        AdmissionRoute::DaemonControl { slot } | AdmissionRoute::ClientControl { slot } => {
+        AdmissionRoute::DaemonControl { slot } => {
+            // A slot the daemon creates is placed near the daemon (`crate::placement`).
+            let namespace = env.durable_object("RELAY_SLOTS")?;
+            let id = namespace.id_from_name(slot)?;
+            let stub = match crate::placement::hint_of(&request) {
+                Some(hint) => id.get_stub_with_location_hint(hint)?,
+                None => id.get_stub()?,
+            };
+            stub.fetch_with_request(request).await
+        }
+        AdmissionRoute::ClientControl { slot } => {
             let namespace = env.durable_object("RELAY_SLOTS")?;
             let stub = namespace.id_from_name(slot)?.get_stub()?;
             stub.fetch_with_request(request).await
@@ -55,6 +74,16 @@ pub(crate) async fn route(request: Request, env: Env) -> Result<Response> {
             stub.fetch_with_request(request).await
         }
     }
+}
+
+/// GET /version: what the deploy healthcheck compares with the commit it shipped.
+fn version_body(revision: Option<&str>) -> serde_json::Value {
+    let revision = revision.filter(|value| is_commit_sha(value)).unwrap_or("unknown");
+    serde_json::json!({ "service": "cmux-remote-relay", "source_revision": revision })
+}
+
+fn is_commit_sha(value: &str) -> bool {
+    value.len() == 40 && value.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
 }
 
 fn authorized_at_edge(request: &Request, env: &Env, route: AdmissionRoute<'_>) -> Result<bool> {
@@ -127,7 +156,17 @@ mod tests {
             generation: None,
             issued_at_unix: 50,
             expires_at_unix: 100,
+            grant: None,
         }
+    }
+
+    #[test]
+    fn version_reports_only_a_full_commit_sha() {
+        let sha = "0123456789abcdef0123456789abcdef01234567";
+        assert_eq!(version_body(Some(sha))["source_revision"], sha);
+        assert_eq!(version_body(None)["source_revision"], "unknown");
+        assert_eq!(version_body(Some("main"))["source_revision"], "unknown");
+        assert_eq!(version_body(Some(&sha.to_uppercase()))["source_revision"], "unknown");
     }
 
     #[test]

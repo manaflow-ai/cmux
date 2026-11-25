@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxTheme
 
 /// The theme text color a label or glyph draws in, resolved in its scope.
 public enum ThemeInk: Sendable {
@@ -13,11 +14,24 @@ public enum ThemeInk: Sendable {
         case .danger: Palette.danger
         }
     }
+
+    /// The same text colour in `tokens`.
+    func rgb(_ tokens: ThemeTokens) -> ThemeRGB {
+        switch self {
+        case .primary: tokens.textPrimary
+        case .secondary: tokens.textSecondary
+        case .tertiary: tokens.textTertiary
+        case .danger: tokens.danger
+        }
+    }
+
+    /// The least contrast it reads at: a tertiary hint as a mark (3:1), the rest as text (4.5:1).
+    var minimumContrast: Double { self == .tertiary ? ThemeTokens.minimumMarkContrast : ThemeTokens.minimumTextContrast }
 }
 
 /// A label whose text color follows its theme scope (room, workspace):
 /// the color is read inside `performWithTheme` whenever the label joins a
-/// window or the theme changes, so it is never frozen at creation.
+/// window, shows or the theme changes, so it is never frozen at creation.
 public final class ThemedLabel: ChromeLabel {
     /// A style color read in the label's scope; nil draws `ink`.
     public var themeColor: (() -> NSColor)? {
@@ -36,6 +50,13 @@ public final class ThemedLabel: ChromeLabel {
 
     override public func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        applyThemeColor()
+    }
+
+    // A theme change does not reach a hidden view (a toast's detail until Details shows it), so
+    // the color is read again when the label shows.
+    override public func viewDidUnhide() {
+        super.viewDidUnhide()
         applyThemeColor()
     }
 
@@ -63,6 +84,12 @@ public final class ThemedImageView: NSImageView {
 
     override public func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        applyThemeTint()
+    }
+
+    // As `ThemedLabel`: a theme change does not reach a hidden view.
+    override public func viewDidUnhide() {
+        super.viewDidUnhide()
         applyThemeTint()
     }
 

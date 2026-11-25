@@ -22,7 +22,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { chromium, type Browser, type Page } from "playwright";
+import { chromium } from "./browsers";
+import type { Browser, Page } from "playwright";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
 
 const ROUNDS = Number(process.argv[2] ?? 3);
@@ -339,8 +340,10 @@ try {
     },
   });
   releases.push(["static server", () => statics.stop(true)]);
-  url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${PAPERCUT_CHAT}`;
-  const browser = await chromium.launch({ headless: true });
+  url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&session=${PAPERCUT_CHAT}`;
+  const browser = await chromium.launch({
+    headless: true,
+  });
   releases.push(["browser", () => browser.close()]);
   // A first load warms the page's caches, so the first measured run is not the cold one.
   await (await open(browser, "off")).close();

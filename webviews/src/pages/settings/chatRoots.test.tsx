@@ -8,7 +8,7 @@ const { renderPage, settle, rowElement } = await import("./testing");
 
 test("chat roots show locked managed rows and refusal reasons; removal writes only user roots", async () => {
   const page = await renderPage({
-    path: "/settings/general",
+    path: "/settings/chat",
     mock: {
       values: { "agents.chats.roots": ["/opt/user", "/opt/shared"] },
       chatFolders: [

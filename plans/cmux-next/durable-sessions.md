@@ -32,6 +32,22 @@ mid-run, background shells under the harness process group, streamed output not 
 pending permission prompts, and the Claude stdio translator state (pending ACP
 request map, control-request map: `claude_stdio/mod.rs:147-165`).
 
+On a Cloud machine the transcript also lives outside the VM (#25584). The `cmux host` Cloud role
+(`cmux-host/src/cloud/trajectory.rs`) sends every acpmux session's records, verbatim and in seq order,
+and the agent's own resume file (Claude project `.jsonl`, Codex rollout) as appended byte ranges, to
+`/v1/cloud/machines/{machine}/trajectories/*` (`backend/apps/api/src/cloud-trajectory.ts`), one
+`TrajectoryDO` per team and machine, written only by that machine's VM install. The creator reads a
+paused machine's chats without waking the VM. A machine restored from one of its creator's snapshots
+reads the source machine's copy (read only) and, once its acpmux runs, imports each chat its disk lacks
+as an `acpmux.bundle.v1` (`acp session import`), so the history is intact and the next prompt resumes
+the agent; from then on the chat is the new machine's, kept in its own copy. A chat the snapshot's disk
+has continues from the snapshot's point. The server keeps a contiguous log and refuses a gap or a
+changed record. Not covered yet: `cmux-harness` chats (their durable journal is not bundled), records
+written in the last pass (5 s) before a VM is lost, records over 1 MiB (that chat stops being kept),
+deleting kept copies with their machine, and showing the server copy in the Mac's pane (Leo's
+peer-snapshot series covers the Mac-side copy). Off unless the deployment sets
+`CLOUD_TRAJECTORIES_ENABLED=1` (development).
+
 Gaps on the PTY side (it is the model, but not complete):
 1. An updated app never moves onto the new daemon build, so a fix in the daemon or host reaches a
    user only after a manual "End Sessions" or a reboot.
@@ -253,14 +269,18 @@ tree pushes):
 - `dead`: true only for `exited`.
 - `host_record_version`: the unreadable record's version when `unadoptable`.
 - `end` (only when `exited`): `{kind: "exited", code}` | `{kind: "signaled", signal, core_dumped}` |
-  `{kind: "host_lost", reason, detail}` | `{kind: "launch_failed", detail}`. `reason` is one of
+  `{kind: "host_lost", reason, detail, launch_failure?}` | `{kind: "launch_failed", detail}`. `reason` is one of
   `missing_record, incarnation_mismatch, dead_before_adoption, died_during_adoption,
   died_without_exit_status, missing_exit_receipt, session_shutdown, unadoptable_host_ended,
   owner_gone, restart_exhausted, restart_failed, other`. `owner_gone` is a host that ended its
   shell after the orphan grace with no owner, or on a `SIGTERM` while orphaned (cx-3ryj). The last two come from the respawn supervisor
   (cx-6so.49): a placed terminal lost with its host respawns after a bounded backoff (0, 2, 10,
   30, 60 s; five attempts per 10 min), and ends as `restart_exhausted` once they are used, or
-  `restart_failed` when a respawn launch fails. The owner start respawns committed respawnable
+  `restart_failed` when a respawn launch fails. A failed launch is first tried again (at most 3
+  more tries, by the same backoff; the tab reads `adopting` meanwhile, `terminal_respawn/retry.rs`);
+  one that found no free PTY is not: its `restart_failed` end has the optional member
+  `launch_failure: "pty_capacity_exhausted"` (from a code word in the stored detail, so a later
+  owner gives it too; an end stored before that member has none). The owner start respawns committed respawnable
   losses an earlier owner never ran (also `session_shutdown` and `owner_gone`).
   Terminals with a runtime use its end; surfaceless ones use their durable receipt.
 - Swift: `TabSnapshot/TabModel.terminalState`, `.end` (`TerminalTabEnd`), `.hostRecordVersion`;

@@ -68,3 +68,48 @@ struct PageArtifactFrameTests {
                                       hook: { _ in .allow }) == .allow)
     }
 }
+
+/// A page with passive frames (the Artifacts page): its own document sets a frame's srcdoc, and a
+/// saved document in that frame can neither navigate itself nor be replaced by another URL.
+struct PagePassiveFrameNavigationTests {
+    let page = PageDescriptor(id: "cmux.artifacts", resource: "artifacts", namespaces: [], passiveFrames: true)
+
+    @Test func pageDocumentMaySetASrcdocFrame() throws {
+        let pageURL = try #require(URL(string: "cmux-page://cmux.artifacts/"))
+        let srcdoc = try #require(URL(string: "about:srcdoc"))
+        let blank = try #require(URL(string: "about:blank"))
+        #expect(PageNavigation.policy(for: srcdoc, page: page, userClicked: false, mainFrame: false,
+                                      targetFrameURL: nil, sourceFrameURL: pageURL, hook: nil) == .allow)
+        #expect(PageNavigation.policy(for: srcdoc, page: page, userClicked: false, mainFrame: false,
+                                      targetFrameURL: blank, sourceFrameURL: pageURL, hook: nil) == .allow)
+        // A new document for the same frame (the person chose another file).
+        #expect(PageNavigation.policy(for: srcdoc, page: page, userClicked: false, mainFrame: false,
+                                      targetFrameURL: srcdoc, sourceFrameURL: pageURL, hook: nil) == .allow)
+    }
+
+    @Test func savedDocumentCannotNavigate() throws {
+        let srcdoc = try #require(URL(string: "about:srcdoc"))
+        let pageURL = try #require(URL(string: "cmux-page://cmux.artifacts/"))
+        let otherPage = try #require(URL(string: "cmux-page://cmux.settings/"))
+        let targets: [String] = ["https://attacker.example/", "http://127.0.0.1:8080/leak", "file:///tmp/private",
+                                 "cmux-page://cmux.artifacts/index.html", "about:blank", "data:text/html,hi"]
+        for text in targets {
+            let target = try #require(URL(string: text))
+            // A link the person clicked inside the saved document, or a meta refresh.
+            #expect(PageNavigation.policy(for: target, page: page, userClicked: true, mainFrame: false,
+                                          targetFrameURL: srcdoc, sourceFrameURL: srcdoc, hook: { _ in .allow }) == .cancel)
+            #expect(PageNavigation.policy(for: target, page: page, userClicked: false, mainFrame: false,
+                                          targetFrameURL: srcdoc, sourceFrameURL: pageURL, hook: { _ in .allow }) == .cancel)
+        }
+        // Another page's document never sets this page's frames.
+        #expect(PageNavigation.policy(for: srcdoc, page: page, userClicked: false, mainFrame: false,
+                                      targetFrameURL: nil, sourceFrameURL: otherPage, hook: nil) == .cancel)
+    }
+
+    @Test func mainFrameKeepsTheOrdinaryPolicy() throws {
+        let pageURL = try #require(URL(string: "cmux-page://cmux.artifacts/"))
+        let external = try #require(URL(string: "https://example.test/"))
+        #expect(PageNavigation.policy(for: pageURL, page: page, userClicked: false, mainFrame: true, hook: nil) == .allow)
+        #expect(PageNavigation.policy(for: external, page: page, userClicked: true, mainFrame: true, hook: nil) == .openExternal)
+    }
+}

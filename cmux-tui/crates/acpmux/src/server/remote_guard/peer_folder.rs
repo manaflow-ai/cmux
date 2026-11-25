@@ -1,6 +1,8 @@
 //! A proven peer's (the owner's own daemon's) `session/new` folder (`remote_guard.rs`): a
 //! missing one inside a root is made without ever following a link, and a refused one says
-//! what `mkdir -p` would make of it and which folder inside the roots to use instead.
+//! what `mkdir -p` would make of it and which folder inside the roots to use instead. A
+//! folder that was removed on purpose (a cleaned-up worktree with its archive record) is
+//! never made again for a chat that still names it.
 
 use super::{canonical_dir, folder_refused, fs_spelling};
 use crate::rpc::RpcError;
@@ -40,6 +42,21 @@ pub(super) async fn make_inside_root(
     if !inside(&target) {
         return Err(None);
     }
+    // Each folder the make would add, in the caller's spelling and in the found one.
+    let (mut asked, mut real, mut added) = (ancestor.to_path_buf(), found.clone(), Vec::new());
+    for name in rest.iter() {
+        asked.push(name);
+        real.push(name);
+        added.push(asked.clone());
+        if real != asked {
+            added.push(real.clone());
+        }
+    }
+    for spelling in added {
+        if removed_on_purpose(&spelling).await {
+            return Err(Some(removed_refused(&spelling)));
+        }
+    }
     if !make {
         return Ok(None);
     }
@@ -51,6 +68,49 @@ pub(super) async fn make_inside_root(
     let canonical =
         canonical_dir(&target.to_string_lossy()).await.ok_or(Some(folder_refused("cwd")))?;
     if inside(Path::new(&canonical)) { Ok(Some(canonical)) } else { Err(None) }
+}
+
+/// Where worktree cleanup keeps what it removed: `~/archive/<time>-<name>[-...]/manifest.json`,
+/// whose `path` names the folder removed (leo-workspace's worktree and disk reclaimers).
+const REMOVED_RECORDS: &str = "archive";
+
+/// Whether `path` was removed on purpose: an archive record names it. Such a folder comes back
+/// only as the restore its record describes, never as an empty folder a stale chat asks for
+/// (it brought back cleaned-up worktrees, which the cleanup then archived again on every pass).
+async fn removed_on_purpose(path: &Path) -> bool {
+    let (Some(home), Some(leaf)) = (dirs::home_dir(), path.file_name()) else { return false };
+    let Ok(mut entries) = tokio::fs::read_dir(home.join(REMOVED_RECORDS)).await else {
+        return false;
+    };
+    let tag = format!("-{}", leaf.to_string_lossy());
+    let want = path.to_string_lossy();
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        if !entry.file_name().to_string_lossy().contains(&tag) {
+            continue;
+        }
+        let Ok(text) = tokio::fs::read(entry.path().join("manifest.json")).await else { continue };
+        let named = serde_json::from_slice::<Value>(&text)
+            .ok()
+            .and_then(|m| m.get("path").and_then(Value::as_str).map(str::to_owned));
+        if named.is_some_and(|named| named.trim_end_matches('/') == want.trim_end_matches('/')) {
+            return true;
+        }
+    }
+    false
+}
+
+/// `folder_refused` for a folder `removed_on_purpose`: `data.cause` `removed`, and the path.
+fn removed_refused(path: &Path) -> RpcError {
+    let shown = path.to_string_lossy().into_owned();
+    let mut e = folder_refused("cwd");
+    e.message = format!(
+        "cwd is refused: {shown} was removed (its archive record is in ~/{REMOVED_RECORDS}); start the chat in an existing folder"
+    );
+    if let Some(data) = e.data.as_mut() {
+        data["cause"] = Value::from("removed");
+        data["cwd"] = Value::from(shown);
+    }
+    e
 }
 
 /// Make each name of `rest` below `base` (canonical), one folder at a time through
@@ -138,7 +198,10 @@ pub(super) async fn outside_told(cwd: &str, told: &Option<Vec<PathBuf>>) -> RpcE
     } else {
         format!("; this machine's webRoots: {}", listed.join(", "))
     });
-    e.message.push_str(" (with no folder at all, a scratch folder is made for the session)");
+    e.message.push_str(
+        " (a git checkout on this machine works anywhere outside them; with no folder at all, \
+         a scratch folder is made for the session)",
+    );
     let mut pick = roots.first().cloned();
     if let (Some(root), Some(leaf)) = (roots.first(), Path::new(cwd).file_name()) {
         let candidate = root.join(leaf);
@@ -157,6 +220,29 @@ pub(super) async fn outside_told(cwd: &str, told: &Option<Vec<PathBuf>>) -> RpcE
         }
     }
     e
+}
+
+/// Whether `canonical` (an existing folder, already resolved) lies in a git checkout that the
+/// owner's own daemon may start a chat in outside the roots: its nearest folder holding
+/// `.git` (a folder, or a linked worktree's file) is neither the home directory nor an
+/// ancestor of it, so a home kept as a dotfiles repo opens none of home (`~/.ssh`). The
+/// owner reached this account over ssh; a checkout of theirs on it is theirs to work in
+/// ("start there", Leo, 2026-11-10: remote is "something that I do certainly care about").
+pub(super) async fn owner_checkout(canonical: &Path) -> bool {
+    let home = match dirs::home_dir() {
+        Some(h) => fs_spelling(&h.to_string_lossy()).await.unwrap_or(h),
+        None => return false,
+    };
+    checkout_outside_home(canonical, &home).await
+}
+
+async fn checkout_outside_home(canonical: &Path, home: &Path) -> bool {
+    for dir in canonical.ancestors() {
+        if tokio::fs::symlink_metadata(dir.join(".git")).await.is_ok() {
+            return !home.starts_with(dir);
+        }
+    }
+    false
 }
 
 /// `webRoots` from config.json, under `web_roots`' guards, in config order.
@@ -206,6 +292,35 @@ mod tests {
         assert!(make_below(&root.join("a/b"), Path::new("child")).is_err());
         assert!(make_below(&root, Path::new("a/b/child")).is_err());
         assert!(!outside.join("b/child").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn a_checkout_counts_unless_its_top_is_home_or_above_it() {
+        let dir = std::env::temp_dir().join(format!("owner-checkout-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let home = dir.join("home");
+        for d in ["home/.ssh", "home/src/app/.git", "home/src/app/lib", "home/src/notes"] {
+            std::fs::create_dir_all(dir.join(d)).unwrap();
+        }
+        // A linked worktree's `.git` is a file.
+        std::fs::create_dir_all(dir.join("wt")).unwrap();
+        std::fs::write(dir.join("wt/.git"), "gitdir: /elsewhere\n").unwrap();
+        let app = home.join("src/app");
+        assert!(checkout_outside_home(&app, &home).await);
+        assert!(checkout_outside_home(&app.join("lib"), &home).await);
+        assert!(checkout_outside_home(&dir.join("wt"), &home).await);
+        assert!(!checkout_outside_home(&home.join("src/notes"), &home).await);
+        assert!(!checkout_outside_home(&home, &home).await);
+        // Home kept as a dotfiles repo: its folders are no checkout of their own.
+        std::fs::create_dir_all(home.join(".git")).unwrap();
+        assert!(!checkout_outside_home(&home.join(".ssh"), &home).await);
+        assert!(!checkout_outside_home(&home.join("src/notes"), &home).await);
+        assert!(checkout_outside_home(&app, &home).await, "its own .git is nearer");
+        // A repo above home (`/` as one) opens nothing.
+        std::fs::create_dir_all(dir.join(".git")).unwrap();
+        std::fs::remove_dir_all(home.join(".git")).unwrap();
+        assert!(!checkout_outside_home(&home.join(".ssh"), &home).await);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

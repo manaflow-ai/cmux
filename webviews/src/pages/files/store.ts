@@ -1,7 +1,17 @@
 // The Files page's state owner: the root folder, each listed folder's children, which folders are
 // expanded and which row is selected. Folders list on first expand and again on refresh. React reads
 // it through `useSyncExternalStore`.
-import { isPageError, type PageClient } from "../shared/pageClient";
+import type { PageClient } from "../shared/pageClient";
+import { OWNER_SENTENCE, userMessage } from "../shared/userMessage";
+
+/** The file tree's owner words these refusals for the person (FileTreeStrings), and the host
+ *  words a clipboard write it refuses (RefusalStrings). */
+const SENTENCES = {
+  "cmux.files.no_folder": OWNER_SENTENCE,
+  "cmux.files.open_failed": OWNER_SENTENCE,
+  "cmux.files.unavailable": OWNER_SENTENCE,
+  "cmux.app.user_only": OWNER_SENTENCE,
+} as const;
 import { CLIPBOARD_WRITE, FilesOps, type FileEntry, type Listing, type RootInfo } from "./types";
 
 export interface FolderState {
@@ -54,6 +64,8 @@ export class FilesStore {
   private selectionEpoch = 0;
   /** Every open gets a unique token, including retries of the same path. */
   private openAttempt = 0;
+  /** The latest copy: an older one's late failure is not the notice for what is on screen now. */
+  private copyAttempt = 0;
   private snapshot: FilesSnapshot = { rows: [], folders: this.folders, expanded: new Set() };
   private listeners = new Set<() => void>();
 
@@ -77,7 +89,7 @@ export class FilesStore {
     try {
       this.root = await this.client.call<RootInfo>(FilesOps.root, {});
     } catch (error) {
-      return this.fail(isPageError(error) ? error.message : String(error));
+      return this.fail(userMessage(error, SENTENCES));
     }
     this.emit();
     await this.list("");
@@ -125,17 +137,29 @@ export class FilesStore {
       await this.client?.call(FilesOps.open, { path });
     } catch (error) {
       if (this.selectionEpoch !== epoch || this.openAttempt !== attempt) return;
-      this.notice = isPageError(error) ? error.message : String(error);
+      this.notice = userMessage(error, SENTENCES);
       this.emit();
     }
   }
 
   async copy(text: string): Promise<void> {
+    const attempt = ++this.copyAttempt;
+    const epoch = this.selectionEpoch;
+    const opened = this.openAttempt;
     try {
       if (!this.writeClipboard) throw new Error("no page clipboard");
       await this.writeClipboard(text);
     } catch {
-      await this.client?.call(CLIPBOARD_WRITE, { text }).catch(() => {});
+      // The page's clipboard refused (or is not there): the host writes it. When it cannot either,
+      // the person is told, not left to paste what was never copied.
+      try {
+        await this.client?.call(CLIPBOARD_WRITE, { text });
+      } catch (error) {
+        // A newer copy, another selection or an open began meanwhile: this failure is stale.
+        if (attempt !== this.copyAttempt || epoch !== this.selectionEpoch || opened !== this.openAttempt) return;
+        this.notice = userMessage(error, SENTENCES);
+        this.emit();
+      }
     }
   }
 
@@ -156,7 +180,7 @@ export class FilesStore {
       this.setFolder(path, { entries: listing.entries, truncated: listing.truncated, loading: false });
     } catch (error) {
       if (this.requests.get(path) !== request) return;
-      const failed = isPageError(error) ? error.message : String(error);
+      const failed = userMessage(error, SENTENCES);
       this.setFolder(path, { loading: false, failed });
     }
   }

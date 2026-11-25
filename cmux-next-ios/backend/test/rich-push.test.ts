@@ -20,6 +20,7 @@ const OTHER = "22222222-2222-4222-8222-222222222222"
 const base: NotifyEvent = { eventId: "p-1", kind: "question", agent: "Claude", place: "cmux-next", macId: MAC, macName: "Mac mini", sessionId: "s1" }
 const reg = (over: Partial<PushRegistration> = {}): PushRegistration => ({
   deviceId: "d1",
+  space: "",
   ownerUserId: "o",
   token: "aa",
   environment: "production",
@@ -142,7 +143,9 @@ describe("v2 APNs payload", () => {
 
   it("writes each kind's banner", () => {
     const alert = (e: Partial<NotifyEvent>) => apnsPayload({ ...base, ...e } as NotifyEvent).aps.alert
-    expect(alert({ kind: "permission", title: "rm -rf build" })).toEqual({ title: "Claude needs permission", subtitle: "cmux-next · Mac mini", body: "rm -rf build" })
+    // A permission reads as the Mac's approval prompt for a streaming device: the Mac in the title, the workspace under it.
+    expect(alert({ kind: "permission", title: "rm -rf build" })).toEqual({ title: "Claude wants to act on Mac mini", subtitle: "cmux-next", body: "rm -rf build" })
+    expect(alert({ kind: "permission", title: "rm -rf build", workspace: undefined, place: undefined })).toEqual({ title: "Claude wants to act on Mac mini", body: "rm -rf build" })
     expect(alert({ kind: "completed", tail: ["first", "All tests pass"] })).toEqual({ title: "Claude finished", subtitle: "cmux-next · Mac mini", body: "All tests pass" })
     expect(alert({ kind: "failed", body: "rate limited", tail: ["x"] }).body).toBe("rate limited")
     expect(alert({ kind: "failed", tail: ["boom"] })).toMatchObject({ title: "Claude stopped with an error", body: "boom" })

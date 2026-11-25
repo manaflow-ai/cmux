@@ -10,10 +10,13 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
+import sys
 
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 
 
 def load(name: str) -> dict:
@@ -38,6 +41,12 @@ class HeadlessDebugDaemon(unittest.TestCase):
         self.consumer_doc = load("cmux-tui-sdks.yml")
         self.consumer = self.consumer_doc["jobs"]["conformance"]
 
+    def test_a_newer_push_does_not_cancel_a_running_build(self) -> None:
+        # A build outlasts the gap between feat-cmux-next pushes, so cancelling in
+        # progress let no run finish (91 of 100 cancelled, 2026-11-22).
+        concurrency = self.producer_doc["concurrency"]
+        self.assertIs(concurrency["cancel-in-progress"], False)
+
     def test_the_key_and_path_match_conformance(self) -> None:
         key = "Key the headless cmux-tui build"
         self.assertEqual(step(self.producer, key)["run"], step(self.consumer, key)["run"])
@@ -61,10 +70,12 @@ class HeadlessDebugDaemon(unittest.TestCase):
 
     def test_it_runs_on_the_runner_a_same_repository_pull_request_uses(self) -> None:
         # The key names RUNNER_OS and RUNNER_ARCH only, so the runner type
-        # must be the one conformance picks for a same-repository pull request.
-        trusted = "!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}"
-        self.assertTrue(self.consumer["runs-on"].endswith("|| " + trusted), self.consumer["runs-on"])
-        self.assertEqual(self.producer["runs-on"], "${{ " + trusted)
+        # must be the one conformance picks for a same-repository pull request:
+        # both take the one Linux label (scripts/ci/one_linux_label.py).
+        trusted = "'cmux-linux' }}"
+        consumer = workflow_jobs.single_runs_on(self.consumer)
+        self.assertTrue(consumer.endswith("|| " + trusted), consumer)
+        self.assertTrue(workflow_jobs.single_runs_on(self.producer).endswith("|| " + trusted))
 
     def test_a_pull_request_builds_incrementally_from_the_feat_target_dir(self) -> None:
         # The exact-binary key names the whole cmux-tui tree, so a pull request that
@@ -76,7 +87,15 @@ class HeadlessDebugDaemon(unittest.TestCase):
             cache = step(job, "Cache the cmux-tui target dir")
             self.assertTrue(str(cache.get("uses", "")).startswith("Swatinem/rust-cache@"))
             self.assertLess(names.index("Cache the cmux-tui target dir"), names.index("Build exact headless cmux-tui"))
-            self.assertEqual(cache.get("if"), "${{ steps.headless-cache.outputs.cache-hit != 'true' }}")
+            # #46962: conformance gates its build steps on a green result for the same
+            # input tree as well, so its condition wraps the producer's.
+            self.assertIn(
+                cache.get("if"),
+                (
+                    "${{ steps.headless-cache.outputs.cache-hit != 'true' }}",
+                    "${{ steps.tree.outputs.hit != 'true' && (steps.headless-cache.outputs.cache-hit != 'true') }}",
+                ),
+            )
             return cache["with"]
 
         produced, consumed = target_cache(self.producer), target_cache(self.consumer)

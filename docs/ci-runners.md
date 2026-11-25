@@ -1000,8 +1000,8 @@ its `watch` job, on another Blacksmith pool, waits for the probe:
   label other than `blacksmith-*` or `ubuntu-*` to them: `MACOS_RUNNER_26`
   has no owned failover, an override naming a reused machine for either is
   refused, and a stalled probe never re-applies an older record's owned value
-  to one (on 2026-10-28 that turned `signing-runner-variables` red on every
-  pull request). Only a variable that
+  to one (on 2026-10-28 one did, putting signing jobs on a shared mini with no
+  whole-mini claim). Only a variable that
   is unset or names a `blacksmith-*` label changes; one someone pointed
   elsewhere is left alone. Then up to 25 runs holding a job queued 5 minutes
   or more on a `blacksmith-*` label are force-cancelled (a plain cancel did
@@ -1122,6 +1122,23 @@ manual choice wins over the variable; both dropdowns expose Blacksmith, Warp,
 and `depot-macos-*` choices, with a Depot identity guard for GUI-activation
 runs. These choices are available only through `workflow_dispatch`.
 
+
+### Ship a nightly now
+
+`python3 scripts/ci/nightly_now.py [SHA]` asks main's `nightly-next-tick.yml` for
+SHA (default: the tip of `feat-cmux-next`), skipping the rolling rule's wait, so
+the newest buildable commit at or before it goes to `nightly-next` and builds.
+It also starts `nightly-next-supersede.yml`, which runs beside every
+`nightly-next` push too. That workflow cancels an older `nightly-next` run
+holding the push or sign group when none of its build, sign or publish jobs has
+started and the newer run waiting on that group has waited 5 min on it
+(`scripts/ci/nightly_next_supersede.py`, with the light-job list and started rule
+from main's `scripts/ci/delivery_workflows.py`). It never cancels a started job,
+the tip's push run or the newest sign stage. When a holder is still inside that
+5 min wait as its run ends, the run dispatches itself again on `nightly-next`
+(input `chain`, at most 12 links after one push), so a stuck holder is dropped
+within minutes instead of at the next promotion. `--dry-run` sends nothing.
+
 ## Guard
 
 `tests/test_ci_self_hosted_guard.sh` (run by the `workflow-guard-tests` job)
@@ -1181,3 +1198,43 @@ Every required macOS fallback still routes to the paid hosted path.
 `check_no_self_hosted_fleet_runners` in
 `tests/test_ci_self_hosted_guard.sh` rejects any required-job or generic fleet
 route.
+
+## Runner pools
+
+Leo, 2026-10-28: "I hate pins. Like, just pin the set of the stuff that isn't
+hilariously slow."
+
+A job never names a single-size Blacksmith label as a route. It reads the pool
+of the size it was measured at:
+
+```yaml
+runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+```
+
+main's `.github/runners.json` `pools` declares each pool and its members in
+order; `scripts/ci/runner_pools.py` on main keeps the `RUNNER_POOLS` repository
+variable on a live member of each and moves a pool off a member that starts
+nothing, so the job follows with no YAML edit. This branch keeps a copy of the
+declaration for its tests (`tests/runs_on_labels.py` resolves a pool read to its
+members; `tests/test_ci_runner_pools_copy.py` keeps the copy equal to main's).
+
+| Pool | Members (first is preferred) |
+| --- | --- |
+| `linux` | Blacksmith 4 vCPU, 16 vCPU (may gain the fleet Linux label) |
+| `linux_2` | Blacksmith 2 vCPU, then 4 vCPU |
+| `linux_4` | Blacksmith 4 vCPU, then 16 vCPU (ephemeral only, unlike `linux`) |
+| `linux_8` | Blacksmith 8 vCPU, then 16 vCPU |
+| `linux_16` | Blacksmith 16 vCPU, then 32 vCPU |
+| `linux_32` | Blacksmith 32 vCPU, then 16 vCPU |
+| `linux_arm64` | Blacksmith 4 vCPU ARM64 |
+| `windows` | Blacksmith 4 vCPU Windows |
+| `macos_15` | Blacksmith macOS 15 |
+| `macos_26` | Blacksmith macOS 26 (6, then 12 vCPU) |
+| `macos_26_large` | Blacksmith macOS 26 (12, then 6 vCPU) |
+| `macos_latest` | Blacksmith macOS latest image, then macOS 26 |
+
+Literal labels stay only where they are not a route: the fork pull request
+branch (a fork's run gets no repository variables), the owner branch, membership
+lists and comparisons. GitHub-hosted routes are the exact exceptions in
+`tests/test_ci_self_hosted_guard.sh`.
+

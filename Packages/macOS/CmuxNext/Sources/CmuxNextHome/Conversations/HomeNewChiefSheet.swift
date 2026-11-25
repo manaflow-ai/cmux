@@ -1,12 +1,29 @@
 public import AppKit
 public import CmuxHomeCore
 import CmuxNextDesign
+public import CmuxNextHomeModel
 
 /// "New Chief…": a name for another Chief and the engine it runs on (Claude, Codex or
 /// UniiChat, ``ChiefBackend``); the Chief gets its own conversation. The host's `onCreate`
-/// makes it where the engine needs it (``ChiefBackend/createsOnThisMac``).
+/// makes it where the engine needs it (``ChiefBackend/createsOnThisMac``): Claude's on the cloud
+/// `chief.create` unless the person picks "Make it on this Mac" (``onCreateOnThisMac``).
 public final class HomeNewChiefSheet: HomeSheetController, NSTextFieldDelegate {
     public var onCreate: (String, ChiefBackend) async -> HomeComposeOutcome = { _, _ in .offline }
+    /// With this set, a cloud engine's Chief can instead run on a Cloud machine of its own ("On its own Cloud
+    /// machine"): the host gets the name and this sheet's start key, the same on every Create, so a retry finishes
+    /// the first start.
+    public var onCreateOnMachine: ((String, String) async -> HomeComposeOutcome)? {
+        didSet { showHint() }
+    }
+    let ownMachine = NSButton(checkboxWithTitle: HomeConversationStrings.chiefOwnMachine, target: nil, action: nil)
+    /// This sheet's one machine start (``onCreateOnMachine``).
+    let machineKey = UUID().uuidString.lowercased()
+    /// With this set, a cloud engine's Chief (Claude) can instead be made on this Mac's Chief owner
+    /// ("Make it on this Mac", off by default): the host gets the name and the engine.
+    public var onCreateOnThisMac: ((String, ChiefBackend) async -> HomeComposeOutcome)? {
+        didSet { showHint() }
+    }
+    let thisMac = NSButton(checkboxWithTitle: HomeConversationStrings.chiefThisMac, target: nil, action: nil)
     let name = HomeSheetController.field(placeholder: HomeConversationStrings.chiefName, identifier: "cmux.home.chief.name")
     let backend = ThemedPopUpButton(frame: .zero, pullsDown: false)
     /// The chosen engine's one-line note (``ChiefBackend/hint``); hidden when it has none.
@@ -43,6 +60,15 @@ public final class HomeNewChiefSheet: HomeSheetController, NSTextFieldDelegate {
         backendHint.preferredMaxLayoutWidth = 420 - 2 * Metrics.space6
         backendHint.setAccessibilityIdentifier("cmux.home.chief.backendHint")
         stack.addArrangedSubview(backendHint)
+        ownMachine.setAccessibilityIdentifier("cmux.home.chief.ownMachine")
+        stack.addArrangedSubview(ownMachine)
+        ownMachine.target = self
+        ownMachine.action = #selector(placeChanged(_:))
+        thisMac.state = .off
+        thisMac.setAccessibilityIdentifier("cmux.home.chief.thisMac")
+        stack.addArrangedSubview(thisMac)
+        thisMac.target = self
+        thisMac.action = #selector(placeChanged(_:))
         showHint()
     }
 
@@ -64,16 +90,34 @@ public final class HomeNewChiefSheet: HomeSheetController, NSTextFieldDelegate {
     override func submit() {
         let chosen = trimmed
         let engine = chosenBackend
+        if let onMachine = onCreateOnMachine, !ownMachine.isHidden, ownMachine.state == .on {
+            let key = machineKey
+            run { await onMachine(chosen, key) }
+            return
+        }
+        if let onThisMac = onCreateOnThisMac, !thisMac.isHidden, thisMac.state == .on {
+            run { await onThisMac(chosen, engine) }
+            return
+        }
         let create = onCreate
         run { await create(chosen, engine) }
     }
 
     @objc private func backendChanged(_ sender: NSPopUpButton) { showHint() }
 
+    /// "On its own Cloud machine" and "Make it on this Mac" name two different places, so checking one
+    /// unchecks the other; neither checked is the default cloud `chief.create`.
+    @objc private func placeChanged(_ sender: NSButton) {
+        guard sender.state == .on else { return }
+        (sender === ownMachine ? thisMac : ownMachine).state = .off
+    }
+
     private func showHint() {
         let hint = chosenBackend.hint
         backendHint.stringValue = hint ?? ""
         backendHint.isHidden = hint == nil
+        ownMachine.isHidden = onCreateOnMachine == nil || chosenBackend.createsOnThisMac
+        thisMac.isHidden = onCreateOnThisMac == nil || chosenBackend.createsOnThisMac
     }
 
     public func controlTextDidChange(_ notification: Notification) { refreshPrimary() }

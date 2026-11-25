@@ -19,10 +19,6 @@ public nonisolated struct AcpmuxDaemonSummary: Sendable, Equatable {
     public var build: String?
     public var state: State
 
-    /// Homes (standardized paths) whose daemon a handoff is stopping, until the lookup that
-    /// starts the bundled one settles.
-    private static let restartingHomes = Mutex<Set<String>>([])
-
     public init(build: String?, state: State) {
         self.build = build
         self.state = state
@@ -56,7 +52,7 @@ public nonisolated struct AcpmuxDaemonSummary: Sendable, Equatable {
 
     /// The row's title.
     public static var title: String {
-        String(localized: "agentPane.acpmuxDaemon.title", defaultValue: "acpmux daemon", bundle: .module)
+        String(localized: "agentPane.acpmuxDaemon.title", defaultValue: "cmux daemon", bundle: .localizedModule)
     }
 
     /// The row's value: "<build> (up to date)", "<build> (restarting…)", "<build> (not the app's
@@ -66,60 +62,44 @@ public nonisolated struct AcpmuxDaemonSummary: Sendable, Equatable {
         switch state {
         case .upToDate:
             return String(format: String(localized: "agentPane.acpmuxDaemon.upToDate", defaultValue: "%@ (up to date)",
-                                         bundle: .module), build)
+                                         bundle: .localizedModule), build)
         case .restarting:
             return String(format: String(localized: "agentPane.acpmuxDaemon.restarting", defaultValue: "%@ (restarting…)",
-                                         bundle: .module), build)
+                                         bundle: .localizedModule), build)
         case .otherBuild:
             return String(format: String(localized: "agentPane.acpmuxDaemon.otherBuild", defaultValue: "%@ (not the app's build)",
-                                         bundle: .module), build)
+                                         bundle: .localizedModule), build)
         case .notRunning:
-            return String(localized: "agentPane.acpmuxDaemon.notRunning", defaultValue: "Not running", bundle: .module)
+            return String(localized: "agentPane.acpmuxDaemon.notRunning", defaultValue: "Not running", bundle: .localizedModule)
         }
-    }
-
-    /// Notes that a handoff is stopping the daemon of `home`, or that it settled: its shutdown
-    /// failed, the old daemon did not exit, or the lookup that starts the bundled one ended.
-    static func mark(home: URL, restarting: Bool) {
-        let path = home.standardizedFileURL.path
-        restartingHomes.withLock { homes in
-            if restarting {
-                _ = homes.insert(path)
-            } else {
-                _ = homes.remove(path)
-            }
-        }
-    }
-
-    static func isRestarting(home: URL) -> Bool {
-        let path = home.standardizedFileURL.path
-        return restartingHomes.withLock { $0.contains(path) }
     }
 
     /// How long the bundled acpmux may take to say its build: the card waits for this line.
     static let versionBound: Duration = .seconds(2)
 
     /// The daemon of `environment` now: one `--version` call (bounded, ``versionBound``) and one
-    /// `_acpmux/status` call (2 s), so the card waits at most about 4 s. A nil `environment` (no
-    /// acpmux) is not running.
-    @concurrent public static func current(_ environment: AcpmuxEnvironment?) async -> Self {
-        await current(environment, versionClock: ContinuousClock())
+    /// `_acpmux/status` call (``AcpmuxEnvironment/answerDeadline``): a loaded daemon's late answer still
+    /// fills the card. A nil `environment` (no
+    /// acpmux) is not running. `daemons` is the app's (``AcpmuxLocalDaemons``): its handoff marks.
+    @concurrent public static func current(_ environment: AcpmuxEnvironment?, daemons: AcpmuxLocalDaemons) async -> Self {
+        await current(environment, daemons: daemons, versionClock: ContinuousClock())
     }
 
-    /// ``current(_:)`` with the `--version` bound on `versionClock` (tests pass a manual one).
-    @concurrent static func current(_ environment: AcpmuxEnvironment?, versionClock: any Clock<Duration>) async -> Self {
+    /// ``current(_:daemons:)`` with the `--version` bound on `versionClock` (tests pass a manual one).
+    @concurrent static func current(_ environment: AcpmuxEnvironment?, daemons: AcpmuxLocalDaemons,
+                                    versionClock: any Clock<Duration>) async -> Self {
         guard let environment else { return Self(build: nil, state: .notRunning) }
         let bundled = await DaemonUpdatePolicy.bundledBuild(of: environment.executable, within: versionBound, clock: versionClock)
         let status = try? await AcpmuxStatusClient.status(socketPath: environment.socketPath)
         guard let status, status.serves(home: environment.home) else {
-            return Self(answered: false, running: nil, bundled: bundled, restarting: isRestarting(home: environment.home))
+            return Self(answered: false, running: nil, bundled: bundled, restarting: daemons.isRestarting(home: environment.home))
         }
         // What a lookup would do first, then the mark: a handoff uses its key and sets the mark in
         // one step, so a used key read here comes with its mark unless that handoff settled since
         // (a failure clears it: the daemon it kept is not the app's build). Both after the awaits.
         let stray = AcpmuxStrayDaemon.takesOver(status, environment: environment)
         let handoff = AcpmuxVersionHandoff.handsOff(status, environment: environment, bundled: bundled)
-        let restarting = isRestarting(home: environment.home)
+        let restarting = daemons.isRestarting(home: environment.home)
         return Self(answered: true, running: status.build, bundled: bundled, restarting: restarting,
                     replaced: handoff.replaced || stray.stray, handsOff: stray.takesOver || handoff.handsOff)
     }

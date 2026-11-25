@@ -8,12 +8,17 @@
 //! its pending intents with the same function, so the row the app shows is
 //! the row the daemon will store.
 //!
-//! - [`model`]: sections, items, bodies, the wire ops and the refusal codes.
+//! - [`model`]: sections, items, bodies, the wire ops, the refusal codes and
+//!   their text (`Refusal::text`, `change_failure_text`).
 //! - [`doc`]: the document and its indexes (id, sibling lists, refs).
 //! - [`order_key`]: fractional order keys.
 //! - [`reduce`]: the reducer, in place, with the inverse ops for undo.
+//! - `stale`: each op rebased onto the document as it is now (a gone item drops
+//!   out, a gone target falls back), so a stale op is never refused.
 //! - [`check`]: the invariants (the touched rows per op; all at open).
 //! - [`view`]: the flat rows one window draws.
+//! - [`project`]: those rows as the sections the app's list draws.
+//! - [`plan`]: the ops of New Subgroup and of a remote group, planned on the document.
 //! - [`accept`]: the drop acceptance table of one drag.
 //! - [`reset`]: the default sections again, and removal by old layout ref.
 //! - [`migrate`]: the one-time move from the old sidebar stores.
@@ -33,8 +38,19 @@ mod nested_pin_tests;
 pub mod order_key;
 #[cfg(test)]
 mod pin_tests;
+pub mod plan;
+pub mod project;
+#[cfg(test)]
+mod project_tests;
 pub mod reduce;
+#[cfg(test)]
+mod refusal_text_tests;
 pub mod reset;
+#[cfg(test)]
+mod scale_tests;
+mod stale;
+#[cfg(test)]
+mod stale_tests;
 pub mod view;
 
 #[cfg(test)]

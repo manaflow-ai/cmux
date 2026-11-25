@@ -1,13 +1,15 @@
 public import Foundation
+#if canImport(ImageIO)
 import ImageIO
+#endif
+#if canImport(UniformTypeIdentifiers)
 import UniformTypeIdentifiers
+#endif
 
 /// The owner's attachment rules (home-messaging.md 10.1), checked on the
 /// client before any upload so a refused file never leaves the device.
 public struct HomeAttachmentPolicy {
     public init() {}
-    /// Per file, every type (decimal megabytes, like the owner).
-    public static let maxBytes = 100_000_000
     /// Up to this size a source streams the bytes through the owner's
     /// Worker; larger files use bounded multipart pieces through the Worker.
     public static let streamMaxBytes = 32_000_000
@@ -217,6 +219,9 @@ public struct HomeAttachmentPolicy {
     /// Image types ImageIO reads that the owner refuses (TIFF, HEIF, BMP,
     /// camera RAW): prepare converts them.
     static let convertibleImageTypes: [UTType] = {
+        #if !canImport(ImageIO)
+        return [] // no ImageIO (the Linux package lane): nothing converts
+        #else
         let readable = (CGImageSourceCopyTypeIdentifiers() as? [String]) ?? []
         return readable.compactMap(UTType.init).filter { type in
             guard type.conforms(to: .image) else { return false }
@@ -224,6 +229,7 @@ public struct HomeAttachmentPolicy {
             let ext = type.preferredFilenameExtension ?? ""
             return allowedTypes[mime] == nil && (ext.isEmpty || !revealsInsteadOfOpening(name: "attachment.\(ext)"))
         }
+        #endif
     }()
 
     /// UTType identifiers `prepareAttachment` sends as their own type or
@@ -240,7 +246,7 @@ public struct HomeAttachmentPolicy {
 
     /// True when `prepareAttachment(data:typeIdentifier:)` takes input of
     /// this type: every type does (unlisted ones go as text or a generic
-    /// file); it may still refuse empty bytes or bytes over the size limit.
+    /// file); empty input is checked separately.
     public static func accepts(typeIdentifier: String) -> Bool { true }
 
     /// True when `prepareAttachment(fileURL:)` takes this file: anything
@@ -264,7 +270,6 @@ public struct HomeAttachmentPolicy {
         guard allowedTypes[canonicalMimeType(mimeType)] != nil else {
             throw HomeAttachmentError.typeRefused(mimeType: mimeType, name: name)
         }
-        guard byteCount <= maxBytes else { throw HomeAttachmentError.tooLarge(byteCount: byteCount, limit: maxBytes) }
         guard byteCount > 0 else { throw HomeAttachmentError.empty(name: name) }
     }
 }
@@ -281,8 +286,6 @@ public enum HomeAttachmentError: Error, Hashable, Sendable {
     /// Over 255 characters, blank, `.` or `..`, or holding a control
     /// character or a path separator.
     case invalidName(name: String)
-    /// Over `HomeAttachmentPolicy.maxBytes`.
-    case tooLarge(byteCount: Int, limit: Int)
     /// A file with no bytes.
     case empty(name: String)
     /// More than `HomeAttachmentPolicy.maxParts` parts in one message.

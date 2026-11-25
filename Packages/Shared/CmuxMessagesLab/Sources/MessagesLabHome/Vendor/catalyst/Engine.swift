@@ -153,6 +153,9 @@ enum Action {
     /// cmux: the participants again (a sender's avatar changed: the host's chosen Chief avatar);
     /// the rows are derived again.
     case cmuxSetParticipants([Participant])
+    /// cmux: the participants and whether the transcript names other senders' runs, again (an
+    /// agent that sent through its owner's CLI appeared: HomeAgentSender); the rows are derived again.
+    case cmuxSetSenders([Participant], group: Bool)
     /// Hosted rows of these messages measure again (no state change). `animated` false: an
     /// estimate correction (no motion; the first visible row keeps its place).
     case remeasureCustom([ID], animated: Bool)
@@ -188,7 +191,8 @@ enum Reducer {
     }
     /// Pure state transition. `now` stamps new records; `newID` names them.
     static func reduce(_ s: inout AppState, _ action: Action, now: Date, newID: () -> ID) -> Message? {
-        let stamp = Instant.format(now)
+        // cmux: formatted only by an action that stamps a record: a draft key formatted a date every key.
+        lazy var stamp = Instant.format(now)
         switch action {
         case let .setDraft(text):
             s.ui.draft.text = text
@@ -335,10 +339,16 @@ enum Reducer {
             s.ui.notice = text
         case let .cmuxSetAttachments(updates):  // cmux
             for (id, a) in updates {
+                // Every part under the id: a picture sent twice has two parts of one id (#50984).
                 guard let i = s.conversation.messages.firstIndex(where: { $0.id == id }),
-                      let pi = s.conversation.messages[checked: i]?.parts.firstIndex(where: { if case let .attachment(x) = $0 { return x.id == a.id }; return false })
+                      let parts = s.conversation.messages[checked: i]?.parts
                 else { continue } // cmux: checked
-                s.conversation.messages.update(at: i) { $0.parts.update(at: pi) { $0 = .attachment(a) } }
+                let at = parts.enumerated().compactMap { pi, p -> Int? in
+                    if case let .attachment(x) = p, x.id == a.id { return pi }
+                    return nil
+                }
+                guard !at.isEmpty else { continue }
+                s.conversation.messages.update(at: i) { m in for pi in at { m.parts.update(at: pi) { $0 = .attachment(a) } } }
             }
         case let .cmuxSetParts(id, parts):  // cmux
             guard let i = s.conversation.messages.firstIndex(where: { $0.id == id }),
@@ -348,6 +358,9 @@ enum Reducer {
             s.ui.cmuxNotice = text
         case let .cmuxSetParticipants(participants):  // cmux
             s.conversation.participants = participants
+        case let .cmuxSetSenders(participants, group):  // cmux
+            s.conversation.participants = participants
+            s.conversation.cmuxGroup = group
         case let .streamBegin(id, sender, format):
             guard !s.ui.streams.contains(where: { $0.id == id }) else { break }
             s.ui.streams.append(StreamBubble(id: id, sender: sender, format: format, updatedAt: stamp))

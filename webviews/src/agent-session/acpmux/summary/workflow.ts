@@ -13,6 +13,13 @@ export type WorkflowAgent = {
   cached?: boolean;
   doing?: string;
   lastMessage?: string;
+  /// What the workflow asked it to do (Claude's `promptPreview`): the row's words while it has no
+  /// message of its own yet (summary/workflowView.ts `agentLine`).
+  prompt?: string;
+  /// What it returned (Claude's `resultPreview`), which a finished row opens to show.
+  result?: string;
+  /// The provider's failure reason, when reported for this agent.
+  error?: string;
   tokens?: number;
   transcriptRowId?: string;
   /// The model it runs on, as the harness names it (`claude-opus-5-5`, `opus`).

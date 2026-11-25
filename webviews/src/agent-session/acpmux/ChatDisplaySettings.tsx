@@ -6,7 +6,9 @@
 // removes every key.
 import { useEffect, useId, useRef, useState } from "react";
 import { Popover, type UiAnchor } from "../../ui/Popover";
-import { useT } from "./i18n";
+import { Switch } from "../../ui/Switch";
+import { type StringKey, useT } from "./i18n";
+import { CHAT_UI_FONT_KEY, CHAT_UI_FONTS, type ChatUiFont, DEFAULT_CHAT_UI_FONT } from "./chatUiFont";
 import {
   CHAT_DISPLAY,
   changeChatDisplay,
@@ -15,10 +17,7 @@ import {
   useChatDisplay,
   type ChatFontChoice,
 } from "./chatDisplay";
-
-/// Code fonts offered beside a typed name; empty follows the Markdown viewer, then the terminal font.
-export const CODE_FONT_SUGGESTIONS = ["SF Mono", "Menlo", "Monaco", "JetBrains Mono", "Fira Code", "Berkeley Mono"];
-
+import { CODE_FONT_SUGGESTIONS } from "./chatDisplaySettingsModel";
 const shown = (value: number) => String(Number(value.toFixed(2)));
 
 export function ChatDisplaySettings({
@@ -44,6 +43,25 @@ export function ChatDisplaySettings({
     </Popover>
   );
 }
+
+/// Each interface font's name in the menu.
+const UI_FONT_LABEL: Record<ChatUiFont, StringKey> = {
+  "inter-tuned": "chatDisplay.uiFontInterTuned",
+  inter: "chatDisplay.uiFontInter",
+  verdana: "chatDisplay.uiFontVerdana",
+  roboto: "chatDisplay.uiFontRoboto",
+  plex: "chatDisplay.uiFontPlex",
+  "source-sans": "chatDisplay.uiFontSourceSans",
+  geist: "chatDisplay.uiFontGeist",
+  "cmux-sans": "chatDisplay.uiFontCmuxSans",
+  "cmux-sans-squat": "chatDisplay.uiFontCmuxSansSquat",
+  "cmux-sans-candy": "chatDisplay.uiFontCmuxSansCandy",
+  "cmux-sans-open": "chatDisplay.uiFontCmuxSansOpen",
+  hanken: "chatDisplay.uiFontHanken",
+  atkinson: "chatDisplay.uiFontAtkinson",
+  "system-ui": "chatDisplay.uiFontSystemUi",
+  "system-ui-tight": "chatDisplay.uiFontSystemUiTight",
+};
 
 /// The popover's rows (the gallery draws them in place, without a popover).
 export function ChatDisplayRows() {
@@ -77,13 +95,13 @@ export function ChatDisplayRows() {
         onChange={(value) => changeChatDisplay(c.width.key, value)}
       />
       <label className="acpmux-display-row acpmux-display-check">
-        <input
-          type="checkbox"
+        <span>{t("chatDisplay.fullWidth")}</span>
+        <Switch
+          size="sm"
           aria-label={t("chatDisplay.fullWidth")}
           checked={display.fullWidth}
-          onChange={(event) => changeChatDisplay(c.fullWidth.key, event.currentTarget.checked ? true : null)}
+          onCheckedChange={(on) => changeChatDisplay(c.fullWidth.key, on ? true : null)}
         />
-        <span>{t("chatDisplay.fullWidth")}</span>
       </label>
       <label className="acpmux-display-row">
         <span>{t("chatDisplay.font")}</span>
@@ -98,6 +116,25 @@ export function ChatDisplayRows() {
           <option value="system">{t("chatDisplay.fontSystem")}</option>
           <option value="serif">{t("chatDisplay.fontSerif")}</option>
           <option value="mono">{t("chatDisplay.fontMono")}</option>
+        </select>
+      </label>
+      <label className="acpmux-display-row">
+        <span>{t("chatDisplay.uiFont")}</span>
+        <select
+          aria-label={t("chatDisplay.uiFont")}
+          value={display.uiFont}
+          onChange={(event) =>
+            changeChatDisplay(
+              CHAT_UI_FONT_KEY,
+              event.currentTarget.value === DEFAULT_CHAT_UI_FONT ? null : event.currentTarget.value,
+            )
+          }
+        >
+          {CHAT_UI_FONTS.map((font) => (
+            <option key={font} value={font}>
+              {t(UI_FONT_LABEL[font])}
+            </option>
+          ))}
         </select>
       </label>
       <Slider

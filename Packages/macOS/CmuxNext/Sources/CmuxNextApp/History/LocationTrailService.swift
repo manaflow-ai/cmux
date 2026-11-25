@@ -5,6 +5,8 @@ import CmuxNextDesign
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextHistory
+import CmuxNextHistoryDaemon
+import CmuxNextPages
 import CmuxNextSettings
 import Foundation
 import Observation
@@ -13,23 +15,27 @@ import CmuxNextFocus
 /// The app's side of the location trail (plans/cmux-next/history.md 4.2):
 /// records each window's settled focus and runs Go Back / Go Forward / Go to
 /// Last Location. The daemon owns the trail (cx-hnmbt.12): each step goes to
-/// it with `history.trail.record` (incognito steps never leave memory), and
-/// the steps are read back from it at connect. Only the Back/Forward cursor
+/// it with `history.trail.record` on the history's one write queue, in order
+/// with visits and clears (incognito steps never leave memory), and the
+/// steps are read back from it at connect. Only the Back/Forward cursor
 /// is this app's own view state.
 final class LocationTrailService {
     unowned let services: AppServices
     private(set) var trail = LocationTrail()
+    /// The agent chats the user was in, oldest first, with their own cursor: what Go Back One
+    /// Session walks (history.md 4.2d). Every settled chat is a step here, whatever
+    /// `navigation.history.scope` says, so two chats in one workspace are two steps. Memory only.
+    private(set) var sessions = LocationTrail()
     private var loaded = false
     private var loading = false
     private var rereads = 0
-    /// What the app last read of the daemon's trail, and its steps the daemon never got.
+    /// What the app last read of the daemon's trail.
     private var sync = HistoryTrailSync()
     /// The trail's failure log (cx-hnmbt.14): each skipped settle, step, report and reply.
     let log = HistoryTrailLog()
     private var observation: Task<Void, Never>?
-    /// Steps go to the daemon in order: one FIFO, so a step never overtakes the one before it.
-    private let reports: AsyncStream<@Sendable () async -> Void>.Continuation
-    private let reportDrain: Task<Void, Never>
+    /// Forwards trackpad swipes to the page under the pointer; the page's commit runs `navigate`.
+    private var swipes: PageSwipeForwarder?
     /// Replaces the clock (tests).
     var now: () -> Date = Date.init
     /// Called after every trail change (the history page, the palette).
@@ -58,16 +64,12 @@ final class LocationTrailService {
 
     init(services: AppServices) {
         self.services = services
-        let (stream, continuation) = AsyncStream<@Sendable () async -> Void>.makeStream(bufferingPolicy: .bufferingNewest(1_024))
-        reports = continuation
-        // task-owner: the service's lifetime; ends when the stream finishes in deinit
-        reportDrain = Task.detached {
-            for await report in stream { await report() }
-        }
         // Page views' mouse buttons and swipes run Go Back / Go Forward (history.md 4.2b).
         services.pages.navigate = { [weak services] back in
             _ = services?.registry.perform(back ? "focusHistoryBack" : "focusHistoryForward", invocation: ActionInvocation(origin: .user))
         }
+        // A two-finger swipe over a page: the page draws it and asks for the same actions (history.md 4.2b).
+        swipes = PageSwipeForwarder { [weak self] in (self?.canNavigate(.back) ?? false, self?.canNavigate(.forward) ?? false) }
         let store = services.daemon.store
         // Another client changed the daemon's trail (the React History page): read it again.
         store.sideEvents.subscribe { [weak self] event in
@@ -83,7 +85,6 @@ final class LocationTrailService {
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
     // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
     nonisolated deinit {
-        reports.finish()
         observation?.cancel()
         scopeObservation?.cancel()
     }
@@ -131,6 +132,7 @@ final class LocationTrailService {
         }
         let recorded: Bool
         let time = now(), scope = stepScope
+        if isAgentSession(location) { sessions.record(location, at: time) }
         if let jump = jumpNotedAt, time.timeIntervalSince(jump) < Self.jumpWindow, location.key != trail.current?.location.key {
             jumpNotedAt = nil
             recorded = step(location, at: time, jump: true) { $0.recordJump(location, at: time) }
@@ -181,7 +183,7 @@ final class LocationTrailService {
 
     // MARK: Navigation
 
-    enum Direction { case back, forward, last }
+    enum Direction { case back, forward, last, backSession }
 
     /// What Back and Forward walk (`navigation.historyScope`; history.md 4.2a).
     /// With workspace steps (the default) a step is a workspace or top page,
@@ -198,24 +200,36 @@ final class LocationTrailService {
     /// Forward walk it, and the trail only past its ends.
     @discardableResult
     func navigate(_ direction: Direction) -> Bool {
+        if direction == .backSession { return backSession() }
         if direction != .last, ActionRunScope.viewChangeAllowed(), let page = pageHistory() {
             if direction == .back ? page.goBack() : page.goForward() { return true }
         }
         let scope = scope
         if scope == .surface {
             switch direction {
-            case .back, .last: return services.registry.perform("browserBack")
+            case .back, .last, .backSession: return services.registry.perform("browserBack")
             case .forward: return services.registry.perform("browserForward")
             }
         }
         let entry: LocationTrail.Entry? = switch direction {
-        case .back: trail.back(scope: scope, isAvailable: isAvailable)
+        case .back, .backSession: trail.back(scope: scope, isAvailable: isAvailable)
         case .forward: trail.forward(scope: scope, isAvailable: isAvailable)
         case .last: trail.last(scope: scope, isAvailable: isAvailable)
         }
         guard let entry else { return false }
         notify()
         if !focus(entry.location) { trail.cancelPending() }
+        return true
+    }
+
+    /// Go Back One Session (history.md 4.2d): the newest agent chat before the current one that
+    /// is still open and still a chat, in any window or workspace. Each press steps one further
+    /// back; opening another chat drops the steps after the cursor, like Back. The other trail
+    /// is left alone: the focus it causes is recorded there like any jump.
+    private func backSession() -> Bool {
+        guard ActionRunScope.viewChangeAllowed(),
+              let entry = sessions.back(isAvailable: { self.isAvailable($0) && self.isAgentSession($0) }) else { return false }
+        if !focus(entry.location) { sessions.cancelPending() }
         return true
     }
 
@@ -236,9 +250,12 @@ final class LocationTrailService {
         trail.list(direction, scope: scope, isAvailable: isAvailable)
     }
 
-    /// The headed right-click / long-press list under the Debug Settings layout (history.md 4.2c).
+    /// The headed right-click / long-press list under the Debug Settings layout (history.md 4.2c). Listed rows show
+    /// their tabs' current titles: a chat named after its step was recorded is renamed in place (the order stays).
     func menuSections(_ direction: LocationTrailDirection, layout: LocationTrailMenuLayout) -> [LocationTrailMenuSection] {
-        trail.menuSections(direction, scope: scope, layout: layout, isAvailable: isAvailable)
+        let sections = trail.menuSections(direction, scope: scope, layout: layout, isAvailable: isAvailable)
+        guard trail.retitle(sections, liveTitle: liveTitle) else { return sections }
+        return trail.menuSections(direction, scope: scope, layout: layout, isAvailable: isAvailable)
     }
 
     /// Goes to a listed entry (`history.goTo`). False when the index is gone or not focusable.
@@ -294,18 +311,21 @@ final class LocationTrailService {
 
     func clear(since start: Date?) {
         trail.removeAll { entry in start.map { entry.enteredAt >= $0 } ?? true }
+        sessions.removeAll { entry in start.map { entry.enteredAt >= $0 } ?? true }
         notify()
     }
 
     /// Removes every entry of one tab (Remove from History).
     func remove(_ key: HistoryLocation.Key) {
         trail.removeAll { $0.location.key == key }
+        sessions.removeAll { $0.location.key == key }
         notify()
     }
 
     /// The incognito session ended (its last window closed): its entries go.
     func forgetIncognito() {
         trail.removeAll { $0.location.isIncognito }
+        sessions.removeAll { $0.location.isIncognito }
         notify()
     }
 
@@ -319,24 +339,16 @@ final class LocationTrailService {
         let changed = record(&trail)
         log.ruled(location, rule: jump ? "jump" : steps.rawValue, changed: changed)
         guard changed else { return false }
-        if !location.isIncognito { report(location, at: time, steps: steps, jump: jump) }
+        report(location, at: time, steps: steps, jump: jump)
         return true
     }
 
-    private func report(_ location: HistoryLocation, at time: Date, steps: HistoryStepScope, jump: Bool) {
-        guard let daemon = services.history.daemonHistory else {
-            sync.unsent.insert(HistoryTrailStepID(location.key, time))
-            return log.unsent(location)
-        }
-        let log = log
-        log.reported(location, atMs: HistoryTrailStepID(location.key, time).ms, steps: steps.rawValue, jump: jump)
-        reports.yield {
-            do {
-                let reply = try await daemon.recordTrail(window: location.window, location: location, at: time, steps: steps, jump: jump)
-                log.replied(location, id: reply.id, recorded: reply.recorded)
-            } catch {
-                log.failed(location, error)
-            }
+    /// Queues the step on the history's one write queue (``HistoryService/writes``), in order with visits and clears; while
+    /// the local daemon is away it waits there. An incognito step never leaves memory.
+    func report(_ location: HistoryLocation, at time: Date, steps: HistoryStepScope, jump: Bool) {
+        guard !location.isIncognito else { return }
+        services.history.writes.enqueueTrailStep(location, at: time, steps: steps, jump: jump, log: log) { daemon, key in
+            try await daemon.recordTrail(window: location.window, location: location, at: time, steps: steps, jump: jump, key: key)
         }
     }
 
@@ -357,11 +369,10 @@ final class LocationTrailService {
 
     private func adopt(_ steps: [(location: HistoryLocation, time: Date)]) {
         loaded = true
-        // Steps taken before the daemon answered stay newest; the ones taken while no daemon served
-        // the trail go to it now (the others are in its FIFO already).
-        let (merged, resend) = sync.adopt(steps, local: trail)
+        // Steps taken before the daemon answered stay newest; every one is in the write queue already,
+        // also the ones taken while no daemon served the trail.
+        let (merged, _) = sync.adopt(steps, local: trail)
         log.read("adopted", steps: steps.count, local: trail.entries.count, removed: 0)
-        for entry in resend { report(entry.location, at: entry.enteredAt, steps: .everything, jump: true) }
         trail = merged
         notify()
     }

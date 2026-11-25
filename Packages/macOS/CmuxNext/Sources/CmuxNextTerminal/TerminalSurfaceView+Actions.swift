@@ -63,10 +63,13 @@ extension TerminalSurfaceView {
             model.isKeySequencePending = active
         case .backgroundColor(let red, let green, let blue):
             model.backgroundOverride = NSColor(srgbRed: CGFloat(red) / 255, green: CGFloat(green) / 255, blue: CGFloat(blue) / 255, alpha: 1)
+            (superview as? TerminalHostView)?.programBackgroundDidChange(self)
         case .scrollbar(let scrollbar):
             model.scrollbar = scrollbar
             // Output or a mouse scroll moved the viewport under the cursor box.
             copyMode.syncCursor()
+            // ...and under a wrapped link's underlines.
+            linkPointer.viewportMoved()
         case .startSearch(let needle):
             session.find.searchStarted(needle: needle)
         case .endSearch:

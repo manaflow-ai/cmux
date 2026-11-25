@@ -5,6 +5,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "bun:te
 import { JSDOM } from "jsdom";
 import { act, createElement, useRef } from "react";
 import { useListMotion } from "../src/agent-session/acpmux/newtab/listMotion";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const globalKeys = [
@@ -94,14 +95,10 @@ afterEach(() => {
   resizeCallbacks = [];
 });
 
-afterAll(() => {
+afterAll(async () => {
   dom.window.HTMLElement.prototype.getBoundingClientRect = originalRect;
   dom.window.HTMLElement.prototype.animate = originalAnimate;
-  dom.window.close();
-  for (const [key, had, value] of savedGlobals) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(savedGlobals, { window: dom.window, scope });
 });
 
 test("stable New Tab keys do not remeasure on unrelated renders", async () => {

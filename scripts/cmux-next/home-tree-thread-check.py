@@ -17,17 +17,18 @@ Chief home's cmux-tui session) it makes a conversation. Then, through the user's
 7. follows the permalink of C (the docked Home's hand-off route `#/conversation/<c>/message/<C>`): Home opens
    C's branch, path [R, A, B, C], the same path the owner resolves;
 8. the Channels page (the React view of the same daemon data) at that route shows A, B and C at depth 1, 2, 3.
-Then the thread header (conversation-thread-objects-v1): resolve by the status chip, rename, assign, each on the owner
-and in the header, and the same state in Channels; Copy Link on C gives the permalink the owner resolves; and a
+Then the thread view draws no header above its root (as in Messages, cmux#26686); Copy Link on C gives the permalink the owner resolves; and a
 permalink to a nested message 130 messages older than the loaded window loads older pages and opens its branch.
 No system input: socket only. Runs on cmux-lawrence-2 (nx-remote --needs gui --app-from-fleet); ends with the
 DEBUG quit fixture, endAgents and the tag's `acpmux daemon shutdown`.
 
 Usage: home-tree-thread-check.py --tag <tag> [--app APP] [--out DIR]
 """
-import argparse, json, os, re, socket, subprocess, sys, time
+import argparse, hashlib, json, os, re, signal, socket, subprocess, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import home_classic  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
+from state_wait import wait_until, wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -87,8 +88,13 @@ def poll(predicate, timeout=20):
 
 
 def shot(name):
-    time.sleep(1)  # test harness: the view's motion settles before the screenshot
-    rpc("debug.window_snapshot", {"path": os.path.join(opts.out, name + ".png")})
+    """The window snapshot once the view's motion settled: two snapshots in a row are the same picture."""
+    path = os.path.join(opts.out, name + ".png")
+
+    def frame():
+        rpc("debug.window_snapshot", {"path": path})
+        return hashlib.sha256(open(path, "rb").read()).hexdigest()
+    wait_stable(frame, f"the window picture for {name}", timeout=15, interval=0.2, reads=2, raise_on_timeout=False)
 
 
 def component(raw):
@@ -157,7 +163,7 @@ env = {"HOME": home, "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.ge
        "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,900", "CMUX_NEXT_CONFIG_FILE": config, **home_classic.ENV}
 process = subprocess.Popen([f"{app}/Contents/MacOS/cmux DEV"], env=env, cwd=opts.out, stdin=subprocess.DEVNULL,
                            stdout=open(os.path.join(opts.out, "app.log"), "a"), stderr=subprocess.STDOUT, start_new_session=True)
-print(f"launched pid {process.pid}", flush=True)
+safe_print(f"launched pid {process.pid}", flush=True)
 try:
     if not home_classic.require(rpc):  # classic Home: these checks drive the native transcript
         sys.exit(2)
@@ -182,10 +188,13 @@ try:
            op={"kind": "message.send", "client_msg_id": f"tree-start-{stamp}", "parts": [{"type": "text", "text": first}]})
 
     def opened():
-        if ((rpc("debug.home") or {}).get("page") or {}).get("shown") != conversation:
+        def shown():
+            return ((rpc("debug.home") or {}).get("page") or {}).get("shown") == conversation
+        if not shown():
             rpc("action.run", {"id": "home.openConversation", "arguments": {"conversation": conversation}, "focus": True})
-            time.sleep(1)  # test harness: one request per second while Home starts
-            return None
+            # Home shows it; a request while Home starts can be dropped, and the poll asks again.
+            if not wait_until(shown, "Home to show the conversation", timeout=5, raise_on_timeout=False):
+                return None
         return first in (drive("texts").get("texts") or [])
     check("Home shows the conversation", bool(poll(opened, timeout=180)), drive("texts"))
 
@@ -262,29 +271,11 @@ try:
           state.get("thread_path") == want_path and state.get("thread_message") == ids["C"], state)
     shot("6-permalink-C")
 
-    # 9: the thread header (the daemon's thread object, conversation-thread-objects-v1), as in Channels.
-    def root_thread():
-        for m in (daemon(owner, "conversation-snapshot", conversation=conversation, tail=50).get("messages") or []):
-            if m.get("id") == ids["R"]:
-                return m.get("thread") or {}
-        return {}
+    # 9: no thread header (https://github.com/manaflow-ai/cmux/issues/26686): as in Messages, the root bubble is the
+    # thread view's first row; the thread object stays on the owner and in Channels.
     head = drive("header")
     result["header"] = head
-    check("the thread view has a header: R's first line, open, unassigned",
-          head.get("title") == texts["R"] and head.get("status") == "open" and head.get("owner") == "", head)
-    chip = drive("chip")
-    resolved = poll(lambda: root_thread().get("resolved"))
-    check("a click on the status chip resolves the thread on the owner (thread.update)", bool(resolved), {"chip": chip, "thread": root_thread()})
-    check("the header shows the thread resolved", bool(poll(lambda: drive("header").get("status") == "resolved", timeout=10)), drive("header"))
-    shot("8-header-resolved")
-    new_title = f"Tree title {stamp}"
-    drive("rename", value=new_title)
-    check("rename sets the owner's thread title", bool(poll(lambda: root_thread().get("title") == new_title)), root_thread())
-    check("the header shows the new title", bool(poll(lambda: drive("header").get("title") == new_title, timeout=10)), drive("header"))
-    drive("assign", value=me)
-    check("assign sets the owner's thread owner", bool(poll(lambda: root_thread().get("owner") == me)), root_thread())
-    check("the header names the owner", bool(poll(lambda: drive("header").get("owner") == "Me", timeout=10)), drive("header"))
-    shot("9-header-owner")
+    check("the thread view is open and draws no header above the root", head.get("open") == "1" and head.get("header") == "", head)
 
     # 10: Copy Link on a message: the daemon's permalink form, which the owner resolves to its thread path.
     drive("escape"); drive("escape")
@@ -348,10 +339,6 @@ try:
     result["channels"] = shown
     check("Channels shows A, B and C in R's thread at depth 1, 2 and 3", shown == {"A": "1", "B": "2", "C": "3"},
           {"shown": shown, "elements": (rpc("debug.page", dict(page, action="query", selector="article.hc-msg")) or {}).get("elements")})
-    sheet = poll(lambda: [e for e in ((rpc("debug.page", dict(page, action="query", selector="[data-status]")) or {}).get("elements") or [])
-                          if (e.get("data") or {}).get("status") == "resolved" and new_title in (e.get("text") or "")], timeout=20)
-    check("Channels shows the same thread resolved, with the title set in Messages", bool(sheet),
-          (rpc("debug.page", dict(page, action="query", selector="[data-status]")) or {}).get("elements"))
     rpc("debug.page", dict(page, action="snapshot", path=os.path.join(opts.out, "7-channels.png")))
 finally:
     reply = rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)
@@ -359,9 +346,12 @@ finally:
         rpc("action.run", {"id": "quitEndSessions"}, timeout=10)
     rpc("action.run", {"id": "endAgents"}, timeout=5)
     exited = poll(lambda: process.poll() is not None, timeout=30)
-    print("app exited" if exited else "app STILL RUNNING", flush=True)
+    safe_print("app exited" if exited else "app STILL RUNNING", flush=True)
     if not exited:
-        process.terminate()
+        try:
+            os.killpg(process.pid, signal.SIGTERM)  # the app this script started, and its group
+        except (ProcessLookupError, PermissionError):
+            pass
     acp = "%s/.acpmux/builds/com.cmuxterm.app.debug.%s" % (home, re.sub(r"[^a-z0-9]+", ".", opts.tag.lower()).strip("."))
     if os.path.isdir(acp):
         subprocess.run([f"{app}/Contents/Resources/bin/acpmux", "daemon", "shutdown", "--end-agents"], capture_output=True,

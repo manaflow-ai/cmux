@@ -314,6 +314,15 @@ async fn agents_start_children_within_their_width_and_depth_limits() {
     let placed = placed["placed"].as_str().unwrap_or_default().to_owned();
     assert!(placed.starts_with(&format!("placed on {here}: ")), "{placed}");
     assert!(placed.contains("only warn"), "{placed}");
+    // A build is still refused for the role, and says so, while this machine has no room
+    // (a busy host is the same: cx-b0utmu, red at "over its budget" on a loaded fleet Mac).
+    let e = pq.refused(START, json!({"prompt": "echo build full", "host": "auto-build"})).await;
+    assert_eq!(e["data"]["reason"], "subsessions.no_room", "{e}");
+    let message = e["message"].as_str().unwrap();
+    assert!(
+        message.contains(&format!("{here}: no builds here (lanes.build is false)")),
+        "{message}"
+    );
     registry(1000);
     // This machine's own name is no placement.
     let own = pq.ok(START, json!({"prompt": "echo own", "host": here.clone()})).await;

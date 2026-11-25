@@ -60,7 +60,7 @@ Direction: V = viewer to host, H = host to viewer.
 | `rb.menu.cancel` | H | `token` | the page or host closed the menu |
 | `rb.dialog.show` | H | `token`, `dialog` (`alert`, `confirm`, `prompt`, `beforeunload` with `origin`, `message`, `default_text`, `is_reload`) | JS dialog as a native sheet |
 | `rb.dialog.result` | V | `token`, `accept`, `text` | |
-| `rb.dialog.cancel` | H | `token` | the page closed the dialog itself (it navigated away or closed; Chromium reset its dialog state): the viewer closes the sheet and sends no answer |
+| `rb.dialog.cancel` | H | `token` | the page closed the dialog itself (it navigated away or closed; Chromium reset its dialog state; the frame that asked went away; the tab closed): the viewer closes the sheet and sends no answer |
 | `rb.file_chooser.show` | H | `token`, `mode` (`open`, `open_multiple`, `folder`, `save`), `accept`, `default_name` | |
 | `rb.file_chooser.result` | V | `token`, `files` (null = cancel; else `{upload, name, size, mime}` per file) | bytes follow as bulk frames under each `upload` id |
 | `rb.upload.end` | V | `upload`, `sha256` | upload complete; the host verifies and gives the file to the page |
@@ -71,7 +71,7 @@ Direction: V = viewer to host, H = host to viewer.
 | `rb.permission.result` | V | `token`, `grant` | site permission decided on the viewer; macOS TCC is the viewer's own prompt |
 | `rb.clipboard.push` | V | `seq`, `items` | before a paste key or a Paste menu item (no continuous mirroring) |
 | `rb.clipboard.write` | H | `items` | the page copied; the viewer writes the pasteboard |
-| `rb.open_tab` | H | `request`, `url`, `disposition` (`foreground_tab`, `background_tab`, `new_window`, `popup`), `user_gesture` | Cmd-click, `window.open`, target=_blank; the viewer creates the tab through the store on the same runtime host |
+| `rb.open_tab` | H | `request`, `url`, `disposition` (`foreground_tab`, `background_tab`, `new_window`, `popup`), `user_gesture` | Cmd-click, `window.open`, target=_blank, the context menu's Open Link in New Tab or Window and Search for (Chromium's `OpenURLFromTab`), and View Page Source (`view-source:` of the page's address); the viewer creates the tab through the store on the same runtime host |
 | `rb.open_tab.result` | V | `request`, `tab` or `refused` | |
 | `rb.surface.show` | H | `surface`, `stream`, `kind` (`page_popup`, `extension_popup`, `autofill`, `bubble`), `anchor`, `width`, `height` | popup surface (RT5, RP7); the viewer shows a borderless child panel at the anchor |
 | `rb.surface.update` | H | `surface`, `anchor`, `width`, `height` | |

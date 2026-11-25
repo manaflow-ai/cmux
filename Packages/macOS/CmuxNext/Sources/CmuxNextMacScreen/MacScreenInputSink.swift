@@ -1,38 +1,57 @@
 import CmuxNextRemoteView
-import CmuxScreenKit
+import CmuxNextCompat
 import CoreGraphics
+import Foundation
 
-/// The pane's input events as screen stream input: physical keys by keysym
-/// (the host maps them back to its own layout), pointer in stream pixels,
-/// wheel clicks, committed text.
+/// The pane's input events, sent as they are on the session's cmux.rd/1
+/// transport: physical keys by HID usage (the host maps them to its own
+/// layout), pointer in stream pixels, buttons, scroll in hundredths, text.
+@MainActor
 final class MacScreenInputSink: RemoteViewInputSink {
-    weak var session: ScreenSession?
-    private var scroll = MacScreenScroll()
+    weak var session: MacScreenSession?
 
-    init(session: ScreenSession) {
+    init(session: MacScreenSession) {
         self.session = session
     }
 
     func send(_ event: RemoteInputEvent) {
-        guard let session else { return }
-        switch event {
-        case let .key(usage, down):
-            guard let keysym = VNCKeysym(hidUsage: usage) else { return }
-            session.key(keysym, down: down)
-        case let .pointer(x, y):
-            session.movePointer(to: CGPoint(x: Int(x), y: Int(y)))
-        case let .button(button, down):
-            switch button {
-            case .left: session.press(.left, down: down)
-            case .middle: session.press(.middle, down: down)
-            case .right: session.press(.right, down: down)
-            case .back, .forward: break
-            }
-        case let .scroll(dx, dy, precise):
-            let lines = scroll.add(dx: dx, dy: dy, precise: precise)
-            session.scroll(dx: lines.dx, dy: lines.dy)
-        case let .text(text):
-            session.type(text)
+        session?.send(event)
+    }
+}
+
+/// Counts presented frames off the main actor; every 15th frame (and the
+/// first) tells the pane, which updates the stats and the picture state.
+/// It also keeps the stream's frame timings (`mac_screen.state`), bounded.
+nonisolated final class MacScreenFrameCounter: Sendable {
+    // carve-out: counted from the decode/present callbacks, off any actor, once per frame.
+    private let state = Mutex((pending: 0, timings: MacScreenFrameTimings()))
+
+    /// Counts one frame (the host's `frame` number, released at `releasedAtNanos` and decoded at
+    /// `decodedAtNanos`, `DispatchTime` uptime) as it reaches the presenter; true when the pane
+    /// should hear now.
+    func tick(frame: UInt32 = 0, releasedAtNanos: UInt64 = 0, decodedAtNanos: UInt64 = 0) -> Bool {
+        let nowNanos = DispatchTime.now().uptimeNanoseconds, now = ContinuousClock.now
+        return state.withLock { state in
+            state.timings.presented(frame: frame, releasedAtNanos: releasedAtNanos, decodedAtNanos: decodedAtNanos,
+                                    nowNanos: nowNanos, now: now)
+            state.pending += 1
+            return state.timings.total == 1 || state.pending >= 15
+        }
+    }
+
+    /// A frame reached the glass (the presenter's presented handler, any thread).
+    func shown(_ times: RemoteViewerFrameTimes) {
+        state.withLock { $0.timings.shown(times) }
+    }
+
+    /// The stream's timings so far (a copy of a few kilobytes at most).
+    var timings: MacScreenFrameTimings { state.withLock { $0.timings } }
+
+    /// The frames counted since the last call.
+    func take() -> Int {
+        state.withLock { state in
+            defer { state.pending = 0 }
+            return state.pending
         }
     }
 }

@@ -39,10 +39,10 @@ extension WebKitTab: WKNavigationDelegate {
 
         if !Self.isWebScheme(url) {
             decisionHandler(.cancel, preferences)
-            // Other apps open only from a click in the main frame, never from
-            // a script or a redirect.
-            if isUserLinkClick, navigationAction.targetFrame?.isMainFrame ?? true {
-                BrowserExternalApps.shared.open(url, from: navigationAction.sourcePage, ask: enqueuePrompt)
+            // The shared opener prompts for every non-gesture navigation,
+            // including sign-in returns, before handing it to another app.
+            if navigationAction.targetFrame?.isMainFrame ?? true {
+                BrowserExternalApps.shared.open(url, from: navigationAction.sourcePage, userGesture: isUserLinkClick, ask: enqueuePrompt)
             }
             return
         }
@@ -86,6 +86,8 @@ extension WebKitTab: WKNavigationDelegate {
             // A video sent as a generic file plays in the tab, at its own address. A simulated
             // load, not `loadHTMLString`: the player takes the video's place in the back list.
             decisionHandler(.cancel)
+            // WebKit lets a decision outlive a suspend (`WebPageProxy::receivedNavigationResponsePolicyDecision`).
+            guard resumeIfSuspended() else { return }
             webView.loadSimulatedRequest(URLRequest(url: url), responseHTML: RemoteVideoPage.html(for: url))
         } else if navigationResponse.isForMainFrame, isAttachment || !navigationResponse.canShowMIMEType {
             // The page that started the navigation counts the download.
@@ -167,8 +169,27 @@ extension WebKitTab: WKNavigationDelegate {
         apply(.failed(id, failure))
     }
 
-    /// WebKit gives no reason; the sad tab says the page crashed.
+    /// The public callback, for a WebKit without the reason SPI below: no reason, so the sad tab
+    /// says the page crashed.
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        webContentProcessEnded(BrowserProcessExit(reason: .crashed))
+    }
+
+    /// WebKit's reason (`_WKProcessTerminationReason`, SPI): when the delegate answers this, WebKit
+    /// calls it instead of ``webViewWebContentProcessDidTerminate(_:)``. ExceededMemoryLimit is out
+    /// of memory; ExceededCPULimit and RequestedByClient are a stop from outside the page; Crash
+    /// (which also covers WebKit ending every page after its GPU process failed too often) crashed.
+    @objc(_webView:webContentProcessDidTerminateWithReason:)
+    public func webView(_ webView: WKWebView, webContentProcessDidTerminateWithReason reason: Int) {
+        let mapped: BrowserProcessExit.Reason = switch reason {
+        case 0: .outOfMemory
+        case 1, 2: .killed
+        default: .crashed
+        }
+        webContentProcessEnded(BrowserProcessExit(reason: mapped))
+    }
+
+    private func webContentProcessEnded(_ exit: BrowserProcessExit) {
         // No commit or finish is coming, so the page area goes back to
         // WebKit's own background rather than keeping none for good.
         // Unconditionally, not through `pageDidFinish`: a crash can leave
@@ -177,10 +198,25 @@ extension WebKitTab: WKNavigationDelegate {
         pageBaseHold.cancel()
         setDrawsPageBackground(true)
         removeStandIn()
-        // The sad tab shows; the page reloads only when the person presses Reload.
+        // A page the system ended for memory reloads by itself once, now when on screen, else
+        // when next shown (`BrowserExitRecovery`); any other end shows the sad tab and waits.
+        let pressure = memoryPressure()
+        var owed = exitRecovery.processEnded(exit, pressure: pressure, now: .now)
+        // Exit page on a hung page (`answerUnresponsivePage`) is the person's end: the sad tab waits for their Reload.
+        if endedByPerson { endedByPerson = false; exitRecovery.cancel(); owed = false }
         let tabID = id.rawValue
-        processLogger.error("web content process ended tab=\(tabID, privacy: .public); no automatic reload")
-        apply(.processExited(BrowserProcessExit(reason: .crashed)))
+        processLogger.error("web content process ended tab=\(tabID, privacy: .public) reason=\(exit.reason.rawValue, privacy: .public) pressure=\(pressure.rawValue, privacy: .public) \(owed ? "reloads once by itself (memory)" : "no automatic reload", privacy: .public)")
+        apply(.processExited(exit))
+        if owed, webView.window?.isVisible == true, !webView.isHiddenOrHasHiddenAncestor { reloadOwedAfterExit() }
+        // Last: the host may close this tab to replace it.
+        frozenPageEnded()
+    }
+
+    /// Takes the one automatic reload a memory end owes (`exitRecovery`), if the sad tab still shows.
+    func reloadOwedAfterExit() {
+        guard state.processExit != nil, exitRecovery.takeReload(now: .now) else { return }
+        processLogger.error("web content process ended tab=\(self.id.rawValue, privacy: .public): reloading once after a memory end")
+        startReload()
     }
 
 
@@ -238,6 +274,18 @@ extension WebKitTab: WKUIDelegate {
         // Stored per-site decisions answer without asking (PageInfo).
         decidePermission(kind, origin: Self.displayOrigin(origin)) { decisionHandler($0 ? .grant : .deny) }
     }
+
+    /// getDisplayMedia() has only a private WKUIDelegate method; without it WebKit never answers the
+    /// page (a Meet screen share stayed pending). `screenPrompt` (1) lets WebKit show the system's
+    /// own screen picker, which is the person's consent; `deny` (0) rejects with NotAllowedError.
+    @objc(_webView:requestDisplayCapturePermissionForOrigin:initiatedByFrame:withSystemAudio:decisionHandler:)
+    func requestDisplayCapture(_ webView: WKWebView, origin: WKSecurityOrigin, frame: WKFrameInfo, withSystemAudio: Bool,
+                               decisionHandler: @escaping @MainActor (Int) -> Void) {
+        decisionHandler(Self.displayCaptureDecision)
+    }
+
+    /// `_WKDisplayCapturePermissionDecisionScreenPrompt`.
+    static let displayCaptureDecision = 1
 
     // Location, notifications and the page's window.print() have only private
     // WKUIDelegate methods (WKUIDelegatePrivate); without them WebKit refuses

@@ -8,7 +8,12 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { mkdir } from "node:fs/promises";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { inspectorPushAlways, papercutPane } from "./support/papercutChat";
+import { sessionInfoPushAlways, papercutPane } from "./support/papercutChat";
+import {
+  SESSION_INFO,
+  SESSION_INFO_SHOWN,
+  SESSION_INFO_TOGGLE,
+} from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 await requireBrowserLane("agent-pane-running-layout.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -64,11 +69,11 @@ await requireBrowserLane("agent-pane-running-layout.test.ts", async () => {
             window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
           ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 });
         });
-        await inspectorPushAlways(page, false);
-        const toggle = page.locator("button.acpmux-chat-inspector-toggle");
+        await sessionInfoPushAlways(page, false);
+        const toggle = page.locator(SESSION_INFO_TOGGLE);
         await toggle.waitFor();
-        if ((await page.locator("aside.acpmux-chat-inspector").count()) === 0) await toggle.click();
-        await page.locator('aside.acpmux-chat-inspector[data-presence="shown"]').waitFor();
+        if ((await page.locator(SESSION_INFO).count()) === 0) await toggle.click();
+        await page.locator(SESSION_INFO_SHOWN).waitFor();
         await finite(page);
         // Two resizes: the first after the panel opens, then another, each landing in one frame.
         for (const width of [900, 1200]) {

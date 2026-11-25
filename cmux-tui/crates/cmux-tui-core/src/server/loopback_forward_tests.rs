@@ -11,8 +11,7 @@ use base64::Engine;
 use serde_json::{Value, json};
 
 use super::loopback_forward::{
-    DAEMON_RECEIVE_WINDOW, LoopbackForwardPolicy, LoopbackTarget, MAX_FRAME_BYTES,
-    MAX_STREAMS_PER_CLIENT, classify_target,
+    DAEMON_RECEIVE_WINDOW, LoopbackForwardPolicy, LoopbackTarget, MAX_FRAME_BYTES, classify_target,
 };
 use super::*;
 
@@ -476,14 +475,53 @@ fn loopback_streams_close_when_the_control_connection_ends() {
     assert!(matches!(read, Ok(0)) || read.is_err(), "the target must see the stream end");
 }
 
+/// A disconnect ends the connection's loopback streams first and closes its
+/// writer later (`ClientRegistry::remove`, then `disconnect_client`). A
+/// stream whose open thread connected in between found the writer still
+/// open, so it was inserted after the streams were ended. It must still end
+/// when the writer closes: otherwise its two threads, its slot and the TCP
+/// connection to a quiet target (an idle dev server) live on with no client.
 #[test]
-fn loopback_streams_are_limited_per_client() {
+fn a_stream_opened_during_its_connections_disconnect_ends_when_the_writer_closes() {
+    let mux = mux("loopback-open-during-disconnect");
+    let (listener, port) = target();
+    let (writer, _outbound) = tests::captured_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    // The disconnect's first half, before the open thread inserts its stream.
+    mux.control_clients.loopback.disconnect(client);
+    assert!(mux.control_clients.loopback.reserve_for_test(client, 1));
+    let loopback = classify_target("127.0.0.1").unwrap();
+    loopback_forward::open_for_test(&mux, client, 1, port, loopback, &writer);
+    let (mut socket, _) = listener.accept().unwrap();
+    assert_eq!(mux.control_clients.loopback.open_streams_for_test(), 1);
+
+    // Its second half: the connection's writer closes.
+    writer.close();
+
+    socket.set_read_timeout(Some(WAIT)).unwrap();
+    let mut buffer = [0_u8; 16];
+    let read = socket.read(&mut buffer);
+    assert!(
+        matches!(read, Ok(0)),
+        "the target never saw the stream end after its connection closed: {read:?}"
+    );
+    assert_eq!(
+        mux.control_clients.loopback.open_streams_for_test(),
+        0,
+        "the stream kept its slot after its connection closed"
+    );
+}
+
+/// No stream count refuses a stream: one connection opens past the old cap of
+/// 128 per connection and 512 per daemon (each stream's cost is bounded on its
+/// own: a socket, two small-stack threads, its windows).
+#[test]
+fn loopback_streams_are_not_capped_by_count() {
     let forwarder = loopback_forward::LoopbackForwarder::default();
-    for stream in 0..MAX_STREAMS_PER_CLIENT as u64 {
-        assert!(forwarder.reserve_for_test(1, stream), "slot {stream} must be free");
+    for stream in 0..600_u64 {
+        assert!(forwarder.reserve_for_test(1, stream), "stream {stream} must be admitted");
     }
-    assert!(!forwarder.reserve_for_test(1, 10_000), "the per-client limit must hold");
-    assert!(forwarder.reserve_for_test(2, 0), "another client has its own budget");
+    assert!(forwarder.reserve_for_test(2, 0), "another client opens too");
     forwarder.release_for_test(1);
     assert!(forwarder.reserve_for_test(1, 10_001), "a released slot is reusable");
 }
@@ -512,7 +550,8 @@ fn loopback_status_reports_limits_and_audit() {
     let status = client.request(json!({"cmd": "loopback-status"}));
     assert_eq!(status["ok"], true, "{status}");
     assert_eq!(status["data"]["enabled"], true);
-    assert_eq!(status["data"]["limits"]["per_client"], MAX_STREAMS_PER_CLIENT);
+    assert_eq!(status["data"]["limits"]["frame_bytes"], MAX_FRAME_BYTES);
+    assert!(status["data"]["limits"].get("per_client").is_none());
     let outcomes: Vec<String> = status["data"]["audit"]
         .as_array()
         .unwrap()

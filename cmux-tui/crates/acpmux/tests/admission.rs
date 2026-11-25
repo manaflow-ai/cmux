@@ -6,7 +6,7 @@
 //! the daemon's `session/new`, so the daemon checks there, reading two files when the
 //! session is created:
 //! - `~/.cache/worktree-reclaim/under-floor` (worktree-reclaim writes it when the disk
-//!   is under its free-space floor) refuses every new session;
+//!   is under its free-space floor) warns on every new session;
 //! - `lanes.max_lanes` of this machine in the fleet registry (`FLEET_REGISTRY`, else
 //!   `~/.ssh/config.d/fleet-registry.json`, the copy `reach --install` renders, else a
 //!   leo-workspace checkout's `machines/fleet-registry.json`) is this host's cap of live
@@ -15,8 +15,7 @@
 //!   is refused for load or a cap (huge-blue at its 12 refused the stall reconciler's
 //!   PONG to claude-sr2, 2026-10-26).
 //!
-//! A refusal exits 5 (lane-place's "no host qualifies"). `--force-admit` creates the
-//! session anyway, and the daemon logs it. A send to an existing session and a restart
+//! Disk floors and lane caps are advisory; `--force-admit` remains compatible. A send to an existing session and a restart
 //! of one are never refused, and a host with no registry or no entry admits.
 #![cfg(unix)]
 
@@ -214,30 +213,13 @@ fn text(out: &Output) -> String {
     format!("{} {}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr))
 }
 
-/// The JSON error envelope a refused command printed on stderr.
-fn envelope(out: &Output) -> Value {
-    let err = String::from_utf8_lossy(&out.stderr);
-    err.lines()
-        .rev()
-        .find_map(|l| serde_json::from_str::<Value>(l).ok())
-        .unwrap_or_else(|| panic!("no JSON error envelope: {}", text(out)))
-}
-
-fn assert_refused(out: &Output, why: &str, words: &str) {
-    assert_eq!(out.status.code(), Some(5), "a refused create exits 5: {}", text(out));
-    let e = envelope(out);
-    assert_eq!(e["error"]["detail"], "admission_refused", "{e}");
-    assert_eq!(e["error"]["data"]["why"], why, "{e}");
-    let message = e["error"]["message"].as_str().unwrap_or_default();
-    assert!(message.contains(words), "the refusal says {words:?}: {message}");
-    assert!(message.contains("--force-admit"), "the refusal names the override: {message}");
-}
-
 /// Started past the cap: the reply's `admission` warning and the CLI's stderr say `words`.
 fn assert_warned(out: &Output, words: &str) {
     assert!(out.status.success(), "a cap never refuses: {}", text(out));
     let v: Value = serde_json::from_slice(&out.stdout).unwrap_or(Value::Null);
-    let warning = v["admission"]["warning"].as_str().unwrap_or_default();
+    let admission = v.get("admission").or_else(|| v.pointer("/_meta/acpmux/admission"));
+    let warning =
+        admission.and_then(|a| a.get("warning")).and_then(Value::as_str).unwrap_or_default();
     assert!(warning.contains(words), "the warning says {words:?}: {}", text(out));
     assert!(warning.contains("started anyway"), "{warning}");
     let err = String::from_utf8_lossy(&out.stderr);
@@ -251,13 +233,13 @@ fn assert_not_warned(out: &Output) {
 }
 
 #[test]
-fn under_floor_flag_refuses_a_new_session_and_a_run() {
+fn under_floor_flag_warns_for_a_new_session_and_a_run() {
     let daemon = Daemon::start("flag", None, true);
     let out = daemon.create("a", &[]);
-    assert_refused(&out, "under_floor", "under-floor");
+    assert_warned(&out, "free-space floor");
     let out =
         daemon.run(&["--json", "run", "--ephemeral", "--timeout", "30", "Reply with only: OK"]);
-    assert_refused(&out, "under_floor", "under-floor");
+    assert_warned(&out, "free-space floor");
     // Read at create time: once worktree-reclaim clears it, a create goes through.
     daemon.set_under_floor(false);
     let out = daemon.create("b", &[]);
@@ -302,14 +284,12 @@ fn max_lanes_warns_at_the_cap_and_never_refuses() {
 }
 
 #[test]
-fn force_admit_creates_past_a_refusal_and_is_logged() {
+fn force_admit_stays_compatible_with_advisory_floor_and_cap() {
     let daemon = Daemon::start("force", Some(0), true);
     let out = daemon.create("forced", &["--force-admit"]);
     assert!(out.status.success(), "--force-admit admits: {}", text(&out));
-    daemon.wait_log(
-        |l| l.contains("force-admit") && l.contains("under_floor"),
-        "the daemon logs the override and what it overrode",
-    );
+    assert_warned(&out, "free-space floor");
+    assert_warned(&out, "cap of 0");
 }
 
 #[test]
@@ -324,17 +304,17 @@ fn sends_and_restarts_of_existing_sessions_are_never_refused() {
     assert!(!text(&out).contains("warning"), "a send is not a create: {}", text(&out));
     // At the cap and under the floor at once.
     daemon.set_under_floor(true);
-    assert_refused(&daemon.create("other", &[]), "under_floor", "under-floor");
+    assert_warned(&daemon.create("other", &[]), "free-space floor");
     let out = daemon.run(&["send", "kept", "--timeout", "30", "Reply with only: OK"]);
     assert!(out.status.success(), "a send to an existing session: {}", text(&out));
     let out = daemon.run(&["session", "restart", "kept"]);
     assert!(out.status.success(), "a restart of an existing session: {}", text(&out));
     let out = daemon.run(&["send", "kept", "--timeout", "30", "Reply with only: again"]);
     assert!(out.status.success(), "a send after the restart: {}", text(&out));
-    // A fork is a new session: refused, unless forced.
+    // A fork is a new session: both floor and cap warn, with no override needed.
     let out = daemon.run(&["--json", "fork", "kept", "-n", "kept-fork"]);
-    assert_refused(&out, "under_floor", "under-floor");
-    let out = daemon.run(&["--json", "fork", "kept", "-n", "kept-fork", "--force-admit"]);
+    assert_warned(&out, "free-space floor");
+    let out = daemon.run(&["--json", "fork", "kept", "-n", "forced-fork", "--force-admit"]);
     assert!(out.status.success(), "a forced fork: {}", text(&out));
 }
 

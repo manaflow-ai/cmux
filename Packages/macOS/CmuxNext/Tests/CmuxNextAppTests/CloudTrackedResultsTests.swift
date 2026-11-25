@@ -14,6 +14,8 @@ struct CloudTrackedResultsTests {
     nonisolated static let trackedIDs: [ActionID] = [
         "palette.cloud.fork", "palette.cloud.restore", "newCloudWorkspace",
         "cloudRenameMachine", "cloudKillMachine", "cloudResizeMachine",
+        // cloudPauseMachine and cloudResumeMachine join once the app's pinned FFI release carries their
+        // waits_for_result (cmux-action-catalog cloud.rs); Rust's swift_parity checks the catalog meanwhile.
     ]
 
     static func descriptor(_ id: ActionID) throws -> ActionDescriptor {
@@ -92,14 +94,16 @@ struct CloudTrackedResultsTests {
 
     /// `cloud new-workspace --target machine:<id>` with an id that is not
     /// there is refused with the unknown-machine text, not answered with a
-    /// new machine; with no target it keeps the only-machine fallback.
+    /// new machine; with no target it makes a new machine, never the only one.
     @Test func newWorkspaceOnAnUnknownMachineIsRefused() throws {
         let f = CloudCLITargetTests.fixture()
         let named = ActionInvocation(target: ActionTargetRef(kind: .machine, id: "vm-gone"), origin: .cli)
         #expect(throws: ActionFailure.notFound(CloudStrings.unknownMachine("vm-gone"))) {
             try CloudHandlers.workspaceMachine(named, f.context)
         }
-        #expect(try CloudHandlers.workspaceMachine(ActionInvocation(origin: .cli), f.context) === f.session)
+        #expect(try CloudHandlers.workspaceMachine(ActionInvocation(origin: .cli), f.context) == nil)
+        let mine = ActionInvocation(target: ActionTargetRef(kind: .machine, id: f.session.machineID), origin: .cli)
+        #expect(try CloudHandlers.workspaceMachine(mine, f.context) === f.session)
     }
 
     @Test func anUnboundCloudActionSaysToUpdate() {

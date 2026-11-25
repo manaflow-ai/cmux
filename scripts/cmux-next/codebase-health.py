@@ -38,7 +38,27 @@ PKG = "Packages/macOS/CmuxNext"
 SOURCES = PKG + "/Sources/"
 APP = "CmuxNextApp"
 OUT = "plans/cmux-next/codebase-health.md"
-UPSTREAM = "origin/feat-cmux-next"
+UPSTREAM = "refs/remotes/origin/feat-cmux-next"  # full name, never a local branch `origin/...` (push_range.UPSTREAM)
+
+
+def refresh_base(root, ref: str) -> str:
+    """Fetch REF (origin/feat-cmux-next) before this branch's own change is measured from where HEAD meets it: a clone's
+    copy older than a base the branch merged counts that base's files as the branch's own. One shared fetch
+    (scripts/cmux-next/push_range.py refresh_base, the pre-push gate's); a failed fetch is said on stderr."""
+    import importlib.util
+    push_range = HERE / "push_range.py"
+    spec = importlib.util.spec_from_file_location("cmux_next_push_range_fresh", push_range)
+    module = sys.modules.get(spec.name)
+    if module is None:
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+    note = module.refresh_base(Path(root), ref)
+    if note:
+        print(f"codebase-health: {note.lstrip('; ')}", file=sys.stderr)
+    return note
+
+
 # What the report reads besides the app sources: every Swift file (section 6), the plans, the scripts, the workflows.
 MEASURED = ("*.swift", "plans/cmux-next/", "scripts/cmux-next/", ".github/workflows/", f":(exclude){OUT}")
 BENCHES = "scripts/cmux-next/perf-hot-benches.json"
@@ -575,9 +595,10 @@ def measured_at(repo: Path) -> str:
     """Where the numbers come from, by a sha that survives a rebase: the merge base with origin/feat-cmux-next,
     plus the measured files the working tree changes over it (the local commits and edits a rebase rewrites)."""
     head = git(repo, "rev-parse", "--short=11", "HEAD").strip()
+    refresh_base(repo, UPSTREAM)
     found = subprocess.run(["git", "-C", str(repo), "merge-base", "HEAD", UPSTREAM], capture_output=True, text=True)
     if found.returncode != 0:
-        return f"at `{head}` (this repository has no `{UPSTREAM}`)"
+        return f"at `{head}` (this repository has no `{UPSTREAM.removeprefix('refs/remotes/')}`)"
     base = found.stdout.strip()
     changed = [p for p in git(repo, "diff", "--name-only", "--no-renames", base, "--", *MEASURED).split("\n") if p]
     short = git(repo, "rev-parse", "--short=11", base).strip()
@@ -752,8 +773,8 @@ def report(repo: Path) -> str:
     w("`CMUX_GUARDRAILS_SKIP_REASON=\"<rule>[,<rule>]: <why>\"` (the other rules still refuse) and say so in your report.")
     w("`guardrails.py --list` prints every rule. The guardrails also run the arch ratchet (`arch-ratchet.py`): the")
     w("arch_counts rows of section 1 and the layer edges of section 4 may not rise over a push, and their totals in")
-    w("`plans/cmux-next/arch-ratchet.json` only go down; their one escape is a dated exception in that file (the skip")
-    w("variable does not skip them).")
+    w("`plans/cmux-next/arch-ratchet.json` only go down; their one escape is a dated exception, one per file in")
+    w("`plans/cmux-next/arch-exceptions/<id>.json` (the skip variable does not skip them).")
     w("If the script itself fails, the hook prints a warning and lets the push through.")
     w("It also warns (never refuses) when a push changes a `// perf-hot:` function (names the bench,")
     w("`scripts/cmux-next/perf-hot-benches.json`) or an area in [OWNERS.md](OWNERS.md).")

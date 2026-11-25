@@ -25,7 +25,7 @@ use std::time::Duration;
 
 use acpmux::cli::harness_login::{self, AuthState};
 use acpmux::config::profiles::{self, ProfileSource};
-use acpmux::config::{Config, HarnessProfile, ProfileMeta, UNIICHAT_PROFILE};
+use acpmux::config::{CHIEF_PROFILE, Config, HarnessProfile, ProfileMeta, UNIICHAT_PROFILE};
 use acpmux::harness_health::{Auth, HarnessHealth, HealthService, Settings, Subject, probe};
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -167,13 +167,17 @@ fn check(ids: &BTreeSet<String>) -> Result<(Vec<Value>, Value), Refusal> {
     Ok((harnesses, user_action))
 }
 
-/// Every configured or discovered harness. UniiChat is offered on every
-/// machine (the bundled adapter, nothing to install), so it counts only
-/// when it is named or has a profile.
+/// Every configured or discovered harness. UniiChat and the Chief are
+/// offered on every machine (the bundled adapter and this binary's
+/// `chief acp`: nothing to install or sign in), so each counts only when it
+/// is named or has a profile. A check never starts the person's Chief.
 fn found(cfg: &Config) -> BTreeSet<String> {
     cfg.harnesses
         .keys()
-        .filter(|id| !(id.as_str() == UNIICHAT_PROFILE && cfg.discovered.contains(*id)))
+        .filter(|id| {
+            !([UNIICHAT_PROFILE, CHIEF_PROFILE].contains(&id.as_str())
+                && cfg.discovered.contains(*id))
+        })
         .cloned()
         .collect()
 }

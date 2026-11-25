@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextLayout
+import CmuxNextTestSupport
 import Testing
 
 /// A person's divider drag reaches the pane contents that follow it their own way
@@ -8,6 +9,7 @@ import Testing
 /// release's spring landed, with the pane at its final frame. A click on the divider tells nothing.
 /// Leo, 2026-10-26: "resizing the panes it propagates so fucking slowly to the right side browser tab thing".
 @MainActor
+@Suite(.closesItsWindows)
 struct PaneResizeGestureTests {
     final class Follower: NSView, PaneResizeGestureFollowing {
         var heard: [Bool] = []
@@ -74,6 +76,7 @@ struct PaneResizeGestureTests {
 
     @Test func aDragTellsTheFollowerOnceAtTheStartAndOnceWhenItsReleaseLanded() throws {
         let harness = Harness()
+        defer { harness.window.closeAfterTest() }
         let handle = try harness.handle
         let start = try harness.center()
         handle.mouseDown(with: harness.event(.leftMouseDown, start))
@@ -96,6 +99,7 @@ struct PaneResizeGestureTests {
 
     @Test func reduceMotionDuringTheLandingStillEndsTheDrag() throws {
         let harness = Harness()
+        defer { harness.window.closeAfterTest() }
         let handle = try harness.handle
         let start = try harness.center()
         handle.mouseDown(with: harness.event(.leftMouseDown, start))
@@ -115,6 +119,7 @@ struct PaneResizeGestureTests {
 
     @Test func aWorkspaceHiddenMidDragEndsItAndTheNextDragStartsAgain() throws {
         let harness = Harness()
+        defer { harness.window.closeAfterTest() }
         let handle = try harness.handle
         let start = try harness.center()
         handle.mouseDown(with: harness.event(.leftMouseDown, start))
@@ -137,6 +142,7 @@ struct PaneResizeGestureTests {
 
     @Test func aClickOnTheDividerTellsNothing() throws {
         let harness = Harness()
+        defer { harness.window.closeAfterTest() }
         let handle = try harness.handle
         let point = try harness.center()
         handle.mouseDown(with: harness.event(.leftMouseDown, point))
@@ -144,5 +150,70 @@ struct PaneResizeGestureTests {
         harness.root.syncWithModel()
         harness.land()
         #expect(harness.provider.follower.heard.isEmpty)
+    }
+
+    /// Leo, 2026-11-22: "interior resizing is good and fast. exterior (whole-window of app) resizing is bad". A person's
+    /// live resize of the window is followed as a divider drag: `true` at its start, the pane views' frame notices held
+    /// through it, `false` once at its end with the pane at its final frame, and the notices given back.
+    @Test func aWindowLiveResizeIsFollowedAsADividerDrag() throws {
+        let harness = Harness()
+        defer { harness.window.closeAfterTest() }
+        let screen = try #require(harness.root.screenViews["s"])
+        screen.windowLiveResizeBegan()
+        #expect(harness.provider.follower.heard == [true])
+        #expect(screen.paneFrameNotices.isHolding)
+        screen.windowLiveResizeBegan()
+        #expect(harness.provider.follower.heard == [true], "a second start told the follower again")
+        for step in 1...10 {
+            harness.window.setContentSize(NSSize(width: 1200 + step * 10, height: 800))
+            harness.root.layoutSubtreeIfNeeded()
+        }
+        #expect(harness.provider.follower.heard == [true])
+        screen.windowLiveResizeEnded()
+        #expect(harness.provider.follower.heard == [true, false])
+        let host = try #require(harness.root.context.hosts["p2"])
+        #expect(harness.provider.follower.frameAtEnd == host.frame, "the follower heard the end before its pane's final frame")
+        #expect(!screen.paneFrameNotices.isHolding)
+        screen.windowLiveResizeEnded()
+        #expect(harness.provider.follower.heard == [true, false], "an end with no start told the follower")
+    }
+
+    /// #50672: in a person's live resize of the window only the panes that show lay out each tick. A column scrolled past
+    /// the screen's edge keeps its old size out of sight and lays out once at the end, before its contents hear the end.
+    @Test func aWindowLiveResizeLaysOutAPaneOutOfViewOnceAtTheEnd() throws {
+        _ = NSApplication.shared
+        let provider = Panes()
+        let columns = [LayoutColumn(id: "c0", width: 1, root: .leaf("p1")), LayoutColumn(id: "c1", width: 1, root: .leaf("p2"))]
+        let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .columns(columns))], activeScreenID: "s",
+                                focusedPane: "p1")
+        let root = LayoutRootView(model: model, contentProvider: provider)
+        root.context.reduceMotionOverride = false
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
+        window.isReleasedWhenClosed = false
+        window.contentView = root
+        root.layoutSubtreeIfNeeded()
+        let screen = try #require(root.screenViews["s"])
+        let shown = try #require(root.context.hosts["p1"]), away = try #require(root.context.hosts["p2"])
+        try #require(screen.bounds.intersects(shown.frame))
+        try #require(!screen.bounds.intersects(away.frame), "p2's column shows: \(away.frame) in \(screen.bounds)")
+        let awaySize = away.frame.size
+
+        screen.windowLiveResizeBegan()
+        for step in 1...5 {
+            window.setContentSize(NSSize(width: 1200 - step * 10, height: 800 - step * 10))
+            root.layoutSubtreeIfNeeded()
+        }
+        let shownRest = try #require(screen.geometry.panes["p1"]), awayRest = try #require(screen.geometry.panes["p2"])
+        #expect(abs(shown.frame.height - shownRest.height) < 1, "the pane that shows lags its frame: \(shown.frame) vs \(shownRest)")
+        #expect(away.frame.size == awaySize, "the pane out of view laid out in a tick: \(away.frame)")
+        #expect(screen.deferredOffscreenLayout)
+        #expect(!screen.bounds.intersects(away.frame), "the held pane came into view: \(away.frame)")
+
+        screen.windowLiveResizeEnded()
+        #expect(!screen.deferredOffscreenLayout)
+        #expect(abs(away.frame.height - awayRest.height) < 1 && abs(away.frame.width - awayRest.width) < 1,
+                "the end left the pane out of view at its old size: \(away.frame) vs \(awayRest)")
     }
 }

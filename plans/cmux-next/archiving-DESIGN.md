@@ -59,3 +59,10 @@ group restores it. Idle workspaces archive per `workspaces.autoArchive.style` (d
 
 `sidebar_doc::archive_tests` (Rust, the reducer and the view rows). Client: the row reads the
 archived flag from the mirror's typed rows.
+
+## Drawn: one Archive section (2026-10-31, Lawrence 19197)
+
+The document keeps rule 1 (an archived item keeps its section and group) and rule 2 (archived items list last). The
+list draws them apart: archived workspaces and wholly archived groups (archived, or every workspace archived) sit
+under one "Archive (N)" row at the bottom of the sidebar, closed by default (`SidebarLayout+ArchiveSection`). The
+active workspace, a filter, the session tree and Group by Status draw them in place.

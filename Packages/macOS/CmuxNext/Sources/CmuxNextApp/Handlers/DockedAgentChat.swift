@@ -1,7 +1,9 @@
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextLayout
+import CmuxNextWindowRules
 
 /// A person's New Agent Chat (Cmd-I, the menu, the palette) in a workspace (cx-ihyx2,
 /// Lawrence 2026-10-14: "cmd i opens left docked chat in current workspace, seeded with
@@ -17,26 +19,28 @@ import CmuxNextLayout
 enum DockedAgentChat {
     /// True when Cmd-I was handled here; false for scripts, explicit targets and daemons
     /// that cannot hold a chat or a chat dock (the caller opens a chat tab in the pane).
+    /// The decision is Rust's (cmux-window-rules `chat::docked_open`); with no answer the caller opens the tab.
     static func open(from pane: PaneController, invocation: ActionInvocation, services: AppServices) -> Bool {
-        guard invocation.origin == .user, invocation.target == nil, invocation.arguments.isEmpty,
-              services.agentTabs.canHost(on: pane.daemon),
-              let content = pane.workspace, content.daemon.supports(DaemonCapability.dockColumnRole.rawValue),
-              let screen = content.layoutModel.screen(containing: pane.layoutPaneID) else { return false }
-        let columns = ChatColumnPlacement.columns(of: screen, containing: pane.layoutPaneID)
-        // Home's pinned dock holds the Chief, not this workspace's chat: a new chat opens beside it
-        // (`NewChatPlacement.besideDock`, 7b5ae883a3b), never a focus of the Chief.
-        if let dock = columns.first(where: { $0.dock?.role == .agentChat && $0.dock?.isPinned != true }), let target = dock.root.panes.first {
-            PaneHandlers.focus(target, in: content)
+        let content = pane.workspace
+        // The chat rules read topology only: a daemon without dock roles is never asked for a dock read.
+        let dockRoles = content?.daemon.supports(DaemonCapability.dockColumnRole.rawValue) ?? false
+        let facts = WindowRules.DockedOpen(
+            user: invocation.origin == .user, targeted: invocation.target != nil, hasArguments: !invocation.arguments.isEmpty,
+            canHost: services.agentTabs.canHost(on: pane.daemon), dockRoles: dockRoles,
+            pane: pane.layoutPaneID.rawValue, read: dockRoles ? ChatColumnPlacement.read(pane, services: services) : nil,
+            pendingDock: !pane.pendingDock.isEmpty)
+        switch WindowRules().dockedOpen(facts) {
+        case .notHandled?, nil:
+            return false
+        case .focus(let target)?:
+            if let content { PaneHandlers.focus(LayoutPaneID(rawValue: target), in: content) }
             return true
-        }
-        if ChatColumnPlacement.resolve(from: pane, services: services) == .dockChat {
-            PaneHandlers.focus(pane.layoutPaneID, in: content)
+        case .handled?:
             return true
+        case .open?:
+            let source = pane.agentSeedFromSelectedTab() ?? AgentPaneSeedSource(AgentPaneSeed(cwd: pane.selectedTab?.cwd))
+            source.workspaceContext = true
+            return pane.openAgentTab(seed: source)
         }
-        // A chat from an earlier Cmd-I is still on its way to its dock: that one is the chat.
-        if !pane.pendingDock.isEmpty { return true }
-        let source = pane.agentSeedFromSelectedTab() ?? AgentPaneSeedSource(AgentPaneSeed(cwd: pane.selectedTab?.cwd))
-        source.workspaceContext = true
-        return pane.openAgentTab(seed: source)
     }
 }

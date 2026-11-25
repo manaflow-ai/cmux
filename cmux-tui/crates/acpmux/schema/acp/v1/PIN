@@ -1,0 +1,6 @@
+# Upstream ACP v1 schema, vendored from the release assets of
+# https://github.com/agentclientprotocol/agent-client-protocol/releases/tag/<tag>.
+# Bump with `scripts/acp-schema.sh pin <tag>`; `scripts/acp-schema.sh latest` names the newest.
+tag=schema-v1.29.1
+schema.json sha256=0d0b1ca83c4872e5473f68926a894c7a8203b59b118e2a79bfe43dd76fbcbc1a
+meta.json sha256=061edb6efa8fb2aa2792459a86ec7268de5fe665bba48b2ffe7939df01481f88

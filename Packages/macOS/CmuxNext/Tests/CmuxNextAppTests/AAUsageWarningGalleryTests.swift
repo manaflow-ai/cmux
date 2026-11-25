@@ -3,6 +3,7 @@ import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 import CmuxTheme
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -12,7 +13,7 @@ import Testing
 /// `usage-warning-gallery/` in the package and bundled to `usage-warning-gallery.tar` for
 /// `cmux-ci run --artifact`; each still is also printed base64 between `USAGE-WARNING-PNG` lines,
 /// so a run's log carries it.
-@MainActor @Suite(.serialized) struct AAUsageWarningGalleryTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct AAUsageWarningGalleryTests {
     static let packageRoot = AANestedGroupsGalleryTests.packageRoot
 
     private static func sections(warns: Bool) -> [SidebarSection] {

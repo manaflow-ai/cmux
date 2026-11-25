@@ -20,11 +20,12 @@ pub(super) struct Params {
     surfaces: Vec<TabRef>,
 }
 
-/// Records the tabs as kept, then asks each shell to exit. Answers with the
-/// surfaces whose terminal was parked; each shows dead with
+/// Records the tabs as kept, then asks each shell to exit. A terminal a client
+/// is attached to, or one kept by `set-terminal-keep`, keeps running. Answers
+/// with the surfaces whose terminal was parked; each shows dead with
 /// `relaunch: {cwd}` once its host exited.
 pub(super) fn park(mux: &Arc<Mux>, params: Params) -> anyhow::Result<Value> {
     let surfaces = resolve_tab_refs(mux, &params.surfaces)?;
-    let parked = mux.park_terminal_tabs(&surfaces)?;
+    let parked = mux.park_unwatched_terminal_tabs(&surfaces)?;
     Ok(json!({ "parked": parked }))
 }

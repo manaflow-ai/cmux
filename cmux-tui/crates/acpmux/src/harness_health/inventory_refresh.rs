@@ -15,6 +15,8 @@ pub(crate) const INVENTORY_REFRESH_FEATURE: &str = "harnessInventoryRefresh";
 // The same bounded prefix the inventory projection can expose. Requests
 // share the check lock without waiting, so a slow owner cannot queue work.
 const REGISTRY_PARALLELISM: usize = 4;
+// timeout: this is an explicit inventory refresh RPC, not a launch prerequisite; a slow
+// registry returns a retryable health error while cached rows remain available.
 const REFRESH_LIMIT: Duration = Duration::from_secs(20);
 
 fn refused(reason: &str) -> RpcError {

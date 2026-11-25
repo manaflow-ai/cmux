@@ -15,10 +15,15 @@ public final class TerminalLastFrame {
     private var taken = false
     private var purged = false
 
+    /// Whether the terminal had output when it was evicted (``TerminalSession/showsOutput``): a hover
+    /// card pictures only a frame with output, never a new shell's empty prompt (Leo 2026-10-13).
+    public let showsOutput: Bool
+
     /// The frame `session` presents now; nil before its first draw.
-    public init?(of session: TerminalSession) {
+    public init?(of session: TerminalSession, showsOutput: Bool = true) {
         guard let surface = session.surfaceView.presentedFrame else { return nil }
         self.surface = surface
+        self.showsOutput = showsOutput
         surface.makeVolatile()
     }
 

@@ -55,7 +55,6 @@ import Testing
         var info = SidebarItemInfo(title: "Workspace", symbol: "terminal")
         info.workspace = WorkspaceID("ws")
         view.onMore = {}
-        view.onClose = {}
         view.configure(info, style: .list)
         view.layoutSubtreeIfNeeded()
         #expect(!view.showsHoverActions, "no controls at rest")
@@ -100,6 +99,6 @@ import Testing
         header.isEditing = false
         header.layoutSubtreeIfNeeded()
         #expect(!header.moreButton.hover.state.pressed, "the more button stayed lit after the editor closed")
-        #expect(header.moreButton.isHidden, "the more button stayed after the editor closed")
+        #expect(header.moreButton.isHidden || header.moreButton.alphaValue == 0, "the more button stayed after the editor closed")
     }
 }

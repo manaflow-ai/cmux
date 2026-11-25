@@ -19,7 +19,7 @@ priority class, under a per-frame budget (Chrome's UI thread: USER_BLOCKING, USE
 | frame | springs, autoscroll, frame probes, terminal frame holds (`FrameClient` default) | none | no |
 | visible | daemon store batches, sidebar row patches, content presentation (`FrameBatcher` default) | 2.5 ms | yes |
 | automation | control-socket requests (CLI, MCP, agents): the work queue and the control batcher | 1 ms | yes |
-| background | work nobody sees this frame | 0.5 ms | yes |
+| background | work nobody sees this frame (spares made ahead, warm-ups): idle work, only in a frame with idle time | 0.5 ms | yes |
 
 Why 4 ms in total: the target is no main-thread stall over 8 ms (key to frame p95 under 8 ms). One run loop pass
 holds the person's input dispatch (under 2 ms a key), the scheduled tasks, and the commit of what they changed; 4 ms
@@ -43,6 +43,14 @@ before the split, not at its 1 ms share.
 Progress rules, so every change still shows within one frame of being due: the first task of a class in a frame
 always runs; a class that yielded to input in one frame does not yield in the next. This is batching to the display
 cadence, not a throttle: work over budget runs on the next frame, never later.
+
+Background work is idle work (Chrome's idle tasks), so it has no first-task rule: it runs only in a frame with idle
+time, one that came on time (at most one and a half refreshes after the tick before it) after a render pass under
+half a refresh. SWITCH STALL (2026-11-06, cmux22, macOS 27, 60 Hz): after a Cmd-N's first frame the next frames came
+55 and 28 ms apart, and the next Cmd-N's spare workspace view (`WorkspaceSpareSlot`, about 3 ms a step) and the New
+Tab palette actions were made in them as the first background task of each frame. After waiting 300 ms in a row
+(`Budgets.idleTimeout`, Chrome's idle task timeout) one background task runs anyway, so a spare still refills under
+constant load. `debug.main_budget` counts the waits (`waited_for_idle_frame`).
 
 ## Pieces
 

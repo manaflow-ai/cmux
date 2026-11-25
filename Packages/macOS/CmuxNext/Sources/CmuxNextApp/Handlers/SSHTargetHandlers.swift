@@ -12,7 +12,7 @@ enum SSHTargetHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let ssh = context.services.ssh
         let available: @MainActor () -> String? = { ssh.unavailableReason }
-        CloudHandlers.bind("reconnectWorkspace", registry, reason: available) { ssh.reconnect(try workspaceMachine($0, context)) }
+        CloudHandlers.bind("reconnectWorkspace", registry, reason: available) { ssh.reconnect(try workspaceMachine($0, context), byPerson: $0.isPersonsRequest) }
         CloudHandlers.bind("disconnectWorkspace", registry, reason: available) { ssh.disconnect(try workspaceMachine($0, context)) }
         CloudHandlers.bind("copyWorkspaceSSHError", registry, reason: available) { invocation in
             let session = try workspaceMachine(invocation, context)
@@ -32,7 +32,7 @@ enum SSHTargetHandlers {
         }
         ActionTargetVisibility.hide("disconnectRemoteTab", in: registry) { invocation in
             guard let target = invocation.target, target.kind == .tab else { return false }
-            return context.services.locateTab(target.id).flatMap { tabMachine($0.0, context.services) } == nil
+            return context.targetTab(target.id, invocation).flatMap { tabMachine($0.0, context.services) } == nil
         }
     }
 

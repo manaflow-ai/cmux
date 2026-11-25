@@ -18,16 +18,31 @@
 //!     daemon reads the key, closes the descriptor and never takes another
 //!     key while it runs. A signed daemon ignores the descriptor (a same-uid
 //!     process could restart the daemon with its own key).
+//!   - an unsigned daemon on a Cloud machine (Linux, not root): the VM provisioning exec, which
+//!     runs as root, gives the RUNNING daemon the key with `_acpmux/person_enroll`
+//!     (`acpmux daemon enroll --person-key-fd 0`, `daemon/provision.rs`). Such a daemon is not
+//!     dumpable for its whole run, takes the key only from a connection whose peer uid is 0, and
+//!     the provisioner checks the process that writes the daemon's replies before it sends the
+//!     key. An agent runs as the daemon's user and cannot. One daemon (acpmux.service) then
+//!     owns the home: nothing stops and restarts it for a key.
 //! - The key never crosses a socket after enrollment (cx-fcaq): whatever
 //!   listens on the socket path could be a squatter. Each unix socket or
 //!   proven LocalApp connection gets a random nonce. Its FIRST request must
 //!   be `initialize`, whose result carries `_meta.acpmux.personChallenge`
-//!   `{nonce, connection}`. Its SECOND request may be
-//!   `_acpmux/person_prove {proof}` with `proof` = lowercase hex
+//!   `{nonce, connection, reprove: true}`. Any later request may be
+//!   `_acpmux/person_prove {proof}` (at most [`PROVES_PER_CONNECTION`]; the
+//!   second request as before, or later, so a pane whose key reached a
+//!   restarted daemon after it connected proves on the same connection, with
+//!   no reconnect and nothing shown) with `proof` = lowercase hex
 //!   HMAC-SHA256(key, "acpmux-person-v1" 0 transport 0 nonce 0 connection
 //!   id), where transport is `unix` or `app` as the client knows it
 //!   ([`person_proof`]), compared in constant time. A match makes the
-//!   connection the person for its whole life. The proof is bound to the
+//!   connection the person for its whole life (from that request on: one
+//!   handled before it was not the person's). A prove this run's key does not
+//!   answer yet (none enrolled, or the one the app is replacing) stays pending
+//!   until a key it answers is enrolled or the connection closes
+//!   ([`PersonGate::proves_when_keyed`]), so the order of the app's enroll and
+//!   a pane's first connection does not matter and no clock decides it. The proof is bound to the
 //!   nonce and the connection id, so a proof captured anywhere else (a
 //!   squatter that relayed the challenge, another connection) proves
 //!   nothing. A `personKey` field is stripped and never read. Web and Peer
@@ -114,7 +129,8 @@
 //!   `ACPMUX_SESSION_TOKEN_SOCKET`, this daemon's socket, and the CLI sends
 //!   the token only to that socket ([`caller_env`], `client.rs`). A
 //!   profile's, preset's or request's env never sets either variable: the
-//!   spawn drops them from every env it layers after `caller_env`; adoption: `adopted_callers`.
+//!   spawn drops them from every env it layers after `caller_env`; adoption: `adopted_callers`;
+//!   earlier runs' tokens: `caller_registry.rs`.
 //! - No start mode that does not ask applies to an adopt without the
 //!   person: an adopt may find a session already running
 //!   (`hub/adoption.rs`, `ifLive: "open"`), and only the person widens a
@@ -147,6 +163,18 @@
 //!   Without the person, `approveMode: true` and a preset `mode` that does
 //!   not ask are refused; `approveMode: false` and an asking mode narrow and
 //!   stay open.
+//! - (e) The start level (cmux#37392): a plain start (no preset, no adopt, no
+//!   folder profile, no profile that pins its mode) that names exactly the
+//!   full-access mode its harness offers and a start with no mode gets there
+//!   now (the person's start level for that profile is full access:
+//!   `agents.defaultPermissionMode`, the default, with
+//!   `sessions.allowFullAccess` on) asks for nothing more. Checked on the
+//!   request and again on the started session (`Hub::plain_start_is`,
+//!   `Hub::plain_session_is`). A proven caller session must itself run full
+//!   access, and the child keeps cmux's mark only when the caller's is cmux's.
+//!   Before this a Chief's `cmux chat new --mode bypassPermissions` (on the
+//!   app's daemon, where the Chief's caller token proves nothing) was refused
+//!   while the same start without `--mode` ran in bypass.
 //! - (d) The refusal ([`mode_person_required`]) is one sentence that names
 //!   where to approve: cmux NEXT on this host ([`host_label`]), or the
 //!   preset to approve there once; `error.data` carries `host`, `mode` and
@@ -231,10 +259,14 @@
 //!   process still has to run somewhere: an agent of a session that asks
 //!   needs an allowed command or read to get there. Binding the token to the
 //!   connecting process's ancestry (peer pid) is a later hardening.
-//! - A token dies with its daemon run: a harness that outlives a restart
-//!   (an agent host) inherits nothing until the next spawn.
+//! - A token outlives its daemon run while the session's host does: the next
+//!   run knows it by the host's record and by `caller-tokens.json`, which keeps
+//!   only digests of the tokens each session still accepts
+//!   (`caller_registry.rs`); a new host of the session ends the earlier ones.
 //! - `session/new` with a `policy` other than ask or deny-all is open to the
-//!   unix socket (it predates this check); a mode is not.
+//!   unix socket (it predates this check); a mode is not. A proven caller
+//!   session below full access names none wider than its own
+//!   (`full_access_children.rs`).
 //! - Open question (cx-wx93i): while the person's start mode is full
 //!   access (the default), a unix socket client that is no proven session,
 //!   such as `acpmux new` from a script, or an agent of a session that asks
@@ -325,6 +357,14 @@ pub const HOLDS_LIMIT: &str = "person.holds_limit";
 /// `_acpmux/person_holds` answers per connection. Not a security bound: the
 /// answers count only in their own HMAC domain.
 pub const HOLDS_PER_CONNECTION: u32 = 8;
+/// `_acpmux/person_prove` calls per connection. Not a security bound (the proof is a 256-bit
+/// HMAC bound to the connection's own nonce and id): it keeps a client from parking a pending
+/// prove ([`PersonGate::proves_when_keyed`]) per request.
+pub const PROVES_PER_CONNECTION: u32 = 8;
+/// `personChallenge.reprove`: this daemon takes `_acpmux/person_prove` at any point of a
+/// challenged connection's life, so a client that proved nothing (its key reached the daemon
+/// late) proves again on the same connection instead of reconnecting.
+pub const REPROVE_FIELD: &str = "reprove";
 
 /// At most this many spent decision nonces are kept.
 pub const SPENT_LIMIT: usize = 4096;
@@ -346,6 +386,10 @@ pub struct Answerer<'a> {
     pub(crate) fence: Option<&'a crate::agent::Fence>,
     /// The person who answered (`author.rs`), recorded in `answeredBy`: it proves nothing.
     pub author: Option<&'a crate::author::Author>,
+    /// The paired device whose credential the answering connection presented
+    /// (`server/remote_guard.rs` `sending_device`), from the handshake only: what D13 reads
+    /// (`Hub::local_claude_refusal`).
+    pub device: Option<&'a str>,
 }
 
 impl<'a> Answerer<'a> {
@@ -364,7 +408,7 @@ impl<'a> Answerer<'a> {
             (Some(nonce), Some(signed)) => Some((nonce, signed)),
             _ => None,
         };
-        Self { person, decision, approver, ancestor: None, fence: None, author: None }
+        Self { person, decision, approver, ancestor: None, fence: None, author: None, device: None }
     }
 }
 
@@ -382,6 +426,9 @@ pub enum PersonVerdict {
 #[derive(Default)]
 pub struct PersonGate {
     key: StdMutex<Option<String>>,
+    /// Woken at each key this run takes, so a proof that came before it is checked again
+    /// ([`PersonGate::proves_when_keyed`]).
+    keyed: tokio::sync::Notify,
     /// Set by `--person-key-fd`: a running unsigned daemon takes no other.
     from_spawn: AtomicBool,
     /// This daemon run's id, which a decision proof binds.
@@ -399,6 +446,9 @@ pub struct PersonGate {
     /// there too (`remote_guard::web_roots`, which drops `/`, home and its
     /// ancestors and resolves symlinks).
     pub workspace_roots: StdMutex<Vec<String>>,
+    /// Where the app's workspaces are read for an enrolled browser's sidebar
+    /// (`_acpmux/browser_workspace_source_set`, memory only; `server/browser_workspaces.rs`).
+    pub(crate) browser_workspaces: crate::server::browser_workspaces::Sources,
     /// The agent and model the person's app picked last for a new chat
     /// (`_acpmux/new_chat_picks_set`, memory only), shown in
     /// `_acpmux/harnesses` as `lastPicks`.
@@ -712,8 +762,26 @@ impl PersonGate {
             return Err("this daemon already has a person key".into());
         }
         *slot = Some(key.to_owned());
+        drop(slot);
         self.from_spawn.store(true, Ordering::SeqCst);
+        self.keyed.notify_waiters();
         Ok(())
+    }
+
+    /// The key the VM provisioning exec gives the running daemon (`daemon/provision.rs`). The
+    /// caller checked that the connection is the provisioner (root, while this daemon is not
+    /// root) and that this daemon is not signed. It replaces any key this run holds: the
+    /// provisioning exec could restart the daemon with a key of its own anyway, and a new app
+    /// launch makes a new key. A connection that proved the earlier key stays the person it
+    /// proved; every new proof needs the new key.
+    pub fn provision(&self, key: &str) -> Result<Value, RpcError> {
+        if !valid_key(key) {
+            return Err(RpcError::invalid_params("key must be 64 lowercase hex characters"));
+        }
+        *self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(key.to_owned());
+        self.from_spawn.store(true, Ordering::SeqCst);
+        self.keyed.notify_waiters();
+        Ok(json!({"enrolled": true, "via": "provisioner", "personInstance": self.instance()}))
     }
 
     /// Whether `proof` answers the challenge (`nonce`, `connection`) with
@@ -722,6 +790,33 @@ impl PersonGate {
         let key = self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
         key.and_then(|k| person_proof(&k, transport, nonce, connection))
             .is_some_and(|expected| cmux_local_auth::tokens_match(proof, &expected))
+    }
+
+    /// [`PersonGate::proves`], ordered by the key and not by a clock: a daemon that just
+    /// restarted (an update's take-over, `acpmux daemon restart`) takes the app's key by
+    /// `_acpmux/person_enroll` only after it is up, and a pane may connect and prove in between,
+    /// or prove a key the app is about to enroll in place of the one this run holds. The proof is
+    /// checked now and again at each key this run takes, and resolves true on the key it answers.
+    /// It never resolves false on its own: its caller ends the wait when the connection closes
+    /// ([`Conn::settle_prove`](crate::server)), so the bound is the connection's life (Leo,
+    /// 2026-11-22: "surely we can think of better fixes than random timing").
+    pub async fn proves_when_keyed(
+        &self,
+        transport: &str,
+        nonce: &str,
+        connection: &str,
+        proof: &str,
+    ) {
+        loop {
+            let keyed = self.keyed.notified();
+            tokio::pin!(keyed);
+            // Registered before the check, so a key taken between the check and the wait wakes it.
+            keyed.as_mut().enable();
+            if self.proves(transport, nonce, connection, proof) {
+                return;
+            }
+            keyed.await;
+        }
     }
 
     /// Whether `presented` is this launch's key (constant time).
@@ -743,6 +838,7 @@ impl PersonGate {
         if app_verified {
             *self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
                 Some(key.to_owned());
+            self.keyed.notify_waiters();
             return Ok(json!({"enrolled": true, "via": "signature"}));
         }
         if self.from_spawn.load(Ordering::SeqCst) && self.matches(key) {
@@ -756,34 +852,7 @@ impl PersonGate {
     }
 }
 
-/// The transport a unix socket connection proves on (`transport` of [`person_proof`]).
-pub const TRANSPORT_UNIX: &str = "unix";
-/// The transport a proven LocalApp WebSocket connection proves on.
-pub const TRANSPORT_APP: &str = "app";
-
-/// The bytes a person proof covers.
-fn proof_message(transport: &str, nonce: &str, connection: &str) -> Vec<u8> {
-    let mut message = b"acpmux-person-v1\0".to_vec();
-    for part in [transport, nonce, connection] {
-        message.extend_from_slice(part.as_bytes());
-        message.push(0);
-    }
-    message.pop();
-    message
-}
-
-/// The proof for one connection's challenge, as lowercase hex; None when
-/// `key` is not a person key. `transport` is the one the CLIENT knows it
-/// uses ([`TRANSPORT_UNIX`] or [`TRANSPORT_APP`]), never a value from the
-/// challenge: a relay that hands a unix connection's challenge to the app's
-/// WebSocket gets a proof for the other transport.
-pub fn person_proof(key: &str, transport: &str, nonce: &str, connection: &str) -> Option<String> {
-    let key = cmux_local_auth::frontend_proof::unhex::<32>(key).filter(|_| valid_key(key))?;
-    Some(cmux_local_auth::frontend_proof::hex(&cmux_local_auth::frontend_proof::hmac_sha256(
-        &key,
-        &proof_message(transport, nonce, connection),
-    )))
-}
+pub use crate::person_proof::{TRANSPORT_APP, TRANSPORT_UNIX, person_proof, valid_key};
 
 mod decision_answers;
 pub mod policy_grant;
@@ -817,18 +886,7 @@ pub fn decision_proof(
     )))
 }
 
-/// A connection's nonce: 32 random bytes as lowercase hex.
-pub fn new_nonce() -> String {
-    let mut bytes = [0u8; 32];
-    // No randomness means no safe challenge: the daemon cannot serve.
-    getrandom::fill(&mut bytes).expect("the OS random generator for a connection nonce"); // crash-allow: no randomness, no safe challenge
-    cmux_local_auth::frontend_proof::hex(&bytes)
-}
-
-/// 32 bytes as lowercase hex.
-pub fn valid_key(key: &str) -> bool {
-    key.len() == 64 && key.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-}
+pub use crate::person_tokens::new_nonce;
 
 /// The declared refusal.
 pub fn person_required(what: &str) -> RpcError {
@@ -874,13 +932,13 @@ pub(crate) fn asks(policy: PermissionPolicy) -> bool {
     matches!(policy, PermissionPolicy::Ask | PermissionPolicy::DenyAll)
 }
 
-/// How much a policy runs without asking: deny-all 0, ask 1, approve-reads 2,
+/// How much a policy runs without asking: deny-all 0, ask 1, approve-reads and review 2,
 /// approve-edits 3, approve-all 4. A higher number is wider.
 pub(crate) fn breadth(policy: PermissionPolicy) -> u8 {
     match policy {
         PermissionPolicy::DenyAll => 0,
         PermissionPolicy::Ask => 1,
-        PermissionPolicy::ApproveReads => 2,
+        PermissionPolicy::ApproveReads | PermissionPolicy::Review => 2,
         PermissionPolicy::ApproveEdits => 3,
         PermissionPolicy::ApproveAll => 4,
     }
@@ -954,7 +1012,10 @@ impl Hub {
         params: &Value,
     ) -> Result<(), RpcError> {
         match m {
-            method::SESSION_NEW if starts_modes => self.session_new_check(caller, params).await,
+            method::SESSION_NEW if starts_modes => {
+                self.named_policy_check(caller, params).await?;
+                self.session_new_check(caller, params).await
+            }
             // Who may sign an allow is the person's own choice (`approvers.rs`).
             method::MUX_APPROVERS_SET | method::MUX_APPROVERS => {
                 Err(person_required("changing or reading trusted approvers"))
@@ -966,6 +1027,14 @@ impl Hub {
                 Err(person_required("changing the workspace folders"))
             }
             method::MUX_NEW_CHAT_PICKS_SET => Err(person_required("changing the new chat picks")),
+            method::MUX_PROMPTS_SAVE | method::MUX_PROMPTS_DELETE => {
+                Err(person_required("changing saved prompts"))
+            }
+            method::MUX_STASH_LIST
+            | method::MUX_STASH_PUSH
+            | method::MUX_STASH_GET
+            | method::MUX_STASH_DROP
+            | method::MUX_STASH_MOVE => Err(person_required("the composer's stashed drafts")),
             method::MUX_PERMISSION_RESPOND => {
                 // Answered already: `respond_permission` tells this one who answered first
                 // (`permission_settled.rs`), and it changes nothing.
@@ -1061,17 +1130,23 @@ impl Hub {
                     ))
                 }
             }
-            // The handoff target tag decides which session a handoff adopts.
+            // The handoff target tag decides which session a handoff adopts; the agent hold tag
+            // holds a manager's messages (`agent_hold.rs`), which its manager must not lift.
             method::MUX_TAG => {
+                let guarded =
+                    |k: &str| k == super::handoff::TARGET_TAG || k == super::agent_hold::HOLD_TAG;
                 let sets = params
                     .get("set")
                     .and_then(Value::as_object)
-                    .is_some_and(|o| o.contains_key(super::handoff::TARGET_TAG));
-                let removes = params.get("remove").and_then(Value::as_array).is_some_and(|a| {
-                    a.iter().any(|v| v.as_str() == Some(super::handoff::TARGET_TAG))
-                });
+                    .is_some_and(|o| o.keys().any(|k| guarded(k)));
+                let removes = params
+                    .get("remove")
+                    .and_then(Value::as_array)
+                    .is_some_and(|a| a.iter().any(|v| v.as_str().is_some_and(guarded)));
                 if sets || removes {
-                    Err(person_required("the handoff target tag"))
+                    Err(person_required("the handoff target and agent hold tags"))
+                } else if self.identity_tag_locked(params) {
+                    Err(person_required("changing a manager tag while its chat is taken over"))
                 } else {
                     Ok(())
                 }
@@ -1085,7 +1160,10 @@ impl Hub {
                         params.get("value").and_then(Value::as_str),
                     )
                 };
-                if id.is_some_and(|i| crate::web_modes::FREE_CONFIG_IDS.contains(&i)) {
+                // A model, effort, speed (`fast-mode`), suggestion or collaboration choice
+                // (`web_modes::cli_config_id`): no approval mode, so no person. A Web
+                // connection's set is still held to its table by the remote guard.
+                if id.is_some_and(crate::web_modes::cli_config_id) {
                     return Ok(());
                 }
                 // An unknown session is the handler's not-found; a peer's
@@ -1095,14 +1173,33 @@ impl Hub {
                 else {
                     return Ok(());
                 };
-                let family = crate::web_modes::family_of(&s.meta());
+                // The family whose modes the configured harness offers: a launcher profile of
+                // Claude Code (`claude-sr2`) asks in Claude's `default` and `plan` too; an agent
+                // that only names itself Claude Code does not (`Hub::trusted_mode_family`).
+                let family = self.trusted_mode_family(&s.meta());
                 if remote_authenticated && self.any_mode_for_web(&s.meta()) {
                     return Ok(());
                 }
                 if self.web_modes().config_value_asks(&family, id, value) {
                     Ok(())
                 } else if let (None | Some("mode"), Some(mode)) = (id, value) {
-                    Err(mode_person_required(mode, None, false, starts_modes))
+                    // The full-access mode new chats start in, which the person chose for every
+                    // chat, or Claude's own Auto under it (`start_mode.rs`); never for a Web or
+                    // peer connection.
+                    // Or the mode the session runs now, when that one asks at all (Claude Code's
+                    // Auto): a set that changes nothing widens nothing (cmux#37392: a Chief in
+                    // Auto under an `ask` start level was refused each turn). Never a full-access
+                    // mode: cmux's set would mark one the harness claimed as cmux's own
+                    // (`trust_wait.rs` `full_access_by_cmux`).
+                    let unchanged = crate::web_modes::mode_of(&s.meta()).as_deref() == Some(mode)
+                        && !super::start_mode::is_full_access(mode);
+                    if starts_modes
+                        && (unchanged || self.may_move_without_person(&s.meta(), mode).await)
+                    {
+                        Ok(())
+                    } else {
+                        Err(mode_person_required(mode, None, false, starts_modes))
+                    }
                 } else {
                     Err(person_required("a mode that does not ask"))
                 }
@@ -1244,3 +1341,7 @@ impl Hub {
         matches!(offered.as_slice(), [one] if matches!(one["kind"].as_str(), Some("reject_once" | "reject_always")))
     }
 }
+
+#[cfg(test)]
+#[path = "person/provision_tests.rs"]
+mod provision_tests;

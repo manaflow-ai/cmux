@@ -2,7 +2,7 @@ public import Foundation
 public import Observation
 import CmuxNextWakeups
 
-/// When the person last looked at each workspace (`sidebar.sinceLooked`): stamped when the
+/// When the person last looked at each workspace (the hover card's "Since you looked" line): stamped when the
 /// selection leaves it, kept on this Mac. The hover card counts what its agents did since then.
 @Observable @MainActor
 public final class SidebarLookedStore {

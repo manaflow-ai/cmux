@@ -23,8 +23,15 @@ pub(super) fn parse_screen_strings(
         ["group", rest @ ..] => state::parse_screen_group(rest, selectors, flags),
         ["list"] => request(ResourceOperation::ScreenList, selectors, flags, Map::new()),
         ["create"] => {
+            add_optional_parent_selectors(selectors, flags, &["workspace"])?;
             let mut params = Map::new();
             insert_optional_string(&mut params, flags, "name", "name");
+            // A new screen keeps the focus where it is (socket focus policy)
+            // unless `--focus` asks; `--no-focus` is the default.
+            let _ = flags.boolean("no-focus");
+            if flags.boolean("focus") {
+                params.insert("focus".into(), Value::Bool(true));
+            }
             insert_creation_command(&mut params, argv, flags)?;
             request(ResourceOperation::ScreenCreate, selectors, flags, params)
         }
@@ -107,3 +114,7 @@ fn column_update(
     }
     request(ResourceOperation::ColumnUpdate, selectors, flags, params)
 }
+
+#[cfg(test)]
+#[path = "screen_tests.rs"]
+mod tests;

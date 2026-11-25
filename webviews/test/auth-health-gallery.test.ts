@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import strings from "../src/agent-session/acpmux/generated/strings.json";
 import type { PlayContext } from "../src/gallery/play";
 import fixture from "../src/agent-session/acpmux/AuthHealth.gallery";
+import { settleReact } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -18,7 +19,8 @@ beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, value] of Object.entries({
     window: saved.window,
     document: saved.document,
@@ -119,7 +121,7 @@ test("signed-out gallery play reaches the translated Log In row in Japanese", as
   const japaneseLogin = translate("harness.logIn");
   expect(japaneseLogin).not.toBe("Log In");
   dom.window.document.body.innerHTML = `<div class="nt-screen"><span class="acpmux-model"><button class="acpmux-picker-button"></button></span></div>
-     <div class="acpmux-quick-menu"><button class="acpmux-quick-item">${japaneseLogin}</button></div>`;
+     <div class="acpmux-cols"><div role="listbox"><div role="button">${japaneseLogin}</div></div></div>`;
   let clicked = false;
   const ctx = {
     document: dom.window.document,

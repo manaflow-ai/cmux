@@ -38,8 +38,14 @@ final class CEFDevToolsDivider: NSView {
         line.fill()
     }
 
-    override func layout() {
-        super.layout()
+    /// A new size places the glow at once (geometry only). No `layout()` override: AppKit marks a view that overrides it
+    /// as needing layout on every size change, so a pane resize's motion frame would lay this view out (S5, STATUS 13849).
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        placeGlow()
+    }
+
+    private func placeGlow() {
         let side = devTools?.layout.dock.isSide ?? true
         let t = CEFDevToolsLayout.lineThickness
         let line = side
@@ -48,14 +54,10 @@ final class CEFDevToolsDivider: NSView {
         glow.place(along: line, vertical: side)
     }
 
-    override func setFrameSize(_ newSize: NSSize) {
-        super.setFrameSize(newSize)
-        needsLayout = true
-    }
-
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         glow.applyTheme(self)
+        placeGlow()
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -63,9 +65,13 @@ final class CEFDevToolsDivider: NSView {
         glow.applyTheme(self)
     }
 
+    /// Its own tracking area and cursor rect only where no layout screen serves it (``PanePointerFollowing``): in a pane
+    /// the screen's one area gives its hover and resize cursor (RESIZE MAIN BUDGET).
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let trackingArea { removeTrackingArea(trackingArea) }
+        trackingArea = nil
+        guard !isServedByPanePointerArea else { return }
         let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
         addTrackingArea(area)
         trackingArea = area
@@ -87,8 +93,10 @@ final class CEFDevToolsDivider: NSView {
         glow.set(dragging ? .dragging : hovered ? .hovered : .rest)
     }
 
+    private var resizeCursor: NSCursor { devTools?.layout.dock.isSide == true ? .resizeLeftRight : .resizeUpDown }
+
     override func resetCursorRects() {
-        addCursorRect(bounds, cursor: devTools?.layout.dock.isSide == true ? .resizeLeftRight : .resizeUpDown)
+        if !isServedByPanePointerArea { addCursorRect(bounds, cursor: resizeCursor) }
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -107,7 +115,8 @@ final class CEFDevToolsDivider: NSView {
     }
 
     /// The dock side choices (CEF runs DevTools with docking off, so its
-    /// own three-dot menu has none).
+    /// own three-dot menu has none). Each row runs a palette action (``command(for:)``, Close
+    /// `devtools.close`).
     override func menu(for event: NSEvent) -> NSMenu? {
         guard let tab = devTools?.tab else { return nil }
         let menu = NSMenu()
@@ -123,15 +132,41 @@ final class CEFDevToolsDivider: NSView {
         let close = NSMenuItem(title: Strings.devToolsClose, action: #selector(closeItem(_:)), keyEquivalent: "")
         close.target = self
         menu.addItem(close)
-        return menu
+        return NSMenu.withoutSystemItems(menu)
     }
 
     @objc private func dockItem(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String, let dock = BrowserDevToolsDock(rawValue: raw) else { return }
-        devTools?.perform(.dock(dock))
+        run(Self.command(for: dock))
     }
 
     @objc private func closeItem(_ sender: NSMenuItem) {
-        devTools?.perform(.close)
+        run(.close)
     }
+
+    /// The palette's Developer Tools action a dock row is: Dock to Left, Dock to Bottom
+    /// (`devtools.openDocked`), Dock to Right and Undock (`devtools.openInWindow`).
+    nonisolated static func command(for dock: BrowserDevToolsDock) -> WebDevToolsCommand {
+        switch dock {
+        case .left: .openDockedLeft
+        case .bottom: .openDocked
+        case .right: .openDockedRight
+        case .window: .openInWindow
+        }
+    }
+
+    /// A row runs its palette action through the tab's host (`BrowserTabIntent.devTools`), so the
+    /// menu and the palette run one handler; a tab with no host yet moves its own DevTools.
+    private func run(_ command: WebDevToolsCommand) {
+        guard let tab = devTools?.tab else { return }
+        if let delegate = tab.delegate { return delegate.browserTab(tab, didRequest: .devTools(command)) }
+        if let placement = command.placement { devTools?.perform(placement) }
+    }
+}
+
+extension CEFDevToolsDivider: PanePointerFollowing {
+    func panePointerCursor(at point: NSPoint) -> NSCursor? { resizeCursor }
+    func panePointerEntered(with event: NSEvent) { hovered = true }
+    func panePointerMoved(with event: NSEvent) {}
+    func panePointerExited(with event: NSEvent) { hovered = false }
 }

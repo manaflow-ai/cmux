@@ -3,6 +3,8 @@ import AppKit
 import CmuxHomeRender
 import CmuxNextDesign
 @testable import CmuxNextHome
+@testable import CmuxNextHomeModel
+import CmuxNextTestSupport
 import Foundation
 @testable import MessagesLabHome
 import Testing
@@ -13,7 +15,7 @@ import Testing
 /// rest, so the workspace sidebar, the list, the header and the chat read as different tints, in dark,
 /// light and over a picture. Home has one veil: every column paints what the chat paints over the
 /// window's tint, and the header shows no band while no message is under it.
-@MainActor @Suite(.serialized) struct HomeOneVeilTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct HomeOneVeilTests {
     /// The conversation list's colour over the window is the chat's colour over the window, in dark
     /// and light: the same fill (the window's tint shows through both, or both paint the same pane fill).
     @Test(arguments: [NSAppearance.Name.darkAqua, .aqua])

@@ -1,0 +1,19 @@
+{
+  "title": "Workspace hover tabs",
+  "settings": {"appearance": {"theme": "light:Soft Blue Light,dark:Soft Blue"}},
+  "steps": [
+    {"title": "Launch", "wait": 3},
+    {"title": "Create a workspace with an inner tab", "cmux": ["workspace", "new", "--name", "Hover tab demo", "--cwd", "/tmp", "--shell", "printf ready; sleep 60"], "wait": 3},
+    {"title": "Focus the created workspace", "rpc": {"method": "debug.mouse", "params": {"row": "Hover tab demo", "action": "click"}}, "wait": 2},
+    {"title": "Verify the original first tab", "rpc": {"method": "debug.focus"}, "wait": 0, "expect": {"method": "debug.focus", "fields": {"windows.0.workspace_name": "Hover tab demo", "windows.0.topology.0.tab_count": 1, "windows.0.topology.0.selected_index": 0}}},
+    {"title": "Add a second inner tab", "cmux": ["action", "run", "newSurface"], "wait": 2},
+    {"title": "Focus the second inner tab", "cmux": ["action", "run", "selectSurfaceByNumber", "--index", "2"], "wait": 1},
+    {"title": "Verify the second of two tabs is selected", "rpc": {"method": "debug.focus"}, "wait": 0, "expect": {"method": "debug.focus", "fields": {"windows.0.workspace_name": "Hover tab demo", "windows.0.topology.0.tab_count": 2, "windows.0.topology.0.selected_index": 1}}},
+    {"title": "Use dark appearance for the real hover", "rpc": {"method": "debug.appearance", "params": {"mode": "dark"}}, "wait": 1},
+    {"title": "Hover the workspace row", "rpc": {"method": "debug.mouse", "params": {"row": "Hover tab demo", "action": "move"}}, "wait": 2},
+    {"title": "Move into the popover", "rpc": {"method": "debug.mouse", "params": {"target": "hover-card", "x": 100, "y": 50, "action": "move"}}, "wait": 2},
+    {"title": "Click the first inner tab from the second", "rpc": {"method": "debug.mouse", "params": {"target": "hover-card", "x": 100, "y": 50, "action": "click"}}, "wait": 3},
+    {"title": "Focused first tab and workspace after the click", "rpc": {"method": "debug.focus"}, "wait": 1, "expect": {"method": "debug.focus", "fields": {"windows.0.workspace_name": "Hover tab demo", "windows.0.topology.0.tab_count": 2, "windows.0.topology.0.selected_index": 0}}},
+    {"title": "Popover state after focusing", "rpc": {"method": "debug.hover_cards"}, "wait": 0}
+  ]
+}

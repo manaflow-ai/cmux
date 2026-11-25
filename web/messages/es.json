@@ -200,7 +200,10 @@
     "signupPendingBody": "Si ya tienes una cuenta, inicia sesión con el método que usaste antes. Si acabas de crear una cuenta, verifica tu correo antes de iniciar sesión.",
     "genericTitle": "No se pudo completar el inicio de sesión",
     "genericBody": "Inténtalo de nuevo. Si el problema continúa, contacta con soporte.",
-    "backToSignIn": "Volver a iniciar sesión"
+    "backToSignIn": "Volver a iniciar sesión",
+    "chatgptLinkTitle": "Inicia sesión una vez para conectar ChatGPT",
+    "chatgptLinkBody": "Este correo ya tiene una cuenta de cmux. Inicia sesión con el método que usaste antes y ChatGPT se conectará a esa cuenta.",
+    "chatgptEmailUnverifiedBody": "El correo de tu cuenta de ChatGPT no está verificado. Verifícalo con OpenAI o inicia sesión de otra forma."
   },
   "cloudPublicationAccess": {
     "title": "No tienes acceso",
@@ -423,13 +426,13 @@
     "faqCustomizeQ": "¿Puedo personalizar cmux?",
     "faqCustomizeA": "Sí. El renderizado del terminal usa tu configuración de Ghostty, así que los temas, las fuentes, los colores y el cursor se trasladan directamente. Los ajustes propios de cmux en <path>~/.config/cmux/cmux.json</path> controlan la barra lateral, la barra de pestañas, los paneles divididos y el comportamiento, y cada <shortcutsLink>atajo de teclado</shortcutsLink> es editable. Consulta <link>configuración</link>.",
     "faqIosQ": "¿Hay una app para iOS?",
-    "faqIosA": "Sí, en beta. Empareja tu iPhone con tu Mac desde la ventana de Mobile Connect y conéctate a tus terminales desde el teléfono, con reenvío opcional de las notificaciones del terminal. Se distribuye en TestFlight como cmux BETA. El acceso anticipado se incluye con <foundersLink>cmux Founders Edition</foundersLink>.",
+    "faqIosA": "Sí, en beta. Empareja tu iPhone con tu Mac desde la ventana de Mobile Connect y conéctate a tus terminales desde el teléfono, con reenvío opcional de las notificaciones del terminal. Se distribuye en TestFlight como cmux BETA.",
     "faqSkillsQ": "¿cmux tiene skills?",
     "faqSkillsA": "Sí. Las skills son flujos de trabajo reutilizables que puedes dar a cualquier agente que se ejecute en cmux, para cosas como control de la CLI, automatización del espacio de trabajo, ajustes y superficies de navegador. Explora la colección abierta en <skillsLink>cmux-skills</skillsLink>, o lee la <link>documentación de skills</link>.",
     "faqBrowserQ": "¿Qué puede hacer el navegador integrado?",
     "faqBrowserA": "cmux puede dividir un panel de navegador real junto a tu terminal, y es totalmente programable: navega, captura el DOM, haz clic, escribe, evalúa JavaScript y lee la actividad de la consola y de la red a través de la misma socket API. Los agentes lo usan para verificar sus propios cambios web sin salir de cmux. Consulta la <link>automatización del navegador</link>.",
     "faqSupportQ": "¿Cómo puedo apoyar a cmux?",
-    "faqSupportA": "cmux es gratuito y de código abierto, y siempre lo será. Si quieres respaldar el desarrollo y obtener acceso anticipado a lo que viene, incluyendo cmux AI, la app de iOS y los Cloud VMs, echa un vistazo a <foundersLink>cmux Founders Edition</foundersLink>.",
+    "faqSupportA": "cmux es gratuito y de código abierto, y siempre lo será.",
     "faqFeatureQ": "Tengo una sugerencia o he encontrado un error",
     "faqFeatureA": "Queremos saberlo. Abre un <issuesLink>issue</issuesLink> o un <prLink>pull request</prLink> en GitHub, o <mailLink>escríbenos</mailLink>."
   },
@@ -552,7 +555,7 @@
           "granted": "Otorgado por cmux. No hay nada que cambiar.",
           "grantedNoCancel": "Otorgado por cmux, así que no hay nada que cancelar.",
           "paymentFailed": "Actualiza tu método de pago antes de cambiar de plan.",
-          "foundersLifetime": "Founder's Edition incluye Pro de por vida.",
+          "foundersLifetime": "Tu compra de por vida incluye Pro.",
           "adminOnly": "Solo los administradores del equipo pueden cambiar el plan."
         },
         "names": {
@@ -576,17 +579,17 @@
           ],
           "pro": [
             "Agentes en la nube en Cloud VMs",
-            "Hasta 5 Cloud VMs que comparten 20 vCPU y 40 GB de RAM. Una VM puede usar hasta 16 GB de RAM / 8 vCPU. Los tamaños de 24 GB / 12 vCPU y 32 GB / 16 vCPU requieren Max.",
+            "Cloud VMs sin límite de cantidad, medidas más allá del uso incluido; una VM puede usar hasta 16 GB de RAM / 8 vCPU. Los tamaños de 24 GB / 12 vCPU y 32 GB / 16 vCPU requieren Max.",
             "La app cmux para iOS"
           ],
           "max": [
-            "Hasta 5 Cloud VMs que comparten 80 vCPU y 160 GB de RAM. Max desbloquea 24 GB / 12 vCPU, 32 GB / 16 vCPU y hasta 64 GB / 32 vCPU.",
+            "Cloud VMs sin límite de cantidad, medidas más allá del uso incluido; Max desbloquea 24 GB / 12 vCPU, 32 GB / 16 vCPU y hasta 64 GB / 32 vCPU.",
             "Máquinas más grandes",
             "Todo lo de Pro"
           ],
           "team": [
             "Todo lo de Pro para cada miembro",
-            "Hasta 5 Cloud VMs por puesto de pago, que comparten 20 vCPU y 40 GB de RAM por puesto de pago en todo el equipo",
+            "Cloud VMs sin límite de cantidad para todo el equipo, medidas más allá del uso incluido; el límite de gasto del equipo es el tope",
             "Una sola factura para todo el equipo",
             "Soporte prioritario"
           ]
@@ -609,8 +612,8 @@
         "title": "¿Cancelar {plan}?",
         "body": "Conservas {plan} hasta el {date}. Después, pierdes:",
         "bodyNoDate": "Conservas {plan} hasta el final de este período de facturación. Después, pierdes:",
-        "foundersBody": "Tu suscripción {plan} termina el {date}. Después tendrás Pro, que Founder's Edition incluye de por vida.",
-        "foundersBodyNoDate": "Tu suscripción {plan} termina al final de este período de facturación. Después tendrás Pro, que Founder's Edition incluye de por vida.",
+        "foundersBody": "Tu suscripción {plan} termina el {date}. Después conservas Pro gracias a tu compra de por vida.",
+        "foundersBodyNoDate": "Tu suscripción {plan} termina al final de este período de facturación. Después conservas Pro gracias a tu compra de por vida.",
         "reasonLabel": "¿Por qué cancelas? (opcional)",
         "otherPlaceholder": "Cuéntanos más (opcional)",
         "confirm": "Cancelar plan",
@@ -2504,7 +2507,7 @@
       "socketModeDesc": "Sobrescribir el modo de acceso (cmuxOnly, allowAll, off). También acepta cmux-only/cmux_only y allow-all/allow_all",
       "workspaceIdDesc": "Establecido automáticamente: ID del workspace actual",
       "surfaceIdDesc": "Establecido automáticamente: ID de la superficie actual",
-      "termProgramDesc": "Establecido en ghostty",
+      "termProgramDesc": "Establecido en cmux",
       "termDesc": "Establecido en xterm-ghostty",
       "envCallout": "Los valores legacy de CMUX_SOCKET_MODE full y notifications siguen siendo aceptados por compatibilidad.",
       "detectingCmux": "Detectar cmux",
@@ -2883,7 +2886,7 @@
       "intro": "La app de cmux para iOS es un complemento para tu Mac. Empareja tu iPhone o iPad con un Mac que ejecute cmux y conéctate a tus terminales desde el teléfono, con reenvío opcional de las notificaciones de la terminal.",
       "betaNote": "La app para iOS está en beta. Se distribuye en TestFlight como cmux BETA.",
       "accessTitle": "Obtener acceso",
-      "accessDesc": "La app se distribuye a través de TestFlight. El acceso anticipado se incluye con <foundersLink>cmux Founders Edition</foundersLink>, junto con otras funciones tempranas.",
+      "accessDesc": "La app se distribuye a través de TestFlight. El acceso a la beta se incluye con cmux Pro; únete desde la página de TestFlight en tu panel.",
       "prereqTitle": "Requisitos previos",
       "prereqIntro": "Antes de empezar, necesitas:",
       "prereq1": "Un Mac que ejecute cmux con la sesión iniciada.",
@@ -2969,13 +2972,13 @@
       "planMax": "Max",
       "sizesDefault": "Las máquinas nuevas usan 8 GB de memoria si no eliges un tamaño. Ejecuta cmux vm ls --json para ver los tamaños que permite tu plan.",
       "limitsTitle": "Límites del plan",
-      "limitsDesc": "Tus máquinas activas comparten un único fondo de vCPU y memoria. Ejecuta una máquina grande o varias pequeñas. Las máquinas en pausa no usan el fondo. El disco se fija por máquina y no forma parte del fondo.",
+      "limitsDesc": "Pro, Team y Max no limitan cuántas máquinas tienes; Plus conserva una máquina. Más allá del uso incluido, las máquinas en ejecución se miden por hora de vCPU y por hora de GB, y las máquinas guardadas y en pausa por GB-mes de disco. El límite de gasto del equipo es el único tope: al alcanzarlo se rechazan los nuevos inicios y las máquinas en ejecución se pausan tras un aviso, sin perder nada.",
       "limitsFree": "Las cuentas gratuitas no pueden crear máquinas.",
-      "limitsPaid": "Las cuentas Pro y Founder's Edition pueden tener hasta 5 máquinas, incluidas las pausadas que comparten 20 vCPU y 40 GB de memoria.",
-      "limitsTeam": "Las cuentas de equipo pueden tener hasta 5 máquinas, incluidas las pausadas por cada puesto de pago. Cada puesto de pago añade 20 vCPU y 40 GB de memoria al fondo del equipo.",
-      "limitsMax": "Las cuentas Max pueden tener hasta 5 máquinas, incluidas las pausadas que comparten 80 vCPU y 160 GB de memoria. Una máquina Max puede usar hasta 64 GB y 32 vCPU, incluidos los tamaños de 24 GB / 12 vCPU y 32 GB / 16 vCPU; Pro y Team llegan hasta 16 GB y 8 vCPU.",
-      "limitsPoolFull": "Si una máquina nueva, reanudada, ampliada o bifurcada superara el fondo, cmux rechaza la solicitud y muestra cuánto del fondo está en uso. Pausa o elimina una máquina para liberar recursos, o mejora a Max.",
-      "limitsPricing": "Consulta la página de precios para ver los precios actuales. No hay medición de uso ni cargos por exceso.",
+      "limitsPaid": "Las cuentas Pro pueden tener cualquier número de máquinas, cada una de hasta 16 GB y 8 vCPU.",
+      "limitsTeam": "Team es opcional: reúne a todos en una factura compartida y un único límite de gasto. Los puestos no cambian cuántas máquinas puede tener cada persona.",
+      "limitsMax": "Las cuentas Max pueden tener cualquier número de máquinas. Una máquina Max puede usar hasta 64 GB y 32 vCPU, incluidos los tamaños de 24 GB / 12 vCPU y 32 GB / 16 vCPU; Pro y Team se quedan en 16 GB y 8 vCPU.",
+      "limitsPoolFull": "Al llegar al límite de gasto, cmux rechaza una máquina nueva o reanudada e indica que el equipo alcanzó su límite. Sube el límite para volver a iniciar máquinas; no se elimina nada.",
+      "limitsPricing": "Consulta la página de precios para ver los precios actuales. El uso por encima de lo incluido se mide.",
       "agentUpdatesTitle": "Mantener actualizados los agentes de programación",
       "agentUpdatesDesc": "Con esta opción activada, la máquina actualiza Claude Code, Codex, OpenCode, pi y agent-browser. Comprueba después de crear la máquina y cada vez que te conectas, como máximo una vez cada 24 horas. La actualización se ejecuta de forma independiente, así que nunca bloquea la conexión.",
       "agentUpdatesSource": "Cada herramienta proviene de su versión oficial en GitHub y se verifica con el resumen sha256 del recurso de la versión. No se usa npm. Una versión solo se instala cuando lleva 3 días publicada, y una actualización nunca instala una versión anterior. Un agente en ejecución conserva los archivos con los que se inició, y una actualización fallida deja la versión actual en su lugar.",
@@ -3362,7 +3365,8 @@
       "darkArt": "Arte oscuro",
       "museumIcons": "Iconos de museo",
       "calm": "Calma",
-      "dore": "Doré"
+      "dore": "Doré",
+      "eastAsian": "Pintura de Asia oriental"
     }
   },
   "testimonials": {
@@ -5416,7 +5420,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro está activo",
     "title": "Te damos la bienvenida a cmux Pro",
-    "body": "Pro incluye hasta 5 VM de Cloud que comparten 20 vCPU y 40 GB de RAM, además del acceso a cmux iOS mediante TestFlight. Una VM puede usar hasta 16 GB de RAM / 8 vCPU. Los tamaños de 24 GB / 12 vCPU y 32 GB / 16 vCPU requieren Max.",
+    "body": "Pro incluye VM de Cloud sin límite de cantidad, medidas más allá del uso incluido, además del acceso a cmux iOS mediante TestFlight. Una VM puede usar hasta 16 GB de RAM / 8 vCPU. Los tamaños de 24 GB / 12 vCPU y 32 GB / 16 vCPU requieren Max.",
     "done": "Ir al panel",
     "steps": {
       "iosApp": {

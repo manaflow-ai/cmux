@@ -41,4 +41,20 @@ import Testing
                                               centered: true, screen: Self.screen, margin: 6)
         #expect(frame.minX == 6)
     }
+
+    @Test func aSubmenuOpensToTheRightWhenThereIsRoom() {
+        let row = CGRect(x: 600, y: 500, width: 120, height: 28)
+        let placed = PopupPlacement.sideBySideFrame(anchor: row, size: CGSize(width: 240, height: 300), screen: Self.screen)
+        #expect(placed.side == .right)
+        #expect(placed.frame.minX == row.maxX + 4)
+        #expect(placed.frame.maxY == row.maxY)
+    }
+
+    @Test func aSubmenuFlipsToTheLeftAtTheScreenEdge() {
+        let row = CGRect(x: 1300, y: 500, width: 90, height: 28)
+        let placed = PopupPlacement.sideBySideFrame(anchor: row, size: CGSize(width: 240, height: 300), screen: Self.screen)
+        #expect(placed.side == .left)
+        #expect(placed.frame.maxX == row.minX - 4)
+        #expect(placed.frame.maxX <= Self.screen.maxX - 6)
+    }
 }

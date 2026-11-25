@@ -1,6 +1,8 @@
 import AppKit
 @testable import CmuxNextBrowser
 @testable import CmuxNextLayout
+import CmuxNextScreenshots
+import CmuxNextTestSupport
 import Testing
 
 /// Columns and chrome (Lawrence 2026-10-13, a screen recording: "there are layering issues for
@@ -10,7 +12,7 @@ import Testing
 /// is a child window: no layer mask reaches it, and the fork clips it only to the host's visible
 /// rect, `cmuxClipPath` and `cmuxOcclusionRects`. Those two are what the fork reads, so they
 /// must carry the strip clip.
-@MainActor @Suite struct ColumnStripPageClipTests {
+@MainActor @Suite(.closesItsWindows) struct ColumnStripPageClipTests {
     /// A pane host as the layout makes it (8 pt padding, 10 pt corners) holding the browser's
     /// `CEFHostView`, the parent view the fork keeps the page window over.
     struct Column {
@@ -65,5 +67,51 @@ import Testing
         let shown = try #require(column.shown, "the pane's rounded corners still cut the page")
         #expect(abs(shown.width - column.page.bounds.width) < 1 && abs(shown.height - column.page.bounds.height) < 1, "\(shown)")
         #expect(column.page.cmuxOcclusionRects().count == 0)
+    }
+
+    /// A one-colour image `size` pixels large.
+    static func fill(_ size: CGSize, _ color: CGColor) throws -> CGImage {
+        let space = try #require(CGColorSpace(name: CGColorSpace.sRGB))
+        let context = try #require(CGContext(data: nil, width: Int(size.width), height: Int(size.height), bitsPerComponent: 8,
+                                             bytesPerRow: Int(size.width) * 4, space: space,
+                                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(color)
+        context.fill(CGRect(origin: .zero, size: size))
+        return try #require(context.makeImage())
+    }
+
+    /// Window images (`debug.window_snapshot`, `cmux window screenshot`) paint Chromium's own
+    /// image of each page over its area, because the window server leaves out what Chromium
+    /// draws. They must paint it only where the page window's mask shows the page: an agent chat
+    /// scrolled under Home's docked Messages column painted over Home's welcome bubbles in every
+    /// capture, and in a see-through window the bubbles showed through the chat's transparent page.
+    @Test func aWindowImagePaintsAColumnsPageOnlyWhereTheStripShowsIt() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 300), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 300))
+        window.contentView = root
+        let column = Column()
+        column.host.frame.origin.x = 200
+        root.addSubview(column.host)
+        column.host.layoutSubtreeIfNeeded()
+        // A docked column covers the host's left 250 pt: the strip shows its right 150 pt, window x 450 to 600.
+        column.host.setStripClip(CGRect(x: 250, y: 0, width: 150, height: 300))
+        let clip = try #require(column.page.pageClipInWindow, "the page window is cut where the strip clips its column")
+        #expect(abs(clip.boundingBoxOfPath.minX - 450) < 1, "the clip starts at the dock's inner edge: \(clip.boundingBoxOfPath)")
+
+        let home = CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1)
+        let page = CGColor(srgbRed: 0, green: 0, blue: 1, alpha: 1)
+        let base = try Self.fill(CGSize(width: 600, height: 300), home)
+        let area = column.page.convert(column.page.bounds, to: nil)
+        let image = try #require(WindowImageLayer.composite(base: base, windowSize: CGSize(width: 600, height: 300),
+                                                            layers: [.page(try Self.fill(area.size, page), area,
+                                                                           clip: WindowImageClip(clip))]))
+        let pixels = MaskedScreenshotTests.Pixels(image)
+        let underDock = pixels.at(x: 300, y: 150)
+        #expect(underDock.red > 200 && underDock.blue < 50, "the dock's side keeps the window's pixels: \(underDock)")
+        let shown = pixels.at(x: 520, y: 150)
+        #expect(shown.blue > 200 && shown.red < 50, "the strip's side shows the page: \(shown)")
     }
 }

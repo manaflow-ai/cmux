@@ -2,8 +2,8 @@ import Foundation
 
 /// The shared card for messages to the user above the footer (BOTTOM-LEFT-
 /// CARDS K1; Lawrence 2026-10-09): the "Did you know" tip and the update
-/// status use it. An optional icon beside the title, an optional small
-/// heading above it, one short detail (up to two lines), an optional
+/// status use it. An optional icon above the title, an optional small
+/// heading above it, a detail (wrapped in full), an optional
 /// progress bar, up to two buttons with an optional shortcut beside them,
 /// and an x. A button sends `SidebarIntent.noticeAction(card:action:)`, the
 /// x `dismissNotice(id)`. The App fills it only when no update card shows
@@ -38,17 +38,37 @@ public nonisolated struct SidebarNoticeCard: Hashable, Sendable {
         }
     }
 
+    /// A control on the card's right edge, vertically centred in the card, bigger than the x (a
+    /// running download's cancel; Leo 2026-10-31: "PUT A BIGGER SYMBOL ON THE RIGHT ... CENTER
+    /// THE FUCKING BUTTON ON THE RIGHT VERTICALLY"). Pressing it sends `noticeAction` with `id`.
+    public struct Trailing: Hashable, Sendable {
+        public var id: String
+        /// An SF Symbol.
+        public var symbol: String
+        /// The tooltip and VoiceOver label.
+        public var label: String
+
+        public init(id: String, symbol: String, label: String) {
+            self.id = id
+            self.symbol = symbol
+            self.label = label
+        }
+    }
+
     public var id: String
-    /// An SF Symbol beside the title, nil for none.
+    /// An SF Symbol above the title, nil for none (status cards show none: their text starts at
+    /// the card's padding).
     public var symbol: String?
     /// A small heading above the title ("Did you know?"), nil for none.
     public var eyebrow: String?
     public var title: String
     public var detail: String?
-    /// Short list lines under the detail (a changelog), one line each.
+    /// Short list lines under the detail (a changelog), each wrapped in full.
     public var lines: [String]
     public var progress: Progress?
     public var actions: [Action]
+    /// The control on the right, vertically centred (``Trailing``), or nil.
+    public var trailing: Trailing?
     /// A shortcut as shown in menus ("⇧⌘P"), beside the buttons.
     public var shortcut: String?
     /// The x's tooltip and VoiceOver label; nil shows no x.
@@ -71,12 +91,16 @@ public nonisolated struct SidebarNoticeCard: Hashable, Sendable {
     /// progress and result): it takes the bottom-left slot from the Now
     /// Playing and "cmux Updated!" cards, so the answer is never behind them.
     public var userAsked: Bool
+    /// Unmeasured work shows a small spinner before the title. Status cards turn it off: their
+    /// text starts at the card's padding and the bar's sweep shows the work (Leo 2026-10-31: "WHY
+    /// NOT JUST LEFT ALIGN THE TEXT").
+    public var leadingSpinner = true
     /// Something waits on the person's answer (``SidebarAsks``): the card
     /// takes the slot from every other card, the staged update card too.
     public var awaitsAnswer = false
 
     public init(id: String, symbol: String? = nil, eyebrow: String? = nil, title: String, detail: String? = nil,
-                lines: [String] = [], progress: Progress? = nil, actions: [Action] = [], shortcut: String? = nil, dismissLabel: String? = nil,
+                lines: [String] = [], progress: Progress? = nil, actions: [Action] = [], trailing: Trailing? = nil, shortcut: String? = nil, dismissLabel: String? = nil,
                 dismissTitle: String? = nil, dismissMenu: [Action] = [], shownAction: String? = nil, hiddenAction: String? = nil, userAsked: Bool = false) {
         self.id = id
         self.symbol = symbol
@@ -86,6 +110,7 @@ public nonisolated struct SidebarNoticeCard: Hashable, Sendable {
         self.lines = lines
         self.progress = progress
         self.actions = actions
+        self.trailing = trailing
         self.shortcut = shortcut
         self.dismissLabel = dismissLabel
         self.dismissTitle = dismissTitle
@@ -93,5 +118,35 @@ public nonisolated struct SidebarNoticeCard: Hashable, Sendable {
         self.shownAction = shownAction
         self.hiddenAction = hiddenAction
         self.userAsked = userAsked
+    }
+}
+
+extension SidebarNoticeCard {
+    /// The restoring card's Details: opens app health's popover.
+    public static let detailsAction = "details"
+
+    /// This Mac's sessions restoring while the app waits for them (Leo, 2026-11-08: a 30-minute restore said only that
+    /// the background service isn't connected): `title` ("Restoring sessions… 4m 12s") as a quiet status card, the
+    /// update status's look (text at the card's padding, the bar's sweep), with no button and no x. The App shows it
+    /// until the sessions connect. `withDetails` adds a quiet Details (``detailsAction``) that opens app health's popover.
+    public static func restoring(_ title: String, withDetails: Bool = false) -> SidebarNoticeCard {
+        var notice = SidebarNoticeCard(id: "restoring", title: title, progress: .indeterminate,
+                                       actions: withDetails ? [Action(id: detailsAction, title: Strings.restoringDetails)] : [])
+        notice.leadingSpinner = false
+        return notice
+    }
+}
+
+extension SidebarNoticeCard {
+    /// A status card for work that names its step (going back to an earlier build): the text
+    /// starts at the card's padding, the bar shows `fraction` (a sweep without one) while
+    /// `working`, and only a finished one (a failure) has an x.
+    public static func status(id: String, title: String, detail: String?, fraction: Double?, working: Bool,
+                              dismissLabel: String) -> SidebarNoticeCard {
+        var card = SidebarNoticeCard(id: id, title: title, detail: detail,
+                                     progress: working ? (fraction.map { .fraction($0) } ?? .indeterminate) : nil,
+                                     dismissLabel: working ? nil : dismissLabel, userAsked: true)
+        card.leadingSpinner = false
+        return card
     }
 }

@@ -3,6 +3,7 @@
 // Create environment and Edit environment on the New Tab page (preview): the inline panel under
 // the composer, for a folder on this computer in a worktree and for a folder on an SSH machine.
 import { componentEntry } from "../../gallery/format";
+import type { Play } from "../../gallery/play";
 import type { ComponentProps } from "react";
 import { SavedEnvironmentPanel } from "./SavedEnvironmentPanel";
 
@@ -10,6 +11,9 @@ const folders = [
   { id: "/Users/you/src/atlas-web", label: "atlas-web" },
   { id: "/Users/you/src/cmux", label: "cmux" },
 ];
+
+// Keep this host in the machine list so the open picker exercises its width cap.
+const longHost = "gpu-box-with-a-long-machine-name-for-the-host-picker";
 
 const browseError: ComponentProps<typeof SavedEnvironmentPanel> = {
   initial: { kind: "local", folder: folders[0]!.id },
@@ -28,7 +32,7 @@ const baseProps: ComponentProps<typeof SavedEnvironmentPanel> = {
   initial: { kind: "local", folder: folders[0]!.id },
   folders,
   onBrowse: async () => undefined,
-  machines: ["gpu-box", "build-server"],
+  machines: ["gpu-box", "build-server", longHost],
   machineFolders: (machine) =>
     machine === "gpu-box" ? [{ id: "/home/dev/model", label: "model" }] : [{ id: "/srv/ci", label: "ci" }],
   onConnectSSH: () => undefined,
@@ -37,14 +41,45 @@ const baseProps: ComponentProps<typeof SavedEnvironmentPanel> = {
   onClose: () => undefined,
 };
 
+/** The Host select open: its menu starts at the field's leading edge and is at least as wide. */
+const openHost: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-env-select"));
+  await ctx.click({ selector: ".acpmux-env-select" });
+  await ctx.waitFor(() => ctx.document.querySelector('[role="menu"] [role="menuitemradio"]'));
+};
+
+const openLongHost: Play = async (ctx) => {
+  await openHost(ctx);
+  const trigger = ctx.find({ selector: ".acpmux-env-select" }).getBoundingClientRect();
+  const menu = ctx.find({ role: "menu" }).getBoundingClientRect();
+  const viewport = ctx.document.defaultView!.innerWidth;
+  const cap = Math.max(trigger.width, Math.min(320, viewport - 16));
+  if (menu.width > cap + 1) throw new Error(`Host menu is ${menu.width}px wide; expected at most ${cap}px`);
+};
+
+const sshEnvironment = {
+  id: "s1",
+  name: "GPU box training",
+  kind: "ssh",
+  host: "gpu-box",
+  folder: "/home/dev/model",
+  updatedAt: 3,
+} as const;
+
+const longHostEnvironment = {
+  ...sshEnvironment,
+  host: longHost,
+} as const;
+
 export default componentEntry<ComponentProps<typeof SavedEnvironmentPanel>>({
   id: "agent-pane.saved-environment-panel",
   title: "Saved environment panel",
   area: "Agent pane",
   covers: ["agent-session/acpmux/SavedEnvironmentPanel.tsx#SavedEnvironmentPanel"],
-  styles: () => Promise.all([import("./styles.css"), import("./savedEnvironments.css")]),
+  styles: () =>
+    Promise.all([import("./styles.css"), import("./composerLocation.css"), import("./savedEnvironments.css")]),
   load: () => import("./SavedEnvironmentPanel").then((module) => module.SavedEnvironmentPanel),
-  widths: { narrow: 400, normal: 620, wide: 760 },
+  widths: { narrow: 360, normal: 620, wide: 760 },
   height: 320,
   anchors: [{ selector: ".acpmux-env-panel" }],
   variants: {
@@ -68,17 +103,25 @@ export default componentEntry<ComponentProps<typeof SavedEnvironmentPanel>>({
     },
     "edit-ssh": {
       note: "An SSH environment: its machine and a folder there; no worktree.",
-      props: {
-        ...baseProps,
-        environment: {
-          id: "s1",
-          name: "GPU box training",
-          kind: "ssh",
-          host: "gpu-box",
-          folder: "/home/dev/model",
-          updatedAt: 3,
-        },
+      props: { ...baseProps, environment: sshEnvironment },
+    },
+    "ssh-host-open": {
+      note: "The Host select open: the menu starts at the field's leading edge and is at least as wide.",
+      props: { ...baseProps, environment: sshEnvironment },
+      play: openHost,
+    },
+    "ssh-host-hover": {
+      note: "Hover on build-server is neutral; gpu-box remains selected by its check alone.",
+      props: { ...baseProps, environment: sshEnvironment },
+      play: async (ctx) => {
+        await openHost(ctx);
+        await ctx.hover({ role: "menuitemradio", name: "build-server" });
       },
+    },
+    "ssh-host-long-open": {
+      note: "A long Host name keeps the drop-down within the compact location-menu width.",
+      props: { ...baseProps, environment: longHostEnvironment },
+      play: openLongHost,
     },
     "browse-error": {
       note: "A rejected native folder chooser stays in the environment panel with its reason and a Retry action.",

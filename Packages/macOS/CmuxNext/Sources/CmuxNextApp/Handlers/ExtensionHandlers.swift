@@ -10,7 +10,7 @@ enum ExtensionHandlers {
         registry.bind("browser.extensions.menu", run: { invocation in
             let entry = try chromiumEntry(context, invocation)
             // The menu runs a tracking loop; a CLI or palette caller returns first.
-            entry.chrome.presentExtensionsMenu()
+            entry.chrome?.presentExtensionsMenu()
         })
         registry.bind("browser.extensions.manage", run: { try openChromium(URL.browserExtensionManagement, context, $0) })
         registry.bind("browser.extensions.webStore", run: { try openChromium(URL.browserExtensionWebStore, context, $0) })
@@ -35,7 +35,11 @@ enum ExtensionHandlers {
         registry.bind("browser.extension.run", run: { invocation in
             let entry = try chromiumEntry(context, invocation)
             let id = try extensionID(invocation, entry)
-            entry.chrome.runExtensionAction(id)
+            if let chrome = entry.chrome {
+                chrome.runExtensionAction(id)
+            } else {
+                (entry.tab as? any BrowserExtensionActionHosting)?.requestExtensionAction(id)
+            }
         })
         registry.bind("browser.extension.options", run: { invocation in
             let (tab, store) = try managedStore(context, invocation)
@@ -53,7 +57,7 @@ enum ExtensionHandlers {
             guard let tab = entry.tab as? CEFTab else { throw ActionFailure(message: ExtensionStrings.needsChromiumTab) }
             let id = try known(invocation, tab.extensionStore)
             let index = invocation["index"]?.intValue ?? 0
-            guard tab.extensionStore.supportsPinnedOrder, entry.chrome.moveExtensionAction(id, to: index) else {
+            guard tab.extensionStore.supportsPinnedOrder, tab.extensionStore.movePinned(id, to: index) else {
                 throw ActionFailure(message: ExtensionStrings.refused)
             }
         })
@@ -65,6 +69,36 @@ enum ExtensionHandlers {
                 ?? BrowserExtensionCommand(extensionID: id, name: name, keyCode: 0, modifiers: 0)
             guard !name.isEmpty, store.run(command, in: tab) else { throw ActionFailure(message: ExtensionStrings.commandFailed) }
         })
+        // An extension's context menu rows that open a page: its home page, its details in
+        // chrome://extensions, its origin's site settings. Chrome opens them in a new foreground tab.
+        for (id, operation) in [("browser.extension.homePage", ExtensionMenuOperation.homePage),
+                                ("browser.extension.details", .manageExtension), ("browser.extension.webPermissions", .webPermissions)] {
+            registry.bindEffect(ActionID(rawValue: id), requires: nil, effect: { invocation in
+                let extensionID = try menuExtensionID(context, invocation)
+                guard let url = ExtensionMenuRouter.page(for: operation, extensionID: extensionID), let pane = context.scope(invocation).pane else {
+                    throw ActionFailure(message: ExtensionStrings.needsPane)
+                }
+                pane.newBrowserTab(url: url, engine: BrowserEngineTag.cef.rawValue)
+                return .done
+            })
+        }
+        // Site access: Chromium's own action menu for the extension (site access, pin, options, remove).
+        registry.bindEffect("browser.extension.siteAccess", requires: nil, effect: { invocation in
+            let entry = try chromiumEntry(context, invocation)
+            let extensionID = try menuExtensionID(context, invocation)
+            (entry.tab as? any BrowserExtensionActionHosting)?.showExtensionActionMenu(extensionID, atScreenPoint: NSEvent.mouseLocation)
+            return .done
+        })
+    }
+
+    /// The `extension` argument of an extension context menu row: the menu passes the extension's id; a typed
+    /// name or id is matched against the tab's extensions when it has a Chromium store.
+    private static func menuExtensionID(_ context: AppActionContext, _ invocation: ActionInvocation) throws -> String {
+        let text = invocation["extension"]?.stringValue ?? ""
+        let store = ((try? context.page(invocation))?.tab as? CEFTab)?.extensionStore
+        let id = store?.extensionInfo(matching: text)?.id ?? text
+        guard !id.isEmpty else { throw ActionFailure(message: ExtensionStrings.unknownExtension(text)) }
+        return id
     }
 
     private static func bindToggle(_ registry: ActionRegistry, _ context: AppActionContext, _ id: ActionID,
@@ -109,7 +143,7 @@ enum ExtensionHandlers {
     private static func extensionID(_ invocation: ActionInvocation, _ entry: BrowserEntry) throws -> String {
         let text = invocation["extension"]?.stringValue ?? ""
         guard let tab = entry.tab as? CEFTab else { throw ActionFailure(message: ExtensionStrings.needsChromiumTab) }
-        tab.extensionStore.refresh()
+        tab.readExtensionsForCommand()  // a background tab's actions may be stale
         let id = tab.extensionActions.first(where: { $0.id == text })?.id
             ?? tab.extensionActions.first(where: { $0.name.localizedCaseInsensitiveCompare(text) == .orderedSame })?.id
             ?? tab.extensionStore.extensionInfo(matching: text)?.id

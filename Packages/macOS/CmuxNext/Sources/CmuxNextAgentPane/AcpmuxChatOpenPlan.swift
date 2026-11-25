@@ -13,8 +13,12 @@ public nonisolated struct AcpmuxChatOpenPlan: Sendable, Equatable {
     /// The chat's acpmux family (`claude`, `codex`, `opencode`) when the daemon says; the adopt's
     /// harness is a profile, named freely.
     public var family: String?
+    /// The chat itself (title, folder, harness) as acpmux's index holds it, nil from an older
+    /// daemon: the app names the chat it opens without a copy of the index.
+    public var chat: AcpmuxChat?
 
     public init?(result: [String: Any]) {
+        chat = (result["chat"] as? [String: Any]).flatMap(AcpmuxChat.init(json:))
         if let needsFolder = result["needsFolder"] as? [String: Any], let reason = needsFolder["reason"] as? String {
             action = .needsFolder(reason: reason)
             family = result["family"] as? String

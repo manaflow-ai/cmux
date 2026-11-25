@@ -27,6 +27,9 @@ public nonisolated enum SidebarBuiltIn: String, Hashable, Sendable, CaseIterable
     /// The Automations page (docs/automations-platonic-ideal.md section 8, option A): scheduled
     /// prompts and commands on this Mac and cmux Cloud. Not in the default layout; Add to Sidebar adds it.
     case automations
+    /// The team's forum page (`experiments.forum`, off by default): threads from people and their agents. Not in
+    /// the default layout; Add to Sidebar adds it, and it stays hidden while the experiment is off.
+    case forum
 }
 
 /// What an item points at: a kind and a string value. Kinds this client
@@ -48,6 +51,9 @@ public nonisolated struct LayoutItemRef: Hashable, Sendable, Codable {
     public static let urlKind = "url"
     /// An installed cmux app (`<publisher>/<name>`); its menu offers Hide.
     public static let appKind = "app"
+
+    /// Whether a Pinned item of this ref belongs to one space: a link, tab or app (`SidebarDocBody.belongsToASpace`).
+    public var belongsToASpace: Bool { [Self.urlKind, Self.tabKind, Self.appKind].contains(kind) }
 
     public static func builtIn(_ item: SidebarBuiltIn) -> LayoutItemRef { LayoutItemRef(kind: builtInKind, value: item.rawValue) }
     /// A qualified public workspace id (`<session>:ws_…`).
@@ -79,6 +85,9 @@ public nonisolated struct LayoutItem: Hashable, Sendable, Codable, Identifiable 
     /// workspace name), drawn while its reference does not resolve (a closed
     /// workspace). Stored with the item; nil for items that resolve by kind.
     public var label: String?
+    /// The space whose windows draw this item (a Pinned link's, `SidebarDocProjection`); nil draws in every space.
+    /// Not stored with the layout: the sidebar document keeps it on the item.
+    public var room: String?
 
     /// Longest stored `label` (characters).
     public static let maxLabelLength = 200

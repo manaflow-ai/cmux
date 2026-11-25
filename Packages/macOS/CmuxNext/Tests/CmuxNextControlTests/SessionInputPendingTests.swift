@@ -101,6 +101,62 @@ import Testing
         #expect(budget.mayRun(.automation), "dispatched: the batch runs")
         #expect(budget.stats.yieldedToInput[0] == 1 && budget.stats.yieldedToInput[1] == 1)
     }
+
+    /// Leo (2026-10-25): "right clicking and moving through options is laggy when i right click
+    /// workspaces". In an open menu the pointer moving through its rows counts as pending input;
+    /// out of one it never does (it streams, and would starve the sidebar).
+    @Test func aPointerMoveCountsOnlyWhileAMenuTracks() {
+        let events = FakeSessionEvents()
+        let input = SessionInputPending(events: events)
+        events.ages[.mouseMoved] = 0.002
+        #expect(!input.hasPendingInput(uptime: 100), "no menu: the pointer's motion never holds batches")
+        events.isMenuTracking = true
+        #expect(input.hasPendingInput(uptime: 100), "moving through the menu's rows")
+        events.ages[.mouseMoved] = nil
+        events.ages[.rightMouseDragged] = 0.002
+        #expect(input.hasPendingInput(uptime: 100), "dragging from the right-click that opened it")
+        events.ages[.rightMouseDragged] = SessionInputPending.staleAfter + 0.005
+        #expect(!input.hasPendingInput(uptime: 100), "the pointer rests on a row: batches run")
+    }
+
+    /// The scheduled main-thread work per frame while the pointer moves through an open menu, with
+    /// a backlog of 0.5 ms visible tasks (a busy daemon store): before, every frame took the whole
+    /// 4 ms; now it runs every other frame on the visible share (2.5 ms), and the whole 4 ms comes
+    /// back once the menu closes. The PR's Performance table quotes these numbers.
+    @Test func anOpenMenuHalvesTheScheduledWorkUnderItsPointerAndClosingItRestoresIt() {
+        let events = FakeSessionEvents()
+        var now: UInt64 = 100_000_000_000
+        let budget = MainFrameBudget(input: SessionInputPending(events: events), uptimeNanos: { now })
+        let owner = budget.board.owner("store")
+        var frame = 0.0
+        /// The scheduled work of each of `count` frames, in microseconds.
+        func frames(_ count: Int) -> [UInt64] {
+            (0..<count).map { _ in
+                frame += 1
+                budget.beginFrame(timestamp: frame / 60, refreshInterval: 1.0 / 60)
+                let start = now
+                var tasks = 0
+                while tasks < 100, budget.mayRun(.visible) {
+                    budget.run(.visible, owner: owner) { now += 500_000 }
+                    tasks += 1
+                }
+                let spent = now - start
+                now = start + 16_666_667
+                return spent / 1_000
+            }
+        }
+        events.ages[.mouseMoved] = 0.002
+        let closed = frames(10)
+        #expect(closed.allSatisfy { $0 == 4_000 }, "no menu: the whole 4 ms each frame, \(closed)")
+        events.isMenuTracking = true
+        let inMenu = frames(10)
+        #expect(inMenu.reduce(0, +) == 5 * 2_500, "every other frame, on the visible share: \(inMenu)")
+        #expect(inMenu.allSatisfy { $0 == 0 || $0 == 2_500 }, "\(inMenu)")
+        #expect(!zip(inMenu, inMenu.dropFirst()).contains { $0 == 0 && $1 == 0 }, "never two frames without progress: \(inMenu)")
+        events.isMenuTracking = false
+        let after = frames(10)
+        #expect(after.allSatisfy { $0 == 4_000 }, "the menu closed: the whole 4 ms again, \(after)")
+    }
 }
 
 /// The window server and AppKit as ``SessionInputPending`` sees them: event ages by type (the
@@ -110,6 +166,7 @@ import Testing
 private final class FakeSessionEvents: SessionInputEvents {
     var ages: [CGEventType: TimeInterval] = [:]
     var isAppActive = true
+    var isMenuTracking = false
     var canObserve = true
     private(set) var observeCalls = 0
     /// Window-server queries made (each is one synchronous call on the main thread in the app).

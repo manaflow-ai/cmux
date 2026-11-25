@@ -6,9 +6,12 @@ import io
 import json
 import sys
 import tempfile
+import tomllib
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
@@ -73,13 +76,17 @@ class Check(unittest.TestCase):
             self.assertTrue(any(check.under(b, s) for b in backend), f"stays path {s} is under no backend path")
 
     def test_the_workflow_only_warns_and_runs_the_base_script(self):
-        wf = (ROOT / ".github" / "workflows" / "pr-cloud-backend-check.yml").read_text()
-        self.assertIn("continue-on-error: true", wf)
+        wf = (ROOT / ".github" / "workflows" / "pr-body-checks.yml").read_text()
+        step = next(s for s in yaml.safe_load(wf)["jobs"]["body"]["steps"]
+                    if s.get("name") == "Run the advisory steps")
+        self.assertIs(step.get("continue-on-error"), True)
+        self.assertIn("ci_steps.py run --job advisory", step["run"])
+        table = tomllib.loads((ROOT / "ci" / "steps.toml").read_text())["step"]["cloud-backend"]
+        self.assertIs(table["blocks"], False)
         self.assertIn("ref: ${{ github.event.pull_request.base.ref }}", wf)
-        self.assertIn("|| echo \"::warning title=Cloud backend belongs in cmux-platform::the check could not run", wf)
+        self.assertIn("|| echo \"::warning title=Cloud backend belongs in cmux-platform::the check could not run", table["run"])
         self.assertIn("permissions: {}", wf)
         self.assertNotIn("pull_request_target", wf)
-
 
 if __name__ == "__main__":
     unittest.main()

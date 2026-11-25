@@ -1,5 +1,7 @@
+import CmuxNextAgentActivity
 import CmuxNextControl
 import CmuxNextDesign
+import CmuxNextLayout
 import CmuxNextSettings
 import Foundation
 
@@ -8,6 +10,19 @@ import Foundation
 // (the ring), `debug.replay` (journal against the pure reducers), and in
 // DEBUG builds `debug.mouse` (synthesized mouse input).
 extension AppControl {
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// `debug.mouse`: synthesized mouse input for one of this process's windows (`DebugMouse`). Its body posts events,
+    /// which run after its frame as a person's do, and moves the synthesized pointer: it leaves the control snapshot
+    /// fresh, so a drag bench's request per frame maps no topology (RESIZE MAIN BUDGET).
+    static func debugMouseMethod(_ services: AppServices) -> ControlMethod {
+        ControlMethod.mainActor("debug.mouse") { [weak services] call in
+            guard let services else { return .value(.null) }
+            if let refusal = DebugDialog.syntheticInputRefusal(onlyCancels: false) { return .value(refusal) }
+            return .value(DebugMouse.send(call.params, services: services))
+        }.leavingSnapshotFresh()
+    }
+    #endif
+
     func registerInputMethods(_ services: AppServices) {
         service?.router.register([
             .mainActor("debug.desync") { [weak services] call in
@@ -38,23 +53,20 @@ extension AppControl {
                 guard let services = await MainActor.run(body: { services }) else { return .null }
                 return await DebugWindowSnapshot.captureBackdrop(call.params, pattern: pattern, image: image, services: services)
             },
-            .mainActor("debug.mouse") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(DebugMouse.send(call.params, services: services))
-            },
+            Self.debugMouseMethod(services),
+            // The cursor the app shows now, by name (NSCursor.debugName), and the window server's.
+            .mainActor("debug.cursor") { _ in .value(.object(LayoutRootView.debugCursorReport().mapValues(JSONValue.string))) },
             // The Home data path (homeRouter) from the socket (DebugHomeAPI).
             .async("debug.home.api") { [weak services] call in
                 guard let services = await MainActor.run(body: { services }) else { return .null }
                 return await DebugHomeAPI.handle(call.params, services: services)
             }.withDeadline(.fixed(.seconds(30))),
             .mainActor("debug.home.sidebar_fixture") { [weak services] call in
-                guard let services else { return .value(.null) }
-                return .value(DebugHomeSidebarFixture.handle(call.params, services: services))
+                .value(services.map { DebugHomeSidebarFixture.handle(call.params, services: $0) } ?? .null)
             },
-            .mainActor("debug.tab_drag") { [weak services] _ in
-                guard let services else { return .value(.null) }
-                return .value(DebugTabDrag.report(services: services))
-            },
+            // Fixture Chief subagents under the sidebar's top Chief row (captures of their rows and task counts).
+            .mainActor("debug.chief.subagent_fixture") { call in .value(.number(Double((try? AgentLaneStore.chief.applyDebugChiefSubagents(json: JSONEncoder().encode(call.params))) ?? -1))) }, // main-actor-ok: DEBUG fixture params, a few rows
+            .mainActor("debug.tab_drag") { [weak services] _ in .value(services.map { DebugTabDrag.report(services: $0) } ?? .null) },
         ])
         #endif
     }

@@ -29,16 +29,15 @@
 //! synced back (the dirty marks are cleared at the end).
 //!
 //! Closes ([`close_workspaces`]): a tombstoned workspace leaves its machine
-//! section (and an emptied group there); in Pinned and custom sections it
-//! stays.
+//! section, keeping its groups; in Pinned and custom sections it stays.
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use cmux_layout_reducer::sidebar_doc::migrate::LegacyWorkspace;
 use cmux_layout_reducer::sidebar_doc::reduce::{self, Applied, Batch};
 use cmux_layout_reducer::sidebar_doc::{
-    Body, Doc, GroupPatch, Item, ItemId, Op, PINNED_SECTION_ID, Patch, Section, SectionPlace,
-    Target, WorkspaceRef, group_item_id, machine_section_id,
+    Body, Doc, GroupPatch, Item, ItemId, ItemPatch, Op, PINNED_SECTION_ID, Patch, Section,
+    SectionPlace, Target, WorkspaceRef, group_item_id, machine_section_id,
 };
 
 use super::sidebar_doc_legacy::mint_item_id;
@@ -129,7 +128,7 @@ pub(crate) fn clear_dirty(transaction: &Transaction<'_>) -> anyhow::Result<()> {
 /// Apply one op to the running document; a refusal is logged and skipped
 /// (an old write the document cannot follow, for example a group of two
 /// machines, leaves the document as it was).
-fn try_apply(batch: &mut Batch<'_>, op: Op) {
+pub(super) fn try_apply(batch: &mut Batch<'_>, op: Op) {
     let mut mint = mint_item_id;
     if let Err(refusal) = batch.apply(std::slice::from_ref(&op), &mut mint) {
         eprintln!("cmux-tui: sidebar doc does not follow an old write ({refusal})");
@@ -157,7 +156,7 @@ pub(crate) fn commit_derived(
 
 /// Store a finished batch's changes (the document is at `revision`) and
 /// queue them into the current commit's batch.
-fn commit_applied(
+pub(super) fn commit_applied(
     transaction: &Transaction<'_>,
     previous_revision: u64,
     revision: u64,
@@ -287,7 +286,7 @@ fn row_item<'a>(doc: &'a Doc, workspace: &LegacyWorkspace) -> Option<&'a Item> {
 
 /// The document item of an old group id: `itm_g_<id>` (migrated or synced)
 /// or the id itself (a group the document made, written back).
-fn group_item<'a>(doc: &'a Doc, group: &str) -> Option<&'a Item> {
+pub(super) fn group_item<'a>(doc: &'a Doc, group: &str) -> Option<&'a Item> {
     doc.item(&group_item_id(group)).or_else(|| doc.item(group)).filter(|item| item.body.is_group())
 }
 
@@ -490,6 +489,9 @@ fn sync_group(
             collapsed: (*collapsed != group.collapsed).then_some(group.collapsed),
             profile: field(profile, &Some(group.profile.clone())),
             auto_archive: Patch::Keep,
+            sort: Patch::Keep,
+            row_limit: Patch::Keep,
+            revealed: Patch::Keep,
         };
         if patch != GroupPatch::default() {
             try_apply(batch, Op::GroupUpdate { id: item.id.clone(), patch });
@@ -648,8 +650,71 @@ pub(crate) fn close_workspaces(
     let refs: Vec<WorkspaceRef> = ids.iter().map(|id| WorkspaceRef::new(&local, id)).collect();
     store::with_doc_mut(transaction, |doc| {
         let previous_revision = doc.revision;
+        // Ordinary workspace closes leave their groups in place. Use the existing
+        // item deletion operation: older app FFI mirrors apply it without the
+        // ancestor pruning of the legacy `close` operation.
+        let items: Vec<ItemId> = refs
+            .iter()
+            .filter_map(|reference| doc.workspace_item(reference))
+            .filter(|item| doc.section(&item.section).is_some_and(|section| !section.keeps_closed))
+            .map(|item| item.id.clone())
+            .collect();
         let mut batch = Batch::new(doc);
-        try_apply(&mut batch, Op::Close { refs });
+        for id in items {
+            try_apply(&mut batch, Op::ItemDelete { id });
+        }
+        let applied = batch.finish();
+        commit_applied(transaction, previous_revision, doc.revision, &applied)
+    })
+}
+
+/// Delete Space into another space: everything the deleted space owned in the
+/// document (a group by its `profile`; a Pinned link, tab or app by its
+/// `room`) moves to `to` in the delete's own commit. The app used to send
+/// this as a second change after the delete answered, planned from records
+/// that could already be stale, and the reducer refused it (Leo, 2026-11-14:
+/// "the daemon shouldn't even refuse those").
+pub(crate) fn move_room_items(
+    transaction: &Transaction<'_>,
+    from: &str,
+    to: &str,
+) -> anyhow::Result<()> {
+    if !super::store::state_tables_ready(transaction)? || !store::is_migrated(transaction)? {
+        return Ok(());
+    }
+    store::with_doc_mut(transaction, |doc| {
+        let previous_revision = doc.revision;
+        let mut owned: Vec<&Item> = doc
+            .items_unordered()
+            .filter(|item| match &item.body {
+                Body::Group { profile, .. } => profile.as_deref() == Some(from),
+                Body::Url { .. } | Body::Tab { .. } | Body::App { .. } => {
+                    item.extra.get("room").and_then(serde_json::Value::as_str) == Some(from)
+                }
+                _ => false,
+            })
+            .collect();
+        owned.sort_by(|a, b| a.id.cmp(&b.id));
+        let ops: Vec<Op> = owned
+            .into_iter()
+            .map(|item| match item.body {
+                Body::Group { .. } => Op::GroupUpdate {
+                    id: item.id.clone(),
+                    patch: GroupPatch {
+                        profile: Patch::Set(to.to_string()),
+                        ..GroupPatch::default()
+                    },
+                },
+                _ => Op::ItemUpdate {
+                    id: item.id.clone(),
+                    patch: ItemPatch { room: Patch::Set(to.to_string()), ..ItemPatch::default() },
+                },
+            })
+            .collect();
+        let mut batch = Batch::new(doc);
+        for op in ops {
+            try_apply(&mut batch, op);
+        }
         let applied = batch.finish();
         commit_applied(transaction, previous_revision, doc.revision, &applied)
     })
@@ -657,7 +722,7 @@ pub(crate) fn close_workspaces(
 
 /// The old key of a workspace item: this machine's by its public id, another
 /// machine's by its placement reference.
-fn item_key(
+pub(super) fn item_key(
     connection: &Connection,
     local: &str,
     reference: &WorkspaceRef,

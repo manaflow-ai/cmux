@@ -17,10 +17,18 @@
 #                                  rebuilds), otherwise the merge fails
 #
 # The result, <cache_root>/<arm64 dist name>-universal-<key>, is
-# content-addressed by the two artifact checksums and this script, built in a
-# private temporary directory and renamed into place, so concurrent builds
-# share it. Only the framework and CMUX-ARTIFACT.json are in it: the shim is
-# built from each arch's own dist (embed-cef.sh).
+# content-addressed by the two artifact checksums and this script's bytes
+# (never a path: each fleet step checks out under its own directory), built in
+# a private temporary directory and renamed into place, so concurrent builds
+# and later checkouts share it. Only the framework and CMUX-ARTIFACT.json are
+# in it: the shim is built from each arch's own dist (embed-cef.sh).
+#
+# Each entry is ~0.67 GiB, so the cache is bounded where it is written: a use
+# touches the entry's .merged, and every run then removes the entries past the
+# CMUX_CEF_UNIVERSAL_KEEP (default 3) most recently used, and any entry unused
+# for 7 days. An entry used in the last hour is never removed (a build copies
+# it out within minutes of its use), and removal renames an entry out of its
+# name before deleting it, so no build ever sees half of one.
 set -euo pipefail
 
 arm="${1:?usage: merge-cef-universal.sh <arm64_dist> <x86_64_dist> <cache_root>}"
@@ -33,11 +41,78 @@ for dist in "$arm" "$x86"; do
   [[ -d "$dist/$FW" && -f "$dist/.verified" ]] || { echo "error: $dist is not a verified CEF dist" >&2; exit 1; }
 done
 key="$(
-  { cat "$arm/.verified"; echo; cat "$x86/.verified"; echo; echo "$ALLOWED_DIFFERENT"; shasum -a 256 "${BASH_SOURCE[0]}"; } |
+  { cat "$arm/.verified"; echo; cat "$x86/.verified"; echo; echo "$ALLOWED_DIFFERENT"; shasum -a 256 < "${BASH_SOURCE[0]}"; } |
     shasum -a 256 | awk '{print substr($1, 1, 16)}'
 )"
 final="$root/$(basename "$arm")-universal-$key"
+
+# Removes the entries this run does not use (see the header). Never fails the
+# merge: a cache it cannot trim is still a correct cache.
+prune() {
+  /usr/bin/python3 - "$root" "$(basename "$final")" "${CMUX_CEF_UNIVERSAL_KEEP:-3}" <<'PY' || true
+import os, shutil, sys, time
+
+root, current, keep = sys.argv[1], sys.argv[2], max(1, int(sys.argv[3]))
+IN_USE, MAX_AGE, STALE_TMP = 3600, 7 * 86400, 86400
+
+def age(entry):
+    """Seconds since the entry's last use: .merged's mtime (a rename of the
+    entry leaves it alone), else the directory's for an incomplete entry."""
+    for path in (os.path.join(entry, ".merged"), entry):
+        try:
+            return time.time() - os.stat(path).st_mtime
+        except OSError:
+            pass
+    return None
+
+def remove(name):
+    path, gone = os.path.join(root, name), os.path.join(root, f".deleting.{name}.{os.getpid()}")
+    try:
+        os.rename(path, gone)
+    except OSError:
+        return
+    # Used between the scan and the rename: put it back, unless a new merge
+    # already took the name (then the copy here is a duplicate).
+    if (age(gone) or 0) < IN_USE:
+        try:
+            os.rename(gone, path)
+            return
+        except OSError:
+            pass
+    shutil.rmtree(gone, ignore_errors=True)
+
+def alive(pid):
+    try:
+        os.kill(int(pid), 0)
+    except ProcessLookupError:
+        return False
+    except (ValueError, OSError):
+        return True
+    return True
+
+entries = []
+for name in os.listdir(root):
+    path = os.path.join(root, name)
+    if name.startswith(".merging.") and (age(path) or 0) > STALE_TMP:
+        shutil.rmtree(path, ignore_errors=True)
+    elif name.startswith(".deleting.") and not alive(name.rsplit(".", 1)[-1]):
+        shutil.rmtree(path, ignore_errors=True)  # a prune that died mid-delete
+    elif not name.startswith(".") and name != current and "-universal-" in name and os.path.isdir(path):
+        entry_age = age(path)
+        if entry_age is not None:
+            entries.append((entry_age, name))
+for index, (entry_age, name) in enumerate(sorted(entries)):
+    # `current` is one of the `keep` entries.
+    if entry_age > IN_USE and (index >= keep - 1 or entry_age > MAX_AGE):
+        remove(name)
+PY
+}
+
+# A use marks the entry as recently used before the check, so a concurrent
+# prune that saw it as old puts it back (prune above).
+touch -c "$final/.merged" 2>/dev/null || true
 if [[ -f "$final/.merged" ]]; then
+  prune
   echo "$final"
   exit 0
 fi
@@ -114,4 +189,6 @@ printf '%s\n%s\n' "$(cat "$arm/.verified")" "$(cat "$x86/.verified")" > "$tmp/.m
 if ! /usr/bin/python3 -c 'import os, sys; os.rename(sys.argv[1], sys.argv[2])' "$tmp" "$final" 2>/dev/null; then
   [[ -f "$final/.merged" ]] || { echo "error: $final exists but is incomplete" >&2; exit 1; }
 fi
+touch -c "$final/.merged" 2>/dev/null || true
+prune
 echo "$final"

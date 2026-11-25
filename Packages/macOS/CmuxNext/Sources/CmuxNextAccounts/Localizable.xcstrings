@@ -3282,127 +3282,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "CodeRouter needs a long-lived token. Run claude setup-token, then paste the token here. It goes to CodeRouter only."
+            "value": "CodeRouter needs a long-lived token. Run claude setup-token, then paste it here. It goes to CodeRouter only; Cloud chats use Settings > Cloud."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "CodeRouter には長期間有効なトークンが必要です。claude setup-token を実行し、表示されたトークンをここに貼り付けてください。トークンは CodeRouter にだけ送られます。"
+            "value": "CodeRouter には長期間有効なトークンが必要です。claude setup-token を実行して、トークンをここに貼り付けてください。トークンは CodeRouter にだけ送られます。Cloud のチャットは「設定 > Cloud」を使います。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يحتاج CodeRouter إلى رمز طويل الأمد. شغّل claude setup-token ثم الصق الرمز هنا. يُرسل إلى CodeRouter فقط."
+            "value": "يحتاج CodeRouter إلى رمز طويل الأمد. شغّل claude setup-token، ثم الصقه هنا. يذهب إلى CodeRouter فقط؛ تستخدم محادثات Cloud الإعدادات > Cloud."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "CodeRouter treba dugotrajni token. Pokrenite claude setup-token, pa zalijepite token ovdje. Ide samo u CodeRouter."
+            "value": "CodeRouter treba dugotrajni token. Pokreni claude setup-token, pa ga zalijepi ovdje. Ide samo u CodeRouter; Cloud chatovi koriste Postavke > Cloud."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "CodeRouter skal bruge et langvarigt token. Kør claude setup-token, og indsæt tokenet her. Det sendes kun til CodeRouter."
+            "value": "CodeRouter skal bruge et langtidsholdbart token. Kør claude setup-token, og indsæt det her. Det går kun til CodeRouter; Cloud-chats bruger Indstillinger > Cloud."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "CodeRouter braucht ein langlebiges Token. Führe claude setup-token aus und füge das Token hier ein. Es geht nur an CodeRouter."
+            "value": "CodeRouter braucht ein langlebiges Token. Führe claude setup-token aus und füge es hier ein. Es geht nur an CodeRouter; Cloud-Chats nutzen Einstellungen > Cloud."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "CodeRouter necesita un token de larga duración. Ejecuta claude setup-token y pega aquí el token. Solo se envía a CodeRouter."
+            "value": "CodeRouter necesita un token de larga duración. Ejecuta claude setup-token y pégalo aquí. Solo va a CodeRouter; los chats de Cloud usan Ajustes > Cloud."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "CodeRouter a besoin d’un jeton de longue durée. Exécutez claude setup-token, puis collez le jeton ici. Il n’est envoyé qu’à CodeRouter."
+            "value": "CodeRouter a besoin d’un jeton longue durée. Exécutez claude setup-token, puis collez-le ici. Il va uniquement à CodeRouter ; les conversations Cloud utilisent Réglages > Cloud."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "CodeRouter richiede un token di lunga durata. Esegui claude setup-token, poi incolla qui il token. Viene inviato solo a CodeRouter."
+            "value": "CodeRouter ha bisogno di un token di lunga durata. Esegui claude setup-token, poi incollalo qui. Va solo a CodeRouter; le chat Cloud usano Impostazioni > Cloud."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "CodeRouter ត្រូវការថូខឹនរយៈពេលវែង។ ដំណើរការ claude setup-token រួចបិទភ្ជាប់ថូខឹននៅទីនេះ។ វាត្រូវបានផ្ញើទៅ CodeRouter តែប៉ុណ្ណោះ។"
+            "value": "CodeRouter ត្រូវការថូខឹនដែលប្រើបានយូរ។ ដំណើរការ claude setup-token រួចបិទភ្ជាប់វានៅទីនេះ។ វាទៅ CodeRouter តែប៉ុណ្ណោះ។ ការជជែក Cloud ប្រើ ការកំណត់ > Cloud។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "CodeRouter에는 장기 토큰이 필요합니다. claude setup-token을 실행한 뒤 토큰을 여기에 붙여 넣으세요. 토큰은 CodeRouter로만 전송됩니다."
+            "value": "CodeRouter에는 오래 유지되는 토큰이 필요합니다. claude setup-token을 실행한 다음 여기에 붙여 넣으세요. 토큰은 CodeRouter로만 전송되며, Cloud 채팅은 설정 > Cloud를 사용합니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "CodeRouter trenger et langvarig token. Kjør claude setup-token, og lim inn tokenet her. Det sendes bare til CodeRouter."
+            "value": "CodeRouter trenger et langvarig token. Kjør claude setup-token, og lim det inn her. Det går bare til CodeRouter; Cloud-chatter bruker Innstillinger > Cloud."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "CodeRouter potrzebuje długoterminowego tokenu. Uruchom claude setup-token, a potem wklej tu token. Trafia on tylko do CodeRouter."
+            "value": "CodeRouter potrzebuje długoterminowego tokenu. Uruchom claude setup-token, a potem wklej go tutaj. Trafia tylko do CodeRouter; czaty Cloud używają Ustawienia > Cloud."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O CodeRouter precisa de um token de longa duração. Execute claude setup-token e cole o token aqui. Ele vai só para o CodeRouter."
+            "value": "O CodeRouter precisa de um token de longa duração. Execute claude setup-token e cole-o aqui. Ele vai só para o CodeRouter; os chats do Cloud usam Ajustes > Cloud."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "CodeRouter нужен долгоживущий токен. Выполните claude setup-token и вставьте токен сюда. Он отправляется только в CodeRouter."
+            "value": "CodeRouter нужен долгоживущий токен. Выполните claude setup-token и вставьте его сюда. Он передаётся только в CodeRouter; чаты Cloud используют «Настройки > Cloud»."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "CodeRouter ต้องใช้โทเค็นแบบใช้ได้นาน ให้รัน claude setup-token แล้ววางโทเค็นที่นี่ โทเค็นจะส่งไปที่ CodeRouter เท่านั้น"
+            "value": "CodeRouter ต้องใช้โทเค็นที่ใช้ได้นาน เรียกใช้ claude setup-token แล้ววางที่นี่ โทเค็นจะส่งไปที่ CodeRouter เท่านั้น ส่วนแชท Cloud ใช้ การตั้งค่า > Cloud"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "CodeRouter uzun ömürlü bir belirteç gerektirir. claude setup-token komutunu çalıştırın ve belirteci buraya yapıştırın. Yalnızca CodeRouter'a gönderilir."
+            "value": "CodeRouter uzun ömürlü bir token gerektirir. claude setup-token komutunu çalıştırın, ardından token'ı buraya yapıştırın. Yalnızca CodeRouter'a gider; Cloud sohbetleri Ayarlar > Cloud'u kullanır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "CodeRouter потрібен довготривалий токен. Виконайте claude setup-token і вставте токен сюди. Він надсилається лише до CodeRouter."
+            "value": "CodeRouter потрібен довготривалий токен. Виконайте claude setup-token і вставте його сюди. Він передається лише в CodeRouter; чати Cloud використовують «Налаштування > Cloud»."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "CodeRouter cần một token dùng lâu dài. Chạy claude setup-token rồi dán token vào đây. Token chỉ được gửi tới CodeRouter."
+            "value": "CodeRouter cần một token dùng lâu dài. Chạy claude setup-token, rồi dán nó vào đây. Token chỉ được gửi đến CodeRouter; các cuộc trò chuyện Cloud dùng Cài đặt > Cloud."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "CodeRouter 需要长期有效的令牌。运行 claude setup-token，然后将令牌粘贴到这里。令牌只会发送到 CodeRouter。"
+            "value": "CodeRouter 需要一个长期有效的令牌。运行 claude setup-token，然后把它粘贴到这里。它只会发送给 CodeRouter；Cloud 聊天使用“设置 > Cloud”。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "CodeRouter 需要長期有效的權杖。執行 claude setup-token，然後將權杖貼到這裡。權杖只會傳送到 CodeRouter。"
+            "value": "CodeRouter 需要一個長期有效的權杖。執行 claude setup-token，然後把它貼到這裡。它只會傳送給 CodeRouter；Cloud 聊天使用「設定 > Cloud」。"
           }
         }
       }
@@ -14014,6 +14014,1578 @@
           "stringUnit": {
             "state": "translated",
             "value": "Một thay đổi nhóm khác vẫn đang chạy. Hãy thử lại khi nó hoàn tất."
+          }
+        }
+      }
+    },
+    "accounts.teams.joined": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You joined “%@”. It is now your active team."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du bist „%@“ beigetreten. Es ist jetzt dein aktives Team."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous avez rejoint « %@ ». C’est maintenant votre équipe active."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انضممت إلى ”%@“. أصبح الآن فريقك النشط."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Te uniste a «%@». Ahora es tu equipo activo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你已加入「%@」。它現在是你的使用中團隊。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你已加入“%@”。它现在是你的当前团队。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”에 참여했습니다. 이제 활성 팀입니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」に参加しました。現在のアクティブなチームです。"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ti sei unito a «%@». Ora è il tuo team attivo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du er med i “%@”. Det er nu dit aktive team."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dołączono do „%@”. To teraz Twój aktywny zespół."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вы вступили в команду «%@». Теперь она активна."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pridružili ste se timu „%@“. Sada je to vaš aktivni tim."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du ble med i «%@». Det er nå ditt aktive team."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អ្នកបានចូលរួម “%@”។ ឥឡូវនេះវាជាក្រុមសកម្មរបស់អ្នក។"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Você entrou em “%@”. Agora é sua equipe ativa."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คุณเข้าร่วม “%@” แล้ว ตอนนี้เป็นทีมที่ใช้งานอยู่ของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” ekibine katıldınız. Artık etkin ekibiniz bu."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ви приєдналися до команди «%@». Тепер вона активна."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bạn đã tham gia “%@”. Đây giờ là nhóm đang dùng của bạn."
+          }
+        }
+      }
+    },
+    "accounts.teams.joinedInactive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You joined “%@”."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du bist „%@“ beigetreten."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous avez rejoint « %@ »."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انضممت إلى ”%@“."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Te uniste a «%@»."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你已加入「%@」。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你已加入“%@”。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”에 참여했습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」に参加しました。"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ti sei unito a «%@»."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du er med i “%@”."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dołączono do „%@”."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вы вступили в команду «%@»."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pridružili ste se timu „%@“."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du ble med i «%@»."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អ្នកបានចូលរួម “%@”។"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Você entrou em “%@”."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คุณเข้าร่วม “%@” แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” ekibine katıldınız."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ви приєдналися до команди «%@»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bạn đã tham gia “%@”."
+          }
+        }
+      }
+    },
+    "accounts.teams.declined": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Declined the invitation to “%@”."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einladung zu „%@“ abgelehnt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invitation à « %@ » refusée."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم رفض الدعوة إلى ”%@“."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechazaste la invitación a «%@»."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已拒絕「%@」的邀請。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已拒绝“%@”的邀请。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” 초대를 거절했습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」への招待を辞退しました。"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invito a «%@» rifiutato."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invitationen til “%@” er afvist."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odrzucono zaproszenie do „%@”."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Приглашение в команду «%@» отклонено."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odbijen je poziv u „%@“."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invitasjonen til «%@» er avslått."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានបដិសេធការអញ្ជើញទៅ “%@”។"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Convite para “%@” recusado."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปฏิเสธคำเชิญเข้าร่วม “%@” แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” davetini reddettiniz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запрошення до команди «%@» відхилено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã từ chối lời mời vào “%@”."
+          }
+        }
+      }
+    },
+    "accounts.teams.received.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invitations to You"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einladungen an dich"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invitations reçues"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الدعوات الموجهة إليك"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invitaciones para ti"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "給你的邀請"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "给你的邀请"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "받은 초대"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなたへの招待"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inviti per te"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invitationer til dig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaproszenia dla Ciebie"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Приглашения вам"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pozivi za vas"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invitasjoner til deg"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការអញ្ជើញសម្រាប់អ្នក"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Convites para você"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำเชิญถึงคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Size gelen davetler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запрошення вам"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lời mời gửi bạn"
+          }
+        }
+      }
+    },
+    "accounts.teams.received.accept": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Join Team"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Team beitreten"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rejoindre l’équipe"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الانضمام إلى الفريق"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unirse al equipo"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加入團隊"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加入团队"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "팀 참여"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チームに参加"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unisciti al team"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bliv medlem"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dołącz do zespołu"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вступить в команду"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pridruži se timu"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bli med i teamet"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចូលរួមក្រុម"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entrar na equipe"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เข้าร่วมทีม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekibe katıl"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Приєднатися до команди"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tham gia nhóm"
+          }
+        }
+      }
+    },
+    "accounts.teams.received.decline": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Decline"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ablehnen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refuser"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "رفض"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechazar"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拒絕"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拒绝"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "거절"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "辞退"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rifiuta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afvis"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odrzuć"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отклонить"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odbij"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avslå"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បដិសេធ"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recusar"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปฏิเสธ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reddet"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відхилити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Từ chối"
+          }
+        }
+      }
+    },
+    "accounts.teams.received.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As %1$@, sent to %2$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Als %1$@, gesendet an %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En tant que %1$@, envoyée à %2$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بصفة %1$@، أُرسلت إلى %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Como %1$@, enviada a %2$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "身分：%1$@，寄至 %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "身份：%1$@，发送至 %2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@(으)로, %2$@에 보냄"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@として、%2$@ 宛て"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Come %1$@, inviato a %2$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Som %1$@, sendt til %2$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jako %1$@, wysłane na %2$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Как %1$@, отправлено на %2$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kao %1$@, poslano na %2$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Som %1$@, sendt til %2$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ជា %1$@ ផ្ញើទៅ %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Como %1$@, enviado para %2$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ในฐานะ %1$@ ส่งถึง %2$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ olarak, %2$@ adresine gönderildi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Як %1$@, надіслано на %2$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Với vai trò %1$@, gửi tới %2$@"
+          }
+        }
+      }
+    },
+    "accounts.teams.received.detailBy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ invited you as %2$@, sent to %3$@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ hat dich als %2$@ eingeladen, gesendet an %3$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ vous a invité en tant que %2$@, envoyée à %3$@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "دعاك %1$@ بصفة %2$@، أُرسلت إلى %3$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ te invitó como %2$@, enviada a %3$@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 邀請你以 %2$@ 身分加入，寄至 %3$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 邀请你以 %2$@ 身份加入，发送至 %3$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@님이 %2$@(으)로 초대했습니다. %3$@에 보냄"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ が%2$@として招待しました（%3$@ 宛て）"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ti ha invitato come %2$@, inviato a %3$@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ har inviteret dig som %2$@, sendt til %3$@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ zaprasza Cię jako %2$@, wysłane na %3$@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ приглашает вас как %2$@, отправлено на %3$@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ vas je pozvao kao %2$@, poslano na %3$@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ inviterte deg som %2$@, sendt til %3$@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ បានអញ្ជើញអ្នកជា %2$@ ផ្ញើទៅ %3$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ convidou você como %2$@, enviado para %3$@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ เชิญคุณในฐานะ %2$@ ส่งถึง %3$@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ sizi %2$@ olarak davet etti, %3$@ adresine gönderildi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ запрошує вас як %2$@, надіслано на %3$@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ đã mời bạn với vai trò %2$@, gửi tới %3$@"
+          }
+        }
+      }
+    },
+    "accounts.teams.error.invitation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This invitation was already answered, withdrawn or has expired."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Einladung wurde bereits beantwortet, zurückgezogen oder ist abgelaufen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette invitation a déjà reçu une réponse, a été retirée ou a expiré."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم الرد على هذه الدعوة أو سحبها أو انتهت صلاحيتها."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta invitación ya se respondió, se retiró o caducó."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此邀請已回覆、已撤回或已過期。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此邀请已回复、已撤回或已过期。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 초대는 이미 응답했거나 철회되었거나 만료되었습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この招待はすでに回答済み、取り消し済み、または期限切れです。"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo invito ha già avuto risposta, è stato ritirato o è scaduto."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invitationen er allerede besvaret, trukket tilbage eller udløbet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To zaproszenie zostało już obsłużone, wycofane lub wygasło."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На это приглашение уже ответили, его отозвали или срок истёк."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na ovaj poziv je već odgovoreno, povučen je ili je istekao."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invitasjonen er allerede besvart, trukket tilbake eller utløpt."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការអញ្ជើញនេះត្រូវបានឆ្លើយតប ដកវិញ ឬផុតកំណត់រួចហើយ។"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este convite já foi respondido, retirado ou expirou."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำเชิญนี้ได้รับการตอบ ถูกถอน หรือหมดอายุแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu davet zaten yanıtlandı, geri çekildi veya süresi doldu."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На це запрошення вже відповіли, його відкликали або термін минув."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lời mời này đã được trả lời, bị rút lại hoặc đã hết hạn."
+          }
+        }
+      }
+    },
+    "accounts.teams.error.emailMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This invitation was sent to an address you have not verified on this account."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Einladung ging an eine Adresse, die du in diesem Konto nicht bestätigt hast."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette invitation a été envoyée à une adresse que vous n’avez pas vérifiée sur ce compte."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أُرسلت هذه الدعوة إلى عنوان لم تتحقق منه في هذا الحساب."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta invitación se envió a una dirección que no verificaste en esta cuenta."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此邀請寄到了你未在此帳號驗證的地址。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此邀请发送到了你未在此账号验证的地址。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 초대는 이 계정에서 인증하지 않은 주소로 보내졌습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この招待は、このアカウントで確認していないアドレス宛てに送られました。"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo invito è stato inviato a un indirizzo che non hai verificato su questo account."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invitationen blev sendt til en adresse, du ikke har bekræftet på denne konto."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "To zaproszenie wysłano na adres, którego nie zweryfikowano na tym koncie."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Приглашение отправлено на адрес, не подтверждённый в этом аккаунте."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj poziv je poslan na adresu koju niste potvrdili na ovom računu."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invitasjonen ble sendt til en adresse du ikke har bekreftet på denne kontoen."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការអញ្ជើញនេះត្រូវបានផ្ញើទៅអាសយដ្ឋានដែលអ្នកមិនទាន់ផ្ទៀងផ្ទាត់នៅលើគណនីនេះ។"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este convite foi enviado para um endereço que você não verificou nesta conta."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำเชิญนี้ส่งไปยังที่อยู่ที่คุณยังไม่ได้ยืนยันในบัญชีนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu davet, bu hesapta doğrulamadığınız bir adrese gönderildi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запрошення надіслано на адресу, не підтверджену в цьому обліковому записі."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lời mời này được gửi tới địa chỉ bạn chưa xác minh trên tài khoản này."
+          }
+        }
+      }
+    },
+    "accounts.teams.error.seatLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The team has no seat left. Ask a team admin to free one or upgrade the plan."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Team hat keinen freien Platz. Bitte einen Team-Admin, einen freizugeben oder den Plan zu erweitern."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’équipe n’a plus de place. Demandez à un administrateur d’en libérer une ou de changer de forfait."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد مقاعد متبقية في الفريق. اطلب من مسؤول الفريق تحرير مقعد أو ترقية الخطة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El equipo no tiene plazas libres. Pide a un administrador que libere una o mejore el plan."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "團隊已沒有空位。請團隊管理員釋出一個名額或升級方案。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "团队已没有空位。请团队管理员释放一个名额或升级方案。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "팀에 남은 자리가 없습니다. 팀 관리자에게 자리를 비우거나 요금제를 업그레이드해 달라고 요청하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チームに空き席がありません。チーム管理者に席を空けるかプランのアップグレードを依頼してください。"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il team non ha posti liberi. Chiedi a un amministratore di liberarne uno o di passare a un piano superiore."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teamet har ingen ledige pladser. Bed en teamadministrator om at frigøre en eller opgradere planen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zespół nie ma wolnych miejsc. Poproś administratora o zwolnienie miejsca lub zmianę planu."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В команде нет свободных мест. Попросите администратора освободить место или повысить тариф."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tim nema slobodnih mjesta. Zamolite administratora da oslobodi jedno ili nadogradi plan."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teamet har ingen ledige plasser. Be en teamadministrator frigjøre én eller oppgradere planen."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ក្រុមគ្មានកន្លែងទំនេរទៀតទេ។ សុំអ្នកគ្រប់គ្រងក្រុមឱ្យដោះលែងមួយ ឬដំឡើងគម្រោង។"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A equipe não tem vagas. Peça a um administrador para liberar uma ou fazer upgrade do plano."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทีมไม่มีที่นั่งว่างแล้ว ขอให้ผู้ดูแลทีมปล่อยที่นั่งหรืออัปเกรดแพ็กเกจ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekipte boş koltuk kalmadı. Bir ekip yöneticisinden koltuk boşaltmasını veya planı yükseltmesini isteyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У команді немає вільних місць. Попросіть адміністратора звільнити місце або підвищити тариф."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhóm đã hết chỗ. Hãy nhờ quản trị viên nhóm giải phóng một chỗ hoặc nâng cấp gói."
+          }
+        }
+      }
+    },
+    "accounts.cmux.backend": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud backend: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud バックエンド: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الواجهة الخلفية السحابية: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud backend: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-backend: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Backend: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backend de Cloud: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backend Cloud : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backend Cloud: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backend Cloud៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 백엔드: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-backend: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backend Cloud: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backend do Cloud: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бэкенд Cloud: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แบ็กเอนด์ Cloud: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud arka ucu: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бекенд Cloud: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backend Cloud: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 后端：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 後端：%@"
           }
         }
       }

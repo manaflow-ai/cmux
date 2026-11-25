@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import {
   classifyFindings,
+  failureCount,
+  findHandSetRoles,
   findHardCodedAgentIcons,
   findMixedRowWeights,
   findMultiSpace,
@@ -9,6 +11,8 @@ import {
   findRedundantOpenButtons,
   findRepeatedLeadingLabels,
   loadAllowlist,
+  scanTree,
+  shrinkAllowlist,
   WEBVIEWS,
 } from "../scripts/check-ui-review";
 
@@ -139,6 +143,78 @@ describe("cross-surface UI review lint", () => {
     const namespaced = `<div className="cv-subagent"><Icon ns:name="agent.session" /></div>`;
     expect(findHardCodedAgentIcons(tsx, namespaced)).toHaveLength(0);
   });
+
+  test("flags a hand-set menu, listbox, dialog or tab role outside src/ui/", () => {
+    const menu = `function SourceMenu() { return <div role="menu"><button role="menuitem">A</button></div>; }`;
+    expect(findHandSetRoles(tsx, menu)).toMatchObject([
+      { rule: "hand-set-role", fingerprint: "menu|div|SourceMenu", line: 1 },
+      { rule: "hand-set-role", fingerprint: "menuitem|button|SourceMenu", line: 1 },
+    ]);
+    const conditional = `const Row = () => <div role={selectable ? "option" : undefined} />;`;
+    expect(findHandSetRoles(tsx, conditional)).toMatchObject([{ fingerprint: "option|div|Row" }]);
+    const props = `function useRow() { return { role: "option", tabIndex: -1 }; }`;
+    expect(findHandSetRoles(tsx, props)).toMatchObject([{ fingerprint: "option|props|useRow" }]);
+    for (const role of ["listbox", "dialog", "tablist", "tab", "menuitemradio", "menuitemcheckbox"]) {
+      expect(findHandSetRoles(tsx, `<div role="${role}" />`)).toHaveLength(1);
+    }
+  });
+
+  test("permits other roles, selector strings, and the ui/, test and gallery files", () => {
+    expect(findHandSetRoles(tsx, `<div role="group"><p role="alert" /><div role="status" /></div>`)).toHaveLength(0);
+    expect(findHandSetRoles(tsx, `el.querySelector('[role="menu"]');`)).toHaveLength(0);
+    expect(findHandSetRoles(tsx, `<div role={role} />`)).toHaveLength(0);
+    const menu = `<div role="menu" />`;
+    expect(findHandSetRoles(join(WEBVIEWS, "src/ui/Menu.tsx"), menu)).toHaveLength(0);
+    expect(findHandSetRoles(join(WEBVIEWS, "src/a/Menu.gallery.tsx"), menu)).toHaveLength(0);
+    expect(findHandSetRoles(join(WEBVIEWS, "src/gallery/shell/Shell.tsx"), menu)).toHaveLength(0);
+    expect(findHandSetRoles(join(WEBVIEWS, "src/a/Menu.test.tsx"), menu)).toHaveLength(0);
+    expect(findHandSetRoles(join(WEBVIEWS, "src/a/menu.ts"), `const x = { role: "menu" };`)).toHaveLength(0);
+  });
+
+  test("a new hand-set role fails; an allowlisted one passes; the copy rules still only warn", () => {
+    const role = findHandSetRoles(tsx, `function Picker() { return <div role="listbox" />; }`);
+    expect(failureCount(classifyFindings(role, []))).toBe(1);
+    const entry = {
+      rule: "hand-set-role" as const,
+      file: "src/fixture.tsx",
+      fingerprint: "listbox|div|Picker",
+      owner: "o",
+      why: "w",
+    };
+    expect(failureCount(classifyFindings(role, [entry]))).toBe(0);
+    const copy = findMultiSpace(tsx, "<span>Ran      2 commands</span>");
+    expect(classifyFindings(copy, []).newFindings).toHaveLength(1);
+    expect(failureCount(classifyFindings(copy, []))).toBe(0);
+  });
+
+  test("a stale hand-set-role entry fails until --shrink-allowlist drops it, and shrinking never adds", () => {
+    const stale = {
+      rule: "hand-set-role" as const,
+      file: "src/fixed.tsx",
+      fingerprint: "menu|div|Fixed",
+      owner: "o",
+      why: "w",
+    };
+    const staleCopy = {
+      rule: "narration" as const,
+      file: "src/fixed.tsx",
+      fingerprint: "Read after this turn",
+      owner: "o",
+      why: "w",
+    };
+    const live = { ...stale, file: "src/live.tsx" };
+    const liveFinding = { rule: live.rule, file: live.file, line: 3, fingerprint: live.fingerprint, message: "" };
+    const result = classifyFindings([liveFinding], [stale, staleCopy, live]);
+    expect(failureCount(result)).toBe(1);
+    const kept = shrinkAllowlist([stale, staleCopy, live], result.staleAllowlist);
+    expect(kept).toEqual([live]);
+    expect(failureCount(classifyFindings([liveFinding], kept))).toBe(0);
+  });
+
+  // A full-tree scan parses every source file; bun's 5 s default is too short for it.
+  test("today's tree passes the failing rules against the committed allowlist", () => {
+    expect(failureCount(scanTree())).toBe(0);
+  }, 120_000);
 
   test("keeps every existing exception owned and explained", () => {
     const entries = loadAllowlist();

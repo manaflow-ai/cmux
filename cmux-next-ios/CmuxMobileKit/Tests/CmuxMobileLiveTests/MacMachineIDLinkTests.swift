@@ -9,7 +9,7 @@ import Testing
 /// (PROTOCOL.md "Devices"). The phone lists and links that Mac once; two Macs
 /// that only share a name stay two Macs, each linked.
 @MainActor
-@Suite(.serialized) struct MacMachineIDLinkTests {
+@Suite(.serialized, .timeLimit(.minutes(2))) struct MacMachineIDLinkTests {
     let host = "svc-\(UUID().uuidString.prefix(8).lowercased()).cmuxMobile.test"
     let userID = "user-\(UUID().uuidString)"
     let teamID = "t-machine-\(UUID().uuidString.prefix(8))"
@@ -33,7 +33,9 @@ import Testing
     }
 
     func settle(_ done: () -> Bool) async {
-        for _ in 0..<3000 where !done() { try? await Task.sleep(for: .milliseconds(1)) }
+        // No deadline of its own: 3000 sleeps ended before a busy kit run's main actor had
+        // applied the state waited for (cmux#40635). The suite's time limit bounds a hang.
+        while !done(), !Task.isCancelled { try? await Task.sleep(for: .milliseconds(1)) } // test: polls the condition
     }
 
     func drain() async {
@@ -56,6 +58,31 @@ import Testing
         #expect(store.macConnection["m1"] == .connected)
         #expect(dialer.dialCount("m2") == 0)
         #expect(MacRoster(store.activeTeam?.macs ?? []).visible.map(\.id) == ["m1"])
+    }
+
+    /// The phone remembers the build it picked (the per-team pick in UserDefaults):
+    /// the focus and the link go to that build, not to the other build of the computer that sorts
+    /// first (2026-11-18, review.sh on a real iPhone: the receipt named the other build, unlinked).
+    @Test func theRememberedBuildIsFocusedOverTheOtherBuild() async {
+        let machine = "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+        let macs = [
+            MacDevice(id: "m1", name: "cmux mini", isOnline: true, ownerUserID: userID, machineID: machine),
+            MacDevice(id: "m2", name: "cmux mini", isOnline: true, ownerUserID: userID, machineID: machine),
+        ]
+        let pick = "cmuxMobile.live.mac.\(teamID)"
+        UserDefaults.standard.set("m2", forKey: pick)
+        defer { UserDefaults.standard.removeObject(forKey: pick) }
+        let store = AppStore(teams: [], activeTeamID: "", workspaces: [], feed: [], tabMemory: .inMemory())
+        let dialer = PerMacDialer()
+        let live = coordinator(store: store, dialer: dialer, macs: macs)
+        defer { live.stop() }
+        live.showing(macIDs: nil)
+        await settle { store.macConnection["m1"] == .connected || store.macConnection["m2"] == .connected }
+        await drain()
+        #expect(live.focusedMacID == "m2")
+        #expect(store.macConnection["m2"] == .connected)
+        #expect(dialer.dialCount("m1") == 0)
+        #expect(store.activeTeam?.listedMacs.map(\.id) == ["m2"])
     }
 
     /// A Feed answer or notification of the other build names it: its link opens

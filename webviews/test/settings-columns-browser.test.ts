@@ -209,6 +209,9 @@ await requireBrowserLane("settings-columns-browser.test.ts", async () => {
     return page.evaluate((name) => {
       const ink = (window as unknown as { __ink: (el: Element | null) => number | null }).__ink;
       const visible = (el: Element) => {
+        // Base UI switches render a clipped form input beside the visible button. Its 1px
+        // box is not a painted control and must not extend the measured control union.
+        if (el.matches('input[aria-hidden="true"]')) return false;
         const r = el.getBoundingClientRect();
         const style = getComputedStyle(el);
         return r.width > 0 && r.height > 0 && style.visibility !== "hidden" && Number(style.opacity) > 0;
@@ -228,7 +231,9 @@ await requireBrowserLane("settings-columns-browser.test.ts", async () => {
             const shown = control
               ? parts(control).filter(
                   (part) =>
-                    visible(part) && !(part.classList.contains("reset-slot") && !part.hasAttribute("data-shown")),
+                    // Reset has its own reserved accessory gutter; compare the editors themselves
+                    // whether that accessory is hidden, enabled, or visible at the default.
+                    visible(part) && !part.classList.contains("reset-slot"),
                 )
               : [];
             const end = shown.length ? Math.max(...shown.map((part) => part.getBoundingClientRect().right)) : null;
@@ -302,11 +307,65 @@ await requireBrowserLane("settings-columns-browser.test.ts", async () => {
     return found;
   }
 
+  // Rows have no Reset button since the settings overhaul (standup 2026-11-11: it shifted the row's
+  // controls); a row resets from its title's right-click menu. A changed and a reset value keep the
+  // number editor on the card's one control edge.
+  for (const width of [446, 641, 1000])
+    test(`Settings keeps a number editor on its column through a change and a reset (${width}px)`, async () => {
+      const page = await open(
+        "pages.settings",
+        { variant: "editor", colorScheme: "light", width, height: 2400 },
+        { width, height: 2400 },
+      );
+      try {
+        for (const [key, value, neighbor] of [
+          ["editor.fontSize", "16", "editor.tabSize"],
+          ["editor.tabSize", "8", "editor.fontSize"],
+        ] as const) {
+          const row = page.locator(`[data-row-key="${key}"]`);
+          const field = row.locator("input.number");
+          const originalValue = await field.inputValue();
+          const edge = () => row.evaluate((row) => row.querySelector(".number-editor")!.getBoundingClientRect().right);
+          const baseline = await edge();
+          await field.fill(value);
+          await field.press("Enter");
+          await page.waitForFunction(
+            ({ key, value }) =>
+              document.querySelector<HTMLInputElement>(`[data-row-key="${key}"] input.number`)?.value === value,
+            { key, value },
+          );
+          const customized = await edge();
+          await row.locator(".row-title").click({ button: "right" });
+          const reset = page.locator("[role=menu] [role=menuitem]", { hasText: /^Reset to Default$/ });
+          await page.waitForFunction(() => {
+            const item = [...document.querySelectorAll<HTMLButtonElement>("[role=menu] [role=menuitem]")].find(
+              (button) => button.textContent === "Reset to Default",
+            );
+            return item !== undefined && !item.disabled && item.getAttribute("aria-disabled") !== "true";
+          });
+          await reset.click();
+          await page.waitForFunction(
+            ({ key, originalValue }) =>
+              document.querySelector<HTMLInputElement>(`[data-row-key="${key}"] input.number`)?.value === originalValue,
+            { key, originalValue },
+          );
+          const restored = await edge();
+          for (const state of [customized, restored]) expect(Math.abs(state - baseline)).toBeLessThanOrEqual(0.5);
+          const neighborEdge = await page
+            .locator(`[data-row-key="${neighbor}"] .number-editor`)
+            .evaluate((editor) => editor.getBoundingClientRect().right);
+          expect(Math.abs(restored - neighborEdge)).toBeLessThanOrEqual(0.5);
+        }
+      } finally {
+        await page.close();
+      }
+    });
+
   const pages = [...categories.map((category) => category.id), "agents-harnesses-registry"];
   /** The cards whose stills a PR shows, by page: the ones the rule changed. */
   const stills: Record<string, string[]> = {
     accounts: ['[data-card="accounts"]', '[data-card="machines"]'],
-    general: ['[data-card="rooms"]'],
+    sidebar: ['[data-card="rooms"]'],
   };
 
   test("every Settings page: one text column, one gap after a mark, one control edge, controls centered", async () => {

@@ -37,7 +37,8 @@ file; the hook is below). The command line does the same for one state file, for
    it, so the cron and the pre-push rule agree; an applied entry's rise is already in the total and allows nothing
    more. Only the file at SHA is read (never the file at its `measured_sha`, which a rebase can have dropped). A
    tip over the file's total but within the pending entries' allowance opens no issue; the log says to run
-   --update.
+   --update. The entries are the json's `exceptions` list and then each plans/cmux-next/arch-exceptions/<id>.json
+   file at SHA (one entry per file; arch-ratchet.py exceptions_with_files reads the same set).
 4. Keeps the last HISTORY_POINTS points under the state's key `arch_history` (the other keys are left as they
    are). Only a tip measurement (`kind` "tip") adds a point. A tip older than the last point (GitHub compare
    "behind") adds nothing and changes nothing; so does a run that cannot tell the order this time (no token, a
@@ -89,6 +90,8 @@ import urllib.error, urllib.parse, urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 RATCHET_PATH = "plans/cmux-next/arch-ratchet.json"
+# One dated exception per file (<id>.json), read after the json's `exceptions` list (arch-ratchet.py EXCEPTIONS_DIR).
+EXCEPTIONS_DIR = "plans/cmux-next/arch-exceptions"
 COUNTS_DIR = "scripts/cmux-next"
 COUNTS_SCRIPT = f"{COUNTS_DIR}/arch_counts.py"
 COUNTS_METHOD = "arch_counts"
@@ -530,13 +533,39 @@ def counts_at(dl, root, sha, files):
     return record
 
 
+def exception_files_at(dl, root, sha):
+    """The entries of the EXCEPTIONS_DIR/<id>.json files at sha, in name order (a file that does not parse is
+    skipped: the ratchet reads it as an entry that allows nothing)."""
+    proc = run(dl, ["git", "-C", root, "ls-tree", "-z", sha, "--", EXCEPTIONS_DIR + "/"], capture_output=True, text=True)
+    if proc.returncode != 0:
+        return []
+    paths = []
+    for item in proc.stdout.split("\0"):
+        meta, _, path = item.partition("\t")
+        rest = path[len(EXCEPTIONS_DIR) + 1:]
+        if (meta.split()[1:2] == ["blob"] and path.startswith(EXCEPTIONS_DIR + "/") and rest.endswith(".json")
+                and "/" not in rest):
+            paths.append(path)
+    entries = []
+    for path in sorted(paths):
+        try:
+            entries.append(json.loads(file_at(dl, root, sha, path) or ""))
+        except ValueError:
+            continue
+    return entries
+
+
 def ratchet_at(dl, root, sha):
     """(record, None), (None, why it cannot judge) or (None, None) when the commit has no ratchet file."""
     raw = file_at(dl, root, sha, RATCHET_PATH)
     if raw is None:
         return None, None
     try:
-        return checked_record(json.loads(raw), f"{RATCHET_PATH} at {sha[:12]}"), None
+        value = json.loads(raw)
+        if isinstance(value, dict):
+            listed = value.get("exceptions") if isinstance(value.get("exceptions"), list) else []
+            value = dict(value, exceptions=listed + exception_files_at(dl, root, sha))
+        return checked_record(value, f"{RATCHET_PATH} at {sha[:12]}"), None
     except ValueError as error:
         return None, f"{RATCHET_PATH} at {sha[:12]} is not JSON ({error})"
     except CountError as error:

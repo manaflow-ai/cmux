@@ -19,6 +19,27 @@ extension NSView {
     public func setThemedToolTipRegions(_ regions: [(rect: NSRect, text: String)]) {
         TooltipTracker.setRegions(regions, on: self)
     }
+
+    /// For a view that is hidden most of the time (a row's hover-only buttons): its tooltip's text and shortcut are
+    /// kept and read back at once, but the hover tracking area is added only once the view can show (in a window,
+    /// not hidden); the view calls ``themedToolTipCanShow()`` when it shows. Off: tracking starts with the text.
+    public var defersThemedToolTipTracking: Bool {
+        get { TooltipTracker.defers(self) }
+        set { TooltipTracker.setDefers(newValue, on: self) }
+    }
+
+    /// A view with ``defersThemedToolTipTracking`` calls this when it shows (`viewDidUnhide`, `viewDidMoveToWindow`):
+    /// its tooltip's tracking area is added then.
+    public func themedToolTipCanShow() {
+        TooltipTracker.whole(of: self)?.trackIfShown()
+    }
+
+    /// A view that went from clear (opacity 0) to drawn calls this (a hover control shown by paint): a pointer already
+    /// in its area gets its tooltip, which the presenter's pick skipped while the view was clear.
+    public func themedToolTipDrawn() {
+        guard let tracker = TooltipTracker.whole(of: self) else { return }
+        TooltipPresenter.shared.drawn(tracker)
+    }
 }
 
 /// One tooltip of a view, the whole view or a region of it, with the tracking area whose enter and
@@ -51,7 +72,7 @@ final class TooltipTracker: NSResponder {
         tracker.text = text
         tracker.shortcut = shortcut?.isEmpty == false ? shortcut : nil
         view.setAccessibilityHelp(text)
-        tracker.track(text != nil)
+        tracker.track(text != nil && !(set(of: view).defers && !canShow(view)))
         TooltipPresenter.shared.changed(tracker)
     }
 
@@ -64,6 +85,23 @@ final class TooltipTracker: NSResponder {
             tracker.track(true)
             return tracker
         }
+    }
+
+    static func defers(_ view: NSView) -> Bool { trackers.object(forKey: view)?.defers ?? false }
+
+    static func setDefers(_ defers: Bool, on view: NSView) {
+        guard defers != self.defers(view) else { return }
+        set(of: view).defers = defers
+        whole(of: view)?.trackIfShown()
+    }
+
+    /// The view can be hovered: in a window and not hidden.
+    private static func canShow(_ view: NSView) -> Bool { view.window != nil && !view.isHiddenOrHasHiddenAncestor }
+
+    /// Adds the tracking area while there is text and the view can show (or does not defer).
+    func trackIfShown() {
+        guard let view else { return }
+        track(text != nil && !(Self.defers(view) && !Self.canShow(view)))
     }
 
     private static func set(of view: NSView) -> TrackerSet {
@@ -102,18 +140,17 @@ final class TooltipTracker: NSResponder {
         return window.convertToScreen(view.convert(local, to: nil))
     }
 
-    /// The view's own visible label already says the tooltip's text (a titled button, a label):
-    /// no tooltip, as #20375 rules for pages (webviews/test/tooltip-rules.ts). Icon-only controls,
-    /// shortcuts and regions keep theirs.
-    var repeatsVisibleLabel: Bool {
-        guard region == nil, shortcut == nil, let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), let view else { return false }
+    /// The view shows its own text (a titled button, a label): no tooltip, whatever it says (a1315's cut 2: a
+    /// tooltip names a control that shows no name; pages follow the same rule, webviews/test/tooltip-rules.ts).
+    /// Icon-only controls, a shortcut (no text the control shows) and regions keep theirs.
+    var showsOwnText: Bool {
+        guard region == nil, shortcut == nil, let view else { return false }
         let label: String? = switch view {
         case let button as NSButton where button.imagePosition != .imageOnly: button.title
         case let field as any ShownText: field.stringValue
         default: nil
         }
-        guard let label = label?.trimmingCharacters(in: .whitespacesAndNewlines), !label.isEmpty else { return false }
-        return label.caseInsensitiveCompare(text) == .orderedSame
+        return label?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
     }
 
     /// Adds the tracking area while there is text, removes it without.
@@ -141,4 +178,6 @@ final class TooltipTracker: NSResponder {
 final class TrackerSet {
     var whole: TooltipTracker?
     var regions: [TooltipTracker] = []
+    /// ``NSView/defersThemedToolTipTracking``.
+    var defers = false
 }

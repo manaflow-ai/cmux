@@ -69,7 +69,7 @@ public final class HostSizePolicyModel {
 
     public func reload() async {
         guard let service else {
-            load = .failed("Not connected to this Mac yet.")
+            load = .failed("Not connected to this Mac.")
             return
         }
         if info == nil { load = .loading }
@@ -132,7 +132,6 @@ public final class HostSizePolicyModel {
     }
 
     private static func message(_ error: any Error) -> String {
-        let text = (error as? any LocalizedError)?.errorDescription ?? String(describing: error)
-        return text.isEmpty ? "The Mac didn't answer." : text
+        UserFacingError.message(error, fallback: "Can't reach your Mac right now. Try again in a moment.")
     }
 }

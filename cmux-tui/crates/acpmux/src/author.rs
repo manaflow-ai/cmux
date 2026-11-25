@@ -1,9 +1,11 @@
 //! Who sent a request, when a person other than the owner sent it: chat multiplayer (hq#4389).
 //! The daemon that admitted the person (`cmux host serve`, by its tailnet WhoIs login) stamps
-//! `_meta.acpmux.author {id, name, login?, node?}` on `session/prompt` (a steer too),
+//! `_meta.acpmux.author {id, name, login?, node?, avatar?}` on `session/prompt` (a steer too),
 //! `_acpmux/permission_respond`, `_acpmux/queue_edit`, `_acpmux/queue_remove`, `_acpmux/view`
 //! and `_acpmux/typing`; a client never names itself. `id` is `tailnet:<login>` until accounts
-//! are mapped, then `user_…`.
+//! are mapped, then `user_…`; a link guest on no tailnet and with no account is `guest:<opaque>`.
+//! `approval: "owner"` makes the person's prompt wait for the owner (`hub/queue_approve.rs`): it
+//! is queued, never steered, and runs only once the owner approves it.
 //!
 //! Accepted from the unix socket and from a forwarding peer link (a Peer connection held to the
 //! peer's rules, never one forwarding for its own Web client), as `fromAgent` is:
@@ -14,8 +16,9 @@
 //! An author is an audit label plus a restriction: it never stands in for the person's proof
 //! (`hub/person.rs`) and never allows anything. It only narrows who changes a queued prompt
 //! (`queue.not_author`, `hub/queue_edit.rs`). The hub records it as:
-//! - `_meta.provenance {kind: "person_message", from: id, fromName: name, login?, node?}` on the
-//!   prompt's `user_message`, `queued` and steer records, kept by the same author's edit;
+//! - `_meta.provenance {kind: "person_message", from: id, fromName: name, fromAvatar?, login?,
+//!   node?}` on the prompt's `user_message`, `queued` and steer records, kept by the same
+//!   author's edit (`fromAvatar`: the person's profile picture, an `https://` URL);
 //! - `answeredBy {id, name}` on `permission_decision`, beside a paired device's `{device,
 //!   feedItem}` when the answer names both.
 //!
@@ -34,31 +37,83 @@ pub const PERSON_MESSAGE: &str = "person_message";
 pub const MAX_FIELD_BYTES: usize = 256;
 /// Longest name, in characters.
 pub const MAX_NAME_CHARS: usize = 64;
+/// Longest avatar URL, in bytes.
+pub const MAX_AVATAR_BYTES: usize = 1024;
+/// The one `approval` value: the owner approves each of the person's prompts.
+pub const APPROVAL_OWNER: &str = "owner";
+/// A link guest's id: on no tailnet and with no account (`cmux-tui-core`
+/// `agent_session_shares.rs` binds `guest:<share_id>.<guest_id>`). Every prompt of theirs waits
+/// for the owner, `approval` or not: a guest's prompt never runs unapproved.
+pub const GUEST_PREFIX: &str = "guest:";
+
+/// Whether `id` is a link guest's (`GUEST_PREFIX`).
+pub fn is_guest(id: &str) -> bool {
+    id.starts_with(GUEST_PREFIX)
+}
 
 /// A person who sent a request (`_meta.acpmux.author`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Author {
-    /// `tailnet:<login>` or `user_…`.
+    /// `tailnet:<login>`, `user_…` or `guest:<opaque>`.
     pub id: String,
     pub name: String,
     /// The tailnet login the daemon admitted.
     pub login: Option<String>,
     /// The machine the person sent it from.
     pub node: Option<String>,
+    /// The person's profile picture: an `https://` URL of printable ASCII, at most
+    /// [`MAX_AVATAR_BYTES`] (a signed-in link guest's, `cmux-tui-core` `agent_session_shares.rs`).
+    pub avatar: Option<String>,
+    /// `approval: "owner"`: each prompt waits for the owner's approval (`hub/queue_approve.rs`).
+    pub awaits_owner: bool,
 }
 
 impl Author {
     /// The provenance of this person's prompt.
     pub fn provenance(&self) -> Value {
         let mut p = json!({"kind": PERSON_MESSAGE, "from": self.id, "fromName": self.name});
+        if let Some(avatar) = &self.avatar {
+            p.set("fromAvatar", json!(avatar));
+        }
         if let Some(login) = &self.login {
             p.set("login", json!(login));
         }
         if let Some(node) = &self.node {
             p.set("node", json!(node));
         }
+        if self.awaits_owner {
+            p.set("approval", json!(APPROVAL_OWNER));
+        }
         p
     }
+}
+
+/// Whether a prompt's provenance says each version of it waits for the owner (`approval`, or a
+/// link guest's `from`): an edit by its author waits again (`hub/queue_approve.rs`).
+pub fn awaits_owner(provenance: Option<&Value>) -> bool {
+    of_provenance(provenance).is_some_and(|from| {
+        is_guest(from)
+            || provenance.and_then(|p| p.get("approval")).and_then(Value::as_str)
+                == Some(APPROVAL_OWNER)
+    })
+}
+
+/// The `initialize` feature of a daemon that holds a prompt for the owner: a peer forwards one,
+/// and the owner's answer to one, only to a peer that lists it (`server/peer_forward.rs`).
+pub const QUEUE_APPROVAL_FEATURE: &str = "queueApproval";
+/// The `initialize` feature of a daemon that serves `_acpmux/queue_get`: forwarded to a peer only
+/// when it lists it, on the link that listed it (`server/peer_forward.rs`).
+pub const QUEUE_GET_FEATURE: &str = "queueGet";
+
+/// `queue.approval_unsupported`: a prompt that waits for the owner, or an answer to one, for a
+/// peer on an older build, which would run the prompt unapproved. Nothing is forwarded.
+pub fn approval_unsupported(peer: &crate::peer::Peer) -> RpcError {
+    let build = peer.remote_build().unwrap_or_else(|| "unknown".into());
+    let (name, msg) = (&peer.name, "which does not hold a prompt for the owner");
+    let message = format!(
+        "queue.approval_unsupported: peer {name} runs acpmux build {build}, {msg}; run `acpmux machine update {name}`"
+    );
+    refusal("queue.approval_unsupported", message)
 }
 
 fn refusal(reason: &str, message: String) -> RpcError {
@@ -108,30 +163,60 @@ pub fn author(params: &Value) -> Result<Option<Author>, RpcError> {
         }
     };
     let required = |key: &str| field(key)?.ok_or_else(|| value_refused(key));
+    let awaits_owner = match raw.get("approval") {
+        None | Some(Value::Null) => false,
+        Some(Value::String(value)) if value == APPROVAL_OWNER => true,
+        _ => return Err(value_refused("approval")),
+    };
+    let id = required("id")?;
+    // A link guest's prompt waits for the owner even when its sender left `approval` off.
+    let awaits_owner = awaits_owner || is_guest(&id);
     Ok(Some(Author {
-        id: required("id")?,
+        id,
         name: required("name")?,
         login: field("login")?,
         node: field("node")?,
+        avatar: field("avatar")?,
+        awaits_owner,
     }))
+}
+
+/// `queue.owner_only`: only the owner (a request with no author) approves or declines a prompt
+/// that waits for them (`_acpmux/queue_approve`, `_acpmux/queue_decline`).
+pub fn owner_only(params: &Value) -> Result<(), RpcError> {
+    if present(params) {
+        return Err(refusal(
+            "queue.owner_only",
+            "queue.owner_only: only the chat's owner approves or declines a waiting prompt".into(),
+        ));
+    }
+    Ok(())
 }
 
 fn value_refused(key: &str) -> RpcError {
     let need = match key {
         "name" => format!("1 to {MAX_NAME_CHARS} characters"),
-        "id" => format!("tailnet:<login> or user_<id>, 1 to {MAX_FIELD_BYTES} bytes"),
+        "id" => format!("tailnet:<login>, user_<id> or guest:<id>, 1 to {MAX_FIELD_BYTES} bytes"),
+        "approval" => format!("\"{APPROVAL_OWNER}\""),
+        "avatar" => format!("an https:// URL, 9 to {MAX_AVATAR_BYTES} bytes"),
         _ => format!("1 to {MAX_FIELD_BYTES} bytes"),
     };
     refusal("author.value_refused", format!("author {key} must be one line of {need}"))
 }
 
 fn valid(key: &str, value: &str) -> bool {
+    if key == "avatar" {
+        return value.len() <= MAX_AVATAR_BYTES
+            && value.len() > "https://".len()
+            && value.starts_with("https://")
+            && value.bytes().all(|b| b.is_ascii_graphic());
+    }
     let fits = match key {
         "name" => value.chars().count() <= MAX_NAME_CHARS,
         _ => value.len() <= MAX_FIELD_BYTES,
     };
     let id_shape = key != "id"
-        || ["tailnet:", "user_"].iter().any(|prefix| {
+        || ["tailnet:", "user_", GUEST_PREFIX].iter().any(|prefix| {
             value.strip_prefix(prefix).is_some_and(|rest| !rest.is_empty()) && !value.contains(' ')
         });
     fits && id_shape && !value.trim().is_empty() && !value.chars().any(unshown)
@@ -139,7 +224,7 @@ fn valid(key: &str, value: &str) -> bool {
 
 /// A character that breaks the one line or changes how it reads: a control, a line or
 /// paragraph separator, or a bidi or zero-width format mark (as `prompt_provenance.rs`).
-fn unshown(c: char) -> bool {
+pub(crate) fn unshown(c: char) -> bool {
     c.is_control()
         || (c.is_whitespace() && c != ' ')
         || matches!(
@@ -167,7 +252,27 @@ pub fn listed(provenance: Option<&Value>) -> Option<crate::protocol::session::Qu
         .and_then(Value::as_str)
         .filter(|name| !name.trim().is_empty())
         .unwrap_or(id);
-    Some(crate::protocol::session::QueuedAuthor { id: id.to_owned(), name: name.to_owned() })
+    let avatar = provenance
+        .and_then(|p| p.get("fromAvatar"))
+        .and_then(Value::as_str)
+        .filter(|avatar| valid("avatar", avatar))
+        .map(str::to_owned);
+    Some(crate::protocol::session::QueuedAuthor {
+        id: id.to_owned(),
+        name: name.to_owned(),
+        avatar,
+    })
+}
+
+/// What the agent reads before a person's prompt (not the owner's, nor an agent's message): who
+/// sent it, so the agent knows which participant of a shared chat is asking. The agent's copy
+/// only: the transcript's `user_message` keeps the person's own words.
+pub fn agent_label(provenance: Option<&Value>) -> Option<Value> {
+    let id = of_provenance(provenance)?;
+    let name = listed(provenance).map_or_else(|| id.to_owned(), |a| a.name);
+    let who = if is_guest(id) { "a guest" } else { "a participant" };
+    Some(json!({"type": "text",
+        "text": format!("[Message from {name}, {who} in this shared chat]")}))
 }
 
 /// Who changes a queued prompt or an unread steer (`hub/queue_edit.rs`, `_acpmux/queue_remove`):
@@ -211,98 +316,5 @@ pub fn answered_by(device: Option<Value>, author: Option<&Author>) -> Option<Val
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn with(author: Value) -> Value {
-        json!({"_meta": {"acpmux": {"author": author}}})
-    }
-
-    #[test]
-    fn an_author_is_read_checked_and_stamped() {
-        assert_eq!(author(&json!({})).unwrap(), None);
-        assert_eq!(author(&with(Value::Null)).unwrap(), None);
-        let ana = author(&with(json!({"id": "tailnet:ana@example.com", "name": "Ana",
-            "login": "ana@example.com", "node": "ana-mbp", "role": "dropped"})))
-        .unwrap()
-        .unwrap();
-        assert_eq!(
-            ana.provenance(),
-            json!({"kind": "person_message", "from": "tailnet:ana@example.com", "fromName": "Ana",
-                   "login": "ana@example.com", "node": "ana-mbp"})
-        );
-        let bo = author(&with(json!({"id": "user_42", "name": "Bo"}))).unwrap().unwrap();
-        assert_eq!(
-            bo.provenance(),
-            json!({"kind": "person_message", "from": "user_42", "fromName": "Bo"})
-        );
-        assert_eq!(of_provenance(Some(&bo.provenance())), Some("user_42"));
-        assert_eq!(of_provenance(Some(&json!({"kind": "agent_message", "from": "acp:x"}))), None);
-        assert_eq!(of_provenance(None), None);
-        let named = |p: Value| listed(Some(&p)).map(|a| (a.id, a.name));
-        assert_eq!(named(bo.provenance()), Some(("user_42".into(), "Bo".into())));
-        assert_eq!(
-            named(json!({"kind": "person_message", "from": "user_7"})),
-            Some(("user_7".into(), "user_7".into())),
-            "a record with no name lists the id"
-        );
-        assert_eq!(named(json!({"kind": "agent_message", "from": "acp:x", "fromName": "b"})), None);
-        assert!(listed(None).is_none());
-        for bad in [
-            json!("tailnet:ana"),
-            json!({"name": "Ana"}),
-            json!({"id": "tailnet:ana"}),
-            json!({"id": "ana", "name": "Ana"}),
-            json!({"id": "tailnet:", "name": "Ana"}),
-            json!({"id": "tailnet:a b", "name": "Ana"}),
-            json!({"id": format!("user_{}", "x".repeat(MAX_FIELD_BYTES)), "name": "Ana"}),
-            json!({"id": "user_1", "name": "n".repeat(MAX_NAME_CHARS + 1)}),
-            json!({"id": "user_1", "name": "Ana\u{202E}nimda"}),
-            json!({"id": "user_1", "name": "Ana", "node": "a\nb"}),
-            json!({"id": "user_1", "name": " "}),
-            json!({"id": "user_1", "name": "Ana", "login": 7}),
-        ] {
-            let e = author(&with(bad.clone())).expect_err(&bad.to_string());
-            assert_eq!(e.data.unwrap()["reason"], "author.value_refused", "{bad}");
-        }
-    }
-
-    #[test]
-    fn only_the_sender_may_change_a_prompt() {
-        let not_author = |r: Result<(), RpcError>| r.unwrap_err().data.unwrap()["reason"].clone();
-        assert!(may_change(None, Some("user_1")).is_ok(), "the hub's own change");
-        assert!(may_change(Some(Some("user_1")), Some("user_1")).is_ok());
-        assert!(may_change(Some(None), None).is_ok(), "the owner, the owner's");
-        assert_eq!(not_author(may_change(Some(None), Some("user_1"))), "queue.not_author");
-        assert_eq!(
-            not_author(may_change(Some(Some("user_2")), Some("user_1"))),
-            "queue.not_author"
-        );
-        assert_eq!(not_author(may_change(Some(Some("user_1")), None)), "queue.not_author");
-    }
-
-    #[test]
-    fn a_restored_persons_prompt_takes_no_supersede_key() {
-        let person = json!({"kind": PERSON_MESSAGE, "from": "user_1", "fromName": "Ana"});
-        let keyed = json!({"supersede": "status", "_meta": {"provenance": person}});
-        assert_eq!(restored_supersede(&keyed), None);
-        let agent =
-            json!({"supersede": "status", "_meta": {"provenance": {"kind": "agent_message"}}});
-        assert_eq!(restored_supersede(&agent), Some("status"));
-        assert_eq!(restored_supersede(&json!({"supersede": "status"})), Some("status"));
-        assert_eq!(restored_supersede(&json!({})), None);
-    }
-
-    #[test]
-    fn a_persons_answer_adds_id_and_name_beside_a_devices() {
-        let ana = Author { id: "user_1".into(), name: "Ana".into(), login: None, node: None };
-        let device = json!({"device": "phone-1", "feedItem": "f-1"});
-        assert_eq!(answered_by(None, None), None);
-        assert_eq!(answered_by(Some(device.clone()), None), Some(device.clone()));
-        assert_eq!(answered_by(None, Some(&ana)), Some(json!({"id": "user_1", "name": "Ana"})));
-        assert_eq!(
-            answered_by(Some(device), Some(&ana)),
-            Some(json!({"device": "phone-1", "feedItem": "f-1", "id": "user_1", "name": "Ana"}))
-        );
-    }
-}
+#[path = "author_tests.rs"]
+mod tests;

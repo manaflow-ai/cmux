@@ -15,6 +15,7 @@ const PROTECTED_FOLDERS_JSON: &str = include_str!("../data/protected-folders.jso
 #[derive(serde::Deserialize)]
 struct ProtectedEntry {
     path: String,
+    kind: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -38,6 +39,50 @@ fn protected_list() -> Option<&'static ProtectedList> {
         }
     })
     .as_ref()
+}
+
+/// A known privacy-protected location, without the broader startup refusal for `/` or home.
+/// This is a hint for an OS-denied read, not proof that TCC caused the denial.
+pub fn protected_kind_in(path: &Path, home: Option<&Path>) -> Option<&'static str> {
+    let list = protected_list()?;
+    let path = fold(path);
+    let under = |root: &str| path == root || path.starts_with(&format!("{root}/"));
+    for entry in &list.roots {
+        if under(&entry.path.to_lowercase()) {
+            return Some(&entry.kind);
+        }
+    }
+    let home = fold(home?);
+    list.in_home.iter().find_map(|entry| {
+        under(&format!("{home}/{}", entry.path.to_lowercase())).then_some(entry.kind.as_str())
+    })
+}
+
+/// Whether `path` is inside a privacy-protected location (the list's folders
+/// under the home folder, other and network volumes), as spelled or with its
+/// symlinks resolved. Unlike `unasked_refusal`, the home folder and `/` are
+/// not guarded here: this is for background reads keyed off a recorded folder
+/// (a session's cwd, a worktree), which skip a guarded one until a person
+/// opens it (worktree cleanup: `cmux_worktree_care::inventory::Guarded`).
+pub fn in_protected_location(path: &Path) -> bool {
+    in_protected_location_in(path, dirs::home_dir().as_deref())
+}
+
+/// `in_protected_location` for the user whose home folder is `home`.
+pub fn in_protected_location_in(path: &Path, home: Option<&Path>) -> bool {
+    // The home folder may itself be reached through a symlink (`/var` on macOS).
+    let homes: Vec<PathBuf> = home
+        .into_iter()
+        .flat_map(|h| [Some(h.to_path_buf()), std::fs::canonicalize(h).ok()])
+        .flatten()
+        .collect();
+    let hit = |p: &Path| {
+        protected_kind_in(p, None).is_some()
+            || homes.iter().any(|h| protected_kind_in(p, Some(h)).is_some())
+    };
+    // The spelling first: resolving a symlink reads no folder's contents, but
+    // a guarded spelling needs no second look.
+    hit(path) || std::fs::canonicalize(path).is_ok_and(|resolved| hit(&resolved))
 }
 
 /// Why an agent may not be started in `cwd` unasked, or `None` when it may.
@@ -71,6 +116,41 @@ pub fn refusal_in(cwd: &Path, home: Option<&Path>) -> Option<String> {
     guarded(&resolved, &homes).and_then(refused)
 }
 
+/// Why a spare (`hub/pool/`, the shape of a session the person already
+/// started in `cwd`) may not start there, or `None` when it may. As
+/// `unasked_refusal`, except that off macOS the home folder itself is
+/// allowed: there no privacy prompt guards it, and a machine whose chats run
+/// in the home folder (a cmux Cloud machine) is the one a spare is for. The
+/// root folder, other volumes and the privacy-protected folders stay refused.
+pub fn spare_refusal(cwd: &Path) -> Option<String> {
+    spare_refusal_in(cwd, dirs::home_dir().as_deref(), cfg!(target_os = "macos"))
+}
+
+/// Why a daemon start may not go on by itself with a chat's restored work in `cwd` (its queued
+/// prompts, a cut turn, held agent messages: `hub/protected_hold.rs`), or `None` when it may. As
+/// `spare_refusal`: off macOS the home folder itself raises no privacy prompt, and a machine whose
+/// chats all run there (a fleet lane VM, a cmux Cloud machine) has no person to open each chat, so
+/// a hold there left every queue waiting for good after an update restarted the daemon.
+pub fn restored_work_refusal(cwd: &Path) -> Option<String> {
+    spare_refusal(cwd)
+}
+
+/// `spare_refusal` for the user whose home folder is `home`, on macOS or not.
+pub fn spare_refusal_in(cwd: &Path, home: Option<&Path>, macos: bool) -> Option<String> {
+    let refusal = refusal_in(cwd, home)?;
+    let is_home = |h: &Path| {
+        fold(cwd) == fold(h)
+            || std::fs::canonicalize(cwd)
+                .ok()
+                .zip(std::fs::canonicalize(h).ok())
+                .is_some_and(|(c, h)| fold(&c) == fold(&h))
+    };
+    if !macos && home.is_some_and(is_home) {
+        return None;
+    }
+    Some(refusal)
+}
+
 /// The folder for agents acpmux starts with no person asking (the model
 /// probes at daemon start): `<acpmux home>/unattended`, owned by acpmux and
 /// empty of the person's files. Never the home folder: an agent scans its
@@ -100,23 +180,18 @@ pub fn unattended_cwd_in(acpmux_home: &Path, home: Option<&Path>) -> PathBuf {
 /// Makes `dir` (and missing parents) owner-only whatever the umask: under 002 it would be
 /// group-writable. One an older build made with the umask is narrowed when it is this user's own
 /// folder; a link or another user's folder is left alone.
+///
+/// Made through the folder this daemon holds (`home_fs`): a home replaced after the check never
+/// gets it.
 fn owner_only_dir(dir: &Path) -> std::io::Result<()> {
-    let mut made = std::fs::DirBuilder::new();
-    made.recursive(true);
-    #[cfg(unix)]
-    std::os::unix::fs::DirBuilderExt::mode(&mut made, 0o700);
-    made.create(dir)?;
     #[cfg(unix)]
     {
-        use std::os::unix::fs::{MetadataExt, PermissionsExt};
-        let meta = std::fs::symlink_metadata(dir)?;
-        // SAFETY: getuid has no preconditions.
-        let mine = meta.uid() == unsafe { libc::getuid() };
-        if meta.is_dir() && mine && meta.mode() & 0o077 != 0 {
-            std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
-        }
+        crate::home_fs::private_dir(dir)
     }
-    Ok(())
+    #[cfg(not(unix))]
+    {
+        crate::home_fs::create_dir_all(dir, 0o700)
+    }
 }
 
 fn guarded(path: &Path, homes: &[PathBuf]) -> Option<&'static str> {
@@ -169,6 +244,49 @@ mod owner_only_tests {
         let dir = unattended_cwd_in(&home, None);
         assert_eq!(dir, home.join("unattended"));
         assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+}
+
+#[cfg(test)]
+mod spare_tests {
+    use super::*;
+
+    #[test]
+    fn a_spare_may_start_in_the_home_folder_off_macos_only() {
+        let home = Path::new("/home/someone");
+        assert!(spare_refusal_in(home, Some(home), false).is_none());
+        assert!(spare_refusal_in(Path::new("/home/someone/"), Some(home), false).is_none());
+        assert!(spare_refusal_in(home, Some(home), true).is_some(), "macOS keeps the refusal");
+        assert!(spare_refusal_in(Path::new("/"), Some(home), false).is_some());
+        assert!(spare_refusal_in(Path::new("relative"), Some(home), false).is_some());
+        assert!(spare_refusal_in(Path::new("/home/someone/work"), Some(home), false).is_none());
+    }
+}
+
+#[cfg(all(test, unix))]
+mod location_tests {
+    use super::*;
+
+    /// Worktree cleanup's guard (LAUNCH-NO-TCC-PROMPTS, 2026-11-22: a recorded session on the
+    /// Desktop got git run in it at a fresh copy's start): the guarded folders, also through a
+    /// symlink, but not the home folder or a plain folder in it.
+    #[test]
+    fn a_recorded_folder_in_a_protected_location_is_guarded() {
+        let home = std::env::temp_dir().join(format!("acpmux-loc-{}", uuid::Uuid::now_v7()));
+        let desk = home.join("Desktop/videos");
+        std::fs::create_dir_all(&desk).unwrap();
+        std::fs::create_dir_all(home.join("Projects")).unwrap();
+        std::os::unix::fs::symlink(&desk, home.join("Projects/videos")).unwrap();
+        let home_ref = Some(home.as_path());
+        assert!(in_protected_location_in(&desk, home_ref));
+        assert!(in_protected_location_in(&home.join("desktop/VIDEOS"), home_ref), "case folds");
+        assert!(in_protected_location_in(&home.join("Documents/x"), home_ref), "missing too");
+        assert!(in_protected_location_in(&home.join("Projects/videos"), home_ref), "symlink");
+        assert!(in_protected_location_in(Path::new("/Volumes/Backup/repo"), home_ref));
+        assert!(!in_protected_location_in(&home, home_ref), "the home folder itself");
+        assert!(!in_protected_location_in(&home.join("Projects"), home_ref));
+        assert!(!in_protected_location_in(&home.join("Desktopper"), home_ref));
         let _ = std::fs::remove_dir_all(&home);
     }
 }

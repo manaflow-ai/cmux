@@ -56,6 +56,8 @@ public actor TerminalAttachment: TerminalByteChannel {
     /// Snapshot order of this stream; only the reader thread touches it.
     private final class SequencerBox: Sendable {
         let value = Mutex(TerminalSnapshotSequencer())
+        /// This attachment's first live output was seen (the launch's `first_shell_live` mark, once per attachment).
+        let sawOutput = Mutex(false)
     }
     private nonisolated let transport: LineTransport
     private nonisolated let queue: TerminalEventQueue
@@ -70,6 +72,8 @@ public actor TerminalAttachment: TerminalByteChannel {
         var detached = false
         /// The daemon takes `set-size-counts` for this lease (`shared-sizing-v1`).
         var hidesInPlace = false
+        /// The daemon batches a hidden view's output (`attach-visibility-v1`).
+        var batchesHidden = false
         /// This view's sizing participant (the attach reply's `participant`); nil until then.
         var participant: String?
         /// The newest size state this view passed on, and one that came before the reply named
@@ -104,20 +108,22 @@ public actor TerminalAttachment: TerminalByteChannel {
         claimGeometry: Bool,
         snapshotVersion: UInt16? = nil,
         localHistory: Bool = false,
-        images: Bool = false,
         clientName: String = "cmux-next-terminal",
         device: TerminalSizingDevice? = nil
     ) async throws -> TerminalAttachment {
         DaemonLaunchTimings.shared.mark("terminal.attach_start")
         #if DEBUG || CMUX_BENCH_HOOKS
-        if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.mark(.attachStart, surface: target.surface.rawValue) }
+        if NewTerminalTrace.shared.isArmed {
+            NewTerminalTrace.shared.mark(.attachStart, surface: target.surface.rawValue,
+                                         terminalResourceID: target.terminalResourceID?.rawValue)
+        }
         #endif
         let transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge)
         let attachment = TerminalAttachment(transport: transport, surface: target.surface)
         do {
             try await attachment.open(target: target, size: size, claimGeometry: claimGeometry,
                                       snapshotVersion: snapshotVersion, localHistory: localHistory,
-                                      images: images, clientName: clientName, device: device)
+                                      clientName: clientName, device: device)
         } catch {
             transport.close()
             throw error
@@ -137,7 +143,7 @@ public actor TerminalAttachment: TerminalByteChannel {
     public nonisolated var bufferedOutputBytes: Int { queue.bufferedOutputBytes }
 
     private func open(target: Target, size: CellSize, claimGeometry: Bool, snapshotVersion: UInt16?,
-                      localHistory: Bool, images: Bool, clientName: String,
+                      localHistory: Bool, clientName: String,
                       device: TerminalSizingDevice?) async throws {
         let queue = queue
         let control = control
@@ -162,7 +168,12 @@ public actor TerminalAttachment: TerminalByteChannel {
                 if case .closed = event {
                     queue.finish(event)
                 } else {
-                    if case .output = event { TypingLatencyProbe.shared.mark(.outputDecoded, source: Self.probeSource(surface, object: probeObject)) }
+                    if case .output = event {
+                        TypingLatencyProbe.shared.mark(.outputDecoded, source: Self.probeSource(surface, object: probeObject))
+                        // A shell's first live output (not a replay): the launch keeps the first of these (bare launch, piece 8).
+                        if !sequencer.sawOutput.withLock({ seen in defer { seen = true }; return seen }) { DaemonLaunchTimings.shared.mark("first_shell_live") }
+                        DaemonLaunchTimings.shared.outputDecoded()
+                    }
                     queue.push(event)
                 }
             },
@@ -206,18 +217,22 @@ public actor TerminalAttachment: TerminalByteChannel {
             expectedTerminalID: useIdentity ? target.terminalResourceID : nil,
             size: size,
             snapshotVersion: identity.supports(Self.snapshotCapability) ? snapshotVersion : nil,
-            snapshotLocalHistory: localHistory && identity.supports(DaemonCapability.terminalSnapshotLocalHistory.rawValue),
-            snapshotImages: images && identity.supports(DaemonCapability.terminalSnapshotImages.rawValue)
+            snapshotLocalHistory: localHistory && identity.supports(DaemonCapability.terminalSnapshotLocalHistory.rawValue)
         )
-        // The reply carries the replay (up to 32 MiB): a longer, still bounded deadline.
+        // The reply carries the replay (up to 32 MiB): 10 s of silence, not 10 s in all. A replay still arriving over a
+        // slow link keeps going (``TransportProgress``); a daemon that sends nothing for 10 s fails the attach.
         let response = try await DaemonConnection.perform(request, on: transport, timeout: .seconds(10))
         #if DEBUG || CMUX_BENCH_HOOKS
-        if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.mark(.attachReplied, surface: target.surface.rawValue) }
+        if NewTerminalTrace.shared.isArmed {
+            NewTerminalTrace.shared.mark(.attachReplied, surface: target.surface.rawValue,
+                                         terminalResourceID: target.terminalResourceID?.rawValue)
+        }
         #endif
         control.value.withLock { control in
             control.lease = response.lease
             control.lastReported = size
             control.hidesInPlace = identity.supports(DaemonCapability.sharedSizing.rawValue)
+            control.batchesHidden = identity.supports(DaemonCapability.attachVisibility.rawValue)
             if let participant = response.participant { control.participant = participant }
             // The reply's state, or a newer one held before the participant was known, now with it.
             // Pushed inside the lock: a newer stream state admitted meanwhile cannot go first.
@@ -236,7 +251,10 @@ public actor TerminalAttachment: TerminalByteChannel {
         queue.arm()
         DaemonLaunchTimings.shared.mark("terminal.attach_end")
         #if DEBUG || CMUX_BENCH_HOOKS
-        if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.mark(.attachEnd, surface: target.surface.rawValue) }
+        if NewTerminalTrace.shared.isArmed {
+            NewTerminalTrace.shared.mark(.attachEnd, surface: target.surface.rawValue,
+                                         terminalResourceID: target.terminalResourceID?.rawValue)
+        }
         #endif
     }
 
@@ -284,6 +302,7 @@ public actor TerminalAttachment: TerminalByteChannel {
                 try WireCoding.encodeRequest(SendInputRequest(surface: surface, bytes: data, flow: flow), id: id)
             }
             TypingLatencyProbe.shared.mark(.socketSubmit, source: Self.probeSource(surface, object: ObjectIdentifier(self)))
+            DaemonLaunchTimings.shared.inputSent()
         } catch {
             logger.debug("input dropped after close: \(String(describing: error), privacy: .public)")
         }
@@ -374,15 +393,46 @@ public actor TerminalAttachment: TerminalByteChannel {
     /// at the same size needs no report or claim. A daemon without `shared-sizing-v1` gets the old
     /// release, and a claim of the last reported size on show.
     public nonisolated func sendHidden(_ hidden: Bool) {
-        let (lease, inPlace) = control.value.withLock { ($0.lease, $0.hidesInPlace) }
-        guard let lease else { return }
-        if inPlace {
-            fireAndForget(SetSizeCountsRequest(surface: surface, lease: lease, counts: hidden ? false : nil))
-        } else if hidden {
-            fireAndForget(ReleaseAttachedViewSizeRequest(surface: surface, lease: lease))
-        } else {
-            claimGeometry(reporting: nil)
+        let (lease, inPlace, batches) = control.value.withLock { ($0.lease, $0.hidesInPlace, $0.batchesHidden) }
+        for step in Self.hiddenSteps(hidden: hidden, lease: lease, inPlace: inPlace, batchesHidden: batches) {
+            switch step {
+            case .sizeCounts(let lease, let counts):
+                fireAndForget(SetSizeCountsRequest(surface: surface, lease: lease, counts: counts))
+            case .releaseSize(let lease):
+                fireAndForget(ReleaseAttachedViewSizeRequest(surface: surface, lease: lease))
+            case .claim:
+                claimGeometry(reporting: nil)
+            case .visibility(let visible):
+                fireAndForget(SetAttachVisibilityRequest(surface: surface, visible: visible))
+            }
         }
+    }
+
+    /// What `sendHidden` sends, in order.
+    enum HiddenStep: Equatable, Sendable {
+        case sizeCounts(lease: String, counts: Bool?)
+        case releaseSize(lease: String)
+        case claim
+        /// `set-attach-visibility`: the daemon batches a hidden view's output (`attach-visibility-v1`).
+        case visibility(Bool)
+    }
+
+    /// The commands a view that hid (`hidden`) or shows again sends, given its lease and whether the daemon hides it
+    /// in place (`shared-sizing-v1`).
+    /// With `attach-visibility-v1` a hidden view's output is batched to once a second: the batching starts after
+    /// the view stops counting toward the grid, and ends before it counts again, so a shown view's first frame
+    /// follows its waiting output (SWITCH FRAMES SF-5).
+    static func hiddenSteps(hidden: Bool, lease: String?, inPlace: Bool, batchesHidden: Bool) -> [HiddenStep] {
+        var sizing: [HiddenStep] = []
+        if let lease {
+            if inPlace {
+                sizing = [.sizeCounts(lease: lease, counts: hidden ? false : nil)]
+            } else {
+                sizing = hidden ? [.releaseSize(lease: lease)] : [.claim]
+            }
+        }
+        guard batchesHidden else { return sizing }
+        return hidden ? sizing + [.visibility(false)] : [.visibility(true)] + sizing
     }
 
     /// Idempotent: the first call detaches and closes the connection.

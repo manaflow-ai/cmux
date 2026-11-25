@@ -21,6 +21,8 @@ public protocol WindowHomeHost: AnyObject {
     /// Closes `workspace` on its daemon (a window Home its window no longer has a place for).
     func windowHomeClose(_ workspace: String)
     func windowHomeWorkspace(_ id: String) -> WorkspaceModel?
+    /// The space window `window` shows, when the local store has it (rooms, data-model.md 3).
+    func windowHomeRoom(_ window: String) -> ProfileID?
     /// Shows `workspace` in window `window`, taking it there; never in another window.
     func windowHomeShow(_ workspace: String, in window: String)
     /// Claims the workspace about to be made for `window`, or drops that claim.
@@ -42,6 +44,7 @@ public protocol WindowHomeHost: AnyObject {
 /// service, so the Chief chat is shared; what opens beside it stays in that window.
 @MainActor
 public final class WindowHomes {
+    private enum MakeError: Error { case workspaceNotApplied }
     /// The origin of a window Home's page tab creation key.
     static let origin = "cmux-next-window-home"
     private weak var host: (any WindowHomeHost)?
@@ -54,6 +57,9 @@ public final class WindowHomes {
     private var docks: [String: Task<Void, Never>] = [:]
     private var made: Set<String> = []
     private var closing: Set<String> = []
+    /// Workspace events can arrive after a failed creation. Keep the claim until the late workspace
+    /// becomes observable, then close it before releasing the claim so reconciliation cannot place it.
+    private var pendingClose: Set<String> = []
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
 
     public init(host: any WindowHomeHost) { self.host = host }
@@ -102,18 +108,35 @@ public final class WindowHomes {
         do {
             defer { if !host.windowHomeIsOpen(window) { close(key.rawValue) } }
             try await host.windowHomeHold(key.rawValue) {
+                // Born in its window's space, as every new workspace is (WorkspaceSpawner), so that space lists it
+                // (spaces-overhaul-DESIGN.md rule 5). Unpinned it showed only in the default space, and a window on
+                // another (New Window opens one, rule 3) took it in but never showed it (MW-1b).
+                if let room = host.windowHomeRoom(window), let session = store.registryID {
+                    try await DaemonConnection.retryingLateReplies(PinWorkspaceRequest.command) {
+                        try await connection.pinWorkspace(session: session, key: key, to: room)
+                    }
+                }
                 try await connection.createWorkspace(name: HomeStrings.title, key: key)
                 await host.windowHomeApplied(connection)
-                guard let workspace = store.workspace(id: key.rawValue) else { return nil }
+                // A daemon reply can arrive before the store has applied the workspace event. Treat
+                // that as a failed creation so the catch path drops the claim and closes the orphan
+                // instead of returning nil and leaving a blank Home row to appear later.
+                guard let workspace = store.workspace(id: key.rawValue) else {
+                    throw MakeError.workspaceNotApplied
+                }
                 _ = try await connection.request(NewConversationTabRequest(page: HomeDock.page, workspace: workspace.handle, origin: Self.origin,
                                                                            mutationID: UUID().uuidString.lowercased()))
                 return true
             }
         } catch {
             logger.error("window home: \(String(describing: error), privacy: .public)")
-            host.windowHomeDropClaim(key.rawValue)
             // A workspace made without its page would stay as an empty "Home" row.
-            close(key.rawValue)
+            host.windowHomeDropClaim(key.rawValue)
+            if host.windowHomeWorkspace(key.rawValue) != nil {
+                close(key.rawValue)
+            } else {
+                pendingClose.insert(key.rawValue)
+            }
             return nil
         }
         // The window closed while its Home was made: the Home went elsewhere, and is closed.
@@ -149,6 +172,11 @@ public final class WindowHomes {
     /// make (another client's) is never closed here.
     public func closeSurplus(previous: [String: [String]]) {
         guard let host else { return }
+        for id in pendingClose where host.windowHomeWorkspace(id) != nil {
+            close(id)
+            host.windowHomeDropClaim(id)
+        }
+        pendingClose = pendingClose.filter { host.windowHomeWorkspace($0) == nil }
         // Only a window whose membership changed can have gained a Home.
         for (window, members) in host.windowHomeWindows where previous[window] != members {
             let homes = members.compactMap { host.windowHomeWorkspace($0) }.filter(\.isAnyHome)

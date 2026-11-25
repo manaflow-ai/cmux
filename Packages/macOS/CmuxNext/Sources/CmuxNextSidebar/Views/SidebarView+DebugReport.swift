@@ -31,14 +31,37 @@ extension SidebarViewComponents {
     }
 
     /// `{"motion": "start"|"stop"}`: the per-display-frame samples (SidebarMotionFrame); stop returns them as
-    /// {t, scroll, lift, work_ms, revision, settling, views: {key: [x, y, w, h, opacity]}}.
+    /// {t, link, target, refresh, scroll, lift, work_ms, revision, settling, views: {key: [x, y, w, h, opacity]},
+    /// ids: {key: view object id}, selected: the key of the row that draws the selection, selection: its presented
+    /// [x, y, w, h], closing: the keys whose `views` entry is a removed row closing its slot} and, at the top, `scale`
+    /// (device pixels per point). `t` is when the presentation was read;
+    /// `link` / `target` are the display link's vsync and show times of the tick, `refresh` its period (null for a
+    /// synthesized frame).
     public func debugMotionReport(start: Bool) -> [String: Any] {
         func box(_ r: CGRect) -> [Double] { [r.minX, r.minY, r.width, r.height].map { Double($0) } }
-        return ["frames": debugMotion(start: start).map { frame -> [String: Any] in
-            ["t": frame.time, "scroll": Double(frame.scrollY), "lift": frame.lift.map(box) ?? NSNull(), "work_ms": frame.dragWorkMs,
-             "revision": Double(frame.revision), "settling": frame.settling,
+        let frames = debugMotion(start: start)
+        let scale = frames.last?.scale ?? list.window?.backingScaleFactor ?? 1
+        return ["scale": Double(scale), "process_start_media": Self.processStartMedia(), "frames": frames.map { frame -> [String: Any] in
+            ["t": frame.time, "link": frame.linkTimestamp, "target": frame.targetTimestamp,
+             "refresh": frame.refreshInterval.map { $0 as Any } ?? NSNull(),
+             "ids": frame.identity.mapValues { String($0) },
+             "selected": frame.selectedKey ?? NSNull(), "selection": frame.selection.map(box) ?? NSNull(),
+             "scroll": Double(frame.scrollY), "lift": frame.lift.map(box) ?? NSNull(), "work_ms": frame.dragWorkMs,
+             "revision": Double(frame.revision), "settling": frame.settling, "closing": frame.closing,
              "views": Dictionary(uniqueKeysWithValues: frame.views.map { key, rect in (key, box(rect) + [Double(frame.opacity[key] ?? 1)]) })]
         }]
+    }
+
+    /// The process start on the frames' clock (`t` is CACurrentMediaTime): (t - this) * 1000 is a frame's ms since the
+    /// process started, the launch marks' zero (`sysctl` `KERN_PROC_PID`, as LaunchTimesRecorder.processStart reads it).
+    private static func processStartMedia() -> Double {
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
+        let now = CACurrentMediaTime()
+        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0 else { return now }
+        let start = info.kp_proc.p_un.__p_starttime
+        return now - (Date().timeIntervalSince1970 - (Double(start.tv_sec) + Double(start.tv_usec) / 1_000_000))
     }
 
     private static func row(_ row: SidebarDebugRow) -> [String: Any] {

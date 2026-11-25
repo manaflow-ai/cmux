@@ -1,4 +1,5 @@
-public import CmuxNextHome
+import CmuxNextCompat
+public import CmuxNextHomeModel
 public import Foundation
 
 /// Each of this Mac's Chiefs' own avatar, keyed by participant id, for the Home list and each
@@ -39,7 +40,7 @@ public nonisolated struct HomeChiefAvatars: Sendable {
 
     /// The app's cache folder for Chief pictures.
     public static var defaultCache: URL {
-        let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+        let caches = NextSupport.cachesDirectory()
         return caches.appendingPathComponent(Bundle.main.bundleIdentifier ?? "cmux", isDirectory: true)
             .appendingPathComponent("ChiefAvatarRegistry", isDirectory: true)
     }

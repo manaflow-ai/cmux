@@ -20,8 +20,9 @@
 //! logged inside the next turn (`agent.rs` reader, `agent_host/host.rs` `on_stdout`). The hold is
 //! bounded ([`HOLD_MAX`]).
 //!
-//! A stopped turn, a failed one, and the step a Send now interrupts keep the old way: the
-//! unread line runs as one more turn of the same prompt (`steer_now.rs`).
+//! The step a Send now stops ends its turn the same way, as `cancelled` (Leo, 2026-11-03: "idk
+//! why we're getting into these weird thinking states"). A stopped turn and a failed one keep
+//! the old way: the unread line runs as one more turn of the same prompt.
 
 use super::*;
 
@@ -69,6 +70,18 @@ impl Carry {
     /// A carry's turn is owed its prompt.
     pub(super) fn owe(&mut self) {
         self.owed += 1;
+    }
+
+    /// A turn no carry of this process left is owed its prompt (`resume_cut.rs`): a number of its
+    /// own, so the reader holds for it once.
+    pub(super) fn owe_new(&mut self) {
+        self.seq += 1;
+        self.owed += 1;
+    }
+
+    /// What `carry_owed` holds now: the turns owed their prompt, and the newest carry's number.
+    pub(super) fn owed_now(&self) -> (usize, u64) {
+        (self.owed, self.seq)
     }
 
     /// Answers were lost (`fail_pending`): each carried turn whose prompt has not come yet ends

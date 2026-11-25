@@ -1,0 +1,22 @@
+# Python test execution registry: tests/test_ghostty_*.py. Keep entries sorted by path;
+# scripts/ci/test_execution_registry.py says how the registry is split and read.
+
+[[test]]
+path = "tests/test_ghostty_cli_helper_cache_failures.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_ghostty_zsh_job_table_saturation_guard.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_ghostty_zsh_prompt_redraw_uses_prompt_start.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_ghostty_zsh_pure_hidden_cr_omits_continuation_marker.py"
+lane = "legacy"
+
+[[test]]
+path = "tests/test_ghostty_zsh_pure_preprompt_redraw.py"
+lane = "legacy"

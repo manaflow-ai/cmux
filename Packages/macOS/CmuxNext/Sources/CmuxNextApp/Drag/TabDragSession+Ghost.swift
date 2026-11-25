@@ -17,7 +17,7 @@ extension TabDragSession {
         var scale: CGFloat = 1
         if let slot = drag.winner?.proposal.ghostFrame {
             presentation = .inline(slot)
-            rect = TabDragGeometry.inlineRect(pointer: drag.point, grabOffset: source.grabOffset, tabSize: tabSize, slot: slot)
+            rect = TabDragGeometry.inlineRect(pointer: drag.point, grabOffset: source.grabOffset, tabSize: tabSize, slot: slot, strip: drag.winner?.proposal.ghostSpan)
         } else {
             presentation = .card
             rect = TabDragGeometry.floatingRect(pointer: drag.point, grabOffset: source.grabOffset, tabSize: tabSize)
@@ -52,6 +52,15 @@ extension TabDragSession {
         guard !moving else { return true }
         if current === landing { finishLanding() }
         return false
+    }
+
+    /// The ghost's panel went out of sight (FrameScheduler+Sight): a landing ghost lands now and its
+    /// landing finishes; a live drag's ghost takes its target (the next pointer event wakes it again).
+    func settleGhost(_ current: Drag) {
+        guard current === drag || current === landing else { return }
+        current.motion.snap()
+        current.ghost.render(current.motion)
+        if current === landing { finishLanding() }
     }
 
     /// Auto-scrolls the columns screen under the pointer. Strips and the
@@ -100,7 +109,7 @@ extension TabDragSession {
             moveSourceWorkspace(outcome, drag: drag)
             land(drag, at: drag.source.screenFrame, cardness: 0, opacity: 0, scale: 1)
         default:
-            winner?.provider.dropEnded(committed: winner?.proposal)
+            drag.settleDrop = winner?.provider.dropEnded(committed: winner?.proposal)
             guard let transaction = drag.lifecycle.beginCommit() else { return land(drag, at: drag.motion.targetRect, cardness: 0, opacity: 0, scale: 1) }
             execute(outcome, drag: drag, transaction: transaction)
             if let slot = winner?.proposal.ghostFrame {
@@ -125,7 +134,7 @@ extension TabDragSession {
     /// Animates the ghost to its landing and closes it when it settles.
     func land(_ drag: Drag, at rect: CGRect, cardness: CGFloat, opacity: CGFloat, scale: CGFloat) {
         finishLanding()
-        // The release settles with a slightly under-damped spring.
+        // The release lands on the settle spring; its velocity cannot take the ghost past its landing (`TabDragGhostMotion.step`).
         drag.motion.rectSpring = Motion.tabs.spring(.settle)
         drag.motion.setTarget(rect, cardness: cardness, opacity: opacity, scale: scale, jump: true,
                               velocity: drag.releaseVelocity(at: CACurrentMediaTime()))

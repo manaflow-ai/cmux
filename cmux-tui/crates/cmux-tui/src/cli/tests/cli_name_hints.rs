@@ -39,3 +39,8 @@ fn the_hint_names_the_action_run_command() {
     assert!(message.contains("settings open-ghostty-config"), "{message}");
     assert_eq!(super::action_hint::EXIT_CODE, 64);
 }
+
+#[test]
+fn open_settings_is_a_cli_verb_without_a_refused_fallback_hint() {
+    assert_eq!(super::action_hint::non_verb_action("app settings"), None);
+}

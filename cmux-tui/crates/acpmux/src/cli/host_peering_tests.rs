@@ -170,15 +170,28 @@ fn names_and_destinations_refuse_option_like_values() {
 #[test]
 fn the_probe_is_a_fixed_script_with_the_destination_quoted() {
     let argv = probe_argv("huge-blue", "leo@cosmic-gray.tail9.ts.net").unwrap();
-    assert_eq!(&argv[..5], ["-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "--"]);
-    assert_eq!(argv[5], "huge-blue");
     assert_eq!(
-        crate::cli::hosts::script_of(&argv[6]).unwrap(),
+        &argv[..9],
+        [
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ServerAliveInterval=10",
+            "-o",
+            "ServerAliveCountMax=3",
+            "-o",
+            "ConnectTimeout=15",
+            "--"
+        ]
+    );
+    assert_eq!(argv[9], "huge-blue");
+    assert_eq!(
+        crate::cli::hosts::script_of(&argv[10]).unwrap(),
         format!(
             "if ssh -o BatchMode=yes -o ConnectTimeout=8 -- 'leo@cosmic-gray.tail9.ts.net' true </dev/null; then echo {BACK_OK}; else echo {BACK_FAILED}; fi"
         )
     );
-    assert_eq!(argv.len(), 7);
+    assert_eq!(argv.len(), 11);
     let add = remote_add_script("cosmic", "leo@100.64.0.1").unwrap();
     assert!(add.starts_with(REMOTE_CLI));
     assert!(add.ends_with("\"$@\" --json host add 'cosmic' 'ssh://leo@100.64.0.1'"));
@@ -302,7 +315,7 @@ async fn peer_never_overwrites_a_name_taken_by_another_url() {
         let r = peer_with(&fake, &target(None), fix).await;
         assert_eq!(r.state, StepState::Fail);
         assert!(r.detail.contains("already the peer at ssh://other-box"), "{}", r.detail);
-        assert!(r.fix.as_deref().unwrap_or("").contains("host rm hb"));
+        assert!(r.fix.as_deref().unwrap_or("").contains("machine rm hb"));
     }
     assert!(!fake.mutated_here());
     // The same destination spelled with the default port is the same peer.
@@ -354,7 +367,7 @@ async fn peer_back_never_overwrites_a_name_taken_there() {
         let r = peer_back_with(&fake, &target(None), fix).await;
         assert_eq!(r.state, StepState::Fail);
         assert!(r.detail.contains("already has a peer named cosmic at ssh://somewhere-else"));
-        assert!(r.fix.as_deref().unwrap_or("").contains("host rm cosmic"));
+        assert!(r.fix.as_deref().unwrap_or("").contains("machine rm cosmic"));
     }
     assert!(!fake.mutated_there());
 }

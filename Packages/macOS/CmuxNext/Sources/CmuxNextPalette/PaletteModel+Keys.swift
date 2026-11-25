@@ -23,6 +23,10 @@ extension PaletteModel {
         }
     }
 
+    private func captureActivationInput() {
+        if let current, case .list(let page) = current.kind { page.onActivationInput?() }
+    }
+
     private func handleKey(_ command: PaletteKeyCommand) -> Bool {
         switch command {
         case .moveUp: send(.move(-1))
@@ -30,8 +34,9 @@ extension PaletteModel {
         case .pageUp: moveSelection(by: -Self.pageStep, wrap: false)
         case .pageDown: moveSelection(by: Self.pageStep, wrap: false)
         case .moveToFirst: selectRow(at: 0, scroll: true)
-        case .moveToLast: selectRow(at: rows.count - 1, scroll: true)
+        case .moveToLast: selectRow(at: selectableRows.count - 1, scroll: true)
         case .submit, .submitAlternate:
+            captureActivationInput()
             // Rows of an older query wait for the current query's first
             // batch in the reducer, then run.
             runCommand = command
@@ -46,13 +51,16 @@ extension PaletteModel {
             // Tab: a tree page enters the selected row; a keyword, a scope
             // row or a drill enters a scope; otherwise the Actions menu opens.
             if enterSelectedRow() { return true }
-            send(.tab)
+            if usesScopeShortcuts { send(.tab) } else { _ = openActionsMenu() }
         case .closeActions:
             send(.shiftTab)
         case .escape where currentPageIsHierarchical && !query.isEmpty:
             // A tree page clears its query as typing would, so a typed path
             // returns to the folder it started from.
             query = ""
+        case .escape where !usesScopeShortcuts && nav.depth == 1:
+            send(.close)
+            onDismiss?()
         case .escape:
             // A text step's text is the answer, not a search: Escape on a
             // prompt that a shortcut or menu opened cancels it at once
@@ -79,6 +87,13 @@ extension PaletteModel {
             return false
         }
         return true
+    }
+
+    /// Runs the Cmd-W that waited on a search, now that it delivered.
+    func closeIfPending() {
+        guard pendingClose else { return }
+        pendingClose = false
+        handle(.closeItem)
     }
 
     /// Cmd-W. With the selected row's close command: runs it, keeps the
@@ -149,6 +164,7 @@ extension PaletteModel {
             menu.selectedIndex = max(0, count - 1)
             actionsMenu = menu
         case .submit, .submitAlternate:
+            captureActivationInput()
             let visible = menu.visibleCommands
             guard visible.indices.contains(menu.selectedIndex),
                   let item = rows.first(where: { $0.id == menu.itemID })?.item
@@ -226,6 +242,7 @@ extension PaletteModel {
     /// Click: select the row and run its primary command (or enter its
     /// scope).
     public func activate(rowID: String) {
+        captureActivationInput()
         actionsMenu = nil
         runCommand = .submit
         send(.activate(rowID))
@@ -241,8 +258,17 @@ extension PaletteModel {
 
     static let pageStep = 8
 
-    func moveSelection(by delta: Int, wrap: Bool) {
+    /// The rows on screen navigation may select: the reducer's rows, never an older query's answer still shown
+    /// as a stand-in (compared by id: on a full page the two lists can hold the same number of rows).
+    var selectableRows: [PaletteRow] {
+        guard let top = nav.top else { return rows }
+        let ids = Set(top.rows.map(\.id))
         let rows = self.rows
+        return rows.allSatisfy { ids.contains($0.id) } ? rows : rows.filter { ids.contains($0.id) }
+    }
+
+    func moveSelection(by delta: Int, wrap: Bool) {
+        let rows = selectableRows
         guard !rows.isEmpty else {
             // Even an empty-list navigation key is explicit navigation: release
             // an exhausted-section suppression before a later batch arrives.
@@ -260,7 +286,7 @@ extension PaletteModel {
     }
 
     func selectRow(at index: Int, scroll: Bool) {
-        let rows = self.rows
+        let rows = selectableRows
         guard rows.indices.contains(index) else {
             // Home/End on an empty page still count as explicit navigation.
             send(.move(0))

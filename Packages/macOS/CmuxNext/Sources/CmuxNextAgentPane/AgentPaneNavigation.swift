@@ -1,12 +1,13 @@
+import CmuxNextDesign
 import CmuxNextPages
 import Foundation
 import WebKit
 
 /// Keeps the web view on its page (`AgentPaneSource`): the main frame shows only the page
 /// document. A clicked http(s) link, or a cmux app link (opened in the app), opens outside the pane after a real user gesture
-/// (``openOutside(_:gestures:open:)``); a frame inside the page may show a loopback web page (a
-/// turn's preview card, `URL.isAgentPanePreview`) or the render frame (a render card,
-/// `AgentPaneRenderFrame`); every other navigation is cancelled.
+/// (``openOutside(_:gestures:open:)``); a frame inside the page may show a loopback web page
+/// (`URL.isAgentPanePreview`) or the render frame (a render card, `AgentPaneRenderFrame`); every
+/// other navigation is cancelled.
 final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
     weak var view: AgentPaneView?
 
@@ -21,8 +22,8 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
             source: view.source,
             userClicked: action.navigationType == .linkActivated,
             mainFrame: action.targetFrame?.isMainFrame ?? true,
-            sourceFrameURL: action.sourceFrame.request.url,
-            targetFrameURL: action.targetFrame?.request.url
+            sourceFrameURL: action.sourceFrameURL,
+            targetFrameURL: action.targetFrameURL
         ) {
         case .allow:
             decisionHandler(.allow)
@@ -39,8 +40,16 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
     /// page with no `newTab.context` round trip (`injectedNewTabContext`, bd cx-z9kz0). The host
     /// gives what is true at this load: a reloaded page that became a chat gets none.
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation?) {
-        guard let model = view?.model, model.sessionId == nil, let page = model.newTab,
-              let data = try? JSONEncoder().encode(page), let json = String(data: data, encoding: .utf8) else { return }
+        view?.documentWillChange(.committed)
+        if let view, let log = view.flickerLog {
+            log.record("navigation", ["page": AgentPageFlickerLog.pageName(view), "engine": view.engineName])
+        }
+        // A new document has no shared text of the context (``AgentPaneModel/newTabSharedGeneration``).
+        view?.model.newTabSharedGeneration = nil
+        guard let model = view?.model, model.sessionId == nil, var page = model.newTab else { return }
+        // Its start folder too, so the first frame draws the project or no project (``AgentPaneNewTab/start``).
+        page.start = model.startFolders.local(of: model)
+        guard let json = model.newTabScriptValue(page, always: true) else { return }
         webView.evaluateJavaScript("window.__cmuxNewTabContext = \(json);", completionHandler: nil)
     }
 
@@ -54,12 +63,17 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
         // The initial zoom can run before WebKit has a document. Reapply it after the
         // document exists so the interface scale and page scale are visible on first paint.
         view?.applyZoom()
+        // `app.language`: the old host's document has no PageWebView to push it on load.
+        view?.applyLanguage()
         view?.applyShortcuts()
         view?.applyPreviewFeatures()
+        view?.applyLiveTree()
         if let view { AgentPaneSessionStatus.push(to: view) }
         if let view { AgentPaneSuggestedTasks.shared.push(to: view) }
+        view?.replayExperiments()
         view?.applyEditedFiles()
         view?.replayCustomization()
+        view?.announceSessionInfo()
     }
 
     /// A crashed web content process leaves a blank pane; the view shows the crash notice, whose

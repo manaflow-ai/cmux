@@ -1,0 +1,150 @@
+# App Review gate (before Apple sees it)
+
+The app App Review judges is the NEXT iOS app, `cmux-next-ios` (CmuxMobileApp).
+The App Store submission is cmux INTERNAL (bundle `dev.cmux.app.internal`, ASC
+app 6791408425), built by project.yml's TestFlight configuration (version base
+1.2.0). `com.cmux.app` (ASC 6783338052, project.yml's `AppStore` configuration)
+is not the submission record. The gate below still checks the `AppStore`
+configuration; the INTERNAL submission lane is being built on
+`lane/ios-internal-app-store-lane`.
+
+`.github/workflows/ios-review-gate.yml` answers "would Apple accept this build
+right now?" with one ranked list, in the run summary and in the
+`review-gate-report` artifact. Nothing is submitted until it is empty.
+
+## How the production pipeline calls it
+
+The gate judges one feat-cmux-next commit. The pipeline passes it the full SHA
+it builds and refuses to submit unless the gate is green on that SHA:
+
+```yaml
+  review-gate:
+    needs: app-source            # resolves the feat-cmux-next SHA it builds
+    permissions:
+      contents: read
+      actions: read              # the lint downloads the IPA artifact
+    uses: manaflow-ai/cmux/.github/workflows/ios-review-gate.yml@feat-cmux-next
+    with:
+      ref: ${{ needs.app-source.outputs.sha }}
+      lane: appstore
+      ipa_artifact_name: ""      # or the artifact holding the exported .ipa
+    secrets: inherit
+```
+
+The upload job then `needs: [app-source, review-gate]` with `if: always() && ...`
+(upload runs either way), and before `--submit` it requires
+`needs.review-gate.result == 'success'` and
+`needs.review-gate.outputs.sha == needs.app-source.outputs.sha`. The gate's
+`blocking` output is the number of blocking findings.
+
+A called or dispatched run (a submission) fails on any blocker. A pull
+request into feat-cmux-next skips the gate unless it is labeled `full-ci`
+(Tier A in `scripts/ci/affected-jobs.json`); the push after the merge runs
+it. A direct feat-cmux-next push or `full-ci` pull request run reports the same ranked list and
+`blocking` output, and fails only on a blocker that is not in
+`known-blockers.json`: the blockers the app already had when this started
+(run 43002601165), each with the fix that owns it. So a change that breaks
+the reviewer's path is red on its own pull request, before it merges, instead
+of being found by App Review. A fix removes its entry (the report lists the
+known blockers it no longer sees). A pull request is judged on its base's
+list, and any key it adds to the list is itself a blocker, so a change can
+never pin its own regression.
+
+Every check is deterministic: the same build gets the same verdict, and no
+check spends model tokens. An agent reviewer pass (Claude following
+`reviewer-setup.md` on the iPad simulator) was removed on 2026-11-17: its
+verdict could differ run to run, and while the shared account's API quota was
+spent (`429`, `usage_limit_reached`) it turned the iPad and iPhone reviewer-path
+checks red on every app change. `reviewer-setup.md` is for Apple's reviewer;
+the scripted walk below covers its path.
+
+## Checks
+
+| Check | Where | Catches |
+| --- | --- | --- |
+| Reviewer path | `cmux-next-ios/UITests/AppReviewGateUITests.swift` (`CmuxMobileAppUITests`, scheme `CmuxMobileApp`, Debug with the mock account, built after `xcodegen generate`), on iPhone, iPad (dark mode, the iPhone app in compatibility mode) and iPhone Duo | sign-in with Sign in with Apple first and every provider signing in, onboarding's way on without a Mac, Home and its tabs, Chief opening and a sent message getting a reply (mock Chief), Delete Account asking first (never confirmed), Scan with the camera denied, the largest text size, and size-class changes |
+| Dead-control walk | same file, `walkControls` | a tap that changes nothing (2.1(a), 2026-11-07) on sign-in, onboarding, Home, Settings (top and bottom) and Account; an already-selected option is skipped; sign out, Delete Account and Remove This iPhone are not tapped |
+| Guideline lint | `cmux-next-ios/scripts/app_review_gate.py lint` | the AppStore configuration (bundle `com.cmux.app`), metadata and every URL, account deletion, Sign in with Apple (source, shipping configuration, every entitlements file it can sign with, binary), outside purchase links, the subscription rules (below), purpose strings from `project.yml`, the App Store Connect processing rules (`scripts/cmux-next/check-app-store-rules.py`), privacy manifest, VPN and private APIs, entitlements, extensions, on the source and on the exact IPA |
+| Public-list classes | `app_review_gate.py` `check_ai_and_copy`, `check_metadata` | classes mapped from the public rejection lists (hq `docs/handbook/app-review-rejections.md`): `ai.consent` (5.1.2(i), Chief asks and names Anthropic and OpenAI before the first send), `ugc.report` (1.2, Report a Response), `copy.unfinished` (2.1, "still in progress" in UI copy), `metadata.decoration` and `metadata.competitor-terms` (2.3.7), and the warnings `net.ipv4-only` (2.5.5) and `privacy.pre-prompt` (5.1.1(iv)); the reviewer path asserts the consent question on the first send |
+| Rejection history | `rejection-history.json` | every past rejection keeps a detector |
+| Common rejections | `common-rejections.json` | the rejections public repos catalogue (below), each mapped to a detector that exists or marked follow-up, not applicable or not deterministic, with the reason |
+| App Store Connect | `asc validate --strict` on the AppStore configuration's version, `asc metadata validate` | review state Apple will refuse |
+
+The NEXT app sells cmux Go, cmux Pro and cmux Max as monthly auto-renewable
+App Store subscriptions (products `com.cmux.app.{go,pro,max}.monthly`,
+`Packages/iOS/CmuxMobileBilling`). Settings → "Plan" opens "Plans": the offers
+with App Store prices, "Subscribe", "Restore Purchases", "Manage Subscription"
+(with an App Store subscription), "Terms of Use", "Privacy Policy" and the
+3.1.2 renewal terms. The Plan row exists only in builds that sign in to the
+production account (AppStore, TestFlight); Debug, mock and staging builds have
+none and show it only through the DEBUG billing demo. The
+lint's subscription rules apply once the judged sources use StoreKit:
+
+| Rule | Guideline | Catches |
+| --- | --- | --- |
+| `iap.restore` | 3.1.1 | no "Restore Purchases" control that runs `AppStore.sync()` |
+| `iap.disclosure` | 3.1.2 | the plans screen lacks the auto-renewal terms, the Terms of Use link or the Privacy Policy link |
+| `iap.manage` (warning) | 3.1.2 | no in-app Manage Subscription |
+| `metadata.subscription-terms` | 3.1.2 | no store description links the Terms of Use (EULA) |
+| `iap.review-notes` | 2.1(b) | `review-notes-asc.txt` says the app sells nothing, or never names "Plan", "Restore Purchases", "Manage Subscription" or the Sandbox (the 2026-11-07 "could not locate the in-app purchases"). Lane internal-submission reads `review-notes-asc-internal.txt`; when the sources list its bundle (`dev.cmux.app.internal`) in `appsWithoutSubscriptions`, the rule inverts (the notes must name "Plan" and promise no "Subscribe", "Restore Purchases", "Manage Subscription" or Sandbox) and `iap.restore`, `iap.disclosure`, `iap.manage` and `metadata.subscription-terms` do not apply |
+
+The rules the common-rejections mapping added (Leo, 2026-11-22: "THERE ARE
+ENTIRE REPOS THAT WE CAN MAP FUCKING COMMON REJECTIONS AND APPLY SHIT TO OUR IOS
+APP"):
+
+| Rule | Guideline | Catches |
+| --- | --- | --- |
+| `privacy.manifest-reason-code` | 5.1.2 | a reason code Apple does not list for its category, or an SDK-only code (C56D.1, 0A2A.1), in our bundle (ITMS-91056) |
+| `privacy.reason-app-group` | 5.1.2 | App Group defaults (`UserDefaults(suiteName:)`, `sharedDefaults()`, `PushSharedPreference.live`) without reason 1C8F.1 in the manifest of the bundle that calls them |
+| `privacy.collected-data` | 5.1.2 | a collected data type or purpose that is not Apple's identifier (ITMS-91056) |
+| `privacy.tracking` | 5.1.2 | declared tracking without `NSPrivacyTrackingDomains` or without App Tracking Transparency |
+| `entitlement.unused` | 2.5.1 | a shipping entitlement (HealthKit, iCloud, Apple Pay, time-sensitive, App Group, ...) no linked source uses |
+| `background.unused-mode` | 2.5.4 | a `UIBackgroundModes` value no linked source uses for its purpose |
+| `api.uiwebview` | 2.5.1 | UIWebView in a linked source or the binary (ITMS-90809) |
+| `ats.exception` (warning) | 2.5.1 | an App Transport Security exception that needs a written reason |
+| `privacy.policy-in-app` | 5.1.1(i) | no linked source opens the listing's privacy policy URL |
+| `review-notes.sign-in` | 2.1 | a submission lane's notes give no demo account |
+| `metadata.keyword-trademark` | 2.3.7 | keywords that name another company or product |
+| `metadata.iap-claim` (warning) | 2.3.1 | a build that sells nothing whose en-US description says it sells in the app |
+
+App Review buys in the Sandbox against production. Production grants a
+Sandbox purchase only to the emails in `APPLE_IAP_SANDBOX_ACCOUNT_EMAILS`
+(`docs/billing/ios-in-app-purchases.md`, Entitlement), which must list the demo
+account `cmux-rev-0e6ba145@mailinator.com`; without it the plans screen says
+"Plans can't be bought in this version of the app." and App Review finds no
+products. A missing store listing (`metadata/`) or screenshots
+(`screenshots/en-US/`) in this folder is a blocker, never a pass. What
+XCUITest cannot judge (live provider sheets, a live Chief reply, a confirmed
+deletion, a fold, iPad multitasking) is printed as a `GATE-NOTE` and listed as
+a warning.
+
+On iPad the iPhone app runs in a compatibility window that does not start at
+the screen's corner, while the `XCUIApplication` element keeps the app's own
+phone-sized frame at (0, 0). A gate test therefore swipes, taps coordinates
+and takes screenshots through the app's window (`surface(_:)`) or the screen,
+never through `app` itself, judges only controls in the app's window (the
+system keyboard spans the whole screen), and tells iPad from iPhone by the
+simulator's model, since `UIDevice` says phone in compatibility mode.
+
+A pull request does not walk the iPad leg while the app is iPhone-only (every
+`TARGETED_DEVICE_FAMILY` in `project.yml` is `"1"`, checked by the plan job on each
+run): the plan writes an `ipad.skipped.json` marker and the report accepts it in place
+of the iPad result. A feat-cmux-next push, a dispatch and the production pipeline's
+call still walk iPad and require its result, so an iPad-only break (dark mode, the
+compatibility window) is red on base before any upload. The leg comes back on pull
+requests by itself once the app targets iPad (`"1,2"`). Leo, 2026-11-21: "for
+connection and ci, we can simply move. and go."
+Each launch closes Safari first: after a link hands off to it, Safari stays in
+front of the relaunched app on iPad. `scrollTo` scrolls to the end of the
+content, not a fixed number of swipes, since rows per swipe depend on the screen.
+
+It runs on every feat-cmux-next push, and on a `full-ci` pull request, that touches the app
+(one macOS job per device, side by side, about 30 minutes; the report fails if any
+device's job left no result). When App Review rejects us anyway, add the rejection and
+its new detector to `rejection-history.json` in the fix's PR.
+
+Run the lint locally (no build needed):
+
+```bash
+cmux-next-ios/scripts/app_review_gate.py lint --source-root . --lane appstore --check-urls
+```

@@ -36,6 +36,7 @@ fn command(store: &Store, name: &str, cmd: &str, timeout_seconds: u64) -> String
         catch_up: CatchUp::default(),
         timeout_seconds,
         enabled: true,
+        gate: Default::default(),
     };
     store.create(spec, 0).unwrap().id
 }

@@ -1,3 +1,4 @@
+import CmuxNextTestSupport
 @testable import CmuxNextUpdater
 import CmuxUpdater
 import Foundation
@@ -32,8 +33,8 @@ import Testing
         #expect(feed.url == Self.tipFeed)
         #expect(tip.feed(architecture: .x86_64).url == Self.tipFeed)
         #expect(UpdateFeedResolver().resolve(infoFeedURL: "https://files.cmux.com/nightly-next/tip/appcast.xml").channel == .nightlyNext)
-        // DEV has no NIGHTLY/stable counterpart to switch to.
-        #expect(tip.channelSwitchTarget == nil)
+        // The published DEV app switches to cmux NEXT's NIGHTLY (and that NIGHTLY to it).
+        #expect(tip.channelSwitchTarget == .nightlyNext)
     }
 
     @Test func theTipAppWithoutAKeyDoesNotRunSparkle() {
@@ -71,7 +72,7 @@ import Testing
     /// The service builds no Sparkle driver in tests (`enableSparkle: false`), so the reason it
     /// reports comes from the identity alone: none for the tip app, development for the rest.
     @MainActor @Test func theServiceReportsNoDisabledReasonOnlyForTheTipApp() {
-        let defaults = UserDefaults(suiteName: "TipAppTrackTests.\(UUID().uuidString)")!
+        let defaults = UserDefaults(testSuiteName: "TipAppTrackTests.\(UUID().uuidString)")!
         let tip = UpdaterService(identity: Self.identity("com.cmuxterm.app.debug.next", feed: Self.tipFeed),
                                  policy: ManagedUpdatePolicy { false }, defaults: defaults, enableSparkle: false, recordsUpdates: false)
         #expect(tip.disabledReason == nil)
@@ -86,7 +87,7 @@ import Testing
     @Test func cmuxNextStableIsANightlyTrackOnItsOwnFeed() {
         let feedURL = "https://files-next.cmux.com/nightly-next/stable/appcast-arm64.xml"
         let stable = Self.identity("com.cmuxterm.app.nightly.cmux-next-stable", feed: feedURL)
-        #expect(stable.track == .nightly)
+        #expect(stable.track == .nightlyNext)
         #expect(stable.sparkleDisabledReason(managedPolicyDisablesUpdates: false) == nil)
         let feed = stable.feed(architecture: .arm64)
         #expect(feed.channel == .nightlyNext)

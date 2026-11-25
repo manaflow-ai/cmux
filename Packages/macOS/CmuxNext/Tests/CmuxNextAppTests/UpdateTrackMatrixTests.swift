@@ -1,3 +1,4 @@
+import CmuxNextTestSupport
 @testable import CmuxNextUpdater
 import CmuxUpdater
 import Foundation
@@ -39,15 +40,18 @@ import Testing
             fastCheck: .nightly),
         Row(name: "cmux NEXT", bundleIdentifier: "com.cmuxterm.app.nightly.cmux-next",
             feed: "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml",
-            track: "nightly-next", label: .nightly, testFeed: true, managedChannel: "nightly", switchTarget: nil,
+            track: "nightly-next", label: .nightly, testFeed: true, managedChannel: "nightly", switchTarget: .dev,
             fastCheck: .nightly),
         Row(name: "cmux NEXT signed as cmux NIGHTLY", bundleIdentifier: "com.cmuxterm.app.nightly",
             feed: "https://files-next.cmux.com/nightly-next/appcast-arm64.xml",
             track: "nightly-next", label: .nightly, testFeed: true, managedChannel: "nightly", switchTarget: .stable,
             fastCheck: .nightly),
         Row(name: "tip app", bundleIdentifier: UpdateBuildIdentity.tipBundleIdentifier, feed: TipAppTrackTests.tipFeed,
-            track: "nightly-next", label: .nightly, testFeed: true, managedChannel: "nightly", switchTarget: nil,
+            track: "nightly-next", label: .nightly, testFeed: true, managedChannel: "nightly", switchTarget: .nightlyNext,
             fastCheck: .tip),
+        // A local `reload.sh --tag next` build: the tip app's bundle id with the default feed.
+        Row(name: "local NEXT DEV", bundleIdentifier: UpdateBuildIdentity.tipBundleIdentifier, feed: TipAppTrackTests.stableFeed,
+            track: "development", label: .development, testFeed: true, managedChannel: nil, switchTarget: nil, fastCheck: .off),
         Row(name: "DEV", bundleIdentifier: "com.cmuxterm.app.debug", feed: TipAppTrackTests.stableFeed,
             track: "development", label: .development, testFeed: true, managedChannel: nil, switchTarget: nil, fastCheck: .off),
     ]
@@ -55,7 +59,7 @@ import Testing
     static func updater(_ row: Row) -> UpdaterService {
         let identity = TipAppTrackTests.identity(row.bundleIdentifier, feed: row.feed)
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false },
-                                     defaults: UserDefaults(suiteName: "UpdateTrackMatrixTests.\(UUID().uuidString)")!,
+                                     defaults: UserDefaults(testSuiteName: "UpdateTrackMatrixTests.\(UUID().uuidString)")!,
                                      enableSparkle: false, recordsUpdates: false)
         updater.announcementsFetch = false
         return updater
@@ -92,6 +96,39 @@ import Testing
             let off = row.managedChannel.map { $0 != channel } ?? false
             #expect(updater.isOffManagedChannel == off, "\(row.name): under UpdateChannel \(channel)")
         }
+    }
+
+    /// cmux NEXT and its DEV app switch to each other by name: `dev` from NIGHTLY, `nightly`
+    /// (or `nightly-next`) from DEV. Neither reaches classic NIGHTLY or stable.
+    @Test func nextAndDevSwitchToEachOtherByName() {
+        let next = Self.updater(Self.rows.first { $0.name == "cmux NEXT" }!)
+        let tip = Self.updater(Self.rows.first { $0.name == "tip app" }!)
+        #expect(next.channelSwitchUnavailableReason == nil)
+        #expect(tip.channelSwitchUnavailableReason == nil)
+        #expect(throws: UpdaterUnavailable.self) { try next.switchChannel(named: "stable") }
+        #expect(throws: UpdaterUnavailable.self) { try next.switchChannel(named: "nightly") }
+        #expect(throws: UpdaterUnavailable.self) { try tip.switchChannel(named: "dev") }
+        #expect(throws: UpdaterUnavailable.self) { try tip.switchChannel(named: "stable") }
+        #expect(AppChannelSwitchTarget.nightlyNext.isNamed("nightly"))
+        #expect(AppChannelSwitchTarget.nightlyNext.isNamed("Nightly-Next"))
+        #expect(!AppChannelSwitchTarget.dev.isNamed("nightly"))
+    }
+
+    /// `UpdateChannel` names stable or nightly: cmux NEXT's NIGHTLY counts as nightly, DEV as
+    /// no channel, and a pin to anything else pins nothing.
+    @Test func managedChannelGovernsTheNextSwitch() {
+        let tip = Self.updater(Self.rows.first { $0.name == "tip app" }!)
+        tip.applyManagedPolicy(channel: "nightly", minimumVersion: nil)
+        #expect(tip.channelSwitchUnavailableReason == nil)
+        tip.applyManagedPolicy(channel: "stable", minimumVersion: nil)
+        #expect(tip.channelSwitchUnavailableReason != nil)
+
+        let next = Self.updater(Self.rows.first { $0.name == "cmux NEXT" }!)
+        next.applyManagedPolicy(channel: "nightly", minimumVersion: nil)
+        #expect(next.channelSwitchUnavailableReason != nil)
+        next.applyManagedPolicy(channel: "dev", minimumVersion: nil)
+        #expect(next.managedChannel == nil)
+        #expect(next.channelSwitchUnavailableReason == nil)
     }
 
     /// The new track is only a new value: the existing ones keep their wire names.

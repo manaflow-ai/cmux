@@ -7,7 +7,11 @@
 //!
 //! - its uid is this process's uid (another user is refused);
 //! - its executable (symlinks resolved) is the acpmux this host runs:
-//!   `ACPMUX_BIN`, else the `acpmux` beside this executable;
+//!   `ACPMUX_BIN` (or the binary it runs, when it is acpmux's wrapper script:
+//!   `acpmux_wrapper`), else the `acpmux` beside this executable;
+//! - or, when the kernel hides its executable (a not-dumpable acpmux on
+//!   Linux, cx-0q7o), it is the daemon this host started from that binary
+//!   (`acpmux_daemon::started_daemon`: its child, never reaped while it runs);
 //! - or, when its executable is gone (an app update moved and deleted the
 //!   bundle a running acpmux came from), the kernel's code signature of the
 //!   running process is Apple-anchored and has the team ID and identifier of
@@ -46,7 +50,9 @@ pub fn connect(
     RpcClient::over(stream, on_notification)
 }
 
-/// The acpmux executable this host runs, symlinks resolved.
+/// The acpmux executable this host runs, symlinks resolved. An `ACPMUX_BIN` that is acpmux's
+/// wrapper script (an agent's, under a host prefix: [`crate::acpmux_wrapper`]) names the binary
+/// it runs.
 pub fn expected() -> Option<PathBuf> {
     let configured = match crate::cli::env("ACPMUX_BIN") {
         Some(bin) => PathBuf::from(bin),
@@ -56,11 +62,30 @@ pub fn expected() -> Option<PathBuf> {
             .parent()?
             .join("acpmux"),
     };
-    std::fs::canonicalize(configured).ok()
+    let configured = std::fs::canonicalize(configured).ok()?;
+    match crate::acpmux_wrapper::target(&configured) {
+        Some(exe) => std::fs::canonicalize(exe).ok(),
+        None => Some(configured),
+    }
 }
 
 /// Checks the server peer of `stream` against `expected` (None: refused).
 pub fn check(stream: &UnixStream, expected: Option<&Path>) -> Result<(), String> {
+    let started = crate::acpmux_daemon::started_daemon();
+    check_with(
+        stream,
+        expected,
+        started.as_ref().map(|(pid, bin)| (*pid, bin.as_path())),
+    )
+}
+
+/// [`check`] with the daemon this host started (`started`: its pid and the
+/// binary it ran), which names a peer whose executable the kernel hides.
+pub fn check_with(
+    stream: &UnixStream,
+    expected: Option<&Path>,
+    started: Option<(u32, &Path)>,
+) -> Result<(), String> {
     let peer = peer(stream)?;
     // Tests only (feature test-in-process-peer): an in-process fake daemon.
     #[cfg(feature = "test-in-process-peer")]
@@ -86,11 +111,34 @@ pub fn check(stream: &UnixStream, expected: Option<&Path>) -> Result<(), String>
             ));
         }
         Ok(exe) => format!("pid {} runs {}, which is gone", peer.pid, exe.display()),
+        // A daemon that made itself not dumpable (acpmux's person key,
+        // cx-0q7o) hides /proc/PID/exe from this same-uid host on Linux. It
+        // passes when it is the daemon this host started from `expected`:
+        // its child, never reaped while it runs, so no other process has its pid.
+        Err(_) if started_here(peer.pid, started, expected) => return Ok(()),
         Err(why) => why,
     };
     // Its executable is gone (an app update moved and deleted the bundle it
     // runs from): only the kernel's signature can name it (code_signature).
     moved(stream, expected).map_err(|why| format!("{gone}; {why}"))
+}
+
+/// Whether `pid` is the daemon this host started (`started`) from the binary
+/// `expected` names (an acpmux wrapper names the binary it runs).
+fn started_here(pid: i32, started: Option<(u32, &Path)>, expected: &Path) -> bool {
+    let Some((started_pid, bin)) = started else {
+        return false;
+    };
+    if pid <= 0 || pid as u32 != started_pid {
+        return false;
+    }
+    let Ok(bin) = std::fs::canonicalize(bin) else {
+        return false;
+    };
+    let ran = crate::acpmux_wrapper::target(&bin)
+        .and_then(|exe| std::fs::canonicalize(exe).ok())
+        .unwrap_or(bin);
+    ran == expected
 }
 
 /// A peer whose executable is gone passes only when the kernel's signature

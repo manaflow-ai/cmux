@@ -6,7 +6,7 @@ Install once from this directory:
 
 ```sh
 bun install
-bunx playwright install chromium webkit
+bunx playwright install webkit && ../ci/ensure-system-chrome.sh
 ```
 
 Browsers never run on a developer laptop (coordinator rule, 2026-10-07): the runner renders only inside a Freestyle VM or on CI (`CMUX_GALLERY_IN_VM=1`). Locally, `--dry-run` lists the stage URLs of a manifest:
@@ -35,7 +35,7 @@ The Freestyle path installs the declared Bun dependencies and Playwright browser
 
 The local runner reuses one browser per engine but recycles it when a renderer target crashes or exceeds the 30-second per-attempt case bound (`--case-timeout-ms` changes it). If the replacement also fails, that case is recorded as broken and the rest of the matrix still publishes its screenshots. The local matrix can run base, head and repeat stages as isolated jobs, then compare their complete result files in one read-only job; a timeout in one case cannot erase the other stages.
 
-Use `--record-video` only for a focused motion review run. It records one WebM per case and engine,
+Set `CMUX_GALLERY_RECORD_VIDEO=1` only for a focused motion review run (`undeclared-run.sh` does). It records one WebM per case and engine,
 adds the player to the matrix index, and leaves the ordinary screenshot/diff path unchanged. Video is
 review evidence, not a baseline or a deterministic gate; the gallery play report's frame samples and
 motion metrics are the gate.
@@ -95,11 +95,13 @@ the workflow changes):
 CMUX_GALLERY_IN_VM=1 bun health.ts --manifest manifest.json --gallery-dir ../../webviews/dist/gallery
 ```
 
-Each state also has a ready-time budget: navigation start to the stage's first ready report
-(mount, play and settle, less the time the play waited for its step stills; the runner records it
-as `readyMs`). A state whose budget limit is past the runner's 20 s ready wait can only fail as
-never ready. `ready-budgets.json` holds a default
-and a row for each state slower than it. A state past its budget by half again plus 500 ms is
+Each state also has a ready-time budget: the CPU time the stage's renderer main thread spent from
+navigation start to the stage's first ready report (mount, play and settle; the runner records it
+as `readyCpuMs` in Chromium, and the wall time as `readyMs`, which an engine with no CPU reading is
+held to instead). CPU time, not wall time: a play's own waits (a scripted turn's quiet windows) and
+a runner busy with other shards stretch wall time without the state doing more work. A stage that
+never reports ready within the runner's 20 s wait fails as never ready. `ready-budgets.json` holds a default
+and a row for each state slower than it, or for a fast state held tighter than it. A state past its budget by half again plus 500 ms is
 rendered again, and fails only when its fastest run is still past it. A state that beats its row by
 a fifth is printed with the lower value. Rows only go down: download a run's `gallery-health-*`
 artifacts and run `bun ready-budgets.ts --from <dir>` to lower every row the run beat. It never
@@ -111,6 +113,28 @@ folder's checker, budgets and allowlist, and `scripts/ci/test_reds.py gallery` c
 one kind; a broken state's reason is its kind) is a warning and the shard passes. Any other red
 state, a crashed render, a missing or cut-short `health.json`, a base render with no whole result,
 and any red on a push still fail.
+
+## Layout shift and geometry gates
+
+Gallery health also judges every state it renders on two more counts, each against a baseline
+file in this folder, and fails the PR that adds a regression (a red the base shares is a warning,
+as for broken states):
+
+- **Layout shift** (`shift-baseline.ts`, `shift-baseline.json`): the state's load plus each play
+  step, scored from the browser's layout-shift entries and from the tracked rows' boxes frame by
+  frame (`webviews/src/gallery/shift.ts`), whichever is larger. A row fails past a quarter again
+  plus 0.0005 (`LIMIT_SLACK`), so a row of 0 fails on any shift past frame-timing noise.
+- **Geometry invariants** (`invariant-baseline.ts`, `invariant-baseline.json`): the design specs'
+  rules read from the DOM after the state settles (`webviews/src/gallery/invariants.ts`): one
+  transcript icon column, icons on their line, gaps on the token scale, menu label columns,
+  `--ds-control-row` row heights and menus no wider than their content. A violation the state's
+  row does not list fails.
+
+A state with no row only warns. A shift or violation must show on every retry to count. Rows only
+go down: download a run's `gallery-health-*` artifacts and run `bun shift-baseline.ts --from <dir>`
+or `bun invariant-baseline.ts --from <dir>`; `--add` writes rows for states that have none.
+Shift rows are written from the worst of the downloaded runs, so a 0 row is a state no run shifted;
+seed from more than one run (several artifacts in one folder) to keep a flaky state off 0.
 
 ## Geometry audit
 
@@ -139,7 +163,7 @@ cmux-ci test --setup webviews --timeout 1800 -- bash -lc '
   CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery" bun run gallery:build
   cd ../scripts/gallery-matrix
   bun install --frozen-lockfile
-  ./node_modules/.bin/playwright install --with-deps --only-shell chromium
+  ../ci/ensure-system-chrome.sh
   result=0
   CMUX_GALLERY_IN_VM=1 bun geometry-audit.ts --gallery-dir "$RUNNER_TEMP/gallery" \
     --output-dir "$RUNNER_TEMP/geometry" --expected-sha "$(git rev-parse HEAD)" || result=1

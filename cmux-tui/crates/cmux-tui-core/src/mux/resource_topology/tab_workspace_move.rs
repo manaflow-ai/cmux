@@ -120,10 +120,6 @@ impl Mux {
                     );
                     (index, state.workspaces[index].clone())
                 } else {
-                    anyhow::ensure!(
-                        state.workspaces.len() < WORKSPACE_REGISTRY_LIMIT,
-                        "workspace limit reached"
-                    );
                     (
                         new_workspace_position(
                             state,
@@ -181,7 +177,8 @@ impl Mux {
                     deltas.push(delete_delta(deltas.len(), "pane", source_pane_id.as_str()));
                     if source_screen_remains {
                         if source_layout.active_pane == source_pane {
-                            source_layout.active_pane = source_layout.root.first_visible_pane();
+                            let next = source_layout.focus_after_leave();
+                            source_layout.set_active_pane(next);
                         }
                         if source_layout.zoomed_pane == Some(source_pane) {
                             source_layout.zoomed_pane = None;
@@ -221,11 +218,7 @@ impl Mux {
                             )
                             .map(|s| s.public_id.clone());
                         changes.push(ResourceChange::UpsertWorkspace {
-                            workspace: registry_workspace(
-                                state,
-                                source_wi,
-                                registry.session_id().as_str(),
-                            ),
+                            workspace: registry_workspace(state, source_wi, &mux.session),
                             position: source_wi,
                             active_screen: remaining.clone(),
                         });
@@ -275,6 +268,7 @@ impl Mux {
                     zoomed_pane: None,
                     auto_layout: Some(vec![target_pane_id.clone()]),
                     viewport: RegistryViewport { base_width: None, columns: Vec::new() },
+                    floating: Vec::new(),
                 };
                 after.panes.push(pane_record.clone());
                 after.screens.push(screen_record.clone());
@@ -423,32 +417,44 @@ impl Mux {
                     source_ws_id.as_str(),
                     workspace_value(state, &after, &source_ws_id)?,
                 ));
-                // A sidebar move can start from an inactive workspace. Clear the
-                // formerly focused pane/screen in public event streams as well.
+                // The workspace that had focus loses it: clear its formerly focused pane (and
+                // screen) in public event streams too. A sidebar move can start from an
+                // inactive workspace; a move from the active workspace leaves its focused pane
+                // there unfocused unless that pane was the moved tab's own (restated above, or
+                // gone). Without this, the journal kept that pane focused and a later scoped
+                // projection, which trusts the journal, left it so.
                 if let Some(previous) = state.workspaces.get(state.active_workspace)
-                    && previous.public_id != source_ws_id
                     && previous.public_id != target_ws.public_id
                     && let Some(screen) = previous.active_screen_ref()
                 {
-                    let screen = topology_screen(&after, &screen.public_id)?;
-                    deltas.push(upsert(
-                        deltas.len(),
-                        "screen",
-                        screen.public_id.as_str(),
-                        screen_value(
-                            screen,
-                            &after,
-                            after.active_workspace.as_ref(),
-                            active_screen(&after, &previous.public_id),
-                        )?,
-                    ));
-                    let pane = topology_pane(&after, &screen.active_pane)?;
-                    deltas.push(upsert(
-                        deltas.len(),
-                        "pane",
-                        pane.public_id.as_str(),
-                        pane_value(state, pane, &after)?,
-                    ));
+                    if previous.public_id != source_ws_id {
+                        let screen = topology_screen(&after, &screen.public_id)?;
+                        deltas.push(upsert(
+                            deltas.len(),
+                            "screen",
+                            screen.public_id.as_str(),
+                            screen_value(
+                                screen,
+                                &after,
+                                after.active_workspace.as_ref(),
+                                active_screen(&after, &previous.public_id),
+                            )?,
+                        ));
+                    }
+                    let focused = state
+                        .resource_indexes
+                        .pane_ids
+                        .get(&screen.active_pane)
+                        .context("focused pane has no public identity")?;
+                    if *focused != source_pane_id {
+                        let pane = topology_pane(&after, focused)?;
+                        deltas.push(upsert(
+                            deltas.len(),
+                            "pane",
+                            pane.public_id.as_str(),
+                            pane_value(state, pane, &after)?,
+                        ));
+                    }
                 }
                 let result = json!({"tab":tab_id,"workspace":target_ws.public_id});
                 let mut desired = mux.registry_projection(state);
@@ -490,20 +496,12 @@ impl Mux {
                         new_pane: target_pane,
                     }
                 };
-                target_ws.screens.push(Screen {
-                    id: target_screen,
-                    public_id: target_screen_id,
-                    name: None,
-                    root: Node::Leaf(target_pane),
-                    active_pane: target_pane,
-                    zoomed_pane: None,
-                    creation_order_auto_layout: Some(vec![target_pane]),
-                    viewport_splits: Default::default(),
-                    viewport_base_width: None,
-                    layout_columns: Vec::new(),
-                    layout_revision: 0,
-                    layout_undo: Default::default(),
-                });
+                target_ws.screens.push(Screen::with_one_pane(
+                    target_screen,
+                    target_screen_id,
+                    None,
+                    target_pane,
+                ));
                 let pane = Pane {
                     id: target_pane,
                     public_id: target_pane_id,
@@ -587,6 +585,7 @@ impl Mux {
                 let _ = surface_handle.persist_host_workspace(&key);
             }
         }
+        self.refresh_terminal_size_policy(surface);
         self.emit_resource_topology_legacy_events(ResourceOperation::TabMove, &commit);
         Ok(())
     }

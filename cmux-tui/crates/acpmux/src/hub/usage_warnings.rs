@@ -17,7 +17,7 @@
 //! unknown; one turns unknown only where acpmux can no longer vouch for it (a backlog it has not
 //! read), and then no warning stands on it.
 
-use crate::config::UsageLimits;
+use crate::config::{ContextLimit, FALLBACK_CONTEXT_TOKENS, UsageLimits};
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
@@ -38,9 +38,9 @@ pub const SUBAGENTS_PER_HOUR: &str = "subagentsPerHour";
 /// label, the command that takes it and the change that adds that command while it has not landed.
 fn actions(rule: &str, name: &str) -> Vec<Value> {
     let step = |label: &str, command: String, pending: Option<&str>| json!({"label": label, "command": command, "pending": pending});
-    // `lane-place rotate` starts a successor (a dry run until `--yes`); it keeps the harness
+    // `sessions rotate` starts a successor (a dry run until `--yes`); it keeps the harness
     // profile unless `--harness` names another. `session restart` keeps the launch settings.
-    let rotate = |extra: &str| format!("lane-place rotate {name}{extra}");
+    let rotate = |extra: &str| format!("sessions rotate {name}{extra}");
     match rule {
         // The successor runs on the capped profile (claude-sr2, its sr2 `--autocompact`).
         NO_AUTOCOMPACT_CAP => {
@@ -125,11 +125,27 @@ fn rules_broken(summary: &Value, limits: &UsageLimits) -> Vec<Value> {
             json!({"rule": NO_AUTOCOMPACT_CAP, "value": context, "limit": null, "text": text}),
         );
     }
-    if let (Some(limit), Some(n)) = (limits.context_tokens, context)
+    let (limit, own) = match limits.context_tokens {
+        ContextLimit::Off => (None, false),
+        ContextLimit::Fixed(n) => (Some(n), false),
+        ContextLimit::SessionWindow => match session_window(stats) {
+            Some(window) => (Some(window), true),
+            None => (Some(FALLBACK_CONTEXT_TOKENS), false),
+        },
+    };
+    if let (Some(limit), Some(n)) = (limit, context)
         && n > limit
     {
-        let text =
-            format!("Context {} tokens, above the {} warning line", tokens(n), tokens(limit));
+        let text = match own {
+            true => format!(
+                "Context {} tokens, past its {} window: it did not compact",
+                tokens(n),
+                tokens(limit)
+            ),
+            false => {
+                format!("Context {} tokens, above the {} warning line", tokens(n), tokens(limit))
+            }
+        };
         out.push(json!({"rule": CONTEXT_TOKENS, "value": n, "limit": limit, "text": text}));
     }
     if let (Some(limit), Some(n)) = (limits.subagents_per_hour, at(stats, "subagents1h").as_u64())
@@ -139,6 +155,18 @@ fn rules_broken(summary: &Value, limits: &UsageLimits) -> Vec<Value> {
         out.push(json!({"rule": SUBAGENTS_PER_HOUR, "value": n, "limit": limit, "text": text}));
     }
     out
+}
+
+/// The window a session compacts at: its autocompact cap when that is known, else its model's
+/// window; the smaller when both are (a cap above the window compacts at the window). None when
+/// acpmux knows neither.
+fn session_window(stats: &Value) -> Option<u64> {
+    let known = |key| at(stats, key).as_u64().filter(|n| *n > 0);
+    let cap = (at(stats, "autocompact") == "capped").then(|| known("autocompactCap")).flatten();
+    match (cap, known("contextWindow")) {
+        (Some(cap), Some(window)) => Some(cap.min(window)),
+        (cap, window) => cap.or(window),
+    }
 }
 
 /// One short cell per warning for `acpmux ls`: `no-cap`, `ctx 955k`, `90 sub/h`; `?` for a number
@@ -155,7 +183,7 @@ pub fn short(warning: &Value) -> String {
 }
 
 /// `short` with the commands that answer it, for `acpmux ls --wide`:
-/// `ctx 412k: acpmux send lane-1 /compact | lane-place rotate lane-1`.
+/// `ctx 412k: acpmux send lane-1 /compact | sessions rotate lane-1`.
 pub fn with_command(warning: &Value) -> String {
     let commands = at(warning, "actions")
         .as_array()

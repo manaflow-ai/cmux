@@ -6,8 +6,8 @@
   "names": [
     "accounts", "acp", "action", "actions", "agent", "agents", "app", "apps", "audit", "auth",
     "bookmark", "bookmarks", "browser", "browser-proxy", "browsers", "chief", "client", "clients",
-    "closed", "cloud", "code", "coderouter", "completion", "config", "connect", "cua", "docs",
-    "enroll", "ensure", "events", "feed", "force", "forward", "git", "help", "history", "home",
+    "closed", "cloud", "code", "coderouter", "completion", "config", "connect", "cua", "dial-tcp",
+    "docs", "enroll", "ensure", "events", "feed", "force", "forward", "git", "help", "history", "home",
     "hook", "hooks", "install-self", "known-daemons", "login", "logout", "machine", "machines", "mcp",
     "notification", "notifications", "notify", "open", "pairing", "pane", "panes", "plugin", "plugins",
     "projection", "provider", "providers", "raw", "remote", "remote-link", "remote-probe",

@@ -38,6 +38,22 @@ pub(super) fn requested_client_pane_id(
     Ok(Some(pane_id))
 }
 
+/// Refuses `pane_id` when a live or deleted resource has it: a caller-minted pane id of a tab
+/// drag's new pane (`tab-column-client-pane-v1`).
+pub(crate) fn ensure_client_pane_id_unused(
+    state: &State,
+    registry: &WorkspaceRegistry,
+    pane_id: &PanePublicId,
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !state.resource_indexes.panes.contains_key(pane_id)
+            && !resource_public_id_known(registry, pane_id.as_str())?,
+        "pane_id_exists: {}",
+        pane_id.as_str()
+    );
+    Ok(())
+}
+
 /// The caller-minted tab id of a terminal creation, validated and unused.
 pub(super) fn requested_client_tab_id(
     fields: &Map<String, Value>,

@@ -29,4 +29,25 @@ import Testing
         #expect(seen?["host"]?.stringValue == "chief:0a1b2c3d")
         #expect(seen?["session"]?.stringValue == "s1")
     }
+
+    /// An unnamed `acpmux new --group` launch sends its session's name as `defaultName`, never as
+    /// `name` (which reuses a predecessor row): the catalog takes it and the handler sees it.
+    @Test func anUnnamedLaunchsDefaultNameReachesTheHandler() async throws {
+        let registry = ActionRegistry.standard()
+        var seen: ActionInvocation?
+        registry.bind("agent.openSessionWorkspace", invoke: { seen = $0 })
+        let bridge = RegistryControlBridge(registry: registry)
+        let router = ControlRouter(identity: testIdentity(), executor: bridge, settings: nil, configuration: .loadTolerant)
+        router.updateCatalog(RegistryControlBridge.catalog(from: registry))
+        let json = #"{"action":"agent.openSessionWorkspace","args":{"session":"gcp-lane-11/s1","defaultName":"gcp-lane-11/ergo-help","key":"0f3c2a9e-1b7d-4e5f-9a1b-2c3d4e5f6a7c","group":"Lanes"},"wait":true,"origin":"script"}"#
+        guard case .object(let params)? = JSONValue(foundation: try JSONSerialization.jsonObject(with: Data(json.utf8))) else {
+            Issue.record("the request is not a JSON object")
+            return
+        }
+        let result = await router.handle(ControlRequest(id: "1", method: "action.run", params: params))
+        if case .failure(let error) = result { Issue.record("refused: \(error.code) \(error.message)") }
+        #expect(seen?["defaultName"]?.stringValue == "gcp-lane-11/ergo-help")
+        #expect(seen?["name"] == nil)
+        #expect(ActionRegistry.standard().descriptor(for: "agent.openSessionWorkspace")?.arguments.contains { $0.name == "defaultName" } == true)
+    }
 }

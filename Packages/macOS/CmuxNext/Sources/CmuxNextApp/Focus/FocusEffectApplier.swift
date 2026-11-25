@@ -17,9 +17,9 @@ import CmuxNextCompat
 final class FocusEffectApplier: FocusEffectApplying {
     private unowned let controller: WindowController
     /// The CEF page this window gave focus to, and the key changes focusing one makes (#24913).
-    private lazy var pageFocus = ChildPageFocus(keys: AppKitKeyWindows()) { [weak self] page, focused in
-        guard let self, let page = page as? any BrowserTab else { return }
-        self.setPageFocus(page, focused)
+    private lazy var pageFocus = ChildPageFocus(keys: AppKitKeyWindows(), canTakeKeys: { ($0 as? CEFTab)?.canTakeKeys ?? true },
+                                                keepAsk: { ($0 as? CEFTab)?.keepFocusAsk() }, dropAsk: { ($0 as? CEFTab)?.dropFocusAsk() }) { [weak self] page, focused in
+        if let page = page as? any BrowserTab { self?.setPageFocus(page, focused) }
     }
     /// The tab whose docked DevTools this window gave focus to.
     private weak var focusedDevTools: (any BrowserDevToolsHosting)?
@@ -78,19 +78,21 @@ final class FocusEffectApplier: FocusEffectApplying {
                 content?.layoutModel.focus(LayoutPaneID(pane), notify: false)
             case .moveResponder(let resolved):
                 moveResponder(resolved, state: state)
+                publish(state.context) // the new target's own facts (a web view, the address bar), once per batch: see `publish`
             case .publishContext(let context):
-                publish(context)
+                if !effects.contains(where: { if case .moveResponder = $0 { true } else { false } }) { publish(context) }
             case .browserFocusMode(let tab, let active):
-                controller.services.cache.existingBrowser(tab)?.chrome.showsFocusModeIndicator = active
+                controller.services.cache.existingBrowser(tab)?.state.showsFocusModeIndicator = active
             }
         }
+        for (key, entry) in controller.services.cache.browsers { entry.followKeyboard(focusedTab: state.underlying.browserTab, key: key, window: controller.window) } // the cookie card shows only over its focused tab
     }
 
     // MARK: Responder
 
     private func moveResponder(_ resolved: FocusState.Resolved, state: FocusState) {
         guard let window = controller.window else { return }
-        // The parked New Tab spare follows the focused pane's size (NewTabSparePool).
+        // The parked New Tab spare draws the context a Cmd-T in the focused pane gives and takes its size once still (NewTabSparePool).
         controller.services.newTabSpares.paneLayoutDidChange(in: window)
         switch resolved {
         case .terminal(let pane, let tab):
@@ -99,12 +101,13 @@ final class FocusEffectApplier: FocusEffectApplying {
                 // re-applies). Another pane's terminal must not keep the keyboard meanwhile: its next
                 // replay swaps in a fresh surface that takes the keyboard back, and focus followed it
                 // there (Switch to tab from the New Tab page landed on the workspace's old pane).
+                blurChildWindowPage() // nor a Chromium page window: this window takes the keys, a creation hold them in order
                 resignPaneResponder(in: window)
                 return
             }
             blurChildWindowPage()
             let view = entry.session.surfaceView
-            if window.firstResponder !== view { window.makeFirstResponder(view) }
+            if window.firstResponder !== view { FocusRoute(.system, "focus model: pane content").moveKeyboard(in: window, to: view) }
         case .browserPage(let pane, let tab):
             guard case .browser(let entry)? = presented(pane: pane, tab: tab) else { return }
             focusPage(entry.tab, in: window)
@@ -115,22 +118,23 @@ final class FocusEffectApplier: FocusEffectApplying {
             guard case .browser(let entry)? = presented(pane: pane, tab: tab) else { return }
             blurChildWindowPage()
             // Not a bar leaving the window (its pane mid-move): an edit begun there ends at once (cx-p0fz).
-            let bar = entry.chrome.addressBar
+            guard let bar = entry.chrome?.addressBar else { return }
             if bar.window === window, !bar.isHiddenOrHasHiddenAncestor, !responder(of: window, isInside: bar) {
                 if controller.focus.isReturningToOmnibar { bar.restoreFocus() } else { bar.focus() }
+                if bar.editsAsFirstResponder { controller.services.keyRouter.creationInputCoordinator.focusDidSettle(in: window) } // keys held since the key (Cmd-Shift-L) go into it now
             }
         case .findBar(let pane, let tab):
             guard case .browser(let entry)? = presented(pane: pane, tab: tab) else { return }
             blurChildWindowPage()
-            if entry.chrome.region(of: window.firstResponder as? NSView ?? window.contentView ?? NSView()) != .findBar {
-                entry.chrome.perform(.findInPage)
+            if let chrome = entry.chrome, chrome.region(of: window.firstResponder as? NSView ?? window.contentView ?? NSView()) != .findBar {
+                chrome.perform(.findInPage)
             }
         case .agentPage(let pane, let tab):
             guard case .agent(let view)? = presented(pane: pane, tab: tab) else { return }
             // An agent page in Chromium shows in a child window: it takes the keys like a Chromium page.
             if let page = TabContent.agent(view).childWindowTab { return focusPage(page, in: window) }
             blurChildWindowPage()
-            if !responder(of: window, isInside: view) { window.makeFirstResponder(view.webView) }
+            if !responder(of: window, isInside: view) { FocusRoute(.system, "focus model: browser page").moveKeyboard(in: window, to: view.webView) }
         case .page(let pane, let tab):
             guard case .page(let view)? = presented(pane: pane, tab: tab) else { return }
             // A page in Chromium shows in a child window: it takes the keys like a Chromium browser tab.
@@ -139,7 +143,7 @@ final class FocusEffectApplier: FocusEffectApplying {
             // A page with a primary input (the docked Home, a Home tab) lands the keyboard there by
             // the same rule as a conversation tab; its page view itself takes no keys.
             if TabContent.page(view).landKeyboardInPrimaryInput(in: window) { return }
-            if !responder(of: window, isInside: view) { window.makeFirstResponder(view.focusTarget) }
+            if !responder(of: window, isInside: view) { FocusRoute(.system, "focus model: page tab").moveKeyboard(in: window, to: view.focusTarget) }
         case .conversation(let pane, let tab):
             // Home's primary input, its message box (spec/app-screens.md 3).
             blurChildWindowPage()
@@ -155,12 +159,9 @@ final class FocusEffectApplier: FocusEffectApplying {
             blurChildWindowPage()
             // Nothing to type into: the previous content must not keep keys.
             resignPaneResponder(in: window)
-        case .sidebar, .sidebarField, .textField:
-            // Reported by AppKit; the responder is already there.
-            blurChildWindowPage()
-        case .none:
-            // Nothing has the keyboard (an empty workspace): no page keeps it
-            // (input-spec.md bug B3).
+        case .sidebar, .sidebarField, .textField, .none:
+            // Reported by AppKit (the responder is already there), or nothing has the keyboard (an empty
+            // workspace): no page keeps it (input-spec.md bug B3).
             blurChildWindowPage()
         case .overlay:
             break
@@ -170,7 +171,7 @@ final class FocusEffectApplier: FocusEffectApplying {
     /// Takes the keyboard from a view inside any pane of this window.
     private func resignPaneResponder(in window: NSWindow) {
         if let view = window.firstResponder as? NSView, controller.content?.panes.values.contains(where: { view.isDescendant(of: $0.view) }) == true {
-            window.makeFirstResponder(nil)
+            FocusRoute(.system, "focus model: resign pane").moveKeyboard(in: window, to: nil)
         }
     }
 
@@ -186,17 +187,19 @@ final class FocusEffectApplier: FocusEffectApplying {
         // The keyboard moves from the tools back to the page.
         let fromDevTools = focusedDevTools.map { $0 === page } ?? false
         if focusedDevTools != nil { blurDevTools() }
-        if fromDevTools { pageFocus.page = nil }
+        if fromDevTools { pageFocus.replace(with: nil) }
         switch page.presentation {
         case .inView:
             blurChildWindowPage()
             if !responder(of: window, isInside: page.contentView) { setPageFocus(page, true) }
         case .childWindow:
+            // The page the person left for a creation keeps no keys while it is on its way: this window takes them now (P0 INVERSE-KEY).
+            if controller.services.keyRouter.creationInputCoordinator.keepsKeysFromLeftPage(controller.focus.state, in: window) { return blurChildWindowPage() }
             // Chromium's page is a child window. Its focus is sticky: while
             // this window is key because of a click, the click decides.
             // The page window has the keys: nothing in this window keeps a
             // responder (a field editor or the sidebar would show a caret).
-            if window.firstResponder !== window { window.makeFirstResponder(nil) }
+            if window.firstResponder !== window { FocusRoute(.system, "focus model: page window").moveKeyboard(in: window, to: nil) }
             // Another of this window's Chromium page windows took the keys without a click (the New
             // Tab spare made right after Cmd-N): the recorded page asks again, or typing goes there.
             // Its own window being key ends it, so the ask runs once.
@@ -225,11 +228,11 @@ final class FocusEffectApplier: FocusEffectApplying {
         guard let devTools = page as? any BrowserDevToolsHosting, devTools.devTools.isOpen else {
             return focusPage(page, in: window)
         }
-        if window.firstResponder !== window { window.makeFirstResponder(nil) }
+        if window.firstResponder !== window { FocusRoute(.system, "focus model: devtools window").moveKeyboard(in: window, to: nil) }
         guard focusedDevTools !== devTools else { return }
         blurDevTools()
         // Not `blurChildWindowPage`: that would make this window key again.
-        pageFocus.page = nil
+        pageFocus.replace(with: nil)
         devTools.setDevToolsFocused(true)
         focusedDevTools = devTools
     }
@@ -262,6 +265,7 @@ final class FocusEffectApplier: FocusEffectApplying {
     /// W5 200 ms later). Once the app is active, a page window that is not
     /// the target gives the keys back.
     private func reclaimKeyAfterActivation() {
+        if let window = controller.window, controller.services.keyRouter.creationInputCoordinator.keepsKeysFromLeftPage(controller.focus.state, in: window) { return reclaimKeyFromPageWindow() }
         switch controller.focus.state.resolved {
         case .browserPage, .devTools, .overlay: return
         case .page(let pane, let tab) where presented(pane: pane, tab: tab)?.childWindowTab != nil: return
@@ -307,7 +311,7 @@ final class FocusEffectApplier: FocusEffectApplying {
         // the keyboard even when this window sits behind another one (the
         // palette over an explicit window).
         if let window = controller.window,
-           Self.ownerTakesMain(ownedCanBecomeMain: owned.canBecomeMain, ownerIsMain: window.isMainWindow,
+           ChildPageFocus.ownerTakesMain(ownedCanBecomeMain: owned.canBecomeMain, ownerIsMain: window.isMainWindow,
                                ownerCanBecomeMain: window.canBecomeMain) {
             window.makeMain()
         }
@@ -320,12 +324,6 @@ final class FocusEffectApplier: FocusEffectApplying {
         overlayPanelObserver = MainActorObservation(NSWindow.didResignKeyNotification, object: owned) { [weak self] in
             self?.overlayPanelDidResignKey()
         }
-    }
-
-    /// Whether the cmux window becomes main when a window it owns becomes
-    /// key. An owned window that may be main (a sheet) settles main itself.
-    nonisolated static func ownerTakesMain(ownedCanBecomeMain: Bool, ownerIsMain: Bool, ownerCanBecomeMain: Bool) -> Bool {
-        !ownedCanBecomeMain && !ownerIsMain && ownerCanBecomeMain
     }
 
     /// The bubble dismisses when it loses the keys.
@@ -351,10 +349,10 @@ final class FocusEffectApplier: FocusEffectApplying {
         case .devTools:
             guard let devTools else { return }
             // A click into a docked DevTools: the tools have the keyboard.
-            pageFocus.page = nil
+            pageFocus.replace(with: nil)
             focusedDevTools = devTools.tab
             controller.focus.responderDidChange(.devTools(pane: devTools.key), source: .mouse)
-            if window.firstResponder !== window { window.makeFirstResponder(nil) }
+            if window.firstResponder !== window { FocusRoute(.system, "a child page window became key").moveKeyboard(in: window, to: nil) }
         case .unchosenPage:
             // A page window took the keys without a click: Chromium activated
             // it (a new tab's page, a page script) or AppKit restored key
@@ -368,14 +366,14 @@ final class FocusEffectApplier: FocusEffectApplying {
         case .chosenPage, .reapply:
             guard let pane else { return }
             focusedDevTools = nil
-            pageFocus.page = pane.page
+            pageFocus.replace(with: pane.page)
             InputJournal.shared.append(window: controller.state.id, .page(tab: pane.page.id.rawValue, focused: true, engine: "chromium-key"))
             // A click chose the page. Another owned window over a pane (an
             // extension popup) keeps the old rule: a key change that is not a
             // click re-applies the model.
             let chosen = decision == .chosenPage
             controller.focus.responderDidChange(chosen ? .content(pane: pane.key) : .windowOrNone, source: chosen ? .mouse : .programmatic)
-            if window.firstResponder !== window { window.makeFirstResponder(nil) }
+            if window.firstResponder !== window { FocusRoute(.system, "a child page window became key").moveKeyboard(in: window, to: nil) }
         }
     }
 
@@ -399,16 +397,13 @@ final class FocusEffectApplier: FocusEffectApplying {
         return nil
     }
 
-    /// Only the active window publishes into the (app-wide) registry.
+    /// Only the active window publishes into the (app-wide) registry: at each machine context change and responder move
+    /// (a page shown after its pane took the focus kept `webViewFocused` off before; BROWSER VIDEO 2026-11-02).
     private func publish(_ context: FocusState.Context) {
-        let services = controller.services
+        let services = controller.services, registry = services.registry
         guard services.windows.active === controller else { return }
-        let registry = services.registry
-        if context.agent, case .agentPage(_, let tab) = controller.focus.state.underlying {
-            services.agentTabs.setCheckpointFocus(tab)
-        } else {
-            services.agentTabs.setCheckpointFocus(nil)
-        }
+        let agentTab: String? = if context.agent, case .agentPage(_, let tab) = controller.focus.state.underlying { tab } else { nil }
+        services.agentTabs.setCheckpointFocus(agentTab)
         var next = registry.context
         next.subtract(ActionContext.focusBits)
         if context.terminal { next.insert(.terminalFocused) }
@@ -424,7 +419,7 @@ final class FocusEffectApplier: FocusEffectApplying {
         }
         // A web view has the keyboard (or had it below the palette): the Developer Tools set shows.
         next.remove(.webViewFocused)
-        if WebInspectorTargets().target(in: controller) != nil { next.insert(.webViewFocused) }
+        if WebInspectorTargets(appPages: DesignSettings.shared.pageDeveloperTools).target(in: controller) != nil { next.insert(.webViewFocused) }
         // The same rule as `KeyRouter.keyContext`: a terminal's TextBox has the keyboard.
         if controller.window?.firstResponder is TextBoxTextView { next.insert(.textBoxFocused) }
         // The same rule as `KeyRouter.keyContext`: a phone tab has the keyboard (the Simulator shortcuts).
@@ -433,6 +428,7 @@ final class FocusEffectApplier: FocusEffectApplying {
         if FileExplorerService.hasKeyboard(controller.window) { next.insert(.fileExplorerFocused) }
         // The Files tree follows the focused terminal's folder.
         services.fileExplorers.focusChanged(in: controller)
+        services.projectActions.focusChanged()
         if registry.context != next { registry.context = next }
     }
 

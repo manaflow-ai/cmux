@@ -110,6 +110,146 @@ async fn full_access_approves_a_harness_guard_once_and_logs_it() {
 }
 
 #[tokio::test]
+async fn switching_to_full_access_resolves_a_tool_already_waiting() {
+    for through_option in [false, true] {
+        let (hub, mut c) = if through_option {
+            hub_with(&[("FAKE_MODE_OPTION", "1"), ("FAKE_NO_MODES", "1")]).await
+        } else {
+            claude_hub().await
+        };
+        let id = if through_option {
+            let s = c
+                .request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []}))
+                .await
+                .unwrap();
+            let id = s["sessionId"].as_str().unwrap().to_owned();
+            c.request(
+                method::SESSION_SET_CONFIG_OPTION,
+                json!({"sessionId": id, "configId": "mode", "value": "normal"}),
+            )
+            .await
+            .unwrap();
+            id
+        } else {
+            chat_in(&mut c, "default").await
+        };
+        let rid = c.send(method::SESSION_PROMPT, guard(&id)).await;
+        let pending = c.wait_for(method::MUX_PERMISSION_PENDING, |p| p["sessionId"] == id).await;
+        let mut changer = connect(&hub).await;
+        let mode = if through_option { "full-access" } else { "bypassPermissions" };
+        if through_option {
+            changer
+                .request(
+                    method::SESSION_SET_CONFIG_OPTION,
+                    json!({"sessionId": id, "configId": "mode", "value": mode}),
+                )
+                .await
+                .unwrap();
+        } else {
+            changer
+                .request(method::SESSION_SET_MODE, json!({"sessionId": id, "modeId": mode}))
+                .await
+                .unwrap();
+        }
+        assert!(c.response(rid).await.0.is_ok());
+        let session = hub.resolve(&id).unwrap();
+        assert!(session.pending_permissions().is_empty());
+        assert_eq!(hub.session_summary(&session)["preview"], "chose once");
+        let records = autos(&hub, &id);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0]["permissionId"], pending["permissionId"]);
+        assert_eq!(records[0]["fullAccess"], mode);
+        assert!(
+            hub.events(&id, 0, 10_000).unwrap().iter().any(|e| e.kind == "permission_decision"
+                && e.msg["permissionId"] == pending["permissionId"])
+        );
+    }
+}
+
+#[tokio::test]
+async fn approve_all_resolves_a_tool_already_waiting_without_a_mode_change() {
+    let (hub, mut c) = claude_hub().await;
+    let id = chat_in(&mut c, "default").await;
+    let rid = c.send(method::SESSION_PROMPT, guard(&id)).await;
+    c.wait_for(method::MUX_PERMISSION_PENDING, |p| p["sessionId"] == id).await;
+    let mut changer = connect(&hub).await;
+    changer
+        .request(method::MUX_SET_POLICY, json!({"sessionId": id, "policy": "approve-all"}))
+        .await
+        .unwrap();
+    assert!(c.response(rid).await.0.is_ok());
+    let session = hub.resolve(&id).unwrap();
+    assert!(session.pending_permissions().is_empty());
+    assert_eq!(hub.session_summary(&session)["preview"], "chose once");
+    assert_eq!(autos(&hub, &id)[0]["policy"], "approve-all");
+}
+
+#[tokio::test]
+async fn default_approve_all_resolves_only_inherited_pending_tools() {
+    let (hub, mut c) = claude_hub().await;
+    let dir = tempfile::tempdir().unwrap();
+    hub.config.write().await.path = Some(dir.path().join("config.json"));
+    let inherited = chat_in(&mut c, "default").await;
+    let own = chat_in(&mut c, "default").await;
+    c.request(method::MUX_SET_POLICY, json!({"sessionId": own, "policy": "ask"})).await.unwrap();
+    let inherited_turn = c.send(method::SESSION_PROMPT, guard(&inherited)).await;
+    c.wait_for(method::MUX_PERMISSION_PENDING, |p| p["sessionId"] == inherited).await;
+    let own_turn = c.send(method::SESSION_PROMPT, guard(&own)).await;
+    let pending = c.wait_for(method::MUX_PERMISSION_PENDING, |p| p["sessionId"] == own).await;
+    let mut changer = connect(&hub).await;
+    changer.request("_acpmux/set_default_policy", json!({"policy": "approve-all"})).await.unwrap();
+    assert!(c.response(inherited_turn).await.0.is_ok());
+    let session = hub.resolve(&inherited).unwrap();
+    assert!(session.pending_permissions().is_empty());
+    assert_eq!(hub.session_summary(&session)["preview"], "chose once");
+    assert_eq!(autos(&hub, &inherited)[0]["policy"], "approve-all");
+    assert_eq!(hub.resolve(&own).unwrap().pending_permissions().len(), 1);
+    assert!(autos(&hub, &own).is_empty());
+    c.request(
+        method::MUX_PERMISSION_RESPOND,
+        json!({"sessionId": own, "permissionId": pending["permissionId"]}),
+    )
+    .await
+    .unwrap();
+    assert!(c.response(own_turn).await.0.is_ok());
+}
+
+#[tokio::test]
+async fn switching_to_full_access_keeps_interactive_and_explicit_asks_pending() {
+    for (prompt_text, rules) in [
+        ("question: Which one?", json!(null)),
+        ("meta-question: Go on?", json!(null)),
+        ("ask-always: deploy", json!(null)),
+        ("guard: rm", json!({"ask": ["rm"]})),
+    ] {
+        let (hub, mut c) = claude_hub().await;
+        let id = chat_in(&mut c, "default").await;
+        if !rules.is_null() {
+            c.request(method::MUX_SET_RULES, json!({"sessionId": id, "rules": rules}))
+                .await
+                .unwrap();
+        }
+        let rid = c.send(method::SESSION_PROMPT, prompt(&id, prompt_text, None)).await;
+        let pending = c.wait_for(method::MUX_PERMISSION_PENDING, |p| p["sessionId"] == id).await;
+        c.request(
+            method::SESSION_SET_MODE,
+            json!({"sessionId": id, "modeId": "bypassPermissions"}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(hub.resolve(&id).unwrap().pending_permissions().len(), 1);
+        assert!(autos(&hub, &id).is_empty());
+        c.request(
+            method::MUX_PERMISSION_RESPOND,
+            json!({"sessionId": id, "permissionId": pending["permissionId"]}),
+        )
+        .await
+        .unwrap();
+        assert!(c.response(rid).await.0.is_ok());
+    }
+}
+
+#[tokio::test]
 async fn asking_modes_still_ask_for_the_same_guard() {
     let (hub, mut c) = claude_hub().await;
     for mode in ["default", "acceptEdits"] {
@@ -131,15 +271,16 @@ async fn deny_all_and_deny_rules_still_deny_in_full_access() {
     let session = hub.resolve(&id).unwrap();
     assert_eq!(hub.session_summary(&session)["preview"], "chose no");
     assert_eq!(hub.session_summary(&session)["currentModeId"], "bypassPermissions");
-    // Deny-all, the person's explicit choice, denies the guard too (it also moves the chat to its
-    // asking mode, `policy_mode.rs`; a request on its way meanwhile is denied all the same).
+    // Deny-all, the person's explicit choice, on a chat in Full access whose harness has no mode
+    // `policy_mode.rs` moves it to: its agent cannot keep the policy, so it is stopped and the
+    // chat does not run again under it (lead, 2026-11-08: a policy that does not hold never
+    // runs). Nothing it asked was approved in Full access.
     let id = chat_in(&mut c, "bypassPermissions").await;
     c.request(method::MUX_SET_POLICY, json!({"sessionId": id, "policy": "deny-all"}))
         .await
         .unwrap();
-    c.request(method::SESSION_PROMPT, guard(&id)).await.unwrap();
-    let session = hub.resolve(&id).unwrap();
-    assert_eq!(hub.session_summary(&session)["preview"], "chose no");
+    let err = c.request(method::SESSION_PROMPT, guard(&id)).await.unwrap_err();
+    assert!(err.contains("policy=approve-all`"), "{err}");
     assert!(
         autos(&hub, &id).iter().all(|a| a.get("fullAccess").is_none()),
         "{:?}",
@@ -181,6 +322,25 @@ async fn only_a_full_access_mode_cmux_set_approves() {
     let rid =
         c.send(method::SESSION_PROMPT, prompt(&id, "drift-ask: bypassPermissions", None)).await;
     asks_the_person(&mut c, &hub, &id, rid).await;
+}
+
+/// A chat in the full-access mode its profile's new chats start in, whose harness left it and came
+/// back on its own (cmux's mark on it is gone), answers its guards unasked: the person's start
+/// level already lets the chat move there without them. Leo, 2026-11-23, on a subagent's safety
+/// check that asked him in a chat in Bypass permissions: "i also dont know why you asked me this".
+/// A narrower mode the person picked still holds (`only_a_full_access_mode_cmux_set_approves`).
+#[tokio::test]
+async fn the_start_levels_full_access_approves_after_the_harness_left_and_came_back() {
+    let (hub, mut c) = claude_hub().await;
+    let id = chat_in(&mut c, "bypassPermissions").await;
+    let rid = c.send(method::SESSION_PROMPT, prompt(&id, "drift-ask: default", None)).await;
+    asks_the_person(&mut c, &hub, &id, rid).await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "drift-ask: bypassPermissions", None))
+        .await
+        .unwrap();
+    let session = hub.resolve(&id).unwrap();
+    assert_eq!(hub.session_summary(&session)["preview"], "chose yes");
+    assert_eq!(autos(&hub, &id)[0]["fullAccess"], "bypassPermissions");
 }
 
 #[tokio::test]
@@ -339,4 +499,63 @@ async fn a_full_access_off_mdm_forces_stops_full_access_approvals() {
     assert_eq!(r["applied"], true, "{r}");
     let rid = c.send(method::SESSION_PROMPT, guard(&id)).await;
     asks_the_person(&mut c, &hub, &id, rid).await;
+}
+
+/// A restarted mode-option chat whose replay asks its harness for Full access while MDM is unset,
+/// the harness answering that `mode` change bare (no options) only once MDM has forced full access
+/// off (`FAKE_OPTION_HOLD`). The bare answer took the value asked, so the start's bound counts it
+/// and the agent is not handed out (#26340).
+async fn replay_answered_bare(managed_off: bool) -> (Arc<Hub>, String, Result<Value, String>) {
+    let dir = std::env::temp_dir().join(format!("acpmux-replay-bare-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let hold = dir.join("hold");
+    let held = dir.join("hold.held");
+    let (hub, mut c) = hub_with(&[
+        ("FAKE_MODE_OPTION", "1"),
+        ("FAKE_NO_MODES", "1"),
+        ("FAKE_BARE_OPTION_ANSWER", "mode"),
+        ("FAKE_OPTION_HOLD", hold.to_str().unwrap()),
+    ])
+    .await;
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    // The harness reports its mode option in Full access: the chat's options say so.
+    c.request(method::SESSION_PROMPT, prompt(&id, "set-mode-option: full-access", None))
+        .await
+        .unwrap();
+    let session = hub.resolve(&id).unwrap();
+    hub.detach_child(&session).await;
+    // The next prompt starts an agent; its replay asks for Full access and the answer waits.
+    std::fs::write(&hold, "").unwrap();
+    let rid = c.send(method::SESSION_PROMPT, prompt(&id, "hi", None)).await;
+    let until = std::time::Instant::now() + Duration::from_secs(20);
+    while !held.exists() {
+        assert!(std::time::Instant::now() < until, "the replay never asked for the mode option");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(std::fs::read_to_string(&held).unwrap().trim(), "full-access");
+    if managed_off {
+        hub.apply_full_access_push(Some(false)).await;
+    }
+    std::fs::remove_file(&hold).unwrap();
+    let (answered, _) = c.response(rid).await;
+    let _ = std::fs::remove_dir_all(&dir);
+    (hub, id, answered)
+}
+
+#[tokio::test]
+async fn a_replayed_full_access_option_answered_bare_is_not_handed_out_under_mdm_off() {
+    let (hub, id, answered) = replay_answered_bare(true).await;
+    let refusal = answered.expect_err("a bare replay answer's full-access agent answered");
+    assert!(refusal.contains("sessions.allowFullAccess"), "{refusal}");
+    let events = hub.events(&id, 0, 10_000).unwrap();
+    let refused = events.into_iter().any(|e| e.kind == "full_access_refused");
+    assert!(refused, "the start did not stop its full-access agent");
+}
+
+/// With MDM unset, the same bare replay answer starts the agent as before.
+#[tokio::test]
+async fn a_replayed_full_access_option_answered_bare_runs_while_mdm_is_unset() {
+    let (_hub, _id, answered) = replay_answered_bare(false).await;
+    assert!(answered.is_ok(), "{answered:?}");
 }

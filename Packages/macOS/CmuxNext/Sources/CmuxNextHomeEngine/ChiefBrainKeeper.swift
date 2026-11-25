@@ -75,6 +75,16 @@ public final class ChiefBrainKeeper {
         return starting
     }
 
+    /// The watch stopped restarting a host that kept dying (``ChiefBrainWatch/hasGivenUp``), until the next ask.
+    public var hasGivenUp: Bool { watch?.hasGivenUp == true }
+
+    /// Whether this home's brain host runs or is starting: one this app watches, or one
+    /// another process started (it holds the home's lock).
+    public var isRunning: Bool {
+        if starting || watch?.isWatching == true { return true }
+        return ChiefHostStop.runningHostPID(home: home) != nil
+    }
+
     /// A Chief chat that found nothing on the Chief home's acpmux socket asks for the host
     /// (#25570): it starts one when none was started in this run, and says whether a host runs
     /// or is starting. A watch that gave up (a host that kept dying) is armed again only by an
@@ -121,7 +131,7 @@ public final class ChiefBrainKeeper {
     private func watchHost(_ host: HomeBrainHost, pid: pid_t?) {
         // Quit came while this start ran: the host must not outlive the quit.
         if watch?.isStopped == true {
-            if let pid, ChiefHostStop.isChiefHost(pid) { kill(pid, SIGTERM) }
+            if let pid, ChiefHostStop.isChiefHost(pid) || ChiefHostStop.isFilesHostLauncher(pid) { kill(pid, SIGTERM) }
             return
         }
         // Known gap: a launch whose pid the shell did not print, before the

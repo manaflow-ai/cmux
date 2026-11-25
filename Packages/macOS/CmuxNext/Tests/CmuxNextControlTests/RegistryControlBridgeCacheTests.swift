@@ -163,9 +163,60 @@ import Testing
         #expect(fixture.router.catalog.resolve("splitRight")?.unavailableReason == "no workspace")
     }
 
+    /// SWITCH STALL (cmux22, macOS 27, 60 Hz): each workspace switch fired the one reason observation,
+    /// which re-read every action's reason (4.6-5 ms) and rebuilt the published catalog (3.5 ms) on the
+    /// main thread inside the switch's stall. A change re-reads only the reasons of the actions that read
+    /// it, and the published catalog stays equal to a fresh build.
+    @Test func aReasonChangeReadsOnlyTheReasonsThatReadIt() async {
+        let fixture = Fixture()
+        let state = AppState()
+        var reads = ["splitRight": 0, "splitDown": 0]
+        fixture.registry.bind("splitRight", unavailable: {
+            reads["splitRight", default: 0] += 1
+            return state.blocked ? "blocked" : nil
+        }, invoke: { _ in })
+        fixture.registry.bind("splitDown", unavailable: {
+            reads["splitDown", default: 0] += 1
+            return state.workspaces > 0 ? nil : "no workspace"
+        }, invoke: { _ in })
+        fixture.bridge.attach(to: fixture.router)
+        defer { fixture.bridge.detach() }
+        await fixture.settle()
+        let before = reads
+
+        state.blocked = true
+        await fixture.settle { fixture.router.catalog.resolve("splitRight")?.unavailableReason == "blocked" }
+        await fixture.settle()
+        #expect(fixture.router.catalog.resolve("splitRight")?.unavailableReason == "blocked")
+        #expect(reads["splitRight"] == (before["splitRight"] ?? 0) + 1, "splitRight's reason was read \(reads) (before \(before))")
+        #expect(reads["splitDown"] == before["splitDown"], "a change that splitDown's reason does not read re-read it: \(reads) (before \(before))")
+
+        state.workspaces = 0
+        await fixture.settle { fixture.router.catalog.resolve("splitDown")?.unavailableReason == "no workspace" }
+        await fixture.settle()
+        #expect(reads["splitRight"] == (before["splitRight"] ?? 0) + 1, "a change that splitRight's reason does not read re-read it: \(reads)")
+        #expect(reads["splitDown"] == (before["splitDown"] ?? 0) + 1)
+        fixture.expectCurrent()
+    }
+
+    /// A binding that replaces an action's reason (the ids stay the same) publishes the new reason.
+    @Test func rebindingAnActionPublishesItsNewReason() async {
+        let fixture = Fixture()
+        fixture.registry.bind("splitRight", unavailable: { nil }, invoke: { _ in })
+        fixture.bridge.attach(to: fixture.router)
+        defer { fixture.bridge.detach() }
+        #expect(fixture.router.catalog.resolve("splitRight")?.unavailableReason == nil)
+
+        fixture.registry.bind("splitRight", unavailable: { "rebound" }, invoke: { _ in })
+        await fixture.settle { fixture.router.catalog.resolve("splitRight")?.unavailableReason == "rebound" }
+        #expect(fixture.router.catalog.resolve("splitRight")?.unavailableReason == "rebound")
+        fixture.expectCurrent()
+    }
+
     /// A shortcut edit rebuilds the structure but keeps the live reason
-    /// observation instead of arming another next to it: after many such
-    /// edits, one binding change fires one reason observation, not one per edit.
+    /// observations instead of arming others next to them: after many such
+    /// edits, one binding change fires each action's reason observation once,
+    /// not once per edit.
     @Test func structureRebuildsKeepOneReasonObservation() async {
         let fixture = Fixture()
         fixture.registry.bind("splitDown") {}
@@ -185,7 +236,7 @@ import Testing
         fixture.registry.bind("splitRight") {}
         await fixture.settle { fixture.router.catalog.resolve("splitRight")?.isBound == true && fixture.bridge.reasonReads > reads }
         await fixture.settle()
-        #expect(fixture.bridge.reasonFirings == firings + 1)
+        #expect(fixture.bridge.reasonFirings == firings + fixture.router.catalog.actions.count)
         fixture.expectCurrent()
     }
 

@@ -27,6 +27,8 @@ export interface CreateRequest {
   readonly now: string
   // Cloud extensions.
   readonly kind?: ConversationKind
+  /** A channel's own Chief (chief-channels-DESIGN.md); only a system-built group carries it. */
+  readonly channel_chief?: string
   readonly team?: string
   readonly settings?: Partial<ConversationSettings>
   readonly retention_days?: number
@@ -84,6 +86,7 @@ const createOrThrow = (request: CreateRequest): ConversationHead => {
       added_by: request.actor
     })),
     kind: request.kind,
+    ...(request.channel_chief === undefined ? {} : { channel_chief: request.channel_chief }),
     ...(request.team === undefined ? {} : { team: request.team }),
     created_by: request.actor,
     state: "active",
@@ -145,6 +148,7 @@ export const summary = (head: ConversationHead, lastMessage: Message | null | un
   return {
     ...out,
     kind: head.kind,
+    ...(head.channel_chief === undefined ? {} : { channel_chief: head.channel_chief }),
     ...(head.team === undefined ? {} : { team: head.team }),
     ...(head.created_by === undefined ? {} : { created_by: head.created_by }),
     ...(head.state === undefined ? {} : { state: head.state }),

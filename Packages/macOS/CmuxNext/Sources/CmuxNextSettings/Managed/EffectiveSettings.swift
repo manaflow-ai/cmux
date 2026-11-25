@@ -21,9 +21,13 @@ public nonisolated struct TeamPolicyLayer: Sendable, Equatable {
 
     public static let none = TeamPolicyLayer()
 
-    /// Only keys the settings catalog lists.
+    /// Only keys the settings catalog lists, and their older names (``EffectiveSettings/legacyKeys``).
     public func limitedToCatalog() -> TeamPolicyLayer {
-        let ids = Set(SettingsSchema.all.map(\.id))
+        // An empty layer (every launch's `.none`) filters to itself: without this, `main` built the whole
+        // schema with its localized texts (`SettingsSchema.all`) on the main thread through
+        // `FontSmoothingSetting.applyBeforeLaunch`, 41 ms before the Dock stopped bouncing (CMUX-631).
+        guard !defaults.isEmpty || !enforced.isEmpty else { return self }
+        let ids = Set(SettingsSchema.all.map(\.id)).union(EffectiveSettings.legacyKeys.keys)
         var copy = self
         copy.defaults = defaults.filter { ids.contains($0.key) }
         copy.enforced = enforced.filter { ids.contains($0.key) }
@@ -103,7 +107,11 @@ public nonisolated struct EffectiveSettings: Sendable, Equatable {
 
     /// Older names of settings keys, still read when the new key is absent in the same layer:
     /// the layer's value moves to the new key, so a forced older key locks the new one too.
-    static let legacyKeys = [LinkRouting.legacyOpenPath.joined(separator: "."): LinkRouting.openPath.joined(separator: ".")]
+    static let legacyKeys = [
+        LinkRouting.legacyOpenPath.joined(separator: "."): LinkRouting.openPath.joined(separator: "."),
+        AgentPaneDisplaySettingsSchema.legacySessionInfoPlacementPath.joined(separator: "."):
+            AgentPaneDisplaySettingsSchema.sessionInfoPlacementPath.joined(separator: "."),
+    ]
 
     static func aliasingLegacyKeys(_ values: [String: JSONValue]) -> [String: JSONValue] {
         var values = values

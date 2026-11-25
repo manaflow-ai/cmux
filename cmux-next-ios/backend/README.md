@@ -4,8 +4,9 @@ Cloudflare Worker for the cmux-next-ios app. It implements the HTTP and signalin
 parts of [`../PROTOCOL.md`](../PROTOCOL.md), which is the contract.
 
 - `src/index.ts`: routes, Stack JWT auth, validation.
-- `src/team-hub.ts`: `TeamHub` Durable Object, one per **user** (named
-  `user:<owner key>` from the verified token; SQLite-backed, hibernating
+- `src/team-hub.ts`: `TeamHub` Durable Object, one per **user** and build space (named
+  `user:<owner key>` from the verified token, `dev:<slug>|user:<owner key>` for a dev
+  build's `X-Cmux-Build-Space`; SQLite-backed, hibernating
   WebSockets): signaling admission, Mac presence of the user's own devices
   (no data relay: WireGuard without UDP uses TURN over TLS), 60 s membership
   cache. A hub binds its owner on first use and refuses calls for another.
@@ -47,7 +48,7 @@ never shown to anyone. The class itself is `TeamHub`.
 | Database role | `cnx-ios-dev` / `cnx-ios-prod`, then `cmux-next-ios-dev` / `cmux-next-ios` | `cmux-mobile-api` in each database |
 | Local wrangler name | `cnx-ios-api-local` | `cmux-mobile-api-local` (never deployed) |
 | npm package | `cnx-ios-api` | `cmux-mobile-api` |
-| APNs topics | `dev.cmux.cnx`, `dev.cmux.cnx.cnx`, `dev.cmux.cnx.prod` | `dev.cmux.mobile`, `dev.cmux.mobile.demo`, `dev.cmux.mobile.prod`; TestFlight stays `dev.cmux.app.internal` |
+| APNs topics | `dev.cmux.cnx`, `dev.cmux.cnx.cnx`, `dev.cmux.cnx.prod` | `dev.cmux.mobile`, `dev.cmux.mobile.demo`, `dev.cmux.mobile.prod`; TestFlight and the App Store submission are cmux INTERNAL, `dev.cmux.app.internal`; the AppStore configuration builds `com.cmux.app`, not the submission record (dev and prod accept both) |
 | Rate limit namespaces | 4101-4105 (dev), 4201-4205 (prod) | unchanged (numeric ids, no names) |
 
 Rate limit namespaces are numbers, the TURN key and the APNs key are shared team
@@ -72,10 +73,20 @@ Pipe values from 1Password; never paste or echo them.
 | --- | --- | --- |
 | `TURN_KEY_ID` | 1Password `Cloudflare TURN Server API Key` (vault Shared), the "Turn Token ID" in its notes | for TURN (else `/v1/ice` is STUN only) |
 | `TURN_KEY_API_TOKEN` | same item, field `credential` | for TURN |
-| `APNS_KEY_P8`, `APNS_KEY_ID`, `APNS_TEAM_ID` | the team's APNs auth key (`.p8`, PKCS#8 PEM), its key id and team `7WLXT3NR37`. Not set yet: no APNs key was found in 1Password (searched 2026-10-13). Until set, `notify` answers `configured:false` | for push |
+| `APNS_KEY_P8`, `APNS_KEY_ID`, `APNS_TEAM_ID` | the team's APNs auth key (`.p8`, PKCS#8 PEM), its key id and team `7WLXT3NR37`. Not set yet: no APNs key was found in 1Password (searched 2026-10-13). Until set, `notify` answers `configured:false`. One key signs pushes to every bundle in `APNS_TOPICS` (each push's topic is the bundle its phone registered), so it must be a team-scoped key: a key limited to one bundle gets `TopicDisallowed` for the others, which `notify` reports in `failures` | for push |
+| `APNS_SANDBOX_KEY_P8`, `APNS_SANDBOX_KEY_ID` | a second APNs auth key of team `7WLXT3NR37` that is enabled for Sandbox, and its key id. Use these only when the main key was made for Production alone (APNs then answers every sandbox send `403 BadEnvironmentKeyInToken`, as on dev, cmuxterm-hq goals/ios-push-e2e.md experiment 2). They sign only the sandbox sends (Simulators, Xcode installs), and production sends keep the main key. Set both or neither | for sandbox push when the main key is Production-only |
 | `STACK_SECRET_SERVER_KEY` | Stack server key of the env's primary project | optional; without it membership and invites use the caller's own token (always the case for the other projects) |
+| `SLACK_BOT_TOKEN` | 1Password `cmux NEXT iOS Alerts Slack bot token` (vault Shared), field `credential`: the Bot User OAuth Token of the Slack app **cmux NEXT iOS Alerts** (app `A0CHSEK85BN`, Manaflow workspace): the app made only for connectivity alerts (`chat:write` only; a member of #cmux-next-ios-alerts). Never another app's token | for connectivity alerts (else they are kept, not sent) |
+
+`CONNECTIVITY_ALERT_CHANNEL` (real team phones) and `CONNECTIVITY_ALERT_TEST_CHANNEL` (simulators, Debug builds,
+agent accounts; their posts say "Test route") are plain `vars` in `wrangler.jsonc`, both `C0CHDSZJYU9`
+(#cmux-next-ios-alerts) on dev and prod: nothing of this feature posts anywhere else. Do not also set them as
+secrets (a var and a secret cannot share a name). `CONNECTIVITY_ALERT_EXCLUDED_EMAILS` (optional) lists extra
+team-domain accounts that are agents or services, comma-separated (`cmux-agent-*` is always excluded).
 
 ```bash
+op read "op://Shared/cmux NEXT iOS Alerts Slack bot token/credential" | tr -d '\n' \
+  | bunx wrangler@4 secret put SLACK_BOT_TOKEN --env prod
 op item get lqvg75d4awzbveq7ny5gyfeyd4 --fields notesPlain | grep -oE '[0-9a-f]{32}' | head -1 | tr -d '\n' \
   | bunx wrangler@4 secret put TURN_KEY_ID --env dev
 op read "op://Shared/lqvg75d4awzbveq7ny5gyfeyd4/credential" | tr -d '\n' \
@@ -107,6 +118,17 @@ branches that each add a migration must not both land with the same index: the s
 land renumbers its migration (file, journal `idx`, snapshot `prevId`) and takes a later `when`.
 
 Apply a migration to a database before deploying the Worker that reads it.
+API 0.16.0 (build spaces, PROTOCOL.md "Build spaces") needs the `space` columns
+of `mobile_devices`, `mobile_push_tokens` and `mobile_team_prefs` in
+cmux-next-vitess: `backend/db/drizzle-mysql/0004_mobile_build_space.sql`
+(expand only, applied with `backend/db/migrate-mysql.ts`, a deploy request on
+`main`). The Worker names `space` in every statement, so on a database
+without them it answers every store request with
+`503 store.schema_outdated` naming the migration (a per-isolate probe, logged
+once, rechecked until it passes); the 0.15.0 Worker keeps working on a
+migrated one (existing rows read as stable). `drizzle/0005_build_space.sql` is the same change for the old
+Postgres databases, which the Worker no longer binds.
+
 API 0.13.0 needs `drizzle/0004_push_settings.sql` (the `muted_macs` and
 `previews` columns of `push_tokens`): a 0.13.0 Worker on a database without
 them fails every `PUT /v1/devices/:id/push` and every notify. The migration

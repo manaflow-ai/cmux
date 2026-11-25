@@ -1,5 +1,7 @@
 import CmuxNextBridge
+import CmuxNextBrowserTabs
 import CmuxNextDaemon
+import CmuxNextSidebar
 import CmuxNextTabs
 import Foundation
 
@@ -12,8 +14,20 @@ extension SidebarBridge {
     /// Selects a pinned tab in its workspace and focuses it. `ref` is the
     /// tab's id or its qualified `<session>:tab_…` form.
     func revealPinnedTab(_ ref: String) {
-        guard let state, let (tab, pane) = pinnedTab(ref), let workspace = workspaceID(holding: pane) else { return }
+        guard let state, let (tab, pane) = pinnedTab(ref), let workspace = services.daemon(for: pane).store.workspace(containing: pane.handle)?.id else { return }
         reveal(tab, in: pane, workspace: workspace, state: state)
+    }
+
+    /// A chat's subagent line under its sidebar row (`SidebarSubagentsView`): shows the chat's tab, then opens the
+    /// subagent's pane beside it as the chat's own subagent cards do (``AgentTabStore/openSubagentFromSidebar``).
+    /// No subagent ("N more", the stacked line): the chat only.
+    func wireSubagentOpen() {
+        model.openSubagent = { [weak self] _, tab, subagent in
+            guard let self else { return }
+            revealPinnedTab(tab.rawValue)
+            guard let subagent, let (chat, _) = pinnedTab(tab.rawValue) else { return }
+            services.agentTabs.openSubagentFromSidebar(subagent.id, title: subagent.title, chat: chat)
+        }
     }
 
     /// Focuses a tab of this window's current space showing `text` (an
@@ -61,32 +75,9 @@ extension SidebarBridge {
             for pane in workspace.screens.flatMap(\.panes) {
                 for tab in pane.tabs where tab.kind == .browser {
                     let shown = services.cache.existingBrowser(tab.id)?.tab.state.url ?? tab.url.flatMap(URL.init(string:))
-                    if let shown, Self.samePage(shown, url) { return (tab, pane, workspace.id) }
+                    if let shown, BrowserTabMatch.samePage(shown, url) { return (tab, pane, workspace.id) }
                 }
             }
-        }
-        return nil
-    }
-
-    /// Whether two URLs are the same page: scheme and host compare
-    /// case-insensitively, a trailing slash and the fragment are ignored.
-    static func samePage(_ a: URL, _ b: URL) -> Bool {
-        func key(_ url: URL) -> String? {
-            guard var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
-            parts.fragment = nil
-            parts.scheme = parts.scheme?.lowercased()
-            parts.host = parts.host?.lowercased()
-            if parts.path.count > 1, parts.path.hasSuffix("/") { parts.path.removeLast() }
-            if parts.path.isEmpty, parts.host != nil { parts.path = "/" }
-            return parts.string
-        }
-        guard let left = key(a) else { return false }
-        return left == key(b)
-    }
-
-    private func workspaceID(holding pane: PaneModel) -> String? {
-        for (workspace, _) in services.machines.allWorkspaces where workspace.screens.contains(where: { $0.panes.contains { $0 === pane } }) {
-            return workspace.id
         }
         return nil
     }
@@ -97,7 +88,8 @@ extension SidebarBridge {
     /// else through this window's selection memory and focus. Showing the
     /// workspace switches space if needed.
     private func reveal(_ tab: TabModel, in pane: PaneModel, workspace: String, state: WindowState) {
-        state.selection.select(tab.id, in: pane.id)
+        if services.windows.registry.value.crossesIncognito([workspace], to: state.id) { return services.registry.refuse(RefusalStrings.incognitoMismatch) }
+        state.selection.jump(to: tab.id, in: pane.id, byPerson: true) // a click in this window's sidebar
         state.focus.send(.selectTab(pane: pane.id, tab: tab.id, workspace: workspace, source: .intent))
         services.paneController(for: pane)?.select(StripTabID(tab.id))
         services.windows.show(workspaceID: workspace, in: state, from: .thisWindow)

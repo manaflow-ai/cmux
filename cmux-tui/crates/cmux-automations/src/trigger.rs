@@ -22,7 +22,34 @@ pub enum Trigger {
     At { at: i64 },
     /// Only when someone runs it (`cmux automation run`).
     Manual,
+    /// Whenever the long-running `command` prints a line (`--watch`). Lines
+    /// closer together than `debounce_seconds` are one event. It has no due
+    /// times: the runner keeps the command alive ([`crate::watch`]).
+    Watch { command: String, debounce_seconds: u64 },
+    /// Whenever the named event happens (`--when agent-idle`): a watch whose
+    /// command cmux supplies ([`crate::events`]), `cmux automation events NAME`.
+    Event { event: String, debounce_seconds: u64 },
+    /// Whenever a signed POST reaches the runner's local listener at
+    /// `/hooks/<id>` and meets every filter (`--webhook`, [`crate::webhook`]).
+    /// A delivery id seen in the last `dedupe_seconds` starts nothing.
+    Webhook {
+        #[serde(default)]
+        filters: Vec<crate::webhook::WebhookFilter>,
+        #[serde(default = "default_dedupe")]
+        dedupe_seconds: u64,
+    },
 }
+
+fn default_dedupe() -> u64 {
+    crate::webhook::DEFAULT_DEDUPE_SECONDS
+}
+
+/// A watch's default debounce: a burst of lines inside it is one event.
+pub const DEFAULT_DEBOUNCE_SECONDS: u64 = 5;
+
+/// The longest debounce: a stream that never pauses is one event at most this
+/// long (`watch::MAX_HOLD_MS`), so a longer one would mean nothing.
+pub const MAX_DEBOUNCE_SECONDS: u64 = 30;
 
 /// A trigger that cannot be scheduled.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -65,6 +92,30 @@ impl Trigger {
             Trigger::Every { seconds, .. } if *seconds < MIN_EVERY_SECONDS => {
                 Err(ScheduleError(format!("every {seconds}s is shorter than the one-minute floor")))
             }
+            Trigger::Watch { command, .. } if command.trim().is_empty() => {
+                Err(ScheduleError("--watch needs a command".into()))
+            }
+            Trigger::Event { event, .. } if crate::events::find(event).is_none() => {
+                Err(ScheduleError(format!(
+                    "--when takes one of {}, not {event:?}; run `cmux automation events`",
+                    crate::events::names()
+                )))
+            }
+            Trigger::Watch { debounce_seconds: 0, .. }
+            | Trigger::Event { debounce_seconds: 0, .. } => {
+                Err(ScheduleError("a watch's debounce is at least one second".into()))
+            }
+            Trigger::Watch { debounce_seconds, .. } | Trigger::Event { debounce_seconds, .. }
+                if *debounce_seconds > MAX_DEBOUNCE_SECONDS =>
+            {
+                Err(ScheduleError(format!(
+                    "a watch's debounce is at most {MAX_DEBOUNCE_SECONDS} seconds (a stream is held \
+                     no longer); space runs out with --cooldown"
+                )))
+            }
+            Trigger::Webhook { filters, dedupe_seconds } => {
+                crate::webhook::validate(filters, *dedupe_seconds).map_err(ScheduleError)
+            }
             _ => Ok(()),
         }
     }
@@ -86,7 +137,10 @@ impl Trigger {
                 Ok(Some(anchor + ((t - anchor) / step + 1) * step))
             }
             Trigger::At { at } => Ok((*at > t).then_some(*at)),
-            Trigger::Manual => Ok(None),
+            Trigger::Manual
+            | Trigger::Watch { .. }
+            | Trigger::Event { .. }
+            | Trigger::Webhook { .. } => Ok(None),
         }
     }
 
@@ -101,6 +155,42 @@ impl Trigger {
             },
             Trigger::At { at } => format!("once at {at}"),
             Trigger::Manual => "manual".into(),
+            Trigger::Watch { command, .. } => format!("watch `{command}`"),
+            Trigger::Event { event, .. } => match crate::events::find(event) {
+                Some(kind) => kind.label.to_string(),
+                None => format!("when {event}"),
+            },
+            Trigger::Webhook { filters, .. } if filters.is_empty() => "webhook".into(),
+            Trigger::Webhook { filters, .. } => format!(
+                "webhook ({})",
+                filters.iter().map(|f| f.describe()).collect::<Vec<_>>().join(" ")
+            ),
         }
+    }
+
+    /// The command a runner keeps alive for this trigger: a watch's own, or
+    /// for an event, `program automation events NAME` (`program` is the
+    /// runner's `cmux`). `None` for a schedule.
+    pub fn watch_command(&self, program: &str) -> Option<String> {
+        match self {
+            Trigger::Watch { command, .. } => Some(command.clone()),
+            Trigger::Event { event, .. } => Some(crate::events::watch_command(program, event)),
+            _ => None,
+        }
+    }
+
+    /// The debounce of a watch or an event trigger.
+    pub fn debounce_seconds(&self) -> Option<u64> {
+        match self {
+            Trigger::Watch { debounce_seconds, .. } | Trigger::Event { debounce_seconds, .. } => {
+                Some(*debounce_seconds)
+            }
+            _ => None,
+        }
+    }
+
+    /// Whether the runner keeps a command alive for it (a watch or an event).
+    pub fn is_watched(&self) -> bool {
+        matches!(self, Trigger::Watch { .. } | Trigger::Event { .. })
     }
 }

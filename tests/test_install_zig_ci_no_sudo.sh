@@ -13,16 +13,28 @@ mkdir -p "$FIXTURE_REPO/scripts" "$FIXTURE_REPO/cmux-tui/build-support/notices/t
 cp "$ROOT_DIR/scripts/install-zig-ci.sh" "$ROOT_DIR/scripts/ghostty-zig-version.sh" "$FIXTURE_REPO/scripts/"
 printf '{"zig": [{"ci_version": "99.99.99"}]}\n' > "$FIXTURE_REPO/cmux-tui/build-support/notices/toolchains/toolchains.json"
 SCRIPT="$FIXTURE_REPO/scripts/install-zig-ci.sh"
-DEFAULT_INSTALL_ROOT=""
+# The installer's shared temp root is /tmp (its fallback install root, and the shared extraction folder it
+# must not touch). The copy runs with every /tmp path moved to a simulated shared folder (sticky and
+# world-writable, like /tmp), so this test never makes or deletes a fixed name in the real /tmp, where it
+# could hit another user's files or a concurrent job's install.
+SHARED_TMP="$TMP_DIR/shared-tmp"
+mkdir -p "$SHARED_TMP"
+chmod 1777 "$SHARED_TMP"
+grep -Fq '/tmp/cmux-zig-ci' "$SCRIPT" || { echo "FAIL: the Zig installer no longer falls back to its cmux-zig-ci folder in /tmp" >&2; exit 1; }
+python3 - "$SCRIPT" "$SHARED_TMP" <<'PY'
+import re, sys
+path, root = sys.argv[1:]
+with open(path) as handle:
+    text = handle.read()
+moved = re.sub(r"""(?<![\w.$/])/tmp(?=[/"'}\s]|$)""", lambda _: root, text, flags=re.M)
+if moved == text:
+    sys.exit("install-zig-ci.sh names no /tmp path to move")
+with open(path, "w") as handle:
+    handle.write(moved)
+PY
 
 cleanup() {
   rm -rf "$TMP_DIR"
-  if [ -n "$DEFAULT_INSTALL_ROOT" ]; then
-    rm -rf "$DEFAULT_INSTALL_ROOT"
-  fi
-  if [ -n "${SHARED_TMP_ZIG_DIR:-}" ]; then
-    rm -rf "$SHARED_TMP_ZIG_DIR"
-  fi
 }
 trap cleanup EXIT
 
@@ -63,8 +75,8 @@ esac
 FIXTURE_ROOT="$TMP_DIR/fixture"
 ZIG_NAME="zig-${ZIG_ARCH}-${ZIG_OS}-${ZIG_REQUIRED}"
 ARCHIVE="$TMP_DIR/${ZIG_NAME}.tar.xz"
-DEFAULT_INSTALL_ROOT="/tmp/cmux-zig-ci/$ZIG_NAME"
-SHARED_TMP_ZIG_DIR="/tmp/$ZIG_NAME"
+DEFAULT_INSTALL_ROOT="$SHARED_TMP/cmux-zig-ci/$ZIG_NAME"
+SHARED_TMP_ZIG_DIR="$SHARED_TMP/$ZIG_NAME"
 SHARED_TMP_MARKER="$SHARED_TMP_ZIG_DIR/keep.txt"
 BIN_DIR="$TMP_DIR/bin"
 RUNNER_TEMP_DIR="$TMP_DIR/runner-temp"
@@ -91,7 +103,7 @@ DEFAULT_GITHUB_PATH_FILE="$TMP_DIR/default-github-path"
 DEFAULT_GITHUB_ENV_FILE="$TMP_DIR/default-github-env"
 SUDO_LOG="$TMP_DIR/sudo.log"
 
-mkdir -p "$FIXTURE_ROOT/$ZIG_NAME/lib/compiler" "$BIN_DIR" "$RUNNER_TEMP_DIR" "$WRONG_VERSION_RUNNER_TEMP_DIR" "$WRONG_VERSION_LIB_DIR/compiler"
+mkdir -p "$FIXTURE_ROOT/$ZIG_NAME/lib/std" "$BIN_DIR" "$RUNNER_TEMP_DIR" "$WRONG_VERSION_RUNNER_TEMP_DIR" "$WRONG_VERSION_LIB_DIR/std"
 rm -rf "$SHARED_TMP_ZIG_DIR"
 mkdir -p "$SHARED_TMP_ZIG_DIR"
 printf 'shared temp marker\n' > "$SHARED_TMP_MARKER"
@@ -114,9 +126,9 @@ case "\${1:-}" in
 esac
 EOF
 chmod +x "$FIXTURE_ROOT/$ZIG_NAME/zig"
-printf 'lib fixture\n' > "$FIXTURE_ROOT/$ZIG_NAME/lib/std"
-printf 'build runner fixture\n' > "$FIXTURE_ROOT/$ZIG_NAME/lib/compiler/build_runner.zig"
-printf 'wrong version build runner fixture\n' > "$WRONG_VERSION_LIB_DIR/compiler/build_runner.zig"
+printf 'lib fixture\n' > "$FIXTURE_ROOT/$ZIG_NAME/lib/fixture.txt"
+printf 'std fixture\n' > "$FIXTURE_ROOT/$ZIG_NAME/lib/std/std.zig"
+printf 'wrong version std fixture\n' > "$WRONG_VERSION_LIB_DIR/std/std.zig"
 (cd "$FIXTURE_ROOT" && tar -cf "$ARCHIVE" "$ZIG_NAME")
 ARCHIVE_SHA256="$(archive_sha256 "$ARCHIVE")"
 
@@ -206,7 +218,7 @@ fi
 
 if grep -Fq "already installed at" "$OUTPUT_FILE"; then
   cat "$OUTPUT_FILE"
-  echo "FAIL: installer accepted a broken existing zig whose lib_dir lacks compiler/build_runner.zig" >&2
+  echo "FAIL: installer accepted a broken existing zig whose lib_dir lacks std/std.zig" >&2
   exit 1
 fi
 
@@ -285,9 +297,9 @@ if [ "$(canonical_install_root "$(readlink "$SUDO_SYSTEM_PREFIX/lib/zig")")" != 
   exit 1
 fi
 
-if [ ! -f "$SUDO_SYSTEM_PREFIX/lib/$ZIG_NAME/lib/compiler/build_runner.zig" ]; then
+if [ ! -f "$SUDO_SYSTEM_PREFIX/lib/$ZIG_NAME/lib/std/std.zig" ]; then
   cat "$SUDO_OUTPUT_FILE"
-  echo "FAIL: sudo-installed zig is missing compiler/build_runner.zig in its extracted root" >&2
+  echo "FAIL: sudo-installed zig is missing std/std.zig in its extracted root" >&2
   exit 1
 fi
 
@@ -300,6 +312,38 @@ fi
 if ! grep -Fxq "CMUX_ZIG=$EXPECTED_SUDO_BIN_DIR/zig" "$SUDO_GITHUB_ENV_FILE"; then
   cat "$SUDO_OUTPUT_FILE"
   echo "FAIL: sudo install did not publish CMUX_ZIG" >&2
+  exit 1
+fi
+
+# A host's system zig belongs to the classic ghostty submodule. When the
+# requested Zig differs from it, the install stays job-local even with sudo,
+# so a ghostty-next job never swaps /usr/local/bin/zig under a classic job.
+CLASSIC_PREFIX="$TMP_DIR/classic-system-prefix"
+CLASSIC_RUNNER_TEMP="$TMP_DIR/classic-runner-temp"
+CLASSIC_OUTPUT_FILE="$TMP_DIR/classic-output"
+mkdir -p "$FIXTURE_REPO/ghostty" "$CLASSIC_RUNNER_TEMP"
+printf '.{\n    .minimum_zig_version = "1.0.0",\n}\n' > "$FIXTURE_REPO/ghostty/build.zig.zon"
+rm -f "$SUDO_LOG"
+PATH="$BIN_DIR:/usr/bin:/bin" \
+  RUNNER_TEMP="$CLASSIC_RUNNER_TEMP" \
+  GITHUB_PATH="$TMP_DIR/classic-github-path" \
+  GITHUB_ENV="$TMP_DIR/classic-github-env" \
+  FAKE_ZIG_VERSION="0.0.0" \
+  ZIG_REQUIRED="$ZIG_REQUIRED" \
+  ZIG_EXPECTED_SHA256="$ARCHIVE_SHA256" \
+  ZIG_SYSTEM_PREFIX="$CLASSIC_PREFIX" \
+  ZIG_MIRROR_URL="https://example.invalid/$ZIG_NAME.tar.xz" \
+  "$SCRIPT" > "$CLASSIC_OUTPUT_FILE" 2>&1
+rm -f "$FIXTURE_REPO/ghostty/build.zig.zon"
+if [ -e "$CLASSIC_PREFIX/bin/zig" ] || { [ -f "$SUDO_LOG" ] && grep -q "cp " "$SUDO_LOG"; }; then
+  cat "$CLASSIC_OUTPUT_FILE"
+  echo "FAIL: a zig that differs from the classic ghostty zig replaced the system zig" >&2
+  exit 1
+fi
+if ! grep -Fq "installing it job-locally" "$CLASSIC_OUTPUT_FILE" ||
+   [ ! -f "$CLASSIC_RUNNER_TEMP/$ZIG_NAME/lib/std/std.zig" ]; then
+  cat "$CLASSIC_OUTPUT_FILE"
+  echo "FAIL: a zig that differs from the classic ghostty zig was not installed job-locally" >&2
   exit 1
 fi
 
@@ -402,4 +446,4 @@ if ! grep -Fxq "CMUX_ZIG=$EXPECTED_DEFAULT_INSTALL_ROOT/zig" "$DEFAULT_GITHUB_EN
   exit 1
 fi
 
-echo "PASS: install-zig-ci rejects broken or wrong-version existing zig, validates sudo lib_dir, falls back locally, isolates shared /tmp extraction, honors ZIG_FORCE_LOCAL_INSTALL, and handles missing RUNNER_TEMP"
+echo "PASS: install-zig-ci rejects broken or wrong-version existing zig, validates sudo lib_dir, falls back locally, isolates shared /tmp extraction, honors ZIG_FORCE_LOCAL_INSTALL, keeps the classic system zig, and handles missing RUNNER_TEMP"

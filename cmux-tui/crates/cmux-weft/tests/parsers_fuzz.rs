@@ -9,11 +9,53 @@ use cmux_weft::relay_frame;
 use cmux_weft::signing::{SignedHeaders, Verifier};
 use cmux_weft::ticket;
 use proptest::prelude::*;
+use proptest::test_runner::RngSeed;
+use std::hash::{BuildHasher, Hasher};
 
 const NOW: u64 = 1_800_000_000_000;
+const CASES: u32 = 2000;
+
+/// Each test's config, from the same variables as the Swift fuzz suites'
+/// `FuzzSeed`: `CMUX_FUZZ_SEED=<u64>` (decimal or `0x` hex) or `random`, and
+/// `CMUX_FUZZ_ITERATIONS=<n>`, which multiplies the case count. With no seed
+/// set, the run is random, as proptest's own default always was here; the seed
+/// is chosen here instead, so it can be named. The line goes to the test's
+/// output, which libtest shows when the test fails.
+fn fuzz_config() -> ProptestConfig {
+    let seed = match std::env::var("CMUX_FUZZ_SEED") {
+        Err(_) => random_seed(),
+        Ok(value) if value == "random" => random_seed(),
+        Ok(value) => {
+            let parsed = match value.strip_prefix("0x") {
+                Some(hex) => u64::from_str_radix(hex, 16),
+                None => value.parse(),
+            };
+            parsed
+                .unwrap_or_else(|_| panic!("CMUX_FUZZ_SEED must be a u64 or random, got '{value}'"))
+        }
+    };
+    let scale = match std::env::var("CMUX_FUZZ_ITERATIONS") {
+        Err(_) => 1,
+        Ok(value) => match value.parse::<u32>() {
+            Ok(n) if n > 0 => n,
+            _ => panic!("CMUX_FUZZ_ITERATIONS must be a positive whole number, got '{value}'"),
+        },
+    };
+    eprintln!("CMUX_FUZZ_SEED={seed} CMUX_FUZZ_ITERATIONS={scale}");
+    ProptestConfig {
+        cases: CASES.saturating_mul(scale),
+        rng_seed: RngSeed::Fixed(seed),
+        ..ProptestConfig::default()
+    }
+}
+
+/// A random u64 from the process's random hash keys (no extra dependency).
+fn random_seed() -> u64 {
+    std::collections::hash_map::RandomState::new().build_hasher().finish()
+}
 
 proptest! {
-    #![proptest_config(ProptestConfig { cases: 2000, ..ProptestConfig::default() })]
+    #![proptest_config(fuzz_config())]
 
     #[test]
     fn policy_parse_never_panics(text in ".{0,400}") {

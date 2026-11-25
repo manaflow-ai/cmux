@@ -121,3 +121,34 @@ public struct AgentFeatureUnavailable: Error, LocalizedError, Equatable {
     public init(_ message: String) { self.message = message }
     public var errorDescription: String? { message }
 }
+
+/// A chat's session status, as the Mac's Session status card shows it (`/status`,
+/// webviews acpmux/HarnessStatusCard): acpmux's detail of the session, one labeled value
+/// per field, "Not reported" where acpmux left it out. No value is ever a credential:
+/// only the agent's own auth-source label is read.
+public struct AgentSessionStatus: Hashable, Sendable {
+    public struct Field: Hashable, Sendable, Identifiable {
+        public var label: String
+        public var value: String
+        public var id: String { label }
+
+        public init(label: String, value: String) {
+            self.label = label
+            self.value = value
+        }
+    }
+
+    /// The agent's name over the card's title (the harness).
+    public var harness: String
+    public var fields: [Field]
+
+    public init(harness: String, fields: [Field]) {
+        self.harness = harness
+        self.fields = fields
+    }
+
+    /// The text Copy All puts on the clipboard: one `label: value` line per field.
+    public var copyText: String {
+        fields.map { "\($0.label): \($0.value)" }.joined(separator: "\n")
+    }
+}

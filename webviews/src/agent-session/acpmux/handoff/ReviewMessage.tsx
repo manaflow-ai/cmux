@@ -76,12 +76,21 @@ export function HandoffReviewMessage({
         onSubmit={async (event) => {
           event.preventDefault();
           if (busy || state.conflict) return;
+          let review: ReturnType<typeof reviewedContinuation>;
           try {
-            const review = reviewedContinuation(capsule, checkpoint, confirmed, memory, record.capsule.maxBytes, s);
-            setValidationError(undefined);
+            review = reviewedContinuation(capsule, checkpoint, confirmed, memory, record.capsule.maxBytes, s);
+          } catch (invalid) {
+            // review.ts words what is missing in the pane's own strings.
+            setValidationError(invalid instanceof Error ? invalid.message : s.failedReview);
+            return;
+          }
+          setValidationError(undefined);
+          try {
             await onStart({ ...review, revision: base.current });
           } catch (error) {
-            setValidationError(error instanceof Error ? error.message : s.failedReview);
+            // A refused start says so in plain words; the host's own words go to the log.
+            console.warn("agent pane: the continuation did not start", error);
+            setValidationError(s.failedReview);
           }
         }}
       >
@@ -91,6 +100,7 @@ export function HandoffReviewMessage({
             aria-label={s.context}
             value={capsule}
             rows={10}
+            required
             disabled={!editable}
             onChange={(e) => {
               changed();
@@ -105,6 +115,7 @@ export function HandoffReviewMessage({
             aria-label={s.checkpoint}
             value={checkpoint}
             placeholder={s.checkpointPlaceholder}
+            required
             disabled={!editable}
             onChange={(e) => {
               changed();
@@ -118,6 +129,7 @@ export function HandoffReviewMessage({
           <input
             aria-label={s.checkpointConfirm}
             type="checkbox"
+            required
             checked={confirmed}
             disabled={!editable}
             onChange={(e) => {
@@ -173,10 +185,7 @@ export function HandoffReviewMessage({
         {(validationError || state.error) && <p role="alert">{validationError || state.error}</p>}
         {state.busy === "saving" && <output>{s.saving}</output>}
         <div className="acpmux-handoff-buttons">
-          <button
-            type="submit"
-            disabled={busy || !!state.conflict || !capsule.trim() || !checkpoint.trim() || !confirmed}
-          >
+          <button type="submit" disabled={busy || !!state.conflict}>
             {state.busy === "starting" || record.state === "starting"
               ? s.starting
               : formatHandoff(s.continueTarget, agentDisplayName(record.target.harness))}

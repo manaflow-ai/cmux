@@ -6,6 +6,7 @@ import { JSDOM } from "jsdom";
 import { bareImageSource, imageOnlyItems, proseImages } from "../src/agent-session/acpmux/conversation/inlineMedia";
 import { codePath, isImagePath, isImageUrl, textLinks } from "../src/agent-session/acpmux/chips/paths";
 import { commitReferences, githubReferences, mentionedRepository } from "../src/githubReferences";
+import { settleReact } from "./support/domTeardown";
 
 const REPO = "manaflow-ai/cmux";
 const PR_MEDIA = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/23650/tabs-light.png";
@@ -67,6 +68,24 @@ describe("image-only paragraphs", () => {
     ["a plain http image", "http://example.com/a.png", undefined],
     ["a web page", "https://example.com/page", undefined],
     ["a path with a line suffix", "/tmp/a.png:3", undefined],
+    [
+      "two bare video addresses, labelled",
+      "Before: https://x.test/before.mp4\nAfter: https://x.test/after.mp4",
+      [
+        ["https://x.test/before.mp4", "Before"],
+        ["https://x.test/after.mp4", "After"],
+      ],
+    ],
+    [
+      "Markdown links to videos",
+      "[before](/tmp/before.mov) [after](/tmp/after.mov)",
+      [
+        ["/tmp/before.mov", "before"],
+        ["/tmp/after.mov", "after"],
+      ],
+    ],
+    ["a Markdown link to a page is prose", "[docs](https://example.com/docs)", undefined],
+    ["a video with credentials is not drawn", "https://u:p@x.test/a.mp4", undefined],
   ];
   test.each(cases)("%s", (_name, text, items) => {
     expect(imageOnlyItems(text)?.map((item) => [item.src, item.alt])).toEqual(items);
@@ -80,8 +99,32 @@ describe("image paths in a sentence", () => {
       PR_MEDIA,
     ]);
   });
-  test("code spans, link targets and Markdown images are not prose", () => {
-    expect(proseImages("Run `open /tmp/a.png`, see [it](/tmp/b.png) and ![c](/tmp/c.png).")).toEqual([]);
+  test("a command in code and a Markdown image are not prose; a link's image target is", () => {
+    expect(proseImages("Run `open /tmp/a.png`, see [it](/tmp/b.png) and ![c](/tmp/c.png).")).toEqual([
+      { src: "/tmp/b.png", alt: "it" },
+    ]);
+  });
+  // Leo 2026-11-22, of `palette-before-after-together.png` drawn only as a chip: "shouldn't these, like
+  // the in-app videos, and probably gifs, be rendered in the app?"
+  test("a code span that is only an image or video path draws it; a file:line reference does not", () => {
+    expect(
+      proseImages("Saved `/tmp/shots/palette-before-after-together.png` and `/tmp/a.gif`; see `src/app.ts:12`.").map(
+        (item) => item.src,
+      ),
+    ).toEqual(["/tmp/shots/palette-before-after-together.png", "/tmp/a.gif"]);
+  });
+  test("videos in a sentence are found in reading order: a bare address, a link and a local path", () => {
+    const clip = "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/49596/tool-burst-clean-send-x1.mp4";
+    expect(
+      proseImages(`The clip ${clip} and [after](https://x.test/after.webm), recorded to /tmp/rec/run.mov.`).map(
+        (item) => item.src,
+      ),
+    ).toEqual([clip, "https://x.test/after.webm", "/tmp/rec/run.mov"]);
+  });
+  test("a local SVG draws (the host rebuilds it); a web SVG, an audio file and a page do not", () => {
+    expect(
+      proseImages("Icon at /tmp/icon.svg, https://x.test/a.svg, /tmp/a.wav, https://x.test/a.html").map((i) => i.src),
+    ).toEqual(["/tmp/icon.svg"]);
   });
   test("a path with a line suffix or another extension is not an image", () => {
     expect(proseImages("Look at /tmp/a.png:3 and /tmp/notes.md")).toEqual([]);
@@ -201,7 +244,8 @@ describe("rendered replies", () => {
       IS_REACT_ACT_ENVIRONMENT: true,
     });
   });
-  afterAll(() => {
+  afterAll(async () => {
+    await settleReact();
     for (const [key, had, value] of saved) {
       if (had) scope[key] = value;
       else delete scope[key];
@@ -228,6 +272,8 @@ describe("rendered replies", () => {
         "/tmp/shots/before.png": { place: "root", folder: false },
         "/tmp/shots/after.png": { place: "root", folder: false },
         "/tmp/shots/slow.png": { place: "root", folder: false },
+        "/tmp/shots/before.mp4": { place: "root", folder: false },
+        "/tmp/shots/after.mp4": { place: "root", folder: false },
         [LOCAL_TMP]: { place: "root", folder: false },
         [OUTSIDE_IMAGE]: { place: "outside", folder: false },
       },
@@ -259,6 +305,16 @@ describe("rendered replies", () => {
       "After",
     ]);
     await unmount();
+  });
+
+  test("a before/after pair of clips offers Compare; two clips named in a sentence do not", async () => {
+    const pair = await render("**Before:** /tmp/shots/before.mp4\n**After:** /tmp/shots/after.mp4");
+    expect(pair.container.querySelector(".cv-thumbs.is-row .cv-thumbs__compare")).not.toBeNull();
+    await pair.unmount();
+    const prose = await render("The old run is /tmp/shots/before.mp4 and the new one is /tmp/shots/after.mp4.");
+    expect(prose.container.querySelector(".cv-thumbs.is-row")).not.toBeNull();
+    expect(prose.container.querySelector(".cv-thumbs__compare")).toBeNull();
+    await prose.unmount();
   });
 
   test("a local /tmp image loads into its thumbnail", async () => {

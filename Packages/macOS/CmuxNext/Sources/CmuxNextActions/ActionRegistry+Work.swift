@@ -20,14 +20,23 @@ public struct ActionWorkFailure: Error, Sendable, Hashable, CustomStringConverti
     /// (`screenshot.unavailable`), with `message` as its reason. Nil for the
     /// default mapping (``refusal``, a timeout, or `daemon_error`).
     public var code: String?
+    /// More of a coded failure (``code``) for a caller to read, beside its reason: the control error's `data`
+    /// (`until_at` for `agent.limit_reached`). Empty for every other failure.
+    public var details: [String: String] = [:]
     /// The person already saw why it failed (the daemon service showed a pane-still-opening refusal when the command
     /// ended), so no reporter (the registry, a handler's own report) shows a second notice: once, never zero times or twice.
     public var shown = false
+    /// Why it failed in the person's words and language, where `message` is the daemon's own error (a full disk:
+    /// "the disk is full"); the notice a person's run shows uses it, a capturing caller still gets `message`. Nil: `message`.
+    public var shownReason: String?
+    /// Where `message` came from, which decides whether a person ever reads it (``notice(title:)``).
+    public var cause: ActionWorkCause
 
     public init(_ message: String, mayHaveApplied: Bool = false, terminalMayAppear: Bool = false) {
         self.message = message
         self.mayHaveApplied = mayHaveApplied
         self.terminalMayAppear = terminalMayAppear
+        cause = mayHaveApplied || terminalMayAppear ? .unanswered : .text
     }
 
     /// The handler refused in its background work; `message` is the reason.
@@ -36,10 +45,11 @@ public struct ActionWorkFailure: Error, Sendable, Hashable, CustomStringConverti
         self.refusal = refusal
     }
 
-    /// A failure the control socket answers with error `code` and `reason`.
-    public init(code: String, reason: String) {
+    /// A failure the control socket answers with error `code` and `reason`, and `details` in its `data`.
+    public init(code: String, reason: String, details: [String: String] = [:]) {
         self.init(reason)
         self.code = code
+        self.details = details
     }
 
     public init(stringLiteral value: String) {
@@ -74,6 +84,23 @@ extension ActionRegistry {
     /// Reports a task a handler started. Ignored unless a caller is capturing.
     public func track(_ task: ActionWork) {
         if capturedWork != nil { capturedWork?.append(task) }
+    }
+
+    /// Reports `task` to a capturing caller (a CLI or MCP run awaits it, ``track(_:)``); a menu or
+    /// keyboard run nobody waits on shows its failure as a refusal (``refuse(_:quiet:)``) instead of
+    /// dropping it (Archive Chief on an unreachable Chief did nothing).
+    public func trackOrRefuse(_ task: ActionWork) {
+        if isCapturingWork { return track(task) }
+        // task-owner: one-shot; ends with `task`, and holds the registry weakly.
+        Task { @MainActor [weak self] in if let failure = await task.value { self?.refuse(failure: failure) } }
+    }
+
+    /// Reports `failure`, the background half of a run nobody waits on, as a refusal: its notice where one is shown
+    /// (``ActionWorkFailure/notice(title:)``), and only its `message` to a capturing caller and the log when the person
+    /// can do nothing with it (a missed deadline, a dropped connection, the daemon's own text). Every handler that
+    /// shows an ``ActionWorkFailure`` goes through here, never `refuse(failure.message)` (`ActionWorkFailureNoticeTests` checks the sources).
+    public func refuse(failure: ActionWorkFailure) {
+        if let notice = failure.notice(title: nil) { refuse(notice) } else { refuse(failure.message, quiet: true) }
     }
 
     /// Reports a task that produces the action's value (a screenshot's

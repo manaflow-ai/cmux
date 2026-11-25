@@ -68,17 +68,30 @@ http.server.ThreadingHTTPServer(("127.0.0.1", {SLOW_PORT}), H).serve_forever()
 FRAME = "<!doctype html><body>frame<script>setTimeout(()=>alert('FRAMEALERT closes by itself'),300)</script></body>"
 
 
+# Each server's pidfile and the command line its process must show: http.server on PORT, slow.py.
+SITE_SERVERS = {f"http-{PORT}.pid": f"http.server {PORT}", f"slow-{SLOW_PORT}.pid": "slow.py"}
+# The pidfiles this run wrote because it started that server (serve()).
+STARTED_PIDFILES: set = set()
+
+
 def serve():
     """The test site on the mini (idempotent): an http server on PORT in SITE."""
     files = {"index.html": PAGE, "next.html": NEXT, "gone.html": GONE, "frame.html": FRAME, "slow.py": SLOW}
     cmd = f"mkdir -p {SITE} && cd {SITE}"
     for name, body in files.items():
         cmd += f" && printf %s {shlex.quote(body)} > {name}"
+    # A pidfile is written only by the run that starts its server, and that run says so on stdout,
+    # so stop_site() never acts on a pidfile another (or an earlier, crashed) run left behind.
     cmd += (f" && (curl -fsS -o /dev/null http://127.0.0.1:{PORT}/index.html || "
-            f"(nohup python3 -m http.server {PORT} --bind 127.0.0.1 </dev/null >/dev/null 2>&1 &))"
-            f" && (nc -z 127.0.0.1 {SLOW_PORT} || (nohup python3 slow.py </dev/null >/dev/null 2>&1 &))")
+            f"(nohup python3 -m http.server {PORT} --bind 127.0.0.1 </dev/null >/dev/null 2>&1 & echo $! > http-{PORT}.pid"
+            f" && echo STARTED:http-{PORT}.pid))"
+            f" && (nc -z 127.0.0.1 {SLOW_PORT} || (nohup python3 slow.py </dev/null >/dev/null 2>&1 & echo $! > slow-{SLOW_PORT}.pid"
+            f" && echo STARTED:slow-{SLOW_PORT}.pid))")
     r = pq.rsh(cmd)
     check(r.returncode == 0, f"site: {r.stderr.strip()[:200]}")
+    for line in r.stdout.splitlines():
+        if line.startswith("STARTED:") and line[len("STARTED:"):] in SITE_SERVERS:
+            STARTED_PIDFILES.add(line[len("STARTED:"):])
     t0 = time.time()
     while time.time() - t0 < 60:
         if pq.rsh(f"curl -fsS -o /dev/null http://127.0.0.1:{PORT}/index.html && nc -z 127.0.0.1 {SLOW_PORT}").returncode == 0:
@@ -445,7 +458,19 @@ def run_all(names=None):
 
 
 def stop_site():
-    pq.rsh(f"pkill -f 'http.server {PORT}' || true; pkill -f 'slow.py' || true")
+    """Stops only the servers this run's serve() started, by the PIDs it recorded; never by name,
+    so another run's server on this mini is left alone. The PID is killed only while its command
+    line is still that server's (a stale pidfile's PID may have been reused), and the pidfile is
+    removed after."""
+    stops = []
+    for pidfile in sorted(STARTED_PIDFILES):
+        path = f"{SITE}/{pidfile}"  # unquoted, like serve(): SITE may start with ~
+        expect = shlex.quote(SITE_SERVERS[pidfile])
+        stops.append(f"p=$(cat {path} 2>/dev/null) && ps -o command= -p \"$p\" 2>/dev/null | grep -Fq -- {expect}"
+                     f" && kill \"$p\" 2>/dev/null; rm -f {path}")
+    STARTED_PIDFILES.clear()
+    if stops:
+        pq.rsh("; ".join(stops) + "; true")
 
 
 if __name__ == "__main__":

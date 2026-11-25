@@ -53,4 +53,20 @@ import Testing
         await #expect(throws: MacInstallIdentity.Failure.signedOut) { try await request.value }
         #expect(await identity.installID() == nil)
     }
+
+    /// Review of the GitHub App lender at 9ea8b17: a cancelled team mint went on, because the
+    /// client ran it in a task of its own, so superseded lends piled up requests.
+    @Test func cancellingATeamMintReachesItsRequest() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let owner = MacTeamAuthOwner(), identity = make(owner, root: root)
+        try await identity.signedIn(stackUser: "stack_1", session: { "test-session" })
+        await owner.holdNextTeamToken()
+        let request = Task { try await identity.installToken(team: team) }
+        await owner.waitUntilHeld()
+        request.cancel()
+        await owner.release()
+        _ = try? await request.value
+        #expect(await owner.cancelledAtToken == true)
+    }
 }

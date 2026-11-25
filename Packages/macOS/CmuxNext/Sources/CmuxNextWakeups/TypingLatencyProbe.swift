@@ -11,12 +11,16 @@ import CmuxNextSignposts
 /// submit, the echo's decode on the attach reader, the session taking it for its
 /// output lane (`output_received_ms`: off the main actor since G4, so rows before 04237873b23
 /// named this column `output_main_ms` and do not compare),
-/// its parse on the output lane, and the first `layer.contents` set after
-/// that parse (the frame Core Animation commits). The row is appended when
+/// its parse on the output lane, and the first frame Ghostty reports shown on
+/// the layer after that parse (its present callback: after the GPU thread's own
+/// transaction committed, so rows before the callback marked the `setContents:`
+/// call and read a little earlier). The row is appended when
 /// that frame lands. Drive it with keys paced wider than one round trip;
 /// a key that arrives while a sample is open closes the old one unfinished.
 /// Times are milliseconds after the event's own timestamp (seconds since
-/// boot, the same clock as `CLOCK_UPTIME_RAW`).
+/// boot, the same clock as `CLOCK_UPTIME_RAW`); the last column,
+/// `event_uptime_ns`, is that timestamp itself, so a row joins a HID post
+/// time, a `debug.hangs` stall or a screen recording's frame times.
 ///
 /// One press at a time, tied to its terminal: the echo hops take a `source`
 /// (``mark(_:source:next:)``), and a hop counts only from the object the
@@ -139,7 +143,9 @@ public final class TypingLatencyProbe: Sendable {
         if let path, !path.isEmpty, FileManager.default.createFile(atPath: path, contents: nil),
            let handle = FileHandle(forWritingAtPath: path) {
             output = handle
-            let header = (["index", "complete", "io_write_on_main"] + Mark.allCases.map(\.columnName)).joined(separator: ",") + "\n"
+            // `event_uptime_ns` last, so readers that pick columns by name or by position keep working.
+            let header = (["index", "complete", "io_write_on_main"] + Mark.allCases.map(\.columnName) + ["event_uptime_ns"])
+                .joined(separator: ",") + "\n"
             handle.write(Data(header.utf8))
         } else {
             output = nil
@@ -262,6 +268,14 @@ public final class TypingLatencyProbe: Sendable {
         if let finished { emit(finished, complete: true) }
     }
 
+    /// Drops the open sample without a row: a caller that opened it before its dispatch hands the key to a
+    /// route that opens its own sample (`debug.key` sending through the app's `sendEvent`), which would
+    /// otherwise write this one as an incomplete row.
+    public func withdraw() {
+        guard output != nil || flows != nil else { return }
+        state.withLock { $0.open = nil }
+    }
+
     /// Waits for every row emitted so far to reach the file (tests).
     func flush() {
         writes.sync {}
@@ -273,7 +287,8 @@ public final class TypingLatencyProbe: Sendable {
             let millis = sample.marks.map { mark in
                 mark.map { String(format: "%.3f", Double(Int64(bitPattern: $0 &- sample.event)) / 1_000_000) } ?? ""
             }
-            let row = (["\(sample.index)", complete ? "1" : "0", sample.ioWriteOnMain ? "1" : "0"] + millis).joined(separator: ",") + "\n"
+            let row = (["\(sample.index)", complete ? "1" : "0", sample.ioWriteOnMain ? "1" : "0"] + millis + ["\(sample.event)"])
+                .joined(separator: ",") + "\n"
             output.write(Data(row.utf8))
         }
     }

@@ -19,6 +19,8 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
 
     /// A click on the character, or the rail's compose.
     public var onClick: (() -> Void)?
+    /// The pointer came onto the pet (true) or left it (false).
+    var onHover: ((Bool) -> Void)?
     /// The rail's chevron.
     public var onExpand: (() -> Void)?
     /// The right-click menu's Chief Pet Settings… item.
@@ -69,6 +71,7 @@ public final class ChiefPetPanel: NSPanel, NSWindowDelegate {
         pet.frame = NSRect(origin: .zero, size: Self.petSize)
         pet.autoresizingMask = [.width, .height]
         pet.onClick = { [weak self] in self?.onClick?() }
+        pet.onHover = { [weak self] inside in self?.onHover?(inside) }
         pet.rail.addTool(.actionEdit, label: ChiefPetStrings.compose) { [weak self] in self?.onClick?() }
         expandTool = pet.rail.addTool(.disclosureCollapsed, label: ChiefPetStrings.expand, turned: 90) { [weak self] in self?.onExpand?() }
         pet.onDragEnded = { [weak self] in self?.saveOrigin() }
@@ -182,6 +185,8 @@ final class ChiefPetView: NSView, StatusIndicatorConfigClient {
     var onDragEnded: (() -> Void)?
     /// The right-click menu (the panel's `contextMenu()`).
     var contextMenu: (() -> NSMenu?)?
+    /// The pointer came onto the pet (true) or left it (false): the hover dock (`ChiefPetHoverDock`).
+    var onHover: ((Bool) -> Void)?
     /// The pointer in screen points; tests drive their own.
     var pointer: () -> CGPoint = { NSEvent.mouseLocation }
     let rail = ChiefPetRail()
@@ -195,6 +200,10 @@ final class ChiefPetView: NSView, StatusIndicatorConfigClient {
     /// Where the press started, in screen points, the panel's origin then, and whether it was on the character.
     private var press: (start: CGPoint, origin: CGPoint, onCharacter: Bool)?
     private var dragging = false
+    /// Where the pointer was when the drag's lean last turned: the next turn needs `leanSlop` points from here.
+    private var leanSample: CGPoint?
+    /// How far the pointer moves before the lean follows it, so a jitter does not flip it.
+    static let leanSlop: CGFloat = 3
     /// A press is moving the pet now.
     var isDragging: Bool { dragging }
 
@@ -221,6 +230,12 @@ final class ChiefPetView: NSView, StatusIndicatorConfigClient {
         // Reduce Motion, calm mode and the speed setting reach the clip's loop at once, by the
         // indicators' one broadcast (held weakly: it ends with the view).
         StatusIndicatorAppearance.shared.register(self)
+    }
+
+    /// The name VoiceOver and the tooltip give the pet: the Chief, or the chat Show in Mini picked.
+    func name(_ title: String) {
+        character.setAccessibilityLabel(title)
+        themedToolTip = title
     }
 
     /// Loops just turned off (or on): the clip stops on its first frame (or moves again).
@@ -304,6 +319,24 @@ final class ChiefPetView: NSView, StatusIndicatorConfigClient {
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+    /// Hover reaches the pet over any app: it never activates cmux, so the area tracks always.
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        // A drag carries the pet under the pointer: no hover then.
+        guard !dragging else { return }
+        onHover?(true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        guard !dragging else { return }
+        onHover?(false)
+    }
+
     /// A tool takes its own press; anywhere else the pet takes it (a drag, or a click on the character).
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard frame.contains(point) else { return nil }
@@ -312,17 +345,18 @@ final class ChiefPetView: NSView, StatusIndicatorConfigClient {
     }
 
     /// A right-click on the pet opens its menu (AppKit asks here on a right mouse down).
-    override func menu(for event: NSEvent) -> NSMenu? { contextMenu?() }
+    override func menu(for event: NSEvent) -> NSMenu? { NSMenu.withoutSystemItems(contextMenu?()) }
 
     override func mouseDown(with event: NSEvent) {
         // Control-click is a right-click: the menu, never a drag or the reply box.
         if event.modifierFlags.contains(.control), let menu = menu(for: event) {
             press = nil
-            return NSMenu.popUpContextMenu(menu, with: event, for: self)
+            return NSMenu.popUpContextMenu(menu.withoutSystemItems(), with: event, for: self)
         }
         let local = convert(event.locationInWindow, from: nil)
         press = (pointer(), window?.frame.origin ?? .zero, character.frame.contains(local))
         dragging = false
+        leanSample = press?.start
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -332,11 +366,21 @@ final class ChiefPetView: NSView, StatusIndicatorConfigClient {
         dragging = true
         // Whole points, as the saved spot is: the drop then rounds nothing and the notices stay put.
         window.setFrameOrigin(CGPoint(x: (press.origin.x + point.x - press.start.x).rounded(), y: (press.origin.y + point.y - press.start.y).rounded()))
+        lean(toward: point)
         onDragMoved?()
     }
 
+    /// An animated character leans the way the drag pulls it: the dominant way since the last turn.
+    private func lean(toward point: CGPoint) {
+        let from = leanSample ?? point
+        guard let direction = ChiefPetDirection.dominant(dx: point.x - from.x, dy: point.y - from.y, minimum: Self.leanSlop) else { return }
+        leanSample = point
+        sprite.drag(direction)
+    }
+
     override func mouseUp(with event: NSEvent) {
-        defer { press = nil; dragging = false }
+        // The drop: the character draws its state again.
+        defer { press = nil; dragging = false; leanSample = nil; sprite.drag(nil) }
         guard let press else { return }
         if dragging { onDragEnded?() } else if press.onCharacter { onClick?() }
     }

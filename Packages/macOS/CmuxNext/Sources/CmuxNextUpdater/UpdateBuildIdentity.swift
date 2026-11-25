@@ -48,7 +48,7 @@ nonisolated public struct UpdateBuildIdentity: Sendable, Equatable {
     }
 
     /// cmux NEXT DEV's bundle id (the Release compile of feat-cmux-next, docs/cmux-next/dev-daily.md).
-    public static let tipBundleIdentifier = "com.cmuxterm.app.debug.next"
+    public static let tipBundleIdentifier = AppChannelSwitchTarget.devBundleIdentifier
     /// The feed main's DEV publisher stamps into that bundle. Its path holds `/nightly-next/`, so
     /// it resolves like cmux NEXT's nightly feed: per architecture, with rings.
     public static let tipFeedPrefix = "https://files.cmux.com/nightly-next/tip/"
@@ -84,12 +84,14 @@ nonisolated public struct UpdateBuildIdentity: Sendable, Equatable {
         return nil
     }
 
-    /// The other release app this one can switch to (stable <-> NIGHTLY), by bundle id;
-    /// nil for DEV, staging and RC builds. cmux NEXT (`com.cmuxterm.app.nightly.cmux-next`)
-    /// and the tip app have none; the legacy NEXT build signed as cmux NIGHTLY
-    /// (`com.cmuxterm.app.nightly`) keeps NIGHTLY's stable counterpart
-    /// (`UpdateTrackMatrixTests` pins each).
+    /// The other release app this one can switch to, by bundle id: stable <-> NIGHTLY, and
+    /// cmux NEXT (`com.cmuxterm.app.nightly.cmux-next`) <-> the tip app (cmux NEXT DEV as
+    /// published); nil for local DEV, staging and RC builds. A local `reload.sh --tag next`
+    /// build shares the tip app's bundle id but not its feed, so it offers nothing. The legacy
+    /// NEXT build signed as cmux NIGHTLY (`com.cmuxterm.app.nightly`) keeps NIGHTLY's stable
+    /// counterpart (`UpdateTrackMatrixTests` pins each).
     public var channelSwitchTarget: AppChannelSwitchTarget? {
-        AppChannelSwitchTarget.counterpart(ofBundleIdentifier: bundleIdentifier)
+        if bundleIdentifier == Self.tipBundleIdentifier, !isTipBuild { return nil }
+        return AppChannelSwitchTarget.counterpart(ofBundleIdentifier: bundleIdentifier)
     }
 }

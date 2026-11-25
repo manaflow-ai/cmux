@@ -3,7 +3,7 @@ public import CmuxNextDesign
 /// How the Projects list sorts its rows under headers (`sidebar.groupBy`), with Group by Status's UI-local state:
 /// which sections the person folded, and the section the active row keeps.
 public nonisolated struct SidebarGrouping: Hashable, Sendable {
-    /// `sidebar.groupBy` (none or folder).
+    /// `sidebar.groupBy` (none, folder or recents).
     public var by: SidebarGroupBy = .none
     /// Group by Status (Debug `sidebar.groupByStatus`, off by default): it wins over `by` while on.
     public private(set) var byStatus = false
@@ -28,7 +28,10 @@ public nonisolated struct SidebarGrouping: Hashable, Sendable {
 
     /// Group by Folder: loose rows sit under folder headers.
     public var groupsByFolder: Bool { by == .folder && !byStatus }
-    /// Rows sit under headers (folder or status): the list does not reorder by drag.
+    /// Projects and Recents (`sidebar.groupBy` = recents): groups under "Projects", loose rows under "Recents".
+    /// Never while Group by Status is on.
+    public var groupsByRecents: Bool { by == .recents && !byStatus }
+    /// Rows sit under headers (folder, recents or status): the list does not reorder by drag.
     public var isGrouped: Bool { by != .none || byStatus }
 
     /// The section `row` shows under: the held one for the active row, else its own.

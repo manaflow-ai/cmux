@@ -80,7 +80,10 @@ fn copy_source(from: &Path, out: &Path) -> PathBuf {
 }
 
 fn patches() -> Vec<PathBuf> {
-    let folder = Path::new(env!("CARGO_MANIFEST_DIR")).join("patches");
+    // Read at run time, not with env!: a reused build script binary would
+    // look in its old checkout and silently find no patches.
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR");
+    let folder = Path::new(&manifest_dir).join("patches");
     println!("cargo:rerun-if-changed={}", folder.display());
     let mut patches: Vec<PathBuf> = std::fs::read_dir(&folder)
         .map(|entries| entries.filter_map(|entry| entry.ok().map(|entry| entry.path())).collect())

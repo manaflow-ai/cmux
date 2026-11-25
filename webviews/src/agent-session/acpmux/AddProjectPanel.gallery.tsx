@@ -133,6 +133,22 @@ export default componentEntry({
       props: base,
       play: toDirectory,
     },
+    "long-directory": {
+      note: "A long directory list keeps every folder reachable at its faded scroll edges.",
+      props: {
+        ...base,
+        host: {
+          ...host,
+          list: async () => ({
+            path: "/demo",
+            parent: null,
+            home: "/demo",
+            directories: Array.from({ length: 40 }, (_, index) => `/demo/project-${index + 1}`),
+          }),
+        },
+      },
+      play: toDirectory,
+    },
     keyboard: {
       note: "Arrow keys and Enter move through the command panel without stacked dialogs.",
       props: base,

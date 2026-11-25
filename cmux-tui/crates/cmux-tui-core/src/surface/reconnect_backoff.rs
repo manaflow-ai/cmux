@@ -66,11 +66,14 @@ impl TerminalHostReconnectBackoff {
                     .host_connection_state
                     .swap(TerminalHostConnectionState::Failed as u8, Ordering::AcqRel);
                 if was != TerminalHostConnectionState::Failed as u8 {
-                    if let PtyRuntime::Hosted(host) =
-                        &*pty.runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
-                    {
+                    let runtime =
+                        pty.runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                    if let PtyRuntime::Hosted(host) = &*runtime {
                         host.disconnect();
+                        // The input port refuses until a replacement is installed, as a write here fails now.
+                        pty.input_route_failed(&runtime);
                     }
+                    drop(runtime);
                     pty.stream_progress.notify();
                     publish_host_link_state(pty);
                 }
@@ -82,7 +85,7 @@ impl TerminalHostReconnectBackoff {
                 host.disconnect();
             }
             // Input waiting out the reconnect (surface/input.rs) fails now.
-            pty.stream_progress.notify();
+            pty.reader_gave_up();
             return false;
         };
         #[cfg(test)]

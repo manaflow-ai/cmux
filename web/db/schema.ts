@@ -1039,6 +1039,30 @@ export const cloudVmPublicationEmailGrants = pgTable("cloud_vm_publication_email
 ]);
 
 /**
+ * A machine credential for one protected publication: API clients send it in
+ * the `__Host-cmux-api-key` cookie, which the edge strips before the VM sees the
+ * request. Only the SHA-256 of the key is stored; revoking sets `revoked_at`.
+ */
+export const cloudVmPublicationApiKeys = pgTable("cloud_vm_publication_api_keys", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  publicationId: uuid("publication_id").notNull().references(() => cloudVmPublications.id, { onDelete: "cascade" }),
+  ownerUserId: text("owner_user_id").notNull(),
+  name: text("name").notNull(),
+  tokenHash: text("token_hash").notNull(),
+  /** The key's last four characters, so a person can tell keys apart. */
+  tokenHint: text("token_hint").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("cloud_vm_publication_api_keys_token_hash_unique").on(table.tokenHash),
+  index("cloud_vm_publication_api_keys_publication_idx").on(table.publicationId, table.createdAt),
+  check("cloud_vm_publication_api_keys_hash_check", sql`${table.tokenHash} ~ '^[0-9a-f]{64}$'`),
+  check("cloud_vm_publication_api_keys_name_check", sql`char_length(${table.name}) between 1 and 64`),
+  check("cloud_vm_publication_api_keys_hint_check", sql`char_length(${table.tokenHint}) = 4`),
+]);
+
+/**
  * Cross-origin browser transaction created on the publication hostname before
  * the browser visits CMUX sign-in. Only hashes of the opaque transaction and
  * OAuth state values are persisted; the host-only cookie holds the verifier.
@@ -1806,14 +1830,97 @@ export const stripeSubscriptions = pgTable(
   ],
 );
 
-export const stripeWebhookEvents = pgTable("stripe_webhook_events", {
-  id: text("id").primaryKey(),
-  type: text("type").notNull(),
-  payloadHash: text("payload_hash"),
-  processedAt: timestamp("processed_at", { withTimezone: true }),
-  error: text("error"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+/**
+ * The Stripe webhook inbox and idempotency ledger: one row per verified
+ * event, answered 2xx once stored and processed from here
+ * (services/billing/stripeWebhookInbox.ts).
+ */
+export const stripeWebhookEvents = pgTable(
+  "stripe_webhook_events",
+  {
+    id: text("id").primaryKey(),
+    type: text("type").notNull(),
+    payloadHash: text("payload_hash"),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+    error: text("error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** The Stripe object the event changes; one event per object is processed at a time. */
+    objectKey: text("object_key"),
+    /** Stripe's `event.created`. */
+    eventCreatedAt: timestamp("event_created_at", { withTimezone: true }),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).defaultNow(),
+    /**
+     * The holder's lease. Defaults to 15 minutes from the insert: a row the
+     * pre-inbox build writes is held while that build applies it.
+     */
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true })
+      .default(sql`now() + interval '15 minutes'`),
+    /** Why a processed event changed nothing; null when it was applied. */
+    skipReason: text("skip_reason"),
+  },
+  (table) => [
+    index("stripe_webhook_events_due_idx")
+      .on(table.nextAttemptAt)
+      .where(sql`${table.processedAt} is null`),
+    index("stripe_webhook_events_object_key_idx")
+      .on(table.objectKey, table.eventCreatedAt)
+      .where(sql`${table.objectKey} is not null`),
+  ],
+);
+
+/**
+ * The cmux Cloud $1 pass (services/billing/cloudIntro.ts): one row per pass
+ * checkout an account started. `open` until Stripe verifies the payment, then
+ * `granted` (the pass runs from `started_at` to `ends_at`) or `refused` (the
+ * payment was refunded; `refusal` says why). Every started row counts as a
+ * card attempt; granted rows count toward the caps and are unique per account
+ * and per card fingerprint.
+ */
+export const cloudIntroPasses = pgTable(
+  "cloud_intro_passes",
+  {
+    checkoutSessionId: text("checkout_session_id").primaryKey(),
+    stackUserId: text("stack_user_id").notNull(),
+    /** The teams the account belonged to at checkout; a team gets one pass across its members. */
+    stackTeamIds: text("stack_team_ids").array().notNull().default(sql`'{}'::text[]`),
+    status: text("status").$type<"open" | "granted" | "refused">().notNull().default("open"),
+    refusal: text("refusal"),
+    paymentIntentId: text("payment_intent_id"),
+    stripeCustomerId: text("stripe_customer_id"),
+    cardFingerprint: text("card_fingerprint"),
+    cardFunding: text("card_funding"),
+    /** The buyer chose "continue on Plus after 30 days"; only then is the card saved. */
+    renewOnPlus: boolean("renew_on_plus").notNull().default(false),
+    /** The card saved for off-session use, when `renew_on_plus`. */
+    paymentMethodId: text("payment_method_id"),
+    refundId: text("refund_id"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    endsAt: timestamp("ends_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("cloud_intro_passes_stack_user_idx").on(table.stackUserId),
+    index("cloud_intro_passes_stack_team_ids_idx").using("gin", table.stackTeamIds),
+    index("cloud_intro_passes_granted_started_idx")
+      .on(table.startedAt)
+      .where(sql`${table.status} = 'granted'`),
+    uniqueIndex("cloud_intro_passes_payment_intent_unique")
+      .on(table.paymentIntentId)
+      .where(sql`${table.paymentIntentId} is not null`),
+    uniqueIndex("cloud_intro_passes_granted_user_unique")
+      .on(table.stackUserId)
+      .where(sql`${table.status} = 'granted'`),
+    uniqueIndex("cloud_intro_passes_granted_card_unique")
+      .on(table.cardFingerprint)
+      .where(sql`${table.status} = 'granted'`),
+    check(
+      "cloud_intro_passes_status_check",
+      sql`${table.status} in ('open', 'granted', 'refused')`,
+    ),
+  ],
+);
 
 export const proWelcomeFulfillments = pgTable(
   "pro_welcome_fulfillments",

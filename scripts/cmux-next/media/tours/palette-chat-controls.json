@@ -1,0 +1,19 @@
+{
+  "title": "Chat controls in the palette",
+  "steps": [
+    {"title": "Launch", "wait": 2, "shot": false},
+    {"title": "New workspace", "cmux": ["workspace", "new", "--name", "Palette"], "wait": 2, "shot": false},
+    {"title": "Show the workspace, not Home (a new workspace takes no focus)", "cmux": ["workspace", "name:Palette", "focus"],
+     "wait": 1.5, "shot": false},
+    {"title": "Open agent chat", "cmux": ["agent", "new-chat"], "wait": 4, "shot": false,
+     "optional": "agent backend unavailable on this runner"},
+    {"title": "Close the machine picker", "rpc": {"method": "debug.key", "params": {"key": "escape"}}, "wait": 0.5, "shot": false,
+     "optional": "no picker open"},
+    {"title": "Close the terminal, which a new chat leaves focused (its prompt names the runner, which PR media refuses)",
+     "cmux": ["action", "run", "closePane"], "wait": 1, "shot": false,
+     "optional": "closing the terminal asked to confirm"},
+    {"title": "Open the palette on \"in session info\"", "rpc": {"method": "action.run", "params": {"action": "palette.open", "args": {"query": "in session info"}, "focus": true}}, "wait": 2, "shot": false},
+    {"title": "Palette: \"in session info\" in a new agent chat (Show Subagents and Show Background Tasks greyed with why: nothing listed yet)", "wait": 0.5},
+    {"title": "Close the palette", "rpc": {"method": "debug.key", "params": {"key": "escape", "target": "palette"}}, "wait": 1, "shot": false}
+  ]
+}

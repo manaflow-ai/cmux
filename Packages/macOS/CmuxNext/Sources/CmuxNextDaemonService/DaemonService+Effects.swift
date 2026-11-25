@@ -15,24 +15,39 @@ extension DaemonService {
     ///   - body: The command.
     /// - Returns: ``ActionEffect/applied(_:)``.
     public func intentEffect(_ label: String, _ intent: Intent, _ body: @escaping DaemonCommandBody) -> ActionEffect {
+        .applied(ActionConfirmation(send: intentSender(label, intent, body)))
+    }
+
+    /// Shows `intent` in the store now and returns the work that sends `body`: nil when it applied,
+    /// else why it failed (the intent is out of the store again). For a change outside an action run
+    /// (a sidebar click or drag) that reports its own failure.
+    ///
+    /// - Parameters:
+    ///   - label: The command's name.
+    ///   - intent: The local change (``Intent``).
+    ///   - body: The command.
+    /// - Returns: The send, to run after this turn.
+    public func intentSender(_ label: String, _ intent: Intent, _ body: @escaping DaemonCommandBody)
+        -> @MainActor () async -> ActionWorkFailure? {
         let send = intendNowReporting(label, intent, transaction: .generate(), body)
-        return .applied(ActionConfirmation(send: { [self] in
+        return { [self] in
             switch await send() {
             case .success: return nil
             case .failure(let error): return self.workFailure(label, error)
             }
-        }))
+        }
     }
 
     /// The effect of a command whose local change the caller already showed outside the store (a
-    /// sidebar row's color): `rollback` takes it back when the command fails.
+    /// sidebar row's color): `rollback` takes it back when the command fails. With no local change
+    /// (a palette edit the store shows from the daemon's echo), the registry still shows a failure.
     ///
     /// - Parameters:
     ///   - label: The command's name.
-    ///   - rollback: Undoes the caller's local change.
+    ///   - rollback: Undoes the caller's local change; none by default.
     ///   - body: The command.
     /// - Returns: ``ActionEffect/applied(_:)``.
-    public func commandEffect(_ label: String, rollback: @escaping @MainActor (ActionWorkFailure) -> Void,
+    public func commandEffect(_ label: String, rollback: @escaping @MainActor (ActionWorkFailure) -> Void = { _ in },
                               _ body: @escaping DaemonCommandBody) -> ActionEffect {
         .applied(ActionConfirmation(send: sender(label, body), rollback: rollback))
     }

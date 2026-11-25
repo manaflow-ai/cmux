@@ -133,6 +133,21 @@ describe("Home attachments: a release during a sweep's R2 delete is not lost (B)
 })
 
 describe("Home attachments: conversation storage deletion catches late presigned PUTs (C)", { timeout: 120_000 }, () => {
+  it("aborts multipart uploads before forgetting their slots", async () => {
+    const alice = await signIn("att-life-abort-multipart")
+    const g = await group(alice)
+    const stub = doOf(g.id)
+    const declared = new Uint8Array(40_000_000).fill(4)
+    const r = await intent(alice, g.id, declared, { multipart: true, byte_count: declared.byteLength })
+    expect(r.json.value.mode).toBe("multipart")
+    const row = await runInDurableObject(stub, async (_i, state) => state.storage.sql.exec("SELECT object_key, multipart_upload_id FROM home_attachment_slots").toArray()[0] as { object_key: string; multipart_upload_id: string })
+    const upload = testEnv.HOME_ATTACHMENTS.resumeMultipartUpload(row.object_key, row.multipart_upload_id)
+    const conv = stub as unknown as { deleteAttachmentStorage(e: string): Promise<number> }
+    await conv.deleteAttachmentStorage(g.id)
+    expect(await slotRows(stub)).toEqual([])
+    await expect(upload.uploadPart(1, new Uint8Array([1]))).rejects.toThrow()
+  })
+
   it("after deleteAttachmentStorage, a PUT that lands on an open slot's URL is deleted by a later prefix delete", async () => {
     const alice = await signIn("att-life-purge-alice")
     const g = await group(alice)

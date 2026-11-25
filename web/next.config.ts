@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { poweredByHeader, securityHeaderRules } from "./security-headers";
 import { directDevBackendHost } from "./app/lib/direct-dev-backend-origin";
 import {
+  docsZoneSelfRewrites,
   isDocsZoneDeployment,
   nightlyDocsOrigin as configuredNightlyDocsOrigin,
   releaseDocsOrigin as configuredReleaseDocsOrigin,
@@ -85,6 +86,10 @@ const nextConfig: NextConfig = {
       process.env.NODE_ENV === "production"
         ? "tsconfig.next.json"
         : "tsconfig.json",
+    // CI's production build sets this: web-typecheck reports a type error as its own red check, and the build
+    // still proves the app compiles and bundles (Leo, 2026-11-19: "the CI doesn't necessarily have to fail and
+    // like give up"). A real deploy (Vercel) never sets it, so a type error still stops a deploy.
+    ignoreBuildErrors: process.env.CMUX_CI_TYPECHECK_SEPARATE === "1",
   },
   allowedDevOrigins: developmentPublicationOrigins,
   cacheComponents: true,
@@ -117,6 +122,7 @@ const nextConfig: NextConfig = {
             source: `/_docs-assets/${docsChannel}/_next/:path*`,
             destination: "/_next/:path*",
           },
+          ...docsZoneSelfRewrites(docsChannel === "nightly" ? "nightly" : "release"),
         ],
       };
     }

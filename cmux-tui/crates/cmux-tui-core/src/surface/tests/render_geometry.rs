@@ -101,6 +101,93 @@ fn stalled_render_tap_retains_only_latest_frame_and_scroll_state_in_order() {
     assert!(matches!(attach.stream.try_recv(), Err(TryRecvError::Empty)));
 }
 
+/// A lagging consumer with an undrained scroll S1 and the frame F1 built after
+/// it must not get F1 before S1 when a second scroll S2 arrives before F2 is
+/// built: F1 shows the rows S1 moved (spec/render.md "Stream Ordering").
+#[test]
+fn lagging_render_tap_never_delivers_a_frame_before_the_scroll_that_moved_its_rows() {
+    let mux = Mux::new_for_test("render-tap-scroll-order", SurfaceOptions::default());
+    let surface =
+        Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+    let pty = surface.as_pty().unwrap();
+    let attach = surface.attach_render_stream().unwrap();
+    let mut generation = pty.render.lock().unwrap().built_generation;
+    let mut frame = |text: &[u8]| {
+        let mut term = pty.term.lock().unwrap();
+        term.vt_write(text);
+        generation += 1;
+        pty.build_frame_locked(&mut term, generation, false).unwrap();
+        pty.render.lock().unwrap().latest.clone().unwrap()
+    };
+    let is_scroll = |event: &RenderAttachFrame, expected: u64| matches!(event, RenderAttachFrame::ScrollChanged { offset, at_bottom: false } if *offset == expected);
+
+    // S1, F1, S2, then the writer pops before F2 is built.
+    broadcast_render_scroll_locked(pty, (4, false));
+    let f1 = frame(b"\x1b[1;1Ha");
+    broadcast_render_scroll_locked(pty, (2, false));
+    let first = attach.stream.try_recv().unwrap();
+    assert!(is_scroll(&first, 4), "S1 must come before F1, got {first:?}");
+    let second = attach.stream.try_recv().unwrap();
+    assert!(
+        matches!(&second, RenderAttachFrame::Frame(frame) if Arc::ptr_eq(frame, &f1)),
+        "F1 follows S1, got {second:?}"
+    );
+    let third = attach.stream.try_recv().unwrap();
+    assert!(is_scroll(&third, 2), "S2 follows F1, got {third:?}");
+    assert!(matches!(attach.stream.try_recv(), Err(TryRecvError::Empty)));
+
+    // S1, F1, S2, F2 undrained: the newest position leads the coalesced frame,
+    // and the first event is still a scroll-changed.
+    broadcast_render_scroll_locked(pty, (4, false));
+    frame(b"\x1b[2;1Hb");
+    broadcast_render_scroll_locked(pty, (2, false));
+    let f2 = frame(b"\x1b[3;1Hc");
+    let first = attach.stream.try_recv().unwrap();
+    assert!(is_scroll(&first, 2), "the newest scroll leads the coalesced frame, got {first:?}");
+    let RenderAttachFrame::Frame(coalesced) = attach.stream.try_recv().unwrap() else {
+        panic!("the coalesced frame follows the scroll");
+    };
+    assert_eq!(coalesced.frame.seq, f2.frame.seq);
+    assert!(matches!(attach.stream.try_recv(), Err(TryRecvError::Empty)));
+}
+
+/// A resize's viewport move replaces a scroll position output deferred to the
+/// next frame (FrameRequests): the frame producer must not publish the older
+/// position after the resize's newer one, or bus and byte subscribers keep a
+/// stale offset (the hosted reader's resize and the deferred cell-pixel ack go
+/// through `publish_geometry_commit`).
+#[test]
+fn geometry_commit_scroll_replaces_a_deferred_output_scroll() {
+    const OUTPUT_OFFSET: u64 = 91_001;
+    const RESIZE_OFFSET: u64 = 91_002;
+    let mux = Mux::new_for_test("geometry-commit-scroll", SurfaceOptions::default());
+    let events = mux.subscribe();
+    let surface =
+        Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+    let pty = surface.as_pty().unwrap();
+
+    pty.frame_requests.defer_scroll(OUTPUT_OFFSET, false);
+    pty.publish_geometry_commit(pty_surface::GeometryCommit {
+        changed: true,
+        scroll: Some((RESIZE_OFFSET, false)),
+    });
+    pty.frame_requests.flush_scroll(&mux, surface.id);
+
+    let mut published = Vec::new();
+    while let Ok(event) = events.try_recv() {
+        if let MuxEvent::ScrollChanged { offset, .. } = event
+            && (offset == OUTPUT_OFFSET || offset == RESIZE_OFFSET)
+        {
+            published.push(offset);
+        }
+    }
+    assert_eq!(
+        published,
+        vec![RESIZE_OFFSET],
+        "the resize's position is the last one published; the deferred output position is dropped"
+    );
+}
+
 #[test]
 fn render_attachments_are_bounded_across_a_mux() {
     const EXPECTED_MAX_ATTACHMENTS: usize = 64;
@@ -134,6 +221,35 @@ fn dropped_idle_render_attachments_remove_their_taps_immediately() {
             "an idle closed attachment remained registered until later output"
         );
     }
+}
+
+#[test]
+fn the_last_render_viewer_leaving_frees_frame_state_and_a_reattach_rebuilds_it() {
+    let mux = Mux::new_for_test("render-release", SurfaceOptions::default());
+    let surface =
+        Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+    let pty = surface.as_pty().unwrap();
+    surface
+        .with_terminal(|terminal| {
+            terminal.vt_write(b"\x1b[1;31mhello\x1b[0m world\r\n\x1b[4msecond\x1b[0m line");
+        })
+        .unwrap();
+    let first = surface.attach_render_stream().unwrap();
+    let initial = format!("{:?}", first.initial);
+    let second = surface.attach_render_stream().unwrap();
+    drop(first);
+    assert!(pty.render.lock().unwrap().latest.is_some(), "a viewer remains: keep its state");
+    drop(second);
+    {
+        let render = pty.render.lock().unwrap();
+        assert!(render.latest.is_none(), "a hidden terminal kept its last frame");
+        assert!(render.final_initial.is_none() && render.initial_graphics.is_none());
+        assert_eq!(render.built_generation, 0);
+    }
+    // The next viewer gets the frame it would have got from the kept state.
+    let again = surface.attach_render_stream().unwrap();
+    assert_eq!(format!("{:?}", again.initial), initial);
+    assert_eq!(pty.render.lock().unwrap().taps.len(), 1);
 }
 
 #[test]

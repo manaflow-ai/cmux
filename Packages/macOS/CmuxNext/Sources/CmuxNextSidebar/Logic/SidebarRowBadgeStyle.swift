@@ -36,7 +36,7 @@ public nonisolated enum SidebarRowBadgeStyle: String, Sendable, CaseIterable, Ha
 ///
 /// Unless `detailed` (`sidebar.detailedStatusIcons`, off by default), a row says one of two things
 /// (Lawrence 2026-10-18: "it is working" or "it is blue and ready for me to look at it"): an error
-/// (red), else needs you (orange), else Ready, the blue done dot (unread, done), else Working, the
+/// (red), else needs you (yellow), else Ready, the blue done dot (unread, done), else Working, the
 /// one spinner (Lawrence msg 11983). `items` then holds at most one state; `unreadCount` and
 /// `pending` keep what the tooltip lists. A program opts its row in to the finer icons with an
 /// OSC 7501 report (`SidebarWorkspace.activityFromProgram`, Lawrence msg 1351).
@@ -64,7 +64,7 @@ nonisolated struct WorkspaceRowBadges: Equatable {
 
     /// The one state a row shows without detailed icons, one color per meaning (Lawrence msg 11983:
     /// "blue, orange/yellow for needs attention, and red for errors"): an error (red), else needs
-    /// you (`waiting`, one orange dot whatever it waits for), else Ready (`success`, the blue dot)
+    /// you (`waiting`, one yellow dot whatever it waits for), else Ready (`success`, the blue dot)
     /// for something unread or done, else the work in progress (its progress kept), else nothing.
     /// Never two dots (Leo 2026-10-21, on a blue dot beside "Needs you": "why ISN'T THIS JUST A
     /// YELLOW DOT!?").
@@ -78,6 +78,14 @@ nonisolated struct WorkspaceRowBadges: Equatable {
             }
         }
         return ready ? .success : items.first { $0.isWorking || $0.isLoading }
+    }
+
+    /// Whether a row's badge going from `old` to `new` (the same workspace's) is its work finishing:
+    /// a spinner (working or loading) showed and is gone, and a done glyph (`success`) shows. Only
+    /// then do its done glyphs settle in (`RowBadgeView.configure(_:look:settles:)`).
+    static func settles(from old: [StatusIndicatorState], to new: [StatusIndicatorState]) -> Bool {
+        func spins(_ state: StatusIndicatorState) -> Bool { state.isWorking || state.isLoading }
+        return old.contains(where: spins) && !new.contains(where: spins) && new.contains(.success)
     }
 
     var first: StatusIndicatorState? { items.first }

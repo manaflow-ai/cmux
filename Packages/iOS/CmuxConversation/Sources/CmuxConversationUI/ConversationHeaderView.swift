@@ -58,6 +58,22 @@ final class ConversationHeaderView: UIView {
         }
     }
     private(set) var trailingMode: TrailingMode = .action
+    /// The host's page menu: the trailing control opens it in the normal
+    /// state instead of `onTrailing`; the X of edit, reply and select still
+    /// closes. nil keeps the plain button.
+    var actionMenu: UIMenu? {
+        didSet { applyTrailingMenu() }
+    }
+    /// Edit mode keeps the action glyph, but a tap there ends the edit.
+    var suppressesActionMenu = false {
+        didSet { applyTrailingMenu() }
+    }
+
+    private func applyTrailingMenu() {
+        let menu = trailingMode == .action && !suppressesActionMenu ? actionMenu : nil
+        trailingButton.menu = menu
+        trailingButton.showsMenuAsPrimaryAction = menu != nil
+    }
 
     static let contentHeight: CGFloat = 92
     /// Above the name capsule (z 0), so the avatar occludes it.
@@ -166,11 +182,13 @@ final class ConversationHeaderView: UIView {
 
     func setConnectionStatus(_ text: String?) {
         statusLabel.text = text
+        // motion: allow crossfade, the Reduce Motion form
         UIView.animate(withDuration: 0.25) { self.statusLabel.alpha = text == nil ? 0 : 1 }
     }
 
     func setTrailingMode(_ mode: TrailingMode, animated: Bool, delay: TimeInterval = 0, duration: TimeInterval = 0.2) {
         trailingMode = mode
+        applyTrailingMenu()
         let isX = mode != .action
         let symbol = isX ? "xmark" : trailingSymbol
         let apply = {
@@ -187,15 +205,18 @@ final class ConversationHeaderView: UIView {
         }
         guard animated else { apply(); return }
         guard delay > 0 else {
+            // motion: allow crossfade, the Reduce Motion form
             UIView.transition(with: trailingButton, duration: duration, options: .transitionCrossDissolve, animations: apply)
             return
         }
         // A delayed change fades the old glyph out and the new one in.
+        // motion: allow crossfade, the Reduce Motion form
         UIView.animate(withDuration: 0.05, delay: delay, options: [.beginFromCurrentState]) {
             self.trailingButton.alpha = 0
         } completion: { _ in
             guard self.trailingMode == mode else { return }
             apply()
+            // motion: allow crossfade, the Reduce Motion form
             UIView.animate(withDuration: duration) { self.trailingButton.alpha = 1 }
         }
     }
@@ -211,11 +232,13 @@ final class ConversationHeaderView: UIView {
 
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)
-        if traitCollection.changesTextMetrics(from: previousTraitCollection) {
-            nameLabel.font = Self.nameFont
-            setNeedsLayout()
-        }
+        if traitCollection.changesTextMetrics(from: previousTraitCollection) { applyScaledFonts() }
         if traitCollection.verticalSizeClass != previousTraitCollection?.verticalSizeClass { setNeedsLayout() }
+    }
+
+    func applyScaledFonts() {
+        nameLabel.font = Self.nameFont
+        setNeedsLayout()
     }
 
     override func layoutSubviews() {
@@ -349,6 +372,7 @@ final class ConversationHeaderView: UIView {
         backGlass.isUserInteractionEnabled = !hidden
         backGlass.accessibilityElementsHidden = hidden
         guard animated else { apply(); return }
+        // motion: allow crossfade, the Reduce Motion form
         UIView.animate(withDuration: duration, delay: delay, options: [.beginFromCurrentState], animations: apply)
     }
 

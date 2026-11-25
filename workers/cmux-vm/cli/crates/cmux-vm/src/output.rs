@@ -220,8 +220,9 @@ impl<'a> Printer<'a> {
                 .map(|value| format!(" --index-pages {value}"))
                 .unwrap_or_default();
             self.line(&format!(
-                "more: cmux-vm creation list{mode}{budget} --cursor {}",
-                cursor.escape_debug()
+                "more: {p} creation list{mode}{budget} --cursor {}",
+                cursor.escape_debug(),
+                p = crate::error::program()
             ))?;
         }
         Ok(())
@@ -264,6 +265,21 @@ impl<'a> Printer<'a> {
                 "retired {id}; starts and inbound wakes are fenced"
             ))
         }
+    }
+
+    pub fn file_list(&mut self, body: &[u8]) -> Result<(), CliError> {
+        let list: cmux_vm_client::types::FileList = decode(body)?;
+        if self.json {
+            return self.raw_json(body);
+        }
+        for entry in list.entries {
+            self.line(&format!(
+                "{}\t{}",
+                entry.kind.escape_debug(),
+                entry.name.escape_debug()
+            ))?;
+        }
+        Ok(())
     }
 
     pub fn file_stat(&mut self, body: &[u8]) -> Result<(), CliError> {
@@ -335,7 +351,10 @@ impl<'a> Printer<'a> {
             }
         }
         if let Some(cursor) = &page.next_cursor {
-            self.line(&format!("more: cmux-vm list --cursor {cursor}"))?;
+            self.line(&format!(
+                "more: {p} list --cursor {cursor}",
+                p = crate::error::program()
+            ))?;
         }
         Ok(())
     }
@@ -371,15 +390,17 @@ impl<'a> Printer<'a> {
     ) -> Result<(), CliError> {
         let mut value: serde_json::Value = serde_json::from_slice(body).map_err(|_| {
             CliError::unexpected(format!(
-                "client session for VM {vm_id} was not valid JSON; run `cmux-vm client-session list {vm_id}` before retrying"
+                "client session for VM {vm_id} was not valid JSON; run `{p} client-session list {vm_id}` before retrying", p = crate::error::program()
             ))
         })?;
         let session_id = value.get("id").and_then(serde_json::Value::as_str)
             .filter(|id| !id.is_empty()).ok_or_else(|| CliError::unexpected(format!(
-                "client session for VM {vm_id} omitted its id; run `cmux-vm client-session list {vm_id}` and revoke the new session before retrying"
+                "client session for VM {vm_id} omitted its id; run `{p} client-session list {vm_id}` and revoke the new session before retrying", p = crate::error::program()
             )))?.to_owned();
-        let recovery =
-            format!("revoke it with `cmux-vm client-session revoke {vm_id} {session_id} --yes`");
+        let recovery = format!(
+            "revoke it with `{p} client-session revoke {vm_id} {session_id} --yes`",
+            p = crate::error::program()
+        );
         let field = |name: &str| {
             value
                 .get(name)
@@ -396,7 +417,8 @@ impl<'a> Printer<'a> {
         let response_vm = field("vmId")?;
         if response_vm != vm_id {
             return Err(CliError::unexpected(format!(
-                "client session {session_id} returned a different VM id for VM {vm_id}; run `cmux-vm client-session list {vm_id}` and revoke the new session before retrying"
+                "client session {session_id} returned a different VM id for VM {vm_id}; run `{p} client-session list {vm_id}` and revoke the new session before retrying",
+                p = crate::error::program()
             )));
         }
         let provider_vm = field("providerVmId")?;
@@ -429,14 +451,16 @@ impl<'a> Printer<'a> {
         if let Some((path, mut file)) = token_file {
             if let Err(error) = file.write_all(token.as_bytes()) {
                 return Err(CliError::unexpected(format!(
-                    "could not finish writing the token for VM {vm_id} to {}: {error}; revoke it with `cmux-vm client-session revoke {vm_id} {session_id} --yes`",
+                    "could not finish writing the token for VM {vm_id} to {}: {error}; revoke it with `{p} client-session revoke {vm_id} {session_id} --yes`",
                     path.display(),
+                    p = crate::error::program()
                 )));
             }
             if let Err(error) = file.sync_all() {
                 return Err(CliError::unexpected(format!(
-                    "could not persist the token for VM {vm_id} to {}: {error}; revoke it with `cmux-vm client-session revoke {vm_id} {session_id} --yes`",
+                    "could not persist the token for VM {vm_id} to {}: {error}; revoke it with `{p} client-session revoke {vm_id} {session_id} --yes`",
                     path.display(),
+                    p = crate::error::program()
                 )));
             }
             if self.json {
@@ -476,7 +500,7 @@ impl<'a> Printer<'a> {
     pub fn client_session_list(&mut self, body: &[u8], vm_id: &str) -> Result<(), CliError> {
         let page: cmux_vm_client::types::ClientSessionList = serde_json::from_slice(body)
             .map_err(|_| CliError::unexpected(format!(
-                "client sessions for VM {vm_id} were invalid; run `cmux-vm client-session list {vm_id}`"
+                "client sessions for VM {vm_id} were invalid; run `{p} client-session list {vm_id}`", p = crate::error::program()
             )))?;
         if self.json {
             return self.json_value(&page);
@@ -572,7 +596,10 @@ impl<'a> Printer<'a> {
             }
         }
         if let Some(cursor) = &page.next_cursor {
-            self.line(&format!("more: cmux-vm snapshot list --cursor {cursor}"))?;
+            self.line(&format!(
+                "more: {p} snapshot list --cursor {cursor}",
+                p = crate::error::program()
+            ))?;
         }
         Ok(())
     }

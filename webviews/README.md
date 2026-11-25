@@ -8,7 +8,7 @@ Build it with:
 ./scripts/build-webviews-app.sh
 ```
 
-The build output goes to `Resources/markdown-viewer/webviews-app`, which the macOS app serves as local static files from its bundled resources. It is gitignored build output: `scripts/cmux-next/build-web-bundles.sh` builds it, with the cmux-next agent pane, pages, Agent Activity and palette ranker, before every app build and Swift test run. Commit only the sources.
+The build output goes to `Resources/markdown-viewer/webviews-app`, which the macOS app serves as local static files from its bundled resources. It is gitignored build output: `scripts/cmux-next/build-web-bundles.sh` builds it, with the cmux-next agent pane, pages and Agent Activity, before every app build and Swift test run. Commit only the sources.
 
 The same build emits `diff-page.html`, the diff viewer of the cmux-next shared page host (`cmux-page://cmux.diff/`, whose root is this output directory). It embeds no config and no CSP meta: it calls `cmux.diff.config` over the cmuxPage bridge (`src/diff/page.ts` lists the ops and streams), and the scheme handler sends the CSP.
 
@@ -28,7 +28,7 @@ React Compiler is enabled in `vite.config.ts` with the React 19 runtime target. 
 - `/diff/?pick` and `/markdown?pick`: the empty states (`src/viewer-empty`): recent repositories or markdown files, a Choose button that opens the in-page fallback picker, drag and drop. Recents live in `viewer-recents.json` in the slot's folder (`CMUX_WEBVIEWS_DEV_STATE_DIR`). The host ops are in plans/cmux-next/diff-host.md, "Empty state".
 - `/markdown?file=<path>`: the markdown editor on a markdown file under the repo (saves write the file; Cmd-S saves at once). Files under `CMUX_MARKDOWN_DEV_READONLY_ROOTS` (colon-separated) open read only.
 - `/markdown/viewer?file=<path>`: the classic markdown viewer shell (`Resources/markdown-viewer/shell.html`). Saving the file or a shell stylesheet updates the page in place.
-- `/agent-pane/` (and `/agent-pane/prototype.html`): the agent pane, `?mock` for the in-page daemon. See [its README](src/agent-session/acpmux/README.md#dev-server); `bun run dev:agent-pane` still serves the pane alone on 4176.
+- `/agent-pane/`: the agent pane, `?mock` for the in-page daemon. See [its README](src/agent-session/acpmux/README.md#dev-server); `bun run dev:agent-pane` still serves the pane alone on 4176.
 
 Pages inside the app: `bun run dev:pages` serves every page cmux-next hosts (the React pages under `src/pages/`, and the diff, markdown and code editor viewers) from one server on `http://127.0.0.1:4190/` (`CMUX_PAGES_DEV_PORT` moves it). Launch a tagged build with `CMUX_NEXT_PAGES_DEV_URL=http://127.0.0.1:4190/ ./scripts/reload.sh --tag <tag>` and open any page; edits hot reload in the app. The app keeps each page on its own `cmux-page://` origin and fetches the files from the server, so the page still talks to the real host. Only Debug and tagged builds read the variable, under the agent pane's rule (`http` on `127.0.0.1` or `localhost` with an explicit port); Release always serves the bundled pages.
 

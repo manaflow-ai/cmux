@@ -5,7 +5,7 @@ public import AppKit
 /// clicks.
 @MainActor
 public final class GlassRimView: NSView {
-    private let gradient = CAGradientLayer()
+    let gradient = CAGradientLayer()
     private let stroke = CAShapeLayer()
 
     /// The continuous corner radius of the surface it outlines.
@@ -16,6 +16,12 @@ public final class GlassRimView: NSView {
     /// The rim's colors.
     public var look: FloatingGlassLook {
         didSet { if look != oldValue { applyColors() } }
+    }
+
+    /// When set, the rim fades out this far below the surface's top edge, so a tall surface (a sidebar group's block)
+    /// keeps its lit top and corners and draws no hairline down its sides. Nil fades top to bottom over the whole height.
+    public var fadeDepth: CGFloat? {
+        didSet { if fadeDepth != oldValue { applyColors(); needsLayout = true } }
     }
 
     /// - Parameters:
@@ -49,16 +55,19 @@ public final class GlassRimView: NSView {
         CATransaction.setDisableActions(true)
         gradient.frame = bounds
         stroke.frame = bounds
-        stroke.lineWidth = width
+        // A hairline like any other: none under `appearance.borders` none (the Blocks window style).
+        stroke.lineWidth = Borders.width(width)
         let inset = bounds.insetBy(dx: width / 2, dy: width / 2)
         // CoreGraphics refuses a corner wider than half the rect.
         let radius = min(max(cornerRadius - width / 2, 0), max(min(inset.width, inset.height) / 2, 0))
         stroke.path = inset.width > 0 && inset.height > 0
             ? CGPath(roundedRect: inset, cornerWidth: radius, cornerHeight: radius, transform: nil) : nil
+        gradient.locations = fadeDepth.map { [0, NSNumber(value: Double(min(1, $0 / max(bounds.height, 1))))] }
         CATransaction.commit()
     }
 
     private func applyColors() {
-        gradient.colors = [look.rimTop.nsColor.cgColor, look.rimBottom.nsColor.cgColor]
+        let bottom = fadeDepth == nil ? look.rimBottom : FloatingGlassLook.Gray(white: look.rimTop.white, alpha: 0)
+        gradient.colors = [look.rimTop.nsColor.cgColor, bottom.nsColor.cgColor]
     }
 }

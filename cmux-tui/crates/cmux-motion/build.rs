@@ -16,13 +16,12 @@ use std::path::PathBuf;
 const TOKENS: &str = "../../../plans/cmux-next/spec-proposals/visuals/design-tokens.json";
 
 /// `motion.springs` keys in `MotionSpring` declaration order.
-const SPRINGS: [&str; 13] = [
+const SPRINGS: [&str; 12] = [
     "move",
     "appear",
     "disappear",
     "settle",
     "scroll",
-    "screen",
     "track",
     "selection",
     "panel",
@@ -99,45 +98,12 @@ fn generate(m: &json::Value) -> Result<String, String> {
     writeln!(code, "pub(crate) const SPRINGS: [SpringParameters; {}] = [", SPRINGS.len()).ok();
     for key in SPRINGS {
         let response = number(m, &["springs", key, "value", "response"], 0.01..=2.0)?;
-        let damping = number(m, &["springs", key, "value", "dampingFraction"], 0.05..=4.0)?;
+        // No spring passes its target (Lawrence 2026-11-10: no bounce in any motion): a damping
+        // fraction under 1 fails the build.
+        let damping = number(m, &["springs", key, "value", "dampingFraction"], 1.0..=4.0)?;
         writeln!(code, "    SpringParameters::new({response:?}, {damping:?}), // {key}").ok();
     }
     code.push_str("];\n");
-
-    let structural = at(m, &["structural", "value"])?
-        .as_array()
-        .ok_or("structural.value: not an array")?
-        .iter()
-        .map(|v| v.as_str().ok_or("structural.value: not a string").map(str::to_owned))
-        .collect::<Result<Vec<_>, _>>()?;
-    if let Some(unknown) = structural.iter().find(|k| !SPRINGS.contains(&k.as_str())) {
-        return Err(format!("structural.value: unknown spring {unknown}"));
-    }
-    let flags: Vec<String> =
-        SPRINGS.iter().map(|k| structural.iter().any(|s| s == k).to_string()).collect();
-    writeln!(
-        code,
-        "pub(crate) const STRUCTURAL: [bool; {}] = [{}];",
-        SPRINGS.len(),
-        flags.join(", ")
-    )
-    .ok();
-
-    let subtle = number(m, &["bounce", "value", "subtle"], 0.0..=0.9)?;
-    if number(m, &["bounce", "value", "none"], 0.0..=0.0).is_err() {
-        return Err("bounce.value.none: must be 0 (critically damped)".into());
-    }
-    let default_bounce = match at(m, &["bounce", "value", "default"])?.as_str() {
-        Some("none") => "None",
-        Some("subtle") => "Subtle",
-        _ => return Err("bounce.value.default: not none or subtle".into()),
-    };
-    writeln!(code, "pub(crate) const SUBTLE_BOUNCE: f64 = {subtle:?};").ok();
-    writeln!(
-        code,
-        "pub(crate) const DEFAULT_BOUNCE: MotionBounce = MotionBounce::{default_bounce};"
-    )
-    .ok();
 
     let kinds =
         ["paneAnimations", "newTab", "newWorkspace"].map(|k| flag(m, &["kinds", "value", k]));

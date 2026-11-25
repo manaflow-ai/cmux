@@ -6,6 +6,7 @@
 #pragma once
 
 #include <map>
+#include <set>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -56,6 +57,29 @@ class FileDialogs {
   };
   int last_id_ = 0;
   std::map<int, Entry> pending_;
+};
+
+// Which browsers send their choosers to the host: every one while the host
+// asked for all (cmux_shim_set_file_dialogs, an agent's file offer), else only
+// the browsers it named (cmux_shim_browser_set_file_dialogs, a cmux page that
+// records the person's pick). Every other page keeps Chromium's own panel.
+class FileDialogRoutes {
+ public:
+  void SetAll(bool on) { all_ = on; }
+  void Set(int browser_id, bool on) {
+    if (on) {
+      browsers_.insert(browser_id);
+    } else {
+      browsers_.erase(browser_id);
+    }
+  }
+  // The browser closed: a new one never inherits its id's routing.
+  void Forget(int browser_id) { browsers_.erase(browser_id); }
+  bool ToHost(int browser_id) const { return all_ || browsers_.count(browser_id) != 0; }
+
+ private:
+  bool all_ = false;
+  std::set<int> browsers_;
 };
 
 // The host's answer: absolute paths, one per line. Empty means cancel;

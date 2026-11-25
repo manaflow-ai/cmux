@@ -27,6 +27,13 @@
 //! read by `load`, or the app's `appearance.themeEdits` `<theme>/accent`)
 //! wins over `appearance.accent`. Do not invent other values.
 //!
+//! 16-color schemes (`scheme.rs`): base16 YAML, iTerm2 `.itermcolors`,
+//! Windows Terminal JSON and Ghostty theme files, read into one [`Scheme`]
+//! and written back in any of them. A scheme from a background image
+//! (`image_palette.rs`): median cut over the caller's decoded pixels, held
+//! to the spec's contrast floors.
+//! A whole scheme from two colors, a canvas and an accent (`two_color.rs`).
+//!
 //! ```no_run
 //! use cmux_theme_tokens::{Appearance, Env, ThemeTokens, load};
 //! let loaded = load(&Env::current(), Appearance::Dark);
@@ -43,18 +50,34 @@
 mod app_theme;
 mod colors;
 mod config;
+mod image_palette;
 mod rgb;
+mod scheme;
 mod spec;
 mod tokens;
+mod two_color;
 
-pub use app_theme::{AppTheme, AppToken, ThemeAccent};
+pub use app_theme::{
+    AppTheme, AppToken, Oklch, ThemeAccent, fit_contrast, from_oklch, mix_oklab, oklch,
+};
 pub use colors::parse_color;
 pub use config::{
     Appearance, DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, Env, Loaded, THEME_ACCENT_KEY,
     THEME_OVERRIDE_MAX_CHARS, load, theme_file_accent, theme_for, theme_override_value,
 };
+pub use image_palette::{
+    ImageError, ImagePalette, MAX_SAMPLES, Pixels, SWATCHES, decode_ppm, palette_from_image,
+};
 pub use rgb::Rgb;
+pub use scheme::{
+    InstallError, MAX_SCHEME_BYTES, Scheme, SchemeError, SchemeFormat, find_theme_file,
+    install_scheme, is_valid_theme_name,
+};
+/// The spec's `design-tokens.json`, as compiled in: `theme.formulas` names every chrome
+/// token and how it derives (`cmux customize schema` lists them).
+pub use spec::DESIGN_TOKENS;
 pub use tokens::*;
+pub use two_color::{TwoColorTheme, theme_from_two_colors};
 
 /// Loads the process's Ghostty config for `appearance` and derives the
 /// tokens under `borders`.

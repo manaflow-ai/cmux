@@ -70,6 +70,7 @@ export interface AgentKeyRecord {
   readonly maxUsdPerHour: number;
 }
 
+/** A deleted VM's lifetime, as a spend estimate reads it. */
 export interface OwnershipStoreService {
   readonly findCreation: (tenantId: TenantId, key: string) => Effect.Effect<{ readonly receipt: VmCreationReceipt; readonly labels: Readonly<Record<string, string>>; readonly createdBy: string; readonly deleted: boolean; readonly committed: boolean } | null, StoreError>;
   /**
@@ -81,11 +82,19 @@ export interface OwnershipStoreService {
   readonly creationKey: (tenantId: TenantId, cmuxId: string) => Effect.Effect<string | null, StoreError>;
   /** The caller's own resource of this kind, or none. */
   readonly find: (tenantId: TenantId, kind: ResourceKind, cmuxId: string) => Effect.Effect<Option.Option<OwnedResource>, StoreError>;
+  /** `find` for many ids in one query: the caller's own live resources of this kind among `cmuxIds`, by id. */
+  readonly findMany: (tenantId: TenantId, kind: ResourceKind, cmuxIds: ReadonlyArray<string>) => Effect.Effect<ReadonlyMap<string, OwnedResource>, StoreError>;
   readonly record: (resource: OwnedResource) => Effect.Effect<void, StoreError>;
   /** The tenant's live resources of this kind, newest first. */
   readonly listPage: (tenantId: TenantId, kind: ResourceKind, options: ListPageOptions) => Effect.Effect<ReadonlyArray<OwnedResource>, StoreError>;
   /** How many live committed resources of this kind the tenant has; an uncommitted VM's slot is its creation's reservation. */
   readonly countLive: (tenantId: TenantId, kind: ResourceKind) => Effect.Effect<number, StoreError>;
+  /**
+   * The summed lifetime after `since`, in seconds, of the tenant's VMs carrying every one of `labels` that were
+   * deleted after `since` (each from its create, or `since` if later, to its delete), summed in the database so no
+   * count of deletes is too many: a capped key's spend estimate prices it (RFD 0016).
+   */
+  readonly deletedVmSecondsSince: (tenantId: TenantId, labels: Readonly<Record<string, string>>, since: Date) => Effect.Effect<number, StoreError>;
   /** Marks the tenant's resource deleted; later reads do not find it. */
   readonly markDeleted: (tenantId: TenantId, kind: ResourceKind, cmuxId: string, at: Date) => Effect.Effect<void, StoreError>;
   /** The tenant's own resource of this kind that was marked deleted, or none (an idempotent delete's tombstone). */
@@ -132,6 +141,8 @@ const ResourceRow = Schema.Struct({
 });
 
 const CountRow = Schema.Struct({ live: Schema.Union(Schema.Number, Schema.NumberFromString) });
+
+const DeletedSecondsRow = Schema.Struct({ seconds: Schema.Union(Schema.Number, Schema.NumberFromString) });
 
 const RESOURCE_COLUMNS = "tenant_id, kind, cmux_id, upstream_id, created_by, created_at, display_name, labels::text AS labels, committed";
 
@@ -192,6 +203,22 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
             Effect.flatMap(decodeRows(ResourceRow, "ownership.find")),
             Effect.map((rows) => Option.map(Option.fromNullable(rows[0]), toOwned)),
           ),
+      findMany: (tenantId, kind, cmuxIds) =>
+        cmuxIds.length === 0
+          ? Effect.succeed(new Map<string, OwnedResource>())
+          : sql
+              .query(
+                "ownership.findMany",
+                // The ids go as one JSON array parameter (SqlParam is scalar), cast as text first (sql.ts).
+                `SELECT ${RESOURCE_COLUMNS}
+                   FROM cmux_vm.resources
+                  WHERE cmux_id IN (SELECT jsonb_array_elements_text($1::text::jsonb)) AND tenant_id = $2 AND kind = $3 AND deleted_at IS NULL`,
+                [JSON.stringify(cmuxIds), tenantId, kind],
+              )
+              .pipe(
+                Effect.flatMap(decodeRows(ResourceRow, "ownership.findMany")),
+                Effect.map((rows) => new Map(rows.map(toOwned).map((owned) => [owned.cmuxId, owned] as const))),
+              ),
       record: (resource) => {
         const params: ReadonlyArray<SqlParam> = [
           resource.cmuxId,
@@ -261,6 +288,20 @@ export const sqlStoresLayer: Layer.Layer<OwnershipStore | ApiKeyStore | AuditSto
           .pipe(
             Effect.flatMap(decodeRows(CountRow, "ownership.count")),
             Effect.map((rows) => rows[0]?.live ?? 0),
+          ),
+      deletedVmSecondsSince: (tenantId, labels, since) =>
+        sql
+          .query(
+            "ownership.deletedSecondsSince",
+            `SELECT COALESCE(SUM(GREATEST(0, EXTRACT(EPOCH FROM deleted_at - GREATEST(created_at, $2::timestamptz)))), 0)::float8 AS seconds
+               FROM cmux_vm.resources
+              WHERE tenant_id = $1 AND kind = 'vm' AND deleted_at > $2::timestamptz
+                AND labels @> $3::text::jsonb`,
+            [tenantId, since.toISOString(), JSON.stringify(labels)],
+          )
+          .pipe(
+            Effect.flatMap(decodeRows(DeletedSecondsRow, "ownership.deletedSecondsSince")),
+            Effect.map((rows) => rows[0]?.seconds ?? 0),
           ),
       markDeleted: (tenantId, kind, cmuxId, at) =>
         sql

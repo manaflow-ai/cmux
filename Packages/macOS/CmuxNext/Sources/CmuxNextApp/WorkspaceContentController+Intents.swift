@@ -6,8 +6,9 @@ import CmuxNextDaemonService
 import CmuxNextLayout
 
 // Layout intents -> daemon commands. A divider or column drag is local until
-// it ends: its one command (the final value, one daemon `transaction`)
-// settles or rejects the gesture's LayoutTransactionID (no snapshot counting).
+// it ends: its one command (the final value, or the final values of a change
+// of several as one `set-layout-sizes`; one daemon `transaction`) settles or
+// rejects the gesture's LayoutTransactionID (no snapshot counting).
 extension WorkspaceContentController {
     func handle(_ intent: LayoutIntent) {
         switch intent {
@@ -16,18 +17,14 @@ extension WorkspaceContentController {
             // (`sidebar.multiView`) focuses it first: a parked content's pane is not in the window's topology.
             if isParked, state.isOnScreenBeside(workspace.id) { services.windows.show(workspaceID: workspace.id, in: state) }
             focus.send(.focusPane(pane.rawValue, source: .intent))
-        case .setSplitRatio(let split, let ratio, let transaction, _):
-            guard let handle = handles.splits[split] else { return layoutModel.rejectTransaction(transaction) }
-            let daemonTransaction = nextDaemonTransaction()
-            sendGesture(transaction, label: "set-split-ratio") { connection in
-                try await connection.setSplitRatio(handle, ratio: ratio, transaction: daemonTransaction)
-            }
-        case .setColumnWidth(_, let anyPane, let width, let transaction, _):
-            guard let handle = handles.panes[anyPane] else { return layoutModel.rejectTransaction(transaction) }
-            let daemonTransaction = nextDaemonTransaction()
-            sendGesture(transaction, label: "set-viewport-pane-width") { connection in
-                try await connection.setColumnWidth(of: handle, width: width, transaction: daemonTransaction)
-            }
+        case .setSplitRatio, .setColumnWidth, .setLayoutSizes:
+            // A gesture's ended sizes. One value goes as its own command; more go as one commit on a daemon with
+            // `layout-sizes-batch-v1`, else as each value's own command, in order (`LayoutSizeCommands`).
+            guard let sizes = intent.sizes else { return }
+            guard let wire = handles.gestureSizeValues(sizes.values, noticeOn: daemon) else { return layoutModel.rejectTransaction(sizes.transaction) }
+            let commands = LayoutSizeCommands(wire, transaction: gestureTransactions.number(for: sizes.transaction),
+                                              batch: daemon.supports(DaemonCapability.layoutSizesBatch.rawValue))
+            sendGesture(sizes.transaction, label: commands.label) { try await commands.send(on: $0) }
         case .setColumnDock(_, let anyPane, let dock, let transaction):
             // Hidden until the daemon serves it; a stale intent rolls back.
             guard daemon.supports(DaemonCapability.dockColumns.rawValue), let handle = handles.panes[anyPane] else {
@@ -38,7 +35,7 @@ extension WorkspaceContentController {
             if dock?.edge.isBand == true, !daemon.supports(DaemonCapability.edgeDocks.rawValue) {
                 return layoutModel.rejectTransaction(transaction)
             }
-            let daemonTransaction = nextDaemonTransaction()
+            let daemonTransaction = gestureTransactions.number(for: transaction)
             let wire = dock.map(LayoutMapping.snapshot)
             sendGesture(transaction, label: "set-column-dock") { connection in
                 try await connection.setColumnDock(of: handle, dock: wire, transaction: daemonTransaction)
@@ -69,6 +66,8 @@ extension WorkspaceContentController {
         case .cancelGesture:
             // No `.ended` will come for this gesture (its target went away); nothing of it was sent.
             return
+        case .setFloatingFrame(let pane, _), .raiseFloatingPane(let pane):
+            if let handle = handles.panes[pane] { daemon.bringFloatingPaneToFront(handle, frame: intent.floatingFrame) }
         case .dropTab(let tabID, let target):
             drop(tabID, on: target)
         case .newColumn(let after, _):
@@ -95,47 +94,35 @@ extension WorkspaceContentController {
         }
     }
 
-    /// A new terminal column right of `after`, its shell spawned with `options` (a person's new
-    /// terminal from Home's pinned dock alone, `ChatColumnPlacement.openBesideDock`).
+    /// A new terminal column right of `after` (left with `left`), its shell spawned with `options`
+    /// (New Column, and a person's new terminal from Home's pinned dock alone,
+    /// `ChatColumnPlacement.openBesideDock`). No column there resizes (R3b).
     ///
-    /// On a daemon with client keys the column shows, focused, in this turn (instant-new-surfaces,
-    /// as Cmd-D's split): a provisional pane in a provisional column at the planned width, with the
-    /// width changes it brings, laid out and mounted before the key's frame; the daemon's pane
-    /// takes it over under the same public id. Otherwise it waits for the reply.
+    /// On a daemon with client keys the column shows, focused, in this turn (instant-new-surfaces):
+    /// a provisional pane in a provisional column, laid out and mounted before the key's frame; the
+    /// daemon's pane takes it over under the same public id. Otherwise it waits for the reply.
     func newColumn(after: LayoutPaneID, left: Bool = false, options: SpawnOptions) {
         guard let handle = handles.panes[after] else { return }
-        let request = layoutModel.prepareNewColumn(nextTo: after)
-        let command = NewColumnCommand(pane: handle, width: request.width, left: left, options: options)
+        let width = layoutModel.newColumnWidth(nextTo: after)
+        let command = NewColumnCommand(pane: handle, width: width, left: left, options: options)
         // The action refuses New Column Left first (ColumnHandlers); a script's intent stops here.
         guard command.isSupported(on: daemon) else { return }
         guard command.isOptimistic(on: daemon) else {
-            spawnPane("new-pane-right", then: { [layoutModel] in layoutModel.commitNewColumnResize(request) }) { connection in
-                try await connection.newColumn(beside: handle, left: left, width: request.width, options: options)
+            spawnPane("new-pane-right") { connection in
+                try await connection.newColumn(beside: handle, left: left, width: width, options: options)
             }
             return
         }
-        var widths: [DaemonColumnID: Double] = [:]
-        var treeWidth: Double?
-        let columns = daemon.store.screen(containing: handle)?.columns ?? []
-        for change in request.widthChanges {
-            guard let pane = change.panes.lazy.compactMap({ self.handles.panes[$0] }).first else { continue }
-            if let column = columns.first(where: { $0.layout.paneIDs.contains(pane) }) {
-                widths[column.id] = change.width
-            } else if columns.isEmpty {
-                treeWidth = change.width
-            }
-        }
-        let provisional = ProvisionalPane(columnWidth: request.width, widths: widths, treeWidth: treeWidth, left: left)
-        createInKeysTurn("newColumn", provisional: provisional, then: { [layoutModel] in layoutModel.commitNewColumnResize(request) }) {
+        let provisional = ProvisionalPane(columnWidth: width, left: left)
+        createInKeysTurn("newColumn", provisional: provisional) {
             command.intendNow(on: self.daemon, provisional: provisional)
         }
     }
 
     /// One optimistic pane create (New Column, New Row) in the key's turn: focus expects the
     /// provisional tab, typed keys wait for it (`CreationInputCoordinator`), the intent puts it in
-    /// the store, and `applyCurrent` lays it out and mounts it before the key's frame. `then` runs
-    /// once the daemon made it.
-    private func createInKeysTurn(_ label: String, provisional: ProvisionalPane, then: (@MainActor () -> Void)? = nil,
+    /// the store, and `applyCurrent` lays it out and mounts it before the key's frame.
+    private func createInKeysTurn(_ label: String, provisional: ProvisionalPane,
                                   _ intend: () -> @MainActor () async throws -> SurfaceCreated) {
         let intent = beginFocusIntent()
         focus.expect(.tab(provisional.tabID), generation: intent)
@@ -159,7 +146,6 @@ extension WorkspaceContentController {
                 _ = try await send()
                 BenchSpans.mark("\(label).reply.optimistic")
                 landed = true
-                then?()
                 return nil
             } catch is PaneSplitCancelled {
                 return nil // the person closed the new pane first
@@ -174,7 +160,7 @@ extension WorkspaceContentController {
     }
 
     /// Runs a pane-creating command and focuses the new pane when it lands;
-    /// `then` runs after it succeeded (a new column's width change).
+    /// `then` runs after it succeeded (a split's sizing).
     private func spawnPane(_ label: String, then: (@MainActor () -> Void)? = nil,
                            _ body: @escaping @Sendable (isolated DaemonConnection) async throws -> SurfaceCreated) {
         guard let connection = daemon.connection else { return }
@@ -213,19 +199,12 @@ extension WorkspaceContentController {
         }
     }
 
-    private func nextDaemonTransaction() -> UInt64 {
-        nextGestureTransaction += 1
-        return nextGestureTransaction
-    }
-
     /// Sends a gesture's one command; its result settles or rolls back the layout's override.
     private func sendGesture(_ transaction: LayoutTransactionID, label: String, _ body: @escaping DaemonCommandBody) {
-        Task { [daemon, layoutModel] in
-            if await daemon.run(label, body) {
-                layoutModel.settleTransaction(transaction)
-            } else {
-                layoutModel.rejectTransaction(transaction)
-            }
+        Task { [weak self, daemon, layoutModel] in
+            let ok = await daemon.run(label, body)
+            self?.gestureTransactions.answered(transaction)
+            ok ? layoutModel.settleTransaction(transaction) : layoutModel.rejectTransaction(transaction)
         }
     }
 
@@ -258,5 +237,29 @@ extension WorkspaceContentController {
                   let handle = handles.panes[anchor], let paneModel = daemon.store.pane(handle) else { return restore(false) }
             TabMoves.toNewDockColumn(tab, anchor: paneModel, edge: edge, services: services, completion: restore)
         }
+    }
+}
+
+extension WorkspaceContentController: DividerWorkspace {
+    var dividerFocusedPane: LayoutPaneID? { focusedPane?.layoutPaneID }
+    func openAtDivider(_ kind: DividerInsertKind, from id: LayoutPaneID, horizontal: Bool, insertion: DividerInsertion, origin: ActionOrigin) -> String? {
+        guard let pane = panes[id] else { return RefusalStrings.noDivider }
+        switch kind {
+        case .terminal:
+            let aimed = ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.paneKey), origin: origin).onMachine(daemon.machineID)
+            PaneHandlers.split(AppActionContext(services: pane.services), aimed, direction: horizontal ? .right : .down, insertion: insertion)
+        case .browser:
+            guard PaneBrowserTabOpener(controller: pane).opensInSplit else { return RefusalStrings.dividerBrowser }
+            // A tab the CLI, MCP or a script opens is an agent's, as TabLifecycle.newBrowser marks it (plans/cmux-next/browser.md).
+            let agentDriven = [.cli, .mcp, .script].contains(origin)
+            pane.newBrowserTab(split: BrowserTabSplitRequest(direction: horizontal ? .right : .down, insertion: insertion,
+                                                             agentDriven: agentDriven) { _ in })
+        case .newTabPage: NewTabPage.split(pane, edge: horizontal ? .right : .bottom, insertion: insertion)
+        case .agentChat: // the sizing shows with its pane, goes with a refusal (as a New Tab page split's)
+            let sizing = layoutModel.showSplitSizing(insertion.sizing), model = layoutModel
+            let started = pane.services.agentTabs.openTab(in: pane, split: horizontal ? .right : .down, around: insertion.around) { _ in model.commitSplitSizing(sizing) } failed: { model.cancelSplitSizing(sizing) }
+            if started { applyCurrent() } else { model.cancelSplitSizing(sizing) }
+        }
+        return nil
     }
 }

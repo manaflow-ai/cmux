@@ -8,9 +8,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { gzipSync } from "node:zlib";
-import { chromium, type Page, type CDPSession } from "playwright";
+import { chromium } from "./browsers";
+import type { Page, CDPSession } from "playwright";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
 import { installPaintedFrames } from "../test/support/paintedFrames";
+import { perfRow, TARGET_MS } from "./perfRow";
+import { sharedPaneDir } from "./support/sharedBuilds";
 
 const pct = (values: number[], p: number) => [...values].sort((a, b) => a - b)[Math.ceil(values.length * p) - 1]!;
 const distribution = (values: number[]) => ({ p50: pct(values, 0.5), p95: pct(values, 0.95) });
@@ -310,6 +313,137 @@ export async function measureTickJumps(
   };
 }
 
+/// How far an unloaded tick's prompt may move once drawn (sub-pixel layout and a late image settle well under it).
+const UNLOADED_MOVED_PX = 4;
+
+/// A click on a tick whose prompt is not held yet (a pending tick of a paged chat, far back), in a fresh
+/// pane each sample so every target is cold. It times the click to the prompt's first painted frame and
+/// to its settled frame, and adds up how far the prompt's bubble moved after it first showed: the
+/// "unnecessary movement" (Leo, 2026-11-21: "load fast, load well, load without like unnecessary
+/// movement"). A landing that is right the first time moves 0 px.
+export async function measureUnloadedTickJumps(
+  open: () => Promise<Page>,
+  samples: number,
+  /// How long the pointer is on the rail before the click: 0 clicks at once, as a script does; a person
+  /// reaches the rail and aims at a tick first (a few hundred ms).
+  aimMs = 0,
+): Promise<{ firstPaint: number[]; settled: number[]; movedPx: number[]; samples: unknown[] }> {
+  const all = [];
+  for (let sample = 0; sample < samples; sample++) {
+    const page = await open();
+    try {
+      const rail = page.locator(".acpmux-minimap__list");
+      await rail.waitFor();
+      const pendingCount = await page.evaluate(() => {
+        const bubbles = [...document.querySelectorAll<HTMLElement>(".acpmux-scroll .cv-user__bubble")];
+        const oldest = bubbles
+          .map((node) => Number(node.textContent?.trim().match(/^Question (\d+)$/)?.[1]))
+          .filter(Number.isFinite);
+        return Math.min(...oldest) - 1;
+      });
+      if (!(pendingCount > 10)) throw new Error(`Expected pending ticks, got ${pendingCount}`);
+      // Spread over the unheld prompts: the oldest, then deeper and shallower ones.
+      const index = Math.floor((((sample * 389) % 97) * (pendingCount - 1)) / 97);
+      await rail.evaluate(async (node, index) => {
+        node.scrollTop = index * 10 - node.clientHeight / 2;
+        await window.cmuxPaintFrame();
+        await window.cmuxPaintFrame();
+      }, index);
+      const tick = rail.locator(`[data-tick="${index}"]`);
+      await tick.waitFor();
+      if (aimMs > 0) {
+        const box = (await rail.boundingBox())!;
+        await page.mouse.move(box.x + box.width / 2, box.y + 4);
+        await page.waitForTimeout(aimMs);
+      }
+      await page.evaluate((index) => {
+        const probe = window as unknown as { railJump: unknown };
+        probe.railJump = null;
+        const prompt = `Question ${index + 1}`;
+        // On the document, not the tick: the rail may draw the tick anew between this and the click.
+        const onClick = (event: MouseEvent) => {
+          if (!(event.target as Element | null)?.closest?.(`[data-tick="${index}"]`)) return;
+          document.removeEventListener("click", onClick, true);
+          {
+            const start = performance.now();
+            let firstPaint: number | undefined;
+            let lastTop: number | undefined;
+            let moved = 0;
+            let stable = 0;
+            let frames = 0;
+            let settledAt: number | undefined;
+            // Each frame the prompt's top changed in (ms, px; null off screen), to read how it moved.
+            const path: [number, number | null, number][] = [];
+            window.cmuxAfterPaint(() => {
+              frames++;
+              const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+              const view = scroller.getBoundingClientRect();
+              const bubble = [...scroller.querySelectorAll<HTMLElement>(".cv-user__bubble")].find(
+                (node) => node.textContent?.trim() === prompt,
+              );
+              const box = bubble?.getBoundingClientRect();
+              const visible = !!box && box.height > 0 && box.bottom > view.top && box.top < view.bottom;
+              const elapsed = performance.now() - start;
+              if (visible && firstPaint === undefined) firstPaint = settledAt = elapsed;
+              else if (firstPaint !== undefined) {
+                // Off screen again after it showed counts as a move of the view's height.
+                const top = visible ? box!.top : undefined;
+                if (lastTop !== undefined) moved += top === undefined ? view.height : Math.abs(top - lastTop);
+                stable = top !== undefined && lastTop !== undefined && Math.abs(top - lastTop) < 0.5 ? stable + 1 : 0;
+                if (stable === 0) settledAt = elapsed;
+              }
+              if (firstPaint !== undefined) {
+                const top = visible ? Math.round(box!.top) : null;
+                if (path.length < 40 && path.at(-1)?.[1] !== top)
+                  path.push([Math.round(elapsed), top, Math.round(scroller.scrollTop)]);
+              }
+              if (firstPaint !== undefined) lastTop = visible ? box!.top : undefined;
+              if (stable >= 10 || elapsed > 10_000) {
+                probe.railJump = {
+                  index,
+                  firstPaintMs: firstPaint,
+                  settledMs: settledAt,
+                  movedPx: moved,
+                  frames,
+                  timeout: stable < 10,
+                  path,
+                };
+                return false;
+              }
+              return true;
+            });
+          }
+        };
+        document.addEventListener("click", onClick, true);
+      }, index);
+      await tick.click();
+      await page.waitForFunction(() => (window as unknown as { railJump: unknown }).railJump, {}, { timeout: 15_000 });
+      const result = await page.evaluate(
+        () =>
+          (
+            window as unknown as {
+              railJump: { firstPaintMs?: number; settledMs: number; movedPx: number; timeout: boolean };
+            }
+          ).railJump,
+      );
+      // A jump that lands and then moves (the window swapped for the chat's newest page, the view at the chat's end
+      // and back) fails too: the prompt drawn once and kept is the jump (Leo: "load without like unnecessary movement").
+      if (result.timeout || result.firstPaintMs === undefined || result.movedPx > UNLOADED_MOVED_PX)
+        throw new Error(`Unloaded jump failed: ${JSON.stringify(result)}`);
+      all.push({ pendingCount, ...result });
+    } finally {
+      await page.close();
+    }
+  }
+  return {
+    firstPaint: all.map((each) => each.firstPaintMs!),
+    // The frame the bubble last moved in (its first paint when it never moved).
+    settled: all.map((each) => each.settledMs),
+    movedPx: all.map((each) => each.movedPx),
+    samples: all,
+  };
+}
+
 export async function measureRailReveal(
   page: Page,
   cdp: CDPSession,
@@ -425,6 +559,100 @@ export async function measureRailScroll(
   };
 }
 
+/// The rail from a cold open of a long chat whose history pages in: from its first painted frame to
+/// its last, its box (top and height) and how many prompts it draws. The daemon answers the attach
+/// with the latest page and the prompt index after `indexDelayMs` (a real daemon's round trip), and
+/// two older pages load once it settles. Leo, 2026-11-03: "things should be instant and not shift
+/// layouts", and of this rail: "mostly i just don't like it when the thing shifts and whatnot trying to
+/// center itself". Its rows: the first frame's length short of the final one, and the rail's movement
+/// summed over every frame (box top and height, plus a row per prompt added above the held ones,
+/// which moves every held tick); both should be 0.
+export async function measureFirstFrame(page: Page, url: string, turns: number, eventReads: () => number) {
+  await page.addInitScript(() => {
+    const probe = window as unknown as { railFrames: unknown[]; railStop?: boolean };
+    probe.railFrames = [];
+    const start = performance.now();
+    window.cmuxAfterPaint(() => {
+      const nav = document.querySelector<HTMLElement>("nav.acpmux-minimap__rail");
+      if (nav && nav.getBoundingClientRect().height > 0) {
+        const box = nav.getBoundingClientRect();
+        const prompts = Number(nav.querySelector("[aria-setsize]")?.getAttribute("aria-setsize") ?? 0);
+        probe.railFrames.push({ at: performance.now() - start, top: box.top, height: box.height, prompts });
+      }
+      return !probe.railStop && performance.now() - start < 60_000;
+    });
+  });
+  await page.goto(url);
+  await page.getByText(`Answer ${turns}:`, { exact: false }).waitFor({ timeout: 120_000 });
+  await idle(page);
+  // The index has answered (or its delay passed) and the rail has settled.
+  await page.waitForTimeout(600);
+  // Older pages, read as the transcript reaches its top, until it holds the chat's first prompt (at most two).
+  // The client reads pages ahead of the reader and asks again by itself while the view sits at the top
+  // (direct.ts readOlderAhead, #42298), so a page can land with no new daemon read and the 1,000-turn fixture
+  // can be whole after one scroll: a page has landed on a new read or when the transcript grew above the view
+  // by more than a screen, and the loading is over once the first prompt is held.
+  const view = () =>
+    page.evaluate(() => {
+      const node = document.querySelector<HTMLElement>(".acpmux-scroll");
+      const whole = [...document.querySelectorAll<HTMLElement>(".cv-user__bubble")].some(
+        (bubble) => bubble.textContent?.trim() === "Question 1",
+      );
+      return node ? { scroll: node.scrollHeight, view: node.clientHeight, whole } : { scroll: 0, view: 0, whole };
+    });
+  let landedPages = 0;
+  for (; landedPages < 2; landedPages += 1) {
+    const reads = eventReads();
+    const before = await view();
+    await page.evaluate(() => {
+      const node = document.querySelector<HTMLElement>(".acpmux-scroll");
+      if (!node) return;
+      node.scrollTop = 0;
+      node.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -1 }));
+    });
+    const landed = async () => eventReads() > reads || (await view()).scroll > before.scroll + before.view;
+    // Nothing left to read: the pages before (and what they read ahead) hold the whole chat.
+    const whole = async () => landedPages > 0 && (await view()).whole;
+    const deadline = Date.now() + 15_000;
+    while (!(await landed()) && !(await whole()) && Date.now() < deadline) await page.waitForTimeout(50);
+    if (!(await landed())) {
+      await idle(page);
+      if (await whole()) break;
+      throw new Error(
+        `No older page landed (page ${landedPages + 1}, ${eventReads()} events reads, height ${before.scroll})`,
+      );
+    }
+    await idle(page);
+  }
+  await page.waitForTimeout(300);
+  const frames = await page.evaluate(() => {
+    const probe = window as unknown as {
+      railFrames: { at: number; top: number; height: number; prompts: number }[];
+      railStop?: boolean;
+    };
+    probe.railStop = true;
+    return probe.railFrames;
+  });
+  if (!frames.length) throw new Error("The rail never painted");
+  const first = frames[0]!;
+  const last = frames.at(-1)!;
+  let shift = 0;
+  for (let at = 1; at < frames.length; at += 1) {
+    const [a, b] = [frames[at - 1]!, frames[at]!];
+    shift += Math.abs(b.top - a.top) + Math.abs(b.height - a.height) + Math.abs(b.prompts - a.prompts) * 10;
+  }
+  return {
+    frames: frames.length,
+    first,
+    last,
+    // The rail's length: its tick track (a row per prompt), which a box at its height cap hides.
+    lengthGapPx: Math.max(Math.abs(last.height - first.height), Math.abs(last.prompts - first.prompts) * 10),
+    promptGap: Math.abs(last.prompts - first.prompts),
+    shiftPx: shift,
+    landedPages,
+  };
+}
+
 async function main() {
   const turns = Number(process.argv[2] ?? 1200);
   const samples = Number(process.argv[3] ?? 20);
@@ -432,12 +660,16 @@ async function main() {
   const out = process.env.RAIL_BENCH_OUT;
   if (out) fs.mkdirSync(out, { recursive: true });
   const traceOut = out ?? fs.mkdtempSync(path.join(os.tmpdir(), "rail-traces-"));
-  const temporary = !process.env.PROD_DIR;
-  const prod = process.env.PROD_DIR ?? fs.mkdtempSync(path.join(os.tmpdir(), "rail-jump-"));
+  // PROD_DIR=dir takes a pane build already there; under bench/web-ui-suite.ts, the suite's one pane build of the run
+  // (bench/support/sharedBuilds.ts).
+  const given = process.env.PROD_DIR ?? sharedPaneDir({ variant: false }); // its build has no variant
+  const temporary = !given;
+  const prod = given ?? fs.mkdtempSync(path.join(os.tmpdir(), "rail-jump-"));
   const { events, session } = papercutEvents({ turns, running: false });
   const paged = process.env.RAIL_BENCH_PAGED === "1";
+  const pagedRun = paged;
   const methods: string[] = [];
-  const answer = (method: string, params: Record<string, any> = {}) => {
+  const answer = (method: string, params: Record<string, any> = {}, paged = pagedRun) => {
     methods.push(method);
     switch (method) {
       case "initialize":
@@ -454,6 +686,15 @@ async function main() {
           ...(paged ? pagedEvents(events, params, true) : { events, hasMore: false }),
         };
       case "_acpmux/events":
+        // The prompt index is one unbounded reply, as acpmux's (hub/paging.rs prompt_index).
+        if (paged && params.promptIndex)
+          return {
+            events: events.filter(
+              (event: any) => event.kind === "user_message" && event.seq < Number(params.beforeSeq ?? Infinity),
+            ),
+            hasMore: false,
+            lastSeq: events.length,
+          };
         return paged
           ? { ...pagedEvents(events, params), lastSeq: events.length }
           : { events: [], hasMore: false, lastSeq: events.length };
@@ -464,18 +705,28 @@ async function main() {
   const daemon = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
-    fetch: (request, server) => (server.upgrade(request) ? undefined : new Response("WebSocket", { status: 426 })),
+    // `?paged=1` pages this connection's history; `indexDelayMs` holds the prompt index's answer.
+    fetch: (request, server) => {
+      const query = new URL(request.url).searchParams;
+      const data = { paged: query.get("paged") === "1" || paged, indexDelayMs: Number(query.get("indexDelayMs") ?? 0) };
+      // The server is untyped for its sockets' data; this bench's sockets carry only this.
+      return server.upgrade(request, { data } as never) ? undefined : new Response("WebSocket", { status: 426 });
+    },
     websocket: {
       message(ws, raw) {
         const msg = JSON.parse(String(raw));
-        if (msg.id !== undefined)
+        const { paged: connectionPaged, indexDelayMs } = ws.data as unknown as { paged: boolean; indexDelayMs: number };
+        if (msg.id === undefined) return;
+        const reply = () =>
           ws.send(
             JSON.stringify({
               jsonrpc: "2.0",
               id: msg.id,
-              result: answer(msg.method, msg.params ?? {}),
+              result: answer(msg.method, msg.params ?? {}, connectionPaged),
             }),
           );
+        if (msg.params?.promptIndex && indexDelayMs > 0) setTimeout(reply, indexDelayMs);
+        else reply();
       },
     },
   });
@@ -488,7 +739,9 @@ async function main() {
       return (await file.exists()) ? new Response(file) : new Response("Not found", { status: 404 });
     },
   });
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({
+    headless: true,
+  });
   try {
     if (temporary) {
       const { build } = await import("vite");
@@ -503,17 +756,22 @@ async function main() {
       "fixed-stagger":
         ".acpmux-minimap__list { --acpmux-minimap-first: 0 !important; --acpmux-minimap-rows: 1 !important; }",
       "no-entrance": ".acpmux-minimap__bar, .acpmux-minimap__dot { animation: none !important; }",
+      // The app's see-through window (data-cmux-see-through on the root): the preview card's glass
+      // makes the transcript blur itself under it (ui/glass/seeThroughBlur.ts).
+      seethrough: "",
     };
-    for (const arm of (process.env.RAIL_BENCH_ARMS ?? "base").split(",")) {
+    for (const arm of (process.env.RAIL_BENCH_ARMS ?? "base").split(",").filter(Boolean)) {
       if (!(arm in arms)) throw new Error(`Unknown benchmark arm ${arm}`);
       const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
       page.on("pageerror", (error) => console.error(error));
       await installPaintedFrames(page);
-      const url = `http://127.0.0.1:${server.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${PAPERCUT_CHAT}`;
+      const url = `http://127.0.0.1:${server.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&session=${PAPERCUT_CHAT}`;
       await page.goto(url);
       await page.getByText(`Answer ${turns}:`, { exact: false }).waitFor({ timeout: 120_000 });
       await idle(page);
       if (arms[arm]) await page.addStyleTag({ content: arms[arm]! });
+      if (arm === "seethrough")
+        await page.evaluate(() => document.documentElement.setAttribute("data-cmux-see-through", ""));
       const rail = page.locator(".acpmux-minimap__list");
       await rail.waitFor();
       let count = Number(await rail.locator("[aria-setsize]").first().getAttribute("aria-setsize"));
@@ -535,6 +793,95 @@ async function main() {
           }),
       );
       const frameMs = pct(cadence, 0.5);
+      // RAIL_BENCH_RESTYLE=1: instead of timing, how many elements each style recalc of a rail hover and
+      // a rail click restyles, and the invalidations behind them (Chromium's invalidation tracking).
+      // RAIL_BENCH_RESTYLE=TEXT first deletes every :has() rule whose selector contains TEXT, to find
+      // which rule a whole-pane recalc comes from (handbook: pane-level-has-restyles-every-row).
+      const restyle = process.env.RAIL_BENCH_RESTYLE;
+      if (restyle) {
+        if (restyle !== "1")
+          console.log(
+            "RAIL_RESTYLE removed",
+            await page.evaluate((needle) => {
+              const removed: string[] = [];
+              // `#A-B,C-D`: the A-th to B-th (and C-th to D-th) :has() rules met, to bisect without a name.
+              const range = /^#[\d,-]+$/.test(needle)
+                ? needle
+                    .slice(1)
+                    .split(",")
+                    .map((span) => span.split("-").map(Number) as [number, number])
+                : undefined;
+              let seen = 0;
+              const walk = (list: CSSRuleList) => {
+                for (let i = list.length - 1; i >= 0; i--) {
+                  const rule = list[i] as CSSStyleRule & { cssRules?: CSSRuleList };
+                  const has = !!rule.selectorText?.includes(":has(");
+                  const ordinal = has ? seen++ : -1;
+                  if (
+                    has &&
+                    (range
+                      ? range.some(([from, to]) => ordinal >= from && ordinal < to)
+                      : rule.selectorText.includes(needle))
+                  ) {
+                    removed.push(range ? `${ordinal} ${rule.selectorText}` : rule.selectorText.slice(0, 120));
+                    if (rule.parentRule && "deleteRule" in rule.parentRule)
+                      (rule.parentRule as CSSGroupingRule).deleteRule(i);
+                    else rule.parentStyleSheet?.deleteRule(i);
+                  } else if (rule.cssRules) walk(rule.cssRules);
+                }
+              };
+              for (const sheet of document.styleSheets) walk(sheet.cssRules);
+              return JSON.stringify(removed);
+            }, restyle),
+          );
+        for (const phase of ["hover", "click"]) {
+          const index = Math.floor(count / 3);
+          await rail.evaluate(async (node, index) => {
+            node.scrollTop = index * 10 - node.clientHeight / 2;
+            await window.cmuxPaintFrame();
+            await window.cmuxPaintFrame();
+          }, index);
+          const tick = rail.locator(`[data-tick="${index}"]`);
+          if (phase === "click") await tick.hover();
+          await page.waitForTimeout(500);
+          await browser.startTracing(page, {
+            categories: ["devtools.timeline", "disabled-by-default-devtools.timeline.invalidationTracking"],
+          });
+          if (phase === "hover") await tick.hover();
+          else await tick.click();
+          await page.waitForTimeout(400);
+          const trace = JSON.parse((await browser.stopTracing()).toString()) as {
+            traceEvents: { name: string; ph: string; cat: string; args?: Record<string, any> }[];
+          };
+          const reasons = new Map<string, number>();
+          const recalcs: number[] = [];
+          for (const event of trace.traceEvents) {
+            if (event.name === "UpdateLayoutTree" && event.ph === "X") recalcs.push(event.args?.elementCount ?? 0);
+            if (!event.cat.includes("invalidationTracking")) continue;
+            const data = event.args?.data ?? {};
+            const key = [
+              event.name,
+              data.reason,
+              data.nodeName?.slice(0, 70),
+              data.changedPseudo && `pseudo ${data.changedPseudo}`,
+              data.selectors && JSON.stringify(data.selectors).slice(0, 200),
+            ]
+              .filter(Boolean)
+              .join(" | ");
+            reasons.set(key, (reasons.get(key) ?? 0) + 1);
+          }
+          console.log(
+            "RAIL_RESTYLE",
+            JSON.stringify({ arm, phase, elements: recalcs.reduce((sum, n) => sum + n, 0), recalcs }),
+          );
+          for (const [key, times] of [...reasons.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20))
+            console.log("RAIL_RESTYLE", phase, times, key);
+          await page.mouse.move(1000, 50);
+          await idle(page);
+        }
+        await page.close();
+        continue;
+      }
       const cdp = await page.context().newCDPSession(page);
       await cdp.send("Performance.enable");
       console.log(`RAIL_BENCH_START ${arm}${paged ? "-paged" : ""} turns=${turns} samples=${samples}`);
@@ -626,8 +973,80 @@ async function main() {
       });
       if (out) await page.screenshot({ path: path.join(out, `${arm}-jump.png`) });
       console.log("RAIL_BENCH " + JSON.stringify(report));
+      // thread-rail.tick-click.loaded-1000 -> thread_rail.tick_click.loaded_1000.<arm>: a tick click or reveal
+      // until the target paints (a response). A rail scroll's frame time is the painted-frame interval, which a
+      // headless runner's frame clock sets (16.7 ms), not work: a row with no target, so a dropped frame still shows.
+      for (const each of report.schema.cases)
+        if (each.p95 !== null)
+          perfRow({
+            name: `${each.id.replaceAll("-", "_")}.${arm.replaceAll("-", "_")}`,
+            p50: each.p50 ?? undefined,
+            p95: each.p95,
+            target: each.metric === "frame_time" ? undefined : TARGET_MS.response,
+          });
       if (out) fs.writeFileSync(path.join(out, `${arm}-results.json`), JSON.stringify(report, null, 2));
       await page.close();
+    }
+    // The cold open of the same chat, paged, with the prompt index answering 150 ms after it asks.
+    if (!process.env.RAIL_BENCH_RESTYLE && process.env.RAIL_BENCH_FIRST_FRAME !== "0") {
+      const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+      page.on("pageerror", (error) => console.error(error));
+      await installPaintedFrames(page);
+      const endpoint = `ws://127.0.0.1:${daemon.port}/?paged=1&indexDelayMs=150`;
+      const url = `http://127.0.0.1:${server.port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&scheme=cmux&session=${PAPERCUT_CHAT}`;
+      const first = await measureFirstFrame(
+        page,
+        url,
+        turns,
+        () => methods.filter((method) => method === "_acpmux/events").length,
+      );
+      console.log("RAIL_BENCH_FIRST_FRAME " + JSON.stringify(first));
+      // Pixels, not ms; lower is better and the target is 0 (the first frame is the final frame).
+      perfRow({ name: `thread_rail.first_paint.length_gap_px.paged_${turns}`, p95: first.lengthGapPx, unit: "px" });
+      perfRow({ name: `thread_rail.history_load.shift_px.paged_${turns}`, p95: first.shiftPx, unit: "px" });
+      if (out) fs.writeFileSync(path.join(out, "first-frame.json"), JSON.stringify(first, null, 2));
+      await page.close();
+    }
+    // A click on a far-back tick whose prompt is not held: a fresh paged pane per sample, the prompt
+    // index answering 150 ms after it asks (a real Mac link's round trip, not loopback's).
+    if (process.env.RAIL_BENCH_UNLOADED !== "0") {
+      const endpoint = `ws://127.0.0.1:${daemon.port}/?paged=1&indexDelayMs=150`;
+      const url = `http://127.0.0.1:${server.port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&scheme=cmux&session=${PAPERCUT_CHAT}`;
+      const aimMs = Number(process.env.RAIL_BENCH_AIM_MS ?? 0);
+      const aim = aimMs > 0 ? `_aim${aimMs}` : "";
+      const unloaded = await measureUnloadedTickJumps(
+        async () => {
+          const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+          page.on("pageerror", (error) => console.error(error));
+          await installPaintedFrames(page);
+          await page.goto(url);
+          await page.getByText(`Answer ${turns}:`, { exact: false }).waitFor({ timeout: 120_000 });
+          await idle(page);
+          return page;
+        },
+        Math.min(samples, 8),
+        aimMs,
+      );
+      console.log("RAIL_BENCH_UNLOADED " + JSON.stringify(unloaded));
+      const first = distribution(unloaded.firstPaint);
+      const settled = distribution(unloaded.settled);
+      perfRow({
+        name: `thread_rail.tick_click.unloaded_${turns}${aim}.first_paint`,
+        ...first,
+        target: TARGET_MS.response,
+      });
+      perfRow({
+        name: `thread_rail.tick_click.unloaded_${turns}${aim}.settled`,
+        ...settled,
+        target: TARGET_MS.response,
+      });
+      // Pixels the prompt moved after it first showed; the target is 0.
+      perfRow({
+        name: `thread_rail.tick_click.unloaded_${turns}${aim}.moved_px`,
+        ...distribution(unloaded.movedPx),
+        unit: "px",
+      });
+      if (out) fs.writeFileSync(path.join(out, "unloaded.json"), JSON.stringify(unloaded, null, 2));
     }
   } finally {
     await browser.close();
@@ -637,4 +1056,9 @@ async function main() {
   }
 }
 
-if (import.meta.main) await main();
+// Why it exits 1, last and on stderr, so the suite's report carries the reason (web-ui-suite.ts failureTail).
+if (import.meta.main)
+  await main().catch((error: unknown) => {
+    console.error(`thread-rail-jump: FAIL ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`);
+    process.exit(1);
+  });

@@ -54,6 +54,9 @@ const machine = (
   last_active_at: 1790000600000 + n * 1000,
   idle_policy: { idle_seconds: idle },
   error: null,
+  // Freestyle's vCPU and memory list price for the size (backend/apps/api/src/domains/cloud-cost.ts).
+  hourly_rate_usd: Math.round((size[0]! * 0.04032 + (size[1]! / 1024) * 0.0129) * 10_000) / 10_000,
+  running_since: status === "running" ? 1790000300000 + n * 1000 : null,
   revision: String(rev)
 })
 
@@ -229,13 +232,13 @@ kase(
   [opErr("cloud.machine.start", "key-start-quota", "cloud.quota.exceeded", "this plan allows 2 active machines", false, { limit: 2, used: 2, resource: "active", plan: PLAN_ID })],
   { key: "key-start-quota" }
 )
-kase("machine.pause", "cloud.machine.pause", { machine: vm(1) }, [opOk("cloud.machine.pause", "key-pause-1", { machine: { ...M1, status: "pausing", revision: "49" } }, "49")], {
+kase("machine.pause", "cloud.machine.pause", { machine: vm(1) }, [opOk("cloud.machine.pause", "key-pause-1", { machine: { ...M1, status: "pausing", running_since: null, revision: "49" } }, "49")], {
   key: "key-pause-1"
 })
 kase("machine.pause.not_running", "cloud.machine.pause", { machine: vm(2) }, [opErr("cloud.machine.pause", "key-pause-2", "cloud.machine.not_running", "only a running machine can be paused", false, { machine: vm(2), state: "paused" })], { key: "key-pause-2" })
 kase("machine.start.not_paused", "cloud.machine.start", { machine: vm(1) }, [opErr("cloud.machine.start", "key-start-2", "cloud.machine.not_paused", "only a paused machine can be started", false, { machine: vm(1), state: "running" })], { key: "key-start-2" })
 const big = { cpu: 4, memory_mb: 8192, disk_mb: 32768 }
-kase("machine.resize", "cloud.machine.resize", { machine: vm(1), size: big }, [opOk("cloud.machine.resize", "key-resize-1", { machine: { ...M1, size: big, revision: "50" } }, "50")], {
+kase("machine.resize", "cloud.machine.resize", { machine: vm(1), size: big }, [opOk("cloud.machine.resize", "key-resize-1", { machine: { ...M1, size: big, hourly_rate_usd: 0.2645, revision: "50" } }, "50")], {
   key: "key-resize-1"
 })
 kase("machine.resize.grow_only", "cloud.machine.resize", { machine: vm(1), size: { cpu: 1 } }, [opErr("cloud.machine.resize", "key-resize-2", "cloud.size.grow_only", "a machine can only grow (vCPU, memory and disk)", false, { size: M1.size as Json })], { key: "key-resize-2" })
@@ -389,6 +392,20 @@ const PLAN = {
   usage: { active: 2, saved: 3, vm_hours_used: 41.5, period_end: 1792000000000 }
 }
 kase("plan.get", "cloud.plan.get", {}, [readOk("cloud.plan.get", PLAN, "12")])
+// The team's usage this month, priced by the billing owner: 10 vCPU-hours, 20 GiB-hours awake, 30 GiB-days held.
+const USAGE = {
+  period: "2026-11",
+  as_of: 1792000000000,
+  metered_since: 1790000000000,
+  vcpu_seconds: 36000,
+  memory_gib_seconds: 72000,
+  stored_gib_seconds: 2592000,
+  usd: { vcpu: 0.45, memory: 0.29, stored: 0.1, total: 0.84 },
+  gaps: [],
+  payment_method: { attached: true, brand: "visa", last4: "4242" },
+  stripe_mode: "test"
+}
+kase("usage.current", "cloud.usage.current", {}, [readOk("cloud.usage.current", USAGE, "12")])
 kase("billing.checkout", "cloud.billing.checkout", { plan: PLAN_ID }, [opOk("cloud.billing.checkout", "key-checkout-1", { url: "https://checkout.example.com/session/cs_vector_0001" }, "13")], {
   key: "key-checkout-1"
 })
@@ -452,9 +469,9 @@ const event = (name: string, ev: string, data: Obj, note?: string) => {
   if (note) e.note = note
   events.push(e)
 }
-event("machine.upsert.newer", "cloud.machine.upsert", { machine: { ...M1, status: "pausing", revision: "55" } })
+event("machine.upsert.newer", "cloud.machine.upsert", { machine: { ...M1, status: "pausing", running_since: null, revision: "55" } })
 event("machine.upsert.stale", "cloud.machine.upsert", { machine: { ...M1, status: "running", revision: "6" } }, "Older than the projection's revision 7 (or 55): dropped.")
-event("machine.upsert.bound", "cloud.machine.upsert", { machine: { ...M4, status: "running", host: host(4), revision: "46" } }, "Provisioning done: the host is bound.")
+event("machine.upsert.bound", "cloud.machine.upsert", { machine: { ...M4, status: "running", host: host(4), running_since: 1790000304000, revision: "46" } }, "Provisioning done: the host is bound.")
 event("machine.upsert.new", "cloud.machine.upsert", { machine: machine(8, "made elsewhere", "provisioning", 45, { bound: false }) })
 event("machine.removed", "cloud.machine.removed", { machine: vm(3), revision: "56" })
 event("machine.removed.stale", "cloud.machine.removed", { machine: vm(1), revision: "3" }, "Older than the record: dropped (the machine stays).")

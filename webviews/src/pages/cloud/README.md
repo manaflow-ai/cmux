@@ -16,6 +16,7 @@ and 4; server `first-party-apps/cloud/server/src/ops/*.rs`, `src/api/models.rs`,
 | `detail.ts`                                     | Reads and changes for the selected machine: snapshots, port forwards, browser route.                                                  |
 | `files.ts`, `transfers.ts`                      | Files over the machine daemon (`fs-v1`) and push/pull transfers settled by `cmux.cloud.file.transfer.changed`.                        |
 | `model.ts`                                      | Pure logic: events into the mirror, intent settlement, visible rows, classic rows, plan sizes, labels.                                |
+| `retention.ts`, `ArchiveList.tsx`               | Automatic cleanup: a row's delete date, Keep, Archive and delete, the one-time notice, the cap offer and the archives list.           |
 | `mockProvider.ts`, `mockData.ts`, `mockEdge.ts` | In-memory provider for tests and the dev loop. It answers like the server: same fields, guards (origin, key, args) and error codes.   |
 | `Localizable.xcstrings`                         | String source (21 languages). `node webviews/scripts/pages/gen-strings.mjs` writes `generated/strings.json`.                          |
 
@@ -24,12 +25,17 @@ and 4; server `first-party-apps/cloud/server/src/ops/*.rs`, `src/api/models.rs`,
 - No polling and no timers. The list changes only from the watch stream; the detail is read on
   selection and after a confirmed change; the plan is read on sign-in and after a confirmed change
   that may move its usage.
+- The page follows the app's account: the host's `cmux.cloud.auth.watch` stream (served by
+  `CloudPageProvider`, not the Cloud app server) sends the current account, then each sign-in,
+  sign-out or team switch made anywhere in the app. On each event the page reads auth again and,
+  when it differs from what it shows, drops the old account's state and loads the new one. A page
+  opened while signed out never keeps its Sign In hero after the app signs in.
 - One pending intent log (OWNERSHIP-PRINCIPLES "Clients are projections"). A machine mutation answers
   `{machine, revision}`: the intent settles when the mirror reaches that projection revision (no
   refetch), or when the record shows the change. The record's own `revision` is a decimal string.
 - Every mutation sends an idempotency key. The create sheet keeps one key for its life.
 - Money, destructive and one-way ops never run from the page (ops.ts `NATIVE_ACTIONS`): create,
-  resize, delete, upgrade, snapshot create, restore and delete, billing checkout, migration start,
+  resize, delete, archive and delete, upgrade, snapshot create, restore and delete, billing checkout, migration start,
   file remove, push and pull, connect, sign-in and sign-out. The page calls
   `cmux.app.action.run {action: <op name>, args}`; the host confirms (or shows its file panel), stamps
   origin user, runs the op and answers its result fields at the top level, or `{confirmed: false}`.
@@ -87,3 +93,15 @@ setting **`cloud.machines.layout`**; in the dev loop use `/cloud/?mock&layout=ca
 ## Dev loop
 
 `cd webviews && bun run dev`, then open `/cloud/?mock` (or `/cloud/?mock=all`).
+
+## Automatic cleanup
+
+The platform decides every date (cmux-platform Retention.ts); the page reads `evict_at`,
+`delete_reason`, `keep` and `notice` off the machine record and computes no policy. Pausing is
+silent. A disposable machine (a failed create, a machine nobody used) shows only a quiet "Deletes
+in N days" in its row. A worked-in machine on a plan that deletes them gets one heads-up and one
+last note, each shown once, inline under its row with Keep and Dismiss; a dismissal is remembered
+per machine and `notice.at` in this browser. Paid plans keep worked-in machines and offer "Archive
+and delete" on paused ones. A create refused at the machines cap offers the machine the platform
+names (`details.free_up`) or the oldest paused one, then creates. Settings show the plan's cleanup,
+the caller's email heads-up and the team's numbers (saving them is a team admin's).

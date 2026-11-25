@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextFocus
+import CmuxNextTerminal
 
 /// A surface's primary input (R65, spec app-screens.md section 3): Home's
 /// message box, the agent pane's composer, an app screen's
@@ -65,16 +66,32 @@ extension PrimaryInputTarget {
     }
 
     /// The surface got the keyboard (`FocusEffectApplier`): its primary
-    /// input takes it unless the responder keeps it. Returns false when the
+    /// input takes it unless the responder keeps it or a pending creation owns it. Returns false when the
     /// surface shows no primary input in `window` now (the caller then
     /// focuses its own target).
     @discardableResult
     func landKeyboard(in window: NSWindow) -> Bool {
         guard let input = primaryInputView, input.window === window, !input.isHiddenOrHasHiddenAncestor else { return false }
-        if window.firstResponder !== input, primaryInputShouldTakeKeyboard(from: window.firstResponder) {
+        if window.firstResponder !== input, !window.pendingCreationOwnsKeyboard, primaryInputShouldTakeKeyboard(from: window.firstResponder) {
             window.makeFirstResponder(input)
         }
         return true
+    }
+}
+
+extension NSWindow {
+    /// A creation the person asked for in this cmux window holds its keys and they have not moved on, or their new terminal
+    /// claims the keyboard: no primary input takes it by itself (Chrome: a tab not asked for never takes focus by itself).
+    @MainActor var pendingCreationOwnsKeyboard: Bool {
+        guard let controller = windowController as? WindowController else { return false }
+        return controller.services.keyRouter.creationInputCoordinator.claimsKeyboard(in: self, generation: controller.focus.state.generation)
+    }
+
+    /// A text input has the person's keyboard in this cmux window (``NSWindow/textInputHasKeyboard(appActive:ownsKey:isTerminal:pageEditable:)``).
+    @MainActor var hasTextInputKeyboard: Bool {
+        guard let controller = windowController as? WindowController, case let facts = controller.focus.currentState() else { return false }
+        return textInputHasKeyboard(appActive: facts.appActive, ownsKey: facts.windowKey || NSApp.keyWindow.flatMap(controller.services.windows.owner(of:)) === controller,
+                                    isTerminal: { $0 is TerminalSurfaceView }) { controller.services.keyRouter.facts(in: self, controller: controller).pageEditableFocused }
     }
 }
 

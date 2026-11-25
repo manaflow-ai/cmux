@@ -4,6 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
+use cmux_mobile_link::BuildSpace;
 
 use crate::auth::{DEFAULT_STACK_API, DEFAULT_STACK_PROJECT, TokenSource};
 use crate::control::{AcpmuxEndpoint, Supplied};
@@ -89,6 +90,11 @@ pub fn chief_socket(tui_socket_dir: &Path) -> PathBuf {
 #[derive(Debug, Clone)]
 pub struct HostConfig {
     pub base_url: String,
+    /// `CMUX_BUILD_SPACE` (or `CMUX_MOBILE_BUILD_SPACE`): a dev build's
+    /// `dev:<slug>`, sent as `x-cmux-build-space` on every request to the
+    /// service; `None` (nightly, stable) sends no header. A malformed value
+    /// fails [`HostConfig::from_env`] ([`build_space_in`]).
+    pub build_space: Option<BuildSpace>,
     pub team_id: String,
     pub device_id: String,
     pub device_name: String,
@@ -107,7 +113,17 @@ pub struct HostConfig {
     pub include_loopback: bool,
     /// Never offer or use 100.64.0.0/10 (Tailscale) addresses.
     pub exclude_cgnat: bool,
+    pub session_exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
     pub services: ServiceConfig,
+}
+
+/// The build space `var` (an environment lookup) names, by the one rule every
+/// Rust cloud client shares (`cmux_build_space::resolve`): `CMUX_BUILD_SPACE`,
+/// or the older `CMUX_MOBILE_BUILD_SPACE`. Unset is no space unless the
+/// launcher's `CMUX_BUNDLE_ID` names a tagged dev build; a blank, malformed or
+/// unusable value is an error, so the host never starts in nightly's space.
+pub fn build_space_in(var: impl Fn(&str) -> Option<String>) -> Result<Option<BuildSpace>> {
+    Ok(cmux_build_space::resolve(var)?)
 }
 
 fn env(name: &str) -> Option<String> {
@@ -142,7 +158,7 @@ pub fn default_state_dir() -> PathBuf {
         .unwrap_or_else(|| home().join("Library/Application Support/cmux-mobile-host"))
 }
 
-fn hostname() -> String {
+pub(crate) fn hostname() -> String {
     let mut buffer = [0u8; 256];
     // SAFETY: the buffer is valid for its length; gethostname NUL-terminates
     // on success when the name fits.
@@ -269,7 +285,12 @@ pub fn sibling_device_ids(app_support: &Path, own: &str, machine_id: &str) -> Ve
 /// this build is its own computer; claiming this Mac's folders as its
 /// siblings would make the backend give its id to every same-owner record
 /// that has none yet (old builds, other rigs) and fold them into it for good.
-pub fn registration_siblings(app_support: &Path, own: &str, machine_id: &str, overridden: bool) -> Vec<String> {
+pub fn registration_siblings(
+    app_support: &Path,
+    own: &str,
+    machine_id: &str,
+    overridden: bool,
+) -> Vec<String> {
     if overridden {
         return Vec::new();
     }
@@ -333,6 +354,7 @@ impl HostConfig {
     pub fn from_env(supplied: Option<Supplied>) -> Result<Self> {
         let base_url = env("CMUX_MOBILE_BASE_URL").context("CMUX_MOBILE_BASE_URL is required")?;
         let team_id = env("CMUX_MOBILE_TEAM_ID").context("CMUX_MOBILE_TEAM_ID is required")?;
+        let build_space = build_space_in(|name| std::env::var(name).ok())?;
         let tokens = if let Some(supplied) = &supplied {
             TokenSource::Supplied(supplied.token.clone())
         } else if let Some(refresh_token) = env_or_file("CMUX_MOBILE_REFRESH_TOKEN")? {
@@ -372,6 +394,12 @@ impl HostConfig {
             .with_spent_replies(std::sync::Arc::new(crate::mailbox::SpentReplies::load(
                 default_state_dir().join("mailbox-spent.json"),
             )))
+            .with_mailbox_cursor(std::sync::Arc::new(crate::mailbox::MailboxCursor::load(
+                default_state_dir().join("mailbox-cursor.json"),
+            )))
+            .with_activity(std::sync::Arc::new(crate::activity::Activity::file(
+                default_state_dir().join("machine-activity.jsonl"),
+            )))
         });
         let max_tabs = env("CMUX_MOBILE_RB_MAX_TABS").and_then(|v| v.parse().ok()).unwrap_or(4);
         let browser = match (&supplied, env("CMUX_MOBILE_RB_HOST")) {
@@ -390,11 +418,21 @@ impl HostConfig {
             ),
             (None, None) => crate::browser::BrowserConfig::default(),
         };
-        // Supervised: the app streams its phone tabs' simulators when this build
-        // can (`CMUX_MOBILE_SURFACE_HOSTS=1`: SimulatorKit loads).
+        // Supervised: the app has a surface source (`CMUX_MOBILE_SURFACE_HOSTS=1`): its
+        // phone tabs' simulators when SimulatorKit loads (an app that cannot says
+        // `CMUX_MOBILE_SURFACE_SIMULATORS=0`; an older app sets neither then), and Cloud desktops.
         let surface = match &supplied {
             Some(supplied) if env("CMUX_MOBILE_SURFACE_HOSTS").as_deref() == Some("1") => {
-                crate::surface::SurfaceConfig::new(Some(supplied.surface.launcher()), max_tabs)
+                let mut config =
+                    crate::surface::SurfaceConfig::new(Some(supplied.surface.launcher()), max_tabs);
+                if env("CMUX_MOBILE_SURFACE_SIMULATORS").as_deref() == Some("0") {
+                    config = config.without_simulators();
+                }
+                // The app's source also captures this Mac's displays (`d~<display>`).
+                if env("CMUX_MOBILE_MAC_DISPLAY").as_deref() == Some("1") {
+                    config = config.with_mac_display();
+                }
+                config
             }
             _ => crate::surface::SurfaceConfig::default(),
         };
@@ -403,6 +441,7 @@ impl HostConfig {
             .unwrap_or_default();
         Ok(Self {
             base_url,
+            build_space,
             team_id,
             device_id,
             device_name: env("CMUX_MOBILE_DEVICE_NAME").unwrap_or_else(hostname),
@@ -420,6 +459,7 @@ impl HostConfig {
             owner_user_id: env("CMUX_MOBILE_OWNER_USER_ID"),
             include_loopback: env("CMUX_MOBILE_INCLUDE_LOOPBACK").is_some_and(|v| v == "1"),
             exclude_cgnat: env("CMUX_MOBILE_EXCLUDE_CGNAT").is_some_and(|v| v == "1"),
+            session_exposure: supplied.map(|value| value.session_exposure),
             services: ServiceConfig {
                 chief_socket: Some(chief_socket(
                     &env("CMUX_MOBILE_TUI_SOCKET_DIR")

@@ -15,9 +15,10 @@ enum BrowserHandlers {
         BrowserDeviceHandlers.bind(into: registry, context: context)
         bindSplits(into: registry, context: context)
         bindLinkHints(into: registry, context: context)
+        bindScroll(into: registry, context: context)
         BrowserEnabledToggle.bind(into: registry, context: context)
         BrowsingDataClear.bindClearHistory(registry, context: context)
-        registry.bind("palette.browserToggleOmnibar", run: { invocation in try context.page(invocation).chrome.toggleOmnibar() })
+        registry.bind("palette.browserToggleOmnibar", run: { invocation in try context.shownPage(invocation).chrome.toggleOmnibar() })
     }
 
     private static func bindPage(into registry: ActionRegistry, context: AppActionContext) {
@@ -35,34 +36,34 @@ enum BrowserHandlers {
                 throw ActionFailure(message: MiscHandlerStrings.noBrowser)
             }
             if window.focus.state.pane != pane.paneKey { window.focus.send(.focusPane(pane.paneKey, source: .intent)) }
-            let tab = entry.tab.id.rawValue
+            let tab = window.focus.state.focusModeTab(for: entry.key)
             window.focus.send(.toggleBrowserFocusMode(tab: tab))
             // Entering puts the keyboard in the page (classic cmux parity): from the
             // address bar or find bar, focus mode would wait for a click otherwise.
-            if window.focus.state.browserFocusMode.contains(tab) { window.focus.send(.focusTarget(.content, source: .intent)) }
+            if let tab = tab ?? window.focus.state.resolved.tab, window.focus.state.browserFocusMode.contains(tab) { window.focus.send(.focusTarget(.content, source: .intent)) }
         })
         // Any focused web view (WebInspectorTarget): disabled with the reason while none is.
         registry.bind("toggleBrowserDeveloperTools", unavailable: { DevToolsHandlers.noTargetReason(context) }, run: { invocation in
             let target = try DevToolsHandlers.target(invocation, context)
-            WebInspector.toggle(target)
+            target.toggle()
             // WebKit's inspector visibility is not observable; Chromium's is.
-            if case .browser = target { (try? context.page(invocation))?.chrome.toolbarButtons.refresh() }
+            if case .browser = target { (try? context.page(invocation))?.chrome?.toolbarButtons.refresh() }
         })
         registry.bind("showBrowserJavaScriptConsole", unavailable: { DevToolsHandlers.noTargetReason(context) }, run: {
-            WebInspector.showConsole(try DevToolsHandlers.target($0, context))
+            try DevToolsHandlers.target($0, context).showConsole()
         })
         registry.bind("inspectBrowserElement", unavailable: { DevToolsHandlers.noTargetReason(context) }, run: {
-            WebInspector.inspectElement(try DevToolsHandlers.target($0, context))
+            try DevToolsHandlers.target($0, context).inspectElement()
         })
         // Classic's Design Mode (plans/cmux-next/design-mode-DESIGN.md): highlights become cards in
         // an agent chat. The toolbar shows the mode (BrowserPageModes); a new document starts with it off.
         registry.bind("toggleBrowserDesignMode", unavailable: {
-            let alreadyOn = context.services.cache.browsers.values.contains { $0.chrome.toolbarButtons.modes.designMode }
+            let alreadyOn = context.services.cache.browsers.values.contains { $0.state.modes.designMode }
             return BrowserPageTunables.uiPointer.value || alreadyOn ? nil :
                 "UI pointer picker is off. Turn it on in Debug Settings > Browser Page Loading."
         }, run: { invocation in
             let entry = try context.page(invocation)
-            guard BrowserPageTunables.uiPointer.value || entry.chrome.toolbarButtons.modes.designMode else {
+            guard BrowserPageTunables.uiPointer.value || entry.state.modes.designMode else {
                 throw ActionFailure(message: "UI pointer picker is off. Turn it on in Debug Settings > Browser Page Loading.")
             }
             guard let key = context.services.cache.key(of: entry.tab) else { return }
@@ -73,12 +74,12 @@ enum BrowserHandlers {
         registry.bind("toggleReactGrab", run: { invocation in
             let entry = try context.page(invocation)
             let tab = entry.tab, grab = context.services.reactGrab, logger = context.daemon.logger
-            Task { [weak chrome = entry.chrome] in
+            Task { [state = entry.state] in
                 do {
                     try await grab.toggle(tab)
                 } catch {
                     logger.error("react-grab toggle failed: \(String(describing: error), privacy: .public)")
-                    chrome?.showNotice(MiscHandlerStrings.reactGrabFailed)
+                    state.showNotice(MiscHandlerStrings.reactGrabFailed)
                 }
             }
         })
@@ -93,14 +94,14 @@ enum BrowserHandlers {
         registry.bind("browserTheme", run: { invocation in
             let entry = try context.page(invocation)
             let scheme = BrowserToolbarHandlers.colorScheme(invocation)
-            entry.chrome.toolbarButtons.modes.colorScheme = scheme
+            entry.state.modes.colorScheme = scheme
             (entry.tab as? any BrowserColorSchemeApplying)?.applyColorScheme(scheme)
         })
-        registry.bind("browserPrint", run: { invocation in
-            guard BrowserPagePrint(try context.page(invocation).tab).run() else {
-                throw ActionFailure(message: MiscHandlerStrings.printUnavailable)
-            }
-        })
+        // Print, and Save Page As, Cast, QR code and Translate: the engine's own page panels (cmux_shim_page_command).
+        registry.bindEffect("browserPrint", requires: nil, effect: { BrowserPagePrint(try context.page($0).tab).run() ? .done : .refused(MiscHandlerStrings.printUnavailable) })
+        for (id, command) in BrowserPageCommand.Command.actions {
+            registry.bindEffect(ActionID(rawValue: id), requires: nil, effect: { try BrowserPageCommand(context.page($0).tab).run(command) ? .done : .refused(BrowserPageCommand.unavailable) })
+        }
         registry.bind("browserScreenshotPage", run: { invocation in
             let tab = try context.page(invocation).tab
             copyScreenshot(context) { try await tab.snapshot() }
@@ -151,9 +152,8 @@ enum BrowserHandlers {
     /// cx-yihq), as Split Right does: refused without room, and from the docked
     /// chat a person's browser is a tab in the strip.
     ///
-    /// Returns what the caller hands the registry (``ActionRegistry/settle(_:of:_:)``, or a bound handler's
-    /// return): the tab open and the split are one waiting effect (`daemonEcho`: nothing shows until the daemon
-    /// answers, debt until a provisional browser split exists), and its failure is reported, not only logged.
+    /// Returns what the caller hands the registry (``ActionRegistry/settle(_:of:_:)``, or a bound handler's return).
+    /// Where the daemon serves it the split and its tab show in the key's turn (BrowserTabSplitCommand); else one waiting effect (`daemonEcho`) opens the tab and moves it. Either failure is reported.
     static func splitBrowser(from pane: PaneController, direction: SplitDirection, url: URL? = nil, profile: String? = nil,
                              byPerson: Bool, context: AppActionContext) throws -> ActionEffect {
         let handle = pane.pane.handle, model = pane.pane
@@ -174,6 +174,7 @@ enum BrowserHandlers {
             return .done
         }
         if let refusal = browserTabs.refusal(in: model) { throw ActionFailure(message: refusal) }
+        if PaneBrowserTabOpener(controller: pane).opensInSplit { _ = pane.newBrowserTab(url: url, profile: profile, split: BrowserTabSplitRequest(direction: direction) { _ in }); return .done } // as a link to the right
         // The split goes to the pane's own machine (cx-2cob); `refusal` named a disconnected one.
         let daemon = context.services.daemon(for: model)
         let connection = try daemon.isLocal ? context.requireConnection() : daemon.connection ?? context.requireConnection()
@@ -181,7 +182,7 @@ enum BrowserHandlers {
         guard case .open(let choice) = browserTabs.resolve(requested: nil, url: url) else { return .done }
         let intent = pane.workspace?.beginFocusIntent()
         let address = url?.absoluteString ?? context.services.newTabAddress(for: choice)
-        // action-wait-allow: no provisional browser split exists yet (a tab opened in the source pane, then moved by the daemon's split); its failure is now reported.
+        // action-wait-allow: an older daemon (no frontend-browser-tab-split-v1) has no provisional browser split; the tab is made, then moved.
         return .waiting(.daemonEcho) {
             do {
                 let surface = try await browserTabs.open(choice, in: model, url: address, profile: profile)
@@ -219,14 +220,18 @@ enum BrowserHandlers {
         }
     }
 
-    /// `f` and `F` in a Chromium page (`LinkHintController`).
+    /// `j`, `k`, `gg`, Shift-G in either engine (``BrowserPageScroll``): from a page's unhandled letters or the palette.
+    private static func bindScroll(into registry: ActionRegistry, context: AppActionContext) {
+        for scroll in BrowserPageScroll.allCases { _ = registry.bindEffect(ActionID(rawValue: scroll.actionID), requires: nil, effect: { context.services.linkHints.scrollKeys.run(scroll, on: try context.page($0).tab); return .done }) }
+    }
+
+    /// `f` and `F` in a page of either engine (`LinkHintController`).
     private static func bindLinkHints(into registry: ActionRegistry, context: AppActionContext) {
         for (id, mode) in [("browserLinkHints", LinkHintSession.Mode.follow), ("browserLinkHintsNewSplit", .newSplit)] {
             registry.bind(ActionID(rawValue: id), run: { invocation in
                 let pane = try context.pane(invocation)
                 let entry = try context.page(invocation)
-                guard let tab = entry.tab as? CEFTab else { throw ActionFailure(message: LinkHintStrings.engine) }
-                let services = context.services
+                let tab = entry.tab, services = context.services
                 let controller = services.windowController(showing: pane)
                 let tabKey = services.cache.key(of: tab)
                 // Links stay in the page's browser profile.
@@ -234,15 +239,15 @@ enum BrowserHandlers {
                 services.linkHints.start(mode, tab: tab, window: controller?.window, isFocused: { [weak controller] in
                     guard let controller, case .browserPage(_, let shown) = controller.focus.state.resolved else { return false }
                     return shown == tabKey && KeyRouter.allows(.content, focus: controller.focus.state)
-                }, openInSplit: { [weak chrome = entry.chrome] url in
+                }, openInSplit: { [state = entry.state] url in
                     // A refused split (no room, cx-yihq) says why on the page instead of doing nothing.
                     do {
                         let effect = try splitBrowser(from: pane, direction: .right, url: url, profile: profile, byPerson: true, context: context)
                         context.registry.settle(effect, of: "browserLinkHintsNewSplit", ActionInvocation())
                     } catch let failure as ActionFailure {
-                        chrome?.showNotice(failure.message)
+                        state.showNotice(failure.message)
                     } catch {}
-                }, notice: { [weak chrome = entry.chrome] text in chrome?.showNotice(text) })
+                }, noLinks: { [weak state = entry.state] in state?.showNotice(LinkHintController.noLinksNotice) })
             })
         }
     }

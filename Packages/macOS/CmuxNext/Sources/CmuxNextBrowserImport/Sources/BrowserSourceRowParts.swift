@@ -13,7 +13,16 @@ public struct BrowserDataFiles: Sendable, Codable, Equatable {
 /// real install; a wrong name only makes that import report "key not found".
 public struct SafeStorageItem: Sendable, Codable, Equatable {
     public var service: String
+    /// The item's account when one service has two items (an Electron app
+    /// keeps "<App> Key" beside "<App>"); nil matches the service alone.
+    public var account: String?
     public var confirmed: Bool
+
+    public init(service: String, account: String? = nil, confirmed: Bool) {
+        self.service = service
+        self.account = account
+        self.confirmed = confirmed
+    }
 }
 
 /// Where a row's facts come from: an official page or a file format seen

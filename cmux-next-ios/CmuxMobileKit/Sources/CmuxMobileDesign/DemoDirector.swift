@@ -16,6 +16,8 @@ public final class DemoDirector {
         case feedScroll(toEvent: String)
         case feedScrollTop
         case feedExpand(event: String)
+        /// Opens or folds the stack of one chat's events that `event` leads.
+        case feedStack(event: String, expanded: Bool)
         /// Picks option ids per item (in item order), then submits.
         case answerQuestion(id: String, picks: [[String]])
         case feedReply(event: String, text: String)
@@ -48,10 +50,8 @@ public final class DemoDirector {
         /// Setup's footer Sign out, then its confirmation.
         case setupSignOut
         case setupConfirmSignOut
-        // Feed swipe actions and composer attachments.
-        case feedSwipe(event: String, edge: String)
+        // Feed swipe actions (performed directly: UIKit opens a row's actions only under a finger).
         case feedSwipeAction(event: String, action: String)
-        case feedSwipeClose
         // Onboarding and setup (`-cmux-mobile-demo onboarding`).
         case onboardingOpenEmail
         case onboardingTypeEmail(String)

@@ -72,6 +72,7 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/ComposerContext.tsx#ComposerContext", "agent-session/acpmux/Composer.tsx#Composer"],
   variants: {
     project: {
+      composerLook: "claude",
       note: "A new chat in a project: folder · computer and the branch in the strip on the card's top edge; one controls row in the card.",
       ready: { newSession: true },
       snapshot: fresh(true, { cwd: "/Users/you/src/cmux", branch: "main" }),
@@ -88,6 +89,26 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer-box"));
         if (ctx.document.querySelector(".acpmux-composer-strip"))
           throw new Error("a started chat drew the location strip over its composer");
+      },
+    },
+    "existing-waiting": {
+      note: "An existing tab opening while the agent service has not answered: its snapshot is still empty, and no new chat's folder and environment strip draws over the composer.",
+      nativeDelayMs: { ready: 3_600_000 },
+      snapshot: noChat([]),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer-box"));
+        if (ctx.document.querySelector(".acpmux-composer-strip"))
+          throw new Error("an opening chat drew the new chat strip");
+      },
+    },
+    "existing-attaching": {
+      note: "An existing tab whose handshake named its session, before the session attached: no new chat's strip over the composer.",
+      ready: { sessionId: "gallery-existing" },
+      snapshot: noChat([]),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer-box"));
+        if (ctx.document.querySelector(".acpmux-composer-strip"))
+          throw new Error("an attaching chat drew the new chat strip");
       },
     },
     "long-folder": {
@@ -117,6 +138,7 @@ export default agentPaneEntry({
       snapshot: fresh(true),
     },
     queued: {
+      composerLook: "claude",
       note: "A running turn with queued prompts: no strip, the queue sits on the card, never over it or the field.",
       snapshot: {
         ...started({ isWorking: true }),

@@ -73,6 +73,9 @@ await requireBrowserLane("composer-plain-glyphs.test.ts", async () => {
 
   const open = async (engine: string, entry: string, variant: string, accent?: string) => {
     const page = await browsers.get(engine)!.newPage({ viewport: { width: 760, height: 600 } });
+    // Claude's look, whose Send and Stop are plain glyphs: Codex's (the default since #42247) fills
+    // them, as Codex desktop does (composerLook.css).
+    await page.addInitScript(() => localStorage.setItem("cmux.composer.look", "claude"));
     await page.goto(stageURL(entry, variant, accent));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
       timeout: 120_000,
@@ -199,24 +202,27 @@ await requireBrowserLane("composer-plain-glyphs.test.ts", async () => {
       expect(problems).toEqual([]);
     });
 
-    test(`${engine}: mid-turn, ↵ and Stop are plain glyphs inside the box`, async () => {
-      const page = await open(engine, "agent-pane.composer", "working-steer");
-      await page.locator(`${CHAT_BOX} .acpmux-steer-now`).waitFor();
-      const mic = await look(page, `${CHAT_BOX} .acpmux-mic`, CHAT_BOX);
+    test(`${engine}: mid-turn, Stop and then the one steering Send are plain glyphs inside the box`, async () => {
       const problems: string[] = [];
-      for (const [name, selector] of [
-        ["↵", `${CHAT_BOX} .acpmux-steer-now`],
-        ["Stop", `${CHAT_BOX} .acpmux-cancel`],
+      for (const [name, variant, selector] of [
+        ["Stop", "working", `${CHAT_BOX} .acpmux-cancel`],
+        // One send control (Leo 2026-10-31: "THE F***ING TWO SEND BUTTONS"): a typed prompt turns
+        // Stop's slot into Send, which steers as Return does; no second ↵ control.
+        ["the steering Send", "working-steer", `${CHAT_BOX} .acpmux-send:not(.acpmux-cancel)`],
       ] as const) {
+        const page = await open(engine, "agent-pane.composer", variant);
+        await page.locator(selector).waitFor();
+        const mic = await look(page, `${CHAT_BOX} .acpmux-mic`, CHAT_BOX);
         const at = await look(page, selector, CHAT_BOX);
         problems.push(...plain(name, at, mic));
         if (at.color !== at.muted) problems.push(`${name} is ${at.color}, not the secondary text ${at.muted}`);
         if (!at.inBox) problems.push(`${name} pokes out of the box`);
+        if (at.glyph?.stroke !== mic.glyph?.stroke)
+          problems.push(`${name}'s stroke is ${at.glyph?.stroke}, the mic's ${mic.glyph?.stroke}`);
+        const sends = await page.locator(`${CHAT_BOX} :is(.acpmux-send, .acpmux-cancel)`).count();
+        if (sends !== 1) problems.push(`${variant}: ${sends} send-like controls, not one`);
+        await page.close();
       }
-      const steer = await look(page, `${CHAT_BOX} .acpmux-steer-now`, CHAT_BOX);
-      if (steer.glyph?.stroke !== mic.glyph?.stroke)
-        problems.push(`↵'s stroke is ${steer.glyph?.stroke}, the mic's ${mic.glyph?.stroke}`);
-      await page.close();
       expect(problems).toEqual([]);
     });
 

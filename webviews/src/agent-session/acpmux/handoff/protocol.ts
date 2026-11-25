@@ -1,5 +1,6 @@
 import { translate } from "../i18n";
 import { servesOperation } from "../operations";
+import { invalidReply } from "../invalidReply";
 
 export const MAX_CAPSULE_BYTES_V1 = 65536;
 
@@ -57,21 +58,21 @@ export function supportsHandoff(initialized: unknown): boolean {
 
 function object(value: unknown): Record<string, any> {
   if (!value || typeof value !== "object" || Array.isArray(value))
-    throw new Error(translate("error.invalid.continuationResponse"));
+    throw invalidReply("error.invalid.continuationResponse");
   return value as Record<string, any>;
 }
 function requiredText(value: unknown): string {
-  if (typeof value !== "string" || !value.trim()) throw new Error(translate("error.invalid.continuationResponse"));
+  if (typeof value !== "string" || !value.trim()) throw invalidReply("error.invalid.continuationResponse");
   return value;
 }
 function session(value: unknown): HandoffSession {
   const item = object(value);
   const enforcement = object(item.enforcement);
   if (enforcement.label !== "native_policy" || enforcement.isolation !== "unverified" || !Array.isArray(item.coverage))
-    throw new Error(translate("error.unsupported.continuationCoverage"));
+    throw invalidReply("error.unsupported.continuationCoverage");
   requiredText(enforcement.policy);
   if (enforcement.detail !== null && typeof enforcement.detail !== "string")
-    throw new Error(translate("error.invalid.enforcementReport"));
+    throw invalidReply("error.invalid.enforcementReport");
   for (const report of item.coverage) {
     if (
       !report ||
@@ -79,7 +80,7 @@ function session(value: unknown): HandoffSession {
       !["included", "summarized", "omitted", "unavailable"].includes(report.status) ||
       (report.detail !== null && typeof report.detail !== "string")
     )
-      throw new Error(translate("error.invalid.continuationCoverage"));
+      throw invalidReply("error.invalid.continuationCoverage");
   }
   return {
     sessionId: requiredText(item.sessionId),
@@ -118,16 +119,16 @@ export function handoffRecord(value: unknown): Handoff {
     context.fromSeq > context.toSeq ||
     context.bytes > context.totalBytes
   )
-    throw new Error(translate("error.invalid.continuationResponse"));
+    throw invalidReply("error.invalid.continuationResponse");
   if (capsule.checkpoint !== null) {
     const checkpoint = object(capsule.checkpoint);
     requiredText(checkpoint.ref);
     if (checkpoint.attestedBy !== "user" || typeof checkpoint.attestedAt !== "string")
-      throw new Error(translate("error.invalid.checkpointAttestation"));
+      throw invalidReply("error.invalid.checkpointAttestation");
   }
   for (const field of ["promptId", "turnId"])
     if (record[field] !== null && typeof record[field] !== "string")
-      throw new Error(translate("error.invalid.continuationResponse"));
+      throw invalidReply("error.invalid.continuationResponse");
   requiredText(record.handoffId);
   requiredText(record.handoffKey);
   requiredText(record.createdAt);

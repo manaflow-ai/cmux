@@ -1,5 +1,6 @@
+import { envForObject } from "./build-space.ts"
 import type { Domain, OpFrame, Principal } from "@cmux/ownership"
-import type { Env } from "./env.ts"
+import type { Env, RawEnv } from "./env.ts"
 import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { DriverError, FakeDriver, providerRefusal, teamVmDriver } from "./team-vm-driver.ts"
 import { TeamVmOwnerDriver } from "./team-vm-api-route.ts"
@@ -64,7 +65,8 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
     return this.journalStore
   }
 
-  constructor(ctx: DurableObjectState, env: Env) {
+  constructor(ctx: DurableObjectState, raw: RawEnv) {
+    const env = envForObject(ctx, raw)
     super(ctx, env, teamVmDomain as Domain<TeamVmState>, "team_vm")
   }
 
@@ -103,7 +105,7 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
   /** team_vm.status also says when the team has no owner (TeamDO holds the roles; review P2-3). An unreachable TeamDO leaves the field out. */
   override async readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<ReadResult> {
     const r = await super.readOp(entity, principal, op, params)
-    const noOwner = r.ok && op === "team_vm.status" ? await (this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(entity)) as unknown as { noOwner(e: string): Promise<boolean> }).noOwner(entity).catch(() => undefined) : undefined
+    const noOwner = r.ok && op === "team_vm.status" ? await this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(entity)).noOwner(entity).catch(() => undefined) : undefined
     return noOwner === undefined || !r.ok ? r : { ...r, value: { ...(r.value as object), no_owner: noOwner } }
   }
 
@@ -417,8 +419,7 @@ export class TeamVmDO extends OwnerDO<TeamVmState> {
   }
 
   private async drainRegistry(): Promise<void> {
-    const ns = this.env.TEAM_VM_DO as unknown as DurableObjectNamespace
-    const registry = ns.get(ns.idFromName(TEAM_VM_REGISTRY)) as unknown as { registryEvent(ev: RegistryEvent): Promise<void> }
+    const registry = this.env.TEAM_VM_DO.get(this.env.TEAM_VM_DO.idFromName(TEAM_VM_REGISTRY))
     if ((await this.outbox.drain((ev) => registry.registryEvent(ev))) && this.boundEngine) this.scheduleAlarm()
   }
 

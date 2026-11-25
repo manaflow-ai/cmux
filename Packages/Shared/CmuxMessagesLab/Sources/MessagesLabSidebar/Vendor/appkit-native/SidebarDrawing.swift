@@ -224,12 +224,16 @@ enum SidebarDraw {
             draw(l, x: r.midX - lw / 2, baseline: r.midY + cap / 2, g)
         case let .image(path):
             g.saveGState()
-            g.addEllipse(in: r); g.clip()
             let url = path.hasPrefix("file:") ? URL(string: path) : assetDirectory?.appendingPathComponent(path)
             if let url, let src = CGImageSourceCreateWithURL(url as CFURL, nil), let img = CGImageSourceCreateImageAtIndex(src, 0, nil) {
+                // cmux: a picture with clear edges (the Chief's pet) is fitted by what it draws: centred and grown to the
+                // avatar's size, with no disc to clip it to (the user, 2026-11-24: the pet sat high and read too small).
+                let fit = pictureFit(img, size: r.size)
+                if !fit.clearEdges { g.addEllipse(in: r); g.clip() }
                 g.translateBy(x: r.minX, y: r.maxY); g.scaleBy(x: 1, y: -1)
-                g.draw(img, in: CGRect(origin: .zero, size: r.size))
+                g.draw(img, in: fit.rect)
             } else {
+                g.addEllipse(in: r); g.clip()
                 g.setFillColor(p.monogramBottom); g.fill(r)
             }
             g.restoreGState()
@@ -428,7 +432,7 @@ enum SidebarDraw {
     /// The avatar's rect in a tile (tile coordinates).
     static func tileAvatar(_ m: SidebarMetrics) -> CGRect {
         let d = m.pinAvatar
-        let y = m.compact ? ((m.tileHeight - d) / 2).rounded() : SidebarMetrics.pinTopPad // compact: centered like a row's avatar
+        let y = m.compact ? ((m.tileHeight - d) / 2).rounded() : SidebarMetrics.pinTopPad // cmux: centred in a compact row
         return CGRect(x: ((m.tileWidth - d) / 2).rounded(), y: y, width: d, height: d)
     }
 
@@ -519,7 +523,7 @@ enum SidebarDraw {
     /// Messages' pinned grid: the dot sits inline before the name ("• Instinct") and the pair is
     /// centred, so the dot never meets the bubble over the avatar's top, its tail or the avatar
     /// (the user, 2026-10-21: the old dot at the avatar's upper left overlapped the bubble's tail).
-    /// `nameWidth`: the name bitmap's width in points. Not for the compact list (no names).
+    /// `nameWidth`: the name bitmap's width in points. The compact list's rows and tiles use it too.
     static func tileLabel(_ m: SidebarMetrics, nameWidth nw: CGFloat, unread: Bool) -> (name: CGRect, dot: CGRect?) {
         let ar = tileAvatar(m)
         let y = ar.maxY + SidebarMetrics.pinNameGap
@@ -532,12 +536,6 @@ enum SidebarDraw {
         return (name, CGRect(x: x0, y: (y + 7 - d / 2).rounded(), width: d, height: d))
     }
 
-    /// The compact list's tile dot: where a row's dot sits (tile coordinates; no names there).
-    static func compactTileUnreadDot(_ m: SidebarMetrics) -> CGRect {
-        let d = SidebarMetrics.dotDiameter
-        let x0 = m.tileRect(0).minX
-        return CGRect(x: m.dotCenterX - x0 - d / 2, y: (m.tileHeight / 2 - d / 2).rounded(), width: d, height: d)
-    }
 }
 
 /// The list's motion (render-server animations only; no main-thread frames). Start values are the
@@ -702,7 +700,9 @@ final class SidebarTypingLayer: CALayer {
     /// Starts the pulse once. Phase-locked to whole periods of the media clock, so every bubble
     /// in the list pulses in step and a row that scrolls back in does not restart its cycle.
     /// cmux: the still phase, also the first dot's peak under Reduce Motion (cx-sya4n: nothing loops).
-    private var stillPhase: Double? { Self.stillPhase ?? (CmuxSidebarView.reducesMotion ? 0.45 : nil) }
+    /// cmux (msg 20105): the list's motion is off, so the dots stand still at the first dot's peak.
+    var still = false
+    private var stillPhase: Double? { Self.stillPhase ?? (still || CmuxSidebarView.reducesMotion ? 0.45 : nil) }
     func animate() {
         if let ph = stillPhase {
             // cmux: a running pulse stops when Reduce Motion turns on (cx-sya4n).
@@ -766,4 +766,40 @@ final class SidebarTextCache {
         return m
     }
     func removeAll() { lock.lock(); map.removeAll(); order.removeAll(); lock.unlock() }
+}
+
+/// cmux: where to draw a picture in a `size` box (y up, as the avatar's flipped-back context draws it). A picture with
+/// clear edges is centred on its opaque pixels and grown until they span `fill` of the box (at most 3 times); one that
+/// fills its canvas (a photo, a round picture) is drawn as it is. `clearEdges`: the picture had clear margins.
+func pictureFit(_ img: CGImage, size: CGSize, fill: CGFloat = 0.84) -> (rect: CGRect, clearEdges: Bool) {
+    let whole = (CGRect(origin: .zero, size: size), false)
+    switch img.alphaInfo {
+    case .none, .noneSkipFirst, .noneSkipLast: return whole
+    default: break
+    }
+    // A small alpha copy is enough to find the margins (64 x 64: under a point at an 88 pt avatar).
+    let n = 64
+    guard let ctx = CGContext(data: nil, width: n, height: n, bitsPerComponent: 8, bytesPerRow: n, space: CGColorSpaceCreateDeviceGray(),
+                              bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue), let data = ctx.data else { return whole }
+    ctx.clear(CGRect(x: 0, y: 0, width: n, height: n))
+    ctx.draw(img, in: CGRect(x: 0, y: 0, width: n, height: n))
+    let px = UnsafeBufferPointer(start: data.bindMemory(to: UInt8.self, capacity: n * n), count: n * n)
+    var minX = n, maxX = -1, minY = n, maxY = -1
+    // Faint pixels count too (a soft shadow), so nothing visible is grown past the avatar's edge.
+    for (i, a) in px.enumerated() where a > 6 {
+        let x = i % n, y = i / n
+        minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
+    }
+    guard maxX >= minX, maxY >= minY else { return whole }
+    // Fractions of the canvas; rows in the bitmap's memory run top-down.
+    let x0 = CGFloat(minX) / CGFloat(n), x1 = CGFloat(maxX + 1) / CGFloat(n)
+    let top0 = CGFloat(minY) / CGFloat(n), top1 = CGFloat(maxY + 1) / CGFloat(n)
+    let span = max(x1 - x0, top1 - top0)
+    // A picture with a thin clear margin (an icon's padding) is a picture to crop round, not art to fit.
+    guard span < 0.9 else { return whole }
+    let scale = min(3, max(1, fill / span))
+    let w = size.width * scale, h = size.height * scale
+    // The opaque box's middle in the drawn picture (y up), put on the box's middle.
+    let cx = (x0 + x1) / 2 * w, cy = (1 - (top0 + top1) / 2) * h
+    return (CGRect(x: (size.width / 2 - cx).rounded(), y: (size.height / 2 - cy).rounded(), width: w, height: h), true)
 }

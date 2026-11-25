@@ -9,6 +9,7 @@ import type { AcpmuxActivity } from "./model";
 import { editedPaths } from "./toolPaths";
 import { envelopeImages, MAX_TOOL_IMAGES } from "./conversation/toolResult";
 import { MEDIA_EXTENSIONS } from "./chips/mediaKind";
+import { isTemplatePath } from "./chips/paths";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -18,7 +19,7 @@ const mediaExtensions = MEDIA_EXTENSIONS.join("|");
 const IMAGE_FILE = new RegExp(`\\.(png|jpe?g|gif|webp|svg|heic|tiff?|bmp|pdf|${mediaExtensions})$`, "i");
 /// An absolute image or media path in output text, ended by space, a quote or a bracket.
 const IMAGE_PATH = new RegExp(
-  "(?<![\\w./:~-])/[^\\s\"'`()<>[\\]]+\\.(?:png|jpe?g|gif|webp|svg|pdf|" + mediaExtensions + ")(?![\\w-])",
+  "(?<![\\w./:~-])/[^\\s\"'`()<>[\\]]+\\.(?:png|jpe?g|gif|webp|svg|heic|pdf|" + mediaExtensions + ")(?![\\w-])",
   "gi",
 );
 
@@ -44,10 +45,16 @@ export function toolImages(tool: Tool): string[] {
   };
   for (const image of tool.images ?? []) add(image);
   const file = (path: string) => {
-    if (path.startsWith("/") && IMAGE_FILE.test(path)) add(path);
+    // A template in code or a command line (`/src/${variant}-320.png`) names no file.
+    if (path.startsWith("/") && IMAGE_FILE.test(path) && !isTemplatePath(path)) add(path);
   };
-  for (const path of editedPaths(tool)) file(path);
-  for (const location of tool.locations ?? []) file(location.path);
+  // A read that returned its image (Claude Code's Read of a PNG) already shows that file: its path
+  // would draw it again, as "Image unavailable" when the chat runs on another machine.
+  const readItsImage = tool.kind === "read" && Boolean(tool.images?.length);
+  if (!readItsImage) {
+    for (const path of editedPaths(tool)) file(path);
+    for (const location of tool.locations ?? []) file(location.path);
+  }
   for (const match of tool.output?.matchAll(IMAGE_PATH) ?? []) file(match[0].replace(/[.,;:]+$/, ""));
   return [...envelope, ...found.filter((source) => !envelope.includes(source))];
 }

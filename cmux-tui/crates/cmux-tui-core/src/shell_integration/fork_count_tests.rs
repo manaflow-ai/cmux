@@ -57,14 +57,14 @@
 //!
 //! ```text
 //! cmux-ci run --class isolated --script scripts/ci/cmux-tui-rust-check.sh \
-//!   --arg test --arg shell_integration:: --ref SHA
+//!   --os macos --arg test --arg shell_integration:: --ref SHA
 //! ```
 //!
 //! The bench (`scripts/cmux-next/shell-integration-bench.py`) counts the same
 //! way, and also the app's spawn path (the `Resources/cmux-cli-path` layer),
 //! an idle window at the prompt and the time to the first prompt.
 
-use super::test_pty::TestPty;
+use super::test_pty::{self, TestPty, shell_path};
 use super::*;
 use std::time::{Duration, Instant};
 
@@ -81,31 +81,7 @@ const STABLE_REPS: usize = 2;
 /// Skips the test where its shell is not installed (never on macOS, where
 /// `shell_path` always has one).
 fn skip(what: &str, why: &str) {
-    eprintln!("FORK-COUNT-SKIP {what}: {why}");
-}
-
-/// A pinned shell build (`scripts/ci/pinned-shell.sh`, cached per host).
-#[cfg(target_os = "macos")]
-fn pinned(name: &str) -> PathBuf {
-    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../scripts/ci/pinned-shell.sh");
-    let output = std::process::Command::new("/bin/bash")
-        .arg(&script)
-        .arg(name)
-        .output()
-        .unwrap_or_else(|error| panic!("{}: {error}", script.display()));
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    eprint!("{stderr}");
-    assert!(
-        output.status.success(),
-        "{name}: {} failed, so the shell under test cannot run: {stderr}",
-        script.display()
-    );
-    PathBuf::from(String::from_utf8(output.stdout).unwrap().trim())
-}
-
-#[cfg(not(target_os = "macos"))]
-fn find(candidates: &[&str]) -> Option<PathBuf> {
-    candidates.iter().map(PathBuf::from).find(|path| path.is_file())
+    test_pty::skip("FORK-COUNT-SKIP", what, why);
 }
 
 fn temp_base(name: &str) -> PathBuf {
@@ -456,27 +432,6 @@ fn assert_no_extra_forks(
         );
     }
     panic!("{name}: {verdict} ({MAX_REPS} reps)");
-}
-
-/// The shell a test runs: on macOS always one, the system's zsh and the
-/// pinned bash 5.3 and fish.
-#[cfg(target_os = "macos")]
-fn shell_path(shell: Shell) -> Option<PathBuf> {
-    Some(match shell {
-        Shell::Zsh => PathBuf::from("/bin/zsh"),
-        Shell::Bash => pinned("bash-5.3"),
-        Shell::Fish => pinned("fish-4.9.3"),
-    })
-}
-
-/// The shell a test runs, or `None` where it is not installed.
-#[cfg(not(target_os = "macos"))]
-fn shell_path(shell: Shell) -> Option<PathBuf> {
-    match shell {
-        Shell::Zsh => find(&["/bin/zsh", "/usr/bin/zsh"]),
-        Shell::Bash => find(&["/usr/local/bin/bash", "/usr/bin/bash", "/bin/bash"]),
-        Shell::Fish => find(&["/usr/local/bin/fish", "/usr/bin/fish"]),
-    }
 }
 
 #[test]

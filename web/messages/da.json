@@ -200,7 +200,10 @@
     "signupPendingBody": "Hvis du allerede har en konto, skal du logge ind med den metode, du brugte før. Hvis du lige har oprettet en konto, skal du bekræfte din e-mail, før du logger ind.",
     "genericTitle": "Login kunne ikke gennemføres",
     "genericBody": "Prøv igen. Kontakt support, hvis problemet fortsætter.",
-    "backToSignIn": "Tilbage til login"
+    "backToSignIn": "Tilbage til login",
+    "chatgptLinkTitle": "Log ind én gang for at forbinde ChatGPT",
+    "chatgptLinkBody": "Denne e-mail har allerede en cmux-konto. Log ind med den metode, du brugte før, så bliver ChatGPT forbundet til kontoen.",
+    "chatgptEmailUnverifiedBody": "E-mailen på din ChatGPT-konto er ikke bekræftet. Bekræft den hos OpenAI, eller log ind på en anden måde."
   },
   "cloudPublicationAccess": {
     "title": "Du har ikke adgang",
@@ -423,13 +426,13 @@
     "faqCustomizeQ": "Kan jeg tilpasse cmux?",
     "faqCustomizeA": "Ja. Terminalgengivelsen bruger din Ghostty-konfiguration, så temaer, skrifttyper, farver og cursor overføres direkte. cmux' egne indstillinger i <path>~/.config/cmux/cmux.json</path> styrer sidebar, fanelinje, delte paneler og adfærd, og hver <shortcutsLink>tastaturgenvej</shortcutsLink> kan redigeres. Se <link>konfiguration</link>.",
     "faqIosQ": "Findes der en iOS-app?",
-    "faqIosA": "Ja, i beta. Par din iPhone med din Mac fra Mobile Connect-vinduet, og tilslut dig dine terminaler fra din telefon, med valgfri videresendelse af terminalnotifikationer. Den udgives på TestFlight som cmux BETA. Tidlig adgang er inkluderet i <foundersLink>cmux Founders Edition</foundersLink>.",
+    "faqIosA": "Ja, i beta. Par din iPhone med din Mac fra Mobile Connect-vinduet, og tilslut dig dine terminaler fra din telefon, med valgfri videresendelse af terminalnotifikationer. Den udgives på TestFlight som cmux BETA.",
     "faqSkillsQ": "Har cmux skills?",
     "faqSkillsA": "Ja. Skills er genbrugelige workflows, du kan give enhver agent, der kører i cmux, til ting som CLI-styring, automatisering af arbejdsområdet, indstillinger og browserflader. Gennemse den åbne samling på <skillsLink>cmux-skills</skillsLink>, eller læs <link>skills-dokumentationen</link>.",
     "faqBrowserQ": "Hvad kan den indbyggede browser?",
     "faqBrowserA": "cmux kan opdele et rigtigt browserpanel ved siden af din terminal, og det er fuldt programmerbart: naviger, tag et snapshot af DOM'en, klik, skriv, evaluer JavaScript og læs konsol- og netværksaktivitet over den samme socket API. Agenter bruger det til at verificere deres egne webændringer uden at forlade cmux. Se <link>browserautomatisering</link>.",
     "faqSupportQ": "Hvordan kan jeg støtte cmux?",
-    "faqSupportA": "cmux er gratis og open source, og det vil det altid være. Hvis du vil bakke op om udviklingen og få tidlig adgang til det næste, herunder cmux AI, iOS-appen og Cloud VMs, så tjek <foundersLink>cmux Founders Edition</foundersLink> ud.",
+    "faqSupportA": "cmux er gratis og open source, og det vil det altid være.",
     "faqFeatureQ": "Jeg har et funktionsønske eller har fundet en fejl",
     "faqFeatureA": "Vi vil gerne høre det. Åbn et <issuesLink>issue</issuesLink> eller en <prLink>pull request</prLink> på GitHub, eller <mailLink>skriv til os</mailLink>."
   },
@@ -552,7 +555,7 @@
           "granted": "Tildelt af cmux. Der er intet at ændre.",
           "grantedNoCancel": "Tildelt af cmux, så der er intet at opsige.",
           "paymentFailed": "Opdater din betalingsmetode, før du skifter abonnement.",
-          "foundersLifetime": "Founder's Edition inkluderer Pro for livet.",
+          "foundersLifetime": "Dit livstidskøb inkluderer Pro.",
           "adminOnly": "Kun teamadministratorer kan ændre planen."
         },
         "names": {
@@ -576,17 +579,17 @@
           ],
           "pro": [
             "Cloud-agenter på Cloud VMs",
-            "Op til 5 Cloud VMs, der deler 20 vCPU'er og 40 GB RAM. Én VM kan bruge op til 16 GB RAM / 8 vCPU. Størrelserne 24 GB / 12 vCPU og 32 GB / 16 vCPU kræver Max.",
+            "Cloud VMs uden grænse for antal, afregnes ud over det inkluderede forbrug; én VM kan bruge op til 16 GB RAM / 8 vCPU. Størrelserne 24 GB / 12 vCPU og 32 GB / 16 vCPU kræver Max.",
             "cmux-appen til iOS"
           ],
           "max": [
-            "Op til 5 Cloud VMs, der deler 80 vCPU'er og 160 GB RAM. Max giver adgang til 24 GB / 12 vCPU, 32 GB / 16 vCPU og op til 64 GB / 32 vCPU.",
+            "Cloud VMs uden grænse for antal, afregnes ud over det inkluderede forbrug; Max giver adgang til 24 GB / 12 vCPU, 32 GB / 16 vCPU og op til 64 GB / 32 vCPU.",
             "Større maskinstørrelser",
             "Alt i Pro"
           ],
           "team": [
             "Alt i Pro til hvert medlem",
-            "Op til 5 Cloud VMs pr. betalt plads, der deler 20 vCPU'er og 40 GB RAM pr. betalt plads på tværs af teamet",
+            "Cloud VMs uden grænse for antal til alle i teamet, afregnes ud over det inkluderede forbrug; teamets forbrugsgrænse er stoppet",
             "Én faktura til hele teamet",
             "Prioriteret support"
           ]
@@ -609,8 +612,8 @@
         "title": "Opsig {plan}?",
         "body": "Du beholder {plan} indtil den {date}. Derefter mister du:",
         "bodyNoDate": "Du beholder {plan} til slutningen af denne faktureringsperiode. Derefter mister du:",
-        "foundersBody": "Dit {plan}-abonnement slutter den {date}. Derefter har du Pro, som Founder's Edition inkluderer for livet.",
-        "foundersBodyNoDate": "Dit {plan}-abonnement slutter ved udgangen af denne faktureringsperiode. Derefter har du Pro, som Founder's Edition inkluderer for livet.",
+        "foundersBody": "Dit {plan}-abonnement slutter den {date}. Derefter beholder du Pro fra dit livstidskøb.",
+        "foundersBodyNoDate": "Dit {plan}-abonnement slutter ved udgangen af denne faktureringsperiode. Derefter beholder du Pro fra dit livstidskøb.",
         "reasonLabel": "Hvorfor opsiger du? (valgfrit)",
         "otherPlaceholder": "Fortæl os mere (valgfrit)",
         "confirm": "Opsig plan",
@@ -2504,7 +2507,7 @@
       "socketModeDesc": "Overskriv adgangstilstand (cmuxOnly, allowAll, off). Accepterer også cmux-only/cmux_only og allow-all/allow_all",
       "workspaceIdDesc": "Auto-sat: nuværende workspace-ID",
       "surfaceIdDesc": "Auto-sat: nuværende surface-ID",
-      "termProgramDesc": "Sat til ghostty",
+      "termProgramDesc": "Sat til cmux",
       "termDesc": "Sat til xterm-ghostty",
       "envCallout": "Legacy CMUX_SOCKET_MODE-værdier full og notifications accepteres stadig for kompatibilitet.",
       "detectingCmux": "Detektering af cmux",
@@ -2881,7 +2884,7 @@
       "intro": "cmux-appen til iOS er en følgesvend til din Mac. Par din iPhone eller iPad med en Mac, der kører cmux, og tilslut dig dine terminaler fra telefonen, med valgfri videresendelse af terminalnotifikationer.",
       "betaNote": "iOS-appen er i beta. Den udgives på TestFlight som cmux BETA.",
       "accessTitle": "Få adgang",
-      "accessDesc": "Appen distribueres via TestFlight. Tidlig adgang er inkluderet i <foundersLink>cmux Founders Edition</foundersLink> sammen med andre tidlige funktioner.",
+      "accessDesc": "Appen distribueres via TestFlight. Beta-adgang er inkluderet i cmux Pro; tilmeld dig fra TestFlight-siden i dit dashboard.",
       "prereqTitle": "Forudsætninger",
       "prereqIntro": "Før du går i gang, skal du bruge:",
       "prereq1": "En Mac, der kører cmux og er logget ind.",
@@ -2967,13 +2970,13 @@
       "planMax": "Max",
       "sizesDefault": "Nye maskiner bruger 8 GB hukommelse, når du ikke vælger en størrelse. Kør cmux vm ls --json for at se de størrelser, dit abonnement tillader.",
       "limitsTitle": "Abonnementsgrænser",
-      "limitsDesc": "Dine aktive maskiner deler én pulje af vCPU'er og hukommelse. Kør én stor maskine eller flere små. Maskiner på pause bruger ikke af puljen. Disken fastsættes pr. maskine og indgår ikke i puljen.",
+      "limitsDesc": "Pro, Team og Max har ingen grænse for, hvor mange maskiner du har; Plus har én maskine. Ud over det inkluderede forbrug afregnes kørende maskiner pr. vCPU-time og GB-time, og gemte maskiner og maskiner på pause pr. GB-måned disk. Teamets forbrugsgrænse er det eneste stop: når grænsen nås, afvises nye starter, og kørende maskiner sættes på pause efter en advarsel, uden at noget går tabt.",
       "limitsFree": "Gratis konti kan ikke oprette maskiner.",
-      "limitsPaid": "Pro- og Founder's Edition-konti kan have op til 5 maskiner, inklusive maskiner på pause, der deler 20 vCPU'er og 40 GB hukommelse.",
-      "limitsTeam": "Teamkonti kan have op til 5 maskiner, inklusive maskiner på pause pr. betalt plads. Hver betalt plads lægger 20 vCPU'er og 40 GB hukommelse til teamets pulje.",
-      "limitsMax": "Max-konti kan have op til 5 maskiner, inklusive maskiner på pause, der deler 80 vCPU'er og 160 GB hukommelse. Én Max-maskine kan bruge op til 64 GB og 32 vCPU'er, inklusive størrelserne 24 GB / 12 vCPU'er og 32 GB / 16 vCPU'er; Pro og Team stopper ved 16 GB og 8 vCPU'er.",
-      "limitsPoolFull": "Hvis en ny, genoptaget, forstørret eller forket maskine ville overskride puljen, afviser cmux anmodningen og viser, hvor meget af puljen der er i brug. Sæt en maskine på pause, eller slet den for at frigøre ressourcer, eller opgrader til Max.",
-      "limitsPricing": "Se prissiden for aktuelle priser. Der er ingen forbrugsmåling og ingen fakturering for overforbrug.",
+      "limitsPaid": "Pro-konti kan have et vilkårligt antal maskiner, hver med op til 16 GB og 8 vCPU'er.",
+      "limitsTeam": "Team er valgfrit: det samler alle på én fælles regning og én forbrugsgrænse. Pladser ændrer ikke, hvor mange maskiner den enkelte kan have.",
+      "limitsMax": "Max-konti kan have et vilkårligt antal maskiner. Én Max-maskine kan bruge op til 64 GB og 32 vCPU'er, inklusive størrelserne 24 GB / 12 vCPU og 32 GB / 16 vCPU; Pro og Team stopper ved 16 GB og 8 vCPU'er.",
+      "limitsPoolFull": "Når forbrugsgrænsen er nået, afviser cmux en ny eller genoptaget maskine og siger, at teamet har nået sin grænse. Hæv grænsen for at starte maskiner igen; intet bliver slettet.",
+      "limitsPricing": "Se prissiden for aktuelle priser. Forbrug ud over det inkluderede beløb afregnes.",
       "agentUpdatesTitle": "Hold kodeagenter opdateret",
       "agentUpdatesDesc": "Når denne indstilling er slået til, opdaterer maskinen Claude Code, Codex, OpenCode, pi og agent-browser. Den tjekker efter maskinen er oprettet og hver gang du forbinder, højst én gang hver 24. time. Opdateringen kører frakoblet, så den blokerer aldrig forbindelsen.",
       "agentUpdatesSource": "Hvert værktøj kommer fra dets officielle GitHub-release og verificeres mod release-filens sha256-digest. npm bruges ikke. En release installeres først, når den har været offentlig i 3 dage, og en opdatering installerer aldrig en ældre version. En kørende agent beholder de filer, den startede med, og en mislykket opdatering lader den nuværende version blive.",
@@ -3360,7 +3363,8 @@
       "darkArt": "Mørk kunst",
       "museumIcons": "Museumsikoner",
       "calm": "Rolig",
-      "dore": "Doré"
+      "dore": "Doré",
+      "eastAsian": "Østasiatisk maleri"
     }
   },
   "testimonials": {
@@ -5414,7 +5418,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro er aktiv",
     "title": "Velkommen til cmux Pro",
-    "body": "Pro inkluderer op til 5 Cloud-VM'er, der deler 20 vCPU'er og 40 GB RAM, samt adgang til cmux iOS via TestFlight. Én VM kan bruge op til 16 GB RAM / 8 vCPU. Størrelserne 24 GB / 12 vCPU og 32 GB / 16 vCPU kræver Max.",
+    "body": "Pro inkluderer Cloud-VM'er uden grænse for antal, afregnet ud over det inkluderede forbrug, samt adgang til cmux iOS via TestFlight. Én VM kan bruge op til 16 GB RAM / 8 vCPU. Størrelserne 24 GB / 12 vCPU og 32 GB / 16 vCPU kræver Max.",
     "done": "Gå til kontrolpanelet",
     "steps": {
       "iosApp": {

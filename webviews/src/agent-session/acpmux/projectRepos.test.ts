@@ -409,3 +409,38 @@ test("a lane's worktree under wt/lanes is named for its repository and its lane"
     branch: "next-reds",
   });
 });
+
+test("a folder the host said nothing about joins its nearest named checkout, found by its path", () => {
+  const outer = { root: "/w/outer", top: "/w/outer", name: "outer", branch: "main" };
+  const inner = { root: "/w/outer/vendor/inner", top: "/w/outer/vendor/inner", name: "inner", branch: "main" };
+  const groups = groupByRepo([
+    { id: "/w/outer", label: "outer", repo: outer },
+    { id: "/w/outer/vendor/inner", label: "inner", repo: inner },
+    { id: "/w/outer/vendor/inner/src/lib", label: "lib" },
+    { id: "/w/outer/docs", label: "docs" },
+    { id: "/w/outerness", label: "outerness" },
+  ]);
+  const byName = new Map(groups.map((group) => [group.name, group.members.map((member) => member.id)]));
+  expect(byName.get("inner")).toEqual(["/w/outer/vendor/inner", "/w/outer/vendor/inner/src/lib"]);
+  expect(byName.get("outer")).toEqual(["/w/outer", "/w/outer/docs"]);
+  // A sibling whose name only starts like the checkout's is no folder inside it.
+  expect(byName.get("outerness")).toEqual(["/w/outerness"]);
+});
+
+test("grouping thousands of folders stays linear", () => {
+  const many: RepoFolder[] = [];
+  for (let index = 0; index < 5000; index++) {
+    const root = `/Users/me/p/project-${index}`;
+    many.push(
+      index % 3 === 0
+        ? { id: `${root}/sub`, label: "sub" }
+        : { id: root, label: `project-${index}`, repo: { root, top: root, name: `project-${index}` } },
+    );
+  }
+  const started = performance.now();
+  const groups = groupByRepo(many);
+  const elapsed = performance.now() - started;
+  expect(groups.length).toBeGreaterThan(3000);
+  // Before: each unnamed folder scanned every checkout (5,000 x 6,700 prefix checks).
+  expect(elapsed).toBeLessThan(150);
+});

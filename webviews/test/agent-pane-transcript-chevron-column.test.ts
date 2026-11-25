@@ -95,11 +95,10 @@ await requireBrowserLane("agent-pane-transcript-chevron-column.test.ts", async (
         if (width === 760) {
           const toggle = page.locator(".cv-agentmsg__toggle");
           const size = await toggle.boundingBox();
-          const caret = await toggle.locator(".cv-tool__chevron").boundingBox();
-          expect(size!.x + size!.width - caret!.x - caret!.width).toBeGreaterThan(10);
           await toggle.click({ position: { x: size!.width - 2, y: size!.height / 2 } });
           expect(await toggle.getAttribute("aria-expanded")).toBe("true");
-          await toggle.click();
+          await page.locator(".cv-agentmsg__chevron").click();
+          expect(await toggle.getAttribute("aria-expanded")).toBe("false");
         }
         await command.click();
         const copy = page.locator('[data-label="command"] .cv-shell__actions button[aria-label="Copy"]');

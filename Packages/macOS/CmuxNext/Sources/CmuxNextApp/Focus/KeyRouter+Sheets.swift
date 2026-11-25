@@ -1,15 +1,11 @@
 import AppKit
 import CmuxNextDesign
 
-// Sheets on cmux windows (save and open panels, confirmations) and cmux
-// dialogs (`CmuxDialogCenter`, on the window's overlay): Escape ends them
-// with Cancel even when the key reaches the window under them, not the
-// sheet or the dialog (the app was not active when it opened, the person
-// clicked the window, or automation sent the key to the window). AppKit
-// and the dialog view handle Escape themselves when they have the keyboard.
+// Sheets on cmux windows and cmux dialogs (`CmuxDialogCenter`, on the window's overlay) keep the keys that reach
+// the window under them (the app was not active when one opened, the person clicked the window, or automation sent
+// the key there): Escape cancels them, and a dialog answers any other key that is not a chord.
 extension KeyRouter {
-    /// Escape with no modifier that missed the sheet or the dialog blocking
-    /// where the key landed: cancels it. Returns whether it did.
+    /// Escape with no modifier that missed the sheet or the dialog blocking where the key landed: cancels it.
     func cancelsMissedModal(_ event: NSEvent, in window: NSWindow?) -> Bool {
         cancelsAttachedSheet(event, in: window) || cancelsBlockingDialog(event, in: window)
     }
@@ -22,13 +18,9 @@ extension KeyRouter {
         return endTopmostSheet(window)
     }
 
-    /// Escape with no modifier where a cmux dialog blocks the keyboard: the
-    /// whole window (a window-scope dialog), the tab that holds the window's
-    /// first responder, or the focused pane's tab (a tab-scope dialog) while
-    /// the keyboard is in the window's chrome (the sidebar list after a
-    /// click) or in the pane's Chromium page window. Runs the dialog's
-    /// Escape (its cancel button). Another tab's keys, and a text field's
-    /// Escape, stay theirs.
+    /// Escape with no modifier where a cmux dialog blocks the keyboard: the whole window, the tab that holds the
+    /// first responder, or the focused pane's tab while the keyboard is in the window's chrome (the sidebar list after
+    /// a click) or the pane's Chromium page window. Runs its cancel button; another tab's keys stay theirs.
     func cancelsBlockingDialog(_ event: NSEvent, in window: NSWindow?) -> Bool {
         guard Self.isBareEscape(event), let window else { return false }
         let (host, area) = dialogKeyTarget(for: window)
@@ -36,10 +28,16 @@ extension KeyRouter {
         return CmuxDialogCenter.shared.key(.escape, in: id)
     }
 
-    /// The cmux window whose dialogs a key in `window` may answer, and the
-    /// focused pane's view when the keyboard is in no view of a tab: a
-    /// Chromium page (or DevTools) child window, which the focus follows to
-    /// its pane, or the window's chrome (no content and no text field).
+    /// Any other key that missed the dialog blocking where it landed goes to that dialog's keyboard, never the view
+    /// under it (`CmuxDialogCenter.answersMissedKey`); a page window's key answers its pane's dialog, a chrome key not.
+    func answersBlockingDialog(_ event: NSEvent, in window: NSWindow?) -> Bool {
+        guard let window, CmuxDialogCenter.shared.showsDialog else { return false }
+        let (host, area) = dialogKeyTarget(for: window)
+        return CmuxDialogCenter.shared.answersMissedKey(event, in: host, focusedArea: host === window ? nil : area, keyWindow: window)
+    }
+
+    /// The cmux window whose dialogs a key in `window` may answer, and the focused pane's view when the keyboard is in
+    /// no view of a tab: a Chromium page (or DevTools) child window, or the window's chrome (no content, no text field).
     private func dialogKeyTarget(for window: NSWindow) -> (NSWindow, NSView?) {
         let (controller, kind) = focus(for: window)
         guard kind == .content, let controller, let shell = controller.window else { return (window, nil) }

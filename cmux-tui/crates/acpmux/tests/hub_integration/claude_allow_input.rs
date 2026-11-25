@@ -9,7 +9,11 @@ use super::*;
 /// Runs the "answer-shape" turn in a new session with `policy`; `answer`
 /// answers its one ask as the person (None: the policy answers). The text the
 /// fake Claude says about the answer it got.
-async fn answer_shape(policy: PermissionPolicy, answer: Option<&str>) -> String {
+async fn answer_shape(
+    policy: PermissionPolicy,
+    answer: Option<&str>,
+    approve_pending: bool,
+) -> String {
     let root = std::env::temp_dir().join(format!("acpmux-shape-{}", uuid::Uuid::now_v7()));
     let claude = root.join("claude");
     std::fs::create_dir_all(&claude).unwrap();
@@ -33,16 +37,20 @@ async fn answer_shape(policy: PermissionPolicy, answer: Option<&str>) -> String 
         .send(Message::request(person.next, method::SESSION_PROMPT, prompt).to_line())
         .await
         .unwrap();
-    if let Some(option) = answer {
+    if answer.is_some() || approve_pending {
         let pending = person.wait_for(method::MUX_PERMISSION_PENDING, |_| true).await;
         let pid = pending["permissionId"].as_str().unwrap().to_owned();
-        person
-            .request(
-                method::MUX_PERMISSION_RESPOND,
-                json!({"sessionId": id, "permissionId": pid, "optionId": option}),
-            )
-            .await
-            .unwrap();
+        if approve_pending {
+            hub.set_policy(&session, PermissionPolicy::ApproveAll).await;
+        } else if let Some(option) = answer {
+            person
+                .request(
+                    method::MUX_PERMISSION_RESPOND,
+                    json!({"sessionId": id, "permissionId": pid, "optionId": option}),
+                )
+                .await
+                .unwrap();
+        }
     }
     let deadline = std::time::Instant::now() + Duration::from_secs(20);
     while !hub.events(&id, 0, 10_000).unwrap().iter().any(|e| e.kind == "turn_end") {
@@ -57,15 +65,26 @@ async fn answer_shape(policy: PermissionPolicy, answer: Option<&str>) -> String 
 
 #[tokio::test]
 async fn a_person_allow_hands_claude_its_input_back() {
-    assert_eq!(answer_shape(PermissionPolicy::Ask, Some("allow_once")).await, "allow input ok");
+    assert_eq!(
+        answer_shape(PermissionPolicy::Ask, Some("allow_once"), false).await,
+        "allow input ok"
+    );
 }
 
 #[tokio::test]
 async fn a_policy_allow_hands_claude_its_input_back() {
-    assert_eq!(answer_shape(PermissionPolicy::ApproveAll, None).await, "allow input ok");
+    assert_eq!(answer_shape(PermissionPolicy::ApproveAll, None, false).await, "allow input ok");
+}
+
+#[tokio::test]
+async fn approving_a_pending_claude_request_hands_its_input_back() {
+    assert_eq!(answer_shape(PermissionPolicy::Ask, None, true).await, "allow input ok");
 }
 
 #[tokio::test]
 async fn a_deny_carries_a_message() {
-    assert_eq!(answer_shape(PermissionPolicy::Ask, Some("reject_once")).await, "deny message ok");
+    assert_eq!(
+        answer_shape(PermissionPolicy::Ask, Some("reject_once"), false).await,
+        "deny message ok"
+    );
 }

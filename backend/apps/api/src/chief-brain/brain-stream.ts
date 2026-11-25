@@ -44,7 +44,7 @@ export interface LiveTarget {
 
 type Send = (conversation: string, agent: string, frame: LiveFrame) => Promise<void>
 
-const conv = (env: Env, id: string) => env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(id)) as unknown as { agentFrame(entity: string, agent: string, f: { live: LiveFrame }): Promise<void> }
+const conv = (env: Env, id: string) => env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(id))
 const rpcSend = (env: Env): Send => (conversation, agent, frame) => conv(env, conversation).agentFrame(conversation, agent, { live: frame })
 
 /** Splits `text` into chunks of at most `max` UTF-16 units without cutting a surrogate pair. */

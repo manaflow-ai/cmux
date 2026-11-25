@@ -13,6 +13,12 @@ CMUX_UI_LAYER_TRACE=1 Prototypes/UiLayerHost/launch.sh \
   --watch
 ```
 
+The windows wear the installed app's theme, accent, opacity and background
+(`UiLayerAppLook`, read from `~/.config/cmux/cmux-next.json` and the Ghostty
+config) and drag by their background. Add `--sizes all` for one window per
+size, `--animate` to play them, and `--cycle-sizes` to reflow them live; see
+the host README.
+
 For a read-only live projection, use `--attach` with the current-user Debug/DEV
 control socket. The adapter permits only `system.identify`, `snapshot.get`, and
 `events.stream`; it stops on an identity or event-stream reset.

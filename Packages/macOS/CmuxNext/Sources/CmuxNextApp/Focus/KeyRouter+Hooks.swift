@@ -13,9 +13,9 @@ extension KeyRouter {
     /// (not in a text field, not in browser focus mode), then a Chrome
     /// extension shortcut. Only for a key the dispatcher never saw (a
     /// synthetic event): the dispatcher already decided every real key-down.
-    func routeContentKeyEquivalent(_ event: NSEvent, focus: FocusState) -> Bool {
+    func routeContentKeyEquivalent(_ event: NSEvent, focus: FocusState, facts: Facts = Facts()) -> Bool {
         if decided.contains(event) || Self.overlayHasKeys(focus) { return false }
-        let context = keyContext(for: focus, facts: Facts())
+        let context = keyContext(for: focus, facts: facts)
         // A Ghostty keybind never runs a content action from a hook (the terminal runs its own).
         if let winner = resolve(event, context: context), !winner.source.isGhostty, registry.keyTier(for: winner.command) == .content,
            !isPageKey(event, id: winner.command), Self.allows(.content, id: winner.command, focus: focus) {
@@ -140,11 +140,14 @@ extension KeyRouter {
     /// keyboard. Plain keys never reach the dispatcher, so typing in a
     /// terminal or a text field never gets here.
     func routePageKey(_ key: BrowserPageKey, from tab: any BrowserTab) {
-        guard let services, !services.linkHints.isActive, let controller = window(showing: tab),
+        guard let services, !services.linkHints.isActive, services.settings?.snapshot.browserVimKeys != false, let controller = window(showing: tab),
               case .browserPage(_, let shown) = controller.focus.state.resolved, shown == services.cache.key(of: tab),
-              Self.allows(.content, focus: controller.focus.state) else { return }
+              Self.allows(.content, focus: controller.focus.state) else { return pageKeys.reset() }
         let context = keyContext(for: controller.focus.state, facts: Facts())
         let bits = context.bits
+        // `gg` (Vimium's top of the page) is two keys: the first `g` waits for the second.
+        let step = pageKeys.feed(key, at: .now)
+        if step != .key(key) { if let action = step.action { _ = RegistryKeyBindings(registry).run(KeyBinding(keys: [], command: ActionID(rawValue: action)), keyContext: bits) }; return }
         let shortcut = Shortcut(key.character, modifiers: key.shift ? [.shift] : [])
         guard let winner = RegistryKeyBindings(registry).table.resolve([shortcut], in: context, isRunnable: { [registry] in
             RegistryKeyBindings(registry).canPerform($0, in: bits)

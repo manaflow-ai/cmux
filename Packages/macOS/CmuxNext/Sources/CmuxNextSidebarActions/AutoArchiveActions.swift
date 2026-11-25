@@ -11,14 +11,13 @@ public final class AutoArchiveActions {
     /// Held for the registry's life: the bound actions are its only owner.
     private let coordinator: AutoArchiveCoordinator
     private let host: any SidebarArchiveHost
-    private let store: () -> SidebarDocStore?
+    private let store: @MainActor () -> SidebarDocStore?
 
     /// - Parameter host: the archive actions' host (its group lookup names the invocation's group).
-    public init(coordinator: AutoArchiveCoordinator, host: any SidebarArchiveHost,
-                store: @escaping () -> SidebarDocStore? = { SidebarDocStore.current }) {
+    public init(coordinator: AutoArchiveCoordinator, host: any SidebarArchiveHost) {
         self.coordinator = coordinator
         self.host = host
-        self.store = store
+        store = { [weak host] in host?.archiveDocument }
     }
 
     public func bind(into registry: ActionRegistry) {

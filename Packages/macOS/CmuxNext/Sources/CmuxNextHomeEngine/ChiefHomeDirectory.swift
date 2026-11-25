@@ -28,6 +28,9 @@ public actor ChiefHomeDirectory {
     }
 
     private let parents: [URL]
+    /// Which Chief homes this app may route a tab to (``admission(of:devBuild:)``): a home's acpmux runs with the
+    /// environment, so the cloud build space, of the app that starts it or attaches to it.
+    private let admits: @Sendable (URL) -> Bool
     private let work: BackgroundWork
     /// The least time between two reads of `parents` after a miss.
     private let rescanInterval: Duration
@@ -38,7 +41,8 @@ public actor ChiefHomeDirectory {
     /// holds that home: its Chief host owns the daemon, which a tab only attaches to (cx-ebm.54), so
     /// this app never starts another live build's acpmux. A home no brain holds (NIGHTLY's old
     /// per-build home, a tagged build that quit) has no owner: its daemon starts again for the tab,
-    /// as NIGHTLY's own acpmux does after its move to the app's.
+    /// as NIGHTLY's own acpmux does after its move to the app's. The app's makes an ``AcpmuxHost``
+    /// with its one ``AcpmuxLocalDaemons`` and its approver key, which that host gives each home's daemon it connects.
     private let ownHost: @Sendable (_ environment: AcpmuxEnvironment?, _ startsDaemons: Bool) -> any AgentPaneHostProviding
     /// A Chief home found on disk and the Chief home whose acpmux runs its sessions.
     nonisolated struct Found: Sendable, Equatable {
@@ -50,15 +54,16 @@ public actor ChiefHomeDirectory {
     private var lastScan: ContinuousClock.Instant?
     private var lookups: [String: Task<OwnAcpmux?, Never>] = [:]
 
-    /// `peerApprover`: the app's approver key, which the default `ownHost` gives each home's daemon it connects.
-    public init(parents: [URL], work: BackgroundWork, rescanInterval: Duration = .seconds(10),
-                environment: @escaping @Sendable (ChiefHome) -> AcpmuxEnvironment?, peerApprover: AgentPanePeerApprover? = nil,
-                ownHost: (@Sendable (_ environment: AcpmuxEnvironment?, _ startsDaemons: Bool) -> any AgentPaneHostProviding)? = nil) {
+    public init(parents: [URL], admits: @escaping @Sendable (URL) -> Bool = { _ in true }, work: BackgroundWork,
+                rescanInterval: Duration = .seconds(10),
+                environment: @escaping @Sendable (ChiefHome) -> AcpmuxEnvironment?,
+                ownHost: @escaping @Sendable (_ environment: AcpmuxEnvironment?, _ startsDaemons: Bool) -> any AgentPaneHostProviding) {
         self.parents = parents
+        self.admits = admits
         self.work = work
         self.rescanInterval = rescanInterval
         self.environment = environment
-        self.ownHost = ownHost ?? { AcpmuxHost(environment: $0, startsDaemons: $1, peerApprover: peerApprover) }
+        self.ownHost = ownHost
     }
 
     /// The directories that hold the Chief homes beside `home`: its parent, the Chief root and
@@ -67,6 +72,21 @@ public actor ChiefHomeDirectory {
         var seen = Set<String>()
         return [home.root.deletingLastPathComponent(), root, root.appendingPathComponent("isolated", isDirectory: true)]
             .filter { seen.insert($0.standardizedFileURL.path).inserted }
+    }
+
+    /// The Chief homes an app may route a tab to, by their root (AGENTS.md "Dev builds are separate"). A home's
+    /// acpmux and its sessions call the cloud in the space of the app that starts it, and its sessions hold that
+    /// space's data, so:
+    /// - a dev build (one with a cloud build space of its own) reaches only its own home and its named Chiefs;
+    /// - nightly and stable never reach a dev or staging build's home (`~/.cmux/chief/<dev bundle id>[.<account>]`),
+    ///   whose sessions belong to that build's space, but keep the homes of their own space (NIGHTLY's old
+    ///   per-build homes, an RC's, an isolated test home).
+    public nonisolated static func admission(of home: ChiefHome, devBuild: Bool) -> @Sendable (URL) -> Bool {
+        let own = home.root.standardizedFileURL.path
+        if devBuild { return { $0.standardizedFileURL.path == own } }
+        return { root in
+            root.standardizedFileURL.path == own || !BuildIdentity(bundleID: root.lastPathComponent, bundledTag: nil).needsBuildSpace
+        }
     }
 
     /// The router of Chief home `host`'s sessions over `fallback` (this Mac's acpmux), nil when no
@@ -78,6 +98,14 @@ public actor ChiefHomeDirectory {
         guard let owned = try? await work.run(.userVisible, mayBlock: .files, { Self.owned(home: home, owner: owner) }) else { return nil }
         return AcpmuxChiefSessionRouter(local: fallback, chief: owned ? own.attaching : own.starting, chiefEnvironment: own.environment,
                                         sessionsHome: own.sessionsHome)
+    }
+
+    /// Whether the acpmux of Chief home `host` (`chief:<home id>`) keeps session `session` on disk: a
+    /// Chief subagent of this Mac, which a link may open a workspace on (#28877). A miss reads the
+    /// Chief root again, as ``router(for:fallback:)`` does.
+    public func keeps(session: String, host: String) async -> Bool {
+        guard let sessions = await ownAcpmux(of: host)?.sessionsHome else { return false }
+        return (try? await work.run(.userVisible, mayBlock: .files) { AcpmuxChiefSessionRouter.keeps(session: session, home: sessions) }) ?? false
     }
 
     private func ownAcpmux(of host: String) async -> OwnAcpmux? {
@@ -92,8 +120,8 @@ public actor ChiefHomeDirectory {
 
     private func lookUp(_ host: String) async -> OwnAcpmux? {
         if roots[host] == nil, lastScan.map({ ContinuousClock.now - $0 >= rescanInterval }) ?? true {
-            let parents = parents
-            guard let found = try? await work.run(.userVisible, mayBlock: .files, { Self.homes(in: parents) }) else { return nil }
+            let parents = parents, admits = admits
+            guard let found = try? await work.run(.userVisible, mayBlock: .files, { Self.homes(in: parents).filter { admits($0.value.acpmuxOwner) } }) else { return nil }
             lastScan = ContinuousClock.now
             roots.merge(found) { kept, _ in kept }
         }

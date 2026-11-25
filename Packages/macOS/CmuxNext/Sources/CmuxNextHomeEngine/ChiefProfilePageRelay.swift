@@ -46,9 +46,11 @@ public final class ChiefProfilePageRelay {
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "chief-profile-relay")
     private let clock: any Clock<Duration>
     /// Every page call answers within this, also when a step below it never does: the page's
-    /// sheet then clears busy and shows the error (`cmux.protocol.timeout`). Each step has the
-    /// 2 s request deadline: a connect (identify, hello, subscribe: 6 s), a confirmation and the
-    /// call (4 s), so 10 s per attempt and 16 s leave room for the one reconnect's connect.
+    /// sheet then clears busy and shows the error (`cmux.protocol.timeout`). Set when each step had
+    /// the 2 s request deadline: a connect (identify, hello, subscribe: 6 s), a confirmation and the
+    /// call (4 s), so 10 s per attempt and 16 s left room for the one reconnect's connect. Since
+    /// #35075 a step's deadline is 30 s, so this bound, not a step's deadline, ends a call to an
+    /// owner that never answers.
     nonisolated static let callDeadline: Duration = .seconds(16)
 
     /// The owner process a relay connection serves: a restarted owner (same socket, new process)

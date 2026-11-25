@@ -1,11 +1,13 @@
-//! The durable outbox (mux/host rules): ops in order, one at a time. Untried
+//! The durable outbox (mux/host rules): ops in conversation order, one at a time. Untried
 //! messages to one conversation go as one send, the next agent message waits
 //! out the owner's gap, and an `agent_rate` reject is retried under the same
 //! key with a growing backoff and never dropped (G11, crate::pacing). Any other
-//! reject (`agent_budget` included) is dropped so it never loops, and
+//! reject (`agent_budget` included) is dropped so it never loops (and kept
+//! in `refused` until the Chief's next `send` tells it, send.rs), and
 //! `actor_mismatch` (the app replaced the token) keeps the entry and
 //! reconnects, which binds again.
 
+use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 use cmux_conversation::Op;
@@ -18,6 +20,7 @@ impl Brain {
     /// Sends what the outbox holds, then acks the wakes nothing waits for
     /// any more (G9: a woken message is acked after its reply is taken).
     pub(super) fn flush_outbox(&mut self) {
+        self.resume_media_uploads();
         self.flush_entries();
         self.settle_acks();
     }
@@ -27,11 +30,26 @@ impl Brain {
             if self.daemon.is_none() {
                 return;
             }
-            pacing::coalesce(&mut self.state.outbox);
-            let Some(entry) = self.state.outbox.first() else {
+            for (from, into) in pacing::coalesce(&mut self.state.outbox) {
+                // A `send` resolves its key through this (send.rs).
+                if from.starts_with("send-") {
+                    self.merged_sends.insert(from, into);
+                }
+            }
+            // An original may take arbitrarily long to upload. Keep its
+            // conversation in order while other conversations can send.
+            let mut uploading = HashSet::new();
+            let next = self.state.outbox.iter().position(|entry| {
+                if !entry.attempted && !entry.pending_media.is_empty() {
+                    uploading.insert(entry.conversation.as_str());
+                }
+                !uploading.contains(entry.conversation.as_str())
+            });
+            let Some(at) = next else {
                 self.outbox_timer = None;
                 return;
             };
+            let entry = &self.state.outbox[at];
             let (is_message, not_before, attempted, previews_until) = (
                 matches!(entry.op, Op::MessageSend { .. }),
                 entry.not_before,
@@ -69,7 +87,7 @@ impl Brain {
                 return;
             }
             if !attempted {
-                self.state.outbox[0].attempted = true;
+                self.state.outbox[at].attempted = true;
                 self.save();
             }
             let Some(daemon) = self.daemon.as_mut() else {
@@ -83,11 +101,17 @@ impl Brain {
                         || key.starts_with("turn:optchat:")
                     {
                         self.outcome_posted(&op);
+                        // The guard took the Chief's own words (budget_hold.rs).
+                        self.note_budget_open(&conversation);
                     }
                     if is_message {
                         self.last_agent_send = Some(now_ms());
                     }
                     if let Some(cmux_conversation::Change::Message { message }) = change {
+                        if self.state.conversation.as_deref() == Some(conversation.as_str()) {
+                            self.guard_row(&message);
+                        }
+                        self.home_approval_posted(&conversation, &key, &op, &message);
                         self.note_posted(&conversation, &key, &message);
                         self.sent(&key, &message.id);
                     }
@@ -101,7 +125,7 @@ impl Brain {
                 }
                 Err(OpError::Rejected(reason)) if reason.contains("agent_rate") => {
                     // Never dropped (G11): the same key again after a growing backoff.
-                    let head = &mut self.state.outbox[0];
+                    let head = &mut self.state.outbox[at];
                     head.rate_retried = true;
                     head.rate_attempts += 1;
                     let wait = pacing::backoff(self.settings.agent_gap, head.rate_attempts);
@@ -120,21 +144,41 @@ impl Brain {
                     // Dropped so it never loops, but loudly.
                     (self.log)(&format!(
                         "error: the owner refused op {key} as a reused key with different content ({reason}); the message was not posted"
-                    ))
+                    ));
+                    self.note_refused(&conversation, &key, &op, &reason);
                 }
                 Err(OpError::Rejected(reason))
-                    if self.state.outbox[0].plain_text.is_some() && has_cards(&op) =>
+                    if self.state.outbox[at].plain_text.is_some() && has_cards(&op) =>
                 {
                     // The owner refused the link cards (an older or stricter
-                    // owner): the reply goes as its original text, unchanged,
-                    // under a new key, since the refused key is spent.
-                    let head = &mut self.state.outbox[0];
+                    // owner): retry its text and original attachments under
+                    // a new key, since the refused key is spent.
+                    let head = &mut self.state.outbox[at];
                     let text = head.plain_text.take().unwrap_or_default();
-                    let fallback = super::reply_entry(
+                    let mut fallback = super::reply_entry(
                         head.conversation.clone(),
                         &format!("{key}:text"),
                         &text,
                     );
+                    // A card rejection must not discard originals that
+                    // already uploaded successfully alongside the card.
+                    if let (
+                        Op::MessageSend { parts, .. },
+                        Op::MessageSend {
+                            parts: fallback_parts,
+                            ..
+                        },
+                    ) = (&op, &mut fallback.op)
+                    {
+                        fallback_parts.extend(
+                            parts
+                                .iter()
+                                .filter(|part| {
+                                    matches!(part, cmux_conversation::Part::Attachment { .. })
+                                })
+                                .cloned(),
+                        );
+                    }
                     *head = fallback;
                     self.save();
                     (self.log)(&format!(
@@ -149,7 +193,7 @@ impl Brain {
                     // goes at the top level under a new key (the refused key
                     // is spent), never dropped.
                     let top = super::replies::unthreaded(&op, &reason).expect("checked above");
-                    let head = &mut self.state.outbox[0];
+                    let head = &mut self.state.outbox[at];
                     let new_key = format!("{key}:top");
                     head.idempotency_key = new_key.clone();
                     head.attempted = false;
@@ -176,7 +220,8 @@ impl Brain {
                     continue;
                 }
                 Err(OpError::Rejected(reason)) => {
-                    (self.log)(&format!("dropping rejected op {key}: {reason}"))
+                    (self.log)(&format!("dropping rejected op {key}: {reason}"));
+                    self.note_refused(&conversation, &key, &op, &reason);
                 }
                 Err(OpError::Transport(e)) => {
                     // Kept: retried on the next connect (the owner dedupes by key).
@@ -185,9 +230,56 @@ impl Brain {
                     return;
                 }
             }
-            self.state.outbox.remove(0);
+            self.state.outbox.remove(at);
             self.save();
         }
+    }
+}
+
+/// A message the owner refused and the outbox dropped, until the Chief is
+/// told (`send`'s answer, send.rs): nothing of it was posted.
+#[derive(Clone, Debug)]
+pub(super) struct Refused {
+    /// Its idempotency key.
+    pub key: String,
+    /// Its text, as sent (empty for a message of files only).
+    pub text: String,
+    /// The owner's reject code (`agent_budget`, ...).
+    pub reason: String,
+}
+
+/// The most refusals kept for the Chief: older ones are only in the log.
+const REFUSED_KEPT: usize = 20;
+
+impl Brain {
+    /// Keeps a dropped message's refusal for the Chief (a message send only:
+    /// a refused cursor or reaction is the host's own business).
+    fn note_refused(&mut self, conversation: &str, key: &str, op: &Op, reason: &str) {
+        let Op::MessageSend { parts, .. } = op else {
+            return;
+        };
+        // The loop guard: the nags to tell wait for the person (budget_hold.rs).
+        self.note_budget_refusal(conversation, reason);
+        let text = parts
+            .iter()
+            .filter_map(|p| match p {
+                cmux_conversation::Part::Text { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        self.refused.push(Refused {
+            key: key.to_owned(),
+            text,
+            reason: reason.to_owned(),
+        });
+        let over = self.refused.len().saturating_sub(REFUSED_KEPT);
+        self.refused.drain(..over);
+    }
+
+    /// Takes every refusal the Chief has not been told yet, oldest first.
+    pub(super) fn take_all_refused(&mut self) -> Vec<Refused> {
+        std::mem::take(&mut self.refused)
     }
 }
 

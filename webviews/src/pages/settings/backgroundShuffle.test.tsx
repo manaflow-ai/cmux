@@ -10,7 +10,11 @@ afterAll(() => restore());
 const { renderPage, settle } = await import("./testing");
 
 const runs = (page: Awaited<ReturnType<typeof renderPage>>, op: string) =>
-  page.provider.log.filter((entry) => entry.op === op).map((entry) => entry.params);
+  page.provider.log
+    .filter((entry) => entry.op === op)
+    .map((entry) => entry.params)
+    // What a background mode last showed is kept beside each change (wallpaperSwitch.test.tsx covers it).
+    .filter((params) => (params as { key?: string }).key !== "appearance.backgroundMemory");
 
 const FOLDER = "/Users/me/Library/Application Support/cmux/Backgrounds";
 

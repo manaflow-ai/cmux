@@ -44,17 +44,42 @@ await requireBrowserLane("quick-composer-chief-dock.test.ts", async () => {
     await vite?.close();
   });
 
-  async function quickComposer(experiments?: Record<string, string>): Promise<Page> {
+  async function quickComposer(
+    experiments?: Record<string, string>,
+    options: { deferGesture?: boolean } = {},
+  ): Promise<Page> {
     const page = await browser!.newPage({ viewport: PANEL });
     await installPaintedFrames(page);
-    await page.addInitScript((experiments) => {
-      const w = window as unknown as Record<string, unknown>;
-      if (experiments) w.cmuxExperiments = experiments;
-      w.webkit = { messageHandlers: { agentSession: { postMessage: async () => ({ ok: true, value: null }) } } };
-      w.cmuxAcpmuxActions = {
-        ready: async () => ({ protocolVersion: 1, transport: "mock", newSession: true, surface: "quick" }),
-      };
-    }, experiments);
+    await page.addInitScript(
+      ({ experiments, deferGesture }) => {
+        const w = window as unknown as Record<string, unknown>;
+        if (experiments) w.cmuxExperiments = experiments;
+        let resolveGesture: ((value: unknown) => void) | undefined;
+        const gesture = deferGesture
+          ? new Promise((resolve) => {
+              resolveGesture = resolve;
+            })
+          : undefined;
+        w.__resolveDeferredGesture = () => resolveGesture?.({ ok: true, value: { ticket: "deferred-gesture" } });
+        w.__quickNativeCalls = [];
+        w.webkit = {
+          messageHandlers: {
+            agentSession: {
+              postMessage: async (message: { method?: string }) => {
+                const method = String(message?.method ?? "").replace(/^cmux\.agent\./, "");
+                (w.__quickNativeCalls as string[]).push(method);
+                if (method === "transport.gesture" && gesture) return gesture;
+                return { ok: true, value: null };
+              },
+            },
+          },
+        };
+        w.cmuxAcpmuxActions = {
+          ready: async () => ({ protocolVersion: 1, transport: "mock", newSession: true, surface: "quick" }),
+        };
+      },
+      { experiments, deferGesture: options.deferGesture === true },
+    );
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/`);
     await page.locator(".acpmux-shell[data-surface='quick'] .acpmux-composer-prompt").waitFor();
@@ -99,6 +124,19 @@ await requireBrowserLane("quick-composer-chief-dock.test.ts", async () => {
     const page = await quickComposer({ "chief-dock": "on" });
     await page.locator(".acpmux-shell[data-surface='quick'] .acpmux-chief-dock").waitFor({ timeout: 10_000 });
     expect(await page.locator(".acpmux-chief-dock").count()).toBe(1);
+    await page.close();
+  });
+
+  test("Quick Composer waits for the gesture ticket before opening its window", async () => {
+    const page = await quickComposer(undefined, { deferGesture: true });
+    const prompt = page.locator(".acpmux-composer-prompt .ProseMirror");
+    await prompt.fill("send after the key proof");
+    await prompt.press("Meta+Enter");
+    await page.waitForFunction(() => (window as any).__quickNativeCalls?.includes("transport.gesture"));
+    await page.evaluate(() => window.cmuxPaintFrame());
+    expect(await page.evaluate(() => (window as any).__quickNativeCalls)).not.toContain("quick.openInWindow");
+    await page.evaluate(() => (window as any).__resolveDeferredGesture?.());
+    await page.waitForFunction(() => (window as any).__quickNativeCalls?.includes("quick.openInWindow"));
     await page.close();
   });
 });

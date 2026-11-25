@@ -1,8 +1,10 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentActivity
+import CmuxNextFocus
 @testable import CmuxNextAgentLanes
 @testable import CmuxNextApp
+import CmuxNextDesign
 import CmuxNextPalette
 import CmuxNextSidebar
 import Foundation
@@ -68,10 +70,10 @@ struct SidebarPriorityRowActionsTests {
             }
             let (requests, sink) = AsyncStream.makeStream(of: String.self)
             self.requests = requests
-            chats = AgentPriorityChats(marks: AgentPriorityMarks(defaults: nil), stores: [store]) { socket, id in
+            chats = AgentPriorityChats(marks: AgentPriorityMarks(defaults: nil), stores: [store], archive: { socket, id in
                 sink.yield("\(socket) \(id)")
                 if refuseArchive { throw ArchiveRefused() }
-            }
+            }, unarchive: { socket, id in sink.yield("unarchive \(socket) \(id)") })
             guard bind else { return }
             let actions = SidebarPriorityRowActions(chats: chats)
             actions.bind(into: registry)
@@ -166,6 +168,48 @@ struct SidebarPriorityRowActionsTests {
         #expect(fixture.marks.pinned == ["done"])
     }
 
+    /// Move Chat Earlier/Later in Priority… move the chat one place among the rows and keep it there, as a
+    /// drag does (`AgentPriorityMarks.place`); at the first or last place nothing moves. They ask which chat in
+    /// the palette and take no default key.
+    @Test func theMoveActionsPlaceTheChatOnePlaceOver() throws {
+        let fixture = Fixture()
+        for id: ActionID in ["sidebar.priority.moveEarlier", "sidebar.priority.moveLater"] {
+            let descriptor = try #require(ActionCatalog.all.first { $0.id == id })
+            #expect(descriptor.arguments.map(\.kind) == [.target(.agentChat)], "\(id)")
+            #expect(descriptor.defaultShortcut == nil, "\(id) takes no default key")
+            #expect(descriptor.title.hasSuffix("…"), "\(id) asks which chat")
+        }
+        #expect(fixture.chats.entries().map(\.id) == ["asks", "done"])
+        let done = ActionInvocation(target: SidebarPriorityRowActions.target("done"))
+        #expect(fixture.registry.perform("sidebar.priority.moveEarlier", invocation: done))
+        #expect(fixture.chats.entries().map(\.id) == ["done", "asks"])
+        #expect(fixture.marks.placed == ["done": 0])
+        // Already first: it stays, and the marks do not change.
+        fixture.registry.perform("sidebar.priority.moveEarlier", invocation: done)
+        #expect(fixture.marks.placed == ["done": 0])
+        #expect(fixture.registry.perform("sidebar.priority.moveLater", invocation: done))
+        #expect(fixture.chats.entries().map(\.id) == ["asks", "done"])
+    }
+
+    /// A focused Priority row's Control-Option-Up/Down reach the row (`SidebarPriorityRowView.keyDown`): the app-wide
+    /// key router delivers them in sidebar focus, since the only defaults on those keys (Previous/Next Turn) need an
+    /// agent chat's focus, which still takes them.
+    @Test(arguments: [true, false])
+    func controlOptionArrowsInTheSidebarReachTheFocusedRow(up: Bool) throws {
+        let character = up ? "\u{F700}" : "\u{F701}"
+        let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.control, .option, .function, .numericPad],
+                                                  timestamp: 1, windowNumber: 0, context: nil, characters: character,
+                                                  charactersIgnoringModifiers: character, isARepeat: false, keyCode: up ? 126 : 125))
+        // The router holds its registry unowned: the test keeps it alive (a temporary was freed before `decide`).
+        let registry = ActionRegistry.standard()
+        let router = KeyRouter(registry: registry)
+        var focus = FocusState()
+        focus.resolved = .sidebar
+        withExtendedLifetime(registry) {
+            #expect(String(describing: router.decide(event, focus: focus, keyWindow: .content)) == "deliver")
+        }
+    }
+
     /// With the Priority view off its rows' actions do not run, Archive Chat on a row's chat
     /// included, and each says why; Archive Chat on the focused chat (no row target) still runs.
     @Test func withThePriorityViewOffNoRowActionRunsButTheFocusedChatStillArchives() throws {
@@ -200,6 +244,45 @@ struct SidebarPriorityRowActionsTests {
         while fixture.marks.archived.contains("done"), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
         #expect(!fixture.marks.archived.contains("done"), "a refused archive kept the chat hidden here only")
         #expect(fixture.chats.entry("done") != nil, "the refused chat's row did not come back")
+    }
+
+    /// Toasts v2 (`CmuxToastCenter.v2`, Leo: "closing a tab or workspace, or archiving a session, shows a one-line toast
+    /// with an inline Undo"): a row's archive shows "Archived “title”" with Undo, which shows the row again and unarchives
+    /// the chat in its acpmux (`_acpmux/archive {archived: false}`). Off (the default) the archive offers nothing.
+    @Test func toastsV2ArchiveOffersUndoThatUnarchivesAndOffOffersNothing() async throws {
+        let fixture = Fixture(bind: false)
+        let center = CmuxToastCenter()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 200), styleMask: [.borderless], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        let actions = SidebarPriorityRowActions(chats: fixture.chats, toastWindow: { window }, toasts: center)
+        actions.bind(into: fixture.registry)
+        actions.bindArchive(into: fixture.registry) { _ in Issue.record("a Priority row's archive ran the focused chat's") }
+        let run = ActionInvocation(target: SidebarPriorityRowActions.target("done"))
+        var requests = fixture.requests.makeAsyncIterator()
+
+        let archivedOff = fixture.registry.perform(Row.archive.actionID, invocation: run)
+        #expect(archivedOff)
+        let offRequest = await requests.next()
+        #expect(offRequest == "\(Self.socket) done")
+        let offToasts = center.toasts(in: window)
+        #expect(offToasts.isEmpty, "v2 off offered an Undo")
+        fixture.chats.marks.unarchive("done")
+
+        center.v2 = true
+        let archivedOn = fixture.registry.perform(Row.archive.actionID, invocation: run)
+        #expect(archivedOn)
+        let onRequest = await requests.next()
+        #expect(onRequest == "\(Self.socket) done")
+        #expect(fixture.chats.entry("done") == nil, "the archived row stayed")
+        let toast = try #require(center.toasts(in: window).first)
+        #expect(toast.id == AgentPriorityChats.archivedToastID)
+        #expect(toast.message == SidebarSectionStrings.archivedChat("Chat done"))
+
+        let undone = center.runUndo(in: window)
+        #expect(undone)
+        #expect(fixture.chats.entry("done") != nil, "Undo did not show the row again")
+        let unarchive = await requests.next()
+        #expect(unarchive == "unarchive \(Self.socket) done")
     }
 
     @Test func aChatNoAcpmuxListsChangesNothing() {

@@ -53,12 +53,24 @@ public struct WindowLeakCheck: SuiteTrait, TestScoping {
     }
 }
 
+extension NSWindow {
+    /// A test's teardown for a window it made: closes it. `orderOut` only hides a window, and
+    /// ``WindowLeakCheck`` counts a window never closed as left open. The test still holds the
+    /// window, so AppKit must not release it on close.
+    public func closeAfterTest() {
+        isReleasedWhenClosed = false
+        close()
+    }
+}
+
 extension Trait where Self == WindowLeakCheck {
     /// Closes, names and fails on the windows a suite's tests left open (``WindowLeakCheck``).
     public static var closesItsWindows: Self { WindowLeakCheck() }
 }
 
-/// What the window census knows about a window (CmuxNextTestWindowCensus.c).
+/// What the window census knows about a window (CmuxNextTestWindowCensus.c). Main-actor: the
+/// trait's `await` hops here before it reads `NSApp.windows` or closes one.
+@MainActor
 public enum WindowLeaks {
     /// One window a suite left open, as the leak report names it.
     public struct Leak: Sendable, Equatable {

@@ -1,13 +1,17 @@
-/// The one right pane a chat's side sessions open in (`chat.sideChat`: New side chat, and the side
-/// sessions `/btw` starts), one tracker per acpmux chat session so every tab on that chat asks the
-/// same one. The first side session opens in a split right of the chat; each later one opens as a
-/// tab in the pane that holds the newest side session still open beside the chat, so one pane holds
-/// them all (Leo 2026-10-14: chat entities open as tabs in one right pane). A side tab the person
-/// moved back into the chat's own pane is not that pane. Opens run one at a time: a later one waits
-/// for the earlier one's move, so it finds the pane the earlier one moved into.
+/// Where a chat's side sessions open (`chat.sideChat`: New side chat and the side sessions `/btw`
+/// starts; `chat.offer.open`: Session Info's sessions and the transcript's session cards), one
+/// tracker per acpmux chat session so every tab on that chat asks the same one. Each opens where
+/// ``RightColumnPlacement`` puts anything opened on the right of the chat: a split right of it,
+/// else one split below what is already on the right, else a tab in the right column's lower pane
+/// (Leo 2026-10-30: "if there's already a thing on the right, there should be logic for just
+/// putting it on the lower pane of the right"). Opens run one at a time: a later one waits for the
+/// earlier one's move, so it reads the column that move made.
 @MainActor
 public final class AgentSidePanes {
     private var tabs: [String] = []
+    /// Side sessions `/side` opened: each opens in a new split right of the chat, whatever the right
+    /// column holds (#38042), once.
+    private var splitsRight: Set<String> = []
     private var opening = false
     private var queue: [(session: String, chat: String, hooks: Hooks)] = []
     /// The pane lookup of the latest open, so an idle tracker can tell its side tabs closed.
@@ -31,26 +35,24 @@ public final class AgentSidePanes {
     public struct Hooks {
         /// The pane that holds tab `key`, nil when the tab is closed.
         public var pane: (String) -> String?
-        /// Opens `session` as a tab in the pane that holds tab `anchor`, focused; calls `created`
-        /// with the new tab, then `finished`. False when nothing opened.
-        public var addTab: (_ anchor: String, _ session: String, _ created: @escaping @MainActor (String) -> Void,
-                            _ finished: @escaping @MainActor () -> Void) -> Bool
-        /// Opens `session` in a new split right of the chat's tab, focused; calls `created` with
-        /// the new tab, then `finished` once it moved. False when nothing opened.
-        public var split: (_ session: String, _ created: @escaping @MainActor (String) -> Void,
-                           _ finished: @escaping @MainActor () -> Void) -> Bool
+        /// The right column beside chat tab `key` as the window shows it now.
+        public var column: (String) -> RightColumnPlacement.Column
+        /// Opens `session` focused where `decision` says (its panes are ``RightColumnPlacement/Column``
+        /// keys); calls `created` with the new tab, then `finished` once it is in place. False when
+        /// nothing opened.
+        public var place: (_ decision: RightColumnPlacement.Decision<String>, _ session: String,
+                           _ created: @escaping @MainActor (String) -> Void, _ finished: @escaping @MainActor () -> Void) -> Bool
 
-        public init(pane: @escaping (String) -> String?,
-                    addTab: @escaping (String, String, @escaping @MainActor (String) -> Void, @escaping @MainActor () -> Void) -> Bool,
-                    split: @escaping (String, @escaping @MainActor (String) -> Void, @escaping @MainActor () -> Void) -> Bool) {
+        public init(pane: @escaping (String) -> String?, column: @escaping (String) -> RightColumnPlacement.Column,
+                    place: @escaping (RightColumnPlacement.Decision<String>, String, @escaping @MainActor (String) -> Void, @escaping @MainActor () -> Void) -> Bool) {
             self.pane = pane
-            self.addTab = addTab
-            self.split = split
+            self.column = column
+            self.place = place
         }
     }
 
-    /// Opens side session `session` of chat tab `chat`: a tab in the side pane when one is open,
-    /// else a split right of the chat. False when nothing opened (a waiting open answers true).
+    /// Opens side session `session` of chat tab `chat` where ``RightColumnPlacement`` says. False
+    /// when nothing opened (a waiting open answers true).
     @discardableResult
     public func open(_ session: String, chat: String, hooks: Hooks) -> Bool {
         guard !opening else {
@@ -59,32 +61,23 @@ public final class AgentSidePanes {
         }
         opening = true
         pane = hooks.pane
+        tabs.removeAll { hooks.pane($0) == nil }
         let created: @MainActor (String) -> Void = { [weak self] key in self?.record(key) }
         let finished: @MainActor () -> Void = { [weak self] in self?.next() }
-        let opened: Bool
-        if let anchor = sidePaneTab(chat: chat, pane: hooks.pane) {
-            opened = hooks.addTab(anchor, session, created, finished)
-        } else {
-            opened = hooks.split(session, created, finished)
-        }
+        let opened = hooks.place(RightColumnPlacement.decide(hooks.column(chat)), session, created, finished)
         if !opened { next() }
         return opened
     }
 
-    /// ``open(_:chat:hooks:)`` with one placement: `place(anchor, created, finished)` opens `session`
-    /// focused as a tab in the pane that holds tab `anchor`, or (nil) in a new split right of the chat.
-    @discardableResult
-    public func open(_ session: String, chat: String, pane: @escaping (String) -> String?,
-                     place: @escaping (_ anchor: String?, _ created: @escaping @MainActor (String) -> Void, _ finished: @escaping @MainActor () -> Void) -> Bool) -> Bool {
-        open(session, chat: chat, hooks: Hooks(pane: pane, addTab: { anchor, _, created, finished in place(anchor, created, finished) },
-                                               split: { _, created, finished in place(nil, created, finished) }))
+    /// `/side`'s side session `session` opens as a new split right of the chat, not where
+    /// ``RightColumnPlacement`` would put it.
+    public func splitRight(_ session: String) {
+        splitsRight.insert(session)
     }
 
-    /// The newest side tab still open in a pane other than the chat's, nil for none.
-    private func sidePaneTab(chat: String, pane: (String) -> String?) -> String? {
-        tabs.removeAll { pane($0) == nil }
-        let chatPane = pane(chat)
-        return tabs.last { pane($0) != chatPane }
+    /// Whether `session` opens as a split right of the chat (``splitRight(_:)``); its open reads it once.
+    public func takeSplitRight(_ session: String) -> Bool {
+        splitsRight.remove(session) != nil
     }
 
     /// Idle, with no side tab still open.

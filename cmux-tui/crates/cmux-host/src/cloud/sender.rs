@@ -12,7 +12,7 @@ use std::collections::VecDeque;
 use serde_json::{Value, json};
 
 use super::wire::{
-    Activity, ActivityChange, DEFAULT_HEARTBEAT_MS, DaemonInfo, EVENT_EMIT_OP,
+    ATTENTION_EMIT_OP, Activity, DEFAULT_HEARTBEAT_MS, DaemonInfo, EVENT_EMIT_OP,
     REPORT_MIN_INTERVAL_MS, STATUS_REPORT_OP, check_event, retry_after_ms,
 };
 
@@ -23,6 +23,146 @@ pub struct Backoff {
     attempt: u32,
     initial_ms: u64,
     max_ms: u64,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+struct QueuedAttention {
+    event_id: String,
+    kind: String,
+    session: String,
+    title: String,
+    occurred_at: u64,
+}
+
+/// Durable attention transitions sent through the VM-principal op. The
+/// platform performs content/idempotency checks; this queue only handles
+/// transport and retryable server failures.
+#[derive(Debug)]
+pub struct AttentionQueue {
+    machine: String,
+    queue: VecDeque<QueuedAttention>,
+    in_flight: bool,
+    retry_at: Option<u64>,
+    backoff: Backoff,
+}
+
+impl AttentionQueue {
+    pub fn new(machine: &str) -> Self {
+        Self {
+            machine: machine.to_owned(),
+            queue: VecDeque::new(),
+            in_flight: false,
+            retry_at: None,
+            backoff: Backoff::new(1_000, 600_000),
+        }
+    }
+
+    pub fn emit(&mut self, event: &Value) -> Result<Option<OpRequest>, String> {
+        let text = |key: &str| event[key].as_str().unwrap_or("");
+        let event_id = text("event_id");
+        let kind = text("kind");
+        let session = text("session");
+        let title = text("title");
+        let occurred_at = event["occurred_at"].as_u64().unwrap_or(0);
+        if event_id.is_empty()
+            || event_id.len() > 128
+            || !event_id.bytes().all(|b| b.is_ascii_alphanumeric() || b"._:-".contains(&b))
+            || !matches!(kind, "question" | "permission" | "done")
+            || session.is_empty()
+            || session.len() > 128
+            || title.is_empty()
+            || title.chars().count() > 200
+            || occurred_at == 0
+        {
+            return Err("invalid attention event".to_owned());
+        }
+        if self.queue.len() >= EVENT_QUEUE_MAX {
+            return Err("attention queue full".to_owned());
+        }
+        self.queue.push_back(QueuedAttention {
+            event_id: event_id.to_owned(),
+            kind: kind.to_owned(),
+            session: session.to_owned(),
+            title: title.to_owned(),
+            occurred_at,
+        });
+        Ok(self.pump())
+    }
+
+    pub fn finished(
+        &mut self,
+        answer: &Answer,
+        now: u64,
+        random: f64,
+    ) -> (EventOutcome, Option<OpRequest>) {
+        self.in_flight = false;
+        let outcome = match answer {
+            a if a.ok() => {
+                self.queue.pop_front();
+                self.backoff.reset();
+                EventOutcome::Delivered
+            }
+            Answer::Http { status, body } => {
+                let code = body
+                    .field("error")
+                    .field("code")
+                    .as_str()
+                    .or_else(|| body.field("code").as_str())
+                    .unwrap_or("");
+                if code == "cloud.rate_limited" {
+                    self.retry_at = Some(now + retry_after_ms(body).max(1));
+                    EventOutcome::Retrying
+                } else if *status >= 500 {
+                    self.retry_at = Some(now + self.backoff.next(0, random));
+                    EventOutcome::Retrying
+                } else {
+                    let kind = self.queue.pop_front().map(|e| e.kind).unwrap_or_default();
+                    EventOutcome::Dropped(format!(
+                        "{kind}: {}",
+                        if code.is_empty() { format!("HTTP {status}") } else { code.to_owned() }
+                    ))
+                }
+            }
+            Answer::Transport => {
+                self.retry_at = Some(now + self.backoff.next(0, random));
+                EventOutcome::Retrying
+            }
+        };
+        (outcome, self.pump())
+    }
+
+    pub fn fire(&mut self, now: u64) -> Option<OpRequest> {
+        if self.retry_at.is_some_and(|at| at <= now) {
+            self.retry_at = None;
+            self.pump()
+        } else {
+            None
+        }
+    }
+    pub fn next_deadline(&self) -> Option<u64> {
+        self.retry_at
+    }
+
+    pub fn len(&self) -> usize {
+        self.queue.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.queue.is_empty()
+    }
+
+    fn pump(&mut self) -> Option<OpRequest> {
+        if self.in_flight || self.retry_at.is_some() {
+            return None;
+        }
+        let head = self.queue.front()?;
+        self.in_flight = true;
+        Some(OpRequest {
+            op: ATTENTION_EMIT_OP,
+            params: json!({ "machine": self.machine, "event_id": head.event_id, "kind": head.kind, "session": head.session, "title": head.title, "occurred_at": head.occurred_at }),
+            reason: format!("attention.{}", head.kind),
+        })
+    }
 }
 
 impl Backoff {
@@ -61,7 +201,7 @@ pub enum Answer {
 }
 
 impl Answer {
-    fn ok(&self) -> bool {
+    pub(crate) fn ok(&self) -> bool {
         matches!(self, Answer::Http { status: 200, body } if *body.field("ok") == true)
     }
 }
@@ -75,7 +215,7 @@ pub enum MachineState {
 }
 
 impl MachineState {
-    fn as_str(self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             MachineState::Running => "running",
             MachineState::Degraded => "degraded",
@@ -93,6 +233,13 @@ pub struct Reporter {
     machine: String,
     daemon: DaemonInfo,
     activity: Activity,
+    /// The updater's block (`updater/look.rs`), when this machine's updater checked.
+    updater: Option<Value>,
+    /// The last finished wake's timing block (`wake_echo.rs`) until a report carrying it is
+    /// accepted.
+    wake: Option<Value>,
+    /// The wake block the report in flight carries.
+    wake_in_flight: Option<Value>,
     state: MachineState,
     dirty: bool,
     pending: Vec<String>,
@@ -112,6 +259,9 @@ impl Reporter {
             machine: machine.to_owned(),
             daemon,
             activity: Activity::default(),
+            updater: None,
+            wake: None,
+            wake_in_flight: None,
             state: MachineState::Running,
             dirty: false,
             pending: Vec::new(),
@@ -148,9 +298,52 @@ impl Reporter {
         self.schedule(now)
     }
 
-    pub fn update(&mut self, change: &ActivityChange, now: u64) -> Option<OpRequest> {
-        change.apply(&mut self.activity);
-        self.trigger("change", now)
+    /// The activity the next report carries.
+    pub fn activity(&self) -> &Activity {
+        &self.activity
+    }
+
+    /// Replaces the activity the next report carries; a report is due only with `report`.
+    pub fn set_activity(
+        &mut self,
+        activity: Activity,
+        report: bool,
+        now: u64,
+    ) -> Option<OpRequest> {
+        self.activity = activity;
+        if report { self.trigger("change", now) } else { None }
+    }
+
+    /// The updater block the next report carries.
+    pub fn updater(&self) -> Option<&Value> {
+        self.updater.as_ref()
+    }
+
+    /// Replaces the updater block; a report is due only with `report`.
+    pub fn set_updater(
+        &mut self,
+        updater: Option<Value>,
+        report: bool,
+        now: u64,
+    ) -> Option<OpRequest> {
+        self.updater = updater;
+        if report { self.trigger("updater", now) } else { None }
+    }
+
+    /// A wake's timing finished: the next report carries its block, and one is due.
+    pub fn set_wake(&mut self, block: Value, now: u64) -> Option<OpRequest> {
+        self.wake = Some(block);
+        self.trigger("wake", now)
+    }
+
+    /// Replaces the wake block the next report carries without making one due.
+    pub fn replace_wake(&mut self, block: Option<Value>) {
+        self.wake = block;
+    }
+
+    /// The wake block the next report carries.
+    pub fn wake(&self) -> Option<&Value> {
+        self.wake.as_ref()
     }
 
     /// The daemon block changed (`activity` on while the stream is live).
@@ -159,17 +352,40 @@ impl Reporter {
         self.trigger("daemon", now)
     }
 
+    /// Replaces the daemon block the next report carries without making one due: for a change
+    /// that goes out with the report its caller makes due next, so that report never carries the
+    /// old block.
+    pub fn replace_daemon(&mut self, daemon: DaemonInfo) {
+        self.daemon = daemon;
+    }
+
     pub fn set_state(&mut self, state: MachineState, now: u64) -> Option<OpRequest> {
         self.state = state;
         self.trigger("state", now)
+    }
+
+    /// The state the next report names.
+    pub fn state(&self) -> MachineState {
+        self.state
+    }
+
+    /// Replaces the state the next report names without making one due: the start report a
+    /// restarted service makes due next names it ([`super::session::Session::after_restart`]).
+    pub fn replace_state(&mut self, state: MachineState) {
+        self.state = state;
     }
 
     /// The answer to the request in flight. Returns the next request when
     /// one is due at once.
     pub fn finished(&mut self, answer: &Answer, now: u64, random: f64) -> Option<OpRequest> {
         let reasons = self.in_flight.take().unwrap_or_default();
+        let carried = self.wake_in_flight.take();
         if answer.ok() {
             self.backoff.reset();
+            // Delivered: later reports leave it out (a newer wake that finished meanwhile stays).
+            if carried.is_some() && carried == self.wake {
+                self.wake = None;
+            }
             // The server counts its 10 s from when it received this report, which is
             // after the send and before `now` (the answer): count from the answer, so
             // the next report never lands inside the server's window and is held.
@@ -251,16 +467,20 @@ impl Reporter {
         let reasons = std::mem::take(&mut self.pending);
         let reason = if reasons.is_empty() { "retry".to_owned() } else { reasons.join("+") };
         self.in_flight = Some(reasons);
-        OpRequest {
-            op: STATUS_REPORT_OP,
-            params: json!({
-                "machine": self.machine,
-                "state": self.state.as_str(),
-                "daemon": self.daemon.to_json(),
-                "activity": self.activity.to_json(),
-            }),
-            reason,
+        let mut params = json!({
+            "machine": self.machine,
+            "state": self.state.as_str(),
+            "daemon": self.daemon.to_json(),
+            "activity": self.activity.to_json(),
+        });
+        if let (Some(updater), Some(map)) = (&self.updater, params.as_object_mut()) {
+            map.insert("updater".to_owned(), updater.clone());
         }
+        if let (Some(wake), Some(map)) = (&self.wake, params.as_object_mut()) {
+            map.insert("wake".to_owned(), wake.clone());
+        }
+        self.wake_in_flight = self.wake.clone();
+        OpRequest { op: STATUS_REPORT_OP, params, reason }
     }
 }
 
@@ -278,6 +498,11 @@ pub enum EventOutcome {
     Retrying,
     Dropped(String),
 }
+
+/// Events a backed-off queue holds before it refuses more (each is at most
+/// 4 KB of data, so about 1 MB).
+/// Measured: at most 4 KB an event held in memory while Cloud is unreachable: about 1 MB.
+pub const EVENT_QUEUE_MAX: usize = 256;
 
 /// `cloud.vm.event.emit` in order: a rate limit waits `retry_after_ms`, a
 /// server error backs off, any other refusal drops the event.
@@ -301,9 +526,13 @@ impl EventQueue {
         }
     }
 
-    /// Queues one event; refuses an unknown kind or more than 4 KB of data.
+    /// Queues one event; refuses an unknown kind, more than 4 KB of data, or
+    /// a queue already holding `EVENT_QUEUE_MAX` events.
     pub fn emit(&mut self, kind: &str, at: u64, data: Value) -> Result<Option<OpRequest>, String> {
         check_event(kind, &data)?;
+        if self.queue.len() >= EVENT_QUEUE_MAX {
+            return Err(format!("event queue full ({EVENT_QUEUE_MAX} waiting)"));
+        }
         self.queue.push_back(QueuedEvent { kind: kind.to_owned(), at, data });
         Ok(self.pump())
     }
@@ -387,3 +616,7 @@ impl EventQueue {
         })
     }
 }
+
+#[cfg(test)]
+#[path = "sender_event_queue_tests.rs"]
+mod event_queue_tests;

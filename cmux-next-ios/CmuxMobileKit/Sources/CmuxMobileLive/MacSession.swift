@@ -16,8 +16,12 @@ final class MacSession {
     let link: LinkController
     let workspaces: WorkspaceSync
     let acpmux = AcpmuxHub()
+    /// Separate ACP clients: VM-local session ids never collide with this Mac's.
+    var cloudChats: [String: CloudChatRelay] = [:]
     let feed: LiveFeed
     let terminalFeed: TerminalFeed
+    /// The Mac app's own Feed requests (held PRs, sign-ins, consent cards).
+    let needsYou: MacNeedsYouFeed
     /// Workspace and tab changes on this Mac.
     let creation: LiveWorkspaceCreationBackend
 
@@ -33,13 +37,24 @@ final class MacSession {
     /// overtake `auth`) wait for it (review m6), and Retry re-runs a refused one (M2).
     var pairingGate: (link: any MacLink, passed: Task<Bool, Never>)?
     var pairingState: LinkPairing.State = .idle
+    /// The phone's own next pairing attempt after a refusal (``LinkPairing/retryDelay(after:attempt:)``),
+    /// and how many ran since this Mac last paired.
+    var pairingRetry: Task<Void, Never>?
+    var pairingRetries = 0
     /// Terminal tabs of this Mac handed out, reattached on every new link.
     var terminals: [WeakTerminal] = []
     /// Whether this Mac's terminal tabs say it is offline (termfix-r13 D4).
     var terminalsOffline = false
-    /// When this link last stopped being connected (nil: connected or idle).
-    var linkDownSince: ContinuousClock.Instant?
+    /// How long this link has been down as the person saw it (``LinkOutageClock``).
+    var outage = LinkOutageClock()
+    /// When this link last stopped being connected, or the app came back while it was down
+    /// (nil: connected or idle).
+    var linkDownSince: ContinuousClock.Instant? { outage.since }
     var offlineTask: Task<Void, Never>?
+    /// Shows the header's "Offline" once the link has been down for the quiet bound.
+    var quietStatusTask: Task<Void, Never>?
+    /// Looks again when a redial reaches ``LiveCoordinator/macStallAfter`` (cmux#52200).
+    var stallTask: Task<Void, Never>?
     /// Why the chat (acpmux) channel failed on the current link, shown in the status line.
     var chatsError: String?
     var daemonError: String?
@@ -61,6 +76,7 @@ final class MacSession {
         feed = LiveFeed(store: feedStore, hub: nil, place: { _ in nil })
         feed.macID = macID.isEmpty ? nil : macID
         terminalFeed = TerminalFeed(store: feedStore)
+        needsYou = MacNeedsYouFeed(store: feedStore)
         creation = LiveWorkspaceCreationBackend(sync: workspaces, link: link, acpmux: nil)
         feed.hub = acpmux
         feed.terminal = terminalFeed

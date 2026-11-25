@@ -132,7 +132,7 @@ export const snapshotsHandlers = HttpApiBuilder.group(CmuxVmApi, "snapshots", (h
                 only: allowlist === null ? null : [...allowlist],
                 ...(urlParams.createdBy === "caller" ? { createdBy: actorRef(caller.value.actor) } : {}),
               })
-              .pipe(Effect.mapError(() => unavailable()));
+              .pipe(Effect.mapError(unavailable));
             const page = rows.slice(0, limit);
             const last = page.at(-1);
             return new SnapshotList({
@@ -149,11 +149,11 @@ export const snapshotsHandlers = HttpApiBuilder.group(CmuxVmApi, "snapshots", (h
         const store = yield* SnapshotStore;
         return yield* withOwnedSnapshot(path.snapshotId, "snapshot:read", "read", (caller, snapshot, proofs) =>
           Effect.gen(function* () {
-            const row = yield* store.describe(caller.value.tenantId, snapshot.value).pipe(Effect.mapError(() => unavailable()));
+            const row = yield* store.describe(caller.value.tenantId, snapshot.value).pipe(Effect.mapError(unavailable));
             if (Option.isNone(row)) return yield* Effect.fail(snapshotNotFound());
             const live = yield* upstream
               .getSnapshot(snapshot, proofs)
-              .pipe(Effect.mapError((error) => (error.status === 404 ? snapshotNotFound() : unavailable())));
+              .pipe(Effect.mapError((error) => (error.status === 404 ? snapshotNotFound() : unavailable(error))));
             return toSnapshot(row.value, live);
           }),
         );
@@ -172,11 +172,11 @@ export const snapshotsHandlers = HttpApiBuilder.group(CmuxVmApi, "snapshots", (h
                 // Already gone upstream (for example, its retention expired): finish the delete here.
                 Effect.catchIf((error) => error.status === 404, () => Effect.void),
                 Effect.mapError((error) =>
-                  error.status === 409 ? new Conflict({ message: "This snapshot cannot be deleted right now" }) : unavailable(),
+                  error.status === 409 ? new Conflict({ message: "This snapshot cannot be deleted right now" }) : unavailable(error),
                 ),
               );
               const now = new Date(yield* Clock.currentTimeMillis);
-              yield* store.markDeleted(caller.value.tenantId, snapshot.value, now).pipe(Effect.mapError(() => unavailable()));
+              yield* store.markDeleted(caller.value.tenantId, snapshot.value, now).pipe(Effect.mapError(unavailable));
             }),
           ),
         );

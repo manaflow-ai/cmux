@@ -21,6 +21,9 @@ public struct ChiefEngineReport: Decodable, Sendable, Equatable {
         public var classifierModel: String?
         public var classifierPrompt: String?
         public var reactionsCanWake: Bool?
+        /// The Cloud machine this Chief does computer use on (`machine:<id>`); nil: this Mac. In
+        /// `choice` only (cmux issue 36047). Nil from an older brain.
+        public var computer: String?
 
         public init(harness: String? = nil, model: String? = nil, effort: String? = nil, speed: String? = nil) {
             self.harness = harness
@@ -33,6 +36,7 @@ public struct ChiefEngineReport: Decodable, Sendable, Equatable {
             case harness, model, effort, speed
             case classifierHarness = "classifier_harness", classifierModel = "classifier_model"
             case classifierPrompt = "classifier_prompt", reactionsCanWake = "reactions_can_wake"
+            case computer
         }
 
         public init(from decoder: any Decoder) throws {
@@ -44,6 +48,7 @@ public struct ChiefEngineReport: Decodable, Sendable, Equatable {
             classifierHarness = try c.decodeIfPresent(String.self, forKey: .classifierHarness)
             classifierModel = try c.decodeIfPresent(String.self, forKey: .classifierModel)
             classifierPrompt = try c.decodeIfPresent(String.self, forKey: .classifierPrompt)
+            computer = try c.decodeIfPresent(String.self, forKey: .computer)
             // engine.json may keep it as the string a set sent ("true"/"false").
             if let on = try? c.decodeIfPresent(Bool.self, forKey: .reactionsCanWake) {
                 reactionsCanWake = on
@@ -180,6 +185,15 @@ public struct ChiefEngineReport: Decodable, Sendable, Equatable {
     }
 }
 
+/// Result of an explicit Chief turn action. A refused action is still a valid
+/// response (`retried`/`continued` is false); `reason` lets the caller keep a
+/// Continue affordance while a stopped turn finishes cancelling.
+public struct ChiefTurnActionResult: Decodable, Sendable, Equatable {
+    public var continued: Bool?
+    public var retried: Bool?
+    public var reason: String?
+}
+
 /// Why a Chief control op failed, one case per thing the user can be told.
 public enum ChiefControlError: Error, Sendable, Equatable {
     /// No connection to the daemon in front of the brain, or the daemon
@@ -219,9 +233,9 @@ public enum ChiefControlError: Error, Sendable, Equatable {
     }
 }
 
-/// `chief.engine.get` / `chief.engine.set` / `chief.stop` on one daemon
-/// connection. Its own type, not a `DaemonConnection` extension (that
-/// type's line budget is frozen).
+/// `chief.engine.get` / `chief.engine.set` / `chief.stop` /
+/// `chief.automation.list|update` on one daemon connection. Its own type,
+/// not a `DaemonConnection` extension (that type's line budget is frozen).
 public struct ChiefControlClient: Sendable {
     public let connection: DaemonConnection
 
@@ -250,8 +264,9 @@ public struct ChiefControlClient: Sendable {
     }
 
     /// The fields `chief.engine.set` takes: the turns' engine, and the reaction classifier (a416).
+    /// `computer` is the Cloud machine the Chief does computer use on (`machine:<id>`, cmux issue 36047).
     public static let engineSetKeys: Set<String> = ["harness", "model", "effort", "speed", "classifier_harness",
-                                                    "classifier_model", "classifier_prompt", "reactions_can_wake"]
+                                                    "classifier_model", "classifier_prompt", "reactions_can_wake", "computer"]
 
     /// `params` of a `chief.engine.set` of `fields` (only ``engineSetKeys``; "default" clears one).
     static func engineSetParams(_ fields: [String: String], chief: String?) -> [String: JSONValue] {
@@ -286,6 +301,34 @@ public struct ChiefControlClient: Sendable {
         }
     }
 
+    /// `chief.continue`: resume the message batch closed by the owner's last
+    /// stop. The brain returns false when there is no stopped batch or while
+    /// cancellation is still settling.
+    public func continueChief(chief: String? = nil) async throws(ChiefControlError) -> ChiefTurnActionResult {
+        let key = "cmux-next-chief-continue-" + UUID().uuidString.lowercased()
+        do {
+            return try await connection.resourceRequest({ id in
+                ResourceRequestEnvelope(id: id, operation: "chief.continue", params: Self.naming(chief, [:]), idempotencyKey: key)
+            }, as: ResourceMutationResult<ChiefTurnActionResult>.self).value
+        } catch {
+            throw ChiefControlError(error)
+        }
+    }
+
+    /// `chief.retry {message}`: re-answer one committed person message in a
+    /// Chief conversation. A running turn is reported as `busy`.
+    public func retryChief(message: String, chief: String? = nil) async throws(ChiefControlError) -> ChiefTurnActionResult {
+        let key = "cmux-next-chief-retry-" + UUID().uuidString.lowercased()
+        let params = Self.naming(chief, ["message": .string(message)])
+        do {
+            return try await connection.resourceRequest({ id in
+                ResourceRequestEnvelope(id: id, operation: "chief.retry", params: params, idempotencyKey: key)
+            }, as: ResourceMutationResult<ChiefTurnActionResult>.self).value
+        } catch {
+            throw ChiefControlError(error)
+        }
+    }
+
     /// `chief.stop {all: true}` (Stop all agents): the running turn and every
     /// subagent at work or queued stop; the answer names the subagents (the
     /// undo toast's list and its Restart). `chief` as in `chiefEngine(chief:)`.
@@ -310,6 +353,49 @@ public struct ChiefControlClient: Sendable {
             return try await connection.resourceRequest({ id in
                 ResourceRequestEnvelope(id: id, operation: "chief.stop", params: params, idempotencyKey: key)
             }, as: ResourceMutationResult<ChiefRestart>.self).value
+        } catch {
+            throw ChiefControlError(error)
+        }
+    }
+
+    /// `chief.automation.list`: the Chief's automations, oldest first (issue 25573). `chief` as
+    /// in `chiefEngine(chief:)`.
+    public func chiefAutomations(chief: String? = nil) async throws(ChiefControlError) -> [ChiefAutomation] {
+        do {
+            return try await connection.resourceRequest({ id in
+                ResourceRequestEnvelope(id: id, operation: "chief.automation.list", params: Self.naming(chief, [:]))
+            }, as: ChiefAutomationList.self).automations
+        } catch {
+            throw ChiefControlError(error)
+        }
+    }
+
+    /// `chief.automation.update`: pauses, resumes, deletes or runs automation `id` now; the
+    /// list after the change. `chief` as in `chiefEngine(chief:)`.
+    public func updateChiefAutomation(_ id: String, _ action: ChiefAutomationAction,
+                                      chief: String? = nil) async throws(ChiefControlError) -> [ChiefAutomation] {
+        let key = "cmux-next-chief-automation-" + UUID().uuidString.lowercased()
+        let params = Self.naming(chief, ["automation": .string(id), "action": .string(action.rawValue)])
+        do {
+            return try await connection.resourceRequest({ id in
+                ResourceRequestEnvelope(id: id, operation: "chief.automation.update", params: params, idempotencyKey: key)
+            }, as: ResourceMutationResult<ChiefAutomationList>.self).value.automations
+        } catch {
+            throw ChiefControlError(error)
+        }
+    }
+
+    /// `chief.stop {start: name}` (Start now on a queued agent in Home): that
+    /// queued subagent starts at once, past the live cap; nothing stops.
+    /// `chief` as in `chiefEngine(chief:)`. A brain that refuses (the agent
+    /// is not queued) throws.
+    public func startAgent(_ name: String, chief: String? = nil) async throws(ChiefControlError) -> ChiefStartNow {
+        let key = "cmux-next-chief-start-" + UUID().uuidString.lowercased()
+        let params = Self.naming(chief, ["start": .string(name)])
+        do {
+            return try await connection.resourceRequest({ id in
+                ResourceRequestEnvelope(id: id, operation: "chief.stop", params: params, idempotencyKey: key)
+            }, as: ResourceMutationResult<ChiefStartNow>.self).value
         } catch {
             throw ChiefControlError(error)
         }

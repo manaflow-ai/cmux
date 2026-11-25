@@ -36,9 +36,9 @@ extension NotificationCenterService {
     func clearTabMarks(entering viewed: [TabModel], held: Set<String> = []) {
         let entered = Set(TabUnreadMark.entered(viewed.map(\.id), previous: viewedTabIDs.union(held)))
         viewedTabIDs = Set(viewed.map(\.id)).union(held)
-        guard let services else { return }
         for tab in viewed where tab.markedUnread && entered.contains(tab.id) {
-            try? TabUnreadMark.set(false, tab: tab, daemon: services.daemon)
+            guard let daemon = owner(of: tab) else { continue }
+            try? TabUnreadMark.set(false, tab: tab, daemon: daemon)
         }
     }
 
@@ -47,17 +47,18 @@ extension NotificationCenterService {
     /// whether they hold an unread notification.
     func viewedFacts(_ store: DaemonStore) -> ViewedTabsFacts {
         ViewedTabsFacts(revision: viewedRevision,
-                        tabs: viewedTabs(store).map { ViewedProgramStatus(tab: $0.id, records: $0.programStatus, unread: $0.hasUnread) })
+                        tabs: viewedTabs(store).map { ViewedProgramStatus(tab: $0.id, records: $0.programStatus, unread: $0.hasUnread, attention: $0.attention.map { "\($0.atMs) \($0.requestID ?? "")" }) })
     }
 
     /// The tabs shown in a key window while cmux is active: each window's
-    /// focused tab, found in its own pane (O(1) per window). Only `store`'s
-    /// tabs (the local daemon's).
+    /// focused tab, found in its own pane (O(1) per window), in the window's own
+    /// daemon store (any machine; `store` is unused).
     func viewedTabs(_ store: DaemonStore) -> [TabModel] {
         guard let services, services.appActiveSource() else { return [] }
         return services.windows.controllers.compactMap { controller in
-            guard controller.focus.state.windowKey, let resolved = Self.shownFocus(controller), let id = Self.contentTab(resolved),
-                  let pane = resolved.pane, let model = controller.content?.paneModel(key: pane), store.pane(model.handle) === model else { return nil }
+            guard ownsKey(controller), let resolved = Self.shownFocus(controller), let id = viewedTab(controller),
+                  let pane = resolved.pane, let content = controller.content, let model = content.paneModel(key: pane),
+                  content.daemon.store.pane(model.handle) === model else { return nil }
             return model.tabs.first { $0.id == id }
         }
     }

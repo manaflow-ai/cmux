@@ -34,7 +34,11 @@ ARTIFACTS = {
 
 
 HELPER_RESOLVER = "resolve-nightly-ghostty-cli-helper"
-
+# A fresh nightly uploads the daemon from its own job (#25935); a resumed one
+# re-uploads it from build-nightly-app, the owner ARTIFACTS names.
+DAEMON_BUILDER = "build-nightly-remote-daemon"
+OPTIONAL_PRODUCERS = {"cmux-nightly-ghostty-cli-helper": HELPER_RESOLVER,
+                      "cmux-nightly-remote-daemon": DAEMON_BUILDER}
 
 def require(condition, message):
     if not condition:
@@ -59,13 +63,13 @@ def validate(run, jobs, artifacts, repo, run_id, attempt):
     # A helper reused from an earlier nightly (nightly_ghostty_helper_reuse.py)
     # is uploaded by the resolver job of the same attempt, not the build job.
     for job in jobs:
-        if (job.get("name") == HELPER_RESOLVER and job.get("conclusion") == "success" and
+        if (job.get("name") in OPTIONAL_PRODUCERS.values() and job.get("conclusion") == "success" and
                 job.get("run_attempt") == int(attempt)):
-            producers[HELPER_RESOLVER] = job
+            producers[job["name"]] = job
     selected = {}
     for name, (owner, _) in ARTIFACTS.items():
-        owners = [owner] + ([HELPER_RESOLVER] if name == "cmux-nightly-ghostty-cli-helper" and
-                            HELPER_RESOLVER in producers else [])
+        extra = OPTIONAL_PRODUCERS.get(name)
+        owners = [owner] + ([extra] if extra in producers else [])
         matches = [a for a in artifacts if a.get("name") == name and not a.get("expired") and
                    any(producers[o]["started_at"] <= a.get("created_at", "") <= producers[o]["completed_at"]
                        for o in owners)]
@@ -122,12 +126,13 @@ def extract(archive, destination):
 
 def restore(receipt, root):
     root.mkdir(parents=True, exist_ok=True)
+    wanted = [(artifact, root / ARTIFACTS[name][1]) for name, artifact in receipt["artifacts"].items()]
     with tempfile.TemporaryDirectory() as tmp:
-        for name, artifact in receipt["artifacts"].items():
+        for artifact, destination in wanted:
             archive = str(Path(tmp) / f"{artifact['id']}.zip")
             download.download(artifact, os.environ["GH_TOKEN"], archive, 32)
             download.verify(archive, artifact)
-            extract(archive, root / ARTIFACTS[name][1])
+            extract(archive, destination)
     manifests = list((root / "daemon").glob("cmuxd-remote-manifest-*.json"))
     require(len(manifests) == 1 and manifests[0].name == f"cmuxd-remote-manifest-{receipt['build']}.json",
             "daemon build number does not match original run/attempt")
@@ -137,30 +142,45 @@ def restore(receipt, root):
     return version
 
 
-def bundled_client_commit(root):
+def bundled_client_commit(root, folder="app"):
+    return bundled_client_version(root, folder)[0]
+
+
+def bundled_client_version(root, folder="app"):
+    """(commit, tree key) from the app's cmux-tui.version; the key is "" when the file has none.
+    A build that bundled a fallback tree records that tree's key (app-bundle-cmux-tui-client.sh). The
+    restore step outputs it as cmux_tui_key; until nightly.yml passes it to the sign stage's marker gate
+    (INSTALLED_KEY, a nightly.yml change that needs its main twin), a resumed fallback build fails closed
+    there: it publishes nothing rather than the wrong client."""
     # The uploaded app artifact contains the precompressed unsigned tarball.
-    # Open it only after the authenticated ZIP extraction and reject traversal
-    # or links before deriving the client provenance used by the marker gate.
-    app_root = root / "app"
+    # Open it only after the authenticated ZIP extraction and read the one
+    # cmux-tui.version member, a regular file at a safe path, for the client
+    # provenance the marker gate uses. Nothing is extracted: the app keeps its
+    # framework symlinks (Versions/Current), and the folder is re-uploaded as
+    # the artifact the signers untar, so it must hold only the original archive.
+    app_root = root / folder
     archives = list(app_root.glob("*.tar.gz"))
     require(len(archives) == 1, "resumed unsigned app has no unique app archive")
+    texts = []
     with tarfile.open(archives[0], "r:gz") as archive:
-        for entry in archive.getmembers():
+        for entry in archive:
             path = PurePosixPath(entry.name)
-            require(not path.is_absolute() and ".." not in path.parts and "\\" not in entry.name and
-                    not entry.issym() and not entry.islnk(), "unsafe unsigned app tar member")
-        archive.extractall(app_root)
-    versions = list(app_root.glob("**/Contents/Resources/bin/cmux-tui.version"))
-    require(len(versions) == 1, "resumed unsigned app has no unique cmux-tui.version")
+            if path.parts[-4:] != ("Contents", "Resources", "bin", "cmux-tui.version"):
+                continue
+            require(entry.isfile() and not path.is_absolute() and ".." not in path.parts and
+                    "\\" not in entry.name, "unsafe unsigned app tar member")
+            texts.append(archive.extractfile(entry).read().decode())
+    require(len(texts) == 1, "resumed unsigned app has no unique cmux-tui.version")
     fields = {}
-    for line in versions[0].read_text().splitlines():
+    for line in texts[0].splitlines():
         if "=" in line:
             key, value = line.split("=", 1)
             fields[key] = value
     commit = fields.get("commit", "")
     require(re.fullmatch(r"[0-9a-f]{40}", commit) is not None,
             "resumed unsigned app has no valid cmux-tui commit")
-    return commit
+    key = fields.get("key", "")
+    return commit, key if re.fullmatch(r"[0-9a-f]{40}", key) else ""
 
 
 def main():
@@ -176,7 +196,7 @@ def main():
     outputs = {key: receipt[key] for key in ("run_id", "attempt", "build_sha", "build")}
     if args.command == "restore":
         outputs["version"] = restore(receipt, args.out)
-        outputs["cmux_tui_commit"] = bundled_client_commit(args.out)
+        outputs["cmux_tui_commit"], outputs["cmux_tui_key"] = bundled_client_version(args.out)
         (args.out / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
         for key, value in outputs.items():

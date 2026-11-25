@@ -74,7 +74,7 @@ enum DebugAgentCursor {
             return .object(["kind": .string("visible"), "window": .string(window), "viewport": rect(viewport),
                             "clip": rect(clip), "zoom": .number(zoom), "scale": .number(scale)])
         case let .hidden(window, anchor, area):
-            return .object(["kind": .string("hidden"), "window": .string(window), "anchor": .string(name(anchor)), "rect": rect(area)])
+            return .object(["kind": .string("hidden"), "window": .string(window), "anchor": .string(anchor.wireName), "rect": rect(area)])
         case let .notDrawn(reason):
             return .object(["kind": .string("notDrawn"), "reason": .string(reason.rawValue)])
         }
@@ -89,16 +89,6 @@ enum DebugAgentCursor {
             return .object(["kind": .string("hidden"), "anchor": rect(anchor)])
         case .elsewhere:
             return .object(["kind": .string("elsewhere")])
-        }
-    }
-
-    private static func name(_ anchor: AgentCursorAnchor) -> String {
-        switch anchor {
-        case .tabChip: "tabChip"
-        case .tabStrip: "tabStrip"
-        case let .columnEdge(side): "columnEdge.\(side.rawValue)"
-        case .workspaceRow: "workspaceRow"
-        case .windowEdge: "windowEdge"
         }
     }
 }

@@ -3,7 +3,7 @@
 // terminal's and the browser's (findPill.css carries FindPillMetrics' numbers). It only draws and
 // reports; its surface owns the search. Enter and Cmd-G step to the next match, Shift-Enter and
 // Shift-Cmd-G to the previous one, Escape closes; an IME composition keeps its own keys.
-import type { KeyboardEvent, ReactNode, Ref } from "react";
+import type { KeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode, Ref } from "react";
 import "./findPill.css";
 
 /** The icons a pill draws, from the host's icon set (the native pill's four). */
@@ -17,6 +17,9 @@ export type FindPillLabels = {
   close: string;
   /** The match-case toggle's name; absent where the search cannot match case (no toggle). */
   matchCase?: string;
+  /** The whole-word and regex toggles' names (terminal history find); absent: no toggle. */
+  wholeWord?: string;
+  regex?: string;
 };
 
 /** The replace row (the code editor's Replace, Opt-Cmd-F). */
@@ -49,6 +52,10 @@ export type FindPillProps = {
   icon: (role: FindPillIconRole) => ReactNode;
   matchCase?: boolean;
   onMatchCaseChange?: (matchCase: boolean) => void;
+  wholeWord?: boolean;
+  onWholeWordChange?: (wholeWord: boolean) => void;
+  regex?: boolean;
+  onRegexChange?: (regex: boolean) => void;
   inputRef?: Ref<HTMLInputElement>;
   /** Cmd-G in the field steps (default); false where a document-level handler already does. */
   commandGSteps?: boolean;
@@ -57,6 +64,21 @@ export type FindPillProps = {
   /** Ids kept for callers that address the parts (tests, keyboard scopes). */
   ids?: { root?: string; field?: string; count?: string };
   className?: string;
+};
+
+function markPress(event: ReactPointerEvent<HTMLButtonElement>) {
+  event.currentTarget.dataset.pressActive = "true";
+}
+
+function clearPress(event: ReactPointerEvent<HTMLButtonElement>) {
+  delete event.currentTarget.dataset.pressActive;
+}
+
+const pressFeedback = {
+  onPointerDown: markPress,
+  onPointerUp: clearPress,
+  onPointerCancel: clearPress,
+  onPointerLeave: clearPress,
 };
 
 export function FindPill(props: FindPillProps) {
@@ -81,6 +103,7 @@ export function FindPill(props: FindPillProps) {
     <button
       type="button"
       className="find-pill__button find-pill__toggle"
+      {...pressFeedback}
       aria-label={replace.labels.toggle}
       title={replace.labels.toggle}
       aria-expanded={replace.open}
@@ -98,6 +121,8 @@ export function FindPill(props: FindPillProps) {
         ref={props.inputRef}
         id={ids?.field}
         className="find-pill__field"
+        // The app holds the letters typed after Cmd-F until this field has focus (PageInputReadiness.awaitFocus).
+        data-cmux-command-focus="find"
         type="search"
         value={props.query}
         placeholder={labels.placeholder}
@@ -123,18 +148,46 @@ export function FindPill(props: FindPillProps) {
           <button
             type="button"
             className="find-pill__button find-pill__button--text"
+            {...pressFeedback}
             aria-label={labels.matchCase}
             aria-pressed={props.matchCase ? "true" : "false"}
             onClick={() => props.onMatchCaseChange?.(!props.matchCase)}
           >
             Aa
           </button>
+          {labels.wholeWord !== undefined && props.onWholeWordChange ? (
+            <button
+              type="button"
+              className="find-pill__button find-pill__button--text"
+              {...pressFeedback}
+              aria-label={labels.wholeWord}
+              title={labels.wholeWord}
+              aria-pressed={props.wholeWord ? "true" : "false"}
+              onClick={() => props.onWholeWordChange?.(!props.wholeWord)}
+            >
+              ab
+            </button>
+          ) : null}
+          {labels.regex !== undefined && props.onRegexChange ? (
+            <button
+              type="button"
+              className="find-pill__button find-pill__button--text"
+              {...pressFeedback}
+              aria-label={labels.regex}
+              title={labels.regex}
+              aria-pressed={props.regex ? "true" : "false"}
+              onClick={() => props.onRegexChange?.(!props.regex)}
+            >
+              .*
+            </button>
+          ) : null}
           <span className="find-pill__separator" aria-hidden="true" />
         </>
       ) : null}
       <button
         type="button"
         className="find-pill__button"
+        {...pressFeedback}
         aria-label={labels.previous}
         title={`${labels.previous} (⇧↩)`}
         disabled={!props.canStep}
@@ -145,6 +198,7 @@ export function FindPill(props: FindPillProps) {
       <button
         type="button"
         className="find-pill__button"
+        {...pressFeedback}
         aria-label={labels.next}
         title={`${labels.next} (↩)`}
         disabled={!props.canStep}
@@ -155,6 +209,7 @@ export function FindPill(props: FindPillProps) {
       <button
         type="button"
         className="find-pill__button"
+        {...pressFeedback}
         aria-label={labels.close}
         title={`${labels.close} (Esc)`}
         onClick={props.onClose}
@@ -204,6 +259,7 @@ export function FindPill(props: FindPillProps) {
               <button
                 type="button"
                 className="find-pill__button find-pill__button--text find-pill__replace-one"
+                {...pressFeedback}
                 disabled={!props.canStep}
                 onClick={replace.onReplace}
               >
@@ -212,6 +268,7 @@ export function FindPill(props: FindPillProps) {
               <button
                 type="button"
                 className="find-pill__button find-pill__button--text find-pill__replace-all"
+                {...pressFeedback}
                 disabled={!props.canStep}
                 onClick={replace.onReplaceAll}
               >

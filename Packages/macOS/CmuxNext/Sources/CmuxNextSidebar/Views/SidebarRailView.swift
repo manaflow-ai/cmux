@@ -1,6 +1,6 @@
 public import AppKit
 import CmuxNextCompat
-import CmuxNextDesign
+public import CmuxNextDesign
 
 /// The thin rail (`sidebar.style` = rail, plans/cmux-next/minimal-sidebar.md): one short tick
 /// per workspace in sidebar order, a collapsed group as one tick, a gap between groups. The
@@ -147,10 +147,15 @@ public final class SidebarRailView: NSView {
     }
 
     override public func mouseDown(with event: NSEvent) {
-        let point = convert(event.locationInWindow, from: nil)
-        guard let model, let tick = tick(at: point), case let .workspace(id) = tick.mark.target else { return }
+        guard let model, let id = workspace(under: event) else { return }
         model.noteUserIntent()
         model.click(id)
+    }
+
+    /// The workspace whose mark `press` is on; nil on a collapsed group's mark or in a gap.
+    private func workspace(under press: NSEvent) -> WorkspaceID? {
+        guard let tick = tick(at: convert(press.locationInWindow, from: nil)), case let .workspace(id) = tick.mark.target else { return nil }
+        return id
     }
 
     /// The tick whose row holds `point` (this view's coordinates): rows of a group touch, so a
@@ -208,4 +213,13 @@ public final class SidebarRailView: NSView {
 
     /// How far past the rail a hint chip may reach.
     static let hintReach: CGFloat = 34
+}
+
+extension SidebarRailView: KeyNeutralPressTarget {
+    /// A press on the mark of a workspace the window does not show moves no key, as the same press on its row in the
+    /// list (`SidebarModel.clickShowsAnotherWorkspace`): the switch gives the keyboard to that workspace's content.
+    public func keepsKey(for press: NSEvent, on hit: NSView) -> Bool {
+        guard hit === self, press.type == .leftMouseDown, let model, let id = workspace(under: press) else { return false }
+        return model.clickShowsAnotherWorkspace(id)
+    }
 }

@@ -96,7 +96,7 @@ struct WorkspaceGroupPinLiveTests {
         func shown() -> CmuxNextSidebar.GroupID? {
             guard let group = personal.groups.first(where: { $0.name == name }) else { return nil }
             let id = sidebar.groupID(personal: group.id.rawValue)
-            guard sidebar.group(id) != nil, let store = SidebarDocStore.current, store.isActive,
+            guard sidebar.group(id) != nil, let store = services.sidebarDoc.store, store.isActive,
                   store.records.items[id.rawValue]?.body.isGroup == true else { return nil }
             return id
         }
@@ -111,7 +111,7 @@ struct WorkspaceGroupPinLiveTests {
     private static func state(_ group: (personal: WorkspaceGroupID, shown: CmuxNextSidebar.GroupID), _ launched: Launched) -> [Bool?] {
         let services = launched.services
         let sidebar = services.windows.active.flatMap { services.windows.controller(for: $0.state.id)?.sidebar.model }
-        return [SidebarDocStore.current?.records.isPinned(group: group.shown.rawValue),
+        return [services.sidebarDoc.store?.records.isPinned(group: group.shown.rawValue),
                 sidebar?.group(group.shown)?.isPinned,
                 services.machines.local.store.personal.group(group.personal)?.pinned]
     }
@@ -160,15 +160,15 @@ struct WorkspaceGroupPinLiveTests {
             #expect(services.registry.perform("workspaceGroup.togglePin", invocation: target), "\(launched.refusals.reasons)")
             await Self.expectPinned(true, group, launched, "Pin Group")
             let workspace = try #require(services.daemon.store.workspaces.first, "no launch workspace")
-            let item = try #require(SidebarDocWiring.item(workspace: workspace.id, services.machines), "the launch workspace has no document item")
-            #expect(SidebarDocStore.current?.records.items[item]?.parent == nil, "the launch workspace starts loose")
+            let item = try #require(services.sidebarDoc.item(workspace: workspace.id), "the launch workspace has no document item")
+            #expect(services.sidebarDoc.store?.records.items[item]?.parent == nil, "the launch workspace starts loose")
             #expect(services.registry.perform("moveWorkspaceToGroup", invocation: ActionInvocation(
                 target: ActionTargetRef(kind: .workspace, id: workspace.id),
                 arguments: ["group": .target(ActionTargetRef(kind: .workspaceGroup, id: group.personal.rawValue))], origin: .user)),
                 "\(launched.refusals.reasons)")
             @MainActor func joined() -> Bool {
                 guard let qualified = WindowProfiles.qualified(workspace.id, machines: services.machines) else { return false }
-                return SidebarDocStore.current?.records.items[item]?.parent == group.shown.rawValue
+                return services.sidebarDoc.store?.records.items[item]?.parent == group.shown.rawValue
                     && services.machines.local.store.personal.workspace(session: qualified.session, key: qualified.key)?.group == group.personal
             }
             await Self.wait(within: .seconds(20)) { joined() }

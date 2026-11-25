@@ -47,7 +47,7 @@ extension TabDragSession {
         case .moveWorkspaceToNewWindow(let point):
             let size = drag.source.window?.window?.frame.size ?? drag.source.windowSize
             if let controller = services.windows.openWindow(workspaces: [id], frame: tearOffFrame(drag, at: point, size: size)) {
-                services.windows.bringToFront(controller)
+                services.windows.bringToFront(controller); WindowOwnSpace.give(controller.state.id, in: services.windows)
             }
         case .moveWorkspace:
             // The row-drag path: window membership, then one reorder per the
@@ -63,7 +63,7 @@ extension TabDragSession {
                 bridge.accept(ids, at: WorkspaceMovePlan(window: bridge.model.sections).excluding([id], from: raw))
             case .intoGroup(let group)?:
                 bridge.accept(ids, intoGroup: group)
-            case .intoWorkspace?, .beforeTab?, nil:
+            case .intoWorkspace?, nil:
                 bridge.accept(ids, at: nil)
             }
         default:

@@ -34,6 +34,15 @@ copy_notes() {
 }
 copy_notes || echo "::warning::release notes of build $NIGHTLY_BUILD were not copied next to the old feed; the feed is still published"
 upload "legacy-out/$LEGACY_APPCAST" "$prefix/$LEGACY_APPCAST" application/xml "no-cache, no-store, must-revalidate"
+# The rolling download name (cmux.com/next, the release body, "latest" links) is this
+# cmux NIGHTLY build: cmux-next ships under com.cmuxterm.app.nightly (user msg 20276).
+# Moved only after the feed names the build, and only by this job (the order check
+# above skips a build older than the feed's), so the link never runs ahead of the feed.
+rolling="legacy-out/${CHANNEL_DMG_PREFIX}-arm64.dmg"
+cp -c "$dmg" "$rolling" 2>/dev/null || cp "$dmg" "$rolling"
+python3 scripts/ci/publish-release-assets.py \
+  --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
+  --immutable "$dmg" --alias "$rolling"
 # Release push for cmux NIGHTLY, once the old feed is written: the presence
 # worker re-reads it and tells connected NIGHTLY apps at once, as
 # publish-nightly's poke does for cmux NEXT's feed. No secret (it only reads an
@@ -59,4 +68,5 @@ gh release view "$CHANNEL_RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets
   echo ""
   echo "- feed: ${NIGHTLY_NEXT_LEGACY_FEED_BASE}/${LEGACY_APPCAST}"
   echo "- DMG: $url"
+  echo "- rolling DMG: https://github.com/${GITHUB_REPOSITORY}/releases/download/${CHANNEL_RELEASE_TAG}/$(basename "$rolling")"
 } >> "$GITHUB_STEP_SUMMARY"

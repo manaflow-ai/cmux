@@ -34,9 +34,14 @@ struct AgentSessionInUnshownPaneTests {
             )
             #expect(run.outcome == .ran, "\(run.outcome)")
             let fields = try #require(await run.results.first?.value.get())
-            try await PasswordManagerRouteTests.until({ pane.tabs.count > tabs }, report: { "\(pane.tabs.count) tabs, was \(tabs)" })
             guard case .string(let tab)? = fields["tab"] else { Issue.record("no tab in \(fields)"); return }
-            #expect(pane.tabs.contains { $0.id == tab || $0.resourceID?.rawValue == tab }, "the chat tab is in the named pane")
+            // The run answers the store's tab id once the daemon replied, which can be before the
+            // store applied the daemon's events: the pane still shows the provisional stand-in (it
+            // already counts as one more tab), and the store's tab replaces it when they apply.
+            try await PasswordManagerRouteTests.until({ pane.tabs.contains { $0.id == tab || $0.resourceID?.rawValue == tab } }, report: {
+                "the chat tab \(tab) is in the named pane; it holds \(pane.tabs.map(\.id)), \(tabs) before"
+            })
+            #expect(pane.tabs.count == tabs + 1, "\(pane.tabs.map(\.id))")
             #expect(fields["session"] == .string("acp-23026"))
             #expect(fields["workspace_key"] == .string(key.rawValue))
             #expect(window.state.workspaceID == shown, "the window stayed on its workspace")
@@ -60,10 +65,12 @@ struct AgentSessionInUnshownPaneTests {
             )
             #expect(run.outcome == .ran, "\(run.outcome)")
             let fields = try #require(await run.results.first?.value.get())
-            try await PasswordManagerRouteTests.until({ controller.pane.tabs.count > tabs },
-                                                      report: { "\(controller.pane.tabs.count) tabs, was \(tabs)" })
             guard case .string(let tab)? = fields["tab"] else { Issue.record("no tab in \(fields)"); return }
-            #expect(controller.pane.tabs.contains { $0.id == tab || $0.resourceID?.rawValue == tab })
+            // The reply can precede the store's events (see above): wait for the store's tab itself.
+            try await PasswordManagerRouteTests.until({ controller.pane.tabs.contains { $0.id == tab || $0.resourceID?.rawValue == tab } }, report: {
+                "the chat tab \(tab) is in the pane; it holds \(controller.pane.tabs.map(\.id)), \(tabs) before"
+            })
+            #expect(controller.pane.tabs.count == tabs + 1, "\(controller.pane.tabs.map(\.id))")
             #expect(controller.stripModel.selectedID == selected, "the person's selected tab changed")
         }
     }

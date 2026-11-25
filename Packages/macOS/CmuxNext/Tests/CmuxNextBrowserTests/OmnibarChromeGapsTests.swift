@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -8,6 +9,7 @@ import Testing
 /// Manage Search Engines, site icons in rows, and the typed-address http
 /// fallback.
 @MainActor
+@Suite(.closesItsWindows)
 struct OmnibarChromeGapsTests {
     // MARK: Fixtures
 
@@ -104,6 +106,7 @@ struct OmnibarChromeGapsTests {
     @Test func beginSearchWaitsForTheFocus() {
         let bar = AddressBarView()
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 80), styleMask: [.titled], backing: .buffered, defer: false)
+        defer { window.closeAfterTest() }
         bar.frame = NSRect(x: 10, y: 20, width: 600, height: 34)
         window.contentView!.addSubview(bar)
         bar.beginSearch()
@@ -114,7 +117,8 @@ struct OmnibarChromeGapsTests {
 
     // MARK: Always Show Full URLs
 
-    /// The resting bar shows the whole address, host emphasized.
+    /// The resting bar shows the compact address (OmnibarCutsTests); Always Show Full URLs shows the whole address, host
+    /// emphasized.
     @Test func showFullURLsKeepsSchemeAndWWW() throws {
         let page = try #require(URL(string: "https://www.example.com/a?b=1"))
         let (compact, _) = reduce(OmnibarState(pageURL: page), [])
@@ -127,6 +131,19 @@ struct OmnibarChromeGapsTests {
         let (focused, _) = reduce(full, [.focusGained(.mouse)])
         #expect(!focused.elided)
         #expect(focused.fieldText == "https://www.example.com/a?b=1")
+    }
+
+    /// A focusing click shows what the bar showed at rest, all selected, and Copy takes the full URL (Chromium). The bar
+    /// showed the host alone, so a click highlighted `github.com` while Copy gave the whole pull request link, and the
+    /// highlight read as a wrong address (https://github.com/manaflow-ai/cmux/issues/50986): now the highlight is the
+    /// page's own address.
+    @Test func aFocusingClickHighlightsThePagesAddressAndCopiesTheFullURL() throws {
+        let address = "https://github.com/manaflow-ai/cmux/pull/51008"
+        let (resting, _) = reduce(OmnibarState(pageURL: try #require(URL(string: address))), [])
+        let (focused, _) = reduce(resting, [.focusGained(.mouse)])
+        #expect(focused.fieldText == "github.com/manaflow-ai/cmux/pull/51008")
+        #expect(focused.edit.selection == NSRange(location: 0, length: (focused.fieldText as NSString).length))
+        #expect(OmnibarReducer.copyContent(of: focused, resolver: resolver)?.text == address)
     }
 
     /// The bar follows the engine's setting from the start.

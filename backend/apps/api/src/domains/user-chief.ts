@@ -5,6 +5,8 @@ import type { UserState } from "./user.ts"
 
 /** A chief's main conversation id: derived from the chief id (one place per chief). */
 export const chiefMainConversation = (chief: string): string => `conv_${invites.crockford(createHash("sha256").update(`chief-main\u0000${chief}`).digest(), 26)}`
+/** The Mac and the server use the same account-level hosted-Chief ensure key. */
+export const HOSTED_DEFAULT_KEY = "chief-hosted-default"
 
 /**
  * Chief records in UserDO (plans/cmux-next/chief-mac.md section 9). The user's principal is
@@ -20,6 +22,21 @@ export const chiefMainConversation = (chief: string): string => `conv_${invites.
 export interface ChiefBrainPlace {
   readonly host: string
   readonly install: string
+  /**
+   * The Cloud machine (and its team) the server runs on, when `machine.chief_start` made it: MuxDO resumes it when
+   * a message comes while it is paused (mux-machine-wake.ts). Absent for a server that is no Cloud machine.
+   */
+  readonly machine?: string
+  readonly team?: string
+}
+/** The hosted brain's own Cloud workspace; this does not move its brain onto a paired server. */
+export interface ChiefCloudMachine {
+  readonly workspace: string
+  readonly team: string
+  readonly machine: string
+  readonly provider: string
+  readonly connection_machine: string
+  readonly install: string
 }
 export interface ChiefRecord {
   readonly id: string
@@ -29,6 +46,7 @@ export interface ChiefRecord {
   readonly brain: "cloud"
   /** Null when no server is named; absent on records written before G8 (read as null). */
   readonly brain_place?: ChiefBrainPlace | null
+  readonly cloud_machine?: ChiefCloudMachine | null
   readonly main_conversation: string | null
   readonly harness: string | null
   readonly rev: number
@@ -37,6 +55,16 @@ export interface ChiefRecord {
   readonly archived_at: string | null
   /** The chief that created this one with its chiefs grant (brain-chiefs.ts); absent when the user did. */
   readonly created_by?: string
+  /**
+   * A channel Chief (plans/cmux-next/chief-channels-DESIGN.md): its main conversation is the channel, a group
+   * conversation its owner owns, and its MuxDO takes wakes only from there. Absent on an ordinary Chief.
+   */
+  readonly channel?: ChiefChannel
+}
+/** The channel a channel Chief belongs to: the group conversation and the title it was made with. */
+export interface ChiefChannel {
+  readonly conversation: string
+  readonly title: string
 }
 export interface ChiefTombstone {
   readonly id: string
@@ -46,9 +74,11 @@ export interface ChiefTombstone {
 export interface ChiefsState {
   readonly chiefs?: Readonly<Record<string, ChiefRecord>>
   readonly chief_tombstones?: Readonly<Record<string, ChiefTombstone>>
+  /** The signup Chief selected under chief-hosted-default; retained after archive/delete. */
+  readonly hosted_default?: string
 }
 
-export const CHIEF_OPS = new Set(["chief.create", "chief.update", "chief.archive", "chief.delete"])
+export const CHIEF_OPS = new Set(["chief.create", "chief.update", "chief.archive", "chief.delete", "channel.create"])
 export const RESTORE_WINDOW_MS = 30 * 24 * 3_600_000
 /** A chief's agent class (participant `agent_class`); only this class acts under its owner's reach. */
 export const CHIEF_AGENT_CLASS = "mux"
@@ -58,6 +88,8 @@ type Params = Record<string, unknown>
 const reject = (code: string, message = code): ReduceResult<UserState> => ({ ok: false, code, message })
 const nameOk = (v: unknown): v is string => typeof v === "string" && v.trim().length >= 1 && v.length <= 100
 const HOST_ID = /^host_[a-z0-9]{20}$/
+/** A Cloud machine or team id in a brain place: the platform checks it is the owner's on every use. */
+const CLOUD_ID = /^[A-Za-z0-9_-]{1,64}$/
 
 /**
  * Checks a requested brain place: the user's session only, a host id, and a live daemon install
@@ -65,13 +97,17 @@ const HOST_ID = /^host_[a-z0-9]{20}$/
  */
 const brainPlace = (state: UserState, raw: unknown, ctx: ReduceContext): ChiefBrainPlace | ReduceResult<UserState> => {
   if (ctx.principal.kind !== "session") return reject("auth.forbidden", "only the user's session places a chief's brain")
-  const v = raw as { host?: unknown; install?: unknown } | null
+  const v = raw as { host?: unknown; install?: unknown; machine?: unknown; team?: unknown } | null
   if (!v || typeof v !== "object" || typeof v.host !== "string" || !HOST_ID.test(v.host) || typeof v.install !== "string") {
     return reject("validation.invalid", "brain_place needs {host, install}")
   }
   const inst = state.installs[v.install]
   if (!inst || inst.revoked_at !== null || inst.kind !== "daemon") return reject("validation.invalid", "brain_place.install must be a live paired server install")
-  return { host: v.host, install: v.install }
+  if (v.machine === undefined && v.team === undefined) return { host: v.host, install: v.install }
+  if (typeof v.machine !== "string" || !CLOUD_ID.test(v.machine) || typeof v.team !== "string" || !CLOUD_ID.test(v.team)) {
+    return reject("validation.invalid", "brain_place.machine and brain_place.team come together, as Cloud ids")
+  }
+  return { host: v.host, install: v.install, machine: v.machine, team: v.team }
 }
 const isReject = (v: ChiefBrainPlace | ReduceResult<UserState>): v is ReduceResult<UserState> => "ok" in v
 
@@ -153,7 +189,7 @@ export const reduceChief = (stateIn: UserState, op: string, params: Params, ctx:
   const viaChief = p.kind === "agent" && p.agent !== undefined && p.user === owner && p.identity === `agent:${p.agent} via chief` && chiefActive(stateIn, p.agent)
   if (viaChief) {
     const keys = Object.keys(params)
-    const allowed = op === "chief.create" ? ["display_name"] : op === "chief.update" ? ["chief", "expected_rev", "display_name"] : []
+    const allowed = op === "chief.create" ? ["display_name"] : op === "channel.create" ? ["title", "display_name"] : op === "chief.update" ? ["chief", "expected_rev", "display_name"] : []
     if (allowed.length === 0 || keys.some((k) => !allowed.includes(k)) || (op === "chief.update" && params.chief === p.agent)) return reject("auth.forbidden", "a Chief creates chiefs and renames other chiefs only")
   } else if ((p.kind !== "session" && p.kind !== "install") || p.agent || p.user !== owner) return reject("auth.forbidden", "only the user writes chief records")
   const now = formatNow(ctx.now)
@@ -170,9 +206,59 @@ export const reduceChief = (stateIn: UserState, op: string, params: Params, ctx:
     Object.fromEntries(Object.entries(all).map(([id, c]) => [id, c.is_default && id !== keep ? { ...c, is_default: false, rev: c.rev + 1, updated_at: now } : c]))
 
   switch (op) {
+    case "channel.create": {
+      // A group conversation with its own Chief (chief-channels-DESIGN.md 1). The system create holds only the
+      // owner and the new Chief; people join through the owner's reach-checked participants.add / invite.create.
+      const title = typeof params.title === "string" ? params.title.trim() : ""
+      if (title.length === 0 || [...title].length > 200) return reject("validation.invalid", "title must be 1 to 200 characters")
+      if (params.display_name !== undefined && !nameOk(params.display_name)) return reject("validation.invalid", "display_name must be 1 to 100 characters")
+      if (active.length >= MAX_CHIEFS) return reject("validation.invalid", `at most ${MAX_CHIEFS} chiefs`)
+      const id = `agent_${invites.crockford(createHash("sha256").update(`chief\u0000${owner}\u0000${ctx.tx}`).digest(), 26)}`
+      if (chiefs[id] || state.chief_tombstones?.[id]) return reject("validation.invalid", "chief id collision")
+      const conversation = chiefMainConversation(id)
+      const named = typeof params.display_name === "string" ? params.display_name.trim() : [...`${title} Chief`].slice(0, 100).join("")
+      const record: ChiefRecord = {
+        id,
+        owner_user: owner,
+        display_name: named,
+        is_default: false,
+        brain: "cloud",
+        brain_place: null,
+        main_conversation: conversation,
+        harness: null,
+        rev: 1,
+        created_at: now,
+        updated_at: now,
+        archived_at: null,
+        channel: { conversation, title },
+        ...(viaChief ? { created_by: p.agent } : {})
+      }
+      const bind: OutboxItem = { kind: "mux.bind", entity: `bind:${id}`, payload: { agent: id, owner_user: owner, brain: "cloud", channel: conversation }, target: { class: "MuxDO", name: id } }
+      const group: OutboxItem = {
+        kind: "conversation.create",
+        entity: `chief-channel:${id}`,
+        payload: {
+          id: conversation,
+          kind: "group",
+          owner,
+          title,
+          channel_chief: id,
+          participants: [
+            { id: owner, kind: "human", display_name: stateIn.user?.display_name ?? "Me" },
+            { id, kind: "agent", agent_class: CHIEF_AGENT_CLASS, owner_user: owner, display_name: named }
+          ]
+        },
+        target: { class: "ConversationDO", name: conversation }
+      }
+      return commit({ ...chiefs, [id]: record }, record, [bind, group, ...levelSync(state, id)])
+    }
     case "chief.create": {
       if (params.display_name !== undefined && !nameOk(params.display_name)) return reject("validation.invalid", "display_name must be 1 to 100 characters")
       if (params.is_default !== undefined && typeof params.is_default !== "boolean") return reject("validation.invalid", "is_default must be a boolean")
+      const signup = state.hosted_default ? chiefs[state.hosted_default] : undefined
+      // The Mac may read an empty list just before the signup outbox commits. This is a no-change
+      // answer, so key-sensitive state is never written into a mirrored event (replays hide keys).
+      if (ctx.idempotencyKey === HOSTED_DEFAULT_KEY && signup?.archived_at === null && !signup.brain_place) return { ok: true, state, value: signup, changed: false }
       if (active.length >= MAX_CHIEFS) return reject("validation.invalid", `at most ${MAX_CHIEFS} chiefs`)
       let place: ChiefBrainPlace | null = null
       if (params.brain_place !== undefined) {
@@ -290,7 +376,7 @@ export const chiefList = (stateIn: UserState, now: number, includeArchived: bool
   const sorted = all
     .filter((c) => includeArchived || c.archived_at === null)
     .sort((a, b) => Number(b.archived_at === null) - Number(a.archived_at === null) || Number(b.is_default) - Number(a.is_default) || a.created_at.localeCompare(b.created_at))
-    .map((c) => ({ ...c, brain_place: c.brain_place ?? null }))
+    .map((c) => ({ ...c, brain_place: c.brain_place ?? null, is_hosted_default: state.hosted_default === c.id }))
   return { chiefs: sorted, tombstones: Object.values(state.chief_tombstones ?? {}) }
 }
 

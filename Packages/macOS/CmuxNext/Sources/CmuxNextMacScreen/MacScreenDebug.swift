@@ -2,6 +2,7 @@ public import CmuxNextControl
 public import Foundation
 #if DEBUG
 import AppKit
+import CmuxNextRemoteView
 public import CmuxNextSettings
 import CmuxScreenKit
 
@@ -12,6 +13,8 @@ import CmuxScreenKit
 ///   gate, card, phase, path, stats, picture size, displays;
 ///   `system_shortcuts` (the setting), `system_shortcuts_tap` (the tap is
 ///   installed) and `accessibility` (this Mac trusts cmux for Accessibility).
+/// - `input` {events}: pointer, button and key events into every tab's session, as the pane
+///   sends them (no window focus); `sent_ms` is the wall clock when sent, for latency checks.
 /// - `open` {url?, pane?}: opens the record at `url` (default the home page) in a new Mac Screen tab.
 /// - `display_fps` {fps?, tab?}: the refresh rate each tab (or `tab`)
 ///   reports to its Mac instead of its display's; no `fps` reports the
@@ -60,6 +63,18 @@ extension MacScreenPages {
             }
             for tab in tabs { tab.pane?.view.chrome.actions.setQuality(quality) }
             return ["tabs": .array(tabs.map(row))]
+        case "input":
+            // Input as the pane sends it (no window focus): `events` is a list of
+            // {"t":"pointer","x","y"} (stream pixels), {"t":"button","down"} (left) or
+            // {"t":"key","usage","down"} (HID). `sent_ms` is this Mac's wall clock when sent.
+            let events = (params["events"]?.arrayValue ?? []).compactMap(Self.inputEvent)
+            guard !events.isEmpty else { return ["error": "events: pointer, button or key objects"] }
+            let sessions = tabs.compactMap { $0.pane?.session }
+            guard !sessions.isEmpty else { return ["error": "no Mac Screen session"] }
+            for session in sessions {
+                for event in events { session.send(event) }
+            }
+            return ["sent": .number(Double(events.count)), "sent_ms": .number((Date().timeIntervalSince1970 * 1000).rounded())]
         case "state":
             systemShortcuts.refreshAccessibility()
             return [
@@ -76,8 +91,43 @@ extension MacScreenPages {
         }
     }
 
+    private static func inputEvent(_ value: JSONValue) -> RemoteInputEvent? {
+        switch value["t"]?.stringValue {
+        case "pointer":
+            guard let x = value["x"]?.intValue, let y = value["y"]?.intValue,
+                  let x = Int32(exactly: x), let y = Int32(exactly: y) else { return nil }
+            return .pointer(x: x, y: y)
+        case "button":
+            return .button(.left, down: value["down"]?.boolValue ?? true)
+        case "key":
+            guard let usage = value["usage"]?.intValue, let usage = UInt32(exactly: usage) else { return nil }
+            return .key(usage: usage, down: value["down"]?.boolValue ?? true)
+        default:
+            return nil
+        }
+    }
+
     private var hostState: JSONValue {
-        ["screen_recording": .bool(host.screenRecordingGranted), "accessibility": .bool(host.accessibilityGranted)]
+        ["screen_recording": .bool(host.screenRecordingGranted), "accessibility": .bool(host.accessibilityGranted),
+         "grants_unread": host.grantsUnreadReason.map(JSONValue.string) ?? .null]
+    }
+
+    /// A screen-space point rectangle for the benchmark observer. The observer
+    /// still proves the source nonce itself; this row only binds its capture to
+    /// the selected production pane and its actual window.
+    private static func points(_ rect: NSRect?) -> JSONValue {
+        guard let rect else { return .null }
+        return ["x": .number(Double(rect.minX)), "y": .number(Double(rect.minY)),
+                "width": .number(Double(rect.width)), "height": .number(Double(rect.height))]
+    }
+
+    private static func displayID(_ screen: NSScreen?) -> CGDirectDisplayID? {
+        guard let number = screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return nil }
+        return CGDirectDisplayID(number.uint32Value)
+    }
+
+    private static func contains(_ outer: NSRect, _ inner: NSRect) -> Bool {
+        outer.width > 0 && outer.height > 0 && inner.width > 0 && inner.height > 0 && outer.contains(inner)
     }
 
     private func row(_ tab: MacScreenTab) -> JSONValue {
@@ -93,10 +143,57 @@ extension MacScreenPages {
         row["displays"] = .array(pane.model.displays.map { .string("\(Int($0.width))x\(Int($0.height))") })
         row["current_display"] = .number(Double(pane.model.currentDisplay))
         row["video_frame"] = .string(NSStringFromRect(pane.view.debugVideoFrame))
+        if let window = pane.view.window, window.windowNumber > 0 {
+            let windowContent = pane.view.convert(pane.view.debugVideoFrame, to: nil)
+            let windowScreen = window.screen
+            let primaryScreen = NSScreen.screens.first { Self.displayID($0) == CGMainDisplayID() }
+            row["window_pid"] = .number(Double(ProcessInfo.processInfo.processIdentifier))
+            row["window_id"] = .number(Double(window.windowNumber))
+            row["window_frame_points"] = Self.points(window.frame)
+            row["content_rect_points"] = Self.points(window.convertToScreen(windowContent))
+            row["screen_frame_points"] = Self.points(windowScreen?.frame)
+            row["primary_screen_frame_points"] = Self.points(primaryScreen?.frame)
+            if let primaryScreen, let windowDisplay = Self.displayID(windowScreen), let primaryDisplay = Self.displayID(primaryScreen) {
+                row["window_display_id"] = .number(Double(windowDisplay))
+                row["primary_display_id"] = .number(Double(primaryDisplay))
+                row["window_on_primary_display"] = .bool(windowDisplay == primaryDisplay && Self.contains(primaryScreen.frame, window.frame))
+            } else {
+                row["window_display_id"] = .null
+                row["primary_display_id"] = .null
+                row["window_on_primary_display"] = .bool(false)
+            }
+            row["geometry_coordinate_space"] = .string("screen points (AppKit, bottom-left origin)")
+            row["geometry_origin"] = .string("bottom-left")
+            row["window_attestation"] = .bool(true)
+        } else {
+            row["window_pid"] = .null
+            row["window_id"] = .null
+            row["window_frame_points"] = .null
+            row["content_rect_points"] = .null
+            row["screen_frame_points"] = .null
+            row["primary_screen_frame_points"] = .null
+            row["window_display_id"] = .null
+            row["primary_display_id"] = .null
+            row["window_on_primary_display"] = .bool(false)
+            row["geometry_coordinate_space"] = .string("screen points (AppKit, bottom-left origin)")
+            row["geometry_origin"] = .string("bottom-left")
+            row["window_attestation"] = .bool(false)
+        }
+        if let hub = pane.model.hub {
+            row["host_device"] = .string(hub.deviceID)
+            row["hub_session"] = hub.phase.sessionID.map(JSONValue.string) ?? .null
+            row["session_scope"] = hub.phase.streamingScope.map { .string($0.rawValue) } ?? .null
+        } else {
+            row["host_device"] = .null
+            row["hub_session"] = .null
+            row["session_scope"] = .null
+        }
         if let session = pane.session {
             row["phase"] = .string(Self.phaseName(session.phase))
             row["reconnecting"] = .bool(session.isReconnecting)
             row["path"] = .string(session.streamPath)
+            // The validated carrier the benchmark rig gates on (live.py pane_attestation); null with no stream.
+            row["transport"] = session.transportCarrier.map(JSONValue.string) ?? .null
             row["fps"] = .number(session.stats.fps)
             row["rtt_ms"] = session.stats.latencyMs.map(JSONValue.number) ?? .null
             row["encoding"] = .string(session.stats.encoding)
@@ -110,15 +207,6 @@ extension MacScreenPages {
             row["kilobytes_per_second"] = .number(session.stats.kilobytesPerSecond)
         }
         return .object(row)
-    }
-
-    private static func phaseName(_ phase: ScreenSession.Phase) -> String {
-        switch phase {
-        case .connecting: "connecting"
-        case .connected: "connected"
-        case .failed: "failed"
-        case .ended: "ended"
-        }
     }
 }
 #else

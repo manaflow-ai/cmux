@@ -88,6 +88,16 @@ fn closed_entry(item: &Value) -> Option<HistoryEntry> {
     entry.closed_kind = Some(closed_kind);
     entry.url = url;
     entry.cwd = cwd;
+    // A closed tab can be an agent chat (Swift `HistoryService.closedAgentSession`): the row
+    // carries its session id and harness, so the search finds it by them and a client names
+    // and brands it. A screen, workspace or window stays its container kind, even when the
+    // first tab it would reopen is a chat.
+    if item.get("kind").and_then(Value::as_str) == Some("tab")
+        && let Some(agent) = tab.and_then(|tab| tab.get("agent_session"))
+    {
+        entry.session_id = text(Some(agent), "session");
+        entry.provider = text(Some(agent), "harness");
+    }
     Some(entry)
 }
 
@@ -122,19 +132,5 @@ fn decimal(value: &Value) -> Option<i64> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn closed_chat_keeps_conversation_kind_in_merged_history() {
-        for (kind, expected) in
-            [("conversation", ClosedKind::ConversationTab), ("browser", ClosedKind::BrowserTab)]
-        {
-            let item = serde_json::json!({"id":"closed_chat","kind":"tab","closed_at_ms":1,
-                "screens":[{"tabs":[{"kind":kind,"url":"about:blank","agent_session":{"session":"sess-closed","harness":"codex"}}]}]});
-            let entry = closed_entry(&item).unwrap();
-            assert_eq!(entry.closed_kind, Some(expected));
-            assert_eq!(entry.id, "closed:daemon:closed_chat");
-        }
-    }
-}
+#[path = "sources_tests.rs"]
+mod tests;

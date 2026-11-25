@@ -20,7 +20,38 @@ fail() { printf '%s\n' "$@" >&2; exit 1; }
 mkdir -p "$TMP/bin"
 cat > "$TMP/bin/swift" <<'EOF'
 #!/usr/bin/env bash
+# A test helper that never prints a test (STUB_XCTEST: sleep, linked as xctest), as XCTest
+# deadlocked in its class scan does; with STUB_XCTEST_ONCE only the first run hangs, so the retry
+# goes on to the canned output.
+if [[ -n "${STUB_XCTEST:-}" ]] && [[ -z "${STUB_XCTEST_ONCE:-}" || ! -e "$STUB_XCTEST_ONCE" ]]; then
+  [[ -z "${STUB_XCTEST_ONCE:-}" ]] || : > "$STUB_XCTEST_ONCE"
+  "$STUB_XCTEST" "${STUB_XCTEST_SECONDS:-60}"
+fi
+if [[ -n "${STUB_SWIFTPM_ONCE:-}" && ! -e "$STUB_SWIFTPM_ONCE" ]]; then
+  : > "$STUB_SWIFTPM_ONCE"
+  printf '%s\n' 'error: The file “CmuxNext” couldn’t be saved in the folder “macOS”.' \
+    "error: 'cmuxnext': binary target 'CCmuxAppFFI' could not be mapped to an artifact with expected name 'CCmuxAppFFI'" \
+    'error: no tests found; create a target in the '\''Tests'\'' directory'
+  exit 1
+fi
 cat "$STUB_OUTPUT"
+# Daemons a live-daemon test starts, and ones it does not own (STUB_DAEMONS, the daemon test below).
+# Each records its pid under its label. Detached ones are started in a subshell that exits at
+# once, so they are no child of this process, as `server ensure`'s setsid owner is not.
+if [[ -n "${STUB_DAEMONS:-}" ]]; then
+  d="$STUB_DAEMONS"
+  # Like a real owner, no stdio and no inherited descriptor: none may hold the run's log open.
+  detached() { ( "$@" </dev/null >/dev/null 2>&1 3>&- & ); }
+  detached "$d/bin/cmux-tui" exit-with --headless --session s1 --exit-with-pid "$$:1234"
+  detached "$d/bin/acpmux" temp daemon run --state "$RUNNER_TEMP/acpmux-state"
+  "$d/bin/cmux-tui" child --session s2 --json server ensure </dev/null >/dev/null 2>&1 3>&- &
+  detached "$d/bin/cmux-tui" other-job --headless --session s3 --exit-with-pid "999999:1234"
+  detached "$d/bin/cmux-tui" by-name --headless --session s4
+  detached "$d/bin/cmux-tui" terminal-host __terminal-host --state "$RUNNER_TEMP/acpmux-state"
+  detached "$d/bin/sleeper" not-a-daemon --state "$RUNNER_TEMP/acpmux-state"
+  # The watcher samples within a poll; wait until every one is up.
+  for _ in $(seq 1 100); do [[ $(ls "$d/pids" | wc -l) -ge 7 ]] && break; sleep 0.05; done
+fi
 # A helper's crash report, written during the run with this process as its parent:
 # the wrapper counts only reports from its own `swift test` and the helpers it saw.
 if [[ -n "${STUB_CRASH_REPORT:-}" ]]; then
@@ -42,15 +73,38 @@ fi
 # A test that never returns: the wrapper has to end it.
 [[ -z "${STUB_SLEEP:-}" ]] || sleep "$STUB_SLEEP"
 # A run that keeps the CPU busy and finishes nothing for STUB_BUSY seconds: a spin, or a runner so
-# starved that one test takes minutes. Then STUB_AFTER's lines, the finishes it got to.
-if [[ -n "${STUB_BUSY:-}" ]]; then
-  end=$((SECONDS + STUB_BUSY))
-  while (( SECONDS < end )); do :; done
-fi
+# starved that one test takes minutes. Then STUB_AFTER's lines, the finishes it got to. The CPU it
+# uses comes from the busy `ps` stub ($TMP/busy-ps), not a real spin: on a loaded runner a spin
+# got 0.00 s of CPU in its window and was cut as idle (base run 41522830037).
+[[ -z "${STUB_BUSY:-}" ]] || sleep "$STUB_BUSY"
 [[ -z "${STUB_AFTER:-}" ]] || cat "$STUB_AFTER"
 exit "${STUB_STATUS:-0}"
 EOF
 chmod +x "$TMP/bin/swift"
+# No `sample` on Linux, and a real one would take seconds a process: the stub names what it sampled.
+cat > "$TMP/bin/sample" <<'EOF'
+#!/usr/bin/env bash
+echo "SAMPLED $1"
+EOF
+chmod +x "$TMP/bin/sample"
+
+# The busy cases' `ps`: every CPU reading (`ps -o pid= -o time= -p ...`) says each process used
+# one more second since the last, so the run reads as busy whatever the runner's load. Every other
+# `ps` call is the real one.
+REAL_PS=$(command -v ps)
+mkdir -p "$TMP/busy-ps"
+cat > "$TMP/busy-ps/ps" <<EOF
+#!/usr/bin/env bash
+if [[ "\$*" == "-o pid= -o time= -p "* ]]; then
+  n=\$(( \$(cat "$TMP/busy-ps/calls" 2>/dev/null || echo 0) + 1 ))
+  echo "\$n" > "$TMP/busy-ps/calls"
+  shift 4
+  while (( \$# >= 2 )); do printf '%s %02d:%02d\\n' "\$2" \$(( n / 60 )) \$(( n % 60 )); shift 2; done
+  exit 0
+fi
+exec "$REAL_PS" "\$@"
+EOF
+chmod +x "$TMP/busy-ps/ps"
 
 # run <name> <status>: runs the wrapper on $TMP/<name>.out; sets out, summary, status.
 # STUB_PATH goes ahead of the stub swift on PATH (a slow tee).
@@ -142,6 +196,31 @@ grep -q '^### Incomplete: ' <<<"$summary" || fail "the step summary does not say
 grep '^::error title=cmux-next swift test cut short::' <<<"$out" \
   | grep -q 'cut short by the test process ending before its summary (swift test exited 0): 1 tests finished (1 passed, 0 failed, 0 skipped) and 2 started and never finished' \
   || fail "a run that ended before its summary does not count what it got done" "$out"
+
+# A pass line another stream cut into (run 41665450504 shard 14: the runtime's stderr, then the
+# helper killed with the rest of the line unwritten) is that test's pass, not a test that never
+# finished; foo() stays open beside fooBar()'s pass. The run is still incomplete.
+cat > "$TMP/spliced.out" <<'EOF'
+◇ Test run started.
+◇ Test aFailureNothingRetriesShowsAtOnce() started.
+✔ Test aFailureNothingRetriesShowsAtOnceswift runtime: backtrace-on-crash is not supported for privileged executables.
+◇ Test foo() started.
+◇ Test fooBar() started.
+✔ Test fooBar() passed after 0.001 seconds.
+EOF
+run spliced 143
+cut=$(grep '^::error title=cmux-next swift test cut short::' <<<"$out" || true)
+grep -q '2 tests finished (2 passed, 0 failed, 0 skipped) and 1 started and never finished' <<<"$cut" \
+  || fail "a spliced pass line is counted as never finished" "$out"
+grep -q 'Never finished: foo()$' <<<"$cut" || fail "the spliced pass closed the wrong test" "$cut"
+# A run's own summary does not close a test named run().
+cat > "$TMP/run-named.out" <<'EOF'
+◇ Test run started.
+◇ Test run() started.
+✔ Test run with 1 test in 1 suite passed after 0.001 seconds.
+EOF
+run run-named 0
+[[ "$status" != 0 ]] || fail "a run summary closed a test named run()" "$out"
 
 # A crash exit without a summary keeps its status and names the unfinished test.
 run cut 139
@@ -385,7 +464,7 @@ grep -q '^### Cut short by the stall rule: 2 tests finished' <<<"$summary" \
 printf '%s\n' '◇ Test run started.' '◇ Test slowOnAStarvedRunner() started.' > "$TMP/busy.out"
 printf '%s\n' '✔ Test slowOnAStarvedRunner() passed after 6.000 seconds.' \
   '✔ Test run with 1 test in 1 suite passed after 6.001 seconds.' > "$TMP/busy.after"
-STUB_BUSY=6 STUB_AFTER="$TMP/busy.after" CMUX_NEXT_TEST_STUCK_SECONDS=2 CMUX_NEXT_TEST_BUSY_STUCK_SECONDS=40 \
+STUB_PATH="$TMP/busy-ps" STUB_BUSY=6 STUB_AFTER="$TMP/busy.after" CMUX_NEXT_TEST_STUCK_SECONDS=2 CMUX_NEXT_TEST_BUSY_STUCK_SECONDS=40 \
   CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1 run busy 0
 [[ "$out" != *"swift test stuck"* ]] || fail "the watchdog cut a slow run whose test process kept using CPU" "$out"
 [[ "$status" == 0 ]] || fail "a slow run that kept using CPU and then finished exited $status" "$out"
@@ -395,7 +474,7 @@ grep -q 'a slow run, not a hang' <<<"$out" || fail "the watchdog did not say it 
 # Busy and silent past the busy limit (a spin, or a runner too starved to finish anything): ended
 # then, saying the processes were busy, and naming the open test.
 started=$SECONDS
-STUB_BUSY=60 CMUX_NEXT_TEST_STUCK_SECONDS=2 CMUX_NEXT_TEST_BUSY_STUCK_SECONDS=6 CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1 run busy 0
+STUB_PATH="$TMP/busy-ps" STUB_BUSY=60 CMUX_NEXT_TEST_STUCK_SECONDS=2 CMUX_NEXT_TEST_BUSY_STUCK_SECONDS=6 CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1 run busy 0
 (( SECONDS - started < 40 )) || fail "a busy silent run was ended only after $((SECONDS - started)) s" "$out"
 [[ "$status" != 0 ]] || fail "a busy silent run the watchdog ended exited 0" "$out"
 stuck=$(grep '^::error title=cmux-next swift test stuck' <<<"$out" || true)
@@ -770,6 +849,54 @@ LC_ALL=$utf8 STUB_SLEEP=60 CMUX_NEXT_TEST_STUCK_SECONDS=2 CMUX_NEXT_TEST_STUCK_P
 grep '^::error title=cmux-next swift test stuck' <<<"$out" | grep -q 'hangsAfterTheBadByte()' \
   || fail "the watchdog does not name the stuck test after a non-UTF-8 byte" "$out"
 
+# A live-daemon test waits on its cmux-tui or acpmux daemon, which is not its child (`server ensure`
+# starts the owner in its own session), so a sample of the test process alone showed it idle in a
+# socket read and nothing of the daemon (run 41497919334 job 125458481373). On a stall the watcher
+# also samples the daemons this run started: in its process tree, tied to one of its pids by
+# --exit-with-pid, or naming a path under this job's RUNNER_TEMP. Never another job's daemon, one
+# matched by name only, a terminal host, or a process that is no cmux-tui or acpmux.
+daemons="$TMP/daemons"
+mkdir -p "$daemons/bin" "$daemons/pids" "$TMP/runner-temp"
+for name in cmux-tui acpmux sleeper; do
+  cat > "$daemons/bin/$name" <<'EOF'
+#!/usr/bin/env bash
+# $1 is the label; the rest is the command line the real one would have.
+echo $$ > "$(dirname "$0")/../pids/$1"
+for _ in $(seq 1 30); do sleep 1; done
+EOF
+  chmod +x "$daemons/bin/$name"
+done
+daemon_pid() { cat "$daemons/pids/$1"; }
+end_daemons() {
+  local f
+  for f in "$daemons"/pids/*; do
+    [[ -e "$f" ]] || continue
+    kill "$(cat "$f")" 2>/dev/null || true
+    rm -f "$f"
+  done
+}
+printf '%s\n' '◇ Test run started.' '◇ Test waitsOnItsDaemon() started.' > "$TMP/daemon.out"
+RUNNER_TEMP="$TMP/runner-temp" STUB_DAEMONS="$daemons" STUB_SLEEP=60 CMUX_NEXT_TEST_STUCK_SECONDS=2 \
+  CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1 run daemon 0
+for label in exit-with temp child; do
+  pid=$(daemon_pid "$label")
+  grep -q "^=== sample daemon $pid: " <<<"$out" || fail "the stall did not sample this run's $label daemon ($pid)" "$out"
+  grep -qx "SAMPLED $pid" <<<"$out" || fail "the $label daemon ($pid) was named but not sampled" "$out"
+done
+for label in other-job by-name terminal-host not-a-daemon; do
+  pid=$(daemon_pid "$label")
+  if grep -qx "SAMPLED $pid" <<<"$out"; then fail "the stall sampled the $label process ($pid), which is not this run's daemon" "$out"; fi
+  # Still running when the watcher looked, or not sampling it proves nothing.
+  kill -0 "$pid" 2>/dev/null || fail "the $label process ($pid) was gone before the stall" "$out"
+done
+end_daemons
+# Bounded: past CMUX_NEXT_TEST_SAMPLE_DAEMONS the rest are counted, not sampled.
+RUNNER_TEMP="$TMP/runner-temp" STUB_DAEMONS="$daemons" STUB_SLEEP=60 CMUX_NEXT_TEST_STUCK_SECONDS=2 \
+  CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1 CMUX_NEXT_TEST_SAMPLE_DAEMONS=1 run daemon 0
+grep -q '^=== 3 daemons of this run; sampling the first 1 ' <<<"$out" || fail "the daemon sample is not bounded" "$out"
+[[ $(grep -c '^=== sample daemon ' <<<"$out") == 1 ]] || fail "more daemons sampled than CMUX_NEXT_TEST_SAMPLE_DAEMONS" "$out"
+end_daemons
+
 # The watcher's annotations start their own line even when the test output stops mid-line, or the
 # log viewer reads one as the end of a test line (cmux#24073 job 123468767603). The hang annotation
 # takes the same printf; the stall one is the one a test can reach in seconds.
@@ -777,5 +904,59 @@ printf '%s\n%s' '◇ Test run started.' '◇ Test case passing 1 argument x → 
 STUB_SLEEP=60 CMUX_NEXT_TEST_STUCK_SECONDS=2 CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1 run midline 0
 grep -q '^::error title=cmux-next swift test stuck::' <<<"$out" \
   || fail "the watchdog annotation does not start its own line" "$out"
+
+# A helper deadlocked before its first test (XCTest's class scan against a preferences read, the
+# 2026-11-15 hang on cmuxs-mac-mini-6) prints nothing and uses no CPU. The startup rule ends it
+# within seconds, not at the whole-run limit, and samples it.
+mkdir -p "$TMP/xbin"
+# A link, not a copy: macOS kills a copied system binary at once. ps names it xctest on both systems.
+ln -s "$(command -v sleep)" "$TMP/xbin/xctest"
+: > "$TMP/startup.out"
+started=$SECONDS
+STUB_XCTEST="$TMP/xbin/xctest" CMUX_NEXT_TEST_STARTUP_SECONDS=2 CMUX_NEXT_TEST_STARTUP_RETRY=0 \
+  CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1 run startup 0
+(( SECONDS - started < 30 )) || fail "a helper hung before its first test was ended only after $((SECONDS - started)) s" "$out"
+[[ "$status" != 0 ]] || fail "a startup hang exited 0" "$out"
+grep -q '^::error title=cmux-next swift test startup hang::test helper [0-9]' <<<"$out" \
+  || fail "no startup-hang ::error naming the helper" "$out"
+grep -q '^SAMPLED [0-9]' <<<"$out" || fail "the startup rule did not sample the helper" "$out"
+grep -q 'cut short by the startup rule' <<<"$out" || fail "the cut-short line does not name the startup rule" "$out"
+grep -q 'Startup hang' <<<"$summary" || fail "the step summary does not name the startup hang" "$summary"
+
+# Nothing ran, so by default the wrapper runs once more; a run that then passes is green, with
+# the hang left as a warning.
+cp "$TMP/green.out" "$TMP/startupretry.out"
+rm -f "$TMP/startup-once"
+STUB_XCTEST="$TMP/xbin/xctest" STUB_XCTEST_ONCE="$TMP/startup-once" CMUX_NEXT_TEST_STARTUP_SECONDS=2 \
+  CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1 run startupretry 0
+[[ "$status" == 0 ]] || fail "a startup hang that passed on its retry exited $status" "$out"
+grep -q '^::warning title=cmux-next swift test startup hang::.*running swift test once more' <<<"$out" \
+  || fail "the retried startup hang left no warning" "$out"
+[[ "$out" != *"::error"* ]] || fail "a retry that passed printed an error" "$out"
+grep -q 'aPasses() passed' <<<"$out" || fail "the retry did not run the tests" "$out"
+
+# A killed shard can leave SwiftPM's package state held while the next isolated
+# process starts. The package-save/artifact-mapping errors happen before any test
+# line and must retry; a real test failure must remain red.
+rm -f "$TMP/swiftpm-once"
+cp "$TMP/green.out" "$TMP/swiftpmretry.out"
+STUB_SWIFTPM_ONCE="$TMP/swiftpm-once" run swiftpmretry 0
+[[ "$status" == 0 ]] || fail "a transient SwiftPM package-state failure exited $status" "$out"
+grep -q 'SwiftPM failed before any test ran; retrying package state' <<<"$out" \
+  || fail "the SwiftPM retry left no warning" "$out"
+grep -q 'aPasses() passed' <<<"$out" || fail "the SwiftPM retry did not run the tests" "$out"
+
+# The retry runs once: a second startup hang fails the step.
+rm -f "$TMP/startup-once"
+STUB_XCTEST="$TMP/xbin/xctest" CMUX_NEXT_TEST_STARTUP_SECONDS=2 CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1 run startupretry 0
+[[ "$status" != 0 ]] || fail "two startup hangs in a row exited 0" "$out"
+[[ $(grep -c 'swift test startup hang::' <<<"$out") == 2 ]] || fail "two startup hangs did not report twice" "$out"
+grep -q '^::error title=cmux-next swift test startup hang::' <<<"$out" || fail "the second startup hang is not an error" "$out"
+
+# A helper that is busy before its first line (a slow pass whose output lags) is no startup hang.
+STUB_PATH="$TMP/busy-ps" STUB_XCTEST="$TMP/xbin/xctest" STUB_XCTEST_SECONDS=5 CMUX_NEXT_TEST_STARTUP_SECONDS=2 \
+  CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1 run startupretry 0
+[[ "$status" == 0 ]] || fail "a busy helper before its first test was cut ($status)" "$out"
+[[ "$out" != *"startup hang"* ]] || fail "the startup rule fired on a busy helper" "$out"
 
 echo "ok swift-test-summary"

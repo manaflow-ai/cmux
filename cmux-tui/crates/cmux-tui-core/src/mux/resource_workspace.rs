@@ -7,6 +7,8 @@ use cmux_json::JsonSet as _;
 
 impl Mux {
     pub(crate) fn registry_projection(&self, state: &State) -> Vec<RegistryWorkspace> {
+        #[cfg(test)]
+        crate::walk_counters::workspace_list_walked(state.workspaces.len());
         state
             .workspaces
             .iter()
@@ -103,6 +105,9 @@ impl Mux {
         Self::insert_optional_string(fields, CLIENT_PANE_ID_FIELD, spawn.pane_id);
         Self::insert_optional_string(fields, CLIENT_TAB_ID_FIELD, spawn.tab_id);
         Self::insert_optional_string(fields, CLIENT_SPLIT_ID_FIELD, spawn.split_id);
+        if let Some(around) = spawn.around {
+            fields.insert(AROUND_SPLIT_FIELD.into(), Value::from(around));
+        }
         if let Some(argv) = spawn.argv {
             fields
                 .insert("argv".into(), Value::Array(argv.into_iter().map(Value::String).collect()));
@@ -170,7 +175,19 @@ impl Mux {
             anyhow::Ok((plan, before, tabs))
         });
         let (mut plan, before, tabs) = prepared?;
+        let full_projection = plan.restates_all;
         let committed = persist_public_topology_result(operation, &mut plan.result, &plan.deltas)
+            .and_then(|()| {
+                // After the result took its public value from the full deltas.
+                if plan.prunes_stated
+                    && let Some(deltas) = registry.prune_stated_projection_deltas(&plan.deltas)?
+                {
+                    // Pruned deltas no longer restate every resource; `full_projection` keeps
+                    // that the plan did.
+                    plan.deltas = deltas;
+                }
+                anyhow::Ok(())
+            })
             .and_then(|()| {
                 #[cfg(test)]
                 {
@@ -204,6 +221,12 @@ impl Mux {
             }
         } else {
             self.subscribers.publish_deferred_session_paths(session_paths);
+        }
+        if full_projection && !commit.replayed {
+            registry.record_full_projection_fold(commit.revision, &plan.deltas);
+        }
+        if !commit.replayed {
+            registry.mark_workspaces_whole(commit.revision, &plan.restated);
         }
         // `apply` consumes the plan; keep what the tree delta needs.
         let ledger = plan
@@ -253,9 +276,9 @@ impl Mux {
             _ => return None,
         };
         workspace_revision?;
-        let index = state.workspaces.iter().position(|workspace| workspace.key == workspace_key)?;
+        let index = state.workspace_index_by_key(workspace_key)?;
         let workspace = state.workspaces[index].id;
-        let decorations = self.tree_decorations_in_state(state);
+        let decorations = self.workspace_tree_decorations_in_state(state, index);
         let entity = crate::server::tree_entity_json(state, &decorations, kind, workspace)?;
         Some(TreeDelta {
             kind,
@@ -267,6 +290,7 @@ impl Mux {
             entity,
             workspace_revision,
             transaction: None,
+            mutation: None,
         })
     }
 
@@ -296,10 +320,6 @@ impl Mux {
             expected_generation,
             expected_revision,
             move |state, registry| {
-                anyhow::ensure!(
-                    state.workspaces.len() < WORKSPACE_REGISTRY_LIMIT,
-                    "workspace limit reached ({WORKSPACE_REGISTRY_LIMIT})"
-                );
                 let key = generated_key.clone();
                 let name_source =
                     crate::resource_name::NameSource::for_requested_workspace_name(name.as_deref());
@@ -601,21 +621,11 @@ impl Mux {
                     move |state| {
                         if changed {
                             state.move_workspace(old_index, new_index);
-                            for (workspace_index, _, _) in state.split_screens.values_mut() {
-                                *workspace_index = if *workspace_index == old_index {
-                                    new_index
-                                } else if old_index < new_index
-                                    && (old_index + 1..=new_index).contains(workspace_index)
-                                {
-                                    workspace_index.saturating_sub(1)
-                                } else if new_index < old_index
-                                    && (new_index..old_index).contains(workspace_index)
-                                {
-                                    workspace_index.saturating_add(1)
-                                } else {
-                                    *workspace_index
-                                };
-                            }
+                            Self::reindex_workspace_positions(
+                                state,
+                                old_index.min(new_index),
+                                old_index.max(new_index),
+                            );
                             state.active_workspace = active_slot
                                 .and_then(|slot| state.workspace_index(slot))
                                 .unwrap_or_else(|| state.workspaces.len().saturating_sub(1));

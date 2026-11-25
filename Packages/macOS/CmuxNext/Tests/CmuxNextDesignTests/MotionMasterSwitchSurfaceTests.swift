@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 import CmuxNextDesignTokens
 
@@ -7,7 +8,7 @@ import CmuxNextDesignTokens
 /// animation entry points apply their change in one frame and add no Core Animation animation
 /// (plans/cmux-next/motion-DESIGN.md). Every animation in the app goes through these gate
 /// helpers (`scripts/cmux-next/check-motion.sh`), so a still gate is a still app.
-@MainActor @Suite(.serialized) struct MotionMasterSwitchSurfaceTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct MotionMasterSwitchSurfaceTests {
     /// Runs `body` with the live switches set, then puts them back. Reduce Motion is pinned off so
     /// the host's accessibility setting cannot make a moving category look still.
     private func with(enabled: Bool, disabled: Set<MotionCategory> = [], _ body: () throws -> Void) rethrows {
@@ -33,15 +34,15 @@ import CmuxNextDesignTokens
         let spring = gate.set(layer, "position", to: CGPoint(x: 40, y: 40), spring: .move, from: CGPoint.zero)
         let shrink = gate.set(layer, "transform.scale", to: 0.98, movementFade: .fadeOut, from: 1)
         gate.transaction(.fadeIn) { layer.backgroundColor = CGColor(gray: 1, alpha: 1) }
-        gate.transaction(spring: .move) { layer.bounds = CGRect(x: 0, y: 0, width: 80, height: 20) }
+        gate.transaction(spring: .move, in: nil) { layer.bounds = CGRect(x: 0, y: 0, width: 80, height: 20) }
         let view = NSView(frame: .zero)
         gate.animate(.move, in: view) { view.animator().frame = CGRect(x: 0, y: 0, width: 50, height: 50) }
         return fade == nil && spring == nil && shrink == nil
             && (layer.animationKeys() ?? []).isEmpty && layer.opacity == 0 && layer.position == CGPoint(x: 40, y: 40)
             && view.frame.width == 50 && gate.animation(.fadeIn) == nil
             && gate.spinAnimation() == nil && gate.stepAnimation(steps: 8) == nil && gate.pulseAnimation(low: 0.3) == nil
-            && gate.flashAnimation() == nil && gate.passOverAnimation(.move) == nil
-            && MotionMove.tween(.tabMove, in: gate) == nil && MotionMove.spring(.scroll, in: gate) == nil
+            && gate.flashAnimation() == nil && gate.passOverAnimation(.move, in: nil) == nil
+            && MotionMove.tween(.tabMove, in: gate, window: nil) == nil && MotionMove.spring(.scroll, in: gate, window: nil) == nil
             && gate.marqueeAnimation(keyPath: "transform.translation.x", travel: 300, sign: -1, now: 0) == nil
             && gate.duration(.fadeIn) == 0 && gate.duration(.move) == 0 && gate.period(.spinner) == nil
             && !gate.animatesMovement && !gate.animatesFades && !gate.animatesLoops
@@ -72,6 +73,7 @@ import CmuxNextDesignTokens
         try with(enabled: false) {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200), styleMask: [.borderless],
                                   backing: .buffered, defer: false)
+            defer { window.closeAfterTest() }
             let content = try #require(window.contentView)
             content.wantsLayer = true
             let layer = try #require(content.layer)

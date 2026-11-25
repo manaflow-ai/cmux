@@ -164,7 +164,7 @@ pub(in crate::server) fn typing(
     let TypingParams { conversation, actor, on } = params;
     require_owned(mux, &caller, &conversation)?;
     check_actor(&caller, actor.as_deref())?;
-    publish_typing(mux, &conversation, &caller.participant, on)?;
+    publish_typing(mux, client, &conversation, &caller.participant, on)?;
     Ok(json!({}))
 }
 
@@ -214,7 +214,8 @@ pub(in crate::server) fn remote_event(
         ConversationEvent::Run { .. }
         | ConversationEvent::Live { .. }
         | ConversationEvent::Avatar { .. }
-        | ConversationEvent::Chief { .. } => None,
+        | ConversationEvent::Chief { .. }
+        | ConversationEvent::Scheduled { .. } => None,
     }
 }
 

@@ -124,8 +124,9 @@ public struct PushBanner: Equatable, Sendable {
             title = String(localized: "\(agent) asks")
             body = p.questions.first.map(\.question).flatMap { $0.isEmpty ? nil : $0 } ?? p.title ?? ""
         case .permission:
-            title = String(localized: "\(agent) needs permission")
-            body = p.title ?? p.body ?? ""
+            // As the Mac's approval prompt (`ApprovalBanner`): the Mac is in the title, the request below.
+            title = ApprovalBanner.title(agent: agent, mac: mac)
+            body = ApprovalBanner.detail(p) ?? ""
         case .completed:
             title = String(localized: "\(agent) finished")
             body = last ?? p.body ?? ""
@@ -143,6 +144,7 @@ public struct PushBanner: Equatable, Sendable {
             title = place.map { String(localized: "Terminal · \($0)") } ?? String(localized: "Terminal")
             body = [p.title, p.body].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ": ")
         }
-        self.init(title: title, subtitle: place.map { "\($0) · \(mac)" } ?? mac, body: body)
+        let subtitle = p.kind == .permission ? place : place.map { "\($0) · \(mac)" } ?? mac
+        self.init(title: title, subtitle: subtitle, body: body)
     }
 }

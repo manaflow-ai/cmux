@@ -2,7 +2,8 @@
 // payload and its merge, the effective glass mode, and the lens geometry the shader mirrors
 // (lens.ts). Nothing here touches WebGL, so unit tests run it as is.
 
-/** The effective glass mode: the host's `data-glass` on `<html>`, plain under Reduce Transparency. */
+/** The effective glass mode: the host's `data-glass` on `<html>`, plain under Reduce Transparency
+ * and with Liquid Glass off (`data-glass="off"`, ``GLASS_OFF``). */
 export type GlassMode = "lens" | "plain" | "spectrum";
 
 /** The art's aspect-filled rect, in the page's CSS px relative to its viewport. */
@@ -25,11 +26,17 @@ export type BackdropState = {
 export const BACKDROP_EVENT = "cmux-backdrop";
 /** The host's effective mode on `<html>`. */
 export const GLASS_ATTRIBUTE = "data-glass";
+/** `data-glass` when appearance.liquidGlass is off: no glass on any surface (no blur, rim, sheen,
+ * lens or App glass under a popup), the solid look Reduce Transparency draws (glass.css). The lens
+ * reads it as plain and draws nothing (it never refracts outside lens and spectrum). */
+export const GLASS_OFF = "off";
 /** On `<html>` while the lens draws: `.ui-glass` drops its own backdrop blur (glass.css). */
 export const LENS_ATTRIBUTE = "data-glass-lens";
 /** On `<html>` of a page whose host draws the glass natively under it (the sidebar's Updated card,
  * surface.tsx): the lens draws nothing there, since its wallpaper copy would cover the host's glass. */
 export const NATIVE_GLASS_ATTRIBUTE = "data-glass-native";
+/** On `<html>` while a live background (ui/liveBackground) draws in the page: the lens stands down. */
+export const LIVE_BACKGROUND_ATTRIBUTE = "data-live-background";
 /** The one class a glass surface adds. */
 export const GLASS_CLASS = "ui-glass";
 

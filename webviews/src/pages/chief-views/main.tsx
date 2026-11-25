@@ -12,6 +12,7 @@ import { MockChiefViewsProvider } from "./mockProvider";
 import { CHIEF_VIEWS } from "./registry";
 import { ChiefViewsStore } from "./store";
 import "../shared/pageBase.css";
+import "../../ui/ui.css";
 import "./styles.css";
 
 export function mountChiefViewsPage(root: HTMLElement, client: PageClient | null = defaultClient()): ChiefViewsStore {

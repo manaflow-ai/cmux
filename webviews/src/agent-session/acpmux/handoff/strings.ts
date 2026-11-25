@@ -31,7 +31,6 @@ const HANDOFF_KEYS = {
   source: "handoff.source",
   target: "handoff.target",
   nativePolicy: "handoff.nativePolicy",
-  unverified: "handoff.unverified",
   unverifiedDetail: "handoff.unverifiedDetail",
   reviewContext: "handoff.reviewContext",
   tooLarge: "handoff.tooLarge",

@@ -200,7 +200,10 @@
     "signupPendingBody": "Ako već imate nalog, prijavite se metodom koju ste ranije koristili. Ako ste upravo kreirali nalog, potvrdite e-poštu prije prijave.",
     "genericTitle": "Prijava nije dovršena",
     "genericBody": "Pokušajte ponovo. Ako problem potraje, kontaktirajte podršku.",
-    "backToSignIn": "Nazad na prijavu"
+    "backToSignIn": "Nazad na prijavu",
+    "chatgptLinkTitle": "Prijavite se jednom da povežete ChatGPT",
+    "chatgptLinkBody": "Ovaj email već ima cmux račun. Prijavite se metodom koju ste ranije koristili i ChatGPT će biti povezan s tim računom.",
+    "chatgptEmailUnverifiedBody": "Email na vašem ChatGPT računu nije potvrđen. Potvrdite ga kod OpenAI-ja ili se prijavite na drugi način."
   },
   "cloudPublicationAccess": {
     "title": "Nemate pristup",
@@ -423,13 +426,13 @@
     "faqCustomizeQ": "Mogu li prilagoditi cmux?",
     "faqCustomizeA": "Da. Renderiranje terminala koristi vašu Ghostty konfiguraciju, pa se teme, fontovi, boje i kursor prenose direktno. Vlastite postavke cmux-a u <path>~/.config/cmux/cmux.json</path> kontrolišu bočnu traku, traku tabova, podijeljene panele i ponašanje, a svaka <shortcutsLink>tipkovnička prečica</shortcutsLink> je izmjenjiva. Pogledajte <link>konfiguraciju</link>.",
     "faqIosQ": "Postoji li iOS aplikacija?",
-    "faqIosA": "Da, u beta verziji. Uparite svoj iPhone sa svojim Mac-om iz Mobile Connect prozora i povežite se na svoje terminale s telefona, uz opcionalno prosljeđivanje terminalskih notifikacija. Isporučuje se na TestFlight-u kao cmux BETA. Rani pristup je uključen uz <foundersLink>cmux Founders Edition</foundersLink>.",
+    "faqIosA": "Da, u beta verziji. Uparite svoj iPhone sa svojim Mac-om iz Mobile Connect prozora i povežite se na svoje terminale s telefona, uz opcionalno prosljeđivanje terminalskih notifikacija. Isporučuje se na TestFlight-u kao cmux BETA.",
     "faqSkillsQ": "Ima li cmux skills-e?",
     "faqSkillsA": "Da. Skills su ponovo iskoristivi tokovi rada koje možete dati bilo kojem agentu koji radi u cmux-u, za stvari poput kontrole CLI-ja, automatizacije radnog prostora, postavki i panela preglednika. Pregledajte otvorenu kolekciju na <skillsLink>cmux-skills</skillsLink> ili pročitajte <link>dokumentaciju za skills</link>.",
     "faqBrowserQ": "Šta može ugrađeni preglednik?",
     "faqBrowserA": "cmux može podijeliti pravi panel preglednika pored vašeg terminala i potpuno je programabilan: navigirajte, snimite DOM, kliknite, kucajte, izvršite JavaScript i čitajte aktivnost konzole i mreže preko istog socket API-ja. Agenti ga koriste da provjere vlastite web izmjene bez napuštanja cmux-a. Pogledajte <link>automatizaciju preglednika</link>.",
     "faqSupportQ": "Kako mogu podržati cmux?",
-    "faqSupportA": "cmux je besplatan i otvorenog koda, i uvijek će biti. Ako želite podržati razvoj i dobiti rani pristup onome što slijedi, uključujući cmux AI, iOS aplikaciju i Cloud VMs, pogledajte <foundersLink>cmux Founders Edition</foundersLink>.",
+    "faqSupportA": "cmux je besplatan i otvorenog koda, i uvijek će biti.",
     "faqFeatureQ": "Imam prijedlog za funkciju ili sam pronašao grešku",
     "faqFeatureA": "Želimo to čuti. Otvorite <issuesLink>issue</issuesLink> ili <prLink>pull request</prLink> na GitHub-u, ili nam <mailLink>pošaljite e-mail</mailLink>."
   },
@@ -552,7 +555,7 @@
           "granted": "Dodijelio cmux. Nema šta da se mijenja.",
           "grantedNoCancel": "Dodijelio cmux, pa nema ničega za otkazivanje.",
           "paymentFailed": "Ažurirajte način plaćanja prije promjene plana.",
-          "foundersLifetime": "Founder's Edition uključuje Pro doživotno.",
+          "foundersLifetime": "Vaša doživotna kupovina uključuje Pro.",
           "adminOnly": "Samo administratori tima mogu promijeniti plan."
         },
         "names": {
@@ -576,17 +579,17 @@
           ],
           "pro": [
             "Cloud agenti na Cloud VMs",
-            "Do 5 Cloud VM-ova koji dijele 20 vCPU-a i 40 GB RAM-a. Jedan VM može koristiti do 16 GB RAM-a / 8 vCPU. Za veličine 24 GB / 12 vCPU i 32 GB / 16 vCPU potreban je Max.",
+            "Cloud VM-ovi bez ograničenja broja, naplaćuju se nakon uključene potrošnje; jedan VM može koristiti do 16 GB RAM-a / 8 vCPU. Za veličine 24 GB / 12 vCPU i 32 GB / 16 vCPU potreban je Max.",
             "cmux aplikacija za iOS"
           ],
           "max": [
-            "Do 5 Cloud VM-ova koji dijele 80 vCPU-a i 160 GB RAM-a. Max omogućava 24 GB / 12 vCPU, 32 GB / 16 vCPU i do 64 GB / 32 vCPU.",
+            "Cloud VM-ovi bez ograničenja broja, naplaćuju se nakon uključene potrošnje; Max omogućava 24 GB / 12 vCPU, 32 GB / 16 vCPU i do 64 GB / 32 vCPU.",
             "Veće mašine",
             "Sve iz Pro"
           ],
           "team": [
             "Sve iz Pro za svakog člana",
-            "Do 5 Cloud VM-ova po plaćenom mjestu, koji dijele 20 vCPU-a i 40 GB RAM-a po plaćenom mjestu u cijelom timu",
+            "Cloud VM-ovi bez ograničenja broja za sve u timu, naplaćuju se nakon uključene potrošnje; limit potrošnje tima je granica",
             "Jedna faktura za cijeli tim",
             "Prioritetna podrška"
           ]
@@ -609,8 +612,8 @@
         "title": "Otkazati {plan}?",
         "body": "{plan} zadržavate do {date}. Nakon toga gubite:",
         "bodyNoDate": "{plan} zadržavate do kraja ovog obračunskog perioda. Nakon toga gubite:",
-        "foundersBody": "Vaša {plan} pretplata ističe {date}. Nakon toga imate Pro, koji Founder's Edition uključuje doživotno.",
-        "foundersBodyNoDate": "Vaša {plan} pretplata ističe na kraju ovog obračunskog perioda. Nakon toga imate Pro, koji Founder's Edition uključuje doživotno.",
+        "foundersBody": "Vaša {plan} pretplata ističe {date}. Nakon toga zadržavate Pro iz svoje doživotne kupovine.",
+        "foundersBodyNoDate": "Vaša {plan} pretplata ističe na kraju ovog obračunskog perioda. Nakon toga zadržavate Pro iz svoje doživotne kupovine.",
         "reasonLabel": "Zašto otkazujete? (opcionalno)",
         "otherPlaceholder": "Recite nam više (opcionalno)",
         "confirm": "Otkaži plan",
@@ -2504,7 +2507,7 @@
       "socketModeDesc": "Zaobiđite način pristupa (cmuxOnly, allowAll, off). Takođe prihvata cmux-only/cmux_only i allow-all/allow_all",
       "workspaceIdDesc": "Automatski postavljeno: ID trenutnog radnog prostora",
       "surfaceIdDesc": "Automatski postavljeno: ID trenutne površine",
-      "termProgramDesc": "Postavljeno na ghostty",
+      "termProgramDesc": "Postavljeno na cmux",
       "termDesc": "Postavljeno na xterm-ghostty",
       "envCallout": "Starije CMUX_SOCKET_MODE vrijednosti full i notifications se još prihvataju radi kompatibilnosti.",
       "detectingCmux": "Detekcija cmux-a",
@@ -2884,7 +2887,7 @@
       "intro": "cmux iOS aplikacija je pratilac vašeg Mac-a. Uparite svoj iPhone ili iPad s Mac-om koji koristi cmux i povežite se sa svojim terminalima s telefona, uz opcionalno prosljeđivanje terminalskih notifikacija.",
       "betaNote": "iOS aplikacija je u beta verziji. Distribuira se putem TestFlight-a kao cmux BETA.",
       "accessTitle": "Dobivanje pristupa",
-      "accessDesc": "Aplikacija se distribuira putem TestFlight-a. Rani pristup je uključen uz <foundersLink>cmux Founders Edition</foundersLink>, zajedno s drugim ranim funkcijama.",
+      "accessDesc": "Aplikacija se distribuira putem TestFlight-a. Beta pristup je uključen uz cmux Pro; pridružite se sa stranice TestFlight na svojoj kontrolnoj tabli.",
       "prereqTitle": "Preduvjeti",
       "prereqIntro": "Prije nego što počnete, potrebno vam je:",
       "prereq1": "Mac koji koristi cmux i na kojem ste prijavljeni.",
@@ -2970,13 +2973,13 @@
       "planMax": "Max",
       "sizesDefault": "Nove mašine koriste 8 GB memorije kada ne izaberete veličinu. Pokrenite cmux vm ls --json da vidite veličine koje vaš plan dozvoljava.",
       "limitsTitle": "Ograničenja plana",
-      "limitsDesc": "Vaše aktivne mašine dijele jedan zajednički skup vCPU-a i memorije. Pokrenite jednu veliku mašinu ili nekoliko malih. Pauzirane mašine ne troše zajednički skup. Disk se određuje za svaku mašinu posebno i nije dio zajedničkog skupa.",
+      "limitsDesc": "Pro, Team i Max nemaju ograničenje broja mašina; Plus zadržava jednu mašinu. Nakon uključene potrošnje, pokrenute mašine se naplaćuju po vCPU-satu i GB-satu, a sačuvane i pauzirane mašine po GB-mjesecu diska. Limit potrošnje tima je jedina granica: kad se dostigne, novi startovi se odbijaju, a pokrenute mašine se pauziraju nakon upozorenja, bez gubitka podataka.",
       "limitsFree": "Besplatni računi ne mogu kreirati mašine.",
-      "limitsPaid": "Pro i Founder's Edition računi mogu imati do 5 mašina, uključujući pauzirane koje dijele 20 vCPU-a i 40 GB memorije.",
-      "limitsTeam": "Timski računi mogu imati do 5 mašina, uključujući pauzirane po svakom plaćenom mjestu. Svako plaćeno mjesto dodaje 20 vCPU-a i 40 GB memorije u zajednički skup tima.",
-      "limitsMax": "Max računi mogu imati do 5 mašina, uključujući pauzirane koje dijele 80 vCPU-a i 160 GB memorije. Jedna Max mašina može koristiti do 64 GB i 32 vCPU-a, uključujući veličine 24 GB / 12 vCPU-a i 32 GB / 16 vCPU-a; Pro i Team se zaustavljaju na 16 GB i 8 vCPU-a.",
-      "limitsPoolFull": "Ako bi nova, nastavljena, povećana ili forkana mašina premašila zajednički skup, cmux odbija zahtjev i pokazuje koliko je skupa zauzeto. Pauzirajte ili obrišite mašinu da oslobodite resurse ili pređite na Max.",
-      "limitsPricing": "Trenutne cijene pogledajte na stranici s cijenama. Nema mjerenja potrošnje ni naplate prekoračenja.",
+      "limitsPaid": "Pro računi mogu imati bilo koji broj mašina, svaka do 16 GB i 8 vCPU-a.",
+      "limitsTeam": "Team je opcionalan: svi dobijaju jedan zajednički račun i jedan limit potrošnje. Broj mjesta ne mijenja koliko mašina bilo ko može imati.",
+      "limitsMax": "Max računi mogu imati bilo koji broj mašina. Jedna Max mašina može koristiti do 64 GB i 32 vCPU-a, uključujući veličine 24 GB / 12 vCPU i 32 GB / 16 vCPU; Pro i Team staju na 16 GB i 8 vCPU-a.",
+      "limitsPoolFull": "Kad se dostigne limit potrošnje, cmux odbija novu ili nastavljenu mašinu i kaže da je tim dostigao svoj limit. Povećajte limit da ponovo pokrenete mašine; ništa se ne briše.",
+      "limitsPricing": "Trenutne cijene pogledajte na stranici s cijenama. Potrošnja iznad uključenog iznosa se mjeri i naplaćuje.",
       "agentUpdatesTitle": "Održavaj agente za kodiranje ažurnim",
       "agentUpdatesDesc": "Kada je ova postavka uključena, mašina ažurira Claude Code, Codex, OpenCode, pi i agent-browser. Provjerava nakon kreiranja mašine i pri svakom povezivanju, najviše jednom u 24 sata. Ažuriranje radi odvojeno, pa nikad ne blokira povezivanje.",
       "agentUpdatesSource": "Svaki alat dolazi iz svog zvaničnog GitHub izdanja i provjerava se prema sha256 sažetku datoteke izdanja. npm se ne koristi. Izdanje se instalira tek kada je javno 3 dana, a ažuriranje nikad ne instalira stariju verziju. Pokrenuti agent zadržava datoteke s kojima je pokrenut, a neuspjelo ažuriranje ostavlja trenutnu verziju.",
@@ -3363,7 +3366,8 @@
       "darkArt": "Mračna umjetnost",
       "museumIcons": "Muzejska remek-djela",
       "calm": "Smireno",
-      "dore": "Doré"
+      "dore": "Doré",
+      "eastAsian": "Istočnoazijsko slikarstvo"
     }
   },
   "testimonials": {
@@ -5417,7 +5421,7 @@
   "appProWelcome": {
     "eyebrow": "cmux Pro je aktivan",
     "title": "Dobro došli u cmux Pro",
-    "body": "Pro uključuje do 5 Cloud VM-ova koji dijele 20 vCPU-a i 40 GB RAM-a, kao i pristup cmux iOS-u putem TestFlighta. Jedan VM može koristiti do 16 GB RAM-a / 8 vCPU. Za veličine 24 GB / 12 vCPU i 32 GB / 16 vCPU potreban je Max.",
+    "body": "Pro uključuje Cloud VM-ove bez ograničenja broja, uz naplatu nakon uključene potrošnje, kao i pristup cmux iOS-u putem TestFlighta. Jedan VM može koristiti do 16 GB RAM-a / 8 vCPU. Za veličine 24 GB / 12 vCPU i 32 GB / 16 vCPU potreban je Max.",
     "done": "Idi na kontrolnu ploču",
     "steps": {
       "iosApp": {

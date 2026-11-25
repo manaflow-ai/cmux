@@ -134,13 +134,25 @@ impl Hub {
     /// Sets `session`'s own policy; its mode follows (`follow_policy`), so a policy acpmux sets
     /// itself (an aside's, a handoff target's) holds as one a client sets does.
     pub async fn set_policy(self: &Arc<Self>, session: &Arc<Session>, policy: PermissionPolicy) {
-        self.set_policy_from(session, policy, SET).await;
+        // A failed save is logged there; no request waits for this one.
+        let _ = self.set_policy_from(session, policy, SET).await;
+    }
+
+    /// [`Hub::set_policy`] for `_acpmux/set_policy`: answered only once the policy is saved
+    /// (`meta_save.rs`).
+    pub(crate) async fn set_policy_answered(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        policy: PermissionPolicy,
+    ) -> Result<(), RpcError> {
+        self.set_policy_from(session, policy, SET).await
     }
 
     /// The approve-all a vmHost machine gives a chat its owner's peer daemon starts with no
     /// policy (`requests.rs`).
     pub(crate) async fn grant_vm_host_approve_all(self: &Arc<Self>, session: &Arc<Session>) {
-        self.set_policy_from(session, PermissionPolicy::ApproveAll, VM_HOST).await;
+        // A failed save is logged there.
+        let _ = self.set_policy_from(session, PermissionPolicy::ApproveAll, VM_HOST).await;
     }
 
     /// A [`CLEARED_HOST`] chat keeps that source through a policy write: its old host still has to
@@ -151,7 +163,18 @@ impl Hub {
         session: &Arc<Session>,
         policy: PermissionPolicy,
         source: &str,
-    ) {
+    ) -> Result<(), RpcError> {
+        // The app may replay its policy on every visible refresh. Preserve the answered-request
+        // barrier, but avoid emitting the same policy and permission-state records again.
+        let unchanged = {
+            let meta = session.meta();
+            meta.permission_policy.as_deref() == Some(policy.to_string().as_str())
+                && (meta.policy_source.as_deref() == Some(source)
+                    || meta.policy_source.as_deref() == Some(CLEARED_HOST))
+        };
+        if unchanged {
+            return self.meta_barrier(session);
+        }
         self.permission_policy_changed(session, |m| {
             m.permission_policy = Some(policy.to_string());
             if m.policy_source.as_deref() != Some(CLEARED_HOST) {
@@ -159,8 +182,12 @@ impl Hub {
             }
         });
         self.append(session, "mux", "policy", json!({"policy": policy.to_string()}));
-        self.save_meta(session);
+        let saved = self.save_meta_answered(session);
         self.follow_policy(session).await;
+        if policy == PermissionPolicy::ApproveAll {
+            self.approve_pending_tools(session).await;
+        }
+        saved
     }
 
     /// Whether this machine's daemon could have given vmHost's approve-all (module docs): never
@@ -175,10 +202,11 @@ impl Hub {
 
     /// [`settle_grant`] on every session the store lists, each saved when it changed. A cleared
     /// chat whose agent host may run (or when the host records cannot be read) is
-    /// [`CLEARED_HOST`].
-    pub(super) fn settle_legacy_grants(&self, metas: &mut [SessionMeta]) {
+    /// [`CLEARED_HOST`]. Returns the ids whose repairs were not saved.
+    pub(super) fn settle_legacy_grants(&self, metas: &mut [SessionMeta]) -> HashSet<String> {
+        let mut unsaved = HashSet::new();
         if !metas.iter().any(|m| m.policy_source.is_none() && m.permission_policy.is_some()) {
-            return;
+            return unsaved;
         }
         let everyone = self.could_have_had_vm_host();
         let could_be = could_be_vm_host(metas, &self.handoffs.target_ids());
@@ -194,8 +222,10 @@ impl Hub {
             }
             if let Err(e) = self.store.save(meta) {
                 tracing::warn!(session = %meta.id, "save the settled grant failed: {e}");
+                unsaved.insert(meta.id.clone());
             }
         }
+        unsaved
     }
 
     /// A [`CLEARED_HOST`] chat's agent host is ended, never adopted (module docs). Called before a

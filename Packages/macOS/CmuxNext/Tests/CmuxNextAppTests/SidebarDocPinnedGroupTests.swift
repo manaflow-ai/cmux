@@ -46,7 +46,7 @@ import Testing
         store.apply(snapshot: DaemonTree(workspaces: (0..<3).map { index in
             WorkspaceSnapshot(id: WorkspaceHandle(rawValue: UInt64(index + 1)), key: nil, resourceID: ResourceID(rawValue: "ws-\(index)"), name: "w\(index)")
         }))
-        let sections = SidebarDocSections().sections(Self.projection(), session: Self.session, workspaces: store.workspaces)
+        let sections = SidebarDocSections(document: { nil }).sections(Self.projection(), session: Self.session, workspaces: store.workspaces)
         let groups = sections.compactMap(\.group)
         #expect(groups.first { $0.id.rawValue == "itm_gp" }?.pinned == true, "the Pinned group maps unpinned: Pin/Unpin can only pin it")
         #expect(groups.first { $0.id.rawValue == "itm_gm" }?.pinned == false)

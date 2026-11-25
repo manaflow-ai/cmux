@@ -1,18 +1,19 @@
 {
-  "comment": "Browsers whose export steps Import from Another Browser… shows (cx-d0d.65). family picks the steps' text (BrowserFileImportStrings); passwords and bookmarks are the pages a Chromium browser exports from (no bookmarks: the browser has no bookmarks export); 1password and bitwarden are password managers (passwords only). Nothing here names a file of the browser's own.",
+  "comment": "Browsers whose export steps Import from Another Browser… shows (cx-d0d.65). family picks the steps' text (BrowserFileImportStrings); passwords and bookmarks are the pages a Chromium browser exports from (no bookmarks: the browser has no bookmarks export); 1password and bitwarden are password managers (passwords only). bundleIDs find the app on this Mac (Launch Services) so the menu lists installed browsers first and chooses the default browser. Nothing here names a file of the browser's own.",
   "browsers": [
-    { "id": "chrome", "name": "Google Chrome", "family": "chromium",
-      "passwords": "chrome://password-manager/settings", "bookmarks": "chrome://bookmarks",
-      "history": "takeout.google.com" },
-    { "id": "edge", "name": "Microsoft Edge", "family": "chromium",
-      "passwords": "edge://settings/passwords", "bookmarks": "edge://favorites" },
-    { "id": "brave", "name": "Brave", "family": "chromium",
-      "passwords": "brave://password-manager/settings", "bookmarks": "brave://bookmarks" },
-    { "id": "arc", "name": "Arc", "family": "chromium",
-      "passwords": "arc://password-manager/settings" },
-    { "id": "firefox", "name": "Firefox", "family": "firefox" },
-    { "id": "safari", "name": "Safari", "family": "safari" },
-    { "id": "1password", "name": "1Password", "family": "1password" },
-    { "id": "bitwarden", "name": "Bitwarden", "family": "bitwarden" }
+    {"id": "chrome", "name": "Google Chrome", "family": "chromium", "passwords": "chrome://password-manager/settings", "bookmarks": "chrome://bookmarks", "history": "takeout.google.com", "bundleIDs": ["com.google.Chrome", "com.google.Chrome.beta", "com.google.Chrome.dev", "com.google.Chrome.canary"]},
+    {"id": "edge", "name": "Microsoft Edge", "family": "chromium", "passwords": "edge://settings/passwords", "bookmarks": "edge://favorites", "bundleIDs": ["com.microsoft.edgemac", "com.microsoft.edgemac.Beta", "com.microsoft.edgemac.Dev", "com.microsoft.edgemac.Canary"]},
+    {"id": "brave", "name": "Brave", "family": "chromium", "passwords": "brave://password-manager/settings", "bookmarks": "brave://bookmarks", "bundleIDs": ["com.brave.Browser", "com.brave.Browser.beta", "com.brave.Browser.nightly"]},
+    {"id": "arc", "name": "Arc", "family": "chromium", "passwords": "arc://password-manager/settings", "bundleIDs": ["company.thebrowser.Browser"]},
+    {"id": "helium", "name": "Helium", "family": "chromium", "bundleIDs": ["net.imput.helium"], "passwords": "chrome://password-manager/settings", "bookmarks": "chrome://bookmarks"},
+    {"id": "dia", "name": "Dia", "family": "chromium", "bundleIDs": ["company.thebrowser.dia"], "passwords": "chrome://password-manager/settings", "bookmarks": "chrome://bookmarks"},
+    {"id": "vivaldi", "name": "Vivaldi", "family": "chromium", "bundleIDs": ["com.vivaldi.Vivaldi", "com.vivaldi.Vivaldi.snapshot"], "passwords": "chrome://password-manager/settings", "bookmarks": "chrome://bookmarks"},
+    {"id": "opera", "name": "Opera", "family": "chromium", "bundleIDs": ["com.operasoftware.Opera", "com.operasoftware.OperaGX"], "passwords": "chrome://password-manager/settings", "bookmarks": "chrome://bookmarks"},
+    {"id": "chromium", "name": "Chromium", "family": "chromium", "bundleIDs": ["org.chromium.Chromium"], "passwords": "chrome://password-manager/settings", "bookmarks": "chrome://bookmarks"},
+    {"id": "firefox", "name": "Firefox", "family": "firefox", "bundleIDs": ["org.mozilla.firefox", "org.mozilla.firefoxdeveloperedition", "org.mozilla.nightly"]},
+    {"id": "zen", "name": "Zen", "family": "firefox", "bundleIDs": ["app.zen-browser.zen"]},
+    {"id": "safari", "name": "Safari", "family": "safari", "bundleIDs": ["com.apple.Safari"]},
+    {"id": "1password", "name": "1Password", "family": "1password", "bundleIDs": ["com.1password.1password", "com.agilebits.onepassword7"]},
+    {"id": "bitwarden", "name": "Bitwarden", "family": "bitwarden", "bundleIDs": ["com.bitwarden.desktop"]}
   ]
 }

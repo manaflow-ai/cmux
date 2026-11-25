@@ -281,6 +281,8 @@ export interface ConversationHead {
   readonly read_cursors: Readonly<Record<string, number>>
   // Cloud extensions (absent on a local head).
   readonly kind?: ConversationKind
+  /** A channel's own Chief (chief-channels-DESIGN.md): its MuxDO takes wakes only from this conversation. */
+  readonly channel_chief?: string
   readonly team?: string
   readonly created_by?: string
   readonly state?: ConversationState
@@ -336,6 +338,8 @@ export interface Summary {
   readonly read_cursors: Readonly<Record<string, number>>
   // Cloud extensions.
   readonly kind?: ConversationKind
+  /** A channel's own Chief (chief-channels-DESIGN.md): its MuxDO takes wakes only from this conversation. */
+  readonly channel_chief?: string
   readonly team?: string
   readonly created_by?: string
   readonly state?: ConversationState

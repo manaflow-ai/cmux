@@ -24,8 +24,8 @@ import Testing
         let spec = Self.approval
         #expect(CmuxDialogKeys.hint(for: spec.buttons[0], in: spec) == .escape)
         #expect(CmuxDialogKeys.hint(for: spec.buttons[1], in: spec) == .return)
-        #expect(CmuxDialogKeyHint.escape.glyph == "⎋")
-        #expect(CmuxDialogKeyHint.return.glyph == "↩")
+        #expect(CmuxDialogKeyHint.escape.glyph == "esc")
+        #expect(CmuxDialogKeyHint.return.glyph == "return")
     }
 
     @Test func aCommandKeyButtonShowsItsChord() {
@@ -51,22 +51,23 @@ import Testing
         }
     }
 
-    /// The drawn dialog: each button's title carries its keycap, VoiceOver reads the key,
-    /// and pressing the shown key answers that button.
+    /// The shown dialog: each button gets its keycap (the overlay page draws it), and pressing
+    /// the shown key answers that button. A button view drawing that keycap (native cards) carries it
+    /// in its title, and VoiceOver reads the key.
     @Test(arguments: [approval, unsaved])
-    func theDrawnDialogShowsAndAnswersEachKey(_ spec: CmuxDialogSpec) throws {
-        let view = CmuxDialogView(spec: spec)
-        #expect(view.buttonViews.count == spec.buttons.count)
-        for buttonView in view.buttonViews {
-            let hint = try #require(buttonView.keyHint, "\(buttonView.button.title) draws no key")
+    func theShownDialogShowsAndAnswersEachKey(_ spec: CmuxDialogSpec) throws {
+        for button in spec.buttons {
+            let dialog = CmuxDialogPresentation(id: 1, spec: spec, activeLook: nil)
+            let hint = try #require(dialog.hint(for: button), "\(button.title) shows no key")
+            let buttonView = CmuxDialogButtonView(button, hint: hint, target: nil, action: NSSelectorFromString("noop:"))
             #expect(buttonView.attributedTitle.string.contains(hint.glyph))
-            #expect(buttonView.attributedTitle.string.hasPrefix(buttonView.button.title))
-            #expect(buttonView.accessibilityLabel() == buttonView.button.title, "automation finds buttons by title")
+            #expect(buttonView.attributedTitle.string.hasPrefix(button.title))
+            #expect(buttonView.accessibilityLabel() == button.title, "automation finds buttons by title")
             #expect(buttonView.accessibilityHelp()?.contains(hint.spokenName) == true)
             var pressed: String?
-            view.onPress = { pressed = $0 }
-            #expect(view.handle(hint.key, modifiers: hint.modifiers))
-            #expect(pressed == buttonView.button.id)
+            dialog.onPress = { pressed = $0 }
+            #expect(dialog.handle(hint.key, modifiers: hint.modifiers))
+            #expect(pressed == button.id)
         }
     }
 
@@ -76,12 +77,30 @@ import Testing
                                         target: nil, action: NSSelectorFromString("noop:"))
         view.retitle("Copied")
         #expect(view.attributedTitle.string.hasPrefix("Copied"))
-        #expect(view.attributedTitle.string.contains("↩"))
+        #expect(view.attributedTitle.string.contains("return"))
     }
 
     @Test func theSpokenKeysAreWords() {
         #expect(CmuxDialogKeyHint.return.spokenName == "Return")
         #expect(CmuxDialogKeyHint.escape.spokenName == "Escape")
         #expect(CmuxDialogKeyHint.command("d").spokenName == "Command-D")
+    }
+
+    /// Leo 2026-11-22: "this command palette's icons are really bad and not even properly depicting the keys".
+    /// A keycap prints a named key as the Mac keyboard does, keeps modifiers and other keys as they are, and a
+    /// chord splits into its strokes.
+    @Test func keycapsPrintTheKeysAsTheKeyboardDoes() {
+        #expect(["↩", "⏎", "↵", "\r"].map(\.keycapLegend) == ["return", "return", "return", "return"])
+        #expect("⇥".keycapLegend == "tab")
+        #expect("⎋".keycapLegend == "esc")
+        #expect("Esc".keycapLegend == "esc")
+        #expect("⌫".keycapLegend == "delete")
+        #expect(["⌘", "⌥", "⌃", "⇧", "J", ",", "1…9"].map(\.keycapLegend) == ["⌘", "⌥", "⌃", "⇧", "J", ",", "1…9"])
+        #expect("⌘↩".keycapText == "⌘ return")
+        #expect("⇧⇥".keycapText == "⇧ tab")
+        #expect("⇧⌘P".keycapText == "⇧⌘P")
+        #expect(["⌘", "J", "S"].keycapStrokes == [["⌘", "J"], ["S"]])
+        #expect(["⇧", "⌘", "P"].keycapStrokes == [["⇧", "⌘", "P"]])
+        #expect(["⌃", "B", "⌥", "1…9"].keycapStrokes == [["⌃", "B"], ["⌥", "1…9"]])
     }
 }

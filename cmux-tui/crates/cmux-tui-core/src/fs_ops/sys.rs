@@ -97,6 +97,15 @@ pub(super) fn read_link_at(dir: BorrowedFd<'_>, name: &str) -> io::Result<Vec<u8
     Ok(buffer)
 }
 
+/// `symlinkat(target, dir, name)`: a new symlink `name` in `dir` whose text
+/// is `target`; `EEXIST` when anything is there.
+pub(super) fn symlink_at(dir: BorrowedFd<'_>, name: &str, target: &str) -> io::Result<()> {
+    let name = c_name(name)?;
+    let target = CString::new(target).map_err(|_| io::Error::from_raw_os_error(libc::EINVAL))?;
+    // SAFETY: valid descriptor and NUL-terminated strings.
+    check(unsafe { libc::symlinkat(target.as_ptr(), dir.as_raw_fd(), name.as_ptr()) }).map(drop)
+}
+
 pub(super) fn mkdir_at(dir: BorrowedFd<'_>, name: &str, mode: u32) -> io::Result<()> {
     let name = c_name(name)?;
     // SAFETY: valid descriptor and NUL-terminated name.

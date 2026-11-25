@@ -1,0 +1,27 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/customize",
+  "name": "My views",
+  "version": "1.0.0",
+  "description": "A scratch checklist that opens as a tab, and a sidebar button that opens it.",
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "main.js" },
+  "implements": {
+    "cmux.pane/1": {
+      "export": "renderPane",
+      "title": "Scratchpad",
+      "symbol": "checklist"
+    },
+    "cmux.section/1": {
+      "export": "renderOpener",
+      "title": "Scratchpad",
+      "symbol": "checklist",
+      "options": { "defaultRegion": "bottom" }
+    }
+  },
+  "scopes": {
+    "storage:local": "Keep the checklist between launches.",
+    "actions:run": "Open the scratchpad from the sidebar button."
+  }
+}

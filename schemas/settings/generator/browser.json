@@ -1,0 +1,22 @@
+{
+  "source": "schemas/settings/source/browser.json",
+  "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Browser.generated.swift",
+  "type": "BrowserSettingsSchema",
+  "joined": "descriptors",
+  "lists": {
+    "toolbar": ["toolbar", "BrowserToolbarButtonsSetting"],
+    "engine": ["engine", "BrowserDefaultEngine"],
+    "bookmarks": ["bookmarks", "BookmarksBarSetting"],
+    "browserImport": ["browserImport", "BrowserImportSetting"],
+    "agentInput": ["agentInput", "AgentMouseSetting"],
+    "extensions": ["extensions", "BuiltInAdBlockerSetting"],
+    "memory": ["memory", "BrowserHibernationSetting"],
+    "remote": ["remote", "RemoteLocalhostSetting"],
+    "addressBar": ["addressBar", "BrowserOmnibarSetting"],
+    "links": ["links", "BrowserLinkClickSetting"],
+    "openingLinks": ["openingLinks", "LinkRouting"],
+    "files": ["files", "TextEditorSetting"],
+    "passwords": ["passwords", "BrowserPasswordsSetting"],
+    "verificationAutofill": ["verificationAutofill", "BrowserVerificationAutofillSetting"]
+  }
+}

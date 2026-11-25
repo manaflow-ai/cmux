@@ -20,6 +20,13 @@ POINTER = ROOT / "scripts/cmux-next/web-ota-pointer.py"
 UPDATER = ROOT / "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/WebUpdates/WebUpdater.swift"
 WEB_SCHEMA = ROOT / "schemas/settings/source/updates.json"
 KEY = ROOT / "scripts/cmux-next/web-bundle-key.py"
+POINTER_STEP = "      - name: Sign and upload the pointer\n"
+
+
+def pointer_step(workflow=None):
+    """The publish job's pointer step, from its name to the next step."""
+    text = (workflow or WORKFLOW.read_text()).split(POINTER_STEP, 1)[1]
+    return text.split("\n      - ", 1)[0]
 
 
 class WebOTAPublicationContractTests(unittest.TestCase):
@@ -36,7 +43,7 @@ class WebOTAPublicationContractTests(unittest.TestCase):
         self.assertEqual(set(channels), app_values - {"off"})
 
         workflow = WORKFLOW.read_text()
-        pointer_job = workflow.split("\n  pointer:\n", 1)[1]
+        pointer_job = pointer_step(workflow)
         self.assertIn("github.ref_name == 'nightly-next' && 'nightly' || 'every-merge'", pointer_job)
         for channel in channels:
             self.assertIn('--channel "$CHANNEL"', pointer_job)
@@ -52,7 +59,7 @@ class WebOTAPublicationContractTests(unittest.TestCase):
         self.assertIn("nightly", {choice["value"] for choice in web["choices"]})
 
     def test_missing_production_signing_key_fails(self):
-        pointer_job = WORKFLOW.read_text().split("\n  pointer:\n", 1)[1]
+        pointer_job = pointer_step()
         guard = re.search(r'if \[\[ -z "\$SIGNING_KEY" \]\]; then(.*?)\n          fi', pointer_job, re.S)
         self.assertIsNotNone(guard)
         body = guard.group(1)
@@ -61,7 +68,7 @@ class WebOTAPublicationContractTests(unittest.TestCase):
         self.assertNotIn("no web update pointer", body)
 
     def test_missing_outputs_digest_cannot_make_production_green(self):
-        pointer_job = WORKFLOW.read_text().split("\n  pointer:\n", 1)[1]
+        pointer_job = pointer_step()
         self.assertIn('[[ $rc == 0 ]] || exit "$rc"', pointer_job)
         self.assertNotIn("has no outputs digest; no web update pointer", pointer_job)
 
@@ -101,6 +108,61 @@ class WebOTAPublicationContractTests(unittest.TestCase):
         workflow = WORKFLOW.read_text()
         self.assertIn('echo "::error::the existing manifest for $key has a different Bun/Node toolchain; refusing immutable-key publication"', workflow)
         self.assertIn('exit 1\n          fi', workflow)
+
+    def test_a_layer_dispatch_never_moves_the_web_update_pointer(self):
+        # A `pr` or `ref` dispatch builds code that is not on the channel's branch: it only
+        # writes its layer pointer (cmux-next-web/pr|ref/...), never the signed update pointer,
+        # and records no deployment.
+        import yaml
+
+        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        self.assertNotIn("pointer", jobs)
+        step = next(s for s in jobs["publish"]["steps"] if s.get("name") == "Sign and upload the pointer")
+        for name in ("inputs.pr", "inputs.ref"):
+            self.assertIn(f"!{name}", step["if"], name)
+        deployment = str(jobs["publish"]["environment"]["deployment"])
+        for name in ("inputs.pr", "inputs.ref"):
+            self.assertIn(f"!{name} &&", deployment, name)
+
+    def test_the_signing_job_runs_no_bun_or_node(self):
+        # Key safety: the job holding the R2 credentials and the signing key runs only this
+        # checkout's scripts on the archive's bytes, never the build's toolchain.
+        import yaml
+
+        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        holders = [name for name, job in jobs.items() if "CMUX_WEB_OTA_SIGNING_KEY" in json.dumps(job)]
+        self.assertEqual(holders, ["publish"])
+        for step in jobs["publish"]["steps"]:
+            uses = step.get("uses", "")
+            self.assertFalse(uses.startswith(("oven-sh/setup-bun", "actions/setup-node")), uses)
+            self.assertNotRegex(step.get("run", ""), r"(^|\s)(bun|bunx|node|npm|npx)\s", step.get("name"))
+        signing = [s.get("name") for s in jobs["publish"]["steps"] if "CMUX_WEB_OTA_SIGNING_KEY" in json.dumps(s)]
+        self.assertEqual(signing, ["Sign and upload the pointer"])
+
+    def test_a_rate_limited_pr_api_falls_back_to_git_and_keeps_the_fork_rule(self):
+        workflow = WORKFLOW.read_text()
+        step = workflow.split("      - name: Apply the pull request or ref onto its base\n", 1)[1].split("\n      - ", 1)[0]
+        fallback = step.split("the pull request API did not answer", 1)[1].split("\n            fi\n", 1)[0]
+        self.assertIn("git ls-remote -q origin 'refs/heads/*'", fallback)
+        self.assertIn('grep -qx "$head" <<<"$tips"', fallback)
+        self.assertIn("exit 1", fallback)
+
+    def test_pushes_do_not_queue_behind_each_other(self):
+        # One concurrency group for every push made each merge wait for the run before it
+        # (2026-11-22: up to 15 min behind a run whose runner hook stalled).
+        import yaml
+
+        group = yaml.safe_load(WORKFLOW.read_text())["concurrency"]["group"]
+        self.assertIn("inputs.pr || inputs.ref || github.sha", group)
+
+    def test_overlapping_runs_swap_the_pointer_and_never_move_it_back(self):
+        loop = pointer_step().split("for attempt in", 1)[1]
+        for needle in ('--download-to "$dir/current.json"', "--replace-sha256", "--write-once",
+                       "--conflict-exit-code 9"):
+            self.assertIn(needle, loop)
+        newer = 'newer --pointer "$dir/$CHANNEL.json" --keys "$keys" --current "$dir/current.json"'
+        self.assertLess(loop.index("--download-to"), loop.index(newer))
+        self.assertLess(loop.index(newer), loop.index("--conflict-exit-code 9"))
 
 
 if __name__ == "__main__":

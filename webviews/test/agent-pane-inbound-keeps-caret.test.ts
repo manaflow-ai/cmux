@@ -7,7 +7,7 @@
 //
 // Real Chromium and WebKit (the app's pane is a WKWebView) from Playwright; skipped where they are
 // not installed (the hosted webviews job).
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type Page } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
@@ -105,8 +105,18 @@ await requireBrowserLane("agent-pane-inbound-keeps-caret.test.ts", async () => {
       }),
     );
 
-  function answer(method: string): unknown {
+  // The chat's durable draft, kept as acpmux keeps it (`_acpmux/draft_set`, then `_acpmux/draft_get`
+  // answers it): a reconnect's read finds what the page wrote, as with the real daemon. A mock that
+  // acknowledged writes and forgot them answered every read with no draft, which the composer takes
+  // as the draft cleared elsewhere (composerDraft.ts `hydratedDraft`). Each test starts with none.
+  let draft: string | undefined;
+  function answer(method: string, params?: Record<string, unknown>): unknown {
     switch (method) {
+      case "_acpmux/draft_get":
+        return { draft: draft ?? null };
+      case "_acpmux/draft_set":
+        draft = typeof params?.text === "string" && params.text ? params.text : undefined;
+        return {};
       case "initialize":
         return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [] } } };
       case "_acpmux/watch":
@@ -123,6 +133,9 @@ await requireBrowserLane("agent-pane-inbound-keeps-caret.test.ts", async () => {
   let daemon: ReturnType<typeof Bun.serve> | undefined;
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   const browsers: Record<string, Browser> = {};
+  beforeEach(() => {
+    draft = undefined;
+  });
   beforeAll(async () => {
     daemon = Bun.serve({
       port: 0,
@@ -136,8 +149,12 @@ await requireBrowserLane("agent-pane-inbound-keeps-caret.test.ts", async () => {
         },
         message(ws, raw) {
           socket = ws;
-          const message = JSON.parse(String(raw)) as { id?: number; method: string };
-          const result = answer(message.method);
+          const message = JSON.parse(String(raw)) as {
+            id?: number;
+            method: string;
+            params?: Record<string, unknown>;
+          };
+          const result = answer(message.method, message.params);
           if (message.id !== undefined) ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
           if (message.method === "_acpmux/attach") onAttach?.();
         },

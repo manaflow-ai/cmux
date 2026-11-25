@@ -159,18 +159,19 @@ fn home_ensure_creates_one_home_first_and_replays() {
     mux.shutdown();
 }
 
-/// Only the store writes `kind`: `workspace.create` refuses the field.
+/// Only the store writes `kind`: `workspace.create` does not declare the field, so it is
+/// dropped unread and the workspace made is a plain one, never a home.
 #[test]
-fn home_workspace_create_refuses_kind() {
+fn home_workspace_create_ignores_kind() {
     let session = Session::new("create-kind");
     let mux = session.open();
-    let refused = send(
+    send(
         &mux,
         "workspace.create",
         json!({"name": "fake", "initial_content": "empty", "kind": "home"}),
         Some("create-fake-home"),
-    );
-    assert_eq!(error_code(refused), "validation.invalid");
+    )
+    .expect("an unknown param is ignored");
     assert!(workspaces(&mux).iter().all(|value| value["extra"].get("kind").is_none()));
     mux.shutdown();
 }
@@ -327,6 +328,32 @@ fn home_raw_tree_names_the_home_workspace() {
     };
     assert_eq!(kind_of(&home), "home");
     assert_eq!(kind_of(&other), "normal");
+    mux.shutdown();
+}
+
+/// The `workspace-added` event that announces the home names it `kind: "home"`, as every
+/// later tree read does. A subscriber applies that event before its next tree read, so an
+/// event that said `normal` showed the home as an ordinary workspace row for a moment (the
+/// app's Cmd-2 then picked that row, and the window showed Home: SidebarCmdNumberTwiceTests).
+#[test]
+fn home_workspace_added_event_names_the_home() {
+    let session = Session::new("added-kind");
+    let mux = session.open();
+    empty_workspace(&mux, "work");
+    let events = mux.subscribe();
+    let home = ensure_home(&mux, "connect")["value"]["workspace_id"].as_str().unwrap().to_string();
+    let added = std::iter::from_fn(|| events.try_recv().ok())
+        .find_map(|event| match event {
+            MuxEvent::TreeDelta(delta)
+                if delta.kind == TreeDeltaKind::WorkspaceAdded
+                    && delta.entity["resource_id"] == home.as_str() =>
+            {
+                Some(delta)
+            }
+            _ => None,
+        })
+        .expect("ensure_home emits workspace-added for the home");
+    assert_eq!(added.entity["kind"], "home", "workspace-added entity: {}", added.entity);
     mux.shutdown();
 }
 

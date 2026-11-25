@@ -67,6 +67,10 @@ cmux_tui_default() {
   command -v cmux-tui 2>/dev/null || printf '%s' /root/.cmux/bin/cmux-tui
 }
 CMUX_TUI_BIN="\${CMUX_TUI_BIN:-\$(cmux_tui_default)}"
+# This adapter reads a timed-out process wait's exit 124 as pending. cmux-tui
+# on a Cloud machine exits 124 there only for a caller that says so, since an
+# older adapter (on disk, or still running in a shell) reads 124 as a failure.
+export CMUX_CALLER_READS_WAIT_124=1
 CMUX_GUEST_HOME="\${CMUX_GUEST_HOME:-\${HOME:-/root}/.cmux}"
 PEERS_DIR="\$CMUX_GUEST_HOME/peers"
 LINKS_DIR="\$CMUX_GUEST_HOME/peer-links"
@@ -1429,7 +1433,7 @@ terminal_verb() {
       done
       [ -n "\$cmux_tv_pattern" ] || die "terminal wait: --pattern <regex> is required" 2
       cmux_tv_ms="\$(timeout_ms "\$cmux_tv_timeout")"
-      # cmux-tui exits 1 on an unmatched wait (older builds exit 0); either
+      # cmux-tui exits 124 on an unmatched wait (older builds 1 or 0); either
       # way the printed result says matched false, which is a timeout here.
       if cmux_tv_out="\$(tui --json terminal "\$cmux_tv_term" screen wait --pattern "\$cmux_tv_pattern" --timeout-ms "\$cmux_tv_ms" 2>&1)"; then :; else
         printf '%s\\n' "\$cmux_tv_out" | jq -e '(.value // .) | .matched == false' >/dev/null 2>&1 \\
@@ -1459,8 +1463,10 @@ terminal_verb() {
         cmux_tv_ms="\$(timeout_ms "\$cmux_tv_timeout")"
         set -- "\$@" --timeout-ms "\$cmux_tv_ms"
       fi
+      # cmux-tui exits 124 when the timeout passes with the process still
+      # running (older builds exit 0); the printed state says pending.
       if cmux_tv_out="\$(tui --json "\$@" 2>&1)"; then :; else
-        die "terminal wait-exit failed on \$cmux_tv_term: \$cmux_tv_out" 1
+        [ "\$?" -eq 124 ] || die "terminal wait-exit failed on \$cmux_tv_term: \$cmux_tv_out" 1
       fi
       cmux_tv_state="\$(printf '%s\\n' "\$cmux_tv_out" | jq -r '(.value // .) | if .state == "exited" then ((.outcome // {}) | if .kind == "exit" then "exited code=\\(.code)" elif .kind == "signal" then "exited signal=\\(.signal)" else "exited unknown=\\(.reason // "?")" end) else "pending" end' 2>/dev/null || printf pending)"
       if [ "\$cmux_tv_json" -eq 1 ]; then printf '%s\\n' "\$cmux_tv_out"; else printf '%s\\n' "\$cmux_tv_state"; fi
@@ -2154,8 +2160,10 @@ agent_wait_terminal() {
       [ "\$cmux_aw_left" -gt 0 ] || break
       [ "\$cmux_aw_left" -ge "\$cmux_aw_slice" ] || cmux_aw_slice="\$cmux_aw_left"
     fi
+    # cmux-tui exits 124 when the slice ends with the agent still running
+    # (older builds exit 0); either way the printed state says pending.
     if cmux_aw_out="\$(tui --json terminal "\$cmux_aw_term" process wait --timeout-ms "\$cmux_aw_slice" 2>&1)"; then :; else
-      die "agent --wait: process wait failed for \$cmux_aw_term on \$cmux_aw_where: \$cmux_aw_out" 1
+      [ "\$?" -eq 124 ] || die "agent --wait: process wait failed for \$cmux_aw_term on \$cmux_aw_where: \$cmux_aw_out" 1
     fi
     cmux_aw_state="\$(printf '%s\\n' "\$cmux_aw_out" | jq -r '(.value // .) | .state // "pending"' 2>/dev/null || printf pending)"
     [ "\$cmux_aw_state" != exited ] || break

@@ -39,6 +39,13 @@ expect_fail tipwindow hover-window 'final class TooltipPanel: NSPanel {
     let blur = NSVisualEffectView()
 }'
 expect_fail previewwindow hover-window 'final class LinkHoverPreviewWindow: NSWindow {}'
+# A SurfaceRole's glass (Glass.makeSurface) is the shared glass too.
+expect_pass tipwindow-role 'final class TooltipPanel: NSPanel {
+    let glass = Glass.makeSurface(.tooltip, cornerRadius: 5, interactive: false)
+}'
+expect_pass menu-panel-role 'final class DemoMenuPanel: NSPanel {
+    let card = Glass.makeSurface(.menu, content: rows)
+}'
 
 # Toasts, sheets, dialogs, cards, banners, bubbles and notices are glass too: their window builds the
 # shared glass, no near-opaque veil lies over it, and the mostly opaque card fill stays in its file.
@@ -48,6 +55,13 @@ expect_fail toast-window surface-window 'final class DemoToastPanel: NSPanel {
 expect_fail sheet-window surface-window 'final class DemoSheetWindow: NSWindow {}'
 expect_pass toast-window-glass 'final class DemoToastPanel: NSPanel {
     let surface = Glass.makeOverlayPanel(content: body, tone: .neutralGlass(.toast))
+}'
+expect_pass sheet-window-surface-role 'final class DemoSheetPanel: NSPanel {
+    let surface = Glass.makeSurface(.sheet, content: body)
+}'
+expect_fail dense-veil-surface-role dense-fill 'final class DemoCard: NSView {
+    let surface = Glass.makeSurface(.card, content: body)
+    func paint() { veil.layer?.backgroundColor = Palette.textPrimary.withAlphaComponent(0.95).cgColor }
 }'
 expect_pass card-window-raw-glass 'final class DemoCardPanel: NSPanel {
     let glass = Glass.makePanel(content: body, style: .regular, cornerRadius: 14)
@@ -69,6 +83,15 @@ expect_pass light-veil 'final class DemoCard: NSView {
     let surface = Glass.makeOverlayPanel(content: body)
     func paint() { veil.layer?.backgroundColor = Palette.textPrimary.withAlphaComponent(0.13).cgColor }
 }'
+# SwiftUI on a menu panel is hosted in ThemedHostingView (Chief 2026-11-23); a plain host elsewhere is not this rule's.
+expect_fail menu-hosting menu-hosting '        let content = NSHostingView(rootView: Form())
+        let card = Glass.makeMenuPanel(content: content)'
+expect_fail menu-hosting-subclass menu-hosting 'final class Host<Content: View>: NSHostingView<Content> {}
+let card = Glass.makeMenuPanel(content: nil)'
+expect_pass menu-themed-hosting '        let content = ThemedHostingView(rootView: Form())
+        let card = Glass.makeMenuPanel(content: content)'
+expect_pass hosting-off-menu '        let content = NSHostingView(rootView: Form())
+        window.contentView = content'
 # A pane that builds no glass is not a floating surface: its dense fill is not this rule's.
 expect_pass dense-no-glass '        pane.layer?.backgroundColor = Palette.textPrimary.withAlphaComponent(0.94).cgColor'
 expect_fail card-material card-material '        let card = CardMaterial(tokens, lift: 0.1)'
@@ -295,7 +318,7 @@ mkdir -p "$tmp/scripts/cmux-next"
 if out="$(python3 -I "$CHECK" "$tmp")"; then
   echo "check-overlay-glass.test: a deleted host's entry passed"; echo "$out"; exit 1
 fi
-grep -q "ServerMenuBarController.swift:1: \[popup-host\] stale allowance" <<<"$out" || { echo "check-overlay-glass.test: the deleted host's entry not named stale"; echo "$out"; exit 1; }
+grep -q "ServerPanelPopover.swift:1: \[popup-host\] stale allowance" <<<"$out" || { echo "check-overlay-glass.test: the deleted host's entry not named stale"; echo "$out"; exit 1; }
 rm -f "$tmp/scripts/cmux-next/check-overlay-glass.py"
 
 # A teammate's surfaces (Lawrence R48) are never flagged: an opaque fill there passes.
@@ -307,19 +330,32 @@ out="$(python3 -I "$CHECK" "$tmp")" || { echo "check-overlay-glass.test: a teamm
 rm -rf "$r48"
 
 # A card window whose glass another file builds passes while that file builds it, and fails when not.
+# No shipped card maps one today (the server cards moved to the web card panel), so this part runs a
+# copy of the check with one mapping added.
+mapped="$tmp/mapped-check/check-overlay-glass.py"
+mkdir -p "$(dirname "$mapped")"
+python3 -I - "$CHECK" "$mapped" <<'PY'
+import sys
+text = open(sys.argv[1]).read()
+anchor = "SURFACE_GLASS_FROM: dict[str, tuple[str, str]] = {\n"
+assert anchor in text, "SURFACE_GLASS_FROM moved"
+entry = ('    SOURCES + "/CmuxNextServer/Views/AddServerCardPanel.swift": (\n'
+         '        SOURCES + "/CmuxNextServer/ServerHostView.swift", "the test\'s card host"),\n')
+open(sys.argv[2], "w").write(text.replace(anchor, anchor + entry, 1))
+PY
 server="$tmp/Packages/macOS/CmuxNext/Sources/CmuxNextServer"
 mkdir -p "$server/Views"
 printf '%s\n' 'public final class AddServerCardPanel: NSPanel {}' > "$server/Views/AddServerCardPanel.swift"
 printf '%s\n' 'final class ServerHostView: NSView { let backdrop = OverlaySurfaceView(material: nil) }' > "$server/ServerHostView.swift"
-out="$(python3 -I "$CHECK" "$tmp")" || { echo "check-overlay-glass.test: the mapped card window failed"; echo "$out"; exit 1; }
+out="$(python3 -I "$mapped" "$tmp")" || { echo "check-overlay-glass.test: the mapped card window failed"; echo "$out"; exit 1; }
 printf '%s\n' 'final class ServerHostView: NSView { let backdrop = NSView() }' > "$server/ServerHostView.swift"
-if out="$(python3 -I "$CHECK" "$tmp")"; then
+if out="$(python3 -I "$mapped" "$tmp")"; then
   echo "check-overlay-glass.test: a mapped card window with no glass passed"; echo "$out"; exit 1
 fi
 grep -q "AddServerCardPanel.swift:1: \[surface-window\]" <<<"$out" || { echo "check-overlay-glass.test: the mapped card window not named"; echo "$out"; exit 1; }
 # A mapped file that declares no surface window any more is stale.
 printf '%s\n' 'public final class AddServerCardHost: NSView {}' > "$server/Views/AddServerCardPanel.swift"
-if out="$(python3 -I "$CHECK" "$tmp")"; then
+if out="$(python3 -I "$mapped" "$tmp")"; then
   echo "check-overlay-glass.test: a stale SURFACE_GLASS_FROM entry passed"; echo "$out"; exit 1
 fi
 grep -q "\[surface-window\] stale allowance" <<<"$out" || { echo "check-overlay-glass.test: the stale entry not named"; echo "$out"; exit 1; }

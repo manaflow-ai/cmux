@@ -1,12 +1,12 @@
 import AppKit
+import CmuxNextTabs
 
 extension AgentTabStore {
-    /// The pages of the agent views on screen that have painted, by tab
-    /// key: saved at quit for the next launch (`AgentPaneLaunchImages`).
-    func shownPageImages() async -> [String: NSImage] {
-        var images: [String: NSImage] = [:]
-        for (key, view) in views where view.model.hasPainted && view.window?.isVisible == true && !view.isHiddenOrHasHiddenAncestor {
-            if let image = await view.pageImage() { images[key] = image }
+    /// The agent views on screen but `isIncognito`'s, by saved-page slot, each with its page once painted: saved for the next launch (`AgentPaneLaunchImages`).
+    func shownPageImages(but isIncognito: (AgentTabKey) -> Bool) async -> [String: NSImage?] {
+        var images: [String: NSImage?] = [:]
+        for (key, view) in views where view.window?.isVisible == true && !view.isHiddenOrHasHiddenAncestor {
+            if case let scoped = resolvedKey(key), !isIncognito(scoped) { images[launchImages.slot(scoped.key, machine: scoped.machine)] = .some(view.model.hasPainted ? await view.pageImage() : nil) }
         }
         return images
     }

@@ -203,12 +203,14 @@ public enum ChiefEngineProblem: Equatable, Sendable {
     /// Something else failed on the Mac.
     case failed
 
-    /// The sentence the settings page shows for a failed load.
+    /// The sentence the settings page shows for a failed load, beside Try
+    /// Again. A transient one waits out the shared quiet bound there, and
+    /// never narrates the page's own retries.
     public var loadText: String {
         switch self {
-        case .macUnreachable: String(localized: "mobile.chief.macRetrying", defaultValue: "Mac unavailable · Retrying…", bundle: .module)
-        case .chiefBusy: String(localized: "mobile.chief.busyRetrying", defaultValue: "Chief busy · Retrying…", bundle: .module)
-        case .modelsUnavailable: String(localized: "mobile.chief.modelsRetrying", defaultValue: "Models unavailable · Retrying…", bundle: .module)
+        case .macUnreachable: String(localized: "mobile.chief.engineMacUnavailable", defaultValue: "Mac unavailable", bundle: .module)
+        case .chiefBusy: String(localized: "mobile.chief.engineBusy", defaultValue: "Chief busy", bundle: .module)
+        case .modelsUnavailable: String(localized: "mobile.chief.engineModelsUnavailable", defaultValue: "Models unavailable", bundle: .module)
         case .chiefDown(let text), .refused(let text): text
         case .failed: String(localized: "mobile.chief.settingsFailed", defaultValue: "Couldn't load Chief's settings.", bundle: .module)
         }
@@ -283,10 +285,11 @@ public final class ChiefFailureLog: @unchecked Sendable {
     }
 }
 
-/// What the bar over the Chief conversation shows: Chief's open question,
-/// else Try Again for Chief's newest turn when it failed.
+/// What the bar over the Chief conversation shows: Try Again for Chief's
+/// newest turn when it failed, why Chief is unavailable, or the Mac away.
+/// Chief's open questions get no bar (Aziz 2026-11-10: "get rid of this
+/// toast"): Chief asks in its message, and a reply in the chat answers it.
 public enum ChiefBarItem: Equatable, Sendable {
-    case question(AgentQuestion)
     /// `id` is the failed message's id.
     case failure(id: String, ChiefTurnFailure)
     /// The Mac's Chief can't be reached: why, and whether Try Again is running.

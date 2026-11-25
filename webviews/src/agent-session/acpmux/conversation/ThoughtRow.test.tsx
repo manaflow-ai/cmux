@@ -1,29 +1,33 @@
 // l10n-allow-file: test fixture thoughts, not shipped UI.
-// A long thought folds once done (behind the Debug toggle agentPane.debug.foldLongThoughts, on by
-// default in the app): while it streams, a long one holds Codex's seven-line viewport
-// (agentPane.debug.liveThoughtViewport), and once done a thought taller than about one transcript
-// viewport (never less than THOUGHT_FOLD_MIN_PX; with agentPane.debug.thoughtFoldThreshold "codex",
-// THOUGHT_LIVE_PX) folds to one line that opens to its text: "Thought for 12s", or with the Debug
-// choice agentPane.debug.thoughtHeader "preview", "Thought" and its first line. The reader's toggle
-// always wins over the fold; the toggle animates the height, the automatic fold snaps (as Codex's
-// does), and Reduce Motion animates nothing. Off, a thought shows in full (Leo 2026-10-13, #20330).
+// A thought folds once done: while it streams, a long one holds Codex's seven-line viewport, and
+// once done every thought (or, with agentPane.debug.thoughtFoldThreshold "viewport" or "codex", one
+// taller than THOUGHT_LIVE_PX) folds to its own first line, cut with an ellipsis; opening leaves
+// that line where it is and unfolds the rest of the text under it (Leo, 2026-11-22: "had the whole
+// line be the line? then you expand and it simply shows you the rest"), with how long it took at
+// the row's end (not with the Debug choice agentPane.debug.thoughtHeader "preview"). A thought its
+// line holds whole opens nothing. The reader's toggle always wins over the fold; the toggle
+// animates the height, the automatic fold snaps (as Codex's does), and Reduce Motion animates
+// nothing.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity } from "../model";
+import { StepThought, ThoughtRow } from "./ThoughtRow";
 import {
-  THOUGHT_FOLD_MIN_PX,
   THOUGHT_LIVE_PX,
-  ThoughtRow,
   thoughtDuration,
+  thoughtHead,
   thoughtLayout,
+  THOUGHT_LINE_CHARS,
+  thoughtName,
   thoughtParts,
-  thoughtPreview,
   type ThoughtFoldThreshold,
   type ThoughtHeader,
-} from "./ThoughtRow";
+} from "./thoughtRowModel";
 import { foldMotion } from "./fold";
+import { ANCHORED_COLLAPSE_EVENT } from "./useAnchoredCollapse";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -34,16 +38,15 @@ const layout = { ...thoughtLayout };
 const motion = { ...foldMotion };
 /// The fold's duration token as the page resolves it (conversation.css `--cv-fold-duration`).
 const FOLD_MS = 190;
-/// The thought's drawn height, the transcript viewport's, the Debug toggle and Reduce Motion.
+/// The thought's drawn height and Reduce Motion.
 let height = 0;
-let viewport = 600;
-let enabled = true;
 let reduce = false;
 let header: ThoughtHeader = "duration";
-/// The live viewport's Debug toggle, and the text's whole height (0: only `height` counts).
-let live = true;
+/// The text's whole height (0: only `height` counts).
 let content = 0;
 let threshold: ThoughtFoldThreshold = "viewport";
+/// Whether the closed line's words run past the one line it shows.
+let clipped = false;
 type Animated = { keyframes: Keyframe[]; options: KeyframeAnimationOptions; finish: () => void };
 let animations: Animated[] = [];
 
@@ -70,22 +73,18 @@ beforeEach(() => {
     return animation;
   };
   height = 0;
-  viewport = 600;
-  enabled = true;
   reduce = false;
   header = "duration";
-  live = true;
   content = 0;
   // The tests below this file's "every finished thought" block check the older Debug choices.
   threshold = "viewport";
   animations = [];
+  clipped = false;
+  thoughtLayout.cut = () => clipped;
   thoughtLayout.threshold = () => threshold;
   thoughtLayout.header = () => header;
-  thoughtLayout.liveViewport = () => live;
   thoughtLayout.contentHeight = () => content;
   thoughtLayout.height = () => height;
-  thoughtLayout.viewport = () => viewport;
-  thoughtLayout.enabled = () => enabled;
   foldMotion.reducedMotion = () => reduce;
   foldMotion.duration = () => FOLD_MS;
   foldMotion.easing = () => "ease-out";
@@ -97,6 +96,7 @@ afterEach(async () => {
   root = undefined;
   Object.assign(thoughtLayout, layout);
   Object.assign(foldMotion, motion);
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -107,6 +107,8 @@ afterEach(async () => {
 });
 
 const LONG = Array.from({ length: 30 }, (_, index) => `Step ${index + 1}: check the retry path.`).join("\n");
+/// What opens under the first line.
+const REST = LONG.slice(LONG.indexOf("\n") + 1);
 const thought = (text = LONG): AcpmuxActivity => ({ kind: "thought", text });
 
 function render(item: AcpmuxActivity, streaming: boolean, id: string) {
@@ -118,10 +120,16 @@ function render(item: AcpmuxActivity, streaming: boolean, id: string) {
 const toggle = () => container.querySelector<HTMLButtonElement>("button[aria-expanded]");
 const body = () => container.querySelector(".cv-thought__body");
 const click = () => act(() => toggle()!.click());
-/// Whether a done thought `drawn` px tall folds in a `view` px transcript.
-function folds(drawn: number, view: number, id: string): boolean {
+// A thought's row line: its own first line, closed and open.
+const preview = () => container.querySelector(".cv-thought__preview")?.textContent;
+/// How long it took, at the row's end.
+const time = () => container.querySelector(".cv-thought__time")?.textContent;
+/// A row that opens nothing: its line holds the whole thought.
+const whole = () => container.querySelector(".cv-thought.is-whole");
+const FIRST = "Step 1: check the retry path.";
+/// Whether a done thought `drawn` px tall folds.
+function folds(drawn: number, id: string): boolean {
   height = drawn;
-  viewport = view;
   render(thought(), false, id);
   const folded = toggle() !== null;
   act(() => root!.unmount());
@@ -129,34 +137,10 @@ function folds(drawn: number, view: number, id: string): boolean {
   return folded;
 }
 
-test("with the Debug toggle off, a long thought shows in full as before", () => {
-  enabled = false;
-  height = 5000;
-  render(thought(), false, "off:0");
-  expect(toggle()).toBeNull();
-  expect(body()).toBeNull();
-  expect(container.querySelector(".cv-thought__text")?.textContent).toBe(LONG);
-});
-
-test("with the live viewport off, a done thought folds once taller than the transcript's viewport", () => {
-  live = false;
-  expect(folds(599, 600, "view-1:0")).toBe(false);
-  expect(folds(600, 600, "view-2:0")).toBe(false);
-  expect(folds(601, 600, "view-3:0")).toBe(true);
-});
-
-test("with the live viewport off, a tiny pane folds only thoughts taller than the floor", () => {
-  live = false;
-  expect(folds(THOUGHT_FOLD_MIN_PX - 1, 200, "floor-1:0")).toBe(false);
-  expect(folds(THOUGHT_FOLD_MIN_PX, 200, "floor-2:0")).toBe(false);
-  expect(folds(THOUGHT_FOLD_MIN_PX + 1, 200, "floor-3:0")).toBe(true);
-});
-
-test("with the live viewport on, a thought it clipped folds once done, even under the transcript's height", () => {
-  // An 800px pane: a 300px thought streams clipped to 140px, then folds rather than growing.
+test("a thought the live viewport clipped folds once done, even under the transcript's height", () => {
+  // A 300px thought streams clipped to 140px, then folds rather than growing.
   height = THOUGHT_LIVE_PX;
   content = 300;
-  viewport = 800;
   render(thought(), true, "band:0");
   expect(row()?.classList.contains("is-live")).toBe(true);
   render(thought(), false, "band:0");
@@ -166,44 +150,57 @@ test("with the live viewport on, a thought it clipped folds once done, even unde
   root = undefined;
   // A thought the viewport never clipped stays in full.
   content = 0;
-  expect(folds(THOUGHT_LIVE_PX, 800, "band-short:0")).toBe(false);
-  expect(folds(THOUGHT_LIVE_PX + 1, 800, "band-over:0")).toBe(true);
+  expect(folds(THOUGHT_LIVE_PX, "band-short:0")).toBe(false);
+  expect(folds(THOUGHT_LIVE_PX + 1, "band-over:0")).toBe(true);
 });
 
-test("a folded thought over a minute reads its minutes and seconds", () => {
+test("an opened thought over a minute reads its minutes and seconds at the row's end", () => {
   height = 900;
   render({ ...thought(), startedAt: 0, endedAt: 65_400 }, false, "minutes:0");
-  expect(toggle()?.textContent).toBe("Thought for 1m 5s");
+  click();
+  expect(preview()).toBe(FIRST);
+  expect(time()).toBe("1m 5s");
+  expect(toggle()?.textContent).not.toContain("Thought");
 });
 
-test("with the live viewport off and the Debug choice codex, a done thought folds once taller than seven lines", () => {
-  live = false;
+test("with the Debug choice codex, a done thought folds once taller than seven lines", () => {
   threshold = "codex";
-  expect(folds(THOUGHT_LIVE_PX, 600, "codex-1:0")).toBe(false);
-  expect(folds(THOUGHT_LIVE_PX + 1, 600, "codex-2:0")).toBe(true);
-  // The transcript's viewport no longer counts.
-  expect(folds(THOUGHT_LIVE_PX + 1, 2000, "codex-3:0")).toBe(true);
+  expect(folds(THOUGHT_LIVE_PX, "codex-1:0")).toBe(false);
+  expect(folds(THOUGHT_LIVE_PX + 1, "codex-2:0")).toBe(true);
 });
 
-test("a folded thought reads how long the agent thought, without its text", () => {
+test("a folded thought reads its own first line; opened, the same line with the rest under it", () => {
   height = 900;
   render({ ...thought(), startedAt: 1_000, endedAt: 13_400 }, false, "for:0");
   expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
-  expect(toggle()?.textContent).toBe("Thought for 12s");
+  expect(preview()).toBe(FIRST);
+  expect(toggle()?.querySelector(".cv-tool__icon svg")).not.toBeNull();
+  expect(toggle()?.querySelector(".cv-tool__chevron")).not.toBeNull();
   expect(body()).toBeNull();
+  const line = container.querySelector(".cv-thought__preview");
   click();
-  expect(toggle()?.textContent).toBe("Thought for 12s");
-  expect(body()?.textContent).toBe(LONG);
+  // No word is swapped: the same node holds the same line, the brain stays, and the rest opens.
+  expect(container.querySelector(".cv-thought__preview")).toBe(line);
+  expect(preview()).toBe(FIRST);
+  expect(line?.classList.contains("is-open")).toBe(true);
+  expect(toggle()?.querySelector(".cv-tool__icon svg")).not.toBeNull();
+  expect(toggle()?.textContent).toBe(`${FIRST}12s`);
+  expect(body()?.textContent).toBe(REST);
+  // The line and the rest together are the whole thought, in order.
+  expect(`${preview()}\n${body()?.textContent}`).toBe(LONG);
 });
 
-test("a folded thought that is undated or under a second reads Thought", () => {
+test("a thought that is undated or took under a second shows no time", () => {
   height = 900;
   render(thought(), false, "undated:0");
-  expect(toggle()?.textContent).toBe("Thought");
+  click();
+  expect(toggle()?.textContent).toBe(FIRST);
+  expect(time()).toBeUndefined();
   act(() => root!.unmount());
   root = undefined;
   render({ ...thought(), startedAt: 1_000, endedAt: 1_900 }, false, "short:0");
-  expect(toggle()?.textContent).toBe("Thought");
+  click();
+  expect(toggle()?.textContent).toBe(FIRST);
 });
 
 test("a thought's duration never goes negative when its events came out of order", () => {
@@ -212,20 +209,18 @@ test("a thought's duration never goes negative when its events came out of order
   expect(thoughtDuration(thought())).toBeUndefined();
 });
 
-test("with the Debug choice preview, a folded thought reads Thought and its first line", () => {
+test("with the Debug choice preview, a thought shows no time", () => {
   header = "preview";
   height = 900;
   render({ ...thought(), startedAt: 1_000, endedAt: 13_000 }, false, "over:0");
   expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
-  expect(toggle()?.textContent).toContain("Thought");
-  expect(toggle()?.textContent).not.toContain("Thought for");
-  expect(toggle()?.textContent).toContain("Step 1: check the retry path.");
-  expect(toggle()?.textContent).not.toContain("Step 2");
+  expect(preview()).toBe(FIRST);
   expect(body()).toBeNull();
+  click();
+  expect(toggle()?.textContent).toBe(FIRST);
 });
 
 test("a long thought shows in full while it streams and folds only when done, without animating", () => {
-  live = false;
   height = 900;
   render(thought(LONG.slice(0, 200)), true, "streaming:0");
   render(thought(), true, "streaming:0");
@@ -260,19 +255,6 @@ test("a thought no taller than the live viewport streams in full under Thinking,
   expect(row()?.textContent).not.toContain("Thought");
 });
 
-test("with the live viewport's toggle off, or the fold's, a long thought streams in full", () => {
-  live = false;
-  height = 900;
-  render(thought(), true, "live-off:0");
-  expect(row()?.classList.contains("is-live")).toBe(false);
-  act(() => root!.unmount());
-  root = undefined;
-  live = true;
-  enabled = false;
-  render(thought(), true, "fold-off:0");
-  expect(row()?.classList.contains("is-live")).toBe(false);
-});
-
 test("a thought clipped by the live viewport still folds by its whole height once done", () => {
   // Drawn, the clip is 140px; its text is 900px.
   height = THOUGHT_LIVE_PX;
@@ -289,7 +271,7 @@ test("a thought the reader opened stays open as new content arrives and after it
   render(thought(), false, "opened:0");
   click();
   expect(toggle()?.getAttribute("aria-expanded")).toBe("true");
-  expect(body()?.textContent).toBe(LONG);
+  expect(body()?.textContent).toBe(REST);
   // The row draws again for a later step (a new item object holding the same thought).
   render({ ...thought() }, false, "opened:0");
   expect(toggle()?.getAttribute("aria-expanded")).toBe("true");
@@ -298,7 +280,7 @@ test("a thought the reader opened stays open as new content arrives and after it
   root = undefined;
   render(thought(), false, "opened:0");
   expect(toggle()?.getAttribute("aria-expanded")).toBe("true");
-  expect(body()?.textContent).toBe(LONG);
+  expect(body()?.textContent).toBe(REST);
 });
 
 test("the reader's toggle plays the shared fold, height and opacity, closing after the text slides away", () => {
@@ -319,12 +301,49 @@ test("the reader's toggle plays the shared fold, height and opacity, closing aft
   expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
 });
 
+// The morph (Leo, 2026-11-22: "i think we'd likely want a morphing animation to and from thought"):
+// a line cut to one line grows to its wrapped height over the fold's time, and shrinks back holding
+// its wrapped words until it is one line tall again.
+test("a cut line grows to its wrapped height on open and shrinks back on close, over the fold's time", () => {
+  const one = "One long line of thought that runs past the row's end and so is cut with an ellipsis.";
+  clipped = true;
+  const line = () => container.querySelector<HTMLElement>(".cv-thought__preview")!;
+  // One line closed (20px), three lines wrapped (60px).
+  thoughtLayout.height = (node) => (node.classList.contains("is-open") ? 60 : 20);
+  threshold = "every";
+  render(thought(one), false, "morph:0");
+  // Nothing under the line: the line itself is all there is to open.
+  expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
+  expect(toggle()?.hasAttribute("aria-controls")).toBe(false);
+  click();
+  expect(preview()).toBe(one);
+  expect(body()).toBeNull();
+  const grow = animations.find(({ keyframes }) => "maxHeight" in keyframes[0]!);
+  expect(grow?.keyframes).toEqual([
+    { height: "20px", maxHeight: "20px" },
+    { height: "60px", maxHeight: "60px" },
+  ]);
+  expect(grow?.options.duration).toBe(FOLD_MS);
+  animations = [];
+  click();
+  const shrink = animations.find(({ keyframes }) => "maxHeight" in keyframes[0]!);
+  expect(shrink?.keyframes).toEqual([
+    { height: "60px", maxHeight: "60px" },
+    { height: "20px", maxHeight: "20px" },
+  ]);
+  // Its wrapped words stay while it shrinks; the ellipsis comes back at the end.
+  expect(line().classList.contains("is-closing")).toBe(true);
+  shrink!.finish();
+  expect(line().classList.contains("is-closing")).toBe(false);
+  expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
+});
+
 test("with Reduce Motion the toggle opens and closes at once", () => {
   reduce = true;
   height = 900;
   render(thought(), false, "reduced:0");
   click();
-  expect(body()?.textContent).toBe(LONG);
+  expect(body()?.textContent).toBe(REST);
   click();
   expect(body()).toBeNull();
   expect(animations).toEqual([]);
@@ -335,37 +354,73 @@ test("with explicit animation off the toggle does not schedule a Web Animation",
   height = 900;
   render(thought(), false, "off-motion:0");
   click();
-  expect(body()?.textContent).toBe(LONG);
+  expect(body()?.textContent).toBe(REST);
   expect(animations).toEqual([]);
 });
 
-test("the folded line reads the first line without heading marks", () => {
-  expect(thoughtPreview("**Planning the retry fix**\n\nMore detail.")).toBe("Planning the retry fix");
-  expect(thoughtPreview("## Check errors\nnext")).toBe("Check errors");
+test("a thought's line is its own first line, a leading heading its words, and the rest is what follows", () => {
+  expect(thoughtHead("**Planning the retry fix**\n\nMore detail.")).toEqual({
+    line: "Planning the retry fix",
+    title: true,
+    rest: "More detail.",
+    gap: true,
+  });
+  expect(thoughtHead("## Check errors\nnext")).toEqual({ line: "Check errors", title: true, rest: "next", gap: false });
+  expect(thoughtHead("First.\nSecond.\n\nThird.")).toEqual({
+    line: "First.",
+    title: false,
+    rest: "Second.\n\nThird.",
+    gap: false,
+  });
+  expect(thoughtHead("First paragraph.\n\nSecond.")).toEqual({
+    line: "First paragraph.",
+    title: false,
+    rest: "Second.",
+    gap: true,
+  });
+  // Bold inside a line is text, and one line has nothing after it.
+  expect(thoughtHead("Use **retry** here.")).toEqual({
+    line: "Use **retry** here.",
+    title: false,
+    rest: "",
+    gap: false,
+  });
+  expect(thoughtHead("")).toEqual({ line: "", title: false, rest: "", gap: false });
 });
 
-// Every finished thought folds to one quiet "Thought for 12s" with no text inline, as Claude Desktop
-// and Codex draw it (Leo 2026-10-20: "Thought I am here" read weird); a quiet one draws nothing.
+// Every finished thought folds to one quiet line, the brain glyph and its own first line (Lucas,
+// 2026-11-06; never "Thought" glued to its words, Leo 2026-10-20). A quiet one draws nothing.
 const SUMMARY = "I am here: the retry helper swallows the status, so check how it parses errors.";
 
-test("by default a short finished thought folds to Thought for 12s with no text inline, and opens to it", () => {
+test("a thought its line holds whole has no chevron and does not open", () => {
   threshold = "every";
   height = 20;
   render({ ...thought(SUMMARY), startedAt: 1_000, endedAt: 13_400 }, false, "every:0");
-  expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
-  expect(toggle()?.textContent).toBe("Thought for 12s");
-  expect(container.textContent).not.toContain("I am here");
+  expect(toggle()).toBeNull();
+  expect(container.querySelector("button")).toBeNull();
+  expect(whole()?.querySelector(".cv-tool__chevron")).toBeNull();
+  expect(whole()?.querySelector(".cv-tool__icon svg")).not.toBeNull();
+  expect(preview()).toBe(SUMMARY);
+  expect(time()).toBe("12s");
+  expect(whole()?.textContent).not.toContain("Thought");
   expect(body()).toBeNull();
-  click();
-  expect(body()?.textContent).toBe(SUMMARY);
 });
 
-test("by default a finished thought that took under a second reads Thought, folded", () => {
+test("the same thought on a row too narrow for it is cut, and opens to its whole line", () => {
   threshold = "every";
   height = 20;
-  render({ ...thought(SUMMARY), startedAt: 1_000, endedAt: 1_400 }, false, "every-quick:0");
-  expect(toggle()?.textContent).toBe("Thought");
-  expect(body()).toBeNull();
+  clipped = true;
+  render({ ...thought(SUMMARY), startedAt: 1_000, endedAt: 1_400 }, false, "every-cut:0");
+  expect(whole()).toBeNull();
+  expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
+  expect(toggle()?.querySelector(".cv-tool__chevron")).not.toBeNull();
+  click();
+  expect(toggle()?.getAttribute("aria-expanded")).toBe("true");
+  expect(toggle()?.textContent).toBe(SUMMARY);
+  // Open, it stays a toggle though its wrapped line is no longer cut.
+  clipped = false;
+  render({ ...thought(SUMMARY), startedAt: 1_000, endedAt: 1_400 }, false, "every-cut:0");
+  expect(toggle()?.getAttribute("aria-expanded")).toBe("true");
 });
 
 test("an empty, blank or very short quick thought draws no row once done", () => {
@@ -381,9 +436,10 @@ test("an empty, blank or very short quick thought draws no row once done", () =>
     act(() => root!.unmount());
     root = undefined;
   }
-  // A short thought the agent spent seconds on still says so.
+  // A short thought the agent spent seconds on still draws, with how long.
   render({ ...thought("I am here"), startedAt: 1_000, endedAt: 4_000 }, false, "quiet-long:0");
-  expect(toggle()?.textContent).toBe("Thought for 3s");
+  expect(preview()).toBe("I am here");
+  expect(time()).toBe("3s");
 });
 
 test("a short thought still streaming draws, and folds once done", () => {
@@ -393,7 +449,7 @@ test("a short thought still streaming draws, and folds once done", () => {
   expect(toggle()).toBeNull();
   expect(container.querySelector(".cv-thought__text")?.textContent).toBe(SUMMARY);
   render({ ...thought(SUMMARY), startedAt: 1_000, endedAt: 6_000 }, false, "every-live:0");
-  expect(toggle()?.textContent).toBe("Thought for 5s");
+  expect(preview()).toBe(SUMMARY);
   expect(body()).toBeNull();
 });
 
@@ -419,14 +475,18 @@ test("an undated finished thought shown in full reads Thought alone over its tex
 
 const CODEX = "**Planning the retry fix**\n\nThe helper swallows the status.\n\n**Checking callers**\nTwo call sites.";
 
-test("Codex's reasoning headings are muted titles in the text, never glued after Thought", () => {
+test("a leading heading is the row's line; the headings after it are titles in the text under it", () => {
   threshold = "every";
   height = 20;
   render({ ...thought(CODEX), startedAt: 0, endedAt: 12_000 }, false, "codex:0");
-  expect(toggle()?.textContent).toBe("Thought for 12s");
+  // Closed, the heading's words without its marks.
+  expect(preview()).toBe("Planning the retry fix");
+  expect(container.querySelector(".cv-thought__preview")?.classList.contains("is-title")).toBe(true);
   click();
+  expect(toggle()?.textContent).toBe("Planning the retry fix12s");
   const titles = [...container.querySelectorAll(".cv-thought__title")].map((node) => node.textContent);
-  expect(titles).toEqual(["Planning the retry fix", "Checking callers"]);
+  expect(titles).toEqual(["Checking callers"]);
+  expect(body()?.classList.contains("is-gap")).toBe(true);
   expect(body()?.textContent).not.toContain("**");
   expect(body()?.textContent).toContain("The helper swallows the status.");
 });
@@ -460,4 +520,56 @@ test("an empty or redacted thought draws nothing, streaming or done", () => {
       act(() => root!.unmount());
       root = undefined;
     }
+});
+
+// A thought inside an opened group holds its line where the reader clicked while its text opens or
+// closes under it, as every other row does (Lucas, 2026-11-06: the line slid away from the pointer,
+// so the same spot no longer closed it).
+test("a step thought's click asks the transcript to hold its line, opening and closing", () => {
+  const holds: string[] = [];
+  container.addEventListener(ANCHORED_COLLAPSE_EVENT, (event) => {
+    event.preventDefault();
+    holds.push((event.target as HTMLElement).className);
+  });
+  const two = `${SUMMARY}\nThen read the callers.`;
+  act(() => {
+    root ??= createRoot(container);
+    root.render(<StepThought id="step-hold:0" item={{ ...thought(two), startedAt: 0, endedAt: 4_000 }} />);
+  });
+  expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
+  click();
+  expect(holds).toHaveLength(1);
+  expect(holds[0]).toContain("cv-step-thought");
+  expect(toggle()?.getAttribute("aria-expanded")).toBe("true");
+  expect(preview()).toBe(SUMMARY);
+  expect(body()?.textContent).toBe("Then read the callers.");
+  click();
+  expect(holds).toHaveLength(2);
+  expect(toggle()?.getAttribute("aria-expanded")).toBe("false");
+});
+
+test("a step thought with no words to show reads Thought, and opens nothing", () => {
+  act(() => {
+    root ??= createRoot(container);
+    root.render(<StepThought id="step-empty:0" item={{ ...thought(""), startedAt: 0, endedAt: 4_000 }} />);
+  });
+  expect(toggle()).toBeNull();
+  expect(preview()).toBe("Thought");
+  expect(whole()?.querySelector(".cv-tool__chevron")).toBeNull();
+});
+
+test("a line longer than THOUGHT_LINE_CHARS names its button with its start, so the name stays short", () => {
+  // One unbroken line of thousands of characters named its whole text as the button's accessible name.
+  const huge = Array.from({ length: 400 }, (_, index) => `Part ${index}: weigh the next step.`).join(" ");
+  const name = thoughtName(huge)!;
+  expect(name.length).toBeLessThanOrEqual(THOUGHT_LINE_CHARS + 1);
+  expect(name.endsWith("\u2026")).toBe(true);
+  expect(name.startsWith("Part 0: weigh the next step. Part 1:")).toBe(true);
+  // A short line names the button itself.
+  expect(thoughtName("Read the file.")).toBeUndefined();
+  clipped = true;
+  threshold = "every";
+  render(thought(huge), false, "huge:0");
+  expect(toggle()?.getAttribute("aria-label")).toBe(name);
+  expect(preview()).toBe(huge);
 });

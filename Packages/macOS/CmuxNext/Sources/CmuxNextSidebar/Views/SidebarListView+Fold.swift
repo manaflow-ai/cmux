@@ -12,13 +12,15 @@ extension SidebarListViewComponents {
     /// back to a full reload when a drag, a filter or another layout mode owns the rows.
     func foldGroup(_ id: GroupID) {
         guard let group = model.group(id), let section = model.groupSection(id),
-              drag == nil, settling == nil, landing == nil, external == nil, rowHold.isEmpty, !isShiftingViewport,
+              drag == nil, settling == nil, landing == nil, external == nil, !isShiftingViewport,
               !displayed.rows.isEmpty else {
             return reload(animated: true)
         }
         var o = model.listOptions()
         o.pullRequests = SidebarSessionTree.shared.pullRequests
         o.excludedWorkspaces.formUnion(leaving)
+        // A collapse of the stuck group keeps its header where it draws: at its own place, now at the top.
+        keepStuckHeaderForFold(of: id, collapsing: group.isCollapsed)
         // What the animation needs of the rows before the fold: the realized ones and the group's block. The rest of
         // the layout is spliced in place (no copy of every row).
         let old = displayed.excerpt(rowViews.keys, group: id)
@@ -27,12 +29,16 @@ extension SidebarListViewComponents {
         }
         SidebarPerfCounters.add(.groupFolds)
         groups[id] = group
+        // The row caches hold what the layout shows: a space page kept from them (`SidebarSpacePage`) is compared with
+        // the model, so its sections have this fold as its layout has.
+        spacePages.cachesTookChange(at: model.structureRevision)
+        sections[section.id] = section
         applyFold(from: old, group: id)
     }
 
     /// Shows `layout` (the displayed one with group `id` spliced): the views of rows still listed move to their
-    /// frames, the rows the fold hid slide up under the header, the rows it showed come out from under it, and rows
-    /// the move brought into view get views. Only realized views and the rows in the viewport are visited.
+    /// frames, the rows the fold hid stay put and fade as the group's slot closes over them, the rows it showed fade in
+    /// at their places as it opens (`clipFold`), and rows the move brought into view get views. Only realized views and the rows in the viewport are visited.
     private func applyFold(from old: SidebarLayout, group id: GroupID) {
         let previousHoverSuppression = suppressHoverEffects
         suppressHoverEffects = true
@@ -43,6 +49,10 @@ extension SidebarListViewComponents {
         let layout = displayed
         selectedRowKey = layout.selectedRowKey(for: model.selectedItem, in: model.sections)
         updateDocumentHeight()
+        // The header that sticks over the folded rows draws there; the one that let go moves home.
+        let wasStuck = stuckHeader
+        stuckHeader = findStuckHeader(in: layout)
+        defer { endStuckPass(from: wasStuck) }
         let realize = realizationRect()
         let range = layout.rowIndices(from: realize.minY, to: realize.maxY)
         // An opened group adds workspace rows: they open only with ui.animations.newWorkspace on, as in `apply` (hq-1d).
@@ -50,16 +60,21 @@ extension SidebarListViewComponents {
             if case .workspace = layout.rows[index].key { old.row(for: layout.rows[index].key) == nil } else { false }
         }
         // Only the user's own fold moves on the spring; another client's shows in one step (calm-sidebar-movement).
-        let animate = model.followsUserIntent && (!opensWorkspaces || Motion.sidebar.animates(.newWorkspace))
+        let animate = model.followsUserIntent && (!opensWorkspaces || Motion.sidebar.animates(.newWorkspace, in: window))
         var targets: [(SidebarRowView, NSRect)] = []
         var appearing: [(SidebarRowView, NSRect)] = []
         var leavingRows: [(SidebarRowView, NSRect)] = []
+        // The slot the fold closes or opens under the group's header: its members, nested groups' rows included.
+        let slot = foldSlot(old: old, new: layout, group: id)
+        let collapses = layout.totalHeight < old.totalHeight
+        let closing = collapses ? slot : nil, opening = collapses ? nil : slot
         // The realized rows: kept ones move, ones the fold hid leave (first, so a new row can take a parked view).
         for (key, view) in Array(rowViews) {
             if let row = layout.row(for: key) {
-                let target = frame(for: row)
+                let target = drawnFrame(for: row)
                 view.targetSize = target.size
                 if key == .group(id) { configure(view, row: row, animated: animate) } // the chevron, count and activity
+                view.isSelected = selectedRowKey == key // a row the fold keeps shows the selection as it is now
                 targets.append((view, target))
                 continue
             }
@@ -74,8 +89,12 @@ extension SidebarListViewComponents {
             }
             view.isSelected = false
             view.clipsToBounds = true
-            // A folded row slides up under its header.
-            leavingRows.append((view, SidebarRowTransition.removeFrame(was, current: view.frame, runTop: nil, from: old, to: layout)))
+            // A folded member stays where it is and fades as the group's slot closes over it (`clipFold`); a row
+            // outside the group's block slides up under its header as before.
+            let folds = closing?.contains(view.frame.origin) == true
+            // An open still running on this row ends without unclipping it: the close owns the row now.
+            if folds { view.opens += 1 }
+            leavingRows.append((view, folds ? view.frame : SidebarRowTransition.removeFrame(was, current: view.frame, runTop: nil, from: old, to: layout)))
         }
         // The rows in view without a view: an opened member comes out from under its header, a row the move
         // brought into view starts where it was.
@@ -93,7 +112,9 @@ extension SidebarListViewComponents {
             let opens = animate && was == nil
             Motion.withoutAnimation {
                 if opens {
-                    view.frame = SidebarRowTransition.insertFrame(row, target: target, runTop: nil, from: old, to: layout)
+                    // An opened member shows at its own place as the group's slot opens down over it (`clipFold`).
+                    let member = opening?.contains(target.origin) == true
+                    view.frame = member ? target : SidebarRowTransition.insertFrame(row, target: target, runTop: nil, from: old, to: layout)
                     view.alphaValue = 0
                     view.clipsToBounds = true
                     view.opens += 1
@@ -109,10 +130,32 @@ extension SidebarListViewComponents {
         }
         let (lines, start) = foldLines(old: old, new: layout, group: id)
         let lineMotion = groupLineViews.update(lines, from: animate ? start : [], in: self, above: decorations, animated: animate)
-        RowMotion(targets: targets, appearing: appearing, leaving: leavingRows, lines: lineMotion).run(in: self, from: old, to: layout, animated: animate)
+        // A collapse's rows fade out on the short fade, ahead of the slot closing over them (`RowMotion.folding`).
+        RowMotion(targets: targets, appearing: appearing, leaving: leavingRows, lines: lineMotion, folding: collapses ? leavingRows.map(\.0) : [])
+            .run(in: self, from: old, to: layout, animated: animate)
+        if animate, let slot {
+            // The members' slot closes (or opens) on the rows' spring, its bottom edge with the rows below it.
+            let members = (collapses ? leavingRows : appearing).map(\.0).filter { slot.contains($0.frame.origin) }
+            clipFold(members, under: slot.minY, from: collapses ? slot.height : 0, to: collapses ? 0 : slot.height)
+            // Opening, the group's line starts whole at its end (its new members' frames): the same clip uncovers it with
+            // them, so no rail shows below a row not yet uncovered. Its top (a block's header) stays uncovered.
+            if !collapses, let line = groupLineViews.view(for: id) {
+                let top = min(line.frame.minY, slot.minY), above = slot.minY - top
+                clipFold([line], under: top, from: above, to: above + slot.height)
+            }
+        }
         inlineRename.follow()
         groupEditor.follow(groups)
         if let shown = groupEditor.shownGroup { (rowViews[.group(shown)] as? GroupHeaderRowView)?.isEditing = true }
+    }
+
+    /// The rect under group `id`'s header (list coordinates) its fold takes out or puts in: from the header's bottom edge,
+    /// the height the layout lost or gained. Nil when the header is not listed or nothing changed height.
+    private func foldSlot(old: SidebarLayout, new: SidebarLayout, group id: GroupID) -> NSRect? {
+        guard let header = new.row(for: .group(id)) else { return nil }
+        let height = abs(new.totalHeight - old.totalHeight)
+        guard height > 0 else { return nil }
+        return NSRect(x: bounds.minX, y: frame(for: header).maxY, width: bounds.width, height: height)
     }
 
     /// The group lines after group `id`'s fold: its own line from its rows (and where its rows are now, the
@@ -123,15 +166,30 @@ extension SidebarListViewComponents {
         var end = headerIndex + 1
         while end < new.rows.count, new.rows[end].group == id, !new.rows[end].key.isGroupHeader { end += 1 }
         let block = Array(new.rows[headerIndex..<end])
-        let own = SidebarGroupLine.lines(block, colors: groups) { frame(for: $0) }
-        let start = SidebarGroupLine.lines(block, colors: groups) { self.rowViews[$0.key]?.frame ?? self.frame(for: $0) }
+        let own = styled(SidebarGroupLine.lines(block, colors: lineColors, style: model.groupHeaderDetails.background) { frame(for: $0) })
+        let start = styled(SidebarGroupLine.lines(block, colors: lineColors, style: model.groupHeaderDetails.background) { self.rowViews[$0.key]?.drawnFrame ?? self.frame(for: $0) })
         let dy = new.totalHeight - old.totalHeight
         var lines = groupLineViews.lines.filter { $0.group != id }
         if dy != 0 {
-            for index in lines.indices where lines[index].frame.minY > header.y { lines[index].frame.origin.y += dy }
+            for index in lines.indices where lines[index].frame.minY > header.y {
+                lines[index].frame.origin.y += dy
+                lines[index].rail?.origin.y += dy
+            }
+            // An uncolored parent's block holds the folded group: its bottom, and its rail's, moves with the fold.
+            for index in lines.indices where lines[index].isBlock && lines[index].frame.minY <= header.y
+                && lines[index].frame.maxY > header.y {
+                lines[index].frame.size.height += dy
+                lines[index].rail?.size.height += dy
+            }
         }
         // In list order, top to bottom, as a full rebuild lists them.
         lines.insert(contentsOf: own, at: lines.firstIndex { $0.frame.minY > header.y } ?? lines.count)
-        return (lines, start)
+        // A group the fold brings near the visible rows had no line yet (the lines are made near them, `groupLines`).
+        let listed = Set(lines.map(\.group))
+        let near = groupLines(new).filter { !listed.contains($0.group) }
+        guard !near.isEmpty else { return (lines, start) }
+        let groups = Set(near.map(\.group))
+        for line in near { lines.insert(line, at: lines.firstIndex { $0.frame.minY > line.frame.minY } ?? lines.count) }
+        return (lines, start + groupLines(new, current: true).filter { groups.contains($0.group) })
     }
 }

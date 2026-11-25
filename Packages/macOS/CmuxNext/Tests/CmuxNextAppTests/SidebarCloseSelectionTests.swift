@@ -66,4 +66,36 @@ struct SidebarCloseSelectionTests {
         #expect(model.activeWorkspaceID == ids[1])
         #expect(model.selection == Set([ids[1]]))
     }
+
+    @Test(arguments: [false, true])
+    func closingLastMemberKeepsGroupHeaderInPlace(pinned: Bool) throws {
+        let workspace = SidebarWorkspace(id: WorkspaceID("last"), title: "Last workspace")
+        let group = SidebarGroup(id: GroupID("kept"), name: "Keep this group", isPinned: pinned, workspaces: [workspace])
+        let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+        let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: [.group(group)])],
+                                 activeWorkspaceID: workspace.id)
+        let before = SidebarLayout.make(sections: model.sections, metrics: .standard)
+        let header = try #require(before.row(for: .group(group.id)))
+        model.apply(.close([workspace.id]))
+        let kept = try #require(model.group(group.id))
+        var expected = group
+        expected.workspaces = []
+        #expect(kept == expected, "closing a workspace must not remove or fold its group")
+        let after = SidebarLayout.make(sections: model.sections, metrics: .standard)
+        let remainingHeader = try #require(after.row(for: header.key))
+        #expect(remainingHeader.y == header.y)
+        #expect(remainingHeader.height == header.height)
+        #expect(after.row(for: .workspace(workspace.id)) == nil)
+        // The row diff keeps the same header; only the workspace enters the existing close animation.
+        #expect(Set(before.rows.map(\.key)).subtracting(after.rows.map(\.key)) == [.workspace(workspace.id)])
+    }
+
+    @Test func explicitCloseGroupStillRemovesAnUnpinnedGroup() {
+        let group = SidebarGroup(id: GroupID("explicit"), name: "Close this group", workspaces: [])
+        let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+        let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: [.group(group)])])
+        model.apply(.closeGroup(group.id))
+        #expect(model.group(group.id) == nil)
+    }
+
 }

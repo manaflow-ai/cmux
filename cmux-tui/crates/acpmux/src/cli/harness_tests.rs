@@ -20,6 +20,7 @@ fn options(env: &'static [(&'static str, &'static str)]) -> DoctorOptions {
             env.iter().find(|(k, _)| *k == var).map(|(_, v)| (*v).to_owned())
         }),
         lookup_keychain: Box::new(|_, _| Err("not found".into())),
+        extra_env: Default::default(),
     }
 }
 
@@ -53,6 +54,7 @@ fn folder_fixture(name: &str) -> (PathBuf, Config) {
             record: root.join("acpmux").join("trust.json"),
             agent_home: None,
             cmux_worktrees: None,
+            peer_scratch: None,
         },
     };
     (folder, Config { folder_gate: Some(gate), ..Default::default() })
@@ -103,6 +105,17 @@ async fn doctor_checks_a_folder_profile_only_when_enabled_and_inside_its_folder(
     let report = doctor(&cfg, "fakefolder", &opts).await;
     assert_eq!(step(&report, "profile").status, StepStatus::Fail);
     assert!(step(&report, "profile").detail.contains("no harness"), "{}", report.text());
+}
+
+/// A managed Codex install reports whether it told a running daemon to read its profiles again,
+/// so a daemon that was running does not keep offering the catalog it had before the install.
+#[test]
+fn a_codex_runtime_install_reports_the_daemon_reload() {
+    let installed = json!({"version": "0.156.1", "ready": true});
+    let reloaded = with_daemon_reloaded(installed.clone(), true);
+    assert_eq!(reloaded["daemonReloaded"], true);
+    assert_eq!(reloaded["version"], "0.156.1");
+    assert_eq!(with_daemon_reloaded(installed, false)["daemonReloaded"], false);
 }
 
 /// `cmux harness add --example hermes` (or `hermes-agent`) writes a profile

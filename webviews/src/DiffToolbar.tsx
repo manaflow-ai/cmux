@@ -1,10 +1,16 @@
 // Diff toolbar controls: the source menu pill, the jump-to-file palette, the
 // floating toolbar pill and its "..." options menu. State lives in App; the
 // models (what each control shows and does) are in toolbar-model.ts.
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useInPlaceGlassBlur } from "./ui/glass/pageGlassBlur";
+import { useScrollEdges } from "./ui/scrollEdges";
+import { usePopupSettle } from "./ui/popupSettle";
+import "./ui/popupSurface.css";
 import type { DiffItem } from "./diff-stream";
+import { diffStatParts } from "./file-tree-stats";
 import { Icon, type IconName } from "./icons";
+import { sourcePillTooltip, viewedProgressSuffix } from "./viewed-files";
 import type { DiffViewerLabelResolver } from "./labels";
 import {
   jumpToFileRows,
@@ -46,7 +52,12 @@ function useAnchoredPopover(open: boolean, anchorRef: React.RefObject<HTMLElemen
       const fitted = Math.min(width, window.innerWidth - VIEWPORT_MARGIN * 2);
       const left = Math.max(VIEWPORT_MARGIN, Math.min(rect.left, window.innerWidth - fitted - VIEWPORT_MARGIN));
       const top = rect.bottom + POPOVER_GAP;
-      setStyle({ top, left, width: fitted, maxHeight: Math.max(120, window.innerHeight - top - VIEWPORT_MARGIN) });
+      setStyle({
+        top,
+        left,
+        width: fitted,
+        maxHeight: Math.max(120, window.innerHeight - top - VIEWPORT_MARGIN),
+      });
     };
     reposition();
     window.addEventListener("resize", reposition);
@@ -113,17 +124,30 @@ export function SourceMenu({
   label,
   model,
   onSelect,
+  progressLook = "tooltip",
+  viewedProgress = null,
 }: {
-  additions: number;
-  deletions: number;
+  /** Null while the diff is still loading: the counts keep their place but show no made-up +0 -0. */
+  additions: number | null;
+  deletions: number | null;
   label: DiffViewerLabelResolver;
   model: SourceMenuModel;
   onSelect: (target: SourceTarget) => void;
+  /** How the pill shows the review's progress (diff-viewer/viewedProgress.experiment.ts). */
+  progressLook?: "tooltip" | "suffix";
+  /** How many files are marked viewed; null while loading. */
+  viewedProgress?: { viewed: number; total: number } | null;
 }) {
   const [open, setOpen] = useState(false);
   const [committedOpen, setCommittedOpen] = useState(false);
+  const submenuEdges = useScrollEdges();
+  const submenuRef = usePopupSettle<HTMLElement>(focusFirstMenuItem);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const sourceMenuRef = usePopupSettle<HTMLDivElement>((node) => {
+    menuRef.current = node;
+    if (node && !node.contains(document.activeElement)) focusFirstMenuItem(node);
+  });
   const menuId = useId();
   const style = useAnchoredPopover(open, buttonRef, 230);
   const close = (refocus = true) => {
@@ -139,8 +163,17 @@ export function SourceMenu({
     if (!entry.checked) onSelect(entry.target);
   };
   const selectedText = model.selected ? entryText(model.selected) : label("diffTarget");
+  const stats = additions == null || deletions == null ? null : diffStatParts({ added: additions, deleted: deletions });
+  const tooltip = sourcePillTooltip({
+    source: selectedText,
+    stats,
+    progress: viewedProgress,
+    template: label("filesViewedProgress"),
+  });
+  const suffix = progressLook === "suffix" ? viewedProgressSuffix(viewedProgress) : null;
   return (
-    <div id="source-menu" className="source-pill">
+    // tooltip-allow: the review's progress ("3 of 30 files viewed"), which the pill does not show (hq #19495)
+    <div id="source-menu" className="source-pill" title={tooltip ?? undefined}>
       <button
         ref={buttonRef}
         id="source-menu-button"
@@ -161,19 +194,29 @@ export function SourceMenu({
         <span className="source-pill-label">{selectedText}</span>
         <Icon name="chevronDown" />
       </button>
-      <span className="source-pill-stats" aria-label={label("diffStats")}>
-        <span className="source-pill-additions">+{additions}</span>
-        <span className="source-pill-deletions">-{deletions}</span>
-      </span>
+      {additions == null || deletions == null ? (
+        <span className="source-pill-stats invisible" aria-hidden="true">
+          <span className="source-pill-additions">+0</span>
+          <span className="source-pill-deletions">-0</span>
+        </span>
+      ) : stats ? (
+        // Only the counts that are not zero, as the file headers and the files list show them.
+        <span className="source-pill-stats" aria-label={label("diffStats")}>
+          {stats.added ? <span className="source-pill-additions">{stats.added}</span> : null}
+          {stats.deleted ? <span className="source-pill-deletions">{stats.deleted}</span> : null}
+        </span>
+      ) : null}
+      {suffix ? (
+        <span className="source-pill-progress" aria-hidden="true">
+          · {suffix}
+        </span>
+      ) : null}
       {open && style
         ? createPortal(
             <div
-              ref={(node) => {
-                menuRef.current = node;
-                if (node && !node.contains(document.activeElement)) focusFirstMenuItem(node);
-              }}
+              ref={sourceMenuRef}
               id={menuId}
-              className="toolbar-menu source-menu"
+              className="toolbar-menu ui-popup ui-glass source-menu"
               role="menu"
               tabIndex={-1}
               aria-label={label("diffTarget")}
@@ -214,8 +257,9 @@ export function SourceMenu({
                         </button>
                         {committedOpen ? (
                           <div
-                            ref={focusFirstMenuItem}
-                            className="toolbar-menu toolbar-submenu"
+                            ref={submenuRef}
+                            // The rows fade inside; the glass, rim and shadow stay whole (popupSurface.css).
+                            className="toolbar-menu ui-popup ui-glass toolbar-submenu ui-popup-scroll-shell"
                             role="menu"
                             tabIndex={-1}
                             aria-label={entryText(entry)}
@@ -231,26 +275,28 @@ export function SourceMenu({
                               event.stopPropagation();
                             }}
                           >
-                            {entry.children.length === 0 ? (
-                              <div
-                                className="menu-item toolbar-menu-item"
-                                role="menuitem"
-                                aria-disabled="true"
-                                tabIndex={-1}
-                              >
-                                <span className="menu-label">{label("sourceNoCommits")}</span>
-                              </div>
-                            ) : (
-                              entry.children.map((child) => (
-                                <SourceMenuRow
-                                  key={child.id}
-                                  entry={child}
-                                  label={label}
-                                  text={entryText(child)}
-                                  onChoose={() => choose(child)}
-                                />
-                              ))
-                            )}
+                            <div ref={submenuEdges} className="ui-popup-scroll ui-scroll-edge-fade">
+                              {entry.children.length === 0 ? (
+                                <div
+                                  className="menu-item toolbar-menu-item"
+                                  role="menuitem"
+                                  aria-disabled="true"
+                                  tabIndex={-1}
+                                >
+                                  <span className="menu-label">{label("sourceNoCommits")}</span>
+                                </div>
+                              ) : (
+                                entry.children.map((child) => (
+                                  <SourceMenuRow
+                                    key={child.id}
+                                    entry={child}
+                                    label={label}
+                                    text={entryText(child)}
+                                    onChoose={() => choose(child)}
+                                  />
+                                ))
+                              )}
+                            </div>
                           </div>
                         ) : null}
                       </div>
@@ -324,7 +370,11 @@ export function JumpToFilePalette({
   const [highlight, setHighlight] = useState(0);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const paletteRef = useRef<HTMLDivElement | null>(null);
+  const settlePalette = usePopupSettle<HTMLDivElement>((node) => {
+    paletteRef.current = node;
+  });
   const listboxId = useId();
+  const listEdges = useScrollEdges();
   const style = useAnchoredPopover(open, buttonRef, 440);
   useDismissOnOutsidePress(open, [buttonRef, paletteRef], () => setOpen(false));
   if (items.length === 0) {
@@ -361,13 +411,13 @@ export function JumpToFilePalette({
           setOpen(true);
         }}
       >
-        <Icon name="chevronDown" />
+        <Icon name="files" />
       </button>
       {open && style
         ? createPortal(
             <div
-              ref={paletteRef}
-              className="toolbar-menu jump-palette"
+              ref={settlePalette}
+              className="toolbar-menu ui-popup ui-glass jump-palette"
               // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
               role="dialog"
               aria-label={label("jumpToFile")}
@@ -414,8 +464,14 @@ export function JumpToFilePalette({
                   }}
                 />
               </div>
-              {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
-              <div id={listboxId} className="jump-palette-list" role="listbox" aria-label={label("jumpToFile")}>
+              <div
+                ref={listEdges}
+                id={listboxId}
+                className="jump-palette-list ui-scroll-edge-fade"
+                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                role="listbox"
+                aria-label={label("jumpToFile")}
+              >
                 {rows.length === 0 ? (
                   <div className="jump-palette-status">{label("jumpToFileNoMatches")}</div>
                 ) : (
@@ -479,6 +535,16 @@ export function FloatingToolbar({
 }) {
   const [focusIndex, setFocusIndex] = useState(0);
   const toolbarRef = useRef<HTMLDivElement | null>(null);
+  // Drawn in place, not portalled: it blurs the file list and diff under it itself (pageGlassBlur.ts).
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  useInPlaceGlassBlur(menuRef, menuOpen);
+  // The menu also keeps the box it opened with (ui/popupSettle.ts), which forwards the node here.
+  const setMenu = usePopupSettle<HTMLDivElement>(
+    useCallback((node: HTMLDivElement | null) => {
+      menuRef.current = node;
+      focusFirstMenuItem(node);
+    }, []),
+  );
   const closeMenu = () => {
     onCloseMenu();
     document.getElementById("options-button")?.focus();
@@ -487,9 +553,9 @@ export function FloatingToolbar({
     <div id="diff-pill" className="diff-pill-anchor">
       {menuOpen ? (
         <div
-          ref={focusFirstMenuItem}
+          ref={setMenu}
           id="options-menu"
-          className="toolbar-menu options-menu"
+          className="toolbar-menu ui-popup ui-glass options-menu"
           role="menu"
           tabIndex={-1}
           aria-label={label("options")}
@@ -578,12 +644,15 @@ function OverflowMenuRow({
 /** A plain options-menu row (for the view options under the main rows). */
 export function ViewMenuButton({
   checked,
+  detail,
   icon,
   id,
   label,
   onClick,
 }: {
   checked?: boolean;
+  /** Quiet text after the label ("3 of 30 viewed"). */
+  detail?: string | null;
   icon: IconName;
   id?: string;
   label: string;
@@ -596,10 +665,12 @@ export function ViewMenuButton({
       role={checked === undefined ? "menuitem" : "menuitemcheckbox"}
       className="menu-item toolbar-menu-item"
       aria-checked={checked}
+      data-detail={detail ? "" : undefined}
       onClick={onClick}
     >
       <Icon name={icon} />
       <span className="menu-label">{label}</span>
+      {detail ? <span className="menu-detail">{detail}</span> : null}
       <span className="menu-check">{checked ? <Icon name="check" /> : null}</span>
     </button>
   );
@@ -621,6 +692,10 @@ export function FileMenuButton({ items, label }: { items: FileMenuItem[]; label:
   const [open, setOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const settleMenu = usePopupSettle<HTMLDivElement>((node) => {
+    menuRef.current = node;
+    focusFirstMenuItem(node);
+  });
   const menuId = useId();
   const style = useAnchoredPopover(open, buttonRef, 200);
   const close = (refocus = true) => {
@@ -649,12 +724,9 @@ export function FileMenuButton({ items, label }: { items: FileMenuItem[]; label:
       {open && style
         ? createPortal(
             <div
-              ref={(node) => {
-                menuRef.current = node;
-                focusFirstMenuItem(node);
-              }}
+              ref={settleMenu}
               id={menuId}
-              className="toolbar-menu file-header-menu"
+              className="toolbar-menu ui-popup ui-glass file-header-menu"
               role="menu"
               tabIndex={-1}
               aria-label={label}

@@ -15,6 +15,13 @@ from unittest import mock
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("pr_media", ROOT / "scripts/pr-media.py")
@@ -52,10 +59,13 @@ class Origin:
         temporary = tempfile.TemporaryDirectory(prefix="pr-media-origin-")
         case.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
-        empty = self.root / "gitconfig"
-        empty.write_text("")
+        config = self.root / "gitconfig"
+        # No detached gc or maintenance: one left running writes into origin.git while the cleanup removes it
+        # ("Directory not empty: 'origin.git'", cmux-next guards run 41422570131).
+        config.write_text("[gc]\n\tauto = 0\n\tautoDetach = false\n[maintenance]\n\tauto = false\n"
+                          "[receive]\n\tautogc = false\n")
         patcher = mock.patch.dict(os.environ, {
-            "GIT_CONFIG_GLOBAL": str(empty), "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": str(config), "GIT_CONFIG_NOSYSTEM": "1",
             "PR_MEDIA_REMOTE_URL": f"file://{self.root / 'origin.git'}",
             "PR_MEDIA_CACHE_DIR": str(self.root / "cache")})
         patcher.start()
@@ -76,7 +86,7 @@ class Origin:
         api = mock.patch.object(MODULE, "API_RUNNER", self.api)
         api.start()
         case.addCleanup(api.stop)
-        subprocess.run(["git", "init", "-q", "--bare", str(self.bare)], check=True)
+        git_fixture_env.init_repo(self.bare, "--bare")
         git(self.bare, "config", "uploadpack.allowFilter", "true")
         git(self.bare, "config", "uploadpack.allowAnySHA1InWant", "true")
         self.writer = self.root / "writer"
@@ -205,6 +215,9 @@ class FakeGh:
             if self.comment_fails:
                 return self.reply(1, "", "HTTP 403: Resource not accessible")
             self.comments.append(kwargs.get("input", ""))
+            return self.reply(0, "")
+        if argv[0] == "ffprobe":
+            # convert() reads the clip's rate for the gif; an unreadable rate starts at the default.
             return self.reply(0, "")
         raise AssertionError(f"only `gh pr comment` may run, ran {argv}")
 
@@ -373,6 +386,54 @@ class GifCommandTests(unittest.TestCase):
         self.assertEqual(argv[-1], "out.gif")
 
 
+class GifRateTests(unittest.TestCase):
+    """Leo, 2026-10-31, on 4 and then 10-15 fps previews: "WHY ... IS IT NOT 30/60/120"."""
+
+    def test_the_default_is_smooth(self):
+        self.assertGreaterEqual(MODULE.DEFAULT_GIF_FPS, 30)
+        self.assertEqual(MODULE.gif_attempts((900, 720, 558))[0], (30, 900))
+
+    def test_a_60_fps_clip_starts_at_the_fastest_rate_a_gif_plays(self):
+        # Delays are hundredths of a second and browsers play 1/100 s as 1/10 s: 50 fps is the real ceiling.
+        self.assertEqual(MODULE.GIF_MAX_FPS, 50)
+        self.assertEqual(MODULE.gif_attempts((900,), source_rate=60.0)[0], (50, 900))
+        self.assertEqual(MODULE.gif_attempts((900,), fps=120)[0], (50, 900))
+
+    def test_it_gets_narrower_before_it_gets_choppier(self):
+        attempts = MODULE.gif_attempts((900, 720, 558), source_rate=60.0)
+        self.assertEqual(attempts[:4], [(50, 900), (30, 900), (30, 720), (30, 558)])
+        self.assertEqual(attempts[4:], [(24, 558), (20, 558), (15, 558), (12, 558), (10, 558)])
+
+    def test_a_slow_clip_never_gets_repeated_frames(self):
+        self.assertEqual(MODULE.gif_attempts((900,), source_rate=2.0), [(2, 900)])
+        self.assertTrue(all(rate <= 24 for rate, _ in MODULE.gif_attempts((900,), source_rate=23.976)))
+
+    def test_a_width_or_rate_under_one_is_refused_up_front(self):
+        for flags in (["--gif-width", "0"], ["--gif-width", "-5"], ["--gif-fps", "0"]):
+            with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+                MODULE.parse_args(["--pr", "1", "clip.mp4", *flags])
+        self.assertIsNone(MODULE.parse_args(["--pr", "1", "clip.mp4"]).gif_fps)
+
+    def test_widths_step_down_from_the_requested_one(self):
+        self.assertEqual(MODULE.gif_widths(900), (900, 720, 558))
+
+    def test_the_source_rate_is_read_from_ffprobe(self):
+        def runner(stdout):
+            return lambda argv, **kwargs: SimpleNamespace(returncode=0, stdout=stdout, stderr="")
+
+        with mock.patch.object(MODULE.shutil, "which", return_value="/usr/bin/ffprobe"):
+            read = lambda out: MODULE.source_fps(Path("c.mp4"), runner(out))
+            self.assertEqual(read('{"streams":[{"r_frame_rate":"60/1","avg_frame_rate":"30/1"}]}'), 60.0)
+            self.assertEqual(read('{"streams":[{"r_frame_rate":"90000/1","avg_frame_rate":"48/1"}]}'), 48.0)
+            # A variable-rate capture's average undercounts it; it never caps the gif below the default.
+            self.assertEqual(read('{"streams":[{"r_frame_rate":"90000/1","avg_frame_rate":"7/1"}]}'),
+                             float(MODULE.DEFAULT_GIF_FPS))
+            self.assertIsNone(read(""))
+            self.assertIsNone(read('{"streams":[]}'))
+        with mock.patch.object(MODULE.shutil, "which", return_value=None):
+            self.assertIsNone(MODULE.source_fps(Path("c.mp4")))
+
+
 class ConvertTests(unittest.TestCase):
     """`convert` itself, with ffmpeg faked: it decides whether a gif is usable."""
 
@@ -438,6 +499,25 @@ class ConvertTests(unittest.TestCase):
             with self.ffmpeg(runner), self.assertRaises(MODULE.MediaError) as raised:
                 MODULE.convert(self.upload(source), Path(scratch), 10, 900, runner=runner)
             self.assertIn("no gif", str(raised.exception))
+
+    def test_a_gif_over_the_limit_is_made_again_smaller_instead_of_refused(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            source = written(scratch, "clip.mp4", MP4)
+            into = Path(scratch) / "out"
+            into.mkdir()
+            calls = []
+
+            def runner(argv, **kwargs):
+                if argv[0] == "ffprobe":
+                    return SimpleNamespace(returncode=0, stdout='{"streams":[{"r_frame_rate":"60/1"}]}', stderr="")
+                calls.append(argv[argv.index("-filter_complex") + 1].split(",")[0])
+                Path(argv[-1]).write_bytes(GIF + (b"0" * 4096 if len(calls) < 3 else b""))
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+            with self.ffmpeg(runner):
+                made = MODULE.convert(self.upload(source), into, None, 900, runner=runner, limit=1024)
+            self.assertEqual(calls, ["fps=50", "fps=30", "fps=30"])
+            self.assertEqual(made.read_bytes(), GIF)
 
     def test_a_missing_ffmpeg_names_the_flag_that_skips_it(self):
         with tempfile.TemporaryDirectory() as scratch:
@@ -662,9 +742,11 @@ class UploadTests(unittest.TestCase):
             return tip
 
         with tempfile.TemporaryDirectory() as scratch, mock.patch.object(MODULE.MediaBranch, "fetch", fetch), \
-                mock.patch.object(MODULE.time, "sleep"), self.assertRaises(MODULE.MediaError) as raised:
+                mock.patch.object(MODULE.time, "sleep"), self.assertRaises(MODULE.MediaConflict) as raised:
             MODULE.put_files("o/r", "pr-media", {"7/shot.png": written(scratch, "shot.png", PNG)}, "m",
                              checked=True, expect={"7/shot.png": None})
+        # Its own class, so a create-only caller keeps the other copy and still stops on any other failure.
+        self.assertIsInstance(raised.exception, MODULE.MediaError)
         self.assertIn("changed on pr-media", str(raised.exception))
         self.assertEqual(len(fetches), 2)
         self.assertEqual(origin.files()["7/shot.png"], b"theirs")
@@ -742,9 +824,9 @@ class UploadTests(unittest.TestCase):
         # Review of #28265: the token helper was appended after the host's own, and git stops at the first
         # helper that answers, so a cached account (one without push access, say) was used instead of GH_TOKEN.
         cached = '!f() { test "$1" = get || exit 0; echo username=cached; echo password=CACHED; }; f'
-        env = {"PATH": os.environ.get("PATH", "/usr/bin"), "GIT_CONFIG_NOSYSTEM": "1",
+        env = git_fixture_env.fixture_env({"PATH": os.environ.get("PATH", "/usr/bin"), "GIT_CONFIG_NOSYSTEM": "1",
                "GIT_CONFIG_GLOBAL": os.devnull, "GIT_TERMINAL_PROMPT": "0", "GIT_CONFIG_COUNT": "1",
-               "GIT_CONFIG_KEY_0": "credential.helper", "GIT_CONFIG_VALUE_0": cached, "GH_TOKEN": "t0ken"}
+               "GIT_CONFIG_KEY_0": "credential.helper", "GIT_CONFIG_VALUE_0": cached, "GH_TOKEN": "t0ken"})
         with mock.patch.dict(os.environ, env, clear=True):
             args = MODULE.credential_args()
             filled = subprocess.run(["git", *args, "credential", "fill"], input="url=https://github.com/o/r.git\n\n",
@@ -900,6 +982,24 @@ class ApiFallbackUploadTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("another upload got there first", err.getvalue())
         self.assertEqual(origin.files()["7/shot.png"], b"theirs")
+
+    def test_a_lost_create_only_race_through_the_api_fallback_stays_a_conflict(self):
+        # whats-new-gallery.py publish keeps the other copy on a MediaConflict and stops on any other error.
+        def by_git(store):
+            raise MODULE.GitTransportError("git could not reach the remote")
+
+        def by_api(api, error):
+            raise error
+
+        for error, kind in ((MODULE.MediaConflict("9/shot.png changed"), MODULE.MediaConflict),
+                            (MODULE.MediaError("no pr-media branch"), MODULE.MediaError)):
+            with self.subTest(error=str(error)):
+                MODULE._GIT_FAILED.pop(("o/r", "pr-media"), None)
+                with self.assertRaises(MODULE.MediaError) as raised:
+                    MODULE.with_fallback("o/r", "pr-media", object(), by_git, lambda api: by_api(api, error))
+                self.assertIs(type(raised.exception), kind)
+                self.assertIn("the GitHub API fallback failed too", str(raised.exception))
+        MODULE._GIT_FAILED.pop(("o/r", "pr-media"), None)
 
     def test_a_lost_race_is_built_again_on_the_new_tip(self):
         origin = self.unreachable()
@@ -1122,8 +1222,8 @@ class PrivacyTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.scratch = temporary.name
         # A CI step inside .github/actions/pr-media-publish (PR_MEDIA_PUBLISH_GATE).
-        self.env = {"HOME": self.scratch, "GITHUB_ACTIONS": "true", "PR_MEDIA_PRIVATE_TERMS": '["glow-box"]',
-                    "PR_MEDIA_AGENT_AUTHORS": "bot-a", "PR_MEDIA_PUBLISH_GATE": "1"}
+        self.env = git_fixture_env.fixture_env({"HOME": self.scratch, "GITHUB_ACTIONS": "true", "PR_MEDIA_PRIVATE_TERMS": '["glow-box"]',
+                    "PR_MEDIA_AGENT_AUTHORS": "bot-a", "PR_MEDIA_PUBLISH_GATE": "1"})
         self.authors = {7: "bot-a", 8: "teammate"}
         self.ocr_calls = []
         self.lookups = []
@@ -1234,7 +1334,7 @@ class PrivacyTests(unittest.TestCase):
         self.assertIn("8/shot.png", err)
 
     def test_off_ci_a_hit_is_refused_too(self):
-        self.env = {"HOME": self.scratch, "PR_MEDIA_PRIVATE_TERMS": '["glow-box"]'}
+        self.env = git_fixture_env.fixture_env({"HOME": self.scratch, "PR_MEDIA_PRIVATE_TERMS": '["glow-box"]'})
         frame = written(self.scratch, "shot.png", PNG + b"TERM")
         gh = FakeGh()
         code, _, err = self.run_main(["--pr", "8", str(frame)], runner=gh)

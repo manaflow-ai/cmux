@@ -29,9 +29,18 @@ export function typeInto(prompt: PromptField, value: string) {
   prompt.handle.type(value);
 }
 
-/// The globals ProseMirror needs from a jsdom window.
-export const proseMirrorGlobals = (window: Window & typeof globalThis) => ({
-  Node: window.Node,
-  getSelection: window.getSelection.bind(window),
-  MutationObserver: window.MutationObserver,
-});
+/// The globals ProseMirror needs from a jsdom window. jsdom lays nothing out and its Range has no
+/// rects, but ProseMirror measures one whenever a transaction scrolls the caret into view (a picked
+/// slash command, a paste): give the window's Range empty rects so that scroll is a no-op.
+export const proseMirrorGlobals = (window: Window & typeof globalThis) => {
+  const box = () => ({ left: 0, top: 0, right: 0, bottom: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => ({}) });
+  const range = (window.Range?.prototype ?? {}) as unknown as Record<string, unknown>;
+  if (typeof range.getClientRects !== "function")
+    Object.assign(range, { getClientRects: () => Object.assign([box()], { item: () => box() }) });
+  if (typeof range.getBoundingClientRect !== "function") Object.assign(range, { getBoundingClientRect: box });
+  return {
+    Node: window.Node,
+    getSelection: window.getSelection.bind(window),
+    MutationObserver: window.MutationObserver,
+  };
+};

@@ -4,6 +4,7 @@
 // Monaco host element and a status bar. Monaco mounts through a callback ref. Cmd/Ctrl chords (Cmd-S)
 // come from the app's key dispatcher as page commands, never from page key handlers.
 import { useSyncExternalStore, type ReactNode } from "react";
+import { useLasting } from "../../ui/lasting";
 import type { Strings } from "../shared/i18n";
 import type { ReadOnlyReason } from "./host";
 import { PREFERENCE_KEYS, isLargeFile, resolveEditorSettings } from "./settings";
@@ -36,6 +37,8 @@ export interface EditorPageProps {
   strings: Strings;
   /** Mounts the editor into its element (and unmounts it on null). */
   editorRef: (element: HTMLDivElement | null) => void;
+  /** Vim's mode line (`editor.vimMode`), which the view's vim writes; the status bar shows it. */
+  vimLine?: HTMLElement;
   /** The page with no file (store phase `empty`): the viewer empty state. */
   emptyState?: () => ReactNode;
 }
@@ -51,17 +54,27 @@ function fileName(path: string): string {
   return path.split("/").filter(Boolean).pop() ?? path;
 }
 
-export function EditorPage({ store, status, find, strings, editorRef, emptyState }: EditorPageProps) {
+export function EditorPage({ store, status, find, strings, editorRef, vimLine, emptyState }: EditorPageProps) {
   const state = useSyncExternalStore(store.subscribe, store.getState);
   const view = useSyncExternalStore(status.subscribe, status.get);
   const { t } = strings;
+  // A lost link says so only once it lasts (a launch, a daemon restart: the store reads again when the
+  // link is back, `linkChanged`); until then the page stays blank.
+  const downLasting = useLasting(state.phase === "disconnected");
 
   if (state.phase === "empty" && emptyState) return emptyState();
+
+  if (state.phase === "disconnected" && !downLasting)
+    return <div className="ed-page ed-page-message" aria-busy="true" />;
 
   if (state.phase === "disconnected" || state.phase === "failed") {
     return (
       <div className="ed-page ed-page-message" role="alert">
-        <p>{t(state.phase === "disconnected" ? L.disconnected : L.failed)}</p>
+        <p>
+          {state.phase === "failed" && state.failure
+            ? state.failure
+            : t(state.phase === "disconnected" ? L.disconnected : L.failed)}
+        </p>
         <button type="button" className="ed-button" onClick={() => void store.start()}>
           {t(L.retry)}
         </button>
@@ -123,17 +136,33 @@ export function EditorPage({ store, status, find, strings, editorRef, emptyState
         <div className="ed-note">{t(READ_ONLY_NOTE[state.readOnlyReason])}</div>
       ) : null}
       {large && state.phase === "ready" ? <div className="ed-note">{t(L.largeNotice)}</div> : null}
+      {state.unavailable && state.phase === "ready" ? <output className="ed-note">{state.unavailable}</output> : null}
       <div className="ed-frame">
         <div className="ed-host" ref={editorRef} />
         {find ? <EditorFindBar find={find} strings={strings} /> : null}
       </div>
-      {settings.statusBar && view && state.phase === "ready" ? (
-        <footer className="ed-status">
-          <span>{strings.format(L.position, String(view.line), String(view.column))}</span>
-          <span>{strings.format(view.insertSpaces ? L.spaces : L.tabs, String(view.tabSize))}</span>
-          <span>{view.bom ? t(L.utf8Bom) : "UTF-8"}</span>
-          <span>{view.eol === "mixed" ? t(L.mixed) : view.eol}</span>
-          <span>{view.language === "text" ? t(L.plainText) : view.languageName}</span>
+      {((settings.statusBar && view) || (settings.vimMode && vimLine)) && state.phase === "ready" ? (
+        // With `editor.vimMode` the bar shows vim's mode line (and its `:` prompt) even when
+        // `editor.statusBar` is off.
+        <footer className="ed-status" data-vim={settings.vimMode && vimLine ? "" : undefined}>
+          {vimLine ? (
+            <div
+              className="ed-vim-slot"
+              ref={(slot) => {
+                // Moved only once: moving it again would blur an open `:` prompt.
+                if (slot && vimLine.parentNode !== slot) slot.replaceChildren(vimLine);
+              }}
+            />
+          ) : null}
+          {settings.statusBar && view ? (
+            <>
+              <span>{strings.format(L.position, String(view.line), String(view.column))}</span>
+              <span>{strings.format(view.insertSpaces ? L.spaces : L.tabs, String(view.tabSize))}</span>
+              <span>{view.bom ? t(L.utf8Bom) : "UTF-8"}</span>
+              <span>{view.eol === "mixed" ? t(L.mixed) : view.eol}</span>
+              <span>{view.language === "text" ? t(L.plainText) : view.languageName}</span>
+            </>
+          ) : null}
         </footer>
       ) : null}
     </div>
