@@ -30,6 +30,10 @@ export const KNOWN_PROGRAMS = [
   "cursor-agent",
   "gemini",
   "grok",
+  // The Antigravity CLI (Leo 2026-11-25: "we'll want to set up antigravity/antigravity cli and opencode
+  // capable"); acpmux runs it as `agy acp` (acpmux config/discover.rs). Its updater stays off on the image
+  // (AGY_CLI_DISABLE_AUTO_UPDATE, bake.ts agyProfileScript): the lock pins the version.
+  "agy",
   "workerd",
   "gh",
   "juicefs",
