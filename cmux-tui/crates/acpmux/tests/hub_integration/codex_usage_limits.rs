@@ -25,6 +25,17 @@ async fn a_codex_chat_keeps_its_accounts_usage_limits() {
     });
     let info = c.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
     assert_eq!(info["usageLimits"], want, "{info}");
+    // The open pane's copy: one whole `mux` record per change, none for the quiet chat.
+    let records = |id: &str| -> Vec<Value> {
+        hub.events(id, 0, 10_000)
+            .unwrap()
+            .iter()
+            .filter(|e| e.dir == "mux" && e.kind == "usage_limits")
+            .map(|e| e.msg["usageLimits"].clone())
+            .collect()
+    };
+    assert!(records(&quiet).is_empty());
+    assert_eq!(records(&id).last(), Some(&want));
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&root);
 }

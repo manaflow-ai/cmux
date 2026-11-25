@@ -1,4 +1,6 @@
+import CmuxEgress
 public import Foundation
+import CmuxNextCompat
 
 /// A new socket for a Cloud API request whose connection goes nowhere.
 ///
@@ -25,11 +27,27 @@ public struct CloudConnectHedge: Sendable {
         case never
     }
 
+    /// Whether a request may have reached the server before its last attempt: noted each time an attempt after the
+    /// first starts (a keyed mutation's resend after a connection failure, or a raced read). A direct create reads it
+    /// (``CloudPersonCreate/ops(_:after:)``): a refusal answered to its resend does not prove the first never ran.
+    public final class Resends: Sendable {
+        private let count = Mutex(0)
+        public init() {}
+        /// An attempt after the first started.
+        public func note() { count.withLock { $0 += 1 } }
+        /// Whether one did.
+        public var any: Bool { count.withLock { $0 > 0 } }
+    }
+
+    /// The ``Resends`` the requests sent in this task note on (``data(for:on:)``).
+    @TaskLocal public static var resends: Resends?
+
     /// How long the newest attempt of a hedged read has alone before the next starts.
     public var stagger: Duration
     /// Attempts of a hedged read in all.
     public var maxAttempts: Int
 
+    // short-gate: a hedge, not a give-up; each attempt keeps the read's own deadline.
     public init(stagger: Duration = .seconds(1), maxAttempts: Int = 3) {
         self.stagger = stagger
         self.maxAttempts = max(1, maxAttempts)
@@ -66,9 +84,11 @@ public struct CloudConnectHedge: Sendable {
     /// `request` on `session`, hedged or retried as ``replay(of:)`` allows. A fresh session refuses
     /// redirects, as every Cloud API session does.
     public func data(for request: URLRequest, on session: URLSession) async throws -> (Data, URLResponse) {
-        try await send(replay: Self.replay(of: request), clock: ContinuousClock()) { attempt in
+        let resends = Self.resends
+        return try await send(replay: Self.replay(of: request), clock: ContinuousClock()) { attempt in
             guard attempt > 0 else { return try await session.data(for: request) }
-            let fresh = URLSession(configuration: session.configuration, delegate: HedgeRefusesRedirects(), delegateQueue: nil)
+            resends?.note()
+            let fresh = CmuxEgress.session(site: "CmuxNextCloud.CloudConnectHedge", configuration: session.configuration, delegate: HedgeRefusesRedirects(), delegateQueue: nil)
             defer { fresh.finishTasksAndInvalidate() }
             return try await fresh.data(for: request)
         }

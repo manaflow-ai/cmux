@@ -20,6 +20,7 @@ const OTHER = "22222222-2222-4222-8222-222222222222"
 const base: NotifyEvent = { eventId: "p-1", kind: "question", agent: "Claude", place: "cmux-next", macId: MAC, macName: "Mac mini", sessionId: "s1" }
 const reg = (over: Partial<PushRegistration> = {}): PushRegistration => ({
   deviceId: "d1",
+  space: "",
   ownerUserId: "o",
   token: "aa",
   environment: "production",

@@ -28,28 +28,27 @@ extension LiveCoordinator: SignOutSession {}
 /// the phone its Macs already allowed, with no new prompt.
 ///
 /// It drops what the account's data shows: the Feed's items, the workspace
-/// snapshots, Chief messages not yet sent, the Home rows and chats kept to show at once; and it puts the account's
+/// snapshots, the Home rows and chats kept to show at once; and it puts the account's
 /// preferences away under its id. Pushes stop before the session ends
 /// (`willSignOut`), so a signed-out phone gets no notifications.
 @MainActor
 public struct AccountSignOut {
+    public var lastKnownLists: LastKnownListStore
     public var snapshots: LiveSnapshotStore
     public var feedStore: FeedStore
-    public var feedArchive: (String) -> FeedArchive
+    public var removeFeedArchives: (String) -> Void
     public var readMarks: (String) -> FeedReadMarks
     public var preferences: AccountPreferences
-    public var discardChiefOutbox: @MainActor () -> Void
+    public var discardChiefTranscripts: @MainActor () -> Void
     /// The lists and chats kept so they show at once (each Mac's Home rows, its Agent Chats
     /// list, every agent chat's newest messages): none of them stays for the next account.
     public var discardKeptChats: @MainActor () -> Void
 
-    public init(snapshots: LiveSnapshotStore = .standard, feedStore: FeedStore = .shared,
-                feedArchive: @escaping (String) -> FeedArchive = FeedArchive.forAccount,
+    public init(lastKnownLists: LastKnownListStore = .standard, snapshots: LiveSnapshotStore = .standard, feedStore: FeedStore = .shared,
+                removeFeedArchives: @escaping (String) -> Void = FeedArchive.removeAll,
                 readMarks: @escaping (String) -> FeedReadMarks = FeedReadMarks.forAccount,
                 preferences: AccountPreferences = .standard,
-                discardChiefOutbox: @escaping @MainActor () -> Void = {
-                    ChiefSession.shared.discardOutbox()
-                    ChiefSession.cloud.discardOutbox()
+                discardChiefTranscripts: @escaping @MainActor () -> Void = {
                     // Every kept Chief conversation goes, and neither session shows one.
                     ChiefSession.shared.discardTranscripts()
                     ChiefSession.cloud.discardTranscripts()
@@ -57,14 +56,16 @@ public struct AccountSignOut {
                 discardKeptChats: @escaping @MainActor () -> Void = {
                     MacHomeFeed.shared.discardForSignOut()
                     AgentChatsMemory.shared.removeAll()
+                    AgentCatalogCache.shared.removeAll()
                     AgentTranscriptCache.standard.removeAll()
                 }) {
+        self.lastKnownLists = lastKnownLists
         self.snapshots = snapshots
         self.feedStore = feedStore
-        self.feedArchive = feedArchive
+        self.removeFeedArchives = removeFeedArchives
         self.readMarks = readMarks
         self.preferences = preferences
-        self.discardChiefOutbox = discardChiefOutbox
+        self.discardChiefTranscripts = discardChiefTranscripts
         self.discardKeptChats = discardKeptChats
     }
 
@@ -91,15 +92,16 @@ public struct AccountSignOut {
         session?.stop()
         feedStore.clearForSignOut()
         if let userID {
-            feedArchive(userID).remove()
+            removeFeedArchives(userID)
             preferences.stash(userID: userID)
             if session?.accountDeleted == true {
                 preferences.forget(userID: userID)
                 readMarks(userID).remove()
             }
         }
+        lastKnownLists.removeAll()
         snapshots.removeAll()
-        discardChiefOutbox()
+        discardChiefTranscripts()
         discardKeptChats()
     }
 }

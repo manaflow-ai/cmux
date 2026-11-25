@@ -14,7 +14,10 @@ import { formatDuration } from "./turns";
 import { usePageNow as useTicking } from "../../../ui/pageClock";
 import { StatusVerb } from "./StatusVerb";
 import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
-import { useTextSwap } from "../../../ui/motion/useTextSwap";
+import { TextRoll } from "../../../ui/motion/TextRoll";
+import { LiveShimmer } from "./LiveShimmer";
+import { RowShimmer } from "./ShimmerText";
+import { AgentTag } from "./AgentTag";
 
 export function ActivityLine({ row, now = Date.now }: { row: AcpmuxRow; now?: () => number }) {
   const t = useT();
@@ -22,14 +25,14 @@ export function ActivityLine({ row, now = Date.now }: { row: AcpmuxRow; now?: ()
   const time = useTicking(waiting === undefined, now);
   // A message going out reads "Sending message to tests", never its raw command (turns.ts `sendingTo`).
   const sendName = useSubsessionInfo(row.doingSendSession)?.name ?? row.doingSendTo;
-  // A new call or todo changes the words as Claude desktop's line does (ui/motion/useTextSwap.ts).
-  const words = useTextSwap<HTMLSpanElement>(waiting || sendName !== undefined ? undefined : (row.text ?? ""));
   if (waiting)
     return (
       <div className="cv-activity cv-tool">
         <span className="cv-tool__icon" aria-hidden="true" />
-        <output className="cv-activity__label cv-waiting" data-waiting={waiting}>
-          {t(WAITING_LABEL[waiting])}
+        <output className="cv-activity__label cv-thinking is-shimmer" data-waiting={waiting}>
+          <span className="cv-shimmer__row">
+            <LiveShimmer label={t(WAITING_LABEL[waiting])} />
+          </span>
         </output>
       </div>
     );
@@ -44,11 +47,18 @@ export function ActivityLine({ row, now = Date.now }: { row: AcpmuxRow; now?: ()
         name={sendName}
         after={after}
         meta={<span className="cv-command__meta">{formatDuration(Math.max(0, time - row.at))}</span>}
-        className="cv-activity-row"
+        className="cv-activity-row is-live"
         // It opens nothing, so it draws no chevron (a row shows one only with something to show).
         chevron={false}
         ariaLabel={t("send.sending", { target: sendName })}
-      />
+      >
+        {/* Sending is live work: it shimmers as "Thinking" does (Leo, 2026-11-22). */}
+        <RowShimmer>
+          {before}
+          <AgentTag name={sendName} />
+          {after}
+        </RowShimmer>
+      </TranscriptActivityRow>
     );
   }
   return (
@@ -56,21 +66,21 @@ export function ActivityLine({ row, now = Date.now }: { row: AcpmuxRow; now?: ()
       <span className="cv-tool__icon" aria-hidden="true">
         {row.doingCommand ? <TerminalSquare /> : null}
       </span>
-      {row.text ? (
-        <>
-          <span ref={words} className="cv-activity__label">
-            {row.text}
+      {/* A new call or todo rolls the words through the line's faded edges (ui/motion/TextRoll.tsx). */}
+      <TextRoll turn={row.text ?? ""} className="cv-activity__roll">
+        {row.text ? (
+          <span className="cv-activity__label cv-thinking is-shimmer">
+            <span className="cv-shimmer__row">
+              <LiveShimmer label={row.text} />
+            </span>
           </span>
-          <span className="cv-activity__time">{formatDuration(Math.max(0, time - row.at))}</span>
-        </>
-      ) : (
-        <>
-          <span ref={words} className="cv-activity__label">
+        ) : (
+          <span className="cv-activity__label">
             <StatusVerb elapsedMs={Math.max(0, time - row.at)} verbKey={row.verbKey} />
           </span>
-          <span className="cv-activity__time">{formatDuration(Math.max(0, time - row.at))}</span>
-        </>
-      )}
+        )}
+      </TextRoll>
+      <span className="cv-activity__time">{formatDuration(Math.max(0, time - row.at))}</span>
       {/* A running command's ⌃B hint (BackgroundHint.tsx), keyed by the command. */}
       {row.doingCommand && <BackgroundHint key={row.text} />}
     </div>

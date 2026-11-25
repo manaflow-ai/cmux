@@ -201,9 +201,9 @@ pub use client::ArtifactsClient;
 ///
 /// Each pass is bounded by `sync_once`/`pull_once`; the interval and the
 /// shutdown notification are both owned by this task, so cancellation drops
-/// the timer and no task survives daemon shutdown.
-pub async fn run_background(hub: Arc<crate::hub::Hub>) {
-    let config = hub.config.read().await.clone();
+/// the timer and no task survives daemon shutdown. `config` is the daemon's config as it
+/// starts this, and `shutdown` the hub's shutdown notification.
+pub async fn run_background(config: crate::config::Config, shutdown: &tokio::sync::Notify) {
     if !config.artifacts_sync.enabled {
         return;
     }
@@ -239,7 +239,7 @@ pub async fn run_background(hub: Arc<crate::hub::Hub>) {
     let mut fresh = false;
     loop {
         tokio::select! {
-            _ = hub.shutdown.notified() => break,
+            _ = shutdown.notified() => break,
             _ = interval.tick() => {}
         }
         let token = |fresh| async move {
@@ -252,7 +252,7 @@ pub async fn run_background(hub: Arc<crate::hub::Hub>) {
         // Shutdown also ends a pass in flight: a server that keeps trickling bytes never holds
         // the task past the daemon. A cancelled pass loses nothing; each file write is whole.
         tokio::select! {
-            _ = hub.shutdown.notified() => break,
+            _ = shutdown.notified() => break,
             next = sync_tick(&mut sync, token, fresh, &trailers) => fresh = next,
         }
     }
@@ -781,7 +781,11 @@ impl std::error::Error for HttpStatusError {}
 /// client does) so a client built before the mesh's never panics.
 fn http_client() -> Result<Client> {
     let _ = rustls::crypto::ring::default_provider().install_default();
-    Ok(Client::builder().connect_timeout(CONNECT_TIMEOUT).read_timeout(READ_TIMEOUT).build()?)
+    Ok(crate::happy_dial::http_client()
+        .default_headers(cmux_build_space::headers()?)
+        .connect_timeout(CONNECT_TIMEOUT)
+        .read_timeout(READ_TIMEOUT)
+        .build()?)
 }
 
 /// The query string encoded by `url` (reqwest's own `query` needs a feature this workspace leaves off).

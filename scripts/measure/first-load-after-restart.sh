@@ -20,4 +20,4 @@ for arg in "$@"; do
 done
 [[ ${#shas[@]} -gt 0 ]] || { echo "usage: first-load-after-restart.sh SHA... [KNOB=VALUE...]" >&2; exit 2; }
 cd "$here/../../webviews" && { bun install --frozen-lockfile >/dev/null 2>&1 || bun install >/dev/null 2>&1; }
-ENV="$(IFS=,; echo "${pairs[*]-}")" exec "$here/bench-at-commits.sh" bench/first-load-after-restart.bench.ts "${shas[@]}"
+ENV="$(IFS=,; echo "${pairs[*]-}")" exec "$here/bench-at-commits.sh" bench/first-load-after-restart.bench.ts ${shas[@]+"${shas[@]}"}

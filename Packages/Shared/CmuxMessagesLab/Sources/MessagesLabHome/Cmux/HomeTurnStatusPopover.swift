@@ -97,7 +97,7 @@ final class HomeTurnStatusView: NSView {
             let line = label(step.line, size: 11, weight: step.running ? .medium : .regular,
                              color: step.running ? .labelColor : .secondaryLabelColor)
             line.lineBreakMode = .byTruncatingTail
-            line.toolTip = step.line
+            line.setHomeToolTip(step.line)
             let time = step.running ? "\(Self.duration(step.duration)) · \(CmuxStrings.turnNow)" : Self.duration(step.duration)
             addRow(line, label(time, size: 11, weight: .regular, color: .tertiaryLabelColor, mono: true))
         }

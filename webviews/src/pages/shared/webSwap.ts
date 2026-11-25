@@ -38,10 +38,14 @@ export function holdWebSwap(hold: WebSwapHold): () => void {
   return () => void holds.delete(hold);
 }
 
-function registeredPageHold(doc: Document): string | null {
+/** Holds a chat's wake state carries back, so a hidden-chat release need not keep the page for them:
+ * shell mode and its text (the composer's `shell` and `shellText`). A web swap still waits on them. */
+export const WAKE_CARRIED_HOLDS: ReadonlySet<string> = new Set(["composer.shell"]);
+
+function registeredPageHold(doc: Document, carried: ReadonlySet<string> = new Set()): string | null {
   for (const hold of holds) {
     const reason = hold();
-    if (reason) return reason;
+    if (reason && !carried.has(reason)) return reason;
   }
   if (composing.has(doc)) return "ime";
   return null;
@@ -62,7 +66,7 @@ function unkeptFieldHold(doc: Document, edited = false): string | null {
  * composition) and any edited field outside the kept composer, such as a queued message being edited.
  * Every hidden-chat release keeps such a page (`holdsEdits`): nothing typed is lost. */
 export function pageEditHold(doc: Document = document): string | null {
-  return registeredPageHold(doc) || unkeptFieldHold(doc, true);
+  return registeredPageHold(doc, WAKE_CARRIED_HOLDS) || unkeptFieldHold(doc, true);
 }
 
 /** What a hidden page cannot hand back in its wake state: registered unsaved state (including

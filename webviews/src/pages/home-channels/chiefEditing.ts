@@ -48,8 +48,9 @@ export interface ChiefEditorService {
   harnessIds(): Promise<string[]>;
   /** Adds a backend (the key goes to the Keychain through the host); resolves its harness id. */
   addBackend(backend: HomeChiefByoBackend): Promise<string>;
-  /** A real hello turn on the harness (`doctor {id, prompt: true}`). */
-  checkBackend(id: string): Promise<HomeChiefDoctor>;
+  /** A real hello turn on the harness (`doctor {id, prompt: true}`); `chief` (the Chief being
+   * edited) checks an open-source brain from that Chief's own brain home, as its turns run it. */
+  checkBackend(id: string, chief?: string): Promise<HomeChiefDoctor>;
   /** Removes a backend this editor added whose check never passed (the form closed or started
    * over). Only where the host serves it: Settings' `cmux.settings.agents.run`; Home has none. */
   removeBackend?(id: string): Promise<void>;
@@ -296,8 +297,9 @@ export class ChiefHost {
     return added.id;
   }
 
-  async checkBackend(id: string): Promise<HomeChiefDoctor> {
-    return parseDoctor(await this.host.call("cmux.chief.backend.doctor", { id, prompt: true }));
+  async checkBackend(id: string, chief?: string): Promise<HomeChiefDoctor> {
+    const params = chief ? { id, prompt: true, chief } : { id, prompt: true };
+    return parseDoctor(await this.host.call("cmux.chief.backend.doctor", params));
   }
 
   /** Settings' own remove (`cmux.settings.agents.run`), which the Settings page serves. */
@@ -372,8 +374,8 @@ export class HostChiefEditor implements ChiefEditorService {
     return this.host.addBackend(backend);
   }
 
-  checkBackend(id: string): Promise<HomeChiefDoctor> {
-    return this.host.checkBackend(id);
+  checkBackend(id: string, chief?: string): Promise<HomeChiefDoctor> {
+    return this.host.checkBackend(id, chief);
   }
 
   removeBackend(id: string): Promise<void> {
