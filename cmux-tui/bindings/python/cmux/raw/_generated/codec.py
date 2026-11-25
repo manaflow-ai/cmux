@@ -487,6 +487,8 @@ MODEL_BY_PATH = {
     'commands/register-browser-provider/request': models.RegisterBrowserProviderRequest,
     'commands/release-attached-view-size/request': models.ReleaseAttachedViewSizeRequest,
     'commands/release-surface-size/request': models.ReleaseSurfaceSizeRequest,
+    'commands/release-workspace-names/request': models.ReleaseWorkspaceNamesRequest,
+    'commands/release-workspace-names/result': models.ReleaseWorkspaceNamesResult,
     'commands/reload-config/request': models.ReloadConfigRequest,
     'commands/reload-config/result': models.ReloadConfigResult,
     'commands/remote-host-app/request': models.RemoteHostAppRequest,

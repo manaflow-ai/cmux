@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "fec2a53560ff6992b48ee32a81df797ac404a8bc55f1661d1e11f96aaf2032c0";
+inline constexpr std::string_view kProtocolIrSha256 = "80c19123bcab8fc10e052da74c984614ae0f9a6dafdb54e7024acaaee3cd5b38";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -522,6 +522,8 @@ struct ReattachViewRequest;
 struct RegisterBrowserProviderRequest;
 struct ReleaseAttachedViewSizeRequest;
 struct ReleaseSurfaceSizeRequest;
+struct ReleaseWorkspaceNamesRequest;
+struct ReleaseWorkspaceNamesResult;
 struct ReloadConfigRequest;
 struct ReloadConfigResult;
 struct RemoteHostAppRequest;
@@ -3752,6 +3754,7 @@ struct ListClientsResult {
 
 struct ListNotificationsRequest {
     Field<std::uint64_t> limit{};
+    std::optional<bool> stats{};
     friend bool operator==(const ListNotificationsRequest&, const ListNotificationsRequest&) = default;
 };
 
@@ -4792,6 +4795,16 @@ struct ReleaseAttachedViewSizeRequest {
 struct ReleaseSurfaceSizeRequest {
     Id surface{};
     friend bool operator==(const ReleaseSurfaceSizeRequest&, const ReleaseSurfaceSizeRequest&) = default;
+};
+
+struct ReleaseWorkspaceNamesRequest {
+    friend bool operator==(const ReleaseWorkspaceNamesRequest&, const ReleaseWorkspaceNamesRequest&) = default;
+};
+
+struct ReleaseWorkspaceNamesResult {
+    std::uint64_t released{};
+    std::uint64_t still_pinned{};
+    friend bool operator==(const ReleaseWorkspaceNamesResult&, const ReleaseWorkspaceNamesResult&) = default;
 };
 
 struct ReloadConfigRequest {
@@ -9841,6 +9854,18 @@ template <>
 struct Codec<ReleaseSurfaceSizeRequest> {
     static Result<Json> encode(const ReleaseSurfaceSizeRequest& value);
     static Result<ReleaseSurfaceSizeRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ReleaseWorkspaceNamesRequest> {
+    static Result<Json> encode(const ReleaseWorkspaceNamesRequest& value);
+    static Result<ReleaseWorkspaceNamesRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ReleaseWorkspaceNamesResult> {
+    static Result<Json> encode(const ReleaseWorkspaceNamesResult& value);
+    static Result<ReleaseWorkspaceNamesResult> decode(const Json& value);
 };
 
 template <>

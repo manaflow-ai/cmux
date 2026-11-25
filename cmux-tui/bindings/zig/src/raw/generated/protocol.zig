@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "fec2a53560ff6992b48ee32a81df797ac404a8bc55f1661d1e11f96aaf2032c0";
+pub const ir_sha256 = "80c19123bcab8fc10e052da74c984614ae0f9a6dafdb54e7024acaaee3cd5b38";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -7207,6 +7207,11 @@ pub fn listClients(client: anytype, request: ListClientsRequest) !wire.Decoded(L
 
 pub const ListNotificationsRequest = struct {
     limit: wire.Field(u64) = .absent,
+    stats: ?bool = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "stats",
+    };
 };
 
 pub const ListNotificationsResult = JsonValue;
@@ -7219,6 +7224,9 @@ pub fn listNotifications(client: anytype, request: ListNotificationsRequest) !wi
             .authority = "control",
             .since = 12,
             .capability = "notification-ack-v1",
+            .fields = &.{
+                .{ .name = "stats", .since = 12, .capability = null },
+            },
         },
         request,
     );
@@ -8773,6 +8781,26 @@ pub fn releaseSurfaceSize(client: anytype, request: ReleaseSurfaceSizeRequest) !
             .name = "release-surface-size",
             .authority = "control",
             .since = 7,
+            .capability = null,
+        },
+        request,
+    );
+}
+
+pub const ReleaseWorkspaceNamesRequest = struct {};
+
+pub const ReleaseWorkspaceNamesResult = struct {
+    released: u64,
+    still_pinned: u64,
+};
+
+pub fn releaseWorkspaceNames(client: anytype, request: ReleaseWorkspaceNamesRequest) !wire.Decoded(ReleaseWorkspaceNamesResult) {
+    return client.callTyped(
+        ReleaseWorkspaceNamesResult,
+        .{
+            .name = "release-workspace-names",
+            .authority = "control",
+            .since = 12,
             .capability = null,
         },
         request,
@@ -12953,7 +12981,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 312;
+pub const command_count: usize = 313;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -13162,6 +13190,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "register-browser-provider", .authority = "local-admin", .since = 10, .capability = "browser-provider-v1", .stream = null },
     .{ .name = "release-attached-view-size", .authority = "frontend", .since = 10, .capability = "view-attachment-lease-v1", .stream = null },
     .{ .name = "release-surface-size", .authority = "control", .since = 7, .capability = null, .stream = null },
+    .{ .name = "release-workspace-names", .authority = "control", .since = 12, .capability = null, .stream = null },
     .{ .name = "reload-config", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "remote-host-app", .authority = "local-admin", .since = 12, .capability = "remote-host-v1", .stream = null },
     .{ .name = "remote-host-call", .authority = "local-admin", .since = 12, .capability = "remote-host-v1", .stream = null },

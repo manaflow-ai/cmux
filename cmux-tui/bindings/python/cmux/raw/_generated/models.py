@@ -4101,6 +4101,7 @@ class ListClientsRequest:
 class ListNotificationsRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/list-notifications/request'
     limit: Union[int, None, MissingType] = field(default=MISSING)
+    stats: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -4735,6 +4736,19 @@ class ReleaseAttachedViewSizeRequest:
 class ReleaseSurfaceSizeRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/release-surface-size/request'
     surface: Id
+
+
+@dataclass(frozen=True)
+class ReleaseWorkspaceNamesRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/release-workspace-names/request'
+    pass
+
+
+@dataclass(frozen=True)
+class ReleaseWorkspaceNamesResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/release-workspace-names/result'
+    released: int
+    still_pinned: int
 
 
 @dataclass(frozen=True)
@@ -7281,6 +7295,8 @@ __all__ = [
     'RegisterBrowserProviderRequest',
     'ReleaseAttachedViewSizeRequest',
     'ReleaseSurfaceSizeRequest',
+    'ReleaseWorkspaceNamesRequest',
+    'ReleaseWorkspaceNamesResult',
     'ReloadConfigRequest',
     'ReloadConfigResult',
     'RemoteHostAppRequest',

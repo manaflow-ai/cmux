@@ -17497,6 +17497,42 @@
     "An absent lease is a successful no-op."
    ]
   },
+  "release-workspace-names": {
+   "authority": "control",
+   "since": 12,
+   "capability": null,
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "released": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "still_pinned": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Every user-owned workspace name goes back to the automatic namer; idempotent: a second call releases nothing. still_pinned counts names the caller could not release."
+   ]
+  },
   "release-attached-view-size": {
    "authority": "frontend",
    "since": 10,
@@ -21778,6 +21814,19 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "stats": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "since": 12,
+      "constraints": [
+       "true: the reply also carries agent_notice_stats, how often agent notices were read and how fast."
+      ]
      }
     },
     "additional_properties": false

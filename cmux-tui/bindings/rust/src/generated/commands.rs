@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR fec2a53560ff6992b48ee32a81df797ac404a8bc55f1661d1e11f96aaf2032c0.
+// cmux-tui mux protocol 12, IR 80c19123bcab8fc10e052da74c984614ae0f9a6dafdb54e7024acaaee3cd5b38.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2196,6 +2196,8 @@ pub type ListClientsResult = Vec<T::ClientInfo>;
 pub struct ListNotificationsRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub limit: Optional<u64>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub stats: Option<bool>,
 }
 
 #[rustfmt::skip]
@@ -3167,6 +3169,18 @@ pub struct ReleaseSurfaceSizeRequest {
 
 #[rustfmt::skip]
 pub type ReleaseSurfaceSizeResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ReleaseWorkspaceNamesRequest {
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReleaseWorkspaceNamesResult {
+    pub released: u64,
+    pub still_pinned: u64,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -5280,6 +5294,9 @@ impl CmuxClient {
     }
 
     pub fn list_notifications(&mut self, request: ListNotificationsRequest) -> Result<ListNotificationsResult> {
+        if request.stats.is_some() {
+            self.require_protocol_field("list-notifications", 12)?;
+        }
         self.execute(&LIST_NOTIFICATIONS_METADATA, &request)
     }
 
@@ -5754,6 +5771,10 @@ impl CmuxClient {
 
     pub fn release_surface_size(&mut self, request: ReleaseSurfaceSizeRequest) -> Result<ReleaseSurfaceSizeResult> {
         self.execute(&RELEASE_SURFACE_SIZE_METADATA, &request)
+    }
+
+    pub fn release_workspace_names(&mut self, request: ReleaseWorkspaceNamesRequest) -> Result<ReleaseWorkspaceNamesResult> {
+        self.execute(&RELEASE_WORKSPACE_NAMES_METADATA, &request)
     }
 
     pub fn reload_config(&mut self, request: ReloadConfigRequest) -> Result<ReloadConfigResult> {

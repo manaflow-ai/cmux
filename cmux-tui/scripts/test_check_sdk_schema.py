@@ -61,6 +61,10 @@ class LiveSchemaTests(unittest.TestCase):
             "ref<TerminalKeyInput>",
         )
 
+    def test_an_empty_struct_command_variant_takes_no_fields(self) -> None:
+        # `ReleaseWorkspaceNames {},` (cmux#53137) is a command with no request fields.
+        self.assertEqual(CHECKER.runtime_command_fields()["release-workspace-names"], {})
+
     def test_boxed_command_request_uses_its_named_struct_fields(self) -> None:
         fields = CHECKER.runtime_command_fields()["create-surface-with-receipt"]
 

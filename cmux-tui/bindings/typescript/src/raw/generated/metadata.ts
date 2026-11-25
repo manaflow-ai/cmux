@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR fec2a53560ff6992b48ee32a81df797ac404a8bc55f1661d1e11f96aaf2032c0. */
+/* cmux-tui mux protocol 12, IR 80c19123bcab8fc10e052da74c984614ae0f9a6dafdb54e7024acaaee3cd5b38. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "fec2a53560ff6992b48ee32a81df797ac404a8bc55f1661d1e11f96aaf2032c0" as const;
+export const SDK_IR_SHA256 = "80c19123bcab8fc10e052da74c984614ae0f9a6dafdb54e7024acaaee3cd5b38" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1721,7 +1721,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "notification-ack-v1",
-    "fields": {},
+    "fields": {
+      "stats": {
+        "since": 12,
+        "capability": null
+      }
+    },
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
@@ -2619,6 +2624,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "An absent lease is a successful no-op."
+    ]
+  },
+  "release-workspace-names": {
+    "authority": "control",
+    "since": 12,
+    "capability": null,
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Every user-owned workspace name goes back to the automatic namer; idempotent: a second call releases nothing. still_pinned counts names the caller could not release."
     ]
   },
   "reload-config": {
@@ -23661,6 +23676,19 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "kind": "scalar",
             "name": "uint64"
           }
+        },
+        "stats": {
+          "constraints": [
+            "true: the reply also carries agent_notice_stats, how often agent notices were read and how fast."
+          ],
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
         }
       },
       "kind": "object"
@@ -27216,6 +27244,35 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "EmptyResult"
+    }
+  },
+  "release-workspace-names": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "released": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "still_pinned": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
     }
   },
   "reload-config": {
