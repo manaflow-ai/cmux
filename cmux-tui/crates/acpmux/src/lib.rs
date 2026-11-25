@@ -162,6 +162,7 @@ pub(crate) mod home_fs;
 mod home_writers_by_path_tests;
 pub(crate) mod host_fingerprint;
 pub mod host_load;
+pub mod host_load_watch;
 pub mod host_overload;
 pub mod host_pressure;
 pub mod hosted_mcp;
@@ -193,6 +194,7 @@ pub mod login_env;
 pub mod lossy_lines;
 #[cfg(test)]
 mod lost_home_race_tests;
+pub mod mac_lock;
 /// Calls this machine runs for the person's other machines, over the hub carrier
 /// (`machine_call_service.rs`).
 #[cfg(feature = "hub-carrier")]
@@ -255,6 +257,7 @@ pub mod peer_states;
 pub mod person_proof;
 pub mod person_tokens;
 // A new chat's place mode (Auto, Cloud, one machine) and where it starts with it.
+pub mod fleet_elastic;
 pub mod place_mode;
 pub mod placement;
 pub mod plan_build_records;
@@ -283,6 +286,7 @@ pub(crate) mod questions;
 mod quiet_dirs;
 pub mod race_records;
 pub mod range_fetch;
+pub(crate) mod rebalance;
 pub mod recovery;
 pub mod registry;
 pub(crate) mod remote_chain_profile;
@@ -298,6 +302,8 @@ mod router_socket;
 pub mod routes;
 pub mod rows;
 pub mod rpc;
+// `acpmux run-ask`: run an accepted forum `run` ask here or through the scheduler.
+pub mod run_ask;
 pub mod run_elsewhere;
 pub mod sccache_env;
 pub mod schema;
@@ -377,6 +383,7 @@ pub mod suggestion_gate;
 pub(crate) mod supervise;
 pub mod surge_triage;
 pub mod tailnet;
+pub mod tailnet_carrier;
 pub mod task_list;
 #[cfg(unix)]
 #[path = "daemon/term_sender.rs"]
