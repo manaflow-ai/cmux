@@ -271,3 +271,41 @@ fn chief_work_finds_the_same_chats_through_the_v2_list_but_a_closed_root() {
     let link = AcpmuxLink::connect(&daemon.path, |_| {}).unwrap();
     assert!(chief_kin(home, &daemon.path, &link, deadline).unwrap().is_none());
 }
+
+#[test]
+fn chief_work_carries_each_chats_plan_from_its_row_with_no_extra_read() {
+    let list = json!({"source": "agent", "done": 2, "total": 5, "current": "Wire the panel", "next": "Write tests", "updatedAt": 7});
+    let mut child = session("child", json!({"mux.parent": "optchat-chief:12345678"}));
+    child["taskList"] = list.clone();
+    let mut root = session("turn", json!({"cmux.chief": "12345678"}));
+    root["taskList"] =
+        json!({"source": "chief", "done": 9, "total": 4, "current": "", "updatedAt": 8});
+    let quiet = session("quiet", json!({"cmux.chief": "12345678"}));
+    let mut reads = Vec::new();
+    let snapshot = inventory("12345678", |method, params, _| {
+        reads.push(method.to_owned());
+        match method {
+            "_acpmux/sessions" => {
+                Ok(json!({"sessions": [child.clone(), root.clone(), quiet.clone()]}))
+            }
+            "_acpmux/process/list" => Ok(json!({"processes": []})),
+            _ => panic!("unexpected {method} {params}"),
+        }
+    })
+    .unwrap();
+    assert_eq!(
+        snapshot["agents"][0]["plan"],
+        json!({"source": "agent", "done": 2, "total": 5, "current": "Wire the panel", "next": "Write tests", "updatedAt": 7})
+    );
+    // The Chief's own chats: only those with a plan; done never exceeds total; empty steps drop.
+    let plans = snapshot["plans"].as_array().unwrap();
+    assert_eq!(plans.len(), 1, "{snapshot}");
+    assert_eq!(plans[0]["id"], "turn");
+    assert_eq!(
+        plans[0]["plan"],
+        json!({"source": "chief", "done": 4, "total": 4, "current": null, "next": null, "updatedAt": 8})
+    );
+    assert!(reads.iter().all(|m| m == "_acpmux/sessions" || m == "_acpmux/process/list"));
+    assert_eq!(plan(&json!({"taskList": {"done": 0, "total": 0}})), Value::Null);
+    assert_eq!(plan(&json!({})), Value::Null);
+}
