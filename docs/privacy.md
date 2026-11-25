@@ -48,6 +48,9 @@ deletes them.
 
 ## Egress gate
 
+For firewalls that allow only listed hosts: [network-requirements.md](network-requirements.md) lists the hosts,
+ports and address ranges a client needs for relay and connectivity.
+
 The host list below is checked in CI (`tests/test_outbound_hosts.py`) and at run time. The daemon's Rust makes its
 HTTP clients through one egress gate (`cmux-tui/crates/cmux-egress`), whose resolver checks each host before it is
 looked up: in dev and nightly builds a host with no `connects` row is refused and logged (`egress.unlisted host=...
