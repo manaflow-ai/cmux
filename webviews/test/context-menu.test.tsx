@@ -205,6 +205,39 @@ test("a native context menu anchors at the pointer over nested SVG and routes pi
   expect(listeners.size).toBe(0);
 });
 
+test("a zoomed RTL context menu keeps its bottom-right corner at a click near the window bottom", async () => {
+  const container = installDom();
+  const view = dom!.window;
+  const { prototype } = view.HTMLElement;
+  const rect = prototype.getBoundingClientRect;
+  // A backdrop of 800 × 600 CSS px as measured after 125% zoom. jsdom supplies no layout.
+  prototype.getBoundingClientRect = function () {
+    if (this.matches(".ui-context-menu-backdrop")) return new view.DOMRect(20, 15, 1000, 750);
+    if (this.matches('[role="menu"]')) return new view.DOMRect(0, 0, 200, 250);
+    return rect.call(this);
+  };
+  Object.defineProperties(prototype, {
+    offsetWidth: { configurable: true, get: () => 800 },
+    offsetHeight: { configurable: true, get: () => 600 },
+  });
+  const style = document.createElement("style");
+  style.textContent = '[role="menu"] { direction: rtl }';
+  document.head.append(style);
+  await act(async () => {
+    root = createRoot(container);
+    root.render(fixture().element);
+  });
+  await act(async () => {
+    container
+      .querySelector("[data-target]")!
+      .dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 520, clientY: 665 }));
+  });
+  const menu = document.querySelector<HTMLElement>('[role="menu"]')!;
+  // At (240, 320) in the backdrop, the menu's far corner is (520, 665) in the viewport.
+  expect(menu.style.left).toBe("240px");
+  expect(menu.style.top).toBe("320px");
+});
+
 test("opens at the pointer, skips disabled rows, selects by keyboard, and restores focus", async () => {
   const container = installDom();
   const fixtureState = fixture();

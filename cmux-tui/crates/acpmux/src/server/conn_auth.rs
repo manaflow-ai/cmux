@@ -61,6 +61,13 @@ pub enum ConnAuth {
     /// which `Conn::auth` keeps. Its hub reads go with that device credential only, never with
     /// this daemon's identity (`mesh_read.rs` `read_hub`).
     WebDevice,
+    /// A lifecycle control the mesh hub relayed (`mesh_relay.rs` `run_control`), admitted by an
+    /// owner-configured `meshRelay.controlFrom` entry whose `maxPolicy` is below approve-all.
+    /// Served as Peer under the peer rules, but never owner control (`remote_guard::
+    /// owner_control`): its start is a remote start that settles into asking mode, its policy
+    /// held to that `maxPolicy`. The hub's stamp is the only proof behind it, not this launch's
+    /// peer token.
+    MeshControl,
 }
 
 impl ConnAuth {
@@ -83,6 +90,7 @@ impl ConnAuth {
             ConnAuth::CarrierOwner => "carrierOwner",
             ConnAuth::CarrierTeam => "carrierTeam",
             ConnAuth::WebDevice => "webDevice",
+            ConnAuth::MeshControl => "meshControl",
         }
     }
 

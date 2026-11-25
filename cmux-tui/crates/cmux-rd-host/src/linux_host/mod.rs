@@ -32,6 +32,9 @@
 //!   deny SESSION
 //!   status [--json]                `--json`: the cmux.screen-share.status/1 document cmux
 //!                                  reads from every share host (status_json.rs)
+//!   remove-device DEVICE           removes one of the account's other devices from the hub
+//!                                  (`DELETE /v1/devices/DEVICE`): an identity this host left
+//!                                  behind when it joined again, still listed in every viewer
 //!
 //! Consent: the hub serves the account's own devices at once (a viewer with no saved permission
 //! reads `full`) and a viewer the person allowed; a request under a saved Ask waits for `approve` and is
@@ -69,7 +72,8 @@ const USAGE: &str = "usage: cmux-rd linux-host enable [--stack-token-file PATH|-
        cmux-rd linux-host grant [--control]
        cmux-rd linux-host share on [--stack-token-file PATH|-] | share off
        cmux-rd linux-host run [--display :0] [--xauthority PATH] [--capture x11|portal]
-       cmux-rd linux-host display | requests | approve SESSION [--always] [--scope view|full] | deny SESSION | status [--json]";
+       cmux-rd linux-host display | requests | approve SESSION [--always] [--scope view|full] | deny SESSION | status [--json]
+       cmux-rd linux-host remove-device DEVICE";
 
 /// The exit code when the host cannot go on until the person acts (the hub removed this
 /// desktop, its device key no longer matches, or its 30-day anchor ended). The user unit lists
@@ -239,6 +243,9 @@ pub fn run_cli(args: &[String]) -> i32 {
             .map_err(Into::into)
             .and_then(|()| approve(id, &parsed)),
         ["deny", id] => parsed.only(&[]).map_err(Into::into).and_then(|()| deny(id)),
+        ["remove-device", id] => {
+            parsed.only(&[]).map_err(Into::into).and_then(|()| remove_device(id))
+        }
         ["status"] => parsed.only(&["json"]).map_err(Into::into).and_then(|()| {
             if parsed.flag("json") {
                 print_status_json();
@@ -852,6 +859,32 @@ fn deny(id: &str) -> Res<()> {
     Ok(())
 }
 
+/// `remove-device DEVICE`: the hub forgets one of the account's devices, signed by this host.
+fn remove_device(id: &str) -> Res<()> {
+    let (_, hub, _) = load(serving::OldRecord::Keep)?;
+    remove_device_on(&hub, id)?;
+    println!("Removed device {id} from the hub.");
+    Ok(())
+}
+
+/// Asks `hub` to remove device `id`: a hub device id (letters, digits and dashes), never this
+/// host's own, which would end its serving (`share off` stops sharing instead).
+fn remove_device_on(hub: &Hub, id: &str) -> Res<()> {
+    if id.is_empty() || !id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
+        return Err(format!(
+            "{id:?} is not a device id (the hub's ids are like 281f0b45-b1b9-...)"
+        )
+        .into());
+    }
+    if id.eq_ignore_ascii_case(&hub.device.id) {
+        return Err(format!(
+            "{id} is this host's own device; run `cmux-rd linux-host share off` to stop sharing"
+        )
+        .into());
+    }
+    hub.call("DELETE", &format!("/v1/devices/{id}"), None).map(|_| ())
+}
+
 fn status() -> Res<()> {
     let dir = identity::config_dir()?;
     let Some(device) = Device::load(&dir)? else {
@@ -1341,6 +1374,45 @@ fn end_later(hub: &Arc<Hub>, id: &str, reason: &'static str) {
 mod tests {
     use super::*;
     use cmux_hub_host::b64;
+
+    /// `remove-device` sends one signed `DELETE /v1/devices/ID` for another device, and
+    /// refuses this host's own id and anything that is not an id, sending nothing for them.
+    #[test]
+    fn remove_device_deletes_another_device_only() {
+        let (origin, seen) = stack_login::tests::stub(|_, request| match request.path.as_str() {
+            "/v1/auth/device/anchor" => {
+                (200, serde_json::json!({ "anchoredUntil": now_ms() + 1_000 }))
+            }
+            "/v1/auth/device" => {
+                (200, serde_json::json!({ "session": "a", "expiresAt": now_ms() + 3_600_000 }))
+            }
+            _ => (200, serde_json::json!({})),
+        });
+        let device = Device::generate("host").unwrap();
+        let own = device.id.clone();
+        let hub = Hub::new(&origin, device, Some("p:a".into())).unwrap();
+        let old = "19e85a2b-50c2-4a2a-ae16-f02a5b14a8e9";
+        let deletes = || {
+            seen.lock()
+                .unwrap()
+                .iter()
+                .filter(|s| s.method == "DELETE")
+                .map(|s| s.path.clone())
+                .collect::<Vec<_>>()
+        };
+        for bad in [own.as_str(), &own.to_uppercase(), "", "../relays/x", "a/b", "a b"] {
+            assert!(remove_device_on(&hub, bad).is_err(), "{bad:?}");
+        }
+        assert!(deletes().is_empty());
+        remove_device_on(&hub, old).unwrap();
+        assert_eq!(deletes(), vec![format!("/v1/devices/{old}")]);
+        let signed =
+            seen.lock().unwrap().iter().any(|s| {
+                s.method == "DELETE" && s.headers.iter().any(|(k, _)| k == "authorization")
+            });
+        assert!(signed, "the remove carries the host's hub session");
+        assert_eq!(run_cli(&["remove-device".into()]), 2);
+    }
 
     #[test]
     fn args_take_positionals_flags_and_values() {

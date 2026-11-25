@@ -27,7 +27,9 @@
 //!
 //! The wire: each request is one line `{"id":N,"method":M,"params":{..}}`, each answer one line
 //! `{"id":N,"result":..}` or `{"id":N,"error":{code,message,data}}`. Methods are a fixed list
-//! ([`METHODS`]); nothing here spawns a process, reads or writes a path, or takes a command.
+//! ([`METHODS`]). The Computer Use methods spawn no process and take no path or command;
+//! [`FILES_CALL`] reads and writes files and runs one command, under the hand's policy for a
+//! person's machine (`machine_files.rs` says what it may do).
 //! Requests on one circuit run one at a time, in order; a caller that wants two at once opens two
 //! streams (each is one frame on the machine's kept circuit).
 
@@ -49,11 +51,13 @@ use crate::session_service::{CONSENT_DECLINED, Decision};
 pub const COMPUTER_USE_CALL: &str = "computer_use_call";
 /// Whether Computer Use is on here.
 pub const COMPUTER_USE_STATE: &str = "computer_use_state";
+/// One file or command action here (`machine_files.rs`).
+pub const FILES_CALL: &str = "files_call";
 /// Every method the service answers.
-pub const METHODS: &[&str] = &[COMPUTER_USE_CALL, COMPUTER_USE_STATE];
+pub const METHODS: &[&str] = &[COMPUTER_USE_CALL, COMPUTER_USE_STATE, FILES_CALL];
 
-/// The longest request line: a tool's name and arguments, never a file.
-const MAX_REQUEST_BYTES: usize = 1 << 20;
+/// The longest request line: a tool's name and arguments, or one file's new text.
+const MAX_REQUEST_BYTES: usize = 16 << 20;
 /// The longest answer line a dialer reads: a screenshot is a few MiB of base64.
 const MAX_ANSWER_BYTES: usize = 64 << 20;
 /// The circuit's in-process buffer, each way.
@@ -270,6 +274,7 @@ impl MachineCallGate for ConfiguredGate {
                     COMPUTER_USE_CALL => {
                         crate::server::computer_use_relay::run_from(&machine, &params).await
                     }
+                    FILES_CALL => crate::machine_files::run_from(&params).await,
                     _ => Ok(crate::server::computer_use_relay::state_here().await),
                 }
             }

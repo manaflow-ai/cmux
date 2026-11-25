@@ -45,13 +45,15 @@ use crate::mux::Mux;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
 pub use agent_session_folders::AGENT_SESSION_FOLDERS_CAPABILITY;
 use agent_session_link::{AcpmuxLink, Inbound, LinkError};
+pub(crate) use agent_session_start::chat_folder_prewarm_on;
 pub use agent_session_start::{
-    AGENT_SESSION_PREWARM_CAPABILITY, AGENT_SESSION_START_CAPABILITY,
-    AGENT_SESSION_START_CODEX_CREDENTIALS_CAPABILITY, AGENT_SESSION_START_CREDENTIALS_CAPABILITY,
-    AGENT_SESSION_START_KEYED_REASON_CAPABILITY, AGENT_SESSION_START_MODE_CAPABILITY,
-    AGENT_SESSION_START_MODEL_CAPABILITY, AGENT_SESSION_START_NO_CWD_CAPABILITY,
-    AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY, AGENT_SESSION_START_PERMISSION_MODE_CAPABILITY,
-    AGENT_SESSION_START_VM_KIND_CAPABILITY, AcpmuxStarter, AgentStartHost, AgentStartHostSource,
+    AGENT_SESSION_PREWARM_CAPABILITY, AGENT_SESSION_PREWARM_CHAT_FOLDER_CAPABILITY,
+    AGENT_SESSION_START_CAPABILITY, AGENT_SESSION_START_CODEX_CREDENTIALS_CAPABILITY,
+    AGENT_SESSION_START_CREDENTIALS_CAPABILITY, AGENT_SESSION_START_KEYED_REASON_CAPABILITY,
+    AGENT_SESSION_START_MODE_CAPABILITY, AGENT_SESSION_START_MODEL_CAPABILITY,
+    AGENT_SESSION_START_NO_CWD_CAPABILITY, AGENT_SESSION_START_OWNER_CLOUD_CAPABILITY,
+    AGENT_SESSION_START_PERMISSION_MODE_CAPABILITY, AGENT_SESSION_START_VM_KIND_CAPABILITY,
+    AcpmuxStarter, AgentStartHost, AgentStartHostSource,
 };
 pub use agent_session_trust::{
     AGENT_SESSION_TRUST_CAPABILITY, AGENT_SESSION_TRUST_VM_KIND_CAPABILITY,
@@ -123,8 +125,8 @@ const LOGIN_FINISH_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 /// The longest login id, code or API key a login step carries, in bytes.
 const MAX_LOGIN_BYTES: usize = 4096;
 
-pub(crate) const MAX_ATTACHMENTS_PER_CLIENT: usize = 8;
-pub(crate) const MAX_ATTACHMENTS_TOTAL: usize = 64;
+// Attached tabs are not capped by count: each holds one acpmux link (a unix socket, two
+// descriptors here) and its reader thread with a [`THREAD_STACK_BYTES`] stack, a constant cost.
 /// Records per attach or events page.
 pub(crate) const MAX_PAGE: u64 = 500;
 pub(crate) const MAX_PROMPT_BYTES: usize = 64 * 1024;
@@ -196,12 +198,9 @@ struct AttachState {
 }
 
 impl AttachState {
+    /// The client's attached and reserved tabs (the proxy-author trust check reads it; no cap does).
     fn count(&self, client: u64) -> usize {
         self.attachments.keys().chain(self.reserved.iter()).filter(|(c, _)| *c == client).count()
-    }
-
-    fn total(&self) -> usize {
-        self.attachments.len() + self.reserved.len()
     }
 }
 
@@ -481,7 +480,6 @@ fn unsent_reason(stream: &OutboundStream) -> Option<&'static str> {
 
 /// Page params shared by attach and events.
 #[derive(Deserialize, Default)]
-#[serde(deny_unknown_fields)]
 struct PageParams {
     surface: SurfaceId,
     #[serde(default)]
@@ -495,6 +493,12 @@ struct PageParams {
     #[serde(default)]
     max_bytes: Option<u64>,
 }
+
+/// Params no agent-session verb takes because they would name another session, folder,
+/// program or ACP request: refused (a bad request) even though other unknown params are
+/// ignored.
+const REDIRECT_PARAMS: &[&str] =
+    &["session", "sessionId", "cwd", "command", "initial_command", "mcpServers", "_meta"];
 
 enum AgentSessionCommand {
     Attach(PageParams),
@@ -520,11 +524,17 @@ enum AgentSessionCommand {
 }
 
 impl AgentSessionCommand {
-    /// The command of one frame object without `id` and `cmd`. Every params
-    /// struct denies unknown fields, so a session id, cwd, command, agent or
-    /// MCP server param is a bad request.
+    /// The command of one frame object without `id` and `cmd`. A param no
+    /// struct declares (a newer page's field) is dropped unread: no request
+    /// is refused over a field this daemon does not know. The names that
+    /// would aim a verb somewhere else ([`REDIRECT_PARAMS`]: a session id, cwd,
+    /// command, MCP servers or ACP `_meta`) are never a new field: they stay a
+    /// bad request on every verb.
     fn parse(cmd: &str, params: Value) -> Option<Self> {
         use serde_json::from_value;
+        if params.as_object()?.keys().any(|key| REDIRECT_PARAMS.contains(&key.as_str())) {
+            return None;
+        }
         Some(match cmd {
             "agent-session-attach" => Self::Attach(from_value(params).ok()?),
             "agent-session-events" => Self::Events(from_value(params).ok()?),
@@ -552,13 +562,11 @@ impl AgentSessionCommand {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct SurfaceParams {
     surface: SurfaceId,
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct ForkParams {
     surface: SurfaceId,
     through_seq: u64,
@@ -568,7 +576,6 @@ struct ForkParams {
 
 /// `agent-session-typing`: the person starts (`on`) or stops typing in the attached chat.
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct TypingParams {
     surface: SurfaceId,
     on: bool,
@@ -576,7 +583,6 @@ struct TypingParams {
 
 /// `agent-session-view`: whether the person's window shows the attached chat now.
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct ViewParams {
     surface: SurfaceId,
     visible: bool,
@@ -592,7 +598,6 @@ struct ViewParams {
 
 /// `agent-session-set-model`: the model the attached chat uses from its next turn.
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct SetModelParams {
     surface: SurfaceId,
     model_id: String,
@@ -600,7 +605,6 @@ struct SetModelParams {
 
 /// `agent-session-set-mode`: one of the modes the attached chat's agent reported.
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct SetModeParams {
     surface: SurfaceId,
     mode_id: String,
@@ -608,7 +612,6 @@ struct SetModeParams {
 
 /// `agent-session-set-config`: one value of a config option the attached chat's agent reported.
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct SetConfigParams {
     surface: SurfaceId,
     config_id: String,
@@ -617,7 +620,6 @@ struct SetConfigParams {
 
 /// `agent-session-btw`: the person's side question about the attached chat.
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct BtwParams {
     surface: SurfaceId,
     question: String,
@@ -627,7 +629,6 @@ struct BtwParams {
 /// `start` with `agent`, `finish` with `login_id` and Claude's `code`, `api_key` with `agent` and
 /// `key`, `cancel` with `login_id`).
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct LoginParams {
     surface: SurfaceId,
     op: String,
@@ -753,7 +754,6 @@ fn is_setting_id(value: &str) -> bool {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct MediaParams {
     surface: SurfaceId,
     path: String,
@@ -770,7 +770,6 @@ struct MediaParams {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct PromptParams {
     surface: SurfaceId,
     prompt_id: String,
@@ -787,7 +786,6 @@ struct PromptParams {
 /// its queue place; `agent-session-queue-decline` drops it. acpmux's `_acpmux/queue_approve`
 /// and `_acpmux/queue_decline` on the tab's own session. The owner's only.
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct QueueDecisionParams {
     surface: SurfaceId,
     prompt_id: String,
@@ -798,7 +796,6 @@ struct QueueDecisionParams {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct PermissionParams {
     surface: SurfaceId,
     permission_id: String,
@@ -825,7 +822,6 @@ struct PermissionParams {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct AnsweredBy {
     device: String,
     feed_item: String,
@@ -941,7 +937,7 @@ impl Refusal {
             Self::BadRequest => "bad request",
             Self::UnknownTab => "not an agent tab with a session in this daemon",
             Self::NotAttached => "the tab is not attached on this connection",
-            Self::Limit => "too many attached agent tabs",
+            Self::Limit => "the agent tab could not attach now; try again",
             Self::Timeout => "acpmux did not answer in time",
             Self::Refused => "acpmux refused the request",
             Self::BadList => "acpmux's session list could not be read whole",
@@ -981,7 +977,6 @@ impl Refusal {
         match error {
             LinkError::Closed => Self::Unavailable,
             LinkError::Timeout => Self::Timeout,
-            LinkError::Busy => Self::Limit,
             LinkError::Rpc(..) | LinkError::MethodNotFound(_) => Self::Refused,
             LinkError::BadList(_) => Self::BadList,
         }
@@ -1477,10 +1472,7 @@ fn attach(
     {
         let mut state = sessions.lock();
         let key = (client, params.surface);
-        if state.reserved.contains(&key)
-            || state.count(client) >= MAX_ATTACHMENTS_PER_CLIENT
-            || state.total() >= MAX_ATTACHMENTS_TOTAL
-        {
+        if state.reserved.contains(&key) {
             return refuse(writer, id, Refusal::Limit);
         }
         state.reserved.insert(key);
@@ -2261,3 +2253,32 @@ impl Mux {
 #[cfg(test)]
 #[path = "agent_session_attach_unsent_tests.rs"]
 mod unsent_tests;
+
+#[cfg(test)]
+mod unknown_params_tests {
+    use super::*;
+
+    /// A newer page's field never refuses a verb: it is dropped unread. A redirecting name
+    /// (a session id, a cwd, ...) is still a bad request.
+    #[test]
+    fn an_unknown_param_is_ignored_and_a_redirect_is_refused() {
+        let parsed = AgentSessionCommand::parse(
+            "agent-session-typing",
+            json!({"surface": 7, "on": true, "from_a_newer_page": {"x": 1}}),
+        );
+        assert!(matches!(parsed, Some(AgentSessionCommand::Typing(TypingParams { on: true, .. }))));
+        let prompt = AgentSessionCommand::parse(
+            "agent-session-prompt",
+            json!({"surface": 7, "prompt_id": "p1", "text": "hi", "initialize": {"v": 2}}),
+        );
+        assert!(matches!(prompt, Some(AgentSessionCommand::Prompt(_))));
+        for redirect in REDIRECT_PARAMS {
+            let mut params = json!({"surface": 7, "on": true});
+            params[*redirect] = json!("other");
+            assert!(
+                AgentSessionCommand::parse("agent-session-typing", params).is_none(),
+                "{redirect} must stay a bad request"
+            );
+        }
+    }
+}
