@@ -8,6 +8,7 @@ import { LINK_CLOSED, subscribePageStreams } from "../shared/pageStreams";
 import {
   filterKinds,
   groupEntries,
+  keepUnchanged,
   PAGE_LIMIT,
   reconcileSelection,
   siteHost,
@@ -33,6 +34,8 @@ export type Connection = "connecting" | "connected" | "disconnected";
 export interface HistorySnapshot {
   text: string;
   filter: HistoryFilter;
+  /** How far back the list reaches (the When menu); "all" reads every entry. */
+  range: HistoryRange;
   grouping: HistoryGrouping;
   entries: HistoryEntry[];
   groups: HistoryGroup[];
@@ -82,6 +85,7 @@ export class HistoryStore {
     this.snapshot = {
       text: "",
       filter: "all",
+      range: "all",
       grouping: "day",
       entries: [],
       groups: [],
@@ -329,6 +333,12 @@ export class HistoryStore {
     void this.reload();
   }
 
+  setRange(range: HistoryRange): void {
+    if (range === this.snapshot.range) return;
+    this.set({ range });
+    void this.reload();
+  }
+
   setGrouping(grouping: HistoryGrouping): void {
     if (grouping === this.snapshot.grouping) return;
     this.set({ grouping, groups: groupEntries(this.snapshot.entries, grouping) });
@@ -342,15 +352,19 @@ export class HistoryStore {
   async reload(): Promise<void> {
     if (!this.client) return;
     const generation = ++this.generation;
-    const { text, filter } = this.snapshot;
+    const { text, filter, range } = this.snapshot;
     const params: HistoryListParams = { kinds: filterKinds(filter), text, limit: PAGE_LIMIT };
+    if (range !== "all") params.range = range;
     if (!this.snapshot.loading) this.set({ loading: true });
     try {
       const result = await this.client.call<HistoryListResult>(HistoryOps.list, params);
       if (generation !== this.generation) return;
       // cmux.protocol/2 sends a decimal as a string ("1791916418192"); `new Date("…")` of that is
       // an invalid date, and the grouping threw while rendering (a blank page, cx-hnmbt.8).
-      const entries = result.entries.map((entry) => ({ ...entry, at_ms: Number(entry.at_ms) }));
+      const entries = keepUnchanged(
+        this.snapshot.entries,
+        result.entries.map((entry) => ({ ...entry, at_ms: Number(entry.at_ms) })),
+      );
       const pending = (result.pending_kinds?.length ?? 0) > 0;
       this.set({
         entries,

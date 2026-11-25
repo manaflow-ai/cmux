@@ -178,6 +178,10 @@ def is_cmux_guidance(block):
     """Identify hidden cmux guidance in the stream-json content Claude receives."""
     if not isinstance(block, dict):
         return False
+    # The files acpmux prefetched into the prompt (`hub/prefetch.rs`): left out of fixture
+    # commands and echoes unless FAKE_ECHO_PREFETCH=1.
+    if os.environ.get("FAKE_ECHO_PREFETCH") != "1" and str(block.get("text", "")).lstrip().startswith("<cmux-prefetch-context>"):
+        return True
     source = (block.get("_meta") or {}).get("acpmux", {}).get("contextSource")
     if source in {"cmux-default", "cmux-user", "cmux-project", "cmux-guidance"}:
         return True
@@ -873,6 +877,8 @@ while True:
             found.append("vertex")
         if env.get("CLAUDE_CODE_USE_BEDROCK") == "1":
             found.append("bedrock")
+        if env.get("CLAUDE_CODE_USE_FOUNDRY") == "1":
+            found.append("foundry")
         helper = settings.get("apiKeyHelper")
         if helper:
             run = subprocess.run(["/bin/sh", "-c", helper], capture_output=True, text=True)
@@ -892,6 +898,7 @@ while True:
                                "vertexRegions": sorted(k for k in os.environ if k.startswith("VERTEX_REGION_")),
                                "awsKeys": sorted(k for k in os.environ if k.startswith("AWS_")),
                                "googleKeys": sorted(k for k in os.environ if k.startswith("GOOGLE_")),
+                               "azureKeys": sorted(k for k in os.environ if k.startswith("AZURE_")),
                                "promptCache": {k: v for k, v in os.environ.items()
                                                if k.startswith(("DISABLE_PROMPT_CACHING", "ENABLE_PROMPT_CACHING_1H"))
                                                or k == "FORCE_PROMPT_CACHING_5M"},
@@ -1402,7 +1409,10 @@ while True:
             text = json.dumps({k: os.environ.get(k) for k in (
                 "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS", "CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION",
                 "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH", "CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY",
-                "BASH_MAX_TIMEOUT_MS", "BASH_DEFAULT_TIMEOUT_MS")}, sort_keys=True)
+                "BASH_MAX_TIMEOUT_MS", "BASH_DEFAULT_TIMEOUT_MS", "CLAUDE_CODE_RETRY_WATCHDOG",
+                "CLAUDE_CODE_RETRY_WATCHDOG_SCOPE", "CLAUDE_CODE_RETRY_WATCHDOG_MAX_WAIT_MS", "CLAUDE_CODE_MAX_RETRIES",
+                "CLAUDE_CODE_RETRY_WATCHDOG_MAX_USAGE_LIMIT_WAIT_MS")},
+                sort_keys=True)
         # "bg-moved": a foreground shell moved to the background while it ran (a task_updated
         # patch), then ended; its notification names only the task.
         if said.strip() == "bg-moved":
@@ -1541,10 +1551,13 @@ while True:
             threading.Thread(target=end_background_agent, daemon=True).start()
         # "own-turn: FIFO :: TEXT": once the test writes FIFO, while the chat is idle, a background
         # shell ends and Claude Code runs a turn of its own for its task notification that says
-        # TEXT (acpmux hub/background_turn.rs).
-        if said.strip().startswith("own-turn:"):
-            gate, text = said.strip()[len("own-turn:"):].split(" :: ", 1)
+        # TEXT (acpmux hub/background_turn.rs). "own-turn-fail: FIFO :: ERROR": that turn fails
+        # with ERROR as its result (a 429's "API Error: ...", `is_error`).
+        own = next((p for p in ("own-turn:", "own-turn-fail:") if said.strip().startswith(p)), None)
+        if own:
+            gate, text = said.strip()[len(own):].split(" :: ", 1)
             gate = gate.strip()
+            failed = own == "own-turn-fail:"
 
             def own_turn():
                 with open(gate) as g:
@@ -1555,8 +1568,8 @@ while True:
                 send({"type": "stream_event", "event": {"type": "message_start", "message": {"id": "msg_own1"}}})
                 send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
                                                          "delta": {"type": "text_delta", "text": text}}})
-                send({"type": "result", "subtype": "success", "result": text, "num_turns": 1,
-                      "duration_api_ms": 1, "usage": {"input_tokens": 1, "output_tokens": 1}})
+                send({"type": "result", "subtype": "success", "is_error": failed, "result": text,
+                      "num_turns": 1, "duration_api_ms": 1, "usage": {"input_tokens": 1, "output_tokens": 1}})
 
             threading.Thread(target=own_turn, daemon=True).start()
         if said.strip() == "late-agent-ask":

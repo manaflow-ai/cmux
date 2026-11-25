@@ -321,6 +321,8 @@ mod remote_cli_docs {
                 | ["machine", "new" | "create", ..]
                 // cloud_start_chat.rs: the CLI's own Cloud verb, not an app action.
                 | ["cloud", "start-chat", ..]
+                // cloud_agent.rs: the `cloud_*` MCP tools as commands.
+                | ["cloud", "chat" | "computer", ..]
         )
     }
 
@@ -1678,4 +1680,24 @@ fn a_leading_json_lands_where_each_first_word_scope_reads_it() {
     assert_eq!(hoisted(&["--json", "host", "status"]), strings(&["host", "status", "--json"]));
     assert_eq!(hoisted(&["--json", "link", "status"]), strings(&["link", "--json", "status"]));
     assert_eq!(hoisted(&["--json", "tab", "list"]), strings(&["--json", "tab", "list"]));
+}
+
+/// `cmux machine reconnect --help` names that app verb's help topic, `machine list --help` the
+/// catalog verb's, and a verb the grammar runs keeps its own topic (the Cloud and remote command
+/// matrix).
+#[test]
+fn machine_verbs_get_their_own_help_topic() {
+    let topic = |words: &[&str]| match parse(&strings(words), Surface::Cmux) {
+        Ok(ParsedCommand::Help(topic)) => topic,
+        _ => panic!("{words:?} is not help"),
+    };
+    for verb in ["reconnect", "set-icon", "clear-icon"] {
+        let expected = format!("machine {verb}{APP_ACTION_TOPIC}");
+        assert_eq!(topic(&["machine", verb, "--help"]).as_deref(), Some(expected.as_str()));
+        assert!(app_action_help::verb_help("machine", verb).is_some());
+    }
+    assert_eq!(topic(&["machine", "list", "--help"]).as_deref(), Some("machine ls"));
+    assert_eq!(topic(&["machine", "ls", "--help"]).as_deref(), Some("machine ls"));
+    assert_eq!(topic(&["tab", "rename", "--help"]).as_deref(), Some("tab rename"));
+    assert!(scope_help("machine ls").contains("cmux machine list"));
 }

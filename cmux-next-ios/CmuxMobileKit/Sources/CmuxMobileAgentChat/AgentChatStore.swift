@@ -1,4 +1,5 @@
 import CmuxAgentQuestion
+import CmuxMobileArtifacts
 public import CmuxMobileDesign
 import CmuxMobileDiff
 import CmuxMobileMarkdown
@@ -194,6 +195,9 @@ public final class AgentChatStore {
     public private(set) var summary: AgentSessionSummary
     public private(set) var turns: [AgentTurn] = []
     public private(set) var queue: [QueuedPrompt] = []
+    /// Messages with files on their way to the Mac, oldest first: each shows at once with its
+    /// upload's progress until the Mac echoes it (`userMessage`) or it comes back (`promptNotSent`).
+    public private(set) var outgoing: [OutgoingMessage] = []
     public private(set) var availableCommands: [ACPAvailableCommand] = []
     public private(set) var configOptions: [ACPConfigOption] = []
     public private(set) var models: [ACPModelInfo] = []
@@ -297,6 +301,35 @@ public final class AgentChatStore {
         let cwd: String
     }
     @ObservationIgnored private var artifactsCache: (input: ArtifactsInput, value: SessionArtifacts)?
+
+    /// The composer's `@` candidates, read without observing the transcript. `artifacts`
+    /// observes `turns`, so the composer re-rendered, and rescanned the whole transcript, on
+    /// every streamed frame while a mention was typed: typing felt the Mac's output. This
+    /// reads the backing storage, untracked, and rescans at most once per
+    /// `mentionRefresh` while the transcript changes; the picker shows the new candidates
+    /// on the next key. `generation` changes whenever `artifacts` does.
+    func mentionArtifacts(now: ContinuousClock.Instant = .now) -> (generation: Int, artifacts: [TerminalArtifact]) {
+        let key = MentionKey(revision: _revision, turns: _turns.count, subagents: _subagents.count, cwd: _summary.cwd)
+        if let cache = mentionCache, cache.key == key || now - cache.at < Self.mentionRefresh {
+            return (cache.generation, cache.artifacts)
+        }
+        #if DEBUG && os(iOS)
+        InputLatencyTrace.shared?.note("mention_scan")
+        #endif
+        let artifacts = SessionArtifacts.collect(turns: _turns, subagents: _subagents, cwd: _summary.cwd).artifacts
+        let generation = (mentionCache?.generation ?? 0) &+ 1
+        mentionCache = (key, now, generation, artifacts)
+        return (generation, artifacts)
+    }
+    /// The longest the `@` candidates lag a changing transcript.
+    static let mentionRefresh: Duration = .seconds(1)
+    private struct MentionKey: Equatable {
+        let revision: Int
+        let turns: Int
+        let subagents: Int
+        let cwd: String
+    }
+    @ObservationIgnored private var mentionCache: (key: MentionKey, at: ContinuousClock.Instant, generation: Int, artifacts: [TerminalArtifact])?
     /// The newest refused intent, shown over the composer until the next send.
     public var clientError: String?
     /// What the chat says when the Mac refused a send for this phone's Full-access setting
@@ -357,8 +390,13 @@ public final class AgentChatStore {
     /// Set by the composer when it took its place without motion (the chat opened on its
     /// history): the bottom stack's next height lands at once too (then cleared).
     @ObservationIgnored var placeBottomStackInstantly = false
+    /// Set by the composer when its draft gained or lost a line: the bottom stack's next
+    /// height change moves on `ComposerLineMotion` (then cleared).
+    @ObservationIgnored var lineMotionPending = false
+    #if os(iOS)
     /// The new-chat entrance (`NewChatEntrance`) plays once per chat: which parts already did.
     @ObservationIgnored var newChatEntrance = NewChatEntrance.Played()
+    #endif
     private var currentMessageID: String?
     /// Retained output belongs to the failed attempt, even when chunks carry no message ID.
     private var startsNewAttempt = false
@@ -376,18 +414,18 @@ public final class AgentChatStore {
     @ObservationIgnored public let quietStatus: QuietStatusGate
 
     /// The chat's one quiet status line by the composer: nil while live and for the first
-    /// ``QuietStatusGate/threshold`` of an outage or a catch-up (the kept rows show
-    /// meanwhile), then what it waits for. A chat with nothing kept shows its loading state
-    /// instead (``AgentChatLoadingState``).
+    /// ``QuietStatusGate/threshold`` of an outage (the kept rows show meanwhile), then what it
+    /// waits for. A catch-up says nothing: the kept rows show and the new ones arrive. A chat
+    /// with nothing kept shows its loading state instead (``AgentChatLoadingState``).
     public var connectionLine: String? {
-        guard quietStatus.isShown, hasTurns else { return nil }
-        if summary.status == .disconnected { return "Connecting to \(summary.macName)…" }
-        return isLoadingHistory ? "Updating…" : nil
+        guard quietStatus.isShown, hasTurns, summary.status == .disconnected else { return nil }
+        return "Connecting to \(summary.macName)…"
     }
 
-    /// Feeds ``quietStatus`` from the link and history state.
+    /// Feeds ``quietStatus`` from the link state: the session's own status, or a source that can't
+    /// reach its Mac (``loadingText`` says "Connecting" for either once the bound passes).
     private func updateQuietStatus() {
-        quietStatus.update(down: summary.status == .disconnected || isLoadingHistory)
+        quietStatus.update(down: summary.status == .disconnected || source.isOffline)
     }
 
     public init(source: any AgentSessionSource, quietStatus: QuietStatusGate = QuietStatusGate()) {
@@ -396,7 +434,7 @@ public final class AgentChatStore {
         self.isLoadingHistory = source.loadsHistory
         self.isStarting = source.isStarting
         self.quietStatus = quietStatus
-        quietStatus.update(down: source.summary.status == .disconnected || source.loadsHistory)
+        quietStatus.update(down: source.summary.status == .disconnected || source.isOffline)
         let stream = source.events()
         task = Task { [weak self] in
             for await event in stream {
@@ -457,6 +495,13 @@ public final class AgentChatStore {
 
     private func assign<Value: Equatable>(_ keyPath: ReferenceWritableKeyPath<AgentChatStore, Value>, _ value: Value) {
         if self[keyPath: keyPath] != value { self[keyPath: keyPath] = value }
+    }
+
+    /// The session's status, written only when it changes: every reader of `summary`
+    /// (the composer's placeholder and harness name among them) re-renders on a write,
+    /// and the daemon re-sends the same status with each turn event (ask-4a87599079).
+    private func setStatus(_ status: AgentSessionSummary.Status) {
+        if summary.status != status { summary.status = status }
     }
 
     nonisolated static func openPermission(_ turn: AgentTurn) -> PermissionRecord? {
@@ -569,6 +614,9 @@ public final class AgentChatStore {
         resendable = nil
         let promptID = resend ?? UUID().uuidString.lowercased()
         keepSent(attachments, promptID: promptID)
+        if !attachments.isEmpty, !outgoing.contains(where: { $0.id == promptID }) {
+            outgoing.append(OutgoingMessage(id: promptID, text: text, attachments: attachments))
+        }
         // One of the agent's own slash commands waits for the turn and runs as its own.
         let steers = steer && !Self.commandWaitsForTurn(text, harness: summary.harness, commands: availableCommands)
         #if DEBUG && os(iOS)
@@ -871,6 +919,11 @@ public final class AgentChatStore {
     }
 
     /// Resume (the Mac's Resume over a paused queue): acpmux runs the held prompts again.
+    /// Stops a message's upload: it comes back to the composer (`promptNotSent`).
+    public func cancelSend(promptID: String) {
+        source.send(.cancelSend(promptID: promptID))
+    }
+
     public func resumeQueue() {
         guard queuePaused else { return }
         source.send(.resumeQueue)
@@ -972,6 +1025,7 @@ public final class AgentChatStore {
             #endif
             retryRequested = false
             currentMessageID = nil
+            outgoing.removeAll { $0.id == promptId }
             reached(promptId)
             if gapFiller != nil { gapLeftQueue.insert(promptId) }
             // A steer into a running turn shares its id: only the message that opened the turn is its prompt.
@@ -1026,7 +1080,7 @@ public final class AgentChatStore {
                 $0.startedAt = at
                 $0.status = .running
             }
-            summary.status = .running
+            setStatus(.running)
         case .retrying(let attempt, let maxAttempts, let status):
             guard let index = turns.indices.last, turns[index].status == .running else { return }
             turns[index].retry = AgentTurn.Retry(attempt: attempt, maxAttempts: maxAttempts, status: status)
@@ -1078,7 +1132,7 @@ public final class AgentChatStore {
                 }
             }
             currentMessageID = nil
-            summary.status = .idle
+            setStatus(.idle)
         case .update(let update):
             // The model answered: the retry is over.
             switch update {
@@ -1091,11 +1145,11 @@ public final class AgentChatStore {
         case .permissionRequest(let request):
             guard takeOpenAsk(request.id) else { return }
             appendItem(.permission(PermissionRecord(request: request)))
-            summary.status = .waiting
+            setStatus(.waiting)
         case .question(let question):
             guard takeOpenAsk(question.id) else { return }
             appendItem(.question(question))
-            summary.status = .waiting
+            setStatus(.waiting)
         case .permissionDecision(let permissionId, let optionId, let answers):
             approvingOptionID = nil
             decidedAsks.insert(permissionId)
@@ -1124,16 +1178,16 @@ public final class AgentChatStore {
                 }
                 return .permission(record)
             }
-            summary.status = turns.last?.status == .running ? .running : .idle
+            setStatus(turns.last?.status == .running ? .running : .idle)
         case .elevationRequest(let ask):
             pendingElevation = ask
             sendingElevation = false
-            summary.status = .waiting
+            setStatus(.waiting)
         case .elevationDecision(let id):
             guard pendingElevation?.id == id else { break }
             pendingElevation = nil
             sendingElevation = false
-            summary.status = turns.last?.status == .running ? .running : .idle
+            setStatus(turns.last?.status == .running ? .running : .idle)
         case .questionAnswered(let questionId, let answer):
             decidedAsks.insert(questionId)
             updateItems { item in
@@ -1141,14 +1195,16 @@ public final class AgentChatStore {
                 question.state = .answered(answer)
                 return .question(question)
             }
-            summary.status = turns.last?.status == .running ? .running : .idle
+            setStatus(turns.last?.status == .running ? .running : .idle)
+        // The daemon re-sends these with every attach and turn; a write of the same value
+        // still re-renders every reader (the composer's model and mode menus).
         case .modelsAvailable(let models, let current):
-            self.models = models
-            currentModelID = current
+            assign(\.models, models)
+            assign(\.currentModelID, current)
         case .modesAvailable(let modes, let current):
-            offeredModes = modes
-            self.modes = ACPMode.phoneChoices(modes, current: current, fullAccess: fullAccess)
-            currentModeID = current
+            assign(\.offeredModes, modes)
+            assign(\.modes, ACPMode.phoneChoices(modes, current: current, fullAccess: fullAccess))
+            assign(\.currentModeID, current)
         case .earlierHistory(let earlier):
             sourceHasEarlier = earlier
             refreshEarlierHistory()
@@ -1166,12 +1222,12 @@ public final class AgentChatStore {
         case .gapPage(let events, let done):
             fillGap(events, done: done)
         case .fullAccess(let on):
-            fullAccess = on
+            assign(\.fullAccess, on)
             // The refusal said Full access was off; a connection that says it is on ends it.
             if on, clientError == Self.fullAccessOffNotice || clientError == Self.fullAccessOffPromptNotice { clientError = nil }
-            modes = ACPMode.phoneChoices(offeredModes, current: currentModeID, fullAccess: on)
+            assign(\.modes, ACPMode.phoneChoices(offeredModes, current: currentModeID, fullAccess: on))
         case .status(let status):
-            summary.status = status
+            setStatus(status)
             if status != .disconnected, wantsBookmarks { loadBookmarks() }
             // A dropped link can lose the request before the daemon accepts it, with
             // no error or retry record to clear the in-flight tap on reattach.
@@ -1187,7 +1243,14 @@ public final class AgentChatStore {
             awaitsPermissionReply = false
             retryRequested = false
             clientError = message
+        case .promptUploading(let promptID, let progress):
+            guard let index = outgoing.firstIndex(where: { $0.id == promptID }) else { break }
+            // Steps hop to the main actor one by one: an older one that lands late is dropped.
+            if let shown = outgoing[index].progress, shown.name == progress.name, shown.attempt == progress.attempt,
+               shown.sent > progress.sent, progress.phase == .sending { break }
+            outgoing[index].progress = progress
         case .promptNotSent(let text, let attachments, let promptID, let reason):
+            outgoing.removeAll { $0.id == promptID }
             // The transcript already showed it run: only its reply was lost.
             guard !seenPromptIDs.contains(promptID) else { break }
             clientError = reason
@@ -1787,14 +1850,14 @@ public final class AgentChatStore {
             }
             turns[turns.count - 1] = turn
         case .availableCommands(let commands):
-            availableCommands = commands
+            assign(\.availableCommands, commands)
         case .currentMode(let mode):
-            currentModeID = mode
-            modes = ACPMode.phoneChoices(offeredModes, current: mode, fullAccess: fullAccess)
+            assign(\.currentModeID, mode)
+            assign(\.modes, ACPMode.phoneChoices(offeredModes, current: mode, fullAccess: fullAccess))
         case .configOptions(let options):
-            configOptions = options
+            assign(\.configOptions, options)
         case .usage(let used, let size):
-            usage = (used, size)
+            if usage?.used != used || usage?.size != size { usage = (used, size) }
         case .sessionInfo(let title):
             if let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty { sessionTitle = title }
         }
@@ -1867,16 +1930,39 @@ private final class EarlierHistorySource: AgentSessionSource {
 
 extension AgentChatStore {
     /// What the chat's loading state says. Connecting first: a chat whose start is over but
-    /// whose Mac dropped (a task that never left the phone) waits on the link, not its agent.
+    /// whose Mac dropped (a task that never left the phone) waits on the link, not its agent,
+    /// and says so only once ``quietStatus`` shows (10 s); a reconnect inside it reads as loading.
     public var loadingText: String {
-        if summary.status == .disconnected || isOffline && !awaitsFirstPrompt {
+        if quietStatus.isShown, summary.status == .disconnected || isOffline && !awaitsFirstPrompt {
             return "Connecting to \(summary.macName)…"
         }
         return isStarting || awaitsFirstPrompt ? Self.startingText(summary) : "Loading chat…"
     }
 
+    /// The loading state's words show. A start says so at once (the person just asked for
+    /// it); a chat catching up or reconnecting shows only its spinner, and its words only after
+    /// ``QuietStatusGate/threshold`` (Leo's quiet-connection rule: no "Loading" sentence for a
+    /// wait that ends in a moment; iOS release bar read-back, 2026-11-22, shot 14).
+    public var loadingTextShows: Bool { isStarting || awaitsFirstPrompt || quietStatus.isShown }
+
     /// "Starting Claude…"; the Mac's default agent, not named yet, is "Starting chat…".
     public static func startingText(_ summary: AgentSessionSummary) -> String {
         summary.harness.isEmpty ? "Starting chat…" : "Starting \(summary.agentName)…"
+    }
+}
+
+/// A message with files the phone is sending (``AgentChatStore/outgoing``).
+public struct OutgoingMessage: Identifiable, Equatable, Sendable {
+    public let id: String
+    public let text: String
+    public let attachments: [AgentAttachment]
+    /// The current file's upload; nil until its first step.
+    public var progress: AgentUploadProgress?
+
+    public init(id: String, text: String, attachments: [AgentAttachment], progress: AgentUploadProgress? = nil) {
+        self.id = id
+        self.text = text
+        self.attachments = attachments
+        self.progress = progress
     }
 }

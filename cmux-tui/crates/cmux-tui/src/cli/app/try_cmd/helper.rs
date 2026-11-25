@@ -1,7 +1,7 @@
 //! The Screen Sharing helper a live try carries: `mac-live.json`'s top-level
 //! `screen_sharing_helper` (a key every older CLI ignores, so its payloads stay
-//! readable to them), the signed `<app> Screen Sharing.app` of the commit's
-//! cmux-rd host (plans/cmux-next/screen-sharing-helper.md).
+//! readable to them), the signed `<app> Helper.app` (`<app> Screen Sharing.app` before the
+//! rename) of the commit's cmux-rd host (plans/cmux-next/screen-sharing-helper.md).
 //!
 //! The app and the daemon never fall back to `bin/cmux rd serve` once a helper
 //! is bundled, so a try that changes the host's code changes this bundle. It is
@@ -33,13 +33,22 @@ pub(super) const KEY: &str = "screen_sharing_helper";
 pub(super) const ZIP: &str = "cmux-screen-sharing-helper-aarch64-apple-darwin.zip";
 /// The app's folder that holds the helper.
 pub(super) const LIBRARY: &str = "Contents/Library";
-/// Every channel's helper bundle ends with this (`cmux NIGHTLY Screen Sharing.app`).
-pub(super) const SUFFIX: &str = " Screen Sharing.app";
+/// Every channel's helper bundle ends with this (`cmux NIGHTLY Helper.app`;
+/// bundle-screen-sharing-helper.sh `SUFFIX`).
+pub(super) const SUFFIX: &str = " Helper.app";
+/// What an app built before the rename calls it (`cmux NIGHTLY Screen Sharing.app`; the script's
+/// `LEGACY_SUFFIX`). A try keeps whichever name the installed app has.
+pub(super) const LEGACY_SUFFIX: &str = " Screen Sharing.app";
+
+/// Whether `name` is a helper bundle's folder name, new or legacy.
+pub(super) fn is_helper_name(name: &str) -> bool {
+    name.ends_with(SUFFIX) || name.ends_with(LEGACY_SUFFIX)
+}
 /// The helper's executable (bundle-screen-sharing-helper.sh `EXECUTABLE`).
 pub(super) const EXECUTABLE: &str = "cmux-screen-sharing";
 /// A helper zip is a few megabytes.
 pub(super) const ZIP_MAX_BYTES: u64 = 128 * 1024 * 1024;
-/// The staging folder's prefix beside the installed helper (hidden: no glob of `* Screen Sharing.app` sees it).
+/// The staging folder's prefix beside the installed helper (hidden: no glob of `* Helper.app` or `* Screen Sharing.app` sees it).
 const STAGING_PREFIX: &str = ".app-try-helper-";
 
 /// `screen_sharing_helper` in `mac-live.json`.
@@ -301,36 +310,40 @@ impl Swap {
             .map_err(|e| format!("{}: {e}", self.installed.display()))
     }
 
-    /// Keeps the bundle from before the swap in the store (`helpers/<digest>/<name>`) for
-    /// `undo`, and gives the receipt's step and undo record.
+    /// Where `keep` puts the bundle from before the swap: `helpers/<digest>/<name>` in the store.
+    fn kept(&self, store: &Store) -> PathBuf {
+        let name = self.installed.file_name().map(PathBuf::from).unwrap_or_default();
+        store.root.join("helpers").join(&self.from).join(name)
+    }
+
+    /// Copies the installed bundle into the store for `undo`, before `swap` touches it: a
+    /// swap whose prior bundle could not be kept is refused, so `undo` always has it.
+    pub(super) fn keep(&self, store: &Store) -> Result<(), String> {
+        let kept = self.kept(store);
+        if kept.is_dir() && digest(&kept).is_ok_and(|have| have == self.from) {
+            return Ok(());
+        }
+        let dir = kept.parent().ok_or("the store has no folder")?;
+        fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        let _ = fs::remove_dir_all(&kept);
+        copy_tree(&self.installed, &kept)?;
+        if digest(&kept)? != self.from {
+            let _ = fs::remove_dir_all(&kept);
+            return Err(format!("the copy at {} is not the installed helper", kept.display()));
+        }
+        Ok(())
+    }
+
+    /// The receipt's step and undo record; `keep` already put the prior bundle in the store.
     pub(super) fn finish(&self, store: &Store) -> (Value, Value) {
         let step = json!({
             "did": "swapped", "bundle": self.installed.to_string_lossy(),
             "from": self.from, "to": self.to,
         });
-        let name = self.installed.file_name().map(PathBuf::from).unwrap_or_default();
-        let kept = store.root.join("helpers").join(&self.from).join(name);
-        let keep = || -> Result<(), String> {
-            if kept.is_dir() && digest(&kept).is_ok_and(|have| have == self.from) {
-                return Ok(());
-            }
-            let dir = kept.parent().ok_or("the store has no folder")?;
-            fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-            let _ = fs::remove_dir_all(&kept);
-            if fs::rename(&self.aside, &kept).is_err() {
-                copy_tree(&self.aside, &kept)?;
-            }
-            Ok(())
-        };
-        let undo = match keep() {
-            Ok(()) => json!({
-                "bundle": self.installed.to_string_lossy(), "copy": kept.to_string_lossy(),
-                "digest": self.from, "set": self.to,
-            }),
-            Err(error) => {
-                json!({ "bundle": self.installed.to_string_lossy(), "copy": null, "error": error })
-            }
-        };
+        let undo = json!({
+            "bundle": self.installed.to_string_lossy(), "copy": self.kept(store).to_string_lossy(),
+            "digest": self.from, "set": self.to,
+        });
         (step, undo)
     }
 }
@@ -411,7 +424,7 @@ pub(super) fn prepare(
             continue;
         }
         let real_dir = entry.file_type().is_ok_and(|kind| kind.is_dir());
-        if !real_dir || !name.ends_with(SUFFIX) {
+        if !real_dir || !is_helper_name(&name) {
             return Err(format!("{ZIP} holds {name}, not only a Screen Sharing helper"));
         }
         bundles.push(entry.path());
@@ -455,7 +468,7 @@ pub(super) fn undo(receipt: &Value) -> Result<Option<Swap>, String> {
         ));
     };
     let (was, set) = (field("digest").unwrap_or_default(), field("set").unwrap_or_default());
-    if !bundle.file_name().is_some_and(|name| name.to_string_lossy().ends_with(SUFFIX)) {
+    if !bundle.file_name().is_some_and(|name| is_helper_name(&name.to_string_lossy())) {
         return Err(format!("the receipt names {}, not a Screen Sharing helper", bundle.display()));
     }
     if digest(&bundle).ok().as_deref() != Some(set) {

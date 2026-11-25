@@ -153,10 +153,35 @@ class Workflow(unittest.TestCase):
         self.assertIn("needs.pick-archive-runner.outputs.attempt == format('{0}', github.run_attempt) && "
                       "needs.pick-archive-runner.outputs.dedicated != '' && "
                       "needs.pick-archive-runner.outputs.dedicated || ", runs_on)
-        self.assertTrue(runs_on.rstrip("} ").endswith("|| fromJSON(vars.RUNNER_POOLS).macos_26"))
+        self.assertTrue(runs_on.rstrip("} ").endswith("|| vars.CI_OVERFLOW_MAC || 'cmux-mac'"))
         self.assertEqual(archive["needs"], "pick-archive-runner")
         self.assertIn("!cancelled()", archive["if"])
         self.assertIn("vars.CI_IOS_INTERNAL_RUNNER", jobs["pick-archive-runner"]["steps"][-1]["env"]["DEDICATED_LABEL"])
+
+
+class StoreSdk(unittest.TestCase):
+    """ITMS-90725 (2026-11-22): every INTERNAL upload built with Xcode 26.6 (iOS 26.5 SDK)
+    mailed the team. The archive and the signer pin a released Xcode 27 before Select Xcode,
+    and the archive refuses an app whose DTSDKName is below iphoneos27."""
+
+    def steps(self, job: str) -> list[dict]:
+        return yaml.safe_load(WORKFLOW.read_text())["jobs"][job]["steps"]
+
+    def test_archive_and_signer_pin_xcode_27_before_select_xcode(self) -> None:
+        for job in ("archive", "upload"):
+            with self.subTest(job=job):
+                names = [s.get("name", "") for s in self.steps(job)]
+                pin = names.index("Pin Xcode 27 (iOS 27 SDK) for App Store Connect")
+                self.assertEqual(names[pin + 1], "Select Xcode")
+                run = self.steps(job)[pin]["run"]
+                self.assertIn("CMUX_CI_XCODE_APP=$pick", run)
+                self.assertIn("--sdk iphoneos --show-sdk-version", run)
+                self.assertIn("*[Bb]eta*", run)
+
+    def test_archive_refuses_an_sdk_below_ios_27(self) -> None:
+        run = next(s["run"] for s in self.steps("archive") if s.get("name") == "App Store review rules (built app)")
+        self.assertIn("Print :DTSDKName", run)
+        self.assertIn("iphoneos27*", run)
 
 
 if __name__ == "__main__":

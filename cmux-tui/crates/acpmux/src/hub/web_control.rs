@@ -194,10 +194,13 @@ impl Hub {
             // A mode cmux set stays cmux's only while the chat runs it: a write that moves the mode
             // anywhere else (the harness's own update, through either form) takes the mark, under
             // this same lock, so a later write cannot bring the mode back with it
-            // (`trust_wait.rs` `full_access_by_cmux`, `permissions.rs` `full_access_mode`).
-            let unmarked = m.mode_set_by_cmux.is_some()
-                && crate::web_modes::mode_of(&m) != m.mode_set_by_cmux
-                && m.mode_set_by_cmux.take().is_some();
+            // (`trust_wait.rs` `full_access_by_cmux`, `permissions.rs` `full_access_mode`). Only a
+            // full-access mark: a narrower one is the mode the person or a policy picked, which a
+            // harness that moves itself into full access does not erase (`full_access_allow`).
+            let unmarked =
+                m.mode_set_by_cmux.as_deref().is_some_and(super::start_mode::is_full_access)
+                    && crate::web_modes::mode_of(&m) != m.mode_set_by_cmux
+                    && m.mode_set_by_cmux.take().is_some();
             let asks = self.session_asks_now(session, &m);
             let left = (asked && !asks && !session.web_control_ended.swap(true, Ordering::SeqCst))
                 .then(|| crate::web_modes::mode_of(&m));
@@ -681,7 +684,7 @@ impl Control {
 }
 
 /// The rules a request that controls a session runs under.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Control {
     /// The unix socket or the local app: no mode rule.
     #[default]

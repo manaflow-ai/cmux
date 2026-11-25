@@ -94,9 +94,7 @@ final class SidebarFooterBand {
         let bar = host.profileBar, footer = host.footer, bounds = host.bounds
         // The Search button sits at the row's right end and the update button left of it: the strip ends before them.
         let searchMinX = placeSearch()
-        // Swift live mode's mark follows the avatar; the dots and the update button start after it. App
-        // health's line is not in this row (``placeHealthIndicator(above:)``): its coming and going never
-        // moves the strip, the update button or Search.
+        // Swift live mode's mark follows the avatar; the dots and the update button start after it.
         let leadMaxX = placeLiveBadge(before: searchMinX)
         let trailing = placeUpdateAvailable(before: searchMinX, after: leadMaxX ?? bandFirstRow?.itemsMaxX ?? 0) ?? searchMinX
         if host.spacesPosition == .top {
@@ -143,10 +141,25 @@ final class SidebarFooterBand {
     /// `SidebarStyle.bottomInset` (Leo 2026-10-20: the line sat too high, the section's own
     /// padding stacked on the margin): no padding under a row as tall as the button, half the
     /// difference under a shorter one, which the button overhangs.
+    ///
+    /// On a screen whose pixel grid cannot hold the density's margin (a half-point margin at 1x, #44449) the line ends
+    /// on the next whole pixel up (`bottomMargin`), and the Search button is whole pixels tall (`searchSide`), so the
+    /// button's bottom and top both land on pixels and the row centers one device pixel over its middle.
     func footerBottomPadding(rowHeight: CGFloat) -> CGFloat {
         guard host?.design.sidebarSections.showSearchButton == true else { return 0 }
-        return max(0, (Self.searchButtonSide - rowHeight) / 2 + searchLensDrop)
+        return max(0, (searchSide - rowHeight) / 2 + searchLensDrop + bottomMargin - SidebarStyle.bottomInset)
     }
+
+    /// The window's device pixel scale (2 before the sidebar has a window).
+    private var pixelScale: CGFloat { host?.window?.backingScaleFactor ?? 2 }
+
+    /// The Search button's side in whole device pixels: `searchButtonSide` is a half point at some densities (#44449),
+    /// which a 1x screen cannot draw both edges of.
+    var searchSide: CGFloat { SidebarStyle.pixelSnapped(Self.searchButtonSide, scale: pixelScale) }
+
+    /// The footer line's bottom margin, `SidebarStyle.bottomInset` rounded up to whole device pixels: 3.5 pt at Compact
+    /// on a 2x screen, 4 on a 1x one.
+    var bottomMargin: CGFloat { (SidebarStyle.bottomInset * pixelScale).rounded(.up) / pixelScale }
 
     /// How far the Search button sits under the avatar's center line: one device pixel. The eye
     /// centers the magnifying glass on its lens, which rides above the glyph's middle with the
@@ -171,7 +184,7 @@ final class SidebarFooterBand {
             return nil
         }
         button.isHidden = false
-        let side = Self.searchButtonSide
+        let side = searchSide
         let x: CGFloat, midY: CGFloat
         if let row = bandFirstRow {
             // The search button shares the list rows' trailing column. Preserve the footer's
@@ -234,40 +247,6 @@ final class SidebarFooterBand {
         badge.frame = WindowTitlebar.alignedFrame(NSRect(x: x, y: midY - size.height / 2, width: size.width, height: size.height),
                                                   scale: host.window?.backingScaleFactor ?? 2)
         return badge.frame.maxX
-    }
-
-    // MARK: App health
-
-    /// Places app health's line (`host.healthIndicator`) over the sidebar, never in the footer row's flow, so
-    /// its arrival and departure move nothing beside it (Leo, 2026-11-11: "slow indicator on the bottom left
-    /// is uselsss and layout shifts the space. it's bad"; it used to sit after the avatar and push the spaces
-    /// strip and the update button along the row). The shipped line floats just above the bottom stack
-    /// (`ceiling`: the top of the footer row and of any card over it), at the avatar's leading edge, on its
-    /// own opaque chip over the list's bottom; a badge (``AvatarBadgePlacing``) sits on the
-    /// avatar's top-trailing corner. The row's own frames are laid out before and without it.
-    func placeHealthIndicator(above ceiling: CGFloat) {
-        guard let host, let line = host.healthIndicator, !line.isHidden else { return }
-        let size = line.fittingSize
-        let scale = host.window?.backingScaleFactor ?? 2
-        let row = bandFirstRow
-        if (line as? any AvatarBadgePlacing)?.sitsOnAvatar == true {
-            guard let avatar = row?.frame else {
-                line.frame = .zero
-                return
-            }
-            line.frame = WindowTitlebar.alignedFrame(NSRect(x: avatar.maxX - size.width * 0.75, y: avatar.minY - size.height * 0.25,
-                                                            width: size.width, height: size.height), scale: scale)
-            return
-        }
-        let x = row?.frame.minX ?? Metrics.space4
-        let top = min(ceiling, row?.frame.minY ?? ceiling)
-        let width = min(size.width, host.bounds.width - x - Metrics.space4)
-        guard width >= Self.searchButtonSide * 2 else {
-            line.frame = .zero
-            return
-        }
-        line.frame = WindowTitlebar.alignedFrame(NSRect(x: x, y: top - Metrics.space2 - size.height, width: width, height: size.height),
-                                                 scale: scale)
     }
 
     // MARK: Update Available button

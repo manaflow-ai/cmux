@@ -88,7 +88,7 @@ final class RemoteHoverToolbar: NSView {
         hostLabel.textColor = colors.textPrimary
         icon.contentTintColor = colors.textSecondary
         badge.isHidden = !settings.showPathBadge
-        badge.update(status: state.status, ended: state.isEnded, colors: colors)
+        badge.update(status: state.status, ended: state.isEnded, connectionQuiet: state.quietConnecting, colors: colors)
         for view in sessionViews { view.isHidden = !state.showsSessionControls }
         let takesOver = state.modeControl == .takeOver
         toggle.isHidden = !state.showsSessionControls || takesOver

@@ -55,6 +55,8 @@ struct Loopback {
     unknown: bool,
     /// The reads sent: each is one round trip through the hub and the receiver's inbox.
     asks: std::sync::atomic::AtomicUsize,
+    /// Optional event gate used by the concurrent-read regression test.
+    send_release: Option<tokio::sync::Notify>,
 }
 
 impl Loopback {
@@ -71,6 +73,7 @@ impl Loopback {
             receipts: Mutex::default(),
             unknown: false,
             asks: Default::default(),
+            send_release: None,
         }
     }
 }
@@ -95,6 +98,9 @@ impl MeshHub for Loopback {
         Box::pin(async move {
             m.validate().map_err(HubError::refused)?;
             self.asks.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if let Some(release) = &self.send_release {
+                release.notified().await;
+            }
             if self.unknown {
                 let mut e = HubError::refused("no such recipient");
                 e.code = Some("mesh.unknown_recipient".into());
@@ -254,6 +260,46 @@ async fn the_same_persons_machine_reads_a_reply_through_the_hub_and_no_one_else_
     let unknown =
         read(&unknown, "machine-c", "own-e2e", method::MUX_INFO, &json!({})).await.unwrap_err();
     assert_eq!(unknown.code, RpcError::not_found("").code, "{unknown:?}");
+}
+
+/// Concurrent callers of one hub-routed read share the single network round trip while it is
+/// held in flight. The gate is event-driven, so a caller that arrives after release would make a
+/// second send and fail the count below.
+#[tokio::test]
+async fn single_flight_concurrent_hub_reads_share_one_send() {
+    const CALLERS: usize = 8;
+    let b = machine_b();
+    let meta = json!({"acpmux": {"harness": "fake", "name": "shared-read"}});
+    let _made = call(
+        &b,
+        "session/new",
+        json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": meta}),
+    )
+    .await;
+    let dir = tempfile::tempdir().unwrap();
+    let mut loopback = Loopback::new(&b, dir.path(), "person-1");
+    loopback.send_release = Some(tokio::sync::Notify::new());
+    let loopback = Arc::new(loopback);
+    let params = json!({});
+    let mut callers = Vec::new();
+    for _ in 0..CALLERS {
+        let mut caller = Box::pin(read_shared(
+            &b,
+            loopback.clone(),
+            "machine-b",
+            "shared-read",
+            method::MUX_INFO,
+            &params,
+        ));
+        assert!(futures::poll!(&mut caller).is_pending());
+        callers.push(caller);
+    }
+    assert_eq!(loopback.asks.load(std::sync::atomic::Ordering::SeqCst), 1);
+    loopback.send_release.as_ref().unwrap().notify_waiters();
+    for caller in callers {
+        assert_eq!(caller.await.unwrap()["peer"], "machine-b");
+    }
+    assert_eq!(loopback.asks.load(std::sync::atomic::Ordering::SeqCst), 1);
 }
 
 /// A chat with one record over the hub's 64 KiB opens through the hub, and its older pages read
@@ -506,6 +552,128 @@ async fn history_reads_through_the_hub_and_other_session_reads_never_answer_no_s
         let said = refused["message"].as_str().unwrap_or_default();
         assert!(!said.contains("no session"), "{m}: {refused}");
     }
+}
+
+/// `acpmux rename HOST/ID NAME [--handle]` for a session only the hub reaches renames it there,
+/// as `acpmux info HOST/ID` reads it. Leo, 2026-11-23: "the renaming paradigm still hasn't hit
+/// yet" (every such rename from a lane VM answered no_session). A sender granted `read` alone
+/// renames nothing, and a session verb the hub does not carry says so, never `no session`.
+#[tokio::test]
+async fn rename_reaches_a_session_only_the_hub_reaches_and_no_verb_answers_no_session() {
+    let b = machine_b();
+    let meta = json!({"acpmux": {"harness": "fake", "name": "own-e2e"}});
+    let made = call(
+        &b,
+        "session/new",
+        json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": meta}),
+    )
+    .await;
+    let session = made["sessionId"].as_str().unwrap().to_owned();
+    let dir = tempfile::tempdir().unwrap();
+    let a = machine_b();
+    let mesh: Arc<dyn MeshHub> = Arc::new(Loopback::new(&b, dir.path(), "person-1"));
+    let _ = a.mesh.set(mesh);
+    let hosts = std::collections::BTreeMap::from([("machine-b".to_owned(), 1)]);
+    let row = crate::mesh::BookSession {
+        name: "own-e2e".into(),
+        session_id: session.clone(),
+        host: "machine-b".into(),
+        daemon_id: "inst_b".into(),
+        harness: "fake".into(),
+        state: "idle".into(),
+        last_seen_at: 1,
+        ..Default::default()
+    };
+    a.set_mesh_book(hosts, vec![row]);
+    let on_b = |key: &str| call(&b, method::MUX_INFO, json!({"sessionId": key}));
+
+    // By name, as `acpmux rename machine-b/own-e2e renamed-e2e` sends it.
+    let renamed = call(
+        &a,
+        method::MUX_RENAME,
+        json!({"sessionId": "machine-b/own-e2e", "newName": "renamed-e2e"}),
+    )
+    .await;
+    assert_eq!(renamed["name"], "renamed-e2e", "{renamed}");
+    assert_eq!(
+        (renamed["peer"].as_str(), renamed["via"].as_str()),
+        (Some("machine-b"), Some("hub"))
+    );
+    assert_eq!(on_b(&session).await["name"], "renamed-e2e");
+    // By id, as the CLI sends it once it resolved `HOST/NAME` (`resolve_id`, `control_id`), and
+    // its spoken handle (`--handle`).
+    let by_id = format!("machine-b/{session}");
+    let handle =
+        call(&a, method::MUX_RENAME, json!({"sessionId": by_id, "newHandle": "Mango"})).await;
+    assert_eq!(handle["handle"], "Mango", "{handle}");
+    assert_eq!(on_b(&session).await["handle"], "Mango");
+    // The same rename again (the hub may lease a message twice) leaves it as once.
+    let again =
+        call(&a, method::MUX_RENAME, json!({"sessionId": by_id, "newHandle": "Mango"})).await;
+    assert_eq!(again["handle"], "Mango", "{again}");
+
+    // A sender B trusts only to read renames nothing.
+    let read_only = Loopback {
+        hook: super::super::MeshControlHook::new(
+            vec![MeshControlFrom {
+                same_user: true,
+                ops: vec!["read".into()],
+                ..Default::default()
+            }],
+            Some(dir.path().join("mesh-controls-read.json")),
+        )
+        .with_own_user(Arc::new(|| Some("person-1".to_owned()))),
+        ..Loopback::new(&b, dir.path(), "person-1")
+    };
+    let info = read(&read_only, "machine-b", &session, method::MUX_INFO, &json!({})).await;
+    assert!(info.is_ok(), "a read-only sender still reads: {info:?}");
+    let refused = read(
+        &read_only,
+        "machine-b",
+        &session,
+        method::MUX_RENAME,
+        &json!({"newName": "taken-over"}),
+    )
+    .await
+    .unwrap_err();
+    assert!(refused.message.contains("mesh.control_not_allowed"), "{refused:?}");
+    assert_eq!(on_b(&session).await["name"], "renamed-e2e");
+
+    // A retry goes through too (`acpmux retry machine-b/renamed-e2e`): B runs it on its own
+    // session and answers, here that its last turn did not fail, never that the hub does not
+    // carry it (2026-11-24: lanes the SR2 pool's 503 cut could not be retried from here).
+    let retry =
+        call_error(&a, method::MUX_RETRY, json!({"sessionId": "machine-b/renamed-e2e"})).await;
+    let said = retry["message"].as_str().unwrap_or_default();
+    assert!(said.contains("retry.nothing_failed"), "{retry}");
+    assert!(!said.contains("does not carry") && !said.contains("no session"), "{retry}");
+    // A sender B trusts only to read retries nothing.
+    let refused =
+        read(&read_only, "machine-b", &session, method::MUX_RETRY, &json!({})).await.unwrap_err();
+    assert!(refused.message.contains("mesh.control_not_allowed"), "{refused:?}");
+
+    // Every other session verb the hub does not carry says so, by name or by id.
+    for (m, key) in [
+        (method::MUX_PAUSE, "machine-b/renamed-e2e"),
+        (method::MUX_KILL, by_id.as_str()),
+        (method::MUX_WAKE, by_id.as_str()),
+        (method::MUX_SET_POLICY, by_id.as_str()),
+    ] {
+        let refused = call_error(&a, m, json!({"sessionId": key, "policy": "ask"})).await;
+        assert_eq!(
+            refused.pointer("/data/reason"),
+            Some(&json!("mesh.read_unsupported")),
+            "{m}: {refused}"
+        );
+        let said = refused["message"].as_str().unwrap_or_default();
+        assert!(!said.contains("no session"), "{m}: {refused}");
+        if m == method::MUX_KILL {
+            assert!(said.contains("--mesh"), "{m} names the route that stops it: {refused}");
+        }
+    }
+    // A host the hub does not list is still no session.
+    let typo = call_error(&a, method::MUX_PAUSE, json!({"sessionId": "machine-z/own-e2e"})).await;
+    assert_ne!(typo.pointer("/data/reason"), Some(&json!("mesh.read_unsupported")), "{typo}");
 }
 
 /// [`call`]'s error, for a request that must fail.
@@ -1274,4 +1442,46 @@ async fn a_receipt_gone_after_the_wait_is_not_sent_again() {
     let e = read(&hub, "machine-b", "own-e2e", method::MUX_INFO, &json!({})).await.unwrap_err();
     assert_eq!(*hub.calls.lock().unwrap(), [Call::Send, Call::Answer]);
     assert_eq!(e.data.unwrap()["reason"], json!("mesh.read_unanswered"));
+}
+
+/// A machine only the hub reaches answers a health read of itself, of no session, as a direct
+/// peer's link reads it (`peer_health.rs`), bounded to one small message.
+#[tokio::test]
+async fn a_machine_answers_its_health_through_the_hub_of_no_session() {
+    let b = machine_b();
+    let dir = tempfile::tempdir().unwrap();
+    let hub = Loopback::new(&b, dir.path(), "person-1");
+    let health = host_health(&hub, "machine-b").await.unwrap();
+    assert!(health.is_object(), "{health}");
+    assert!(health.get("unsupported").is_none(), "{health}");
+    assert!(health.to_string().len() <= HEALTH_BYTES);
+    // Another person is refused by B itself.
+    let other = Loopback::new(&b, dir.path(), "person-2");
+    assert!(host_health(&other, "machine-b").await.is_err());
+}
+
+/// Old against new: a build before the health read refuses it as it refuses any method it does
+/// not read (`mesh.read_unsupported`), which the asker keeps as unsupported, never an error.
+#[tokio::test]
+async fn an_old_machine_refuses_the_health_read_and_reads_as_unsupported() {
+    let b = machine_b();
+    let dir = tempfile::tempdir().unwrap();
+    let hub = Loopback::new(&b, dir.path(), "person-1");
+    // What a build without `_acpmux/host_health` answers: the refusal of a method it lacks.
+    let old = read(&hub, "machine-b", "own-e2e", "_acpmux/host_health_unknown", &json!({})).await;
+    let refused = old.unwrap_err();
+    assert!(refused.message.starts_with("mesh.read_unsupported"), "{refused:?}");
+    assert_eq!(health_of(Err(refused)).unwrap(), json!({"unsupported": true}));
+    // A new machine's answer, an answer with no reading, and one over the bound.
+    assert_eq!(health_of(Ok(r#"{"health":{"cpus":4}}"#.into())).unwrap(), json!({"cpus": 4}));
+    assert!(health_of(Ok(r#"{"other":1}"#.into())).is_err());
+    assert!(health_of(Ok("not json".into())).is_err());
+    let big = json!({"health": {"x": "y".repeat(HEALTH_BYTES)}}).to_string();
+    assert!(health_of(Ok(big)).is_err());
+    // Any other failure stays a failure.
+    assert!(health_of(Err(RpcError::internal("down"))).is_err());
+    // The body is version 1, so an old build reaches its method check.
+    let body: Value = serde_json::from_str(&health_body()).unwrap();
+    assert_eq!(body["version"], 1);
+    assert_eq!(body["method"], HOST_HEALTH);
 }

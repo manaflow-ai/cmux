@@ -151,6 +151,7 @@ cmux agent ls [--status running|ready|waiting|idle|closed] [--pending] [--tag k=
 acpmux --json ls --live --fields name,status,peer  # scripts; bare `ls --json` is every record, thousands on a busy host
 cmux agent resolve Mango                         # the handle, stable session id, host and task
 cmux agent session rename --handle NAME Mango    # change the handle without changing the task or id
+acpmux icon @ 🥭                                   # the icon every surface draws for this session (emoji, sf:NAME, .svg, URL; `none` clears)
 cmux agent ls Mango                               # the same session's handle, task, host and harness
 acpmux --json ls --machine local --live            # this machine's sessions only: `ls` lists every machine's, so a script after its own passes this
 cmux agent session info NAME                           # model, mode, policy, pending permissions, usage
@@ -169,6 +170,8 @@ cmux agent session stop NAME --if-idle [--expect-revision LASTSEQ]   # stop only
 
 `send` on a busy or blocked session never refuses: the prompt queues and the
 output says `queued behind …`.
+
+A `--no-wait` or agent send exits 0 once handed off and prints `sent queued|held|delivered|steered id=ID to=TARGET` first (`--json`: `{"ok":true,"state":…,"id":…}`); a retry loop checks the exit code, never greps the text.
 
 ### Messages between agents
 
@@ -316,6 +319,7 @@ cmux agent wait A B --all --timeout 600 --print  # every named session, print ea
 cmux agent wait NAME --until running             # the prompt was accepted
 cmux agent wait NAME --until done                # turn ended while no client was attached
 cmux agent wait NAME --match "tests pass"        # or --regex; existing text matches at once
+cmux agent session tail NAME --since seen       # recap the records since the reader’s cutover, as JSON lines
 cmux agent session tail NAME --since CURSOR -f   # raw events as JSON lines; cursor = sessionId:seq
 ```
 
@@ -435,7 +439,8 @@ acpmux bead link NAME cx-cus7j.230               # the tracker bead NAME works o
 - **cmux Cloud machines.** A Cloud machine's chats run in that machine's own acpmux, which is not
   one of this Mac's machines. From the Mac, `cmux cloud start-chat --prompt TEXT --wait --json`
   starts a chat there, sends the prompt and answers the reply with its `machine_id` and
-  `session_id`; its `follow_up` commands send, wait and read on through `cmux cloud exec`.
+  `session_id`; its `follow_up` commands send (`cmux chat send`), wait and read on
+  (`cmux cloud chat status|last --target machine:vm-… --session SESSION_ID`).
 - **Old spellings.** `acpmux host` (and `hosts`, `peer`), `host place`, `host vm-host` and
   `--host` still work; `machine`, `machine pick`, `machine dedicated` and `--machine` are the names.
 - **Check first.** Run `acpmux machine status` before remote work and after any request to a
@@ -510,12 +515,19 @@ acpmux unarchive NAME                          # bring an archived chat back
 
 Add `--json` before the command for ids and paths to act on. The rest of the
 surface, one line each in `acpmux --help`: `race` and `compare` (one task on
-several models), `continue` (move a chat to another harness), `briefs` and `task`
-(tracked work), `watch` (wake me when others finish), `inbox` and `deliver`
-(durable messages, reports), `forum`, `bridge`, `desktop` and `register`
-(desktop apps), `group` (sidebar groups), `harness`, `capabilities`,
+several models), `fork-run` (fork a Cloud machine N ways, keep one), `continue`
+(move a chat to another harness), `briefs` and `task` (tracked work), `watch`
+(wake me when others finish), `inbox` and `deliver` (durable messages, reports),
+`trigger` (wake a Cloud chat on a CI failure or PR comment), `forum`, `run-ask`
+(run an accepted forum run ask here or through the scheduler), `bridge`,
+`desktop` and `register` (desktop apps), `group` (sidebar
+groups), `account` (sign the Codex, Claude and GitHub accounts in or out, add,
+switch, remove, list; `account readiness` says which still need installing or a
+sign-in), `harness`, `capabilities`,
 `machine-auth`, `hand`, `share-host`, `router`, `web`, `board`, `attach`, `resume-here`,
-`stdio`, `cli-agent`, `uniichat-agent`, and `skill` (this guide).
+`stdio`, `cli-agent`, `uniichat-agent`, `pr-wait` and `ci` (wait on a pull request's checks or a
+workflow run with one shared poller), `scorecard` (tokens and steering per settled pull request),
+`fetch` (one large download over parallel ranges), and `skill` (this guide).
 
 ## 8. Output
 

@@ -88,10 +88,12 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "callerProtocol",
     "callerSession",
     "cancelToken",
+    "chunkDeltas",
     "class",
     "cliHost",
     "compression",
     "context",
+    "createKey",
     "createdBy",
     "cwd",
     "decisionNonce",
@@ -100,6 +102,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "effort",
     "env",
     "ephemeral",
+    "features",
     "forceAdmit",
     "forwardProjection",
     "fromAgent",
@@ -109,6 +112,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "harness",
     "harnessFrom",
     "host",
+    "ifNameTaken",
     "inlineParts",
     "interrupt",
     "localAppToken",
@@ -127,6 +131,8 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "personDecision",
     "personKey",
     "personStop",
+    "personVerified",
+    "placeRedirect",
     "policy",
     "pr",
     "preset",
@@ -136,13 +142,16 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "provenance",
     "reportTo",
     "requestId",
+    "requireAsking",
     "requireFullAccess",
     "resend",
+    "restricted",
     "route",
-    "sessionCreatedAt",
     "senderHarness",
     "senderHarnessChecked",
     "senderToken",
+    "sessionChangedDelta",
+    "sessionCreatedAt",
     "spawnToolCallId",
     "startLater",
     "steer",
@@ -164,6 +173,14 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
 ];
 
 keyed! {
+    /// `_acpmux/account/sign_in`.
+    AccountSignInParams: ["account", "family", "name", "sessionId"];
+    /// `_acpmux/account/sign_in.finish`.
+    AccountSignInFinishParams: ["loginId", "code", "sessionId"];
+    /// `_acpmux/account/sign_in.cancel`.
+    AccountSignInCancelParams: ["loginId", "sessionId"];
+    /// `_acpmux/account/switch` and `_acpmux/account/remove`.
+    AccountIdParams: ["account"];
     /// `_acpmux/agent_hold`.
     AgentHoldParams: ["sessionId", "held"];
     /// `_acpmux/agent_login/api_key`.
@@ -190,6 +207,10 @@ keyed! {
     BookmarkSetParams: ["sessionId", "seq", "bookmarked"];
     /// `_acpmux/memory_resolve`.
     MemoryResolveParams: ["sessionId", "offerId", "file", "accept", "dismiss"];
+    /// `_acpmux/agent_home`.
+    AgentHomeParams: ["sessionId"];
+    /// `_acpmux/agent_home_resolve`.
+    AgentHomeResolveParams: ["sessionId", "accept", "drop"];
     /// `_acpmux/prompt_coach`.
     PromptCoachParams: ["sessionId", "coachId"];
     /// `_acpmux/btw`.
@@ -241,13 +262,19 @@ keyed! {
     /// `_acpmux/peers`.
     PeersParams: [];
     /// `_acpmux/prewarm`.
-    PrewarmParams: ["harness", "cwd", "release", "model", "workspaceId", "credentials"];
+    PrewarmParams: ["harness", "cwd", "release", "model", "workspaceId", "credentials", "reserveHome", "wait"];
     /// `_acpmux/process/kill`.
     ProcessKillParams: ["sessionId", "processId", "signal"];
     /// `_acpmux/process/list`.
     ProcessListParams: ["sessionId", "cursor", "limit", "recent", "endedWithin", "calls"];
     /// `_acpmux/process/tail`.
     ProcessTailParams: ["sessionId", "processId", "fromByte", "maxBytes"];
+    /// `_acpmux/prompts_delete`.
+    PromptsDeleteParams: ["name"];
+    /// `_acpmux/prompts_list`.
+    PromptsListParams: [];
+    /// `_acpmux/prompts_save`.
+    PromptsSaveParams: ["name", "text"];
     /// `_acpmux/queue_approve`.
     QueueApproveParams: ["sessionId", "promptId", "turnId", "revision"];
     /// `_acpmux/queue_decline`.
@@ -263,7 +290,7 @@ keyed! {
     /// `_acpmux/route/list`.
     RouteListParams: ["sessionId"];
     /// `_acpmux/secret_submit`.
-    SecretSubmitParams: ["sessionId", "secretId", "value"];
+    SecretSubmitParams: ["sessionId", "secretId", "value", "keepAs"];
     /// `session/cancel`.
     SessionCancelParams: ["sessionId"];
     /// `session/new`.
@@ -280,6 +307,16 @@ keyed! {
     SetToolsParams: ["sessionId", "id", "enabled"];
     /// `_acpmux/side`.
     SideParams: ["sessionId", "chat"];
+    /// `_acpmux/stash_drop`.
+    StashDropParams: ["chat", "id"];
+    /// `_acpmux/stash_get`.
+    StashGetParams: ["chat", "id"];
+    /// `_acpmux/stash_list`.
+    StashListParams: ["chat"];
+    /// `_acpmux/stash_move`.
+    StashMoveParams: ["chat", "to"];
+    /// `_acpmux/stash_push`.
+    StashPushParams: ["chat", "text", "attachments", "replaces"];
     /// `_acpmux/start_mode`.
     StartModeParams: ["harness", "preset", "cwd"];
     /// `_acpmux/status`.
@@ -288,6 +325,8 @@ keyed! {
     SubagentStopParams: ["sessionId", "subagentSessionId"];
     /// `_acpmux/subagent_transcript`.
     SubagentTranscriptParams: ["sessionId", "runId", "agentId", "before", "after", "limit"];
+    /// `_acpmux/subagents`.
+    SubagentListParams: ["sessionId", "ended"];
     /// `_acpmux/subsession/limits`.
     SubsessionLimitsParams: ["sessionId", "maxRunning", "workspaceId"];
     /// `acp.trust.get`.

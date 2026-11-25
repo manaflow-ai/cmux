@@ -1,6 +1,7 @@
 #if os(iOS)
 import enum CmuxMobileModel.UserFacingError
 import Observation
+import CmuxMobileDesign
 import SwiftUI
 import UIKit
 import WebKit
@@ -22,6 +23,8 @@ public final class BrowserTabModel: BrowserTabState {
     public private(set) var isLoading = false
     public private(set) var progress: Double = 1
     public private(set) var snapshot: UIImage?
+    /// A snapshot was taken (`WorkspaceTabsSource` keeps it as the tab's last-known picture).
+    @ObservationIgnored var onSnapshot: (@MainActor (UIImage) -> Void)?
     /// Why the phone's page shows no page (a tab opened on the iPhone from the Mac):
     /// an address only the Mac can open, or a host this iPhone could not reach.
     public private(set) var problem: Problem?
@@ -212,7 +215,9 @@ public final class BrowserTabModel: BrowserTabState {
         guard webView.window != nil else { return }
         webView.takeSnapshot(with: nil) { [weak self] image, _ in
             MainActor.assumeIsolated {
-                if let image { self?.snapshot = image }
+                guard let image, let self else { return }
+                self.snapshot = image
+                self.onSnapshot?(image)
             }
         }
     }
@@ -367,11 +372,15 @@ struct BrowserPage: UIViewRepresentable {
 struct BrowserCard: View {
     let model: BrowserTabModel?
     var insets: EdgeInsets
+    /// The tab's last-known picture (`TabCardSnapshots`): shown until this launch has a snapshot.
+    var lastKnown: UIImage?
+    /// The card's tab, for the UI tests' face probe (`TabCardFaceRecord`).
+    var tabID: String?
 
     var body: some View {
         ZStack(alignment: .top) {
             Color(uiColor: .systemBackground)
-            if let image = model?.snapshot {
+            if let image = model?.snapshot ?? lastKnown {
                 GeometryReader { geo in
                     Image(uiImage: image).resizable().interpolation(.medium)
                         .frame(width: geo.size.width, height: geo.size.width * image.size.height / max(1, image.size.width))
@@ -382,8 +391,11 @@ struct BrowserCard: View {
                     .foregroundStyle(.tertiary)
                     .accessibilityHidden(true)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .placeholderBound("tabgrid.browser.globe", .milliseconds(1000))
             }
         }
+        .modifier(TabCardFaceRecord(tabID: tabID,
+                                    face: model?.snapshot != nil ? "snapshot" : lastKnown != nil ? "lastKnown" : "placeholder"))
     }
 }
 #endif

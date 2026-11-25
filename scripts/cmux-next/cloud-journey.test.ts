@@ -7,16 +7,38 @@ import { claudeTranscriptModelsProgram, transcriptModels } from "./cloud-journey
 import { ensureBenchCommand, ensureBenchMarkdown, parseEnsureBench } from "./cloud-journey";
 import { execProbe, execProbeCommand, execProbeHop, execProbeMarkdown, machineStopFields, markRanOnGuest, EXEC_PROBE_NONCES, type ExecProbeRun } from "./cloud-journey";
 import { Api, clientPlatformOrigin, Journey, preclaimDeployFields, preclaimGuestFacts, preclaimHoldMinutes, preclaimMetMarkdown, preclaimRefillImage, preclaimRefillToReady, runPreclaimBurst, runPreclaimChat, warmSpareRefusal } from "./cloud-journey";
-import { claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPrograms, MODEL_PLANE_PLACEHOLDER, startsOnLaunchCredential, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
-import { oidcSignIn, waitPreflight, CODEX_STUB_CONFIG, PREFLIGHT_PROBE } from "./cloud-journey";
+import { claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPathAfterClaim, loginPrograms, MODEL_PLANE_PLACEHOLDER, startsOnLaunchCredential, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
+import { oidcSignIn, waitOwnerKind, waitPreflight, CODEX_STUB_CONFIG, OWNER_KIND_PROGRAM, PREFLIGHT_PROBE } from "./cloud-journey";
 import { directExec, settleBackground, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
-import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
+import { sessionModelVerdict } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS } from "./cloud-journey";
 import { http as journeyHttp, socketDropped } from "./cloud-journey";
 import { sameSurgeSlots, surgeMachineIds, SURGE_PROOF_REQUEST } from "./cloud-journey";
 
 describe("cloud journey", () => {
+  test("session model is read from the Claude transcript: a record naming the asked model does not pass a different one", async () => {
+    // Production 2026-11-10 (cmux#40383): the second chat's record named Haiku while the pooled agent ran Sonnet.
+    const fake = (transcript: string, info = '{"model":"claude-haiku-5-5","agentSessionId":"sid-1"}') => {
+      const commands: string[] = [];
+      const exec = async (command: string) => {
+        commands.push(command);
+        return { stdout: command.includes("session info") ? info : transcript, stderr: "", code: 0 };
+      };
+      return { exec: exec as any, commands };
+    };
+    const line = (model: string) => `"model":"${model}"\n`;
+    const ok = fake(line("claude-haiku-5-5") + line("<synthetic>"));
+    expect(await sessionModelVerdict(ok.exec, "s-m2", "claude-haiku-5-5")).toBe("asked claude-haiku-5-5; the agent ran claude-haiku-5-5 (its Claude transcript)");
+    expect(ok.commands[1]).toContain("sid-1");
+    expect(await sessionModelVerdict(fake(line("claude-haiku-5-5-20261101")).exec, "s-m2", "claude-haiku-5-5")).toContain("claude-haiku-5-5-20261101");
+    await expect(sessionModelVerdict(fake(line("claude-sonnet-5-5")).exec, "s-m2", "claude-haiku-5-5")).rejects.toThrow("the agent ran claude-sonnet-5-5");
+    await expect(sessionModelVerdict(fake(line("claude-haiku-5-5") + line("claude-sonnet-5-5")).exec, "s-m2", "claude-haiku-5-5")).rejects.toThrow("claude-sonnet-5-5");
+    await expect(sessionModelVerdict(fake("").exec, "s-m2", "claude-haiku-5-5")).rejects.toThrow("names no model");
+    await expect(sessionModelVerdict(fake("", '{"model":"claude-haiku-5-5"}').exec, "s-m2", "claude-haiku-5-5")).rejects.toThrow("no agentSessionId");
+  });
+
   test("preclaim table survives the enclosing journey step on success and failure", async () => {
     for (const fail of [false, true]) {
       const out = mkdtempSync(join(tmpdir(), "preclaim-summary-test-"));
@@ -297,6 +319,11 @@ describe("cloud journey", () => {
     await expect(oidcSignIn("https://cloud-api.cmux.dev", {}, [], fake as never)).rejects.toThrow("id-token: write");
     const refused = async () => ({ status: 401, body: { error: "this token is not trusted to sign in", value: "gh-oidc-jwt-value" } });
     await expect(oidcSignIn("https://cloud-api.cmux.dev", { ACTIONS_ID_TOKEN_REQUEST_URL: "https://gh.example/t", ACTIONS_ID_TOKEN_REQUEST_TOKEN: "rb" }, [], refused as never)).rejects.toThrow("GitHub OIDC token HTTP 401");
+    // The API's two refusals of a correct job say what to change (cmux#35703).
+    const ghOk = (status: number) => async (_m: string, url: string) => (url.startsWith("https://gh.example/") ? { status: 200, body: { value: "gh-oidc-jwt-value" } } : { status, body: {} });
+    const env = { ACTIONS_ID_TOKEN_REQUEST_URL: "https://gh.example/t", ACTIONS_ID_TOKEN_REQUEST_TOKEN: "rb" };
+    await expect(oidcSignIn("https://cloud-api.cmux.dev", env, [], ghOk(404) as never)).rejects.toThrow("has no POST /v1/auth/github-actions yet");
+    await expect(oidcSignIn("https://cloud-api.cmux.dev", env, [], ghOk(401) as never)).rejects.toThrow("no valid CI_SESSION_TRUST row matches it");
   });
   test("backend names map to the cmux API Worker of each environment", () => {
     expect(resolveBackend("staging").api).toBe("https://cloud-api-staging.cmux.dev");
@@ -460,6 +487,14 @@ describe("cloud journey: Claude login route (cmux#40159)", () => {
     expect(startsOnLaunchCredential({ ...base, preclaimLogin: true })).toBe(false);
     expect(startsOnLaunchCredential({ ...base, modelStub: true, preclaimLogin: true })).toBe(true);
   });
+
+  test("a preclaim miss starts the agent on its launch credential, not a post-bind copy", () => {
+    expect(loginPathAfterClaim({ receipt: true, launchCredential: false, launchOnMiss: true })).toBe("receipt");
+    expect(loginPathAfterClaim({ receipt: false, launchCredential: false, launchOnMiss: true })).toBe("launch");
+    expect(loginPathAfterClaim({ receipt: false, launchCredential: true, launchOnMiss: true })).toBe("launch");
+    // Codex, --gateway or --start-via app: no launch credential path, so the copy stays.
+    expect(loginPathAfterClaim({ receipt: false, launchCredential: false, launchOnMiss: false })).toBe("copy");
+  });
 });
 
 describe("cloud journey: login preflight", () => {
@@ -470,6 +505,21 @@ describe("cloud journey: login preflight", () => {
     expect(await waitPreflight(late, "pre", "owner", 90_000, 0, noPause)).toMatchObject({ tries: 3 });
     const never = async (command: string) => ({ code: command === PREFLIGHT_PROBE ? 0 : 1, stdout: command === PREFLIGHT_PROBE ? "vm-kind= agent-auth.sh=yes user=cmux\n" : "", stderr: "" });
     await expect(waitPreflight(never, "pre", "owner", 0, 0, noPause)).rejects.toThrow(/preflight exit 1 after 1 tries .*not an owner machine with the image's launchers \(vm-kind= agent-auth.sh=yes user=cmux\)/);
+  });
+
+  test("a launch-credential start waits for the claimed spare's kind record to read owner (run 45276109812 shard 30-0)", async () => {
+    const noPause = async () => {};
+    const kinds = ["team", "team", "owner"];
+    const seen: string[] = [];
+    const late = async (command: string) => { seen.push(command); return { code: 0, stdout: `vm-kind=${kinds.shift() ?? "owner"}\n`, stderr: "" }; };
+    expect(await waitOwnerKind(late, 90_000, 0, noPause)).toMatchObject({ tries: 3, first: "team" });
+    expect(seen.every((c) => c === OWNER_KIND_PROGRAM)).toBe(true);
+    // The program nudges the image's sync (root) before it reads the record again, and never needs a password.
+    expect(OWNER_KIND_PROGRAM).toContain("sudo -n /usr/local/bin/cmux-vm-kind-sync");
+    const never = async () => ({ code: 0, stdout: "vm-kind=team\n", stderr: "" });
+    await expect(waitOwnerKind(never, 0, 0, noPause)).rejects.toThrow(/vm-kind reads team after 1 tries .*team mode \(CodeRouter\)/);
+    const unread = async () => ({ code: 255, stdout: "", stderr: "" });
+    await expect(waitOwnerKind(unread, 0, 0, noPause)).rejects.toThrow(/reads unread \(exit 255\)/);
   });
 });
 
@@ -2776,12 +2826,14 @@ describe("preclaim MET table fields", () => {
     const frame = { t: "ephemeral", stream: `cloud:${team}`, event: "cloud.spare.ready", data: { machine: spare, team, at: 4_000 } };
     class FakeWire {
       private on: Record<string, Array<(e: unknown) => void>> = {};
-      constructor() { setTimeout(() => this.emit("open", {}), 0); }
+      constructor() { framed = false; setTimeout(() => this.emit("open", {}), 0); }
       addEventListener(type: string, fn: (e: unknown) => void) { (this.on[type] ??= []).push(fn); }
-      send() { setTimeout(() => this.emit("message", { data: JSON.stringify(frame) }), 0); }
+      send() { setTimeout(() => { framed = true; this.emit("message", { data: JSON.stringify(frame) }); }, 0); }
       close() {}
       private emit(type: string, e: unknown) { for (const fn of this.on[type] ?? []) fn(e); }
     }
+    // The spare's record shows it running only once its frame went out, so the frame (with its `at`) times it.
+    let framed = false;
     const realWebSocket = (globalThis as any).WebSocket;
     (globalThis as any).WebSocket = FakeWire;
     try {
@@ -2798,7 +2850,7 @@ describe("preclaim MET table fields", () => {
           : route.endsWith("/client-session") ? { status: 501, body: { ok: false, error: { code: "cloud.provider.unsupported" } } }
           : route.endsWith("/exec") ? { status: 200, body: { value: { exitCode: 0, stdout: guest(String(body?.command ?? "")) } } }
           : { status: 200, body: { ok: true } },
-        read: async (op: string) => op === "cloud.plan.get" ? { usage: { active: 0, saved: 0, vm_hours_used: 4, vm_hours_used_by_you: 1.5 } } : { status: "running", host: "host-1", created_at: 1_000, running_since: 9_000 },
+        read: async (op: string) => op === "cloud.plan.get" ? { usage: { active: 0, saved: 0, vm_hours_used: 4, vm_hours_used_by_you: 1.5 } } : { status: framed ? "running" : "starting", host: "host-1", created_at: 1_000, running_since: 9_000 },
         op: async (_op: string, params: { size: unknown }) => {
           requestedSizes.push(params.size);
           return { machine: { id: spare, status: "running" }, claim: { behind: true }, stages_ms: [{ step: "claim", ms: 40 }, { step: "bound", ms: 60 }] };
@@ -2819,7 +2871,7 @@ describe("preclaim MET table fields", () => {
       });
       expect(code).toBe(0);
       const written = JSON.parse(readFileSync(rowsPath, "utf8"));
-      expect(requestedSizes).toEqual(Array(2).fill({ cpu: 4, memory_mb: 16384, disk_mb: 65536 }));
+      expect(requestedSizes).toEqual(Array(2).fill({ cpu: 2, memory_mb: 4096, disk_mb: 20480 }));
       expect(written.header.burst).toEqual({ claims_expected: 2, hold_minutes_t0: 90, hold_minutes_t0_unavailable: null });
       const [first, second] = written.rows;
       expect(first.lease_hit).toBe(true);
@@ -3156,6 +3208,59 @@ open(out, 'w').write(json.dumps(seen))
       rmSync(home, { recursive: true, force: true });
     }
   });
+  // The same fake, but it stays for the first prompt and accepts it, as acpmux's queue_prompt does.
+  const FAKE_ACPMUX_PROMPT = `import json, os, socket, sys
+path, out, accept = sys.argv[1], sys.argv[2], sys.argv[3] == '1'
+s = socket.socket(socket.AF_UNIX); s.bind(path); s.listen(1)
+c, _ = s.accept(); f = c.makefile('r'); seen = []
+def send(m): c.sendall((json.dumps(m) + '\\n').encode())
+for line in f:
+    m = json.loads(line); seen.append(m)
+    if m['method'] == 'session/prompt':
+        if accept:
+            send({'jsonrpc': '2.0', 'method': '_acpmux/prompt_accepted', 'params': {'sessionId': 's-1', 'promptId': m['params']['_meta']['acpmux']['promptId']}})
+        else:
+            send({'jsonrpc': '2.0', 'id': m['id'], 'error': {'code': -32000, 'message': 'no'}})
+        break
+    send({'jsonrpc': '2.0', 'id': m['id'], 'result': {'sessionId': 's-1'} if m['method'] == 'session/new' else {}})
+open(out, 'w').write(json.dumps(seen))
+`;
+  const runPrompted = (accept: boolean) => {
+    const home = mkdtempSync("/tmp/jp-");
+    try {
+      mkdirSync(join(home, ".cmux/acpmux"), { recursive: true });
+      writeFileSync(join(home, "fake.py"), FAKE_ACPMUX_PROMPT);
+      const token = "sk-ant-oat01-journeystub-abc123";
+      const prompt = "Say \"hi\" and it's done";
+      const program = launchCredentialStartProgram("journey-jr-1", "claude/claude-sonnet-5-5", "CLAUDE_CODE_OAUTH_TOKEN", token, prompt);
+      expect(program.split("\n")[0]).not.toContain(token);
+      const sock = join(home, ".cmux/acpmux/acpmux.sock");
+      const script = `python3 -I fake.py ${sock} seen.json ${accept ? 1 : 0} & for i in $(seq 50); do [ -S ${sock} ] && break; sleep 0.1; done\n${program}\nrc=$?\nwait\nexit $rc`;
+      const r = spawnSync("bash", ["-c", script], { cwd: home, env: { PATH: process.env.PATH, HOME: home }, encoding: "utf8", timeout: 20_000 });
+      return { r, prompt, seen: JSON.parse(readFileSync(join(home, "seen.json"), "utf8")) };
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  };
+  test("with a first prompt, the start sends it on the same link after session/new and waits for acpmux to take it", { timeout: 30_000 }, () => {
+    const { r, prompt, seen } = runPrompted(true);
+    expect(r.stdout).toContain("@@session s-1");
+    expect(r.stdout).toContain("@@prompted");
+    expect(r.status).toBe(0);
+    expect(seen.map((m: any) => m.method)).toEqual(["initialize", "session/new", "session/prompt"]);
+    expect(seen[2].params.sessionId).toBe("s-1");
+    expect(seen[2].params.prompt).toEqual([{ type: "text", text: prompt }]);
+    expect(seen[2].params._meta.acpmux).toMatchObject({ steer: false, resend: false });
+    expect(seen[2].params._meta.acpmux.promptId).toMatch(/^[0-9a-f-]{36}$/);
+  });
+  test("a refused first prompt is a red after the session started, never a second start", { timeout: 30_000 }, () => {
+    const { r, seen } = runPrompted(false);
+    expect(r.stdout).toContain("@@session s-1");
+    expect(r.stdout).toContain("@@noprompt");
+    expect(r.stdout).not.toContain("@@prompted");
+    expect(r.status).toBe(2);
+    expect(seen.filter((m: any) => m.method === "session/new")).toHaveLength(1);
+  });
   test("no acpmux socket is a failed start that names the paths it tried", () => {
     const home = mkdtempSync(join(tmpdir(), "journey-launch-"));
     try {
@@ -3214,5 +3319,80 @@ describe("the --surge proof (cmux-platform#1594)", () => {
   });
   test("the proof asks for the smallest burst: 2 machines, 300 s", () => {
     expect(SURGE_PROOF_REQUEST).toEqual({ count: 2, ttl_seconds: 300 });
+  });
+});
+
+describe("waitForSpareReady", () => {
+  const api = {} as any;
+  const never = (_a: unknown, _m: string, _b: number, signal?: AbortSignal) => new Promise<any>((_, reject) => signal?.addEventListener("abort", () => reject(new Error("aborted"))));
+  test("an already-ready spare with no frame (production: no subscribe snapshot) is ready from its record", async () => {
+    let reads = 0;
+    const got = await waitForSpareReady(api, "vm_spare", 10_000, { frame: never as any, read: async () => (++reads < 2 ? { status: "starting" } : { status: "running", host: "h1", running_since: 5 }), pollMs: 1, sleep: async () => {} });
+    expect(got.by).toBe("record");
+    expect(got.frame).toBeNull();
+    expect(got.row.running_since).toBe(5);
+  });
+  test("the frame wins when it comes first, and the record poll stops", async () => {
+    let reads = 0;
+    const frame = { event: "cloud.spare.ready", data: { machine: "vm_spare", at: 7 } };
+    const got = await waitForSpareReady(api, "vm_spare", 10_000, { frame: (async () => frame) as any, read: async () => { reads++; return { status: "starting" }; }, pollMs: 1, sleep: () => new Promise((r) => setTimeout(r, 5)) });
+    expect(got.by).toBe("frame");
+    expect(got.frame).toBe(frame as any);
+    const after = reads;
+    await new Promise((r) => setTimeout(r, 30));
+    expect(reads - after).toBeLessThanOrEqual(1);
+  });
+  test("a failed spare says so instead of waiting the budget", async () => {
+    await expect(waitForSpareReady(api, "vm_spare", 10_000, { frame: never as any, read: async () => ({ status: "failed", error: "boom" }), pollMs: 1, sleep: async () => {} })).rejects.toThrow(/failed before ready/);
+  });
+  test("a spare the person's read cannot see (production: not_found under its reservation) is ready once its guest answers exec", async () => {
+    const notFound = async () => { throw new Error('cloud.machine.get: HTTP 400 {"code":"cloud.machine.not_found"}'); };
+    let probes = 0;
+    const got = await waitForSpareReady(api, "vm_spare", 10_000, { frame: never as any, read: notFound, answers: async () => ++probes >= 2, pollMs: 1, sleep: async () => {} });
+    expect(got.by).toBe("exec");
+    expect(got.row.status).toBe("running");
+    expect(probes).toBe(2);
+  });
+  test("an exec probe that fails keeps waiting, and another read error never probes", async () => {
+    let probes = 0;
+    await expect(waitForSpareReady(api, "vm_spare", 20, { frame: never as any, read: async () => { throw new Error("HTTP 503"); }, answers: async () => { probes++; return true; }, pollMs: 1, sleep: () => new Promise((r) => setTimeout(r, 2)) })).rejects.toThrow(/not ready within 20 ms/);
+    expect(probes).toBe(0);
+  });
+  test("neither within the budget names both routes", async () => {
+    await expect(waitForSpareReady(api, "vm_spare", 20, { frame: never as any, read: async () => ({ status: "starting" }), pollMs: 1, sleep: () => new Promise((r) => setTimeout(r, 2)) })).rejects.toThrow(/not ready within 20 ms/);
+  });
+});
+
+describe("listedMachine (run 45174448964: `vm_... missing from 49 machines` on a shared account of 52)", () => {
+  const rows = (a: number, b: number) => Array.from({ length: b - a }, (_, k) => ({ id: `vm_${a + k}`, status: "running" }));
+  test("follows next_cursor to the page that holds the machine", async () => {
+    const seen: unknown[] = [];
+    const list = async (p: any) => { seen.push(p); return p.cursor ? { machines: rows(49, 52) } : { machines: rows(0, 49), next_cursor: "c2" }; };
+    const r = await listedMachine("vm_51", list, async () => { throw new Error("not asked"); });
+    expect(r.detail).toBe("52 machines");
+    expect(seen).toEqual([{ limit: 100 }, { limit: 100, cursor: "c2" }]);
+  });
+  test("a capped page with no cursor: confirmed by cloud.machine.get, the cap named", async () => {
+    const r = await listedMachine("vm_51", async () => ({ machines: rows(0, 49) }), async (id: string) => ({ id, status: "running", size: { cpu: 2 } }));
+    expect(r.row.size).toEqual({ cpu: 2 });
+    expect(r.detail).toContain("49 machines listed, no next_cursor (a page cap)");
+  });
+  test("a machine neither read finds fails", async () => {
+    await expect(listedMachine("vm_99", async () => ({ machines: rows(0, 3) }), async () => { throw new Error("HTTP 404"); })).rejects.toThrow("vm_99 missing from 3 machines, and cloud.machine.get: HTTP 404");
+    await expect(listedMachine("vm_99", async () => ({ machines: rows(0, 3) }), async () => ({ id: "vm_99", status: "deleted" }))).rejects.toThrow("reads deleted");
+  });
+});
+
+describe("guestTimed", () => {
+  const { guestTimed, guestMs, guestDetail } = require("./cloud-journey");
+  test("times a heredoc command on its own lines and keeps its output and exit marker", () => {
+    const r = spawnSync("bash", ["-c", guestTimed(`python3 -I - <<'X'\nprint('@@session s1')\nX\necho "@@exit $?"`)], { encoding: "utf8" });
+    expect(r.stdout).toContain("@@session s1");
+    expect(r.stdout).toContain("@@exit 0");
+    const ms = guestMs(r.stdout);
+    expect(ms).not.toBeNull();
+    expect(ms).toBeGreaterThanOrEqual(0);
+    expect(guestDetail(ms)).toContain("on the guest");
+    expect(guestDetail(null)).toBe("");
   });
 });

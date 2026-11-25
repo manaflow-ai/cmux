@@ -361,7 +361,13 @@ pub enum DesktopError {
 impl std::fmt::Display for DesktopError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DesktopError::PermissionMissing(p) => write!(f, "the {p} permission is not granted"),
+            DesktopError::PermissionMissing(p) => write!(
+                f,
+                "the {p} permission is not granted; on a Mac open Computer Use setup for the person \
+                 with `cmux action run palette.computerUse.setup` (elsewhere call \
+                 request_permission; for a call that named another `machine`, setup is on that \
+                 machine), tell them, and try again once they finish"
+            ),
             DesktopError::TargetNotFound(t) => write!(f, "not found: {t}"),
             DesktopError::StaleElement(e) => {
                 write!(f, "element {e} is stale; call get_ui_tree again")
@@ -623,6 +629,14 @@ pub trait Desktop: Send + Sync {
         delivery: Delivery,
     ) -> DResult<ActionOutcome>;
     fn scroll(&self, target: &PointerTarget, dx: f64, dy: f64) -> DResult<ActionOutcome>;
+    /// Moves the pointer onto `target` and presses nothing (a hover). In the
+    /// background the move goes to the target's process or window only, so
+    /// the person's pointer stays put and hover effects that follow the
+    /// app's own mouse-moved events show; with `Delivery::Foreground` the
+    /// window comes to the front and the real pointer moves there (and stays).
+    fn move_pointer(&self, _target: &PointerTarget, _delivery: Delivery) -> DResult<ActionOutcome> {
+        Err(DesktopError::Unsupported("this desktop cannot move the pointer yet".into()))
+    }
     fn drag(
         &self,
         window_id: &str,
@@ -684,6 +698,26 @@ pub trait Desktop: Send + Sync {
     /// close it in one call.
     fn picks_menu_items(&self) -> bool {
         false
+    }
+
+    /// The system alerts on screen now, front to back, read through
+    /// accessibility only ([`crate::alerts`]). A desktop with none (Linux,
+    /// Windows) answers an empty list.
+    fn system_alerts(&self) -> DResult<Vec<crate::alerts::RawAlert>> {
+        Ok(Vec::new())
+    }
+    /// Presses the button titled `title` of `alert` by its accessibility
+    /// press action: no pointer, no focus change. Refuses when the alert no
+    /// longer reads as `alert` (its texts or buttons changed since the list).
+    /// Only the engine calls it, after [`crate::alerts::check`] allowed the title.
+    fn press_alert_button(&self, _alert: &crate::alerts::RawAlert, _title: &str) -> DResult<()> {
+        Err(DesktopError::Unsupported("this desktop has no system alerts".into()))
+    }
+
+    /// The displays `capture(CaptureTarget::Display(id))` takes, main first
+    /// (`list_displays`, crate::displays).
+    fn displays(&self) -> DResult<Vec<crate::displays::Display>> {
+        Err(DesktopError::Unsupported("this desktop does not list displays".into()))
     }
 }
 

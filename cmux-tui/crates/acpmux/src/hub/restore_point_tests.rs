@@ -264,3 +264,47 @@ fn a_restore_point_moves_only_at_a_quiet_load_and_matches_its_log() {
     hub.store.save_restore_point(ID, &serde_json::to_vec(&point).unwrap()).unwrap();
     assert!(hub.read_restore_point(&s).is_none(), "a point that does not match its log was used");
 }
+
+/// A load reads the chat's stop records into the set the first prompt checks (`start_turn`), from
+/// the point's carry and the records past it only, and the point it saves carries them: the first
+/// prompt after a restart scans no segment for them (goal infinite-chats, restart first send).
+#[test]
+fn a_load_reads_the_prompt_stops_from_the_point_and_past_it() {
+    let store = PointStore::new(true);
+    let (hub, s) = store.start();
+    history(&hub, &s);
+    hub.append(&s, "mux", "prompt_stop_requested", json!({"promptId": "p3"}));
+    hub.save_meta(&s);
+    let (hub, s) = store.start();
+    hub.load_session_log(&s);
+    assert_eq!(hub.prompt_stops_carry(&s), Some(vec!["p3".to_owned()]), "the load read no stop");
+    let point = hub.read_restore_point(&s).expect("a quiet load saves a point");
+    assert_eq!(point.prompt_stops, Some(vec!["p3".to_owned()]), "the point carries no stop");
+
+    // A stop the point alone names is kept (the log before the point is not read again), and
+    // one past the point is read.
+    let mut point = point;
+    point.prompt_stops = Some(vec!["only-in-point".to_owned()]);
+    hub.store.save_restore_point(ID, &serde_json::to_vec(&point).unwrap()).unwrap();
+    hub.append(&s, "mux", "prompt_stop_requested", json!({"promptId": "p60"}));
+    hub.save_meta(&s);
+    let (hub, s) = store.start();
+    hub.load_session_log(&s);
+    assert_eq!(
+        hub.prompt_stops_carry(&s),
+        Some(vec!["only-in-point".to_owned(), "p60".to_owned()]),
+        "the load read the log before its point, or missed the stop past it"
+    );
+
+    // A point saved before points carried stops reads the whole log for them.
+    let mut old = hub.read_restore_point(&s).expect("a point");
+    old.prompt_stops = None;
+    hub.store.save_restore_point(ID, &serde_json::to_vec(&old).unwrap()).unwrap();
+    let (hub, s) = store.start();
+    hub.load_session_log(&s);
+    assert_eq!(
+        hub.prompt_stops_carry(&s),
+        Some(vec!["p3".to_owned(), "p60".to_owned()]),
+        "a point with no carry did not read the whole log"
+    );
+}
