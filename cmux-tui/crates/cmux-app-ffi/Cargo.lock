@@ -477,6 +477,7 @@ dependencies = [
  "cmux-layout-reducer",
  "cmux-tab-discard",
  "cmux-tasks-core",
+ "cmux-updater-core",
  "cmux-window-rules",
  "serde",
  "serde_json",
@@ -624,6 +625,16 @@ name = "cmux-unix-socket"
 version = "0.1.0"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "cmux-updater-core"
+version = "0.1.0"
+dependencies = [
+ "quick-xml",
+ "serde",
+ "serde_json",
+ "time",
 ]
 
 [[package]]

@@ -333,6 +333,30 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 serde_json::to_vec(&cmux_tasks_core::preview::respond(&request))
                     .map_err(|_| ERR_INVALID)?
             }
+            b"updater_version_compare" => {
+                use cmux_updater_core::ops;
+                let request: ops::CompareRequest =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&ops::compare(&request)).map_err(|_| ERR_INVALID)?
+            }
+            b"updater_appcast_parse" => {
+                use cmux_updater_core::ops;
+                let request: ops::ParseRequest =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&ops::parse(&request)).map_err(|_| ERR_INVALID)?
+            }
+            b"updater_appcast_select" => {
+                use cmux_updater_core::ops;
+                let request: ops::SelectRequest =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&ops::select(&request)).map_err(|_| ERR_INVALID)?
+            }
+            b"updater_system_version" => {
+                use cmux_updater_core::ops;
+                let request: ops::SystemVersionRequest =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&ops::system_versions(&request)).map_err(|_| ERR_INVALID)?
+            }
             b"bookmarks_apply" => {
                 let request: cmux_bookmarks_core::preview::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;

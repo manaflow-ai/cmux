@@ -54,6 +54,7 @@ FIRST_PARTY_GPL = {
     "cmux-imessage",
     "cmux-tasks-core",
     "cmux-bookmarks-core",
+    "cmux-updater-core",
     "cmux-cloud-start-core",
     "cmux-tab-discard",
     "cmux-cloud-config",

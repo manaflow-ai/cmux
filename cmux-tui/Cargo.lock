@@ -3549,6 +3549,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-updater-core"
+version = "0.1.0"
+dependencies = [
+ "quick-xml",
+ "serde",
+ "serde_json",
+ "time",
+]
+
+[[package]]
 name = "cmux-url-input"
 version = "0.1.0"
 
