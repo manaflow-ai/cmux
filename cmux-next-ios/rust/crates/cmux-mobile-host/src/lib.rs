@@ -50,6 +50,7 @@ pub mod path_probe;
 pub mod peer;
 pub mod phone_frames;
 pub mod policy;
+pub mod portmap;
 pub mod presence;
 pub mod push_keys;
 pub mod seal;
@@ -59,6 +60,8 @@ pub mod size_release;
 pub mod surface;
 pub mod tab_snapshots;
 pub mod traffic;
+pub mod viewport_link;
+pub mod viewport_sync;
 
 mod side_completion;
 mod workspace_cache;
