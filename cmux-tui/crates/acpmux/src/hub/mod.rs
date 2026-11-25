@@ -101,6 +101,7 @@ pub(crate) mod file_uploads;
 /// The windowed upload sender (`file_uploads/window.rs`), for the upload bench.
 pub use file_uploads::window as file_put_window;
 mod gemini_plan;
+pub(crate) mod queue_origin;
 pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 #[cfg(test)]
 mod agent_messaging_tests;
@@ -527,6 +528,7 @@ pub(crate) mod outbox;
 mod outbox_open_tests;
 #[cfg(test)]
 pub(crate) mod outbox_oracle;
+pub(crate) mod outbox_stats;
 pub(crate) mod pause;
 /// Paused (acpmux continues it) or stranded (nothing will): a row's reading.
 pub(crate) mod pause_state;
@@ -1356,6 +1358,8 @@ pub struct Hub {
     /// None: every harness.
     pub(super) probe_only: StdMutex<Option<std::collections::BTreeSet<String>>>,
     pub(super) idle_wake: Arc<Notify>,
+    /// Paces the host's background capacity continuations (`auto_resume/capacity_gate.rs`).
+    pub(super) capacity_gate: auto_resume::CapacityGate,
     pub(super) idle_reaper: AtomicBool,
     /// The clocks at the last gap check, and how many gaps were seen (`resume.rs`).
     pub(super) resume_watch: Arc<resume::ResumeState>,
@@ -1854,6 +1858,7 @@ impl Hub {
             bg_folders: bg_folder::BgFolders::default(),
             probe_only: StdMutex::new(None),
             idle_wake: Arc::new(Notify::new()),
+            capacity_gate: auto_resume::CapacityGate::default(),
             idle_reaper: AtomicBool::new(false),
             resume_watch: resume::new_watch(),
             resumes: tokio::sync::watch::channel(0).0,
@@ -1999,6 +2004,10 @@ impl Hub {
             // runtime-backed hubs; tests that construct one outside Tokio retain a unique Arc so
             // they can configure fields before entering their runtime.
             let _ = hub.hub_ref.set(Arc::downgrade(&hub));
+            // Chats read at start get the synced winners kept for them (`synced.rs`).
+            if !loading {
+                hub.synced_after_start();
+            }
             // Chats made before it read their inboxes through it from now on (`Session::inbox`).
             for session in hub.sessions.lock().unwrap_or_else(|e| e.into_inner()).values() {
                 let _ = session.hub_ref.set(Arc::downgrade(&hub));
@@ -3431,6 +3440,12 @@ impl Hub {
         // Answered once the draft is saved: "the one durable shared draft". A kept change: saved
         // when written, synced with the next acked change or within a second (`meta_save.rs`).
         self.save_meta_kept(session)?;
+        // One edit of the person's synced draft (`hub/synced.rs`); the value already there (a
+        // remote winner applied through here) is none.
+        self.synced_record(
+            synced::draft_key(&session.id),
+            draft.clone().map_or(serde_json::Value::Null, serde_json::Value::String),
+        );
         Ok(draft)
     }
 

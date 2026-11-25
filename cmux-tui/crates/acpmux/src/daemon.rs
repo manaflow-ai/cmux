@@ -64,6 +64,8 @@ mod home_watch;
 #[cfg(unix)]
 pub(crate) mod listener_handover;
 mod managed_unit;
+// A launchd job's start stands by while another daemon holds its home (`daemon/launchd_standby.rs`).
+mod launchd_standby;
 // A take-over start yields to a successor of its own build (`daemon/take_over_yield.rs`).
 mod take_over_yield;
 use managed_unit::managed_unit_connect_with;
@@ -171,7 +173,7 @@ fn install_panic_log() {
 #[cfg(any(test, debug_assertions))]
 #[allow(
     clippy::panic,
-    reason = "debug-build test trigger for the acpmux panic log; release builds have no seam"
+    reason = "debug-build and test-build trigger for the acpmux panic log; release builds have no seam"
 )]
 pub(crate) fn test_panic(message: &str) -> ! {
     // crash-allow: debug-only test trigger for the acpmux panic log
@@ -556,6 +558,8 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
 
     let store = crate::store::open(&config.store, &home())?;
     crate::mcp_gateway::start(&home()).await; // before any session starts
+    #[cfg(unix)]
+    crate::mcp_pool::start(&home()).await;
     let mut moved_listener = false;
     // The handed web listener, when it is bound where this start would bind (and the address
     // still passes the listener rule above); otherwise closed before the bind below.
@@ -1748,9 +1752,19 @@ async fn acquire_daemon_lock(path: &std::path::Path, take_over: bool) -> Result<
     // successor of the same update (`daemon/take_over_yield.rs`). A unit's daemon never yields:
     // it must own the home, or the unit is left failed while a detached daemon serves it.
     let yields_since = (!unit).then(crate::store::now_ms);
+    let stands_by = !unit && launchd_standby::this_start_stands_by(take_over);
     loop {
         match acquire_lock(path) {
             Ok(lock) => return Ok(lock),
+            Err(error) if stands_by && error.downcast_ref::<LockHeld>().is_some() => {
+                // launchd restarts its job whatever the exit status: a refusal here was a
+                // respawn loop on a home the app's daemon serves. Stand by until it is free.
+                tracing::info!("{error} launchd started this daemon: standing by until it ends");
+                while lock_has_live_holder(path) {
+                    tokio::time::sleep(launchd_standby::STANDBY_LOOK).await;
+                }
+                tokio::time::sleep(launchd_standby::STANDBY_GRACE).await;
+            }
             Err(error) if supervised && error.downcast_ref::<LockHeld>().is_some() => {
                 #[cfg(unix)]
                 let ours =
