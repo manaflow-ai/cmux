@@ -9,7 +9,9 @@
     "clientCapabilities": {},
     "_meta": {
       "acpmux": {
-        "peerRowBatches": true
+        "peerRowBatches": true,
+        "chunkDeltas": true,
+        "sessionChangedDelta": true
       }
     }
   }

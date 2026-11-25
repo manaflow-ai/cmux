@@ -135,8 +135,10 @@ import Testing
                 "placement and pointer escape must use the same pinned fill")
     }
 
-    /// Check the panel itself when shown and after its pill moves, rather than only the source's hit band.
-    @Test func thePanelFollowsThePinnedPill() throws {
+    /// Check the panel itself when shown and after its pill moves, rather than only the source's hit band. The open
+    /// card keeps its place while the layout shifts under it (Leo 2026-11-24: "affected by layout shifts when it
+    /// shouldnt be"); it moves only when the pointer takes another target.
+    @Test func thePanelStaysPutWhenThePinnedPillMoves() throws {
         let harness = Self.sidebar(clock: ManualClock())
         defer { harness.tearDown() }
         let row = try #require(harness.pinnedRow)
@@ -151,12 +153,12 @@ import Testing
         #expect(panel.escapeGeometry?.anchor == pill)
 
         row.pill.frame = row.pill.frame.offsetBy(dx: -12, dy: 8)
-        let movedPill = harness.window.convertToScreen(row.convert(row.pill.frame, to: nil))
         harness.coordinator.pointerLocation = { CGPoint(x: panel.cardFrame.midX, y: panel.cardFrame.midY) }
+        let opened = panel.cardFrame
         harness.coordinator.geometryChanged(in: harness.window)
-        #expect(panel.cardFrame.minX <= movedPill.maxX + 0.001)
-        #expect(movedPill.maxX - panel.cardFrame.minX < pixel + 0.001)
-        #expect(panel.escapeGeometry?.anchor == movedPill)
+        let hold = AnchoredEdgeHold.sample(from: opened, step: { harness.coordinator.geometryChanged(in: harness.window) }) { panel.cardFrame }
+        #expect(hold.held, "\(hold)")
+        #expect(panel.escapeGeometry?.anchor == pill)
     }
 
     /// The list row of the other workspace still opens its own card (the pinned lookup takes nothing from it).

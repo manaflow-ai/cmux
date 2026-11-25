@@ -877,6 +877,43 @@ async fn a_stopped_chat_whose_move_only_began_is_not_replaced_by_a_receive() {
     assert!(back["movedTo"].is_null(), "{back}");
 }
 
+/// A source daemon that restarts with a move nobody read keeps no chat frozen for the lease: no
+/// target can have the chat, so the move ends at start (RFD 0063, "Nothing lives only on the VM").
+#[tokio::test]
+async fn a_restarted_source_gives_back_a_move_that_was_never_read() {
+    let dir = std::env::temp_dir().join(format!("acpmux-unread-{}", uuid::Uuid::now_v7()));
+    let hub = local_hub(&dir);
+    let mut src = connect(&hub).await;
+    let s =
+        src.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    src.request(method::SESSION_PROMPT, prompt(&id, "p-hi", "hi")).await.unwrap();
+    src.request(method::MUX_KILL, json!({"sessionId": id, "purge": false})).await.unwrap();
+    wait_status(&mut src, &id, "closed").await;
+    let begin = src.request("_acpmux/transfer_begin", json!({"sessionId": id})).await.unwrap();
+    hub.shutdown_all().await;
+    drop(src);
+    drop(hub);
+
+    // The default lease is 300 s: the abort below comes from the restart, not the lease.
+    let hub = local_hub(&dir);
+    let mut src = connect(&hub).await;
+    let started = std::time::Instant::now();
+    loop {
+        let aborted = records(&mut src, &id, "transfer_aborted").await;
+        if !aborted.is_empty() {
+            assert_eq!(aborted[0]["transferId"], begin["transferId"], "{aborted:?}");
+            break;
+        }
+        assert!(started.elapsed() < Duration::from_secs(20), "the unread move stayed frozen");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let back = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(back["moving"], false, "given back: {back}");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// `git` in `dir`, which must succeed.
 fn git(dir: &std::path::Path, args: &[&str]) {
     let out = std::process::Command::new("git").arg("-C").arg(dir).args(args).output().unwrap();
