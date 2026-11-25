@@ -45,6 +45,7 @@ on:
       - cmux-tui/crates/acpmux/src/cli/cloud_join/**
       - scripts/cmux-next/cloud-journey.ts
       - scripts/cmux-next/cloud-journey-guest-diagnostics.ts
+      - scripts/cmux-next/cloud-journey-repo-seed.ts
       - scripts/cmux-next/cloud-journey-ci.sh
       - scripts/cmux-next/cloud-start-chat-headless.ts
       - scripts/cmux-next/cloud-journey-cargo-key.sh
@@ -239,6 +240,8 @@ jobs:
           CMUX_PATH: ${{ steps.build-cmux-tui.outputs.path }}
           JOURNEY_MODEL: stub
           TARGET: staging
+          # The `repo-seed` label times a folder chat's repository three times on the chat machine (clone vs warm mirror).
+          CMUX_JOURNEY_REPO_SEED_RUNS: ${{ contains(github.event.pull_request.labels.*.name, 'repo-seed') && '3' || '0' }}
         # An empty pair (a misnamed or missing secret) is this check's red in cloud-journey-ci.sh, never a skip.
         run: bash scripts/cmux-next/cloud-journey-ci.sh
       # cmux#55501: `cmux cloud start-chat` with no app (the direct route lane VMs take), on staging.
