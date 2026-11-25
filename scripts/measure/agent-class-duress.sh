@@ -77,7 +77,7 @@ done
 join() { local IFS=,; echo "$*"; }
 cat >report.json <<JSON
 {"host":"$(hostname -s)","model":"$(sysctl -n hw.model)","cores":$NCPU,"rounds":$ROUNDS,"jobs":$JOBS,"iters":$ITERS,"cap_s":$CAP,
- "cells":[$(join "${rows[@]}")],
- "probes":[$(join "${probes[@]}")]}
+ "cells":[$(join ${rows[@]+"${rows[@]}"})],
+ "probes":[$(join ${probes[@]+"${probes[@]}"})]}
 JSON
 cat report.json
