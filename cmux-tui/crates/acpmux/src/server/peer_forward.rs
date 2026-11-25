@@ -107,6 +107,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_AUDIT,
     // Names a peer machine, never a session (`vm_host.rs`).
     "_acpmux/vm_host",
+    // Names a peer machine, never a session (`autocloud_enroll.rs`).
+    "_acpmux/autocloud_enroll",
     // Every live chat on this daemon (`host_notice.rs`).
     "_acpmux/host_notice",
     "_acpmux/host_health",

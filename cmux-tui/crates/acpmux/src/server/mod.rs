@@ -3205,6 +3205,7 @@ pub(crate) mod trust_gate;
 pub mod upload_frames;
 mod view;
 mod vm_host;
+mod autocloud_enroll;
 pub(crate) mod wait;
 #[cfg(windows)]
 mod windows_socket;

@@ -22,7 +22,7 @@
 //! "hours": {"from": 20, "to": 8}, "idleSecs": 600}}`.
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 /// The settings key a machine's owner enrolls it with.
 pub const ENROLL_KEY: &str = "cloud.autoCloudEnroll";
@@ -99,17 +99,57 @@ impl Enrollment {
     /// From a parsed settings document: `true`, or an object with `enabled: true`. Anything
     /// else (missing, `false`, a string, a malformed object) is not enrolled.
     pub fn from_doc(doc: &Value) -> Self {
-        match crate::user_settings::value(doc, ENROLL_KEY) {
-            Some(Value::Bool(true)) => Self { enabled: true, ..Self::default() },
-            Some(v @ Value::Object(_)) if v.get("enabled") == Some(&Value::Bool(true)) => {
+        crate::user_settings::value(doc, ENROLL_KEY).map(|v| Self::from_value(&v)).unwrap_or_default()
+    }
+
+    /// From the setting's own value: `true`, or an object with `enabled: true`. Anything else
+    /// is not enrolled.
+    pub fn from_value(v: &Value) -> Self {
+        match v {
+            Value::Bool(true) => Self { enabled: true, ..Self::default() },
+            // An object's policy is kept when it is off, so turning it back on keeps its rules.
+            Value::Object(_) => {
                 let policy = serde_json::from_value::<Policy>(v.clone());
                 let Ok(policy) = policy else { return Self::default() };
                 let idle_secs =
                     v.get("idleSecs").and_then(Value::as_u64).unwrap_or(DEFAULT_IDLE_SECS);
-                Self { enabled: true, policy, idle_secs }
+                let enabled = v.get("enabled") == Some(&Value::Bool(true));
+                Self { enabled, policy, idle_secs }
             }
             _ => Self::default(),
         }
+    }
+
+    /// The setting's value for this enrollment (what `_acpmux/autocloud_enroll` saves).
+    pub fn to_value(&self) -> Value {
+        let mut v = serde_json::to_value(&self.policy).unwrap_or_else(|_| json!({}));
+        v["enabled"] = json!(self.enabled);
+        v["idleSecs"] = json!(self.idle_secs);
+        v
+    }
+
+    /// This enrollment with the fields `params` names replaced: `enabled`, `teams`, `agents`,
+    /// `hours` (null clears it), `idleSecs`. A field of the wrong type is an error.
+    pub fn with(&self, params: &Value) -> Result<Self, String> {
+        let mut next = self.clone();
+        if let Some(v) = params.get("enabled") {
+            next.enabled = v.as_bool().ok_or("enabled must be true or false")?;
+        }
+        for (key, slot) in [("teams", &mut next.policy.teams), ("agents", &mut next.policy.agents)]
+        {
+            if let Some(v) = params.get(key) {
+                *slot = serde_json::from_value(v.clone())
+                    .map_err(|_| format!("{key} must be a list of strings"))?;
+            }
+        }
+        if let Some(v) = params.get("hours") {
+            next.policy.hours = serde_json::from_value(v.clone())
+                .map_err(|_| "hours must be {from, to} or null".to_owned())?;
+        }
+        if let Some(v) = params.get("idleSecs") {
+            next.idle_secs = v.as_u64().ok_or("idleSecs must be a whole number of seconds")?;
+        }
+        Ok(next)
     }
 
     /// This machine's enrollment, read from its settings file now. A missing or unreadable file
@@ -120,6 +160,12 @@ impl Enrollment {
             Settings::Parsed(doc) => Self::from_doc(&doc),
             _ => Self::default(),
         }
+    }
+
+    /// The enrollment in force: what `_acpmux/autocloud_enroll` saved in the daemon config
+    /// (`saved`), else the settings key.
+    pub fn resolve(saved: Option<&Value>) -> Self {
+        saved.map(Self::from_value).unwrap_or_else(Self::read)
     }
 }
 
@@ -193,10 +239,10 @@ pub fn report(enrollment: &Enrollment, idle: Option<f64>, hour: u8, caps: Vec<St
     }
 }
 
-/// This machine's report now: its settings, its owner's HID idle, its local hour, its caps.
-pub fn report_now() -> Report {
+/// This machine's report now: its enrollment (`Enrollment::resolve`), its owner's HID idle, its local hour, its caps.
+pub fn report_now(saved: Option<&Value>) -> Report {
     use chrono::Timelike;
-    let enrollment = Enrollment::read();
+    let enrollment = Enrollment::resolve(saved);
     let hour = chrono::Local::now().hour() as u8;
     report(&enrollment, cmux_host_budget::owner_idle_seconds(), hour, caps_now())
 }
