@@ -138,6 +138,20 @@ struct CloudChatNamesTests {
         #expect(turns.remoteRecordCount == 1)
     }
 
+    @Test func theGlobalCapDropsTheHostNotingTheMostNeverEveryMachinesNames() {
+        let turns = Self.turns()
+        turns.noteRemote(Self.summary, host: Self.cloudHost, machine: "vm")
+        for flood in 0..<8 {
+            for chat in 0..<511 { turns.noteRemote(["sessionId": "acp_\(chat)", "title": "t"], host: "install:flood-\(flood)", machine: "flood") }
+        }
+        for chat in 0..<7 { turns.noteRemote(["sessionId": "acp_\(chat)", "title": "t"], host: Self.cloudHost, machine: "vm") }
+        #expect(turns.remoteRecordCount == AgentTurnStateStore.remoteLimit, "fixture: the store is full")
+        turns.noteRemote(["sessionId": "acp_new", "title": "t"], host: "install:flood-0", machine: "flood")
+        #expect(turns.remoteRecordCount == AgentTurnStateStore.remoteLimit - 511 + 1)
+        #expect(turns.title(for: AgentSessionRef(host: Self.cloudHost, session: "acp_cloud", harness: "claude")) != nil,
+                "a flood on other hosts dropped this machine's names")
+    }
+
     @Test func aFieldIsCappedByScalarsNotByCharacters() {
         // One grapheme of 10,000 combining marks: a cap by `Character` keeps all of it.
         let stacked = "a" + String(repeating: "\u{0301}", count: 10_000)

@@ -43,7 +43,7 @@ import Testing
     }
 
     /// In Pinned or a custom section too, the row names no machine and says no Cloud (cmux#55668).
-    @Test func aPinnedCloudRowKeepsItsMark() throws {
+    @Test func aPinnedCloudRowHasNoCloudMarkEither() throws {
         let pinned = SidebarRowSection(kind: .custom(SidebarCustomSection(id: "pinned", title: "Pinned", showsTitle: true)),
                                        nodes: [.workspace(SidebarWorkspace(id: WorkspaceID("pinned-vm-ws"), machineID: cloud.id,
                                                                            title: "deploy", directory: "~"))])

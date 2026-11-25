@@ -16,13 +16,15 @@ import Foundation
 /// (``plainName(_:)``): one line, no control or invisible characters (bidi overrides, zero-width), at most
 /// ``remoteNameLimit`` characters.
 extension AgentTurnStateStore {
-    /// The most remote chats whose names are kept; the map starts again past it (a page notes its chat again on
-    /// each attach and change).
+    /// The most remote chats whose names are kept; past it the host holding the most is dropped (a page notes its chat
+    /// again on each attach and change).
     static let remoteLimit = 4096
 
     /// The key of `session` on `host` in ``remoteSessions``. A NUL never occurs in a session id, so it never
     /// collides with the ``awaited`` signal of a local session.
     static func remoteKey(host: String, session: String) -> String { host + "\u{0}" + session }
+    /// The host of a ``remoteKey(host:session:)``.
+    static func remoteHost(of key: String) -> String { String(key.prefix { $0 != "\u{0}" }) }
 
     /// The summary fields a remote chat's names are read from; any other is dropped.
     static let remoteFields = ["sessionId", "title", "titleSource", "lastPrompt", "name", "harness", "family", "displayName"]
@@ -123,7 +125,13 @@ extension AgentTurnStateStore {
               !machine.isEmpty, host != localHost, !mirroredHosts.contains(host) else { return }
         switch remoteHostMachines[host] {
         case machine?: break
-        case nil: remoteHostMachines[host] = machine
+        case nil:
+            // Bounded: past the limit, hosts holding no names are forgotten (a contested one stays contested).
+            if remoteHostMachines.count >= Self.remoteLimit {
+                let held = Set(remoteSessions.keys.map(Self.remoteHost(of:)))
+                remoteHostMachines = remoteHostMachines.filter { held.contains($0.key) || $0.value == Self.contestedRemoteHost }
+            }
+            remoteHostMachines[host] = machine
         default:
             if remoteHostMachines[host] != Self.contestedRemoteHost {
                 logger.error("remote chat names: host \(host, privacy: .public) claimed by two machines; its names are dropped")
@@ -137,7 +145,9 @@ extension AgentTurnStateStore {
         if let held = remoteSessions[key] {
             record = held
         } else {
-            if remoteSessions.count >= Self.remoteLimit { dropRemote { _ in true } }
+            if remoteSessions.count >= Self.remoteLimit, let flooder = Dictionary(grouping: remoteSessions.keys, by: Self.remoteHost(of:)).max(by: { $0.value.count < $1.value.count })?.key {
+                dropRemote(host: flooder) // the host noting the most, never every machine's names
+            }
             if remoteSessions.keys.lazy.filter({ $0.hasPrefix(host + "\u{0}") }).count >= Self.remoteLimitPerHost { dropRemote(host: host) }
             record = Session()
             remoteSessions[key] = record

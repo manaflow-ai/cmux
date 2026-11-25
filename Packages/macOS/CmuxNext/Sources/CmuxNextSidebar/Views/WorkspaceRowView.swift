@@ -360,9 +360,8 @@ final class WorkspaceRowView: SidebarRowView {
         // `experiments.agentBadges`: the row's one status pill stands in for its status mark (the badge, the status
         // glyph, an agent mark in the status's place); nil (off, idle, failed) keeps the shipped mark.
         let pill = content.agentBadges.showsPills && !isPlaceholderRow && !isShowingPlaceholder ? SidebarAgentPill.of(ws) : nil
-        // The leading slot is the row's own icon and its state only, never where it runs: a Cloud row's cloud is a
-        // small muted mark in the trailing status cluster (Leo 2026-11-22: "im not sure we want the cloud icon at the
-        // left. it makes it stick out in a slight eyesore-y way. compared to the local ones which have no icon").
+        // The leading slot is the row's own icon and its state only, never where it runs: no row draws a cloud, only a
+        // Cloud chat's tab does (2026-11-25, cmux#55668).
         icon.configure(icon: shown.icon)
         iconKind = shown.icon
         configureColor(shown)

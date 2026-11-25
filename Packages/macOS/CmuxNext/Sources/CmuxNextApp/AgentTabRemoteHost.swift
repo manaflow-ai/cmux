@@ -99,7 +99,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
             route = AgentPaneRemoteRoute(machine: machine, hostID: hostID, approvals: approvals) { [surface, session, endpoint, reconnect, personName, chatNoted, machineSignIn = cloudMachineID == nil] in
                 let client = AgentSessionAttachClient(surface: surface, mode: mode, reconnect: reconnect, personName: personName, endpoint: endpoint)
                 let cloudRepository = AgentSessionAttachClient.forwardingCloudRepository(surface: surface, reconnect: reconnect, endpoint: endpoint)
-                return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client, mode: mode), session: session, host: hostID, linksAlias: linksHost, trust: mode == .attach && servesTrust ? ask : nil, ownerCloud: mode == .attach ? ownerCloud : nil, cloudRepository: cloudRepository, machineSignIn: machineSignIn, chatNoted: mode == .attach ? chatNoted : nil, chatOwned: ownerLink.map { link in { await link() != nil } })
+                return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client, mode: mode), session: session, host: hostID, linksAlias: linksHost, trust: mode == .attach && servesTrust ? ask : nil, ownerCloud: mode == .attach ? ownerCloud : nil, cloudRepository: cloudRepository, machineSignIn: machineSignIn, chatNoted: mode == .attach ? chatNoted : nil, chatOwned: ownerLink.map { link -> RemoteAcpmuxWire.ChatOwned in { @Sendable in await link() != nil } })
             }
         } else if let start, mode == .attach {
             // A new chat: nothing runs on that machine until the page's first send (cx-k21v). The
@@ -118,7 +118,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
                     let client = AgentSessionAttachClient(surface: started.surface, reconnect: reconnect, endpoint: endpoint)
                     return (AgentTabRemoteClient(client: client, mode: .attach), started.session, started.surface)
                 }, host: hostID, linksAlias: linksHost, trust: servesTrust ? ask : nil, ownerCloud: ownerCloud, cloudRepositoryStart: AgentSessionAttachClient.forwardingStartedCloudRepository(reconnect: reconnect, endpoint: endpoint),
-                servesLogin: servesLogin, servesSide: servesSide, machineSignIn: cloudMachineID == nil, machineLogin: servesMachineLogin ? machineLogin : nil, milestone: cloudSendMark.map { mark -> RemoteAcpmuxWire.Milestone in { step in mark(step, nil) } }, chatNoted: chatNoted, chatOwned: ownerLink.map { link in { await link() != nil } })
+                servesLogin: servesLogin, servesSide: servesSide, machineSignIn: cloudMachineID == nil, machineLogin: servesMachineLogin ? machineLogin : nil, milestone: cloudSendMark.map { mark -> RemoteAcpmuxWire.Milestone in { step in mark(step, nil) } }, chatNoted: chatNoted, chatOwned: ownerLink.map { link -> RemoteAcpmuxWire.ChatOwned in { @Sendable in await link() != nil } })
             }
         } else {
             throw AgentRemoteStartRefusal.startUnsupported(machine: machine)
