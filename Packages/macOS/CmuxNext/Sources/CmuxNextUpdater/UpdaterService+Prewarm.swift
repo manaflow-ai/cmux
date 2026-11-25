@@ -85,11 +85,19 @@ extension UpdaterService {
             return install()
         }
         run.urgency.raise()
-        prewarmWaitingInstall = PrewarmWaitingInstall(build: run.build, clicked: ContinuousClock.now, install: install)
+        // The bound counts from the click, not from the end of the click's feed read: the two waits
+        // never add up (they took up to 6 s in all, ask-ad4a68e740).
+        let clicked = installClickedAt ?? ContinuousClock.now
+        let left = prewarmInstallWait - (ContinuousClock.now - clicked)
+        guard left > .zero else {
+            log.append("launch pre-warm before install: partial, still running \(StagedUpdatePrewarm.milliseconds(ContinuousClock.now - clicked)) ms after the click; installing")
+            return install()
+        }
+        prewarmWaitingInstall = PrewarmWaitingInstall(build: run.build, clicked: clicked, install: install)
         #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarness.mark("prewarm_wait_start")
         #endif
-        prewarmWaitTimer.schedule(after: prewarmInstallWait) { @MainActor [weak self] in self?.settlePrewarmWait(done: false) }
+        prewarmWaitTimer.schedule(after: left) { @MainActor [weak self] in self?.settlePrewarmWait(done: false) }
     }
 
     /// The pre-warm `run` (its ``StagedPrewarmRun/urgency``) ended with `line`; an install waiting for it goes on.
