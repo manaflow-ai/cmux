@@ -1,5 +1,6 @@
 // swift-tools-version: 6.2
 
+import Foundation
 import PackageDescription
 
 // A dependency-free RFB (VNC) client engine shared by the cmux-next Mac app
@@ -29,3 +30,14 @@ let package = Package(
         .testTarget(name: "CmuxVNCTests", dependencies: ["CmuxVNC", "CmuxVNCDemoServer"], swiftSettings: swiftSettings),
     ]
 )
+
+#if os(Linux)
+if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
+    package.dependencies.append(.package(url: "https://github.com/apple/swift-crypto.git", exact: "3.15.1"))
+    for targetName in ["CmuxVNC", "CmuxVNCTests"] {
+        package.targets.first { $0.name == targetName }?.dependencies.append(
+            .product(name: "Crypto", package: "swift-crypto")
+        )
+    }
+}
+#endif

@@ -1,5 +1,3 @@
-import CoreGraphics
-import CoreVideo
 import Foundation
 
 /// Finds the physical displays inside a framebuffer when the server does not
