@@ -1364,7 +1364,9 @@ impl HybridUnderlay {
     /// line with the routes they leave.
     fn apply(&mut self, control: Control) {
         let control = match control {
-            Control::Rebind { socket, stun, reflexive, timeline, new_hop_port } if self.rebind_after_promotion() => {
+            Control::Rebind { socket, stun, reflexive, timeline, new_hop_port }
+                if self.rebind_after_promotion() =>
+            {
                 // The promoted socket is on the new network already; the hop
                 // leg still moves onto it.
                 drop(socket);
