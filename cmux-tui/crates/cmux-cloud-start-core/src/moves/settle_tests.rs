@@ -193,3 +193,22 @@ fn fuzz_with_kill_switch_refuses_a_pause_in_flight() {
         Settle::Refuse { reason: Refusal::Transient }
     );
 }
+
+/// "Waking machine" shows only while a pause or a resume in flight is waited out: never for a running machine, a
+/// paused one the attach resumes, a refusal, or the kill switch (ask-259986a6c4).
+#[test]
+fn waking_shows_only_while_a_change_is_waited_out() {
+    let seen =
+        |status, killed| SettleLook { status, waited_ms: 0, resumes: 0, limit_ms: None, killed };
+    assert!(settle(seen(Power::Pausing, false)).waking());
+    assert!(settle(seen(Power::Starting, false)).waking());
+    for status in
+        [Power::Running, Power::Paused, Power::Provisioning, Power::Deleting, Power::Failed]
+    {
+        assert!(!settle(seen(status, false)).waking(), "{status:?}");
+    }
+    assert!(!settle(seen(Power::Pausing, true)).waking());
+    assert!(
+        !settle(SettleLook { waited_ms: SETTLE_LIMIT_MS, ..seen(Power::Pausing, false) }).waking()
+    );
+}

@@ -695,6 +695,18 @@ describe("cloud journey: leaked machine sweep", () => {
     expect(m).toEqual({ id: "vm_x", name: `cloud journey auto ${old}`, status: "paused", created: new Date(now - 48 * 3600_000).toISOString() });
   });
 
+  test("takes the Auto mode journey's leftovers (auto journey aj-<tag>), by the same age and name rules", () => {
+    const now = Date.UTC(2026, 10, 25, 9, 0, 0);
+    const aj = (ms: number) => `aj-${ms.toString(36)}`;
+    const ids = staleJourneyMachines([
+      { id: "vm_aj_old", name: `auto journey ${aj(now - STALE_JOURNEY_MS - 60_000)}`, status: "running" },
+      { id: "vm_aj_young", name: `auto journey ${aj(now - STALE_JOURNEY_MS + 60_000)}`, status: "running" },
+      { id: "vm_aj_suffix", name: `auto journey ${aj(now - STALE_JOURNEY_MS - 60_000)} kept`, status: "paused" },
+      { id: "vm_aj_person", name: "my auto journey", status: "paused" },
+    ], now).map((m) => m.id);
+    expect(ids).toEqual(["vm_aj_old"]);
+  });
+
   test("reads every page of the machine list", async () => {
     const pages: Record<string, any> = {
       "": { machines: [{ id: "a" }], next_cursor: "c1" },
@@ -729,6 +741,16 @@ describe("cloud journey: leaked install sweep", () => {
       inst("i_future", `cloud journey ${tagAt(now + 3_600_000)}`),
       inst("i_nottime", "cloud journey jr-zz"),
     ], now)).toEqual(["i_old"]);
+  });
+
+  test("takes the Auto mode journey's live cli install (auto journey aj-<tag>) once it is older than any run", () => {
+    const aj = (ms: number) => `aj-${ms.toString(36)}`;
+    expect(staleJourneyInstalls([
+      inst("i_aj_old", `auto journey ${aj(now - LONG_JOURNEY_MS - 60_000)}`),
+      inst("i_aj_young", `auto journey ${aj(now - LONG_JOURNEY_MS + 60_000)}`),
+      inst("i_aj_revoked", `auto journey ${aj(now - LONG_JOURNEY_MS - 60_000)}`, { revoked_at: now - 1000 }),
+      inst("i_aj_jr", `auto journey ${old}`),
+    ], now)).toEqual(["i_aj_old"]);
   });
 
   test("a malformed list row is skipped, never thrown on", () => {

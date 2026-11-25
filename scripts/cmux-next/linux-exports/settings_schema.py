@@ -29,6 +29,19 @@ def load(root, rel):
         return json.load(handle)
 
 
+def load_policy(root):
+    """The agent policy as {"groups": [{agent, keys}]}: schemas/settings/source/agent-policy/ holds one
+    <key>.json ({agent, why?}) per key plus _refusals.json (gen-settings-sources.py checks its shape)."""
+    rel = SRC + "/agent-policy"
+    groups = {}
+    for name in sorted(os.listdir(os.path.join(root, rel))):
+        if name == "_refusals.json" or not name.endswith(".json"):
+            continue
+        agent = load(root, rel + "/" + name)["agent"]
+        groups.setdefault(agent, []).append(name[: -len(".json")])
+    return {"groups": [{"agent": agent, "keys": keys} for agent, keys in groups.items()]}
+
+
 class MissingKeys(Exception):
     pass
 
@@ -39,7 +52,7 @@ class Schema:
         self.catalog = swift_data.Catalog(root, CATALOG)
         self.sections = load(root, SRC + "/sections.json")["sections"]
         self.layout = load(root, SRC + "/page-layout.json")
-        self.policy = load(root, SRC + "/agent-policy.json")
+        self.policy = load_policy(root)
         self.facts = load(root, SRC + "/row-facts.json")
         self.samples = load(root, SRC + "/samples.json")
         self.missing = set()
