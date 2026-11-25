@@ -41,6 +41,9 @@ FAILURE_ONLY = {
         "wait-and-staple's one long step has its own timeout-minutes below the job's, so a slow wait ends failure",
     ("auto-resume-nightly-notarization.yml", "poll-stapled", "staple-outer"):
         "staple-outer's one long step has its own timeout-minutes below the job's, so a slow wait ends failure",
+    ("cmux-next-ios-kit.yml", "base-red-notice", "kit-tests"):
+        "the notice names the new red tests from a finished kit job's log (ios_kit_base_red.py reads only "
+        "success or failure); a stopped kit job named no test",
     ("cmux-next-web.yml", "web-bisect", "web"):
         "a bisect needs the red files a finished run names; a stopped run named none",
     ("cmux-next.yml", "release-compile-revert", "release-compile"):

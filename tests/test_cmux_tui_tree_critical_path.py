@@ -385,7 +385,10 @@ def main():
                                                      "needs.tree-preflight.outputs.darwin_builder": "mac"})),
            "darwin-fallback-plan plans nothing when the committed builder is mac (no second builder)")
     fallback = all_jobs["build-darwin-fallback"]
-    _check(fallback["with"]["darwin_builder"] == "mac",
+    # The plan picks the builder (#53881): a Mac unless every failed macOS leg was lost before its link,
+    # which rebuilds on Linux once (tests/test_cmux_tui_fallback_lost_leg.py covers that rule).
+    _check(fallback["with"]["darwin_builder"] == "${{ needs.darwin-fallback-plan.outputs.builder }}"
+           and "builder=mac\n" in plan_steps and 'echo "builder=$builder" >> "$GITHUB_OUTPUT"' in plan_steps,
            "missing macOS targets from the Linux cross build are rebuilt on a Mac")
     _check(fallback["with"]["target_set"] == "${{ needs.darwin-fallback-plan.outputs.target_set }}",
            "the fallback builds only the macOS targets the plan found missing")
