@@ -15,9 +15,11 @@ use super::grants::{Decision, GestureCheck, Grant, OpClass, ScopeTable, needs_ge
 use super::host::HostProcess;
 use super::http_cache;
 use super::mirror::Origin;
+use super::pane_flow;
 use super::provider;
 use super::signal_sources;
 use super::supervisor::{HostKey, Inner, Out, Supervisor};
+use super::view_state;
 
 /// Calls one host may have in flight (the VM caps itself at 64 too, but the
 /// VM is untrusted).
@@ -120,6 +122,14 @@ impl Supervisor {
                 options.get("idempotencyKey").and_then(Value::as_str).filter(|k| !k.is_empty());
             format!("app:{}:{}", key.app, own.map_or_else(mint_key, str::to_string))
         });
+        // A pane's open arguments and result (`pane_flow.rs`), answered here.
+        if pane_flow::owns(&op) {
+            return self.pane_call_locked(inner, key, generation, &process, cb, &op, &params);
+        }
+        // A view's kept state (`view_state.rs`), answered here.
+        if op == view_state::OP {
+            return self.view_state_call_locked(inner, key, &process, cb, &params);
+        }
         // Ops the daemon does not own go to their provider (the Mac app), or
         // fail at once when none is connected (APP-R1).
         let supervisor_op = op.starts_with("app.storage.")
