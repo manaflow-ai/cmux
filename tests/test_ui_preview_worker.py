@@ -137,6 +137,60 @@ class LookTests(unittest.TestCase):
             self.assertIn("needs an app build", receipt["error"])
             self.assertEqual(worker.shot, [])
 
+    def test_a_web_only_worker_shoots_no_swift(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = FakeWorker(Path(tmp))
+            worker.swift_on = False
+            receipt = worker.look(request())
+            self.assertEqual(worker.shot, [])
+            self.assertIn("shoots web scenes only", receipt["error"])
+
+
+class FollowTests(unittest.TestCase):
+    """serve --follow: the broker's push trigger (lane-gh call ui_preview_requests) feeds the jobs queue."""
+
+    def broker(self, answer):
+        calls = []
+
+        def call(tool, args, timeout):
+            calls.append((tool, args))
+            return answer
+
+        return calls, call
+
+    def test_a_first_start_takes_the_newest_seq_and_no_backlog(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs = w.queue.Queue()
+            calls, call = self.broker({"seq": 41, "requests": [dict(request(), seq=41)]})
+            self.assertEqual(w.follow_once(FakeWorker(Path(tmp)), jobs, None, call), 41)
+            self.assertTrue(jobs.empty())
+            self.assertEqual(calls, [("ui_preview_requests", {"after": 0, "wait": 0})])
+
+    def test_requests_after_the_seq_are_queued_and_the_seq_moves(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs = w.queue.Queue()
+            web = dict(request(ui_files=["webviews/src/a.tsx"]), seq=42)
+            bad = {"seq": 43, "schema": "nope"}
+            _, call = self.broker({"seq": 43, "requests": [web, bad]})
+            self.assertEqual(w.follow_once(FakeWorker(Path(tmp)), jobs, 41, call), 43)
+            req, _ = jobs.get_nowait()
+            self.assertEqual(req["ui_files"], ["webviews/src/a.tsx"])
+            self.assertTrue(jobs.empty())
+
+    def test_a_web_only_worker_leaves_swift_only_requests(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = FakeWorker(Path(tmp))
+            worker.swift_on = False
+            jobs = w.queue.Queue()
+            _, call = self.broker({"seq": 42, "requests": [dict(request(), seq=42)]})
+            self.assertEqual(w.follow_once(worker, jobs, 41, call), 42)
+            self.assertTrue(jobs.empty())
+
+    def test_a_reset_broker_queue_restarts_at_its_newest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, call = self.broker({"seq": 3, "requests": [], "reset": True})
+            self.assertEqual(w.follow_once(FakeWorker(Path(tmp)), w.queue.Queue(), 90, call), 3)
+
 
 if __name__ == "__main__":
     unittest.main()
