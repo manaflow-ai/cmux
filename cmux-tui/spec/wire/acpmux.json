@@ -9,6 +9,7 @@
     "field:_meta.acpmux#approverDecision",
     "field:_meta.acpmux#argv",
     "field:_meta.acpmux#author",
+    "field:_meta.acpmux#autoPlace",
     "field:_meta.acpmux#beforePromptId",
     "field:_meta.acpmux#callerKind",
     "field:_meta.acpmux#callerProtocol",
@@ -257,7 +258,6 @@
     "method:_acpmux/register",
     "method:_acpmux/registry",
     "method:_acpmux/reload_config",
-    "method:_acpmux/rename",
     "method:_acpmux/report",
     "method:_acpmux/request_state",
     "method:_acpmux/resolve",
@@ -339,6 +339,7 @@
     "method:session/list",
     "method:session/load",
     "method:session/request_permission",
+    "notify:_acpmux/admission_waiting",
     "notify:_acpmux/cancel_refused",
     "notify:_acpmux/chat_changed",
     "notify:_acpmux/chats_lagged",
@@ -382,6 +383,7 @@
     "param:_acpmux/app_reply#threadId",
     "param:_acpmux/app_reply#to",
     "param:_acpmux/archive#archived",
+    "param:_acpmux/archive#opId",
     "param:_acpmux/archive#sessionId",
     "param:_acpmux/attach#afterSeq",
     "param:_acpmux/attach#attending",
@@ -411,6 +413,7 @@
     "param:_acpmux/chat/route.set#routeId",
     "param:_acpmux/chat/route.set#sessionId",
     "param:_acpmux/chat/route.set#when",
+    "param:_acpmux/customize_run#run",
     "param:_acpmux/detach#sessionId",
     "param:_acpmux/draft_get#sessionId",
     "param:_acpmux/draft_set#sessionId",
@@ -452,6 +455,14 @@
     "param:_acpmux/harness_enable#folder",
     "param:_acpmux/harness_enable#id",
     "param:_acpmux/harnesses#cwd",
+    "param:_acpmux/here#scope",
+    "param:_acpmux/here/beat#activity",
+    "param:_acpmux/here/beat#device",
+    "param:_acpmux/here/beat#deviceKind",
+    "param:_acpmux/here/beat#idleMs",
+    "param:_acpmux/here/beat#leave",
+    "param:_acpmux/here/beat#scopes",
+    "param:_acpmux/here/beat#seq",
     "param:_acpmux/inbox_thread#markRead",
     "param:_acpmux/inbox_thread#sessionId",
     "param:_acpmux/inbox_thread#threadId",
@@ -793,6 +804,9 @@
     "cost-ledger-v1": [
       "method:_acpmux/ledger"
     ],
+    "customize-run-v1": [
+      "method:_acpmux/customize_run"
+    ],
     "draft-stash-v1": [
       "method:_acpmux/stash_drop",
       "method:_acpmux/stash_get",
@@ -965,6 +979,10 @@
     "harness-health-v1": [
       "method:_acpmux/harness/health"
     ],
+    "here-v1": [
+      "method:_acpmux/here",
+      "method:_acpmux/here/beat"
+    ],
     "info-rows-v1": [
       "method:_acpmux/info",
       "method:_acpmux/status"
@@ -1011,6 +1029,10 @@
     ],
     "native-history-v1": [
       "method:_acpmux/native_history"
+    ],
+    "op-once-v1": [
+      "method:_acpmux/archive",
+      "method:_acpmux/rename"
     ],
     "peer-row-batches-v1": [
       "method:_acpmux/watch",

@@ -20,6 +20,7 @@ pub(super) fn config() -> ServiceConfig {
         chief_socket: None,
         browser: BrowserConfig::new(None, 0),
         surface: SurfaceConfig::new(None, 0),
+        viewport_sync: None,
     }
 }
 
@@ -32,6 +33,7 @@ pub(super) async fn serve(incoming: IncomingChannel) {
         session_exposure: None,
         route: None,
         path: None,
+        viewport: None,
     };
     services::serve(Arc::new(config()), peer, Default::default(), incoming).await;
 }
