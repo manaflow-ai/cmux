@@ -44,6 +44,9 @@ final class HoverCardPanel: NSPanel {
 
     /// The card's material; its `contentView` holds the body.
     let glass: OverlaySurfaceView
+    /// The shared hover surface's look the glass draws (``HoverSurfaceLook``): set at init, and again on a
+    /// show after the setting changed (a test or the material gallery may pin the material between).
+    private var hoverLook: HoverSurfaceLook
     /// The window's content: the card and its shadow, which the slide translates.
     var host: PopupHostView? { contentView as? PopupHostView }
     /// How far a slide carries the card inside its window: the clear room kept around the
@@ -117,6 +120,9 @@ final class HoverCardPanel: NSPanel {
         // The card is its clear window's whole content: before macOS 26 its blur samples what is
         // behind the window (the sidebar, a terminal), as its Liquid Glass refracts it.
         glass.samplesBehindWindow = true
+        // The shared hover surface: solid by default, the glass above when the setting says so.
+        hoverLook = HoverSurfaceLook.current
+        hoverLook.apply(to: glass)
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: deferred)
         Self.liveInstances += 1
         let host = adoptPopupStyle(card: glass)
@@ -178,6 +184,10 @@ final class HoverCardPanel: NSPanel {
                  themeAnchor: NSView?, sliding: Bool, interactive: Bool = false, cornerRadius: CGFloat? = nil,
                  entrance: HoverCardEntrance = .slide, retarget: HoverCardRetarget = .jump,
                  applyTheme: @escaping () -> Void) {
+        if HoverSurfaceLook.current != hoverLook {
+            hoverLook = HoverSurfaceLook.current
+            hoverLook.apply(to: glass)
+        }
         let wasDismissing = isDismissing
         let wasOnScreen = isVisible && parentWindowRef === parent
         // Where the card is on screen before this show: a visible card (shown, or fading out

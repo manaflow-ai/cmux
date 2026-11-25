@@ -98,7 +98,15 @@ All on the existing unix socket; method names in `rpc.rs`. Lane A owns these.
   Other kinds delegate to the existing `_acpmux/route/remove`.
 - `_acpmux/connections/key.add` `{ "provider", "secret": "keychain:ITEM", "label"? }` -> state.
   The app stores the pasted key in the Keychain first (as `cmux.chief.backend.add` does) and passes
-  only the reference.
+  only the reference. The app first takes every whitespace character out of the paste (a wrapped key
+  is still one key), then calls `key.check`.
+- `_acpmux/connections/key.check` `{ "provider", "secret": "keychain:ITEM" }` -> `{ "provider",
+  "result": "ok|bad_shape|bad_key|unreachable", "save", "http_status", "detail", "message" }`
+  (`key_check.rs`). The vendor prefix first (openai `sk-`, anthropic `sk-ant-`, openrouter `sk-or-`,
+  google `AIza`, xai `xai-`), then one authenticated read (the model list; OpenRouter's
+  `/api/v1/key`), 8 s. 401/403 (and Google's or xAI's 400) is `bad_key`, `save: false`, `message`
+  "Key rejected by OpenAI"; a network failure, timeout or 5xx is `unreachable` and saves anyway.
+  The key is resolved in the daemon and never answered or logged.
 - Notification `_acpmux/connections.changed` with `ConnectionsState`.
 
 ### Sign in with ChatGPT (Codex's own sign-in, cmux#45774)
