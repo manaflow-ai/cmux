@@ -120,6 +120,9 @@ impl Storage {
              CREATE TABLE IF NOT EXISTS appkv_meta (k TEXT PRIMARY KEY NOT NULL, v TEXT NOT NULL);",
         )
         .map_err(failed)?;
+        // A deleted key or an uninstalled app's table leaves no readable
+        // bytes in free pages; `scrub` resets the WAL after it.
+        db.pragma_update(None, "secure_delete", "ON").map_err(failed)?;
         Ok(Self { db })
     }
 
@@ -225,9 +228,13 @@ impl Storage {
                 if synced {
                     self.write_local(app, &table, key, None)?;
                 } else {
-                    self.db
+                    let removed = self
+                        .db
                         .execute(&format!("DELETE FROM {table} WHERE key = ?1"), params![key])
                         .map_err(failed)?;
+                    if removed > 0 {
+                        self.scrub()?;
+                    }
                 }
                 Ok(Value::Null)
             }
@@ -623,6 +630,7 @@ impl Storage {
         let _ = self.db.execute_batch(
             "DELETE FROM appkv_apps; DELETE FROM appkv_outbox; DELETE FROM appkv_rows;",
         );
+        let _ = self.scrub();
         changed
     }
 
@@ -644,7 +652,18 @@ impl Storage {
         ] {
             self.db.execute(statement, params![app]).map_err(failed)?;
         }
-        Ok(())
+        self.scrub()
+    }
+
+    /// Resets the WAL, which still holds the deleted values' old pages. The
+    /// supervisor's connection is the only one, so nothing blocks it.
+    fn scrub(&self) -> Result<(), StorageError> {
+        crate::workspace_registry::truncate_wal_after_delete(
+            &self.db,
+            std::time::Duration::from_secs(5),
+        )
+        .map(drop)
+        .map_err(failed)
     }
 }
 

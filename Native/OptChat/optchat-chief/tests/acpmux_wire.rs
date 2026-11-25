@@ -109,6 +109,11 @@ fn serve_with(
                             send(
                                 json!({"jsonrpc": "2.0", "method": "_acpmux/session_changed", "params": {"sessionId": "c9", "session": {"sessionId": "c9", "name": "kid", "status": "running", "tags": {"mux.parent": "optchat-chief"}}}}),
                             );
+                            // A turn Claude Code ran on its own in a session no
+                            // turn of this host runs (acpmux SessionEvent shape).
+                            send(
+                                json!({"jsonrpc": "2.0", "method": "_acpmux/event", "params": {"sessionId": "kept-1", "seq": 9, "dir": "mux", "kind": "background_turn", "msg": {"state": "ended", "id": "b1", "trigger": "task_notification", "reason": "result"}}}),
+                            );
                         }
                         "_acpmux/sessions" => send(reply(
                             json!({"sessions": [{"sessionId": "old", "name": "x", "status": "idle"}]}),
@@ -224,6 +229,19 @@ fn a_turn_over_the_acpmux_wire() {
             .any(|e| matches!(e, AgentEvent::SessionChanged(s) if s.session_id == "c9")),
         "session_changed reaches the brain"
     );
+    while !seen
+        .iter()
+        .any(|e| matches!(e, AgentEvent::BackgroundTurn { .. }))
+    {
+        seen.push(rx.recv_timeout(common::WAIT).unwrap());
+    }
+    assert!(
+        seen.iter().any(
+            |e| matches!(e, AgentEvent::BackgroundTurn { session_id, state }
+            if session_id == "kept-1" && state == "ended")
+        ),
+        "a background turn's end in an idle session reaches the brain"
+    );
     assert!(seen.iter().any(
         |e| matches!(e, AgentEvent::Up(list) if list.len() == 1 && list[0].session_id == "old")
     ));
@@ -245,6 +263,7 @@ fn a_turn_over_the_acpmux_wire() {
             env: Default::default(),
             fast: false,
             peer: None,
+            stop_condition: None,
         },
         blocks: turn_blocks("<chat>\n</chat>", &["what is x?".into()]),
         limit: None,
@@ -338,6 +357,7 @@ fn compactor_session(dir: &std::path::Path) -> SessionSpec {
         env: Default::default(),
         fast: false,
         peer: None,
+        stop_condition: None,
     }
 }
 

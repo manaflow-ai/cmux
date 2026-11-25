@@ -1,8 +1,10 @@
 public import AppKit
+public import CmuxNextActions
 public import CmuxNextDesign
 
-/// The person's yes before a Cloud machine change an agent or a script asked for (resize, snapshot,
-/// template, restore, snapshot delete), as a create's request asks first. cmux-platform holds such a
+/// The person's yes before a Cloud machine change an agent or a script asked for (restore, fork, snapshot
+/// delete), as a create's request asks first. A change that only resizes the person's own machine or adds a
+/// snapshot of it (``unasked``) never asks: it runs at once and ``notice(_:)`` says so after the fact. cmux-platform holds such a
 /// change for a person's approval; the App sends it only as the person's own, through the approval
 /// loop, so nothing is sent until they click Allow. The App lists ``identifier`` as user-only
 /// (DebugDialog), so automation never answers it. Keys live in Resources/Cloud.xcstrings with every app locale.
@@ -17,7 +19,31 @@ public struct CloudChangeRequest {
         self.asked = asked
     }
 
+    /// The request for an action's `arguments` (their string and integer values), on the machine named `machine`.
+    public init(machine: String?, arguments: [String: ActionValue]) {
+        self.init(machine: machine, asked: arguments.compactMapValues { $0.stringValue ?? $0.intValue.map(String.init) })
+    }
+
     public static let identifier = "cmux.dialog.cloud.changeRequest"
+
+    /// The machine changes an agent or a script makes with no Allow: they only change the size of, or add a snapshot
+    /// of, a machine of the person's own, which counts on their plan and nothing else (Leo, 2026-11-18, on this
+    /// dialog for a resize: "this shouldnt wait"). A new machine (create, restore, fork) and a delete still ask.
+    public static let unasked: Set<String> = ["cloudResizeMachine", "palette.cloud.snapshot", "palette.cloud.promoteTemplate"]
+
+    /// The toast once such a change ran: `title` (the action's palette title), then the machine and what was asked.
+    public func notice(_ title: String) -> String {
+        let name = title.hasSuffix("…") ? String(title.dropLast()) : title
+        let details = (machine.map { [$0] } ?? []) + asked.keys.sorted().map { "\($0): \(asked[$0] ?? "")" }
+        return String(format: String(localized: "cloud.changeRequest.notice", defaultValue: "%1$@ by an agent or a script: %2$@", table: "Cloud", bundle: .localizedModule),
+                      name, details.joined(separator: ", "))
+    }
+
+    /// Once `action`'s change ran: an ``unasked`` one tells the person in a toast in `window`; any other said its Allow first.
+    @MainActor public func noticed(_ action: String, title: String, in window: NSWindow?) {
+        guard Self.unasked.contains(action), let window else { return }
+        CmuxToastCenter.shared.showNotice(notice(title), id: "cloud-change-" + action, in: window)
+    }
     /// The id of the button that says yes.
     public static let accept = "allow"
 
@@ -25,11 +51,11 @@ public struct CloudChangeRequest {
     public func spec(_ title: String) -> CmuxDialogSpec {
         CmuxDialogSpec(
             title: title,
-            lines: [String(localized: "cloud.changeRequest.body", defaultValue: "Asked by an agent or a script. A Cloud machine change can count against your Cloud plan.", table: "Cloud", bundle: .module)]
-                + (machine.map { [String(format: String(localized: "cloud.changeRequest.machine", defaultValue: "Machine: %@", table: "Cloud", bundle: .module), $0)] } ?? [])
+            lines: [String(localized: "cloud.changeRequest.body", defaultValue: "Asked by an agent or a script. A Cloud machine change can count against your Cloud plan.", table: "Cloud", bundle: .localizedModule)]
+                + (machine.map { [String(format: String(localized: "cloud.changeRequest.machine", defaultValue: "Machine: %@", table: "Cloud", bundle: .localizedModule), $0)] } ?? [])
                 + asked.keys.sorted().map { "\($0): \(asked[$0] ?? "")" },
-            buttons: [.cancel(String(localized: "cloud.changeRequest.decline", defaultValue: "Don't Allow", table: "Cloud", bundle: .module)),
-                      CmuxDialogButton(id: Self.accept, title: String(localized: "cloud.changeRequest.accept", defaultValue: "Allow", table: "Cloud", bundle: .module), role: .default)],
+            buttons: [.cancel(String(localized: "cloud.changeRequest.decline", defaultValue: "Don't Allow", table: "Cloud", bundle: .localizedModule)),
+                      CmuxDialogButton(id: Self.accept, title: String(localized: "cloud.changeRequest.accept", defaultValue: "Allow", table: "Cloud", bundle: .localizedModule), role: .default)],
             identifier: Self.identifier)
     }
 
@@ -65,6 +91,6 @@ public struct CloudChangeRequest {
 
     /// What an agent's or a script's run answers when the person chose Don't Allow.
     public static var declined: String {
-        String(localized: "cloud.changeRequest.declined", defaultValue: "Don't Allow was chosen in the cmux window; nothing changed.", table: "Cloud", bundle: .module)
+        String(localized: "cloud.changeRequest.declined", defaultValue: "Don't Allow was chosen in the cmux window; nothing changed.", table: "Cloud", bundle: .localizedModule)
     }
 }

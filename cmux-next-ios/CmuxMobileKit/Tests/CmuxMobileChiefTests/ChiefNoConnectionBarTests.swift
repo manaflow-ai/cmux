@@ -5,11 +5,11 @@ import Testing
 
 /// Aziz 2026-11-12: "get rid of this banner in chief, dont use this UX element whatsoever".
 /// Chief's connection state ("Not connected to your Mac", "Connecting to your Mac…",
-/// "Chief isn't available") draws no bar over the conversation; the outbox keeps its own Retry.
+/// "Chief isn't available") draws no bar over the conversation.
 @MainActor
 @Suite struct ChiefNoConnectionBarTests {
     @Test func aDroppedLinkDrawsNoBar() {
-        let session = ChiefSession(backend: ChiefOfflineBackend(reason: "x"), outbox: ChiefOutbox(file: nil))
+        let session = ChiefSession(backend: ChiefOfflineBackend(reason: "x"))
         defer { session.store.stop() }
         MacConversationLoader.markStale(session, tryAgain: {})
         // The state is still known (it hides the endless first-load spinner) ...

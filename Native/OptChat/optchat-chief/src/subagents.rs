@@ -53,6 +53,41 @@ pub const SUBAGENT_TAG: &str = "optchat.subagent";
 /// Most tasks one spawn starts (Leo, 2026-11-02: eight made a fan-out take
 /// a second call).
 pub const MAX_TASKS: usize = 24;
+/// How many of one spawn's subagents start at once (`in_order`).
+pub const START_WORKERS: usize = 4;
+
+/// `f` for each of `0..n` on up to `workers` threads, its results in index
+/// order; one at a time when there is one.
+pub fn in_order<T: Send>(n: usize, workers: usize, f: impl Fn(usize) -> T + Sync) -> Vec<T> {
+    if n <= 1 || workers <= 1 {
+        return (0..n).map(f).collect();
+    }
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let slots: Mutex<Vec<Option<T>>> = Mutex::new((0..n).map(|_| None).collect());
+    std::thread::scope(|scope| {
+        for _ in 0..workers.min(n) {
+            scope.spawn(|| {
+                loop {
+                    let k = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    if k >= n {
+                        break;
+                    }
+                    let out = f(k);
+                    slots
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)[k] = Some(out);
+                }
+            });
+        }
+    });
+    slots
+        .into_inner()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .into_iter()
+        .map(|slot| slot.expect("every index ran"))
+        .collect()
+}
+
 /// The environment variable that caps how many subagents work at once
 /// (`live_limit`). Unset, empty or `0`: no cap.
 pub const MAX_LIVE_ENV: &str = "OPTCHAT_MAX_LIVE_SUBAGENTS";
@@ -76,13 +111,19 @@ pub enum LiveCap {
     Control(usize),
     /// Set by [`MAX_LIVE_ENV`] when the host started.
     Env(usize),
+    /// The machine's ceiling (machine_limits.rs: `max(2, min(2 x cores,
+    /// RAM GiB / 2))`, or `OPTCHAT_MACHINE_HELPERS=N`).
+    Machine(usize),
+    /// The machine is over budget (load or memory pressure): no new start
+    /// past the helpers at work (at least machine_limits::FLOOR).
+    Busy(usize),
 }
 
 impl LiveCap {
     /// How many subagents may work at once.
     pub fn n(self) -> usize {
         match self {
-            LiveCap::Control(n) | LiveCap::Env(n) => n,
+            LiveCap::Control(n) | LiveCap::Env(n) | LiveCap::Machine(n) | LiveCap::Busy(n) => n,
         }
     }
 
@@ -93,6 +134,14 @@ impl LiveCap {
         match self {
             LiveCap::Control(n) => format!("set with `control cap {n}`"),
             LiveCap::Env(n) => format!("set by {MAX_LIVE_ENV}={n}"),
+            LiveCap::Machine(n) => format!(
+                "this machine's limit of {n} from its cores and memory; {}=N sets it, 0 lifts it",
+                crate::machine_limits::ENV
+            ),
+            LiveCap::Busy(n) => format!(
+                "this machine is over budget (load or memory pressure), so it holds at {n} until it has room; {}=0 lifts it",
+                crate::machine_limits::ENV
+            ),
         }
     }
 }
@@ -168,6 +217,9 @@ pub struct SpawnPlan {
     pub ids: Vec<String>,
     /// The ids over the cap (`live_limit`): they wait for a free slot.
     pub queued: Vec<String>,
+    /// Helpers already queued before this spawn (from other spawns): the
+    /// first of `queued` is #queued_ahead+1 in line.
+    pub queued_ahead: usize,
     /// The cap in force, when there is one, with where it came from.
     pub limit: Option<LiveCap>,
     /// The engine of the turn that called spawn (engine.json); None before
@@ -508,6 +560,8 @@ pub struct Spawner {
     /// The person profile `remember` writes (`optchat/person.md`); None: no
     /// profile on this host.
     person: Option<std::path::PathBuf>,
+    /// The memory files the memory tools read and write (memory_files.rs).
+    memory_files: Option<Arc<crate::memory_files::MemoryFiles>>,
     /// The app's Cloud actions `cloud_workspace` runs (cloud_workspace.rs);
     /// None: no cmux app behind this host.
     cloud_workspaces: Option<Arc<crate::cloud_workspace::CloudWorkspaces>>,
@@ -551,6 +605,7 @@ impl Spawner {
             cloud_vms: None,
             agent_keys: None,
             person: None,
+            memory_files: None,
             cloud_workspaces: None,
             engine_file: None,
             families: BTreeMap::new(),
@@ -582,6 +637,12 @@ impl Spawner {
     }
 
     /// `remember` keeps preferences in the profile at `path`.
+    /// The memory files the memory tools use.
+    pub fn with_memory_files(mut self, files: Arc<crate::memory_files::MemoryFiles>) -> Spawner {
+        self.memory_files = Some(files);
+        self
+    }
+
     pub fn with_person(mut self, path: std::path::PathBuf) -> Spawner {
         self.person = Some(path);
         self
@@ -739,6 +800,24 @@ impl Spawner {
 
     /// Read acpmux off the brain thread. A peer with unknown login/health
     /// is kept for explicit placement, but never chosen automatically.
+    /// The subagent numbers whose session names (`<prefix>-a<N>`) acpmux
+    /// already holds: the brain skips them when it gives ids. A list it cannot
+    /// read is logged and skips none (the start then says the name is taken).
+    fn taken_ids(&self) -> Vec<u64> {
+        let names = match self.agents.session_names() {
+            Ok(names) => names,
+            Err(e) => {
+                (self.log)(&format!("spawn: listing acpmux sessions: {e}"));
+                return Vec::new();
+            }
+        };
+        let prefix = format!("{}-a", self.settings.prefix);
+        names
+            .iter()
+            .filter_map(|name| name.strip_prefix(&prefix)?.parse::<u64>().ok())
+            .collect()
+    }
+
     fn machine_table(&self) -> Vec<crate::place_route::Machine> {
         use crate::place_route::{Kind, login_families, machine};
         let status = self.agents.machine_status().unwrap_or_else(|e| {
@@ -1035,6 +1114,7 @@ impl Spawner {
                 })?
             }
         };
+        let admit_ms = began.elapsed().as_millis() as u64;
         // No mark of ours in a subagent's first message: Claude Code marks
         // its two system blocks and the last two messages of every later
         // request in the session (each tool step), and the API takes at
@@ -1050,9 +1130,10 @@ impl Spawner {
         // Its workspace's name, also its name on an approval card it is in.
         let name = crate::workspaces::title(task);
         // A Claude subagent under the goal runs on Opus 5.5 unless the spawn
-        // or the engine named a model (goal.rs).
+        // or the engine named a model (goal.rs); a Codex one keeps its own.
+        let goal = self.goal_for(admitted.family, peer.is_some());
         let model = s.model.clone().or_else(|| {
-            self.goal_for(admitted.family, peer.is_some())
+            (goal && admitted.family == crate::acpmux::Family::Claude)
                 .then(|| crate::goal::MODEL.to_owned())
         });
         let spec = SessionSpec {
@@ -1083,11 +1164,15 @@ impl Spawner {
                 .collect(),
             fast: false,
             peer: peer.clone(),
+            // goal.rs: the goal comes with the session (a prompt Stop hook at every start of its
+            // Claude Code), so its first prompt is its work.
+            stop_condition: goal.then(|| crate::goal::CONDITION.to_owned()),
         };
         // The folder the host made for its subagents is trusted up front, so
         // the user's first message in a subagent's pane is never held behind
         // "trust this folder" (Lawrence 2026-10-09). A folder of the user's
         // (a spawn's cwd) is never trusted here: its pane asks as usual.
+        let trust_began = Instant::now();
         if peer.is_none()
             && s.cwd == self.settings.cwd
             && let Err(e) = self.agents.trust_folder(&s.cwd)
@@ -1104,6 +1189,8 @@ impl Spawner {
         // a moment later starts. acpmux replaces a slow host once itself
         // (cx-7gs9r), but not a harness that exited. Up to three tries,
         // with a pause, before the subagent counts as failed.
+        let trust_ms = trust_began.elapsed().as_millis() as u64;
+        let session_began = Instant::now();
         let mut tries = 0;
         let session = loop {
             match self.agents.new_session(&spec) {
@@ -1122,6 +1209,7 @@ impl Spawner {
                 other => break other?,
             }
         };
+        let session_ms = session_began.elapsed().as_millis() as u64;
         let admitted = match &peer {
             Some(_) => admitted,
             None => crate::harness_gate::session_harness(&*self.agents, &session, &admitted)
@@ -1186,42 +1274,25 @@ impl Spawner {
             policy: Some(spec.policy.clone()),
             harness: Some(s.harness.clone()),
             made: Some(made.clone()),
+            goal,
         })?;
         let (tx, rx) = channel();
         let prompt_id = format!("{PROMPT_PREFIX}sub:{id}:{}", now_ms());
-        // goal.rs: a Claude subagent here gets its task, then `/goal`, the
-        // prompt the Chief follows (its end is the report). `/goal` goes out
-        // only when the task turn ended: sent back to back, acpmux ran the
-        // short `/goal` before the long task (a1141, 2026-11-12).
-        let goal = self.goal_for(admitted.family, peer.is_some());
+        // One prompt, its view and task: the one the Chief follows (its end is
+        // the report). Under the goal (goal.rs) it also names the bar the
+        // session's Stop hook holds it to.
         self.trace.emit(
             "subagent.start",
-            json!({"id": id, "spawn": spawn, "session": session, "peer": peer, "prompt_id": prompt_id, "harness": s.harness, "harness_profile": admitted.profile, "harness_kind": admitted.kind, "harness_argv0": admitted.argv0, "goal": goal, "ms": began.elapsed().as_millis() as u64}),
+            json!({"id": id, "spawn": spawn, "session": session, "peer": peer, "prompt_id": prompt_id, "harness": s.harness, "harness_profile": admitted.profile, "harness_kind": admitted.kind, "harness_argv0": admitted.argv0, "goal": goal, "ms": began.elapsed().as_millis() as u64,
+                "admit_ms": admit_ms, "trust_ms": trust_ms, "session_ms": session_ms, "tries": tries}),
         );
-        let hold_id = goal.then(|| crate::goal::hold_prompt_id(id, now_ms()));
-        if let Some(hold_id) = &hold_id {
-            let mut blocks = crate::prompt::subagent_blocks(view, task);
-            blocks.push(crate::goal::hold_block());
-            let (hold_tx, hold_rx) = channel();
-            self.agents
-                .start_prompt(&session, blocks, hold_id, hold_tx)?;
-            send_goal_after_task(
-                self.agents.clone(),
-                session.clone(),
-                prompt_id.clone(),
-                hold_rx,
-                tx,
-            );
-        } else {
-            self.agents.start_prompt(
-                &session,
-                crate::prompt::subagent_blocks(view, task),
-                &prompt_id,
-                tx,
-            )?;
+        let mut blocks = crate::prompt::subagent_blocks(view, task);
+        if goal {
+            blocks.push(crate::goal::note_block());
         }
+        self.agents.start_prompt(&session, blocks, &prompt_id, tx)?;
         let _ = self.to_brain(Input::SubagentPrompted { id: id.to_owned() });
-        self.forward_answer(id, &session, &prompt_id, hold_id, rx);
+        self.forward_answer(id, &session, &prompt_id, rx);
         // The chat replays its history when the tab attaches, so the
         // workspace can follow the prompt.
         let Some(workspaces) = &self.workspaces else {
@@ -1237,6 +1308,7 @@ impl Spawner {
         // One that runs with policy ask (the spawn floor, or MUX_POLICY) is always `user`: only
         // its tab can allow its prompts.
         let ask = spec.policy == crate::approval::ASK;
+        let open_began = Instant::now();
         match workspaces.open(&key, &session, &name, &group, &term_cwd) {
             Ok(key) => {
                 let place = workspaces.place();
@@ -1244,7 +1316,7 @@ impl Spawner {
                 let located = workspaces.locate(&key);
                 self.trace.emit(
                     "subagent.workspace",
-                    json!({"id": id, "spawn": spawn, "workspace": key, "name": name, "group": group, "place": place,
+                    json!({"id": id, "spawn": spawn, "workspace": key, "name": name, "group": group, "place": place, "ms": open_began.elapsed().as_millis() as u64,
                         "ws": located.as_ref().map(|r| r.id.clone()), "session": located.as_ref().map(|r| r.session.clone())}),
                 );
                 // No link here: the posted reply links every mention (link_subagents), so
@@ -1360,7 +1432,10 @@ impl Spawner {
     fn goal_for(&self, family: crate::acpmux::Family, on_peer: bool) -> bool {
         self.goal
             && !on_peer
-            && family == crate::acpmux::Family::Claude
+            && matches!(
+                family,
+                crate::acpmux::Family::Claude | crate::acpmux::Family::Codex
+            )
             && crate::goal::on(self.user_document().as_ref())
     }
 
@@ -1410,7 +1485,6 @@ impl Spawner {
         id: &str,
         session: &str,
         prompt_id: &str,
-        hold_id: Option<String>,
         rx: std::sync::mpsc::Receiver<TurnSignal>,
     ) {
         let tx = self
@@ -1429,13 +1503,7 @@ impl Spawner {
                         let Some(folder) = start.as_mut() else {
                             continue;
                         };
-                        match first_turn_start(
-                            &*agents,
-                            &session,
-                            &prompt_id,
-                            hold_id.as_deref(),
-                            folder,
-                        ) {
+                        match first_turn_start(&*agents, &session, &prompt_id, folder) {
                             None => {}
                             Some(ours) => {
                                 start = None;
@@ -1874,6 +1942,7 @@ impl Orchestrator for Spawner {
                 .clone()
                 .or_else(|| self.pinned.then(|| self.settings.harness.clone())),
             machines: self.machine_table(),
+            taken: self.taken_ids(),
             reply,
         })?;
         let plan = answer
@@ -1963,205 +2032,232 @@ impl Orchestrator for Spawner {
                 map.insert(id.clone(), e.clone());
             }
         }
-        for (k, (id, task)) in plan.ids.iter().zip(&tasks).enumerate() {
-            let sub_peer = plan.peers.get(k).cloned().flatten();
-            let paired = matches!(
-                plan.placements[k].target,
-                crate::place_route::Target::Peer(_)
-            );
-            let sub_cloud = sub_peer
-                .as_deref()
-                .filter(|_| !paired)
-                .map(|p| self.placement(p));
-            let place_note = format!(" ({})", plan.placements[k].line());
-            if let Some(e) = &refused {
-                (self.log)(&format!("subagent {id} did not start: {e}"));
-                lines.push(format!("- {id}: did not start ({e}){place_note}"));
-                if plan.queued.contains(id) {
-                    continue;
-                }
-                let _ = self.to_brain(Input::SubagentFailed {
-                    id: id.clone(),
-                    error: e.clone(),
-                });
-                continue;
-            }
-            if plan.queued.contains(id) {
-                let (queued_launch, login_note) =
-                    match self.machine_login(local_launch.clone(), &default_harness, None) {
-                        Ok(launch) => launch,
-                        Err(error) => {
-                            let _ = self.to_brain(Input::SubagentFailed {
-                                id: id.clone(),
-                                error: error.clone(),
-                            });
-                            lines.push(format!("- {id}: did not start ({error}){place_note}"));
-                            continue;
-                        }
-                    };
-                // Saved in its record too: a restarted host still starts it.
-                let _ = self.to_brain(Input::SubagentQueued {
-                    id: id.clone(),
-                    launch: crate::state::QueuedLaunch {
-                        task: task.clone(),
-                        cwd: Some(local_dir.display().to_string()),
-                        effort: launch.effort.clone(),
-                        floor: floor.clone(),
-                        harness: Some(queued_launch.harness.clone()),
-                        model: queued_launch.model.clone(),
-                    },
-                });
-                self.waiting
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .insert(
-                        id.clone(),
-                        Waiting {
-                            spawn: plan.spawn.clone(),
-                            task: task.clone(),
-                            floor: floor.clone(),
-                            launch: queued_launch,
-                        },
-                    );
-                let cap = plan.limit.map_or_else(
-                    || "a cap".to_owned(),
-                    |cap| {
-                        format!(
-                            "{} subagents are at work, the cap {}",
-                            cap.n(),
-                            cap.source()
-                        )
-                    },
+        // Each task starts on its own thread, a few at once: a session start (the
+        // harness process and its session/new, 1.7-2.8 s with Claude Code) was the
+        // spawn's longest stage, and one after another a two-task spawn took both.
+        // The answer keeps the tasks' order.
+        let start_task = |k: usize| {
+            let (id, task) = (&plan.ids[k], &tasks[k]);
+            let mut started = Vec::new();
+            let mut placed: Vec<(String, Option<String>)> = Vec::new();
+            let mut lines = Vec::new();
+            'task: {
+                let sub_peer = plan.peers.get(k).cloned().flatten();
+                let paired = matches!(
+                    plan.placements[k].target,
+                    crate::place_route::Target::Peer(_)
                 );
-                lines.push(format!(
-                    "- {id}: queued ({cap}; it starts when one finishes; there is no cap by default, `control cap 0` removes this one){place_note}{login_note}"
-                ));
-                continue;
-            }
-            // A paused VM resumes first (B4); a no-op when it runs. A
-            // subagent's own VM is made now (one VM per subagent).
-            let resumed = match (sub_peer.as_ref().filter(|_| !paired), &self.cloud_vms) {
-                (Some(p), Some(vms)) => {
-                    let began = Instant::now();
-                    let r = if is_agent_peer(p) {
-                        let size = plan
-                            .sizes
-                            .get(k)
-                            .cloned()
-                            .flatten()
-                            .unwrap_or_else(|| size_for(task).to_owned());
-                        vms.provision(p, &size)
-                    } else {
-                        vms.resume(p)
-                    };
-                    (self.log)(&format!(
-                        "cloud: {p} up for {id} in {} ms",
-                        began.elapsed().as_millis()
-                    ));
-                    r
-                }
-                _ => Ok(()),
-            };
-            // Its own VM was not made (over the daily budget, provider
-            // down): it runs here rather than not at all.
-            let mut here_note = place_note;
-            let (sub_peer, sub_cloud, resumed) = match (&resumed, &sub_peer) {
-                (Err(e), Some(p)) if is_agent_peer(p) => {
-                    let _ = self.to_brain(Input::SubagentPlacedHere {
-                        id: id.clone(),
-                        why: e.clone(),
-                    });
-                    here_note = format!(" (on this Mac: its own cloud VM was not made: {e})");
-                    (None, None, Ok(()))
-                }
-                _ => (sub_peer, sub_cloud, resumed),
-            };
-            let task = match &sub_cloud {
-                Some(c) => c.task(id, cwd.as_deref(), task),
-                None if paired => {
-                    let instructions = self
-                        .cloud_text
-                        .as_deref()
-                        .or_else(|| self.cloud.as_ref().map(|c| c.instructions.as_str()))
-                        .or(self.settings.claude_md.as_deref())
-                        .unwrap_or(crate::prompt::SUBAGENT);
-                    let repo = cloud_repo(cwd.as_deref());
-                    let folder = match (cwd.as_deref(), repo) {
-                        (Some(asked), Some(repo)) => format!(
-                            "\n\n# Where you run\n\nThe requested folder `{asked}` names repo `{repo}` on the Chief's machine. You start in this paired machine's scratch folder; locate its checkout of that repo before working."
-                        ),
-                        _ => String::new(),
-                    };
-                    format!("{}{folder}\n\n{task}", instructions.trim_end())
-                }
-                None => task.clone(),
-            };
-            // On a VM that is up: its own sandbox key, named in its task.
-            let key = match (&resumed, &sub_peer) {
-                (Ok(()), Some(p)) if !paired => self.agent_key(p, id),
-                _ => None,
-            };
-            let task = match &key {
-                Some((key_id, note)) => {
-                    let _ = self.to_brain(Input::SubagentAgentKey {
-                        id: id.clone(),
-                        key_id: key_id.clone(),
-                    });
-                    format!("{task}\n\n{note}")
-                }
-                None => task,
-            };
-            let mut sub_launch = if sub_peer.is_some() {
-                launch.clone()
-            } else {
-                local_launch.clone()
-            };
-            if paired && sub_peer.is_some() {
-                // Null cwd asks the paired daemon for a native scratch folder.
-                sub_launch.cwd = PathBuf::new();
-                sub_launch.harness = run.harness.clone();
-                sub_launch.preset = None;
-                sub_launch.claude_md = None;
-                sub_launch.model = run.model.clone();
-            } else if sub_peer.is_some() && harness.is_some() {
-                sub_launch.harness = run.harness.clone();
-                sub_launch.model = run.model.clone();
-            }
-            // Login status belongs to the chosen machine. A login command
-            // is not a sign-in; unknown catalogs cannot justify a switch.
-            let fallback = sub_cloud
-                .as_ref()
-                .filter(|_| !sub_peer.as_deref().is_some_and(is_agent_peer))
-                .map_or(default_harness.as_str(), |c| c.harness.as_str());
-            let login = self.machine_login(sub_launch, fallback, sub_peer.as_deref());
-            let started_one = resumed.and_then(|()| {
-                let (sub_launch, login_note) = login?;
-                here_note.push_str(&login_note);
-                self.start_one(
-                    &plan.spawn,
-                    id,
-                    &task,
-                    &view,
-                    floor.as_deref(),
-                    &sub_launch,
-                    sub_peer.as_deref(),
-                )
-            });
-            match started_one {
-                Ok(note) => {
-                    started.push(id.clone());
-                    placed.push((id.clone(), sub_peer.clone()));
-                    lines.push(format!("- {id}: {note}{here_note}"));
-                }
-                Err(e) => {
+                let sub_cloud = sub_peer
+                    .as_deref()
+                    .filter(|_| !paired)
+                    .map(|p| self.placement(p));
+                let place_note = format!(" ({})", plan.placements[k].line());
+                if let Some(e) = &refused {
                     (self.log)(&format!("subagent {id} did not start: {e}"));
+                    lines.push(format!("- {id}: did not start ({e}){place_note}"));
+                    if plan.queued.contains(id) {
+                        break 'task;
+                    }
                     let _ = self.to_brain(Input::SubagentFailed {
                         id: id.clone(),
                         error: e.clone(),
                     });
-                    lines.push(format!("- {id}: did not start ({e}){here_note}"));
+                    break 'task;
+                }
+                if plan.queued.contains(id) {
+                    let (queued_launch, login_note) =
+                        match self.machine_login(local_launch.clone(), &default_harness, None) {
+                            Ok(launch) => launch,
+                            Err(error) => {
+                                let _ = self.to_brain(Input::SubagentFailed {
+                                    id: id.clone(),
+                                    error: error.clone(),
+                                });
+                                lines.push(format!("- {id}: did not start ({error}){place_note}"));
+                                break 'task;
+                            }
+                        };
+                    // Saved in its record too: a restarted host still starts it.
+                    let _ = self.to_brain(Input::SubagentQueued {
+                        id: id.clone(),
+                        launch: crate::state::QueuedLaunch {
+                            task: task.clone(),
+                            cwd: Some(local_dir.display().to_string()),
+                            effort: launch.effort.clone(),
+                            floor: floor.clone(),
+                            harness: Some(queued_launch.harness.clone()),
+                            model: queued_launch.model.clone(),
+                        },
+                    });
+                    self.waiting
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .insert(
+                            id.clone(),
+                            Waiting {
+                                spawn: plan.spawn.clone(),
+                                task: task.clone(),
+                                floor: floor.clone(),
+                                launch: queued_launch,
+                            },
+                        );
+                    let cap = plan.limit.map_or_else(
+                        || "a cap".to_owned(),
+                        |cap| {
+                            format!(
+                                "{} subagents are at work, the cap {}",
+                                cap.n(),
+                                cap.source()
+                            )
+                        },
+                    );
+                    let line_no = plan.queued_ahead
+                        + plan.queued.iter().position(|q| q == id).unwrap_or(0)
+                        + 1;
+                    let how = match plan.limit {
+                        Some(LiveCap::Machine(_) | LiveCap::Busy(_)) => {
+                            "it starts when one finishes or the machine has room; `control cap 0` removes this limit"
+                        }
+                        _ => {
+                            "it starts when one finishes; there is no cap by default, `control cap 0` removes this one"
+                        }
+                    };
+                    lines.push(format!(
+                        "- {id}: queued, #{line_no} in line ({cap}; {how}){place_note}{login_note}"
+                    ));
+                    break 'task;
+                }
+                // A paused VM resumes first (B4); a no-op when it runs. A
+                // subagent's own VM is made now (one VM per subagent).
+                let resumed = match (sub_peer.as_ref().filter(|_| !paired), &self.cloud_vms) {
+                    (Some(p), Some(vms)) => {
+                        let began = Instant::now();
+                        let r = if is_agent_peer(p) {
+                            let size = plan
+                                .sizes
+                                .get(k)
+                                .cloned()
+                                .flatten()
+                                .unwrap_or_else(|| size_for(task).to_owned());
+                            vms.provision(p, &size)
+                        } else {
+                            vms.resume(p)
+                        };
+                        (self.log)(&format!(
+                            "cloud: {p} up for {id} in {} ms",
+                            began.elapsed().as_millis()
+                        ));
+                        r
+                    }
+                    _ => Ok(()),
+                };
+                // Its own VM was not made (over the daily budget, provider
+                // down): it runs here rather than not at all.
+                let mut here_note = place_note;
+                let (sub_peer, sub_cloud, resumed) = match (&resumed, &sub_peer) {
+                    (Err(e), Some(p)) if is_agent_peer(p) => {
+                        let _ = self.to_brain(Input::SubagentPlacedHere {
+                            id: id.clone(),
+                            why: e.clone(),
+                        });
+                        here_note = format!(" (on this Mac: its own cloud VM was not made: {e})");
+                        (None, None, Ok(()))
+                    }
+                    _ => (sub_peer, sub_cloud, resumed),
+                };
+                let task = match &sub_cloud {
+                    Some(c) => c.task(id, cwd.as_deref(), task),
+                    None if paired => {
+                        let instructions = self
+                            .cloud_text
+                            .as_deref()
+                            .or_else(|| self.cloud.as_ref().map(|c| c.instructions.as_str()))
+                            .or(self.settings.claude_md.as_deref())
+                            .unwrap_or(crate::prompt::SUBAGENT);
+                        let repo = cloud_repo(cwd.as_deref());
+                        let folder = match (cwd.as_deref(), repo) {
+                            (Some(asked), Some(repo)) => format!(
+                                "\n\n# Where you run\n\nThe requested folder `{asked}` names repo `{repo}` on the Chief's machine. You start in this paired machine's scratch folder; locate its checkout of that repo before working."
+                            ),
+                            _ => String::new(),
+                        };
+                        format!("{}{folder}\n\n{task}", instructions.trim_end())
+                    }
+                    None => task.clone(),
+                };
+                // On a VM that is up: its own sandbox key, named in its task.
+                let key = match (&resumed, &sub_peer) {
+                    (Ok(()), Some(p)) if !paired => self.agent_key(p, id),
+                    _ => None,
+                };
+                let task = match &key {
+                    Some((key_id, note)) => {
+                        let _ = self.to_brain(Input::SubagentAgentKey {
+                            id: id.clone(),
+                            key_id: key_id.clone(),
+                        });
+                        format!("{task}\n\n{note}")
+                    }
+                    None => task,
+                };
+                let mut sub_launch = if sub_peer.is_some() {
+                    launch.clone()
+                } else {
+                    local_launch.clone()
+                };
+                if paired && sub_peer.is_some() {
+                    // Null cwd asks the paired daemon for a native scratch folder.
+                    sub_launch.cwd = PathBuf::new();
+                    sub_launch.harness = run.harness.clone();
+                    sub_launch.preset = None;
+                    sub_launch.claude_md = None;
+                    sub_launch.model = run.model.clone();
+                } else if sub_peer.is_some() && harness.is_some() {
+                    sub_launch.harness = run.harness.clone();
+                    sub_launch.model = run.model.clone();
+                }
+                // Login status belongs to the chosen machine. A login command
+                // is not a sign-in; unknown catalogs cannot justify a switch.
+                let fallback = sub_cloud
+                    .as_ref()
+                    .filter(|_| !sub_peer.as_deref().is_some_and(is_agent_peer))
+                    .map_or(default_harness.as_str(), |c| c.harness.as_str());
+                let login = self.machine_login(sub_launch, fallback, sub_peer.as_deref());
+                let started_one = resumed.and_then(|()| {
+                    let (sub_launch, login_note) = login?;
+                    here_note.push_str(&login_note);
+                    self.start_one(
+                        &plan.spawn,
+                        id,
+                        &task,
+                        &view,
+                        floor.as_deref(),
+                        &sub_launch,
+                        sub_peer.as_deref(),
+                    )
+                });
+                match started_one {
+                    Ok(note) => {
+                        started.push(id.clone());
+                        placed.push((id.clone(), sub_peer.clone()));
+                        lines.push(format!("- {id}: {note}{here_note}"));
+                    }
+                    Err(e) => {
+                        (self.log)(&format!("subagent {id} did not start: {e}"));
+                        let _ = self.to_brain(Input::SubagentFailed {
+                            id: id.clone(),
+                            error: e.clone(),
+                        });
+                        lines.push(format!("- {id}: did not start ({e}){here_note}"));
+                    }
                 }
             }
+            (started, placed, lines)
+        };
+        for (s, p, l) in in_order(plan.ids.len().min(tasks.len()), START_WORKERS, start_task) {
+            started.extend(s);
+            placed.extend(p);
+            lines.extend(l);
         }
         let head = if started.is_empty() && (plan.queued.is_empty() || refused.is_some()) {
             "No subagent started.".to_owned()
@@ -2360,9 +2456,67 @@ impl Orchestrator for Spawner {
         Ok(answer)
     }
 
+    fn memory_file(&self, call: crate::tools::MemoryFileCall) -> Result<String, String> {
+        let Some(files) = &self.memory_files else {
+            return Err("this Chief host keeps no memory files".into());
+        };
+        let kind = match &call {
+            crate::tools::MemoryFileCall::Read { .. } => "read",
+            crate::tools::MemoryFileCall::Write { .. } => "write",
+            crate::tools::MemoryFileCall::Forget { .. } => "forget",
+        };
+        let path = match &call {
+            crate::tools::MemoryFileCall::Read { path }
+            | crate::tools::MemoryFileCall::Write { path, .. }
+            | crate::tools::MemoryFileCall::Forget { path } => path.clone(),
+        };
+        // The running turn's trust, asked of the brain without a check of
+        // its own (no refusal is logged or counted).
+        let (reply, owner) = channel();
+        self.to_brain(Input::TurnTrust { reply })?;
+        let trust = match owner.recv_timeout(Duration::from_secs(30)) {
+            Ok(true) => crate::memory_files::Trust::Person,
+            // Another person's turn, or no answer: fail closed.
+            _ => crate::memory_files::Trust::Outside,
+        };
+        let run = format!(
+            "turn:{}:{}",
+            trust.as_str(),
+            chrono::Local::now().format("%Y-%m-%dT%H:%M")
+        );
+        let answer = call.answer(files, &run, trust);
+        if kind != "read" {
+            (self.log)(&format!(
+                "memory_{kind} {path}: {}",
+                answer.as_deref().unwrap_or_else(|e| e)
+            ));
+        }
+        self.trace.emit(
+            "chief.memory_file",
+            serde_json::json!({"op": kind, "path": path, "ok": answer.is_ok()}),
+        );
+        answer
+    }
+
+    fn wake_tool(&self, call: crate::tools::WakeCall) -> Result<String, String> {
+        let (reply, answer) = channel();
+        self.to_brain(Input::WakeTool { call, reply })?;
+        answer
+            .recv()
+            .map_err(|_| "the Chief host is stopping".to_owned())?
+    }
+
     fn sleep(&self, call: crate::tools::SleepCall) -> Result<String, String> {
         let (reply, answer) = channel();
         self.to_brain(Input::Sleep { call, reply })?;
+        answer
+            .recv()
+            .map_err(|_| "the Chief host is stopping".to_owned())?
+    }
+
+    fn automation(&self, call: crate::automations::AutomationCall) -> Result<String, String> {
+        let (reply, answer) = channel();
+        self.to_brain(Input::Automation { call, reply })?;
         answer
             .recv()
             .map_err(|_| "the Chief host is stopping".to_owned())?
@@ -2467,64 +2621,20 @@ pub fn recover_launch(
     None
 }
 
-/// Sends `/goal` (prompt `prompt_id`, its signals to `tx`) once the task
-/// turn whose signals come on `task` ended. A task turn that was cancelled,
-/// failed or lost its connection gets no `/goal`: its end goes to `tx`, so
-/// the subagent ends as that turn did.
-fn send_goal_after_task(
-    agents: Arc<dyn AgentPort>,
-    session: String,
-    prompt_id: String,
-    task: std::sync::mpsc::Receiver<TurnSignal>,
-    tx: Sender<TurnSignal>,
-) {
-    std::thread::spawn(move || {
-        let end = loop {
-            match task.recv() {
-                Ok(TurnSignal::Done(end)) => break Some(end),
-                Ok(TurnSignal::Lost) | Err(_) => break None,
-                Ok(_) => {}
-            }
-        };
-        let signal = match end {
-            Some(Ok(answer))
-                if answer.get("stopReason").and_then(Value::as_str) != Some("cancelled") =>
-            {
-                let goal = vec![json!({"type": "text", "text": crate::goal::command()})];
-                match agents.start_prompt(&session, goal, &prompt_id, tx.clone()) {
-                    Ok(()) => return,
-                    Err(e) => TurnSignal::Done(Err(e)),
-                }
-            }
-            Some(end) => TurnSignal::Done(end),
-            None => TurnSignal::Lost,
-        };
-        let _ = tx.send(signal);
-    });
-}
-
 /// Reads `session`'s new events into `folder` and says whether its first
 /// turn started: Some(true) when it is the turn of prompt `prompt_id`
 /// (acpmux's `turn_started` after that prompt's `user_message`),
 /// Some(false) when it is another's, None while none has started (or the
 /// events could not be read: the next signal reads them again).
-/// The goal's hold prompt (`hold`, goal.rs) runs first: its turn is
-/// passed over, so the followed prompt's start still counts.
 fn first_turn_start(
     agents: &dyn AgentPort,
     session: &str,
     prompt_id: &str,
-    hold: Option<&str>,
     folder: &mut TurnFolder,
 ) -> Option<bool> {
     let events = agents.events(session, folder.seq()).ok()?;
     events.iter().find_map(|e| {
         folder.apply(e).into_iter().find_map(|out| match out {
-            TurnOutput::Started { turn, .. }
-                if hold.is_some() && turn.prompt_id.as_deref() == hold =>
-            {
-                None
-            }
             TurnOutput::Started { turn, .. } => Some(turn.prompt_id.as_deref() == Some(prompt_id)),
             _ => None,
         })

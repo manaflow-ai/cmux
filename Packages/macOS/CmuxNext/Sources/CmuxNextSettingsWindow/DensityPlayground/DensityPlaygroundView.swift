@@ -89,6 +89,7 @@ struct DensityPlaygroundView: View {
                 .accessibilityIdentifier("cmux.densityPlayground.picker")
                 TextField(DensityPlaygroundStrings.name, text: $nameText)
                     .textFieldStyle(.roundedBorder)
+                    .focusEffectDisabled()
                     .focused($nameFocused)
                     .onSubmit { model.rename(nameText) }
                     .onChange(of: nameFocused) { if !nameFocused { model.rename(nameText) } }
@@ -121,11 +122,12 @@ struct DensityPlaygroundView: View {
             .buttonStyle(SettingsButtonStyle())
             HStack(spacing: Size.gap) {
                 Text(statusLine)
-                    .font(Size.caption).foregroundStyle(model.notice == nil ? SettingsStyle.secondary : Color.red)
+                    .font(Size.caption).foregroundStyle(model.notice == nil && model.statusNotice == nil ? SettingsStyle.secondary : Color.red)
                     .lineLimit(1)
                 Spacer(minLength: 0)
                 if !model.isBuiltIn {
-                    Text(model.hasUnsavedChanges ? DensityPlaygroundStrings.saving : DensityPlaygroundStrings.saved)
+                    Text(model.savesBlocked ? DensityPlaygroundStrings.notSaved
+                         : model.hasUnsavedChanges ? DensityPlaygroundStrings.saving : DensityPlaygroundStrings.saved)
                         .font(Size.caption).foregroundStyle(SettingsStyle.tertiary)
                         .monospacedDigit()
                 }
@@ -166,7 +168,7 @@ struct DensityPlaygroundView: View {
 
     private var statusLine: String {
         if let flash { return flash }
-        if let notice = model.notice { return notice }
+        if let notice = model.notice ?? model.statusNotice { return notice }
         if model.isBuiltIn { return DensityPlaygroundStrings.builtInHint }
         return DensityPlaygroundStrings.changedCount(model.changedCount, base: model.name(model.base))
     }
@@ -207,6 +209,7 @@ struct DensityPlaygroundView: View {
                 }
             }
             .padding(.bottom, Size.gap)
+            .thinScrollers() // the shared scroller that follows "Show scroll bars" (SCROLLBARS-THIN)
         }
         .scrollBounceBehavior(.basedOnSize)
         .accessibilityIdentifier("cmux.densityPlayground.list")
@@ -240,6 +243,7 @@ private struct DensityPlaygroundRow: View {
                 .accessibilityLabel(entry.label)
             TextField("", text: $text)
                 .textFieldStyle(.roundedBorder)
+                .focusEffectDisabled()
                 .multilineTextAlignment(.trailing)
                 .monospacedDigit()
                 .frame(width: Size.field)

@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useRef, useState } from "react";
+import React, { memo, useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import {
   failureReason,
   matchRuns,
@@ -13,6 +13,7 @@ import { FileSearchLoading } from "./FileSearchLoading";
 import { useScrollEdges } from "../../ui/scrollEdges";
 
 /// How long typing settles before the palette asks again.
+// motion-allow: a typing debounce
 const SEARCH_DEBOUNCE_MS = 80;
 
 type State =
@@ -99,6 +100,13 @@ export function FileSearch({
   const pick = (match: FileMatch | undefined) => {
     if (match) onPick(match.path);
   };
+  // The rows' press handler is stable (a memoized row must not re-render for a new closure); it
+  // reads the latest onPick when it runs.
+  const onPickRef = useRef(onPick);
+  useLayoutEffect(() => {
+    onPickRef.current = onPick;
+  });
+  const pickPath = useCallback((path: string) => onPickRef.current(path), []);
 
   const keyDown = (event: React.KeyboardEvent) => {
     // Keys that commit or cancel an input method's text belong to it, not the palette.
@@ -136,7 +144,12 @@ export function FileSearch({
             : undefined;
 
   return (
-    <dialog ref={root} open className="acpmux-file-search" aria-label={t("files.search")}>
+    <dialog
+      ref={root}
+      open
+      className="acpmux-file-search ui-glass ui-glass-floats ui-glass-transient"
+      aria-label={t("files.search")}
+    >
       <input
         ref={field}
         type="text"
@@ -168,28 +181,17 @@ export function FileSearch({
         aria-busy={state.kind === "searching"}
       >
         {state.kind === "searching" && results.length === 0 && <FileSearchLoading />}
-        {results.map((match, index) => {
-          const { dir, name } = matchRuns(match.path, match.matches);
-          return (
-            <div
-              key={match.path}
-              id={`${listId}-${index}`}
-              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-              role="option"
-              tabIndex={-1}
-              aria-selected={index === selected}
-              className={`acpmux-file-result${index === selected ? " acpmux-menu-active" : ""}`}
-              onPointerMove={() => setActive(index)}
-              onMouseDown={(event) => {
-                event.preventDefault();
-                pick(match);
-              }}
-            >
-              <span className="acpmux-file-name">{runs(name)}</span>
-              {dir.length > 0 && <span className="acpmux-file-dir">{runs(dir)}</span>}
-            </div>
-          );
-        })}
+        {results.map((match, index) => (
+          <FileResultRow
+            key={match.path}
+            match={match}
+            index={index}
+            id={`${listId}-${index}`}
+            selected={index === selected}
+            onHover={setActive}
+            onPick={pickPath}
+          />
+        ))}
       </div>
       {note && (
         <output className={state.kind === "searching" ? "acpmux-file-loading-note" : "acpmux-file-note"}>{note}</output>
@@ -204,3 +206,41 @@ export function FileSearch({
 function runs(parts: Run[]) {
   return parts.map((part, index) => (part.matched ? <b key={index}>{part.text}</b> : part.text));
 }
+
+/// One result row. Memoized with stable props, so a hover re-renders only the two rows it moved
+/// between and a key that keeps the results re-renders none.
+const FileResultRow = memo(function FileResultRow({
+  match,
+  index,
+  id,
+  selected,
+  onHover,
+  onPick,
+}: {
+  match: FileMatch;
+  index: number;
+  id: string;
+  selected: boolean;
+  onHover(index: number): void;
+  onPick(path: string): void;
+}) {
+  const { dir, name } = matchRuns(match.path, match.matches);
+  return (
+    <div
+      id={id}
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+      role="option"
+      tabIndex={-1}
+      aria-selected={selected}
+      className={`acpmux-file-result${selected ? " acpmux-menu-active" : ""}`}
+      onPointerMove={() => onHover(index)}
+      onMouseDown={(event) => {
+        event.preventDefault();
+        onPick(match.path);
+      }}
+    >
+      <span className="acpmux-file-name">{runs(name)}</span>
+      {dir.length > 0 && <span className="acpmux-file-dir">{runs(dir)}</span>}
+    </div>
+  );
+});

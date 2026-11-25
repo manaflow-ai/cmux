@@ -24,7 +24,21 @@ nightly-only minis before the keyed job asks for the signer, ends with this wait
 After MAX_MINUTES it goes anyway; an unreadable feed or ref does not skip. It reads only the public feed and
 `git ls-remote`, no API budget (tests/test_ci_no_github_token_polling.py). Nothing is cancelled.
 
-usage: nightly_deltas_yield.py --repo OWNER/NAME --build N --feed URL [--quiet-minutes 2] [--max-minutes 40]
+The two waits hold only while one Mac signs (--signers 1). Since 2026-11-12 two do (Leo, hq#10366: "ultra1 signs
+the nightly too, cmux15 stays ready as the standby signer"), and the loop builds one nightly at a time, so the
+build in flight holds one and the deltas usually take the other: with --signers 2 or more only the newer-build
+skip is left. A build can still wait for the deltas (about 10 min of the keyed job) when another signing job, such
+as the classic nightly, holds the second Mac, or when the run's signer pick (pick-nightly-sign-runner, made at the
+run's start) pinned the deltas to the Mac the next build then takes; deltas, at 10x smaller updates, are worth
+that. One-mini mode (CI_NIGHTLY_MINI) has one signer, so the workflow passes 1 there. The waits never ended in a
+busy loop (a landing every few minutes keeps feat-cmux-next past nightly-next, and the next build publishes
+before the loop is quiet): run 44023631489 waited 33 min and skipped, and 6 of the
+8 published builds before it (2026-11-16 21:14Z to 2026-11-17 05:22Z) skipped their deltas, so the feed served
+231 MB full DMGs where the delta from the build before was 15-24 MB. NIGHTLY_NEXT_SIGNERS=1 (a repository
+variable) puts the waits back while a signer is out.
+
+usage: nightly_deltas_yield.py --repo OWNER/NAME --build N --feed URL [--signers 2] [--quiet-minutes 2]
+       [--max-minutes 40]
 Writes skip=true|false to $GITHUB_OUTPUT.
 """
 from __future__ import annotations
@@ -74,10 +88,13 @@ def newest_build(feed_xml: str) -> int | None:
     return newest_item(feed_xml)[0]
 
 
-def verdict(build: int, live: int | None, next_head: str, tip: str, live_commit: str = "") -> str:
-    """'skip', 'wait' or 'quiet' for this build's deltas at one look."""
+def verdict(build: int, live: int | None, next_head: str, tip: str, live_commit: str = "", signers: int = 1) -> str:
+    """'skip', 'wait' or 'quiet' for this build's deltas at one look. With a second signer the build in flight
+    never waits for the deltas, so only a newer build on the feed matters."""
     if live is not None and live > build:
         return "skip"
+    if signers >= 2:
+        return "quiet"
     if live == build and live_commit and next_head and next_head != live_commit:
         return "wait"
     if next_head and tip and next_head != tip:
@@ -103,6 +120,9 @@ def main(argv: list[str], feed=read_feed, ref=ls_remote,
     parser.add_argument("--repo", required=True)
     parser.add_argument("--build", required=True, type=int)
     parser.add_argument("--feed", required=True)
+    parser.add_argument("--signers", type=int, default=1,
+                        help="Macs that carry the nightly-next signing label; with 2 or more the deltas "
+                             "do not wait for the loop")
     parser.add_argument("--quiet-minutes", type=float, default=QUIET_MINUTES)
     parser.add_argument("--max-minutes", type=float, default=MAX_MINUTES)
     parser.add_argument("--poll-seconds", type=float, default=POLL_SECONDS)
@@ -117,12 +137,16 @@ def main(argv: list[str], feed=read_feed, ref=ls_remote,
             print(f"could not read {args.feed} ({error!r})")
             live, live_commit = None, ""
         try:
-            next_head, tip = ref(args.repo, "nightly-next"), ref(args.repo, "feat-cmux-next")
+            # Two signers decide on the feed alone.
+            next_head, tip = ("", "") if args.signers >= 2 else (ref(args.repo, "nightly-next"),
+                                                                  ref(args.repo, "feat-cmux-next"))
         except Exception as error:  # noqa: BLE001 - an unreadable ref reads as quiet
             print(f"could not read nightly-next or feat-cmux-next ({error!r})")
             next_head = tip = ""
-        look = verdict(args.build, live, next_head, tip, live_commit)
+        look = verdict(args.build, live, next_head, tip, live_commit, args.signers)
         now = clock()
+        if look == "quiet" and args.signers >= 2:
+            break
         if look == "skip":
             answer = "skip"
             break

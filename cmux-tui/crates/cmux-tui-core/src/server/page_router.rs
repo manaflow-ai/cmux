@@ -196,7 +196,17 @@ fn run(
     }
     match route.owner {
         "apps.store" => {
-            Ok(Answer::Now(apps_store(mux, client, operation, Value::Object(params), origin)))
+            let params = Value::Object(params);
+            // A git install or its consent card fetches from the network:
+            // answered off this connection's thread.
+            #[cfg(unix)]
+            if crate::apps::store_op_fetches(operation, &params) {
+                let (mux, operation) = (mux.clone(), operation.to_owned());
+                return Ok(Answer::Later(Box::new(move || {
+                    apps_store(&mux, client, &operation, params, origin)
+                })));
+            }
+            Ok(Answer::Now(apps_store(mux, client, operation, params, origin)))
         }
         super::bookmarks_routed::OWNER => {
             Ok(Answer::Now(super::bookmarks_routed::routed(mux, client, operation, params)))
@@ -232,6 +242,17 @@ fn apps_store(
         ));
     }
     let supervisor = mux.control_clients.apps.get_or_init(mux);
+    // The page offers the SDK examples to developers (apps/store.rs `Shelf`):
+    // the settings owner says whether developer mode is on.
+    let mut params = params;
+    if operation.ends_with("apps.catalog.list")
+        && let Value::Object(map) = &mut params
+    {
+        let developer = mux.with_settings(|state| {
+            state.effective().root.pointer("/app/internalDeveloperMode") == Some(&Value::Bool(true))
+        });
+        map.insert("developer".into(), Value::Bool(developer));
+    }
     let origin = if origin == RequestOrigin::User {
         crate::apps::Origin::User
     } else {

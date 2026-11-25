@@ -85,11 +85,8 @@ extension TerminalHandlers {
         case .browser(let entry):
             entry.chrome?.perform(forward ? .findNext : .findPrevious)
         case .terminal(let entry):
-            // Opens the bar with the last query when it is closed.
-            let direction: TerminalFindDirection = forward ? .next : .previous
-            guard entry.session.find.navigate(direction, takeFocus: invocation.allowsViewChange) else {
-                return ctx.refuse(RefusalStrings.noActiveFind)
-            }
+            // A closed bar opens: with the last query, else as Find does (seeded with the selection).
+            entry.session.find.navigate(forward ? .next : .previous, seed: selection(of: entry), takeFocus: invocation.allowsViewChange)
         case .placeholder, .notice:
             return
         }
@@ -118,10 +115,17 @@ extension TerminalHandlers {
                 return await daemon.failure("send") { try await $0.send(surface, text: text, paste: true) }
             }
         })
+        // `app`: an editor id, `finder`, `terminal`, or an app name, bundle id or path (EditorCatalog.openFolder).
         registry.bind("palette.terminalOpenDirectory", invoke: { invocation in
-            guard let (tab, _) = ctx.daemonTab(invocation) else { return }
+            guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
+            guard ctx.services.daemon(for: pane).isLocal else { return ctx.registry.refuse(.remote, "palette.terminalOpenDirectory") }
             guard let cwd = tab.cwd ?? ctx.refuse(RefusalStrings.noWorkingDirectory) else { return }
-            open(URL(fileURLWithPath: cwd, isDirectory: true), with: invocation["app"]?.stringValue, ctx)
+            if invocation["app"]?.stringValue == "terminal" {
+                guard let controller = ctx.paneController(invocation) else { return }
+                return controller.newTerminalTab(cwd: cwd)
+            }
+            let app = invocation["app"]?.stringValue
+            if !ctx.services.editorCatalog.openFolder(URL(fileURLWithPath: cwd, isDirectory: true), with: app) { ctx.refuse(MiscHandlerStrings.appNotFound(app ?? "")) }
         })
     }
 
@@ -143,23 +147,5 @@ extension TerminalHandlers {
     /// `path` as one shell word (Rust's `tabs::panes::shell_quoted`); nil when the FFI does not answer.
     nonisolated static func shellQuoted(_ path: String) -> String? {
         WindowRules().shellQuoted(path)
-    }
-
-    /// Opens `directory` in Finder, or in `app` (a bundle id, app name, or path).
-    private static func open(_ directory: URL, with app: String?, _ ctx: AppActionContext) {
-        guard let app, !app.isEmpty else {
-            NSWorkspace.shared.openInBackground(directory)
-            return
-        }
-        let workspace = NSWorkspace.shared
-        let candidates = [
-            workspace.urlForApplication(withBundleIdentifier: app),
-            app.hasSuffix(".app") ? URL(fileURLWithPath: app) : nil,
-            URL(fileURLWithPath: "/Applications/\(app).app"),
-            URL(fileURLWithPath: "/System/Applications/\(app).app"),
-        ]
-        guard let appURL = candidates.compactMap({ $0 }).first(where: { FileManager.default.fileExists(atPath: $0.path) })
-            ?? ctx.refuse(MiscHandlerStrings.appNotFound(app)) else { return }
-        workspace.open([directory], withApplicationAt: appURL, configuration: NSWorkspace.OpenConfiguration())
     }
 }

@@ -103,7 +103,7 @@ struct TerminalSizingMacsPage: View {
     let store: AppStore
 
     private var macs: [MacDevice] {
-        MacRoster(store.teams.flatMap(\.macs)).visible
+        MacRoster.acrossTeams(store.teams, activeTeamID: store.activeTeamID)
     }
 
     var body: some View {
@@ -112,6 +112,7 @@ struct TerminalSizingMacsPage: View {
                 if macs.isEmpty, store.awaitsAccountData {
                     // The account's Macs are still on their way: not "No Macs.".
                     CmuxSpinner(label: Text("Loading Macs…"))
+                        .placeholderBound("settings.macs.loading", .milliseconds(2000))
                 } else if macs.isEmpty {
                     Text("No Macs.").foregroundStyle(theme.colors.label2)
                 }

@@ -22,14 +22,14 @@ private typealias JSON = CmuxNextSettings.JSONValue
 ///   another workspace; Cmd-T, Ctrl-`: the focused pane shows another tab; Cmd-D / Cmd-Shift-D: the
 ///   window's focused pane is a new pane);
 /// - `confirmed_ms`: the first frame at which the daemon's object replaced the provisional one
-///   (no `pending_tab_` id, no provisional pane handle), or null within 5 s;
+///   (no `pending_tab_` id, no provisional pane handle), or null within 5 s of the waits before it;
 /// - `committed_ms`: a lower bound for key-to-pixels, null when the result first held in the visible tick's own pass (``BenchFrames/lastCommitted``);
 /// - `key_changes`: the cmux windows' key-window gains and losses (`key.become`, `key.resign`) up to the daemon's confirm,
 ///   and `spans_full` true when the 512-span ring filled (the count may then be short);
 /// - `frames_to_visible`: display frames from the key to `visible_ms` (1 = the next frame);
 /// - `spans`: the main-thread spans and marks `BenchSpans` recorded (handler stages, daemon reply).
 ///
-/// `new_browser` (PL-cef-tab, `scripts/cmux-next/cef-tab-bench.py`) is Cmd-Shift-L, or with `run` an action id,
+/// `new_browser` (PL-cef-tab, `scripts/cmux-next/cef-tab-bench.py`) is Cmd-Shift-L, or with `run` an action id (with `type`: keys typed at once after it, `omnibar` ``OmnibarFirstHolds``),
 /// that action run as a person's (with `url`: a link opened in a new tab; `openBrowser.webkit`):
 /// visible once the pane shows the new tab selected (its themed pane; `chrome_ms`: its browser view in it); `page_ms` the
 /// first frame after its page painted (first contentful paint, or its load ended); the spans
@@ -64,7 +64,7 @@ enum DebugInstantCreateBench {
         // `header_terminal`: the focused pane's agent chat, shown and wired (opened as a tab of the pane when it shows none), before the timed press of its header's Terminal.
         @MainActor func chat() -> AgentPaneView? { controller.content?.focusedPane?.currentTabKey.flatMap { services.agentTabs.existingView($0) }.flatMap { $0.isShownReady && $0.model.header != nil ? $0 : nil } }
         if command == .headerTerminal, chat() == nil, let pane = controller.content?.focusedPane { services.agentTabs.openTab(in: pane); frames.start(); _ = await frames.settled(until: { chat() != nil }, start: .now, window: 0, deadline: 15_000); _ = frames.stop() }
-        let before = Probe(controller)
+        let before = Probe(controller), webKitSpare = (state: services.cache.webKit.spareTab.state, taken: services.cache.webKit.spareTab.taken) // a new WebKit tab takes the spare made ahead, or builds its view on the key's turn
         let shownBrowsers = Probe.browserTabs(controller) // a page painted before the press is never the new one
         let (key, modifiers) = command.key
         frames.start(); BenchSpans.begin()
@@ -108,37 +108,37 @@ enum DebugInstantCreateBench {
             _ = services.registry.perform(ActionID(rawValue: action), invocation: ActionInvocation(arguments: arguments))
         } else { _ = DebugKey.send(["key": .string(key), "modifiers": .array(modifiers.map(JSON.string)), "window": .string(controller.state.id)], services: services) }
         let keyMilliseconds = BenchSpans.ms(.now - start)
-        let visible = await frames.settled(until: { before.changed(command, Probe(controller)) }, start: start, window: 0, deadline: 5_000, watchCommits: true)
+        let typed = command == .newBrowser && params["url"] == nil ? params["type"]?.stringValue : nil, omnibar = OmnibarFirstHolds(typed: typed); for character in typed ?? "" { _ = DebugKey.send(["key": .string(String(character)), "window": .string(controller.state.id)], services: services) } // `type` (a blank new_browser): keys typed at once after it, read on every wait's ticks (OmnibarFirstHolds)
+        @MainActor func noteOmnibar() { let probe = Probe(controller), bar = probe.tab != before.tab ? probe.browser?.chrome?.addressBar : nil; omnibar.note(editing: bar?.editsAsFirstResponder, text: bar?.displayedText, at: BenchSpans.ms(.now - start)) }
+        let visible = await frames.settled(until: { noteOmnibar(); return before.changed(command, Probe(controller)) }, start: start, window: 0, deadline: 5_000, watchCommits: true)
         let committed = frames.lastCommitted
-        let chrome = visible == nil || (command != .newBrowser && !(command == .newWorkspace && params["run"] != nil)) ? nil : await frames.settled(until: { Probe(controller).browser != nil }, start: start, window: 0, deadline: 5_000)
+        let chrome = visible == nil || (command != .newBrowser && !(command == .newWorkspace && params["run"] != nil)) ? nil : await frames.settled(until: { noteOmnibar(); return Probe(controller).browser != nil }, start: start, window: 0, deadline: 5_000)
         // A link or browser opened to the right: its new pane's page (any shown pane of the window), first paint or load end.
         let opensRight = command == .linkRight || command == .splitBrowser || command == .newTabURL
         // The GitHub page: the frame after it drew the pull request (its `shown` mark, not its loading state), with or without `visible`.
         let github = command == .githubRight ? params["url"]?.stringValue : nil
         // The diff tab: the frame after its page reported the first hunk drawn (`cmux.diff.shown`).
         let diff = command == .diffRight
+        if visible != nil, typed != nil { _ = await frames.settled(until: { noteOmnibar(); return omnibar.done }, start: start, window: 0, deadline: 5_000) }
         let page = (visible == nil && github == nil && !diff) || (command != .newBrowser && !opensRight && github == nil && !diff) ? nil
             : await frames.settled(until: {
                 if diff { return diffShown.withLock { $0 != nil } }
                 if github != nil { return githubShown.withLock { $0.contains("content") } }
                 return opensRight ? Probe.anyPagePainted(controller, services, besides: shownBrowsers) : Probe(controller).pagePainted(services)
-            }, start: start, window: 0, deadline: diff ? 20_000 : 5_000)
-        let ready = visible == nil || (command != .newWorkspace && command != .newTab) ? nil : await frames.settled(until: { Probe(controller).newTabReady(services) }, start: start, window: 0, deadline: 5_000)
-        let confirmed = visible == nil ? nil : await frames.settled(until: { Probe(controller).confirmed(command) }, start: start, window: 0, deadline: 5_000)
+            }, start: start, window: 0, deadline: BenchSpans.ms(.now - start) + (diff ? 20_000 : 5_000)) // its own window: a typed wait that ran to its deadline (keys lost) left later waits none, and they read as never
+        let opensNewTab = visible != nil && (command == .newWorkspace || command == .newTab), shownAt = OSAllocatedUnfairLock<Double?>(initialState: nil) // Cmd-N, Cmd-T: `shown_ms`, the first frame showing the page's empty state (its pixels or its picture) with nothing kept over it; `ready_ms` also counts a page held away or under the ground
+        let ready = !opensNewTab ? nil : await frames.settled(until: { if shownAt.withLock({ $0 == nil }), Probe.newTabShown(controller) { shownAt.withLock { $0 = BenchSpans.ms(.now - start) } }; return Probe(controller).newTabReady(services) }, start: start, window: 0, deadline: 5_000)
+        var shown = opensNewTab ? shownAt.withLock({ $0 }) : nil; if opensNewTab, shown == nil { shown = await frames.settled(until: { Probe.newTabShown(controller) }, start: start, window: 0, deadline: 5_000) }
+        let confirmed = visible == nil ? nil : await frames.settled(until: { Probe(controller).confirmed(command) }, start: start, window: 0, deadline: BenchSpans.ms(.now - start) + 5_000) // its own window, as the page's
         let spans = BenchSpans.end(), stats = frames.stop()
-        var refresh = 1_000.0 / 60
-        if case .object(let fields) = stats, let value = fields["refresh_ms"]?.doubleValue, value > 0 { refresh = value }
+        let refresh = { if case .object(let fields) = stats, let value = fields["refresh_ms"]?.doubleValue, value > 0 { return value }; return 1_000.0 / 60 }()
         return .object([
-            "command": .string(command.rawValue),
-            "key_ms": .number(keyMilliseconds),
-            "visible_ms": visible.map { .number($0) } ?? .null,
-            "confirmed_ms": confirmed.map { .number($0) } ?? .null,
+            "command": .string(command.rawValue), "key_ms": .number(keyMilliseconds),
+            "visible_ms": visible.map { .number($0) } ?? .null, "confirmed_ms": confirmed.map { .number($0) } ?? .null,
             "committed_ms": committed.map { .number($0) } ?? .null, "key_changes": .number(Double(spans.count(where: { $0.name.hasPrefix("key.") }))), "spans_full": .bool(spans.count >= BenchSpans.capacity),
-            "page_ms": page.map { .number($0) } ?? .null, "ready_ms": ready.map { .number($0) } ?? .null, "chrome_ms": chrome.map { .number($0) } ?? .null, "github": .array(githubShown.withLock { $0 }.map(JSON.string)), "diff": diffShown.withLock { $0 } ?? .null,
-            "engine": .string(Probe(controller).browser.map { $0.tab.engineKind == .cef ? "cef" : "webkit" } ?? "none"),
-            "spare_window": .string(services.cache.cef.spareWindowState),
-            "frames_to_visible": visible.map { .number(($0 / refresh).rounded(.up)) } ?? .null,
-            "main_thread_spans_ms": .number(spans.reduce(0) { $0 + $1.milliseconds }),
+            "page_ms": page.map { .number($0) } ?? .null, "ready_ms": ready.map { .number($0) } ?? .null, "shown_ms": shown.map { .number($0) } ?? .null, "chrome_ms": chrome.map { .number($0) } ?? .null, "omnibar": omnibar.report(editing: Probe(controller).browser?.chrome?.addressBar.editsAsFirstResponder, text: Probe(controller).browser?.chrome?.addressBar.displayedText), "github": .array(githubShown.withLock { $0 }.map(JSON.string)), "diff": diffShown.withLock { $0 } ?? .null,
+            "engine": .string(Probe(controller).browser.map { $0.tab.engineKind == .cef ? "cef" : "webkit" } ?? "none"), "spare_window": .string(services.cache.cef.spareWindowState), "webkit_spare": .string(webKitSpare.state), "webkit_spare_taken": .bool(services.cache.webKit.spareTab.taken > webKitSpare.taken),
+            "frames_to_visible": visible.map { .number(($0 / refresh).rounded(.up)) } ?? .null, "main_thread_spans_ms": .number(BenchSpanSum(spans.map { (name: $0.name, milliseconds: $0.milliseconds) }).mainThread),
             "spans": .array(spans.map { .object(["name": .string($0.name), "at": .number($0.start), "ms": .number($0.milliseconds)]) }),
             "frames": stats,
         ])
@@ -146,10 +146,7 @@ enum DebugInstantCreateBench {
 
     /// What the window shows, read each frame.
     private struct Probe {
-        var workspace: String?
-        var pane: ObjectIdentifier?
-        var paneHandle: UInt64?
-        var paneCount: Int
+        var workspace: String?, pane: ObjectIdentifier?, paneHandle: UInt64?, paneCount: Int
         var tab: String?
         /// The focused pane's browser, when its view is in the pane and the tab is selected in the strip.
         var browser: BrowserEntry?
@@ -185,6 +182,7 @@ enum DebugInstantCreateBench {
             if case .finished = browser.tab.state.phase { return true }
             return services.cache.cef.benchMarks.firstPaints[browser.tab.id.rawValue] != nil
         }
+        @MainActor static func newTabShown(_ c: WindowController) -> Bool { guard c.root.paintHold.kept == nil, let pane = c.content?.focusedPane, pane.view.paintHold.kept == nil, pane.view.window != nil, !pane.view.isHiddenOrHasHiddenAncestor, case .agent(let view) = pane.currentContent else { return false }; return view.debugPageOnScreen || pane.view.launchImageView != nil } // the focused pane shows its page's own pixels (``AgentPaneView/debugPageOnScreen``) or its picture; neither the window nor the pane keeps what showed before
         @MainActor func newTabReady(_ services: AppServices) -> Bool { tab.map { selected == $0 && (LocalPageTab.page(of: $0) == .nativeNewTab || services.agentTabs.existingView($0)?.isShownReady == true) } ?? false }
 
         func changed(_ command: Command, _ now: Probe) -> Bool {

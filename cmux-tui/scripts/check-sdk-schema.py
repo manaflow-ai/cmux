@@ -44,6 +44,7 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "cmd_workspaces::KnownTree": "ListWorkspacesKnown",
     "frontend_browser_history::FirstTabParams": "WorkspaceFirstTab",
     "crate::command_context::Intent": "TerminalCommandContextIntent",
+    "crate::remote_host::AppPermissions": "RemoteHostAppPermissions",
 }
 
 # Request fields the server takes as raw JSON and then decodes element by
@@ -206,7 +207,8 @@ def runtime_command_fields() -> dict[str, dict[str, RuntimeField]]:
     index = 0
     while index < len(lines):
         line = lines[index]
-        unit = re.fullmatch(r"    ([A-Z][A-Za-z0-9]*),", line)
+        # A unit variant, or a struct variant with no fields (`Variant {},`).
+        unit = re.fullmatch(r"    ([A-Z][A-Za-z0-9]*)(?: \{\})?,", line)
         if unit:
             commands[camel_to_kebab(unit.group(1))] = {}
             index += 1

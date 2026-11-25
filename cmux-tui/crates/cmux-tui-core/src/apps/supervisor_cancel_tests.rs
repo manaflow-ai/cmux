@@ -5,7 +5,7 @@
 use super::*;
 use crate::apps::runs::Caller;
 
-type Answer = Result<Value, super::super::super::supervisor::ApiError>;
+type Answer = Result<Value, ApiError>;
 
 /// An installed on-demand server app `cmux/cncl` and its marker file.
 fn cancel_fixture(name: &str) -> (Fixture, PathBuf) {
