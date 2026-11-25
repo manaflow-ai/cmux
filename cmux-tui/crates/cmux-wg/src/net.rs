@@ -460,6 +460,8 @@ struct Driver {
     wakeups: Arc<AtomicU64>,
     /// A rebind while held owes the peer its reassertion at the release.
     reassert_at_release: bool,
+    /// When a cookie reply last had this side send a handshake at once.
+    cookie_retry_at: Option<Instant>,
     /// When this side last sent a handshake initiation of its own (see
     /// [`INITIATION_PENDING`]).
     initiated_at: Option<Instant>,
@@ -635,6 +637,7 @@ impl Driver {
             resumed: false,
             wakeups: Arc::new(AtomicU64::new(0)),
             reassert_at_release: false,
+            cookie_retry_at: None,
             initiated_at: None,
             handshake_rtt: None,
             responded_at: None,
@@ -751,6 +754,7 @@ impl Driver {
             DatagramClass::WireGuardInitiation | DatagramClass::WireGuardResponse
         );
         let mut replay = Vec::new();
+        let mut cookie_taken = false;
         // Measurement only (`testing::set_receive_tap`): off, one atomic load.
         let local = crate::testing::tapping()
             .then(|| self.config.addresses.first().map(|address| address.address))
@@ -782,6 +786,10 @@ impl Driver {
                         );
                         note_answered(datagram, &mut self.responded_at, &mut self.handshake_rtt);
                     }
+                    // Done for a cookie reply: boringtun took the cookie
+                    // (it answered this side's latest handshake message).
+                    cookie_taken =
+                        !input.is_empty() && classify(input) == DatagramClass::WireGuardCookieReply;
                     break;
                 }
                 TunnResult::Err(_) => {
@@ -886,6 +894,9 @@ impl Driver {
                     break;
                 }
             }
+        }
+        if cookie_taken {
+            self.answer_cookie(Instant::now());
         }
         self.replay(replay);
     }
