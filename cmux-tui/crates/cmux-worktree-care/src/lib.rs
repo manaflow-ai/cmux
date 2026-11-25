@@ -18,6 +18,9 @@
 //!   manifest in the archive store. Then the folder goes.
 //! - [`restore`]: the worktree back from its manifest, files, index and
 //!   sparse patterns as they were.
+//! - [`cold`]: a cold folder removed only once a cloud copy is verified by
+//!   content hash to hold every byte, and brought back byte for byte the
+//!   moment something needs it.
 //!
 //! Nothing here runs on its own: a caller (the `acpmux worktree` command,
 //! the acpmux daemon on its events) gathers the sessions and runs a pass.
@@ -26,6 +29,7 @@
 
 pub mod archive;
 pub mod caches;
+pub mod cold;
 pub mod disk;
 mod finished_memo;
 mod git;
