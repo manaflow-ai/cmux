@@ -1656,6 +1656,29 @@
       },
       {
         "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+
+        ],
+        "id" : "automations",
+        "lead" : [
+          "automationsCloud"
+        ],
+        "symbol" : "bolt",
+        "title" : {
+          "key" : "settings.category.automations",
+          "text" : "Automations"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
           "notifications"
         ],
         "aliases" : [
@@ -2509,7 +2532,8 @@
           "chat",
           "agents",
           "chief",
-          "models"
+          "models",
+          "automations"
         ],
         "id" : "ai",
         "title" : {

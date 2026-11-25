@@ -6,17 +6,21 @@ when code names a host that has no row here, and when a row's host is gone from 
 
 ## Telemetry
 
-Crash and error reports go to the crash reporting host below, only while anonymous telemetry is on. It is on until
-you turn it off, and the `DisableTelemetry` managed policy turns it off for everyone on a managed Mac.
+Crash and error reports go to the crash reporting host below, only while anonymous telemetry is on. It is off until
+you turn it on (Settings > Privacy and Security > Send Crash Reports and Analytics, `app.sendAnonymousTelemetry`;
+the page asks before it turns it on), and the `DisableTelemetry` managed policy keeps it off for everyone on a
+managed Mac. A fresh install starts no crash reporter and no analytics (`FreshInstallSendsNothingTests`).
 
-- The Mac and iPhone apps keep the choice in their own preferences (`sendAnonymousTelemetry`). Before a report
+- The Mac and iPhone apps keep the choice in their own preferences (`sendAnonymousTelemetry`); unset means off.
+  On the Mac, the person's own write of the setting sets that preference, and crash reporting reads it at the next
+  launch. Reports carry no request URLs: network breadcrumbs and network tracking are off. Before a report
   leaves the device, the scrubber (`Packages/Shared/CmuxSentryTelemetry`, `SentryScrubber` and
   `SentryEventScrubber`) removes API keys and tokens, passwords, cookies and session ids, credentials in URLs,
   email addresses and your user name in file paths, from every field of the report: message, exception, stack
   frames, breadcrumbs, context, tags, request and user. `SeededSecretTests` puts known secrets in every field and
   checks that none of them is left in the report as it is sent.
 - A `cmux` CLI installed on its own (Linux, npm or PyPI; the copy inside the app sends nothing) sends its daemon's
-  panic and memory reports. It reads `app.sendAnonymousTelemetry: false` from `~/.config/cmux/cmux-next.json` (or the
+  panic and memory reports. It reads `app.sendAnonymousTelemetry` from `~/.config/cmux/cmux-next.json` (or the
   file `CMUX_NEXT_CONFIG_FILE` names), and also stays off with `DO_NOT_TRACK=1`, `CMUX_TUI_TELEMETRY=off` or `CI` set.
   Before sending, `crash_scrub` runs the same rules as the scrubber above on the panic message, location and
   backtrace, and `seeded_secrets_never_leave_in_a_panic_event` seeds them the same way.
@@ -26,8 +30,9 @@ you turn it off, and the `DisableTelemetry` managed policy turns it off for ever
   closed tokens and numbers. It never sends message, reply, task or report text, tool arguments, error messages,
   paths, URLs or names, and IP geolocation is off. A Chief on this Mac is known only by a random install id; a Cloud
   Chief, which runs on cmux's servers for a signed-in account, sends as that account's user id and team id, like
-  the server's own Cloud events. The same switches turn it off: `sendAnonymousTelemetry` in the app (the running
-  Chief re-reads it every few minutes), `app.sendAnonymousTelemetry: false` in `cmux-next.json`, the
+  the server's own Cloud events. It is off until the person turns it on: `sendAnonymousTelemetry` in the app (the
+  running Chief re-reads it every few minutes) or, with no app choice, `app.sendAnonymousTelemetry: true` in
+  `cmux-next.json`. These keep it off whatever the setting says: the
   `DisableTelemetry` policy, `DO_NOT_TRACK=1` or `CMUX_CHIEF_ANALYTICS=off`; turning it off deletes the events still
   waiting. Its panics go to the crash reporting host through the app with the location and backtrace only, never
   the panic message. The event list: [chief-product-analytics.md](posthog/chief-product-analytics.md).

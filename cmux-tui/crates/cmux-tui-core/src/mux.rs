@@ -913,6 +913,9 @@ pub struct Mux {
     pub(crate) control_clients: crate::server::ClientRegistry,
     /// One whole-tree `list-workspaces` build for concurrent readers.
     pub(crate) tree_reply_flight: crate::server::tree_reply_flight::TreeReplyFlight,
+    /// The ring of changed workspace ids for `list-workspaces {since}`
+    /// (server/list_workspaces_delta.rs).
+    pub(crate) workspace_delta: crate::server::list_workspaces_delta::WorkspaceDelta,
     /// Guarded chat moves (`agent-transfer-v1`, server/agent_transfer.rs).
     #[cfg(unix)]
     pub(crate) agent_transfers: crate::server::agent_transfer::AgentTransfers,

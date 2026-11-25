@@ -7,6 +7,7 @@
 // `createMockClient` connects a page client to it over the protocol's in-memory transport
 // pair, so the page's calls cross the real envelope (call/ok/err/sub/ev).
 import { runMockAgentKeys } from "./mockAgentKeys";
+import { mockAutocloudState, runMockAutocloud } from "./mockAutocloud";
 import { mockHubState, runMockHub } from "./mockHub";
 import { mockConnectionsState, runMockConnections } from "./mockConnections";
 import { mockModels, runMockModels } from "./mockModels";
@@ -27,7 +28,8 @@ import {
   type AccountsCmux,
   type AccountsRow,
   type AccountsRun,
-  type AccountsRunReply,
+  type AllotmentSet,
+  type AllotmentView,
   type AgentsRun,
   type AgentsState,
   type ChannelsProgress,
@@ -70,6 +72,10 @@ import {
   type AgentToolsCardState,
   type McpServersRun,
   type McpServersState,
+  type HubRun,
+  type AutocloudAction,
+  type AutocloudState,
+  type HubState,
   type AgentSkillsRun,
   type AgentSkillsState,
   type AgentMcpRun,
@@ -79,18 +85,15 @@ import {
   type AgentConfigAgent,
   type AgentConfigRun,
   type AgentConfigState,
-  type AllotmentSet,
-  type AllotmentView,
-  type ArchivedRun,
-  type ArchivedState,
-  type AgentSkillRow,
+  type AccountsRunReply,
   type DoctorReport,
   type DoctorRun,
   type LibraryAnswer,
-  type HubRun,
-  type HubState,
+  type AgentSkillRow,
   type ConnectionsRun,
   type ConnectionsState,
+  type ArchivedRun,
+  type ArchivedState,
 } from "./ops";
 import { rowsByKey, schema } from "./schema";
 import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
@@ -949,6 +952,14 @@ export class MockSettingsProvider {
         this.agentHooks = { ...state, listing: { ...listing, hooks } };
         return this.agentHooks;
       },
+      "cmux.settings.autocloud.state": () => this.autocloud,
+      "cmux.settings.autocloud.run": (params) => {
+        const run = params as AutocloudAction;
+        if (run.action !== "refresh" && run.action !== "preview") this.autocloudRuns.push(run);
+        const { answer, state } = runMockAutocloud(this.autocloud, run);
+        this.autocloud = state;
+        return answer;
+      },
       "cmux.settings.hub.state": () => this.hub,
       "cmux.settings.hub.run": (params) => {
         const run = params as HubRun;
@@ -1077,6 +1088,8 @@ export class MockSettingsProvider {
       "cmux.settings.agentTools.state",
       "cmux.settings.agentTools.run",
       "cmux.settings.mcp.state",
+      "cmux.settings.autocloud.state",
+      "cmux.settings.autocloud.run",
       "cmux.settings.hub.state",
       "cmux.settings.hub.run",
       "cmux.settings.connections.state",
@@ -1816,6 +1829,11 @@ export class MockSettingsProvider {
   /** When set, Remove keeps the entry and the host says why (`note`), as for an entry with
    * settings cmux could not put back. */
   agentToolsKeeps: string | null = null;
+
+  /** Settings > Automations as the app serves it (`SettingsAutomationsCloud.state`). */
+  autocloud: AutocloudState = mockAutocloudState();
+  /** Every Automations action but refresh and preview, in order. */
+  autocloudRuns: AutocloudAction[] = [];
 
   /** Settings > Integrations as the app serves it (`SettingsIntegrationsHub.state`). */
   hub: HubState = mockHubState();

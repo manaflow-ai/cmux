@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "fec2a53560ff6992b48ee32a81df797ac404a8bc55f1661d1e11f96aaf2032c0";
+inline constexpr std::string_view kProtocolIrSha256 = "4e34384345c5952de0733e534f694b5beca2a99236d90b5735bb411ba22aa32c";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -116,6 +116,7 @@ struct LayoutUndoUndone;
 struct ListAgentsResult;
 struct ListTerminalsResult;
 struct ListWorkspacesKnown;
+struct ListWorkspacesSince;
 struct LivePane;
 struct MachineListeningTcpResult;
 struct MachinePlatform;
@@ -3898,10 +3899,17 @@ struct ListWorkspacesKnown {
     friend bool operator==(const ListWorkspacesKnown&, const ListWorkspacesKnown&) = default;
 };
 
+struct ListWorkspacesSince {
+    std::string epoch{};
+    std::uint64_t seq{};
+    friend bool operator==(const ListWorkspacesSince&, const ListWorkspacesSince&) = default;
+};
+
 struct ListWorkspacesRequest {
     Field<std::uint64_t> after{};
     Field<ListWorkspacesKnown> known{};
     Field<std::uint64_t> limit{};
+    Field<ListWorkspacesSince> since{};
     friend bool operator==(const ListWorkspacesRequest&, const ListWorkspacesRequest&) = default;
 };
 
@@ -6470,10 +6478,16 @@ struct Workspace {
 };
 
 struct Tree {
+    std::optional<std::vector<Workspace>> changed{};
+    std::optional<bool> delta{};
+    std::optional<std::string> epoch{};
     std::optional<std::string> generation{};
     std::optional<std::uint64_t> next{};
+    std::optional<std::vector<Id>> order{};
     std::optional<std::uint64_t> pane_revision{};
     std::optional<std::string> registry_id{};
+    std::optional<std::vector<Id>> removed{};
+    std::optional<std::uint64_t> seq{};
     std::optional<std::uint64_t> terminal_revision{};
     std::optional<std::uint64_t> total{};
     std::optional<std::string> tree_revision{};
@@ -7405,6 +7419,12 @@ template <>
 struct Codec<ListWorkspacesKnown> {
     static Result<Json> encode(const ListWorkspacesKnown& value);
     static Result<ListWorkspacesKnown> decode(const Json& value);
+};
+
+template <>
+struct Codec<ListWorkspacesSince> {
+    static Result<Json> encode(const ListWorkspacesSince& value);
+    static Result<ListWorkspacesSince> decode(const Json& value);
 };
 
 template <>
