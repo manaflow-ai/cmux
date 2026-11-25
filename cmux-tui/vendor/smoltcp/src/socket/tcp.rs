@@ -1367,6 +1367,36 @@ impl<'a> Socket<'a> {
         self.tx_buffer.len().saturating_sub(self.flight_size())
     }
 
+    /// cmux patch (trace only): the send and receive state a stall trace
+    /// prints (`cmux-wg` `CMUX_WG_STALL_TRACE`), one line.
+    #[cfg(feature = "alloc")]
+    pub fn trace_state(&self) -> alloc::string::String {
+        alloc::format!(
+            "snd_una={} snd_nxt={} snd_max_past={} rcv_nxt={} last_ack_sent={:?} last_win_sent={} \
+             peer_win={} rx_win={} rx_len={} tx_len={} flight={} cwnd={} rto_ms={} srtt_ms={} \
+             timer={:?} ack_timer={:?} remote_last_ts={:?} dup_acks={} rtos_in_row={}",
+            self.local_seq_no,
+            self.remote_last_seq,
+            self.remote_rewound,
+            self.remote_seq_no,
+            self.remote_last_ack,
+            (self.remote_last_win as usize) << self.remote_win_shift,
+            self.remote_win_len,
+            self.rx_buffer.window(),
+            self.rx_buffer.len(),
+            self.tx_buffer.len(),
+            self.flight_size(),
+            self.congestion_controller.inner().window(),
+            self.rtte.rto,
+            self.rtte.srtt,
+            self.timer,
+            self.ack_delay_timer,
+            self.remote_last_ts,
+            self.local_rx_dup_acks,
+            self.black_hole_rtos,
+        )
+    }
+
     /// cmux patch: the smoothed round-trip time (RFC 6298 SRTT), `None`
     /// before the first measurement.
     pub fn smoothed_rtt(&self) -> Option<Duration> {
