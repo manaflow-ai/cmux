@@ -1736,7 +1736,7 @@ fn a_new_chat_signs_its_agent_in_on_this_machine_without_a_session() {
         assert_eq!(sent["params"], params, "no session: the sign-in is this machine's own");
     }
     for bad in [
-        json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"opencode"}),
+        json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"Open Code"}),
         json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"cursor",
                "sessionId":"acp_other"}),
         json!({"cmd":"agent-session-login","surface":surface,"op":"run","agent":"cursor"}),

@@ -252,7 +252,7 @@ fn a_bad_request_names_the_refused_param_and_never_its_value() {
         (with("harness", json!("codex agent")), "harness"),
         (with("permission_mode", json!("everything")), "permission_mode"),
         (with("person_instance", json!("a/b")), "person_instance"),
-        (with("bogus_param", json!(secret)), "bogus_param"),
+        // An unknown param is ignored, not refused (cmux#49712), so it is no row here.
     ] {
         let refused = chat.client.request(frame.clone());
         assert_code(&refused, "agent_session.bad_request");
