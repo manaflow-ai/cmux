@@ -1514,7 +1514,7 @@
    (a menu closed with Esc hands focus back here) draws the same pill and a hairline in the row's
    own ink, never the bright shared ring; Increase Contrast keeps the shared ring. The step back is 88%, the
    most it can be and keep 4.5:1 (68% drew "High" at 3.03:1 light, 3.99:1 dark). */
-.acpmux-composer-foot .acpmux-model .acpmux-model-detail { color: color-mix(in srgb, currentcolor 88%, transparent); }
+.acpmux-composer-foot .acpmux-model .acpmux-model-detail { color: color-mix(in srgb, currentcolor var(--instrument-ink-effort-label, 88%), transparent); }
 /* The shared ring (pages/shared/desktop.css) draws from these two tokens with !important, so the
    button narrows them on itself. */
 @media not (prefers-contrast: more) {
@@ -2168,9 +2168,6 @@
   max-height: 100%;
   overflow: auto;
 }
-/* A resizable Cloud environment menu scrolls its rows in the menu's scroller, not the popup, so the
-   grips on the popup's edges stay put while the rows scroll. */
-.acpmux-menu.acpmux-location-menu.acpmux-cloud-env-menu[data-resizable] { overflow: visible; }
 /* A popup that clips (overflow hidden) keeps its grips wholly inside its edges. */
 .acpmux-folder-popover,
 .acpmux-location-menu[data-resized-height]:not(.ui-menu) { --ui-popup-resize-out: 0px; }
