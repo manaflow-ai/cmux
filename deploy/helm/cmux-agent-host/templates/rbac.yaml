@@ -1,0 +1,52 @@
+# Namespace-scoped only: the agent creates and deletes agent slots in its own namespace and touches no
+# other Secret than its host credential. No ClusterRole (RFD 0100 section 9).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "cmux-agent-host.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cmux-agent-host.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "persistentvolumeclaims"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: [{{ include "cmux-agent-host.hostCredentialSecret" . | quote }}]
+    verbs: ["get", "update"]
+  {{- if .Values.kubevirt.enabled }}
+  - apiGroups: ["kubevirt.io"]
+    resources: ["virtualmachines", "virtualmachineinstances"]
+    verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+  - apiGroups: ["subresources.kubevirt.io"]
+    resources: ["virtualmachineinstances/pause", "virtualmachineinstances/unpause"]
+    verbs: ["update"]
+  - apiGroups: ["snapshot.kubevirt.io"]
+    resources: ["virtualmachinesnapshots"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: ["clone.kubevirt.io"]
+    resources: ["virtualmachineclones"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  {{- end }}
+  {{- if .Values.volumeSnapshots.enabled }}
+  - apiGroups: ["snapshot.storage.k8s.io"]
+    resources: ["volumesnapshots"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "cmux-agent-host.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cmux-agent-host.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "cmux-agent-host.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "cmux-agent-host.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
