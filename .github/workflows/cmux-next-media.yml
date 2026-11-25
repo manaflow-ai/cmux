@@ -339,7 +339,7 @@ jobs:
       - name: Clear stale git locks (self-hosted reused workspace)
         run: rm -f "${GITHUB_WORKSPACE:-$PWD}/.git/index.lock" 2>/dev/null || true
 
-      # The job's clock: the clips stop 12 min before the 120 min cap, so the media the capture already
+      # The job's clock: the clips stop 12 min before the job's cap, so the media the capture already
       # recorded still uploads. Run 45572451860 captured every tour, then its clips ran the job into the
       # cap at 10:10Z and "Keep the media" never ran: 2 Mac hours, no media.
       # The cap counts from the job's start, not this step's: in run 45636169467 "Set up runner" took
@@ -360,8 +360,8 @@ jobs:
             esac
             pid=$(ps -o ppid= -p "$pid" | tr -d ' ')
           done
-          echo "The job started $(( now - start )) s ago; clips stop at $(( start + 108 * 60 - now )) s from now."
-          echo "TOUR_DEADLINE=$(( start + 108 * 60 ))" >> "$GITHUB_ENV"
+          echo "The job started $(( now - start )) s ago."
+          echo "TOUR_JOB_START=$start" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -802,6 +802,13 @@ jobs:
           cp "$RUNNER_TEMP/clips-plan.json" "$out/plan.json"
           # First, so the publish job runs on what was recorded even when an extra before app times out.
           echo "count=$(python3 -c 'import json, sys; print(len(json.load(open(sys.argv[1]))))' "$out/plan.json")" >> "$GITHUB_OUTPUT"
+          # The clips stop 12 min before this job's own timeout-minutes, read from this file, so the
+          # deadline follows the cap whatever it is set to.
+          cap=$(python3 -c 'import sys, yaml; print(yaml.safe_load(open(sys.argv[1]))["jobs"]["tour"]["timeout-minutes"])' \
+            .github/workflows/cmux-next-media.yml 2>/dev/null) || cap=120
+          case "$cap" in ''|*[!0-9]*) cap=120 ;; esac
+          TOUR_DEADLINE=$(( ${TOUR_JOB_START:-$(date +%s)} + (cap - 12) * 60 ))
+          echo "Job cap ${cap} min; clips stop in $(( TOUR_DEADLINE - $(date +%s) )) s."
           # A command, stopped with SIGTERM (tour.py unwinds and stops its app) at the job's clock.
           bounded() {
             local left=$(( ${TOUR_DEADLINE:-0} - $(date +%s) ))
