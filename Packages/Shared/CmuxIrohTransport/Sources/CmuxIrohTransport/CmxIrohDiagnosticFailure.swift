@@ -1,3 +1,4 @@
+#if canImport(IrohLib)
 public import CMUXMobileCore
 public import IrohLib
 
@@ -389,3 +390,4 @@ extension CmxIrohHostPolicyCacheError: DiagnosticFailureProviding {
 extension CmxIrohLocalBindingExpectationError: DiagnosticFailureProviding {
     public var diagnosticFailureKind: DiagnosticFailureKind { .protocolViolation }
 }
+#endif

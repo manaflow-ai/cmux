@@ -1,3 +1,4 @@
+#if canImport(IrohLib)
 import IrohLib
 
 /// The minimum package-internal data copied from one Iroh FFI path snapshot.
@@ -21,3 +22,4 @@ struct CmxIrohConnectionPathSnapshot: Equatable, Sendable {
         self.isRelay = isRelay
     }
 }
+#endif

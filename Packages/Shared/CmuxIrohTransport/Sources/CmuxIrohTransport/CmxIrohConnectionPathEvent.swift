@@ -1,3 +1,4 @@
+#if canImport(IrohLib)
 public import CMUXMobileCore
 import IrohLib
 
@@ -55,3 +56,4 @@ public struct CmxIrohConnectionPathEvent: Sendable, Equatable {
             : .direct
     }
 }
+#endif

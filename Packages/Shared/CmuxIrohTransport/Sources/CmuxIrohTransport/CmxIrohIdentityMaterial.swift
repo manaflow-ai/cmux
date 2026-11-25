@@ -1,3 +1,4 @@
+#if canImport(IrohLib)
 public import CMUXMobileCore
 import Foundation
 import IrohLib
@@ -38,3 +39,4 @@ public struct CmxIrohIdentityMaterial: Equatable, Sendable {
         return try? CmxIrohPeerIdentity(endpointID: endpointID)
     }
 }
+#endif

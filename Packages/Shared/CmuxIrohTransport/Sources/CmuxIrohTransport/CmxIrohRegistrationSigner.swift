@@ -1,4 +1,9 @@
+#if canImport(IrohLib)
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 import Foundation
 import IrohLib
 
@@ -146,3 +151,4 @@ public struct CmxIrohRegistrationSigner: Sendable {
         }
     }
 }
+#endif
