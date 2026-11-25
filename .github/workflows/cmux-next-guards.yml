@@ -544,6 +544,11 @@ jobs:
       # run_ci_guards.py skips ci-guards.yml's `uses:` setup steps, so this job provides their tools:
       # bun (at ci-guards.yml's pin) for preflight-agent-chat, and python3.9 beside the runner's python3
       # for release-tooling's nightly prune compatibility step (PYTHON_BIN=python3.9).
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Set up Bun for guard tests
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -895,6 +900,12 @@ jobs:
         if: ${{ !cancelled() }}
         timeout-minutes: 2
         run: python3 scripts/cmux-next/check-menu-actions.py
+
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        if: ${{ !cancelled() }}
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
 
       - name: Setup Node
         if: ${{ !cancelled() }}
@@ -1350,7 +1361,7 @@ jobs:
     # is not now): setup-tooling-route below limits a pull request to the steps its diff can fail.
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((!cancelled() && needs.coalesce.outputs.run != 'false') && needs.tooling-tests-base-red.outputs.base_red != 'true') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
@@ -1620,6 +1631,11 @@ jobs:
       # The web lint pre-push hook (scripts/web-lint.sh, scripts/web_lint_prepush.py) on throwaway
       # repositories with stand-in packages; cmux-next-web.yml ran it only on pushes. A stand-in
       # package with no node_modules gets a `bun install`.
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
