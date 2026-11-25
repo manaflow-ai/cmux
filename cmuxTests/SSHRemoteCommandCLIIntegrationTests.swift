@@ -48,7 +48,9 @@ struct SSHRemoteCommandCLIIntegrationTests {
         let stderr: String
     }
 
-    /// How the mock app answers `workspace.remote.configure`.
+    /// How the mock app answers `workspace.remote.configure`. Only a non-TTY
+    /// session (`-T`) takes the create-then-configure flow; a TTY session opens
+    /// through `workspace.ssh.open` and never sends configure.
     private enum RemoteConfigureReply {
         case connected
         case rejected
@@ -59,8 +61,12 @@ struct SSHRemoteCommandCLIIntegrationTests {
     @Test
     func testSSHKeepsTheNewWorkspaceWhenTheAppDropsTheConnection() throws {
         let run = try Self.runRemoteCommandMockedSSH(
-            arguments: [],
+            arguments: ["-T"],
             configureReply: .dropsConnection
+        )
+        #expect(
+            Self.params(for: "workspace.remote.configure", in: run.requests) != nil,
+            "The rollback path is only reached after workspace.remote.configure, saw \(run.requests)"
         )
 
         #expect(run.status != 0, Comment(rawValue: run.stderr))
@@ -74,8 +80,12 @@ struct SSHRemoteCommandCLIIntegrationTests {
     @Test
     func testSSHClosesTheNewWorkspaceWhenTheAppRejectsItsConfiguration() throws {
         let run = try Self.runRemoteCommandMockedSSH(
-            arguments: [],
+            arguments: ["-T"],
             configureReply: .rejected
+        )
+        #expect(
+            Self.params(for: "workspace.remote.configure", in: run.requests) != nil,
+            "The rollback path is only reached after workspace.remote.configure, saw \(run.requests)"
         )
 
         #expect(run.status != 0, Comment(rawValue: run.stderr))
