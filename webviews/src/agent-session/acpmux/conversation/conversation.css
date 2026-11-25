@@ -26,7 +26,7 @@
      The tertiary ink (--agent-soft) is a mark ink held at 3:1: on a card it read 3.52:1 light, 3.94:1 dark. */
   --cv-text-dim: var(--agent-muted);
   /* Background activity follows Claude Code's secondary reading level. */
-  --cv-activity-text: color-mix(in srgb, var(--cv-fg) 58%, transparent);
+  --cv-activity-text: color-mix(in srgb, var(--cv-fg) var(--instrument-ink-tool-row, 58%), transparent);
   --cv-fg: var(--agent-text);
   --cv-rule: color-mix(in srgb, var(--cv-fg) 8%, transparent); /* #383934 */
   --cv-bubble: color-mix(in srgb, var(--cv-fg) 5%, transparent); /* #31322d */
@@ -2233,6 +2233,18 @@
   background: var(--cv-codeblock-bg);
   box-shadow: inset 0 0 0 1px var(--cv-codeblock-ring);
 }
+/* An edit drawn inside a card of its own (EditDiff `flat`, the edited-files card): that card is the one
+   container, so the header and diff sit directly on its fill, edge to edge, with no second ring,
+   corner, fill or margin (#56442: "a container inside of container"). */
+.cv-edit-diff[data-flat] {
+  margin: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.cv-edit-diff[data-flat] > .cv-edit-diff__header {
+  border-bottom-color: var(--ds-surface-card-line);
+}
 .cv-edit-diff__header {
   display: flex;
   align-items: center;
@@ -2993,6 +3005,15 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The words' rolling cell (ui/motion/TextRoll.tsx): it takes the label's place on the line, and a call
+   in flight still gives way first. */
+.cv-worked__roll {
+  flex: none;
+}
+.cv-worked__roll.is-doing {
+  flex: 0 1 auto;
+  min-width: 0;
+}
 .cv-worked__time,
 .cv-worked__own,
 .cv-worked .cv-command__elapsed {
@@ -3131,6 +3152,11 @@ body {
 }
 /* The shimmer's layers (ShimmerText.tsx): the band and its lit words show only while loops run. */
 .cv-thinking.is-shimmer {
+  /* The band's box (inset 0) is the words' own box, never the row's: the row also holds the time
+     and a leading glyph, and a band sized to it ran the glimmer past the words onto "34s" and the
+     chevron at the end of each pass (Leo, 2026-11-25: "and the overlap when the glimmer goes to the
+     end"). test/working-loops-compositor.test.tsx measures it. */
+  position: relative;
   flex: 0 1 auto;
   min-width: 0;
   max-width: 100%;
@@ -3227,12 +3253,7 @@ body {
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  :root:not([data-status-indicators="static"]) .cv-shimmer__lit-time {
-    flex: none;
-    margin-inline-start: 6px;
-  }
-  :root:not([data-status-indicators="static"]) .cv-shimmer__lit-label::before,
-  :root:not([data-status-indicators="static"]) .cv-shimmer__lit-time::before {
+  :root:not([data-status-indicators="static"]) .cv-shimmer__lit-label::before {
     content: attr(data-text);
   }
   /* Plain lit words and timed slots use generated content so the DOM holds the line once. */
@@ -3279,7 +3300,7 @@ body {
     user-select: none;
     -webkit-user-select: none;
     color: var(--cv-text-dim);
-    animation: cv-roll-out var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) both;
+    animation: cv-roll-out var(--ui-text-roll-ms, 180ms) var(--ui-text-roll-ease, ease-out) both;
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-roll-out::before {
     content: attr(data-lead);
@@ -3305,24 +3326,24 @@ body {
     user-select: none;
     -webkit-user-select: none;
     color: var(--cv-text-dim);
-    animation: cv-roll-out var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) both;
+    animation: cv-roll-out var(--ui-text-roll-ms, 180ms) var(--ui-text-roll-ease, ease-out) both;
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-roll-out__tail::after {
     content: attr(data-tail);
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-worked--live[data-roll="odd"] > .cv-worked__count,
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-worked--live[data-roll="odd"] > .cv-shimmer__row > :is(.cv-worked__time, .cv-worked__own) {
-    animation: cv-roll-in-odd var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) backwards;
+    animation: cv-roll-in-odd var(--ui-text-roll-ms, 180ms) var(--ui-text-roll-ease, ease-out) backwards;
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-worked--live[data-roll="even"] > .cv-worked__count,
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-worked--live[data-roll="even"] > .cv-shimmer__row > :is(.cv-worked__time, .cv-worked__own) {
-    animation: cv-roll-in-even var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) backwards;
+    animation: cv-roll-in-even var(--ui-text-roll-ms, 180ms) var(--ui-text-roll-ease, ease-out) backwards;
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-thinking[data-roll="odd"] {
-    animation: cv-roll-in-odd var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) backwards;
+    animation: cv-roll-in-odd var(--ui-text-roll-ms, 180ms) var(--ui-text-roll-ease, ease-out) backwards;
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-thinking[data-roll="even"] {
-    animation: cv-roll-in-even var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) backwards;
+    animation: cv-roll-in-even var(--ui-text-roll-ms, 180ms) var(--ui-text-roll-ease, ease-out) backwards;
   }
   /* The words handing over to a call (Leo, 2026-11-21: "the animation for the Thinking swapping to
      tool calls also probably needs to be smoothed out"). The line keeps its roll above (never a blank
@@ -3387,6 +3408,70 @@ body {
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) [data-live-swap="quick"] .cv-worked--live[data-roll="even"] > .cv-shimmer__row > :is(.cv-worked__time, .cv-worked__own) {
     animation: cv-swap-in-even var(--cv-exit-lead) var(--agent-ease-out, ease-out) var(--cv-exit-lead) backwards;
   }
+}
+/* Reduce Motion (or cmux motion reduced): the live line's words crossfade in place on the text roll's
+   clock instead of rolling (ui/motion/TextRoll.tsx `fade`); nothing moves. */
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-cmux-motion="off"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-roll-out {
+    display: block;
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-select: none;
+    color: var(--cv-text-dim);
+    animation: cv-swap-out var(--ui-text-roll-ms, 180ms) var(--ui-text-roll-ease, ease-out) both;
+  }
+  :root:not([data-cmux-motion="off"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-roll-out::before {
+    content: attr(data-lead);
+  }
+  :root:not([data-cmux-motion="off"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-roll-out::after {
+    content: attr(data-text);
+  }
+  :root:not([data-cmux-motion="off"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-roll-out[data-tail] {
+    right: auto;
+  }
+  :root:not([data-cmux-motion="off"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-roll-out__tail {
+    display: block;
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 100%;
+    white-space: nowrap;
+    pointer-events: none;
+    color: var(--cv-text-dim);
+    animation: cv-swap-out var(--ui-text-roll-ms, 180ms) var(--ui-text-roll-ease, ease-out) both;
+  }
+  :root:not([data-cmux-motion="off"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-roll-out__tail::after {
+    content: attr(data-tail);
+  }
+  :root:not([data-cmux-motion="off"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-thinking[data-roll="odd"],
+  :root:not([data-cmux-motion="off"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-worked--live[data-roll="odd"] > .cv-worked__count,
+  :root:not([data-cmux-motion="off"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-worked--live[data-roll="odd"] > .cv-shimmer__row > :is(.cv-worked__time, .cv-worked__own) {
+    animation: cv-swap-in-odd var(--ui-text-roll-ms, 180ms) var(--ui-text-roll-ease, ease-out) backwards;
+  }
+  :root:not([data-cmux-motion="off"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-thinking[data-roll="even"],
+  :root:not([data-cmux-motion="off"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-worked--live[data-roll="even"] > .cv-worked__count,
+  :root:not([data-cmux-motion="off"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-worked--live[data-roll="even"] > .cv-shimmer__row > :is(.cv-worked__time, .cv-worked__own) {
+    animation: cv-swap-in-even var(--ui-text-roll-ms, 180ms) var(--ui-text-roll-ease, ease-out) backwards;
+  }
+}
+/* The faded edges are the roll's (motion.css `data-text-roll`): with no roll (Reduce Motion, motion
+   off or reduced, the static look) the line keeps no mask. */
+@media (prefers-reduced-motion: reduce) {
+  .cv-worked--live[data-text-roll] {
+    mask-image: none;
+    -webkit-mask-image: none;
+    animation: none;
+  }
+}
+:root:is([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-worked--live[data-text-roll] {
+  mask-image: none;
+  -webkit-mask-image: none;
+  animation: none;
 }
 /* The hand-over's looks (above): two names a look, swapped each change, so each change restarts it. */
 @keyframes cv-swap-out {
@@ -4438,7 +4523,7 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
   width: var(--cv-chevron-glyph);
   height: var(--cv-chevron-glyph);
 }
-.acpmux-row :is(.cv-tool__chevron, .cv-worked__chevron, .cv-disclosure__toggle:not(.is-chevron) > .cv-rotor) {
+.acpmux-row :is(.cv-disclosure-chevron, .cv-tool__chevron, .cv-worked__chevron, .cv-disclosure__toggle:not(.is-chevron) > .cv-rotor) {
   flex: none;
   width: var(--cv-chevron-glyph);
   height: var(--cv-chevron-glyph);
@@ -8342,6 +8427,11 @@ a.cv-sha:focus-visible {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The words' rolling cell (ui/motion/TextRoll.tsx): it gives way before the time. */
+.cv-activity__roll {
+  flex: 0 1 auto;
+  min-width: 0;
+}
 .cv-activity__time {
   flex: none;
   font-variant-numeric: var(--instrument-type-numerals, tabular-nums);
@@ -8487,7 +8577,10 @@ a.cv-sha:focus-visible {
   -webkit-line-clamp: 3;
   line-clamp: 3;
   overflow: hidden;
-  padding: 2px 0 2px 8px;
+  /* Above and below is a transparent border, not padding: overflow clips at the padding edge, so padding would show
+     the top of a fourth line (Leo, 2026-11-23: "not show the sliver of the second line."). */
+  padding: 0 0 0 8px;
+  border-block: 2px solid transparent;
   border-left: 2px solid var(--agent-border);
   overflow-wrap: anywhere;
 }
@@ -8832,7 +8925,7 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   box-sizing: border-box;
   /* Small-radius rects, not capsules (agent-pane-no-capsules.test.ts). */
   border-radius: var(--ds-radius-control);
-  background: color-mix(in srgb, var(--acpmux-needs-you-mark) 16%, transparent);
+  background: color-mix(in srgb, var(--acpmux-needs-you-mark) var(--instrument-ink-pill, 16%), transparent);
   /* The words in the needs-you ink (the mark toward the text), not the raw mark on its own tint: the
      raw mark was 2.64:1 in light; the dot keeps the mark's hue. */
   color: var(--acpmux-needs-you-ink);
@@ -9200,12 +9293,30 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
    counts after it stay buttons of their own. */
 .cv-worked__toggle {
   all: unset;
+  display: inline-grid;
+  grid-template-columns: minmax(0, max-content);
+  align-items: center;
+  justify-items: start;
+  min-width: 0;
+  height: 100%;
+  cursor: default;
+}
+/* The label and its chevron, hugging (#55615), and an unseen copy of them at the widest time in the
+   same cell: the cell is as wide as the wider, so the slack while the seconds tick sits after the
+   chevron. test: WorkingForChevron.test.tsx, test/turn-header-steady-browser.test.ts. */
+.cv-worked__hug,
+.cv-worked__toggle-sizer {
+  grid-area: 1 / 1;
   display: inline-flex;
   align-items: center;
   gap: var(--grid-gap);
   min-width: 0;
-  height: 100%;
-  cursor: default;
+  max-width: 100%;
+}
+.cv-worked__toggle-sizer {
+  visibility: hidden;
+  overflow: hidden;
+  white-space: nowrap;
 }
 .cv-worked__toggle:is(:hover, :focus-visible) * {
   color: var(--cv-text);
@@ -9460,7 +9571,6 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
 .cv-subagent__time,
 .cv-subagents__time,
 .cv-subagent-done__time,
-.cv-shimmer__lit-time,
 .acpmux-running-tray__time,
 .acpmux-agent-line__time,
 .acpmux-done-mark__time,
