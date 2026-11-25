@@ -51,11 +51,15 @@ pub(in crate::hub) fn review_after_restore(session: &Session) {
 
 /// The new messages of `items` that expire at `now`: past their deadline by [`EXPIRE_AFTER_MS`].
 /// A folded repeat has no deadline of its own, and a surge-held one waits for its triage.
-pub(in crate::hub) fn expired_ids(items: &[Item], now: u64) -> Vec<String> {
+pub(in crate::hub) fn expired_ids(
+    items: &[Item],
+    now: u64,
+    due: impl Fn(&Item) -> u64,
+) -> Vec<String> {
     items
         .iter()
         .filter(|i| !i.noticed && !i.surge_held && !folded(i))
-        .filter(|i| i.due().saturating_add(EXPIRE_AFTER_MS) < now)
+        .filter(|i| due(i).saturating_add(EXPIRE_AFTER_MS) < now)
         .map(|i| i.prompt_id.clone())
         .collect()
 }
@@ -90,14 +94,16 @@ impl Hub {
             return 0;
         }
         let now = now_ms();
-        let receiver = session.meta().name;
-        let receiver = if receiver.is_empty() { session.id.clone() } else { receiver };
+        let meta = session.meta();
+        let receiver = if meta.name.is_empty() { &session.id } else { &meta.name };
+        let lapsed = super::super::cold_wake::coldness(&meta, now).is_some();
+        let due = |i: &Item| due_for(i, quiet(&session.id, &meta, lapsed, i));
         let (expired, why) = {
             let mut inbox = session.inbox();
             if inbox.in_flight.is_some() {
                 return 0;
             }
-            let ids = expired_ids(&inbox.items, now);
+            let ids = expired_ids(&inbox.items, now, due);
             if ids.is_empty() {
                 return 0;
             }
@@ -121,7 +127,7 @@ impl Hub {
         for item in &expired {
             let record = json!({
                 "promptId": item.prompt_id, "threadId": item.thread, "reason": "expired",
-                "why": why, "dueAt": item.due(),
+                "why": why, "dueAt": due(item),
             });
             self.append(session, "mux", "inbox_removed", record);
         }
@@ -129,7 +135,7 @@ impl Hub {
             format!(
                 "inbox.expired: {receiver} took no notice of this message within {} hours past its \
                  deadline ({why}). It was not delivered; it left {receiver}'s inbox.",
-                (now.saturating_sub(item.due())) / 3_600_000
+                (now.saturating_sub(due(item))) / 3_600_000
             )
         };
         let mut by_sender: std::collections::BTreeMap<String, Vec<&Item>> = Default::default();
