@@ -87,13 +87,7 @@ def build_manifest(path: Path, store: Path | None = None) -> dict:
         piece = data[start:end]
         digest = hashlib.sha256(piece).hexdigest()
         chunks.append({"sha256": digest, "size": end - start})
-        if store is not None:
-            dest = store / digest[:2] / digest
-            if not dest.exists():
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                tmp = dest.with_name(f"{dest.name}.{os.getpid()}.tmp")
-                tmp.write_bytes(piece)
-                os.replace(tmp, dest)
+        _store_put(store, digest, piece)
         start = end
     return {
         "format": "cmux-cas-manifest/0",
