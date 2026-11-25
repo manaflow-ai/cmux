@@ -157,7 +157,7 @@ async fn join_or_take(
         match handle.await {
             Ok(joined) => return joined,
             Err(e) => {
-                tracing::debug!(session = session_id, error = %e, "the early relay join ended; joining again")
+                tracing::debug!(session = session_id, error = %e, "the early relay join ended; joining again");
             }
         }
     }
