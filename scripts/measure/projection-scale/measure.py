@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """RFD 0065's serve/link/mount and clone matrix, on one harness (RFD 0065 piece 14).
 
-    measure.py projection TREE [--mode folder|plain] [--steps ls,rg,gitstatus,first,whole] [--profile NAME | --rtt-ms N --mbps M]
+    measure.py projection TREE [--mode folder|plain] [--steps ls,rg,gitstatus,first,whole,edit] [--profile NAME | --rtt-ms N --mbps M]
                                [--bin SLICE_BENCH] [--build] [--out DIR] [--label NAME]
     measure.py git REPO [--branch B] [--options depth1,blobnone,sparse,gitzst,overlay] [--cone DIR,DIR]
                         [--out DIR] [--label NAME]
@@ -53,6 +53,11 @@ STEPS = {
     # byte, then the whole file; down_bytes says whether the read faulted lazily or the mount copied eagerly.
     "first": "head -c1 -- {largest} | wc -c",
     "whole": "cat -- {largest} | wc -c",
+    # Writes on the mount: a new file, a case-only rename, a read back; "ok" or "lost" (the overlay keeps writes
+    # on the machine; kinds.py checks the Mac's tree is untouched, and the prod matrix checks they reach the Mac).
+    "edit": "printf cmuxedit > .cmux-edit-probe && mv .cmux-edit-probe .CMUX-EDIT-PROBE"
+            " && [ \"$(cat .CMUX-EDIT-PROBE)\" = cmuxedit ] && [ ! -e .cmux-edit-probe ] && rm .CMUX-EDIT-PROBE"
+            " && echo ok || echo lost",
 }
 
 
@@ -471,7 +476,7 @@ def main() -> None:
     p = sub.add_parser("projection", parents=[common])
     p.add_argument("tree")
     p.add_argument("--mode", choices=("folder", "plain"), default="folder")
-    p.add_argument("--steps", default="ls,rg,gitstatus", help="ls, rg, gitstatus, first, whole (first and whole read TREE's largest file)")
+    p.add_argument("--steps", default="ls,rg,gitstatus", help="ls, rg, gitstatus, first, whole, edit (first and whole read TREE's largest file; edit writes and renames)")
     p.add_argument("--rtt-ms", type=float, default=0.0)
     p.add_argument("--mbps", type=float, default=None, help="cap each way, megabits/s (slice_bench link --mbps)")
     p.add_argument("--profile", choices=sorted(PROFILES), help="run the link at a profile's rate and RTT")
