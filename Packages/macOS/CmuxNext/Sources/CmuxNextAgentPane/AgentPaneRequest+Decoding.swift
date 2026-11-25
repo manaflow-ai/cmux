@@ -384,6 +384,8 @@ extension AgentPaneRequest {
             self = .touched
         case "newTab.context":
             self = .newTabContext
+        case "newTab.cloudPick":
+            self = .newTabCloudPick
         case "newTab.warm":
             // The page's own JSON text (newtab/warmSnapshot.ts), kept as it is: one list has one text, so the pages of one
             // list share one part (``AgentPaneNewTabShared``). No parse and sorted re-encode of up to 512 KB on main.

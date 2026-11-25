@@ -635,6 +635,57 @@ test("after a relaunch, Cloud's New Tab starts where the last Cloud chat did, no
   }
 });
 
+// Found in the tagged build: picking Cloud put Cloud's last repository on the chip, and picking This Mac again then
+// showed No folder (a Cloud folder of this Mac would have stayed on This Mac's chip).
+test("Cloud and back: This Mac's chip comes back to This Mac's own last folder, not Cloud's pick or No folder (cmux#53226)", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
+  type Mode = "persistent" | "cloud";
+  act(() => root?.unmount());
+  root = createRoot(host);
+  const render = (mode: Mode) =>
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat([theirs])}
+        omnibar={EMPTY_OMNIBAR}
+        lastAgent="claude"
+        home={HOME}
+        startedProject={PICKED}
+        cloudStartedProject="github:acme/api"
+        projects={[{ cwd: PICKED, label: "atlas", repo: { root: PICKED, name: "atlas", github: "acme/atlas" } }]}
+        environments
+        runMode={{ mode, onMode: (next: string) => render(next as Mode) }}
+        onCloud={() => true}
+        onProjectPicked={noop}
+        onAsk={noop}
+        onOpen={noop}
+        onSearch={noop}
+        onShell={noop}
+        onJump={noop}
+        onOpenSession={noop}
+        onShowAll={noop}
+      />,
+    );
+  await act(async () => render("persistent"));
+  const chip = () => host.querySelector('[aria-label="Folder"]')?.textContent ?? "";
+  const where = async (name: string) => {
+    await act(async () =>
+      host.querySelector<HTMLElement>('.acpmux-location-picker[data-kind="computer"] button')!.click(),
+    );
+    const item = [...document.querySelectorAll<HTMLElement>(".acpmux-env-popover [role=option]")].find((option) =>
+      option.textContent?.startsWith(name),
+    );
+    await act(async () => item!.click());
+  };
+  expect(chip()).toContain("atlas");
+  await where("Cloud");
+  expect(chip()).toContain("acme/api");
+  // Before: No folder.
+  await where("This Mac");
+  expect(chip()).toContain("atlas");
+  expect(chip()).not.toContain("acme/api");
+});
+
 test("after a relaunch, a remembered Cloud folder of this Mac is the default and is granted again (cmux#53226)", async () => {
   const { forgetAppCloudPickForTests } = await import("../src/agent-session/acpmux/newtab/startedProject");
   forgetAppCloudPickForTests();
@@ -670,4 +721,33 @@ test("the app's Cloud pick seeds this run's copy, so a chat restored after a rel
   // This run's own start wins over the app's older copy.
   stored.set("cmux.acpmux.newTab.cloudPick.v1", "github:acme/web");
   expect(cloudPickChoices("github:acme/api")).toEqual(["github:acme/web", "github:acme/api"]);
+});
+
+// Found in the tagged build: a new chat's composer (no New Tab context; its storage is not the New Tab page's) showed
+// No folder on Cloud after a relaunch. The page asks the app for Cloud's last pick once.
+test("a chat page with no New Tab context asks the app for Cloud's last pick, and a pick made here wins (cmux#53226)", async () => {
+  const { askAppCloudPick, cloudPickChoices, rememberCloudPick, forgetAppCloudPickForTests } =
+    await import("../src/agent-session/acpmux/newtab/startedProject");
+  forgetAppCloudPickForTests();
+  const asked: string[] = [];
+  const app = async (method: string) => (asked.push(method), { cloudStarted: "github:acme/api" });
+  expect(cloudPickChoices()).toEqual([]);
+  askAppCloudPick(app);
+  askAppCloudPick(app);
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(asked).toEqual(["newTab.cloudPick"]);
+  expect(cloudPickChoices()).toEqual(["github:acme/api"]);
+  // A pick this page made before the answer stays.
+  forgetAppCloudPickForTests();
+  stored.clear();
+  askAppCloudPick(app);
+  rememberCloudPick("github:acme/web");
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(cloudPickChoices()).toEqual(["github:acme/web"]);
+  // An app that does not know the call (an older build) leaves the page as it was.
+  forgetAppCloudPickForTests();
+  stored.clear();
+  askAppCloudPick(async () => Promise.reject(new Error("unsupported")));
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(cloudPickChoices()).toEqual([]);
 });

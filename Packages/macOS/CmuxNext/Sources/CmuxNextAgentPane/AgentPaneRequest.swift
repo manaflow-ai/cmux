@@ -90,6 +90,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// handshake that waits for acpmux: a cold New Tab page draws its frame
     /// (layout, field, empty list) at first render (cx-0rpl.10).
     case newTabContext
+    /// The app's Cloud pick (`newTab.cloudPick`): a chat page has no New Tab context, and its storage is not a New Tab
+    /// page's, so its composer asks for Cloud's last pick here (cmux#53226).
+    case newTabCloudPick
     /// The identified New Tab field mounted and took DOM focus.
     case newTabInputReady(String)
     /// A local page's newest chats as JSON text (`newTab.warm {warm}`): the next New Tab page's

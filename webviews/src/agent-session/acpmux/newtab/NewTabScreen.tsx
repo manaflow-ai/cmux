@@ -884,6 +884,13 @@ export function NewTabScreen(props: Props) {
   const checkedOutRepo = project !== undefined && localGitHubPick?.cwd === project;
   // The checkout a Cloud pick carried as its repository (pickRunMode), for the way back to This Mac.
   const cloudCarried = useRef<{ cwd: string; name: string }>(undefined);
+  // This Mac's folder choice when Cloud was picked, and the folder Cloud started on (pickRunMode).
+  const localBeforeCloud = useRef<{
+    picked: boolean;
+    none: boolean;
+    seeded: string | undefined;
+    cloud: string | undefined;
+  }>(undefined);
   const pickedHereFolder =
     picked && project !== undefined && localAskFolder === project && !githubFolderRepo(project) && !checkedOutRepo
       ? project
@@ -957,8 +964,22 @@ export function NewTabScreen(props: Props) {
       props.runMode?.onMode(mode);
       return;
     }
+    // Back on This Mac with Cloud's folder as Cloud left it: This Mac's own folder from before, never Cloud's last
+    // pick carried over nor No folder (cmux#53226). A folder picked while on Cloud stays as above.
+    const before = localBeforeCloud.current;
+    if (mode !== "cloud") localBeforeCloud.current = undefined;
+    if (mode === "persistent" && cloudMode && before && project === before.cloud) {
+      saved.pick(undefined);
+      setMachine(undefined);
+      setPicked(before.picked);
+      setNone(before.none);
+      setProject(before.seeded);
+      props.runMode?.onMode(mode);
+      return;
+    }
     if (mode === "cloud" || (cloudMode && githubFolderRepo(localAskFolder))) {
       const next = mode === "cloud" ? cloudFolder : undefined;
+      if (mode === "cloud" && !cloudMode) localBeforeCloud.current = { picked, none, seeded, cloud: next };
       saved.pick(undefined);
       setMachine(undefined);
       setPicked(true);

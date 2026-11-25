@@ -83,5 +83,14 @@ struct NewTabStartedProjectTests {
         _ = await Self.remember(model, ["cloudStarted": "/Users/you/src/billing"])
         #expect(NewTabChoiceMemory(defaults: defaults).cloudStartedProject == "/Users/you/src/billing")
         #expect(NewTabChoiceMemory(defaults: defaults).startedProject == "/Users/you/src/atlas")
+
+        // A chat page has no New Tab context: it asks (`newTab.cloudPick`) and gets the same pick; a chat on another
+        // machine gets none.
+        model.cloudPick = { NewTabChoiceMemory(defaults: defaults).cloudStartedProject }
+        let asked = await model.respond(to: AgentPaneRequest(body: ["method": "newTab.cloudPick"]))
+        #expect((asked["value"] as? [String: Any])?["cloudStarted"] as? String == "/Users/you/src/billing", "\(asked)")
+        model.remoteChat = true
+        let remote = await model.respond(to: AgentPaneRequest(body: ["method": "newTab.cloudPick"]))
+        #expect((remote["value"] as? [String: Any])?["cloudStarted"] == nil, "\(remote)")
     }
 }

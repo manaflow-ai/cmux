@@ -98,7 +98,7 @@ import {
   withCloudStartPick,
 } from "./newtab/draftFolder";
 import { cloudModePickFor as cloudModeFor, useCloudModePick } from "./cloudModePick";
-import { cloudPickChoices, rememberStartedProject } from "./newtab/startedProject";
+import { askAppCloudPick, cloudPickChoices, rememberStartedProject } from "./newtab/startedProject";
 import { shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { TaskGoalStrip } from "./TaskGoalStrip";
 import { ApprovedPlanBand } from "./ApprovedPlanBand";
@@ -4185,6 +4185,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// This Mac's folder on the chip when Cloud was picked, for the way back (Cloud's own default is not This Mac's);
   /// a reused page's is no folder of the tab it now shows.
   const localDraftBeforeCloud = useRef<{ draft: string | undefined } | undefined>(undefined);
+  // Cloud's last pick as the app keeps it, for a chat page (no New Tab context): its composer's Cloud starts there.
+  useEffect(() => askAppCloudPick(callNative), []);
   const adoptNewTab = useCallback((host: NewTabHost) => {
     pickedProject.current = undefined;
     localDraftBeforeCloud.current = undefined;
