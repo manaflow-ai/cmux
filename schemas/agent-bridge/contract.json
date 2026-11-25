@@ -23,6 +23,7 @@
     "chat.attach.source": "chat.attach.source",
     "chat.attention.open": "chat.attention.open",
     "chat.btw.inline": "chat.btw.inline",
+    "chat.cloudStartQueue": "chat.cloudStartQueue",
     "chat.computerUsePreview": "chat.computerUsePreview",
     "chat.draftAttachments": "chat.draftAttachments",
     "chat.draftAttachments.get": "chat.draftAttachments.get",
@@ -100,6 +101,11 @@
     "cloudMachine.wakeHint": "cloudMachine.wakeHint",
     "composer.capture": "composer.capture",
     "composer.copy": "composer.copy",
+    "composer.copy.begin": "composer.copy.begin",
+    "composer.copy.cancel": "composer.copy.cancel",
+    "composer.copy.chunk": "composer.copy.chunk",
+    "composer.copy.finish": "composer.copy.finish",
+    "composer.copy.staged": "composer.copy.staged",
     "customizations.menu": "customizations.menu",
     "designSelection.released": "designSelection.released",
     "diag.flicker": "diag.flicker",
@@ -113,6 +119,7 @@
     "dictation.start": "dictation.start",
     "dictation.stop": "dictation.stop",
     "dictation.toggle": "dictation.toggle",
+    "editors.list": "editors.list",
     "environment.list": "environment.list",
     "environment.remove": "environment.remove",
     "environment.save": "environment.save",
@@ -238,6 +245,7 @@
     "tab.open": "tab.open",
     "tab.typeAhead": "tab.typeAhead",
     "tips.state": "tips.state",
+    "transport.ack": "transport.ack",
     "transport.close": "transport.close",
     "transport.gesture": "transport.gesture",
     "transport.gesture.release": "transport.gesture.release",
@@ -261,6 +269,28 @@
     ],
     "composer.copy": [
       "items",
+      "text"
+    ],
+    "composer.copy.begin": [
+      "batch",
+      "batchToken",
+      "name",
+      "size"
+    ],
+    "composer.copy.cancel": [
+      "token"
+    ],
+    "composer.copy.chunk": [
+      "data",
+      "offset",
+      "token"
+    ],
+    "composer.copy.finish": [
+      "token"
+    ],
+    "composer.copy.staged": [
+      "items",
+      "order",
       "text"
     ],
     "environment.list": [],
@@ -307,6 +337,7 @@
       "urls"
     ],
     "link.openPath": [
+      "line",
       "path"
     ],
     "link.preview": [

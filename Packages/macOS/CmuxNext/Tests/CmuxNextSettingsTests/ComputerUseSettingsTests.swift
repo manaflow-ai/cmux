@@ -174,7 +174,7 @@ import Testing
         #expect(Set(keys.map(\.id)) == ["computerUse.mode", "computerUse.deniedApps", "computerUse.allowOwnMachines",
                                          "computerUse.pauseOnTakeover", "computerUse.allowForeground", "computerUse.showCursor",
                                          "computerUse.cursorTag", "computerUse.settle", "computerUse.livePreview",
-                                         "computerUse.menus"])
+                                         "computerUse.menus", "computerUse.whileLocked"])
         let (settings, home) = try controller("{}")
         defer { try? FileManager.default.removeItem(at: home) }
         await settings.reload()
