@@ -42,6 +42,13 @@ root="$(git rev-parse --show-toplevel)"
 list="$(dirname "${BASH_SOURCE[0]}")/settings-exports.txt"
 exports=()
 while IFS= read -r path; do exports+=("$path"); done < <(sed -e 's/#.*//' -e '/^[[:space:]]*$/d' "$list")
+# The export (OUT, "regenerated: PATH" lines): regenerate-settings-exports.sh's Swift tests, or the command
+# CMUX_SETTINGS_EXPORTS_REGEN names (the Linux generated-files job: regenerate-settings-exports-linux.sh,
+# which builds nothing, so the restore has no package build to put back).
+regen_settings() {
+  if [[ -n "${CMUX_SETTINGS_EXPORTS_REGEN:-}" ]]; then "$CMUX_SETTINGS_EXPORTS_REGEN" "$1"
+  else scripts/cmux-next/regenerate-settings-exports.sh "$1"; fi
+}
 (( ${#exports[@]} )) || { echo "::error::scripts/cmux-next/settings-exports.txt lists no export" >&2; exit 1; }
 
 base_stamp="$(python3 scripts/ci/defaults_guard.py source-stamp --ref "$(git rev-parse HEAD^1)")"
@@ -52,7 +59,7 @@ if [[ "$base_stamp" == "$head_stamp" ]] && git diff --quiet HEAD^1 HEAD -- docs/
   echo "The settings sources and exports did not change; any stale export is the base's (the base autofix regenerates it)."
   exit 0
 fi
-scripts/cmux-next/regenerate-settings-exports.sh "$temp/settings-exports" | tee "$temp/settings-exported.txt"
+regen_settings "$temp/settings-exports" | tee "$temp/settings-exported.txt"
 stale=()
 while IFS= read -r file; do stale+=("$file"); done < <(sed -n 's/^regenerated: //p' "$temp/settings-exported.txt")
 # Nothing stale: the exports are HEAD's own fresh export and the build is HEAD's. Nothing to put back.
@@ -114,12 +121,13 @@ restore() {
   fi
   # From HEAD's sources again: this rewrites every export and rebuilds the package's test
   # products, so both the checkout and the built binaries are HEAD's.
-  if scripts/cmux-next/regenerate-settings-exports.sh "$temp/settings-head-exports" > "$temp/settings-head-exported.txt" 2>&1; then
+  if regen_settings "$temp/settings-head-exports" > "$temp/settings-head-exported.txt" 2>&1; then
     return 0
   fi
   cat "$temp/settings-head-exported.txt" >&2
   echo "::error::the settings export could not be redone from HEAD's sources; restoring the committed exports instead" >&2
   git checkout -q HEAD -- "${exports[@]}"
+  [[ -z "${CMUX_SETTINGS_EXPORTS_REGEN:-}" ]] || return 1  # nothing was built: nothing to put back
   # The exports are HEAD's committed bytes, so nothing base-derived is collected. The BUILT products
   # are still the base export's, though: the sources above are HEAD's again, so a plain build of the
   # package puts them back. The export failing does not mean the build does (it also fails on an
@@ -163,7 +171,7 @@ done
 # The base parent's own list: these sources write what the base listed, and HEAD's list would refuse
 # an export the pull request removed as unlisted, failing the check on the removal (review of #23915).
 CMUX_SETTINGS_EXPORTS_LIST="$base_list" \
-  scripts/cmux-next/regenerate-settings-exports.sh "$temp/settings-base-exports" > "$temp/settings-base-exported.txt"
+  regen_settings "$temp/settings-base-exports" > "$temp/settings-base-exported.txt"
 based="$temp/settings-based"
 for file in "${stale[@]}"; do mkdir -p "$based/${file%/*}" && cp "$file" "$based/$file"; done
 
