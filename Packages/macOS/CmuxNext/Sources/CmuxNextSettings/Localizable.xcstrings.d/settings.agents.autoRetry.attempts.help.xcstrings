@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agents.autoRetry.attempts.help" : {
+      "comment" : "Settings > Agents > Retry After Errors: attempts help",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "عدد مرات إعادة المحادثة للمحاولة قبل أن تتوقف وتنتظرك."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Koliko puta chat pokuša ponovo prije nego što stane i sačeka vas."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hvor mange gange chatten prøver igen, før den stopper og venter på dig."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wie oft der Chat es erneut versucht, bevor er anhält und auf dich wartet."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "How many times the chat tries again before it stops and waits for you."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cuántas veces vuelve a intentarlo el chat antes de detenerse y esperarte."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nombre de nouvelles tentatives avant que la discussion s’arrête et vous attende."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quante volte la chat riprova prima di fermarsi e aspettarti."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "停止してあなたを待つまでに、チャットが再試行する回数。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ចំនួនដងដែលការជជែកព្យាយាមម្ដងទៀត មុនពេលវាឈប់ ហើយរង់ចាំអ្នក។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "채팅이 멈추고 사용자를 기다리기 전까지 다시 시도하는 횟수입니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hvor mange ganger chatten prøver på nytt før den stopper og venter på deg."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ile razy czat spróbuje ponownie, zanim się zatrzyma i zaczeka na Ciebie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quantas vezes o chat tenta de novo antes de parar e esperar por você."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Сколько раз чат повторит попытку, прежде чем остановится и подождёт вас."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "จำนวนครั้งที่แชตลองใหม่ก่อนจะหยุดและรอคุณ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sohbetin durup sizi beklemeden önce kaç kez yeniden deneyeceği."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Скільки разів чат повторить спробу, перш ніж зупиниться й чекатиме на вас."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Số lần cuộc trò chuyện thử lại trước khi dừng và chờ bạn."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "对话在停止并等待你之前重试的次数。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "對話在停止並等待你之前重試的次數。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
