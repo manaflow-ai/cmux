@@ -794,9 +794,9 @@ struct AgentChatJumpButton: View {
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(.primary)
                         .frame(width: metrics.smallCircle, height: metrics.smallCircle)
-                        .background(Color.cmuxMobileBackground.opacity(0.72), in: .circle)
-                        // A tinted glass disc, so transcript text under it never reads through the arrow.
-                        .glassEffect(.regular.tint(Color.cmuxMobileBackground.opacity(0.35)).interactive(), in: .circle)
+                        // Floating glass with the theme's veil, so transcript text under it never reads
+                        // through the arrow (an opaque stock disc was a black dot on the Mac's picture).
+                        .cmuxMobileFloatingGlass(in: .circle, interactive: true)
                         // The 36 pt disc in a 44 pt target.
                         .frame(width: metrics.glassButton, height: metrics.glassButton)
                         .overlay(alignment: .topTrailing) {
@@ -804,7 +804,7 @@ struct AgentChatJumpButton: View {
                                 CmuxSpinner(tint: .primary)
                                     .controlSize(.mini)
                                     .frame(width: metrics.workingIndicatorBadge, height: metrics.workingIndicatorBadge)
-                                    .background(Color.cmuxMobileBackground, in: .circle)
+                                    .cmuxMobileFloatingGlass(in: .circle)
                                     .allowsHitTesting(false)
                                     .accessibilityHidden(true)
                             }
@@ -870,7 +870,7 @@ public struct AgentChatBottomStack: View {
                             .padding(.vertical, 9)
                     }
                     .buttonStyle(.cmuxPressFillCapsule)
-                    .glassEffect(.regular, in: .capsule)
+                    .cmuxMobileFloatingGlass(in: .capsule)
                     .transition(.opacity.combined(with: .offset(y: 8)))
                     .accessibilityHint("Dismiss")
                 }
@@ -895,7 +895,7 @@ public struct AgentChatBottomStack: View {
                     // A new card is a new view: a password typed for one command never stays for the next.
                     .id(ask.id)
                     .padding(16)
-                    .glassEffect(.regular, in: .rect(cornerRadius: 28, style: .continuous))
+                    .cmuxMobileFloatingGlass(in: .rect(cornerRadius: 28, style: .continuous))
                     .padding(.horizontal, 12)
                     .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 16)), removal: .opacity))
                 } else if let permission = store.pendingPermission, !surface.permissionBarHidden {
@@ -906,7 +906,7 @@ public struct AgentChatBottomStack: View {
 
                     }
                     .padding(12)
-                    .glassEffect(.regular, in: .rect(cornerRadius: 28, style: .continuous))
+                    .cmuxMobileFloatingGlass(in: .rect(cornerRadius: 28, style: .continuous))
                     .padding(.horizontal, 12)
                     .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 16)), removal: .opacity))
                 } else {
@@ -995,7 +995,8 @@ public struct AgentChatBottomStack: View {
             // drags that start above it).
             .simultaneousGesture(DragGesture(minimumDistance: 14).onChanged { value in
                 let t = value.translation
-                if surface.composerFocused, t.height > 14, t.height > abs(t.width) * 1.5 { surface.composerFocused = false }
+                if surface.composerFocused, !ChatComposerTextView.isScrollingDraft,
+                   t.height > 14, t.height > abs(t.width) * 1.5 { surface.composerFocused = false }
             })
         }
         .padding(.bottom, bottomPadding)
