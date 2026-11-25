@@ -2527,6 +2527,78 @@ fn a_machine_made_on_an_old_image_reports_ready_already_on_the_channel_build() {
     assert_eq!(&look::report(&paths).unwrap()["first_ready"], timing);
 }
 
+/// A new machine restored from the image's memory snapshot (its `cmux host run`
+/// goes on from the bake, a session host with it) took the restore's
+/// five-minute resume hold, so it bound, reported ready and was linked on the
+/// image's build, two days behind (development read-back, 2026-11-25: no
+/// update within 180 s of the create). Before its first bind the step flips
+/// past that hold at once, inside the gate: the service's restart is queued,
+/// and a bind that comes now leaves `bind.json` for the restarted service.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_restored_machine_before_its_first_bind_takes_the_channel_build_past_the_resume_hold() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = image(dir.path());
+    // The snapshot's session host runs: the cold-start step would not go.
+    let pid = paths.at(crate::config::DAEMON_PID_FILE);
+    fs::create_dir_all(pid.parent().unwrap()).unwrap();
+    fs::write(&pid, "1\n").unwrap();
+    assert!(first_ready::not_first(&paths).is_some());
+    // The restore's hold.
+    let now = role::wall_ms();
+    assert!(gate::hold_connects(&paths, now, gate::HoldKind::Resume).unwrap());
+    let (new_tui, new_hook) = (sha(b"new"), sha(b"hok"));
+    let payload: Payload = serde_json::from_value(payload_json(&new_tui, &new_hook)).unwrap();
+    let mut io = FirstIo::serving(payload, first_files(&new_tui, &new_hook));
+    let deadline = std::time::Instant::now() + first_ready::RESTORE_BOUND;
+    let mut restarts = 0;
+    let first = first_ready::after_restore(&paths, TARGET, deadline, &mut io, || restarts += 1);
+    assert_eq!(first, first_ready::First::Flipped(COMMIT.to_owned()));
+    assert_eq!(restarts, 1, "the service restarts onto the channel's build");
+    assert_eq!(store::current_generation(&paths).unwrap(), 2);
+    assert_eq!(store::linked_package(&paths, 2, "cmux-tui").unwrap(), new_tui);
+    assert!(load_pending(&paths).is_some(), "the restarted service proves it or rolls it back");
+    assert_eq!(io.armed, vec![2]);
+    assert_eq!(io.restarted, vec![role::store_binary(OLD_TUI)]);
+    // The first bind waits for the restarted service.
+    let gate = gate::Gate::new(&paths);
+    assert!(!gate.begin_bind(role::wall_ms()).unwrap(), "a bind went out on the image's build");
+    // That service takes no start hold (its own flip), so nothing waits five minutes.
+    let started = role::wall_ms();
+    assert!(gate.service_started_at(started).unwrap(), "the flip's restart was not pending");
+    assert!(role::start_hold(&paths, started, crate::linux::realtime_minus_boottime_ns()));
+}
+
+/// The step at a restore never runs on a machine a person may be linked to:
+/// one bound to Cloud, or one whose bind's connect hold is on.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_restored_machine_after_a_bind_keeps_its_holds() {
+    let (new_tui, new_hook) = (sha(b"new"), sha(b"hok"));
+    let payload: Payload = serde_json::from_value(payload_json(&new_tui, &new_hook)).unwrap();
+    let deadline = std::time::Instant::now() + first_ready::RESTORE_BOUND;
+
+    let dir = tempfile::tempdir().unwrap();
+    let paths = image(dir.path());
+    let bound = paths.at(crate::cloud::wire::BOUND_FILE);
+    fs::create_dir_all(bound.parent().unwrap()).unwrap();
+    fs::write(&bound, "{}\n").unwrap();
+    let mut io = FirstIo::serving(payload.clone(), first_files(&new_tui, &new_hook));
+    let first = first_ready::after_restore(&paths, TARGET, deadline, &mut io, || panic!("restart"));
+    assert!(matches!(first, first_ready::First::NotFirst(_)), "{first:?}");
+    assert_eq!(io.reads, 0);
+
+    // A bind just ended (its connect hold is on, `bound.json` not yet seen).
+    let dir = tempfile::tempdir().unwrap();
+    let paths = image(dir.path());
+    assert!(gate::hold_connects(&paths, role::wall_ms(), gate::HoldKind::Connect).unwrap());
+    let mut io = FirstIo::serving(payload, first_files(&new_tui, &new_hook));
+    let first = first_ready::after_restore(&paths, TARGET, deadline, &mut io, || panic!("restart"));
+    assert!(matches!(first, first_ready::First::OnImage(_)), "{first:?}");
+    assert_eq!(store::current_generation(&paths).unwrap(), 1, "it flipped under a bind's hold");
+    assert!(load_pending(&paths).is_none());
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn first_ready_current_image_reports_no_update() {

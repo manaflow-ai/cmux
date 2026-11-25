@@ -36,6 +36,7 @@ use std::path::Path;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use super::channel::{self, Binary, Payload};
+use super::gate::{Gate, Honor};
 use super::role::{self, Lock, Outcome};
 use super::{
     Decision, Pending, clear_pending, decide, load_pending, load_state, off_reason,
@@ -86,6 +87,21 @@ pub enum First {
 
 /// Why this machine does not take the step, if it does not.
 pub(super) fn not_first(paths: &Paths) -> Option<&'static str> {
+    if let Some(why) = not_before_bind(paths) {
+        return Some(why);
+    }
+    // A session host from an earlier start of the service (`/run` is new at each boot).
+    if paths.at(crate::config::DAEMON_PID_FILE).exists() {
+        return Some("a session host runs");
+    }
+    None
+}
+
+/// Why a machine whose `cmux host run` already runs does not take the step
+/// at a snapshot restore ([`after_restore`]), if it does not: [`not_first`]
+/// but the session host, which the image's snapshot keeps running from the
+/// bake (no person was ever linked to a machine never bound).
+pub(super) fn not_before_bind(paths: &Paths) -> Option<&'static str> {
     if !paths.at(store::CURRENT_LINK).exists() {
         return Some("no store profile");
     }
@@ -99,11 +115,98 @@ pub(super) fn not_first(paths: &Paths) -> Option<&'static str> {
     if load_pending(paths).is_some() {
         return Some("an update is waiting for its health check");
     }
-    // A session host from an earlier start of the service (`/run` is new at each boot).
-    if paths.at(crate::config::DAEMON_PID_FILE).exists() {
-        return Some("a session host runs");
-    }
     None
+}
+
+/// How long the step may hold the restart gate's flock at a snapshot restore
+/// ([`after_restore`]): a bind waits on it that long at most.
+pub const RESTORE_BOUND: Duration = Duration::from_secs(30);
+
+/// The step on a machine restored from the image's memory snapshot, before
+/// its first bind. Such a restore never starts `cmux host run` again (the
+/// snapshot's process goes on, two days into its uptime), so [`run`] never
+/// sees it: before this, the restore took the five-minute resume hold
+/// (`role::hold_after_restore`) and the new machine bound, reported ready
+/// and was linked on the image's build, then waited out the hold the bind
+/// took too.
+///
+/// The channel is read and the build decided outside the gate; the download,
+/// the profile, the flip and the queued restart of the service (`restart`)
+/// run inside [`Gate::run`] honoring every hold but a resume hold, as the
+/// Scaler's `--skip-resume-hold` does. A bind that comes during it waits on
+/// the gate's flock, then finds the restart pending and leaves `bind.json`
+/// for the restarted service, whose first bind, first report and first link
+/// are the channel's build (the own-flip mark spares it the start hold). A
+/// bind already in flight or done (its connect hold) refuses the step, and
+/// the normal updater, with its holds, takes the build later.
+pub(super) fn after_restore(
+    paths: &Paths,
+    target: &str,
+    deadline: Instant,
+    io: &mut impl Io,
+    restart: impl FnOnce(),
+) -> First {
+    if let Some(why) = not_before_bind(paths) {
+        return First::NotFirst(why);
+    }
+    let payload = loop {
+        match io.read_channel() {
+            Ok(payload) => break payload,
+            Err(e) if Instant::now() + READ_RETRY >= deadline => {
+                return First::OnImage(format!("the channel was not read in time: {e}"));
+            }
+            Err(_) => std::thread::sleep(READ_RETRY),
+        }
+    };
+    match decide(paths, &load_state(paths), &payload, target) {
+        Ok(Decision::Update(_)) => {}
+        Ok(Decision::Current) => return First::Current(payload.commit),
+        Ok(Decision::Older) => {
+            return First::OnImage("the channel's build is older than this one".to_owned());
+        }
+        Ok(Decision::RolledBack) => {
+            return First::OnImage("the channel's build was rolled back here".to_owned());
+        }
+        Err(e) => return First::OnImage(e),
+    }
+    let mut read = Read { payload: Some(payload), io };
+    let mut observation = super::look::FirstReady::default();
+    let ran = Gate::new(paths).run(wall_ms(), Honor::AllButResume, |inside| {
+        let first = step(paths, target, deadline, &mut read, &mut observation);
+        if matches!(first, First::Flipped(_)) {
+            inside.flip_restart_queued(wall_ms(), crate::linux::realtime_minus_boottime_ns());
+            restart();
+        }
+        first
+    });
+    ran.unwrap_or_else(|refused| First::OnImage(format!("the restart gate: {refused}")))
+}
+
+/// `io` with the channel already read: [`after_restore`]'s step inside the gate.
+struct Read<'a, I> {
+    payload: Option<Payload>,
+    io: &'a mut I,
+}
+
+impl<I: Io> Io for Read<'_, I> {
+    fn read_channel(&mut self) -> Result<Payload, String> {
+        match self.payload.take() {
+            Some(payload) => Ok(payload),
+            None => self.io.read_channel(),
+        }
+    }
+    fn download(&mut self, bin: &Binary, to: &Path) -> Result<(), String> {
+        self.io.download(bin, to)
+    }
+    fn arm_guard(&mut self, pending: &Pending) -> Result<(), String> {
+        self.io.arm_guard(pending)
+    }
+    fn disarm_guard(&mut self) {
+        self.io.disarm_guard();
+    }
+    fn restart_others(&mut self, old: &Path) {
+        self.io.restart_others(old);
+    }
 }
 
 /// The step on `paths` for `target`, by `deadline`. GETs must be bounded by the
@@ -237,7 +340,7 @@ fn step(
 }
 
 /// The machine's own effects.
-struct Machine;
+pub(super) struct Machine;
 
 impl Io for Machine {
     fn read_channel(&mut self) -> Result<Payload, String> {

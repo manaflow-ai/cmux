@@ -720,10 +720,12 @@ fn run(paths: &Paths, rx: &Receiver<Msg>) {
     }
     loop {
         // A check during the hold waits it out (a Check message only wakes it
-        // to look again).
+        // to look again), but on a machine never bound to Cloud, where the
+        // hold guards no link yet ([`adopt_before_bind`]).
         hold_after_restore(paths);
         if let Some(left) = held_for(paths) {
-            if !wait_watching(paths, rx, left) {
+            let wait = adopt_before_bind(paths).map_or(left, |next| next.min(left));
+            if !wait_watching(paths, rx, wait) {
                 return;
             }
             continue;
@@ -734,6 +736,50 @@ fn run(paths: &Paths, rx: &Receiver<Msg>) {
             return;
         }
     }
+}
+
+/// The channel's build at once on a machine never bound to Cloud that a
+/// resume hold holds: a new machine is a restore of the image's memory
+/// snapshot, whose `cmux host run` goes on (so `first_ready::run` never
+/// sees it) and whose restore starts that hold ([`hold_after_restore`],
+/// [`hold_if_paused`]). The hold guards a person's first link, and none can
+/// come before the bind, which the step's gate run orders after the flip
+/// ([`super::first_ready::after_restore`]). When to look again, or None
+/// when the machine is bound (or the step is not its to take): it waits the
+/// hold out.
+fn adopt_before_bind(paths: &Paths) -> Option<Duration> {
+    if !paths.is_system_root() || super::first_ready::not_before_bind(paths).is_some() {
+        return None;
+    }
+    let target = channel::local_target()?;
+    let started = Instant::now();
+    let deadline = started + super::first_ready::RESTORE_BOUND;
+    let first = within(deadline, || {
+        super::first_ready::after_restore(
+            paths,
+            target,
+            deadline,
+            &mut super::first_ready::Machine,
+            || {
+                let _ = systemctl(&["restart", "--no-block", HOST_UNIT]);
+            },
+        )
+    });
+    use super::first_ready::First;
+    let outcome = match first {
+        First::NotFirst(_) => return None,
+        First::Current(commit) => Outcome::Current(commit),
+        First::Flipped(commit) => {
+            log(&format!(
+                "before the first bind: updated in {} ms; restarting the service",
+                started.elapsed().as_millis()
+            ));
+            Outcome::Updating(commit)
+        }
+        First::OnImage(why) => Outcome::Failed(why),
+    };
+    save_outcome(paths, &outcome, "before the first bind: ");
+    Some(next_look(&outcome, jitter_draw()))
 }
 
 /// What one check did.
