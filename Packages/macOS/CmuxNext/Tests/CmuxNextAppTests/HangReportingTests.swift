@@ -56,6 +56,33 @@ import Testing
         #expect(!reporter.noteHang(duration: .seconds(3), addresses: []))
     }
 
+    @Test func memoryPressureEventsCarryFootprintOwnersAndUptimeAtTheSentryBoundary() {
+        let report = MemoryPressureReport(kind: .critical, footprintMegabytes: 4_096,
+                                          topOwners: [
+                                              .init(name: "Chromium Helper", footprintMegabytes: 2_048),
+                                              .init(name: "cmux-tui", footprintMegabytes: 512),
+                                          ], uptimeNanos: 123_456_789)
+        let event = report.event()
+        #expect(event.level == .error)
+        #expect(event.fingerprint == ["memory-pressure", "critical"])
+        #expect(event.tags?["memory_event"] == "critical")
+        #expect(event.extra?["footprint_mb"] as? Int == 4_096)
+        #expect(event.extra?["uptime_nanos"] as? UInt64 == 123_456_789)
+        #expect(event.extra?["top_owners"] as? [String] == ["Chromium Helper:2048", "cmux-tui:512"])
+    }
+
+    @Test func memoryPressureRateLimiterRefillsAfterItsInterval() {
+        var limiter = MemoryPressureRateLimiter(capacity: 1, refillNanos: 10)
+        // A mutating call inside #expect is refused ("cannot use mutating member on immutable value"): each
+        // admit is its own statement.
+        let first = limiter.admit(nowNanos: 0)
+        let early = limiter.admit(nowNanos: 9)
+        let refilled = limiter.admit(nowNanos: 10)
+        #expect(first)
+        #expect(!early)
+        #expect(refilled)
+    }
+
     @Test func everyEventNamesTheTeamMemberCommitAndInstall() {
         let member = CrashReportIdentity.member(userID: "u-1", name: " Leo ", email: "leo@example.com",
                                                 teamIDs: ["other", CrashReportIdentity.cmuxTeamID])

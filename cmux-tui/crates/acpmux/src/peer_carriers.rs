@@ -262,6 +262,20 @@ pub(crate) async fn dial_link(_socket: &Path, _host: &str) -> Result<BoxDuplex, 
 }
 
 /// The next copy queued for the shadow; never, without one.
+/// The probe's next dual-send check: `check`'s tick, or `doubt_at` (wall-clock ms) when that
+/// comes first, which restarts `check` from then.
+async fn doubt_or_check(check: &mut tokio::time::Interval, doubt_at: Option<u64>) {
+    let Some(at) = doubt_at else {
+        check.tick().await;
+        return;
+    };
+    let wait = Duration::from_millis(at.saturating_sub(crate::store::now_ms()));
+    tokio::select! {
+        _ = check.tick() => {}
+        () = tokio::time::sleep(wait) => check.reset(),
+    }
+}
+
 async fn next_copy(shadow: &mut Option<super::dual::ShadowRun>) -> Option<String> {
     match shadow.as_mut() {
         Some(run) => run.rx.recv().await,
@@ -375,6 +389,14 @@ impl Peer {
         self.with_paths(|paths| paths.serving(via, crate::store::now_ms()));
     }
 
+    /// When the link's path falls in doubt, while that is still ahead and the probe on `via`
+    /// is not the link's own path: the moment its shadow may be wanted (`Paths::doubt_at`).
+    pub(super) fn doubt_ahead(&self, via: Via) -> Option<u64> {
+        let serving = self.serving().filter(|serving| *serving != via)?;
+        let at = self.with_paths(|paths| paths.doubt_at(serving))?;
+        (at > crate::store::now_ms()).then_some(at)
+    }
+
     /// A pong on `via`.
     pub(super) fn path_pong(&self, via: Via, rtt: Duration) {
         let switch = self.with_paths(|paths| paths.pong(via, rtt, crate::store::now_ms()));
@@ -459,7 +481,7 @@ impl Peer {
     /// tokens, never before the race: a dial with its tokens configured or kept starts at once.
     pub(super) async fn open_first(self: &Arc<Self>) -> Result<(Via, Opened), String> {
         use futures_util::FutureExt;
-        // Opt-in tailnet path: read from the cached snapshot (a first read waits briefly).
+        // Opt-in tailnet path: read from memory only, never awaited (a first read runs behind).
         self.refresh_tailnet(None).await;
         let started = crate::store::now_ms();
         let (order, together) = self.with_paths(|paths| {
@@ -1005,6 +1027,9 @@ impl Peer {
         check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut shadow: Option<super::dual::ShadowRun> = None;
         loop {
+            // Without a shadow, the check also wakes the moment the link's path falls in doubt,
+            // so dual send starts then and not up to a whole `DOUBT_CHECK` later.
+            let doubt_at = if shadow.is_none() { self.doubt_ahead(via) } else { None };
             tokio::select! {
                 _ = stopped.changed() => break,
                 _ = ping.tick() => {
@@ -1019,7 +1044,7 @@ impl Peer {
                         break;
                     }
                 }
-                _ = check.tick() => {
+                () = doubt_or_check(&mut check, doubt_at) => {
                     let done = shadow.as_mut().is_some_and(|run| self.shadow_done(run));
                     let frames = match shadow.take() {
                         None if self.dual_wanted(via) => {

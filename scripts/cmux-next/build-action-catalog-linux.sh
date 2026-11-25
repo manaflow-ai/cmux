@@ -20,7 +20,9 @@ if [ -z "$sha" ]; then
 fi
 crate=cmux-tui/crates/cmux-action-catalog
 if ! git -C "$root" cat-file -e "$sha^{commit}" 2>/dev/null; then
-  git -C "$root" fetch --quiet --no-tags --depth 1 --filter=blob:none origin "$sha"
+  depth=()
+  [[ "$(git -C "$root" rev-parse --is-shallow-repository)" == true ]] && depth=(--depth 1)
+  git -C "$root" fetch --quiet --no-tags ${depth[@]+"${depth[@]}"} --filter=blob:none origin "$sha"
 fi
 mkdir -p "$out"
 out="$(cd "$out" && pwd)"

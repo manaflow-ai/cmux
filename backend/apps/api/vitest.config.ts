@@ -55,7 +55,14 @@ export default defineConfig({
     // file's last test, so it can never be a test's result; every other unhandled error still fails the run.
     onUnhandledError: (error) => error.name !== "EnvironmentTeardownError",
     // An explicit list drops the reporter vitest adds on GitHub Actions (failure annotations), so it is named here.
-    reporters: ["default", "./test/setup/slow-tests-reporter.ts", ...(process.env.GITHUB_ACTIONS === "true" ? ["github-actions"] : [])]
+    // VITEST_JSON_OUT names a JSON report of every file's result: CI's shard retry reads its failed files from it.
+    reporters: [
+      "default",
+      "./test/setup/slow-tests-reporter.ts",
+      ...(process.env.GITHUB_ACTIONS === "true" ? ["github-actions"] : []),
+      ...(process.env.VITEST_JSON_OUT ? ["json"] : [])
+    ],
+    ...(process.env.VITEST_JSON_OUT ? { outputFile: { json: process.env.VITEST_JSON_OUT } } : {})
   },
   plugins: [
     cloudflareTest({
