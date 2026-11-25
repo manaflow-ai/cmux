@@ -41,7 +41,7 @@ use tokio::task::JoinHandle;
 
 use super::super::{Connected, DialError, Dialed, LinkPath, PeerAddr, TransportKind};
 use super::roam::Session;
-use super::{LANE_TIMEOUT, LINK_PORT, hold_hook, transport_error};
+use super::{LINK_PORT, accept_lane, hold_hook, open_lane, transport_error};
 use crate::link::{Link, LinkConfig, Role};
 use crate::signaling::{IncomingSession, SignalEnvelope, SignalPayload};
 use crate::timing::Timeline;
@@ -330,19 +330,21 @@ impl Keeper {
                 // The older link on this tunnel (the Mac may not have seen it
                 // fail yet) ends now; the lease above keeps the tunnel.
                 keeper.generation.send_modify(|generation| *generation += 1);
-                let lane = if keeper.input_lane {
-                    let (tx, rx) = oneshot::channel();
-                    match tokio::time::timeout(LANE_TIMEOUT, listener.accept()).await {
-                        Ok(Some(stream)) => {
-                            let _ = tx.send(Box::new(stream) as Box<dyn super::super::LinkStream>);
-                        }
-                        _ => tracing::info!("a resumed link's input lane was not opened in time"),
-                    }
-                    Some(rx)
-                } else {
-                    None
-                };
-                keeper.hand_to_answer(lease, Box::new(stream), lane);
+                if !keeper.input_lane {
+                    keeper.hand_to_answer(lease, Box::new(stream), None);
+                    continue;
+                }
+                // The resumed link goes to the answer loop at once: its main
+                // stream works without the lane, and input waits at most a
+                // moment for it. (It waited here for the lane, up to 10 s on a
+                // weak link, while the phone's resume sat unanswered and its
+                // full dial raced past it, 2026-11-25.)
+                let (tx, rx) = oneshot::channel();
+                keeper.hand_to_answer(lease, Box::new(stream), Some(rx));
+                drop(keeper);
+                if !accept_lane(&mut listener, tx, "resumed").await {
+                    return;
+                }
             }
         });
         if let Some(old) = lock(&self.resumes).replace(task) {
@@ -571,16 +573,7 @@ pub async fn try_resume(
         .map_err(|_| DialError::Timeout)?
         .map_err(transport_error)?;
     timeline.mark("dormant_connected");
-    let lane = keeper.input_lane.then(|| {
-        let (tx, rx) = oneshot::channel();
-        let net = Arc::clone(&net);
-        tokio::spawn(async move {
-            if let Ok(Ok(stream)) = tokio::time::timeout(LANE_TIMEOUT, net.connect(link_addr)).await {
-                let _ = tx.send(Box::new(stream) as Box<dyn super::super::LinkStream>);
-            }
-        });
-        rx
-    });
+    let lane = keeper.input_lane.then(|| open_lane(Arc::clone(&net), link_addr));
     let on_link = lease.on_link();
     let link_config = super::super::reliable_config(link_config, keeper.reliable, None);
     let link = Link::new(stream, Role::Phone, link_config, Some(Box::new(lease)));
