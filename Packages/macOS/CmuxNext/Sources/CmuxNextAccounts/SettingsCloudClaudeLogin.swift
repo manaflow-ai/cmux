@@ -63,10 +63,7 @@ package struct SettingsCloudClaudeLogin {
         models.cloudClaudeLogin = { state(preferred: $0, environment: $1, name: $2) }
         models.prepareCloudClaudeLogin = { try await prepare(preferred: $0, environment: $1, name: $2) }
         models.observeCloudClaudeAccount { host.account() }
-        models.onCloudClaudeSignIn = { machine, changed in
-            setup.claudeSignInCompleted(machine: machine)
-            if changed { await setup.refreshRecoveredClaudeChats?(machine) }
-        }
+        models.onCloudClaudeSignIn = { setup.claudeSignInCompleted(machine: $0) }
     }
 
     private func state(preferred: String?, environment: String?, name: String?) -> SettingsModels.CloudClaudeLogin {

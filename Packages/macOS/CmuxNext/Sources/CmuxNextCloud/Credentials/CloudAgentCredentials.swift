@@ -213,9 +213,9 @@ public final class CloudAgentCredentials {
         chosen[ChatKey(machine: machine, chat: chat)] = id != nil || useMachineLogin ? Selection(connection: id, harness: harness) : nil
     }
 
-    public func stopDeliveringCredential(chat: String, machine: String) {
+    public func stopDeliveringCredential(chat: String, machine: String, harness: String) {
         let key = ChatKey(machine: machine, chat: chat)
-        chosen[key] = Selection(connection: nil, harness: "claude")
+        chosen[key] = Selection(connection: nil, harness: harness)
         keyDeliveries[key] = nil
         if let previous = tracked.removeValue(forKey: key) { refresher.untrack(previous) }
     }
@@ -234,31 +234,13 @@ public final class CloudAgentCredentials {
     /// Cloud first use's rule, set by the app (``CloudSetup/choose(harness:model:account:)``): the connection a Cloud
     /// chat that no Cloud start chose for launches on (`cmux chat --on vm`, `cmux cloud start-session`, a new chat
     /// opened in a machine's workspace). Nil: such a chat starts on the machine's own route.
-    public var setup: CloudSetup? {
-        didSet {
-            setup?.refreshRecoveredClaudeChats = { [weak self] machine in
-                await self?.refreshClaudeRecoveryNotices(machine: machine)
-            }
-        }
-    }
-
-    private var claudeRecoveryNotices: [ChatKey: @MainActor () async -> Void] = [:]
-
-    public func observeClaudeRecovery(chat: String, machine: String, refresh: @escaping @MainActor () async -> Void) {
-        claudeRecoveryNotices[ChatKey(machine: machine, chat: chat)] = refresh
-    }
-
-    private func refreshClaudeRecoveryNotices(machine: String) async {
-        for key in claudeRecoveryNotices.keys.filter({ $0.machine == machine }) {
-            await claudeRecoveryNotices.removeValue(forKey: key)?()
-        }
-    }
+    public var setup: CloudSetup?
 
     /// Opens the recovery form for the machine where this chat's connection failed.
-    public func openModelConnectionSettings(machine: String, harness: String?) {
+    public func openModelConnectionSettings(machine: String, harness: String?, session: String?) {
         let harness = harness ?? "codex"
         let family = CloudSetup.family(of: harness) ?? harness
-        setup?.connect(family: family, machine: machine, recovery: family == "claude")
+        setup?.connect(family: family, machine: machine, recoverySession: family == "claude" ? session : nil)
     }
 
     /// The credential the chat's start sends, read now. A chosen connection that cannot be read throws:

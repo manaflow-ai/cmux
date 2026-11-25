@@ -308,8 +308,10 @@ pub struct AwayRecap {
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum ClaudeTokenRecovery {
-    Rejected,
     MachineLogin,
+    // Accepted on read for metadata written before recovery was scoped to a chat.
+    #[serde(rename = "rejected")]
+    LegacyRejected,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

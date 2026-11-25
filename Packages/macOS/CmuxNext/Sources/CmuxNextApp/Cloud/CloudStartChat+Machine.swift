@@ -140,7 +140,7 @@ extension CloudStartChat {
             try Self.requireEndpointHarness(start.harness == "openrouter" && connection != nil ? "opencode" : launchConnection?.launchHarness, on: session, subscription: subscription)
             let nativeClaude = if connection == nil { await cloud.setup.readyClaudeMachines(for: start.onMachine(machineID)).contains(machineID) } else { false }
             if !nativeClaude, connection == nil, CloudSetup.family(of: start.harness) == "claude",
-               await cloud.setup.refusal(harness: start.harness, model: start.model) != nil { throw CloudMachineRoute.NeedsConnection() }
+               await cloud.setup.refusal(harness: start.harness, model: start.model) != nil { throw CloudMachineRoute.NeedsClaudeLogin(machine: machineID) }
             if start.machine != nil || nativeClaude {
                 let owned = await CloudMachineLinks(appLink: session.appLink).ownerLink() != nil
                 if owned && nativeClaude { return (session, plan) }

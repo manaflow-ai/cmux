@@ -3,9 +3,11 @@ import CmuxNextActions
 import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextCloud
+import CmuxNextCloudUI
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextHostedChief
 import CmuxNextSettings
 import Foundation
 import Testing
@@ -71,6 +73,33 @@ struct CloudStartSessionTests {
         #expect(deleted == 1, "a found machine or a cancelled start's machine was deleted")
         let kept = await run(made: true, failure) { throw ActionFailure(message: "delete refused") } as? ActionFailure
         #expect(kept?.message.hasPrefix(failure.message) == true && kept?.message.contains("kill-machine --target machine:vm-chat-1") == true, "\(String(describing: kept))")
+    }
+
+    @Test func aTargetlessStartChecksTheResolvedMachinesComputerHold() async throws {
+        let (services, session) = Self.fixture()
+        session.machine.displayName = "cloud-chats"
+        _ = try services.cloud.computerControl.perform(.takeOver, machine: session.machineID, byPerson: true)
+        let invocation = Self.invocation(["agent": .string("claude")])
+        let request = try CloudStartSession.request(invocation)
+        #expect(request.machineID == nil && request.name == nil)
+
+        let steps = CloudStartSteps(log: { _ in })
+        do {
+            _ = try await CloudStartSession(services: services).started(
+                on: session, made: false, request, invocation, AppActionContext(services: services),
+                account: services.cloud.account, byPerson: false, revealing: false, steps: steps, gateway: CloudStartBeside { true }
+            )
+            Issue.record("the automatic destination's hold was ignored")
+        } catch let failure as ActionFailure {
+            #expect(failure.message.hasPrefix("computer.human_has_control"))
+            #expect(steps.recorded.isEmpty)
+        }
+    }
+
+    @Test func aPlannedClaudeDestinationIsKeptWhileWaitingForSignIn() {
+        let setup = CloudMachineRoute.NeedsClaudeLogin(machine: "vm_planned")
+        #expect(setup.machine == "vm_planned")
+        #expect(!CloudMoveCLI.StartChatPlan.strands(setup))
     }
 
     @Test func reportedRunnersRequireTheLiveCredentialCapability() {

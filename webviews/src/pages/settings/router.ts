@@ -34,7 +34,7 @@ export type SettingsSearch = {
   machine?: string;
   machineName?: string;
   environment?: string;
-  recovery?: true;
+  recoverySession?: string;
   open?: string;
   fromSend?: true;
 };
@@ -58,7 +58,9 @@ export function validateSettingsSearch(raw: Record<string, unknown>): SettingsSe
   if (typeof raw.environment === "string" && /^(?:env|denv)_[a-f0-9]{24}$/i.test(raw.environment)) {
     out.environment = raw.environment;
   }
-  if (raw.recovery === true || raw.recovery === "1") out.recovery = true;
+  if (typeof raw.recoverySession === "string" && /^[A-Za-z0-9_.:@-]{1,128}$/.test(raw.recoverySession)) {
+    out.recoverySession = raw.recoverySession;
+  }
   if (typeof raw.machineName === "string" && raw.machineName.length <= 128 && raw.machineName.trim()) {
     out.machineName = raw.machineName.trim();
   }

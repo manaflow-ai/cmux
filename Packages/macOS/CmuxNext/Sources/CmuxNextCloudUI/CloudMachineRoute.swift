@@ -223,6 +223,13 @@ public struct CloudMachineRoute: Sendable {
         public var message: String { CloudMachineRoute.message(.notEdge) }
     }
 
+    /// Keep the planned destination while Settings obtains approval on it.
+    public struct NeedsClaudeLogin: CloudStartRetriesOnMachine, Sendable {
+        public let machine: String
+        public init(machine: String) { self.machine = machine }
+        public var message: String { NeedsConnection().message }
+    }
+
     /// What the machine's report says about one agent (`claude` or `codex`), read from the same output Rust judged
     /// (``Verdict`` is the machine's as a whole: one login on it, for any agent, was ``Verdict/holdsCredential``). The
     /// pinned FFI's `cloud_machine_route` answers for the whole machine only, so this reads the report's fields here.

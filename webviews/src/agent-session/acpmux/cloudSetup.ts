@@ -29,7 +29,7 @@ function setupFamily(value: unknown): value is string {
 }
 
 /// What the card names: the picker's agent family and its model id, when the host said one.
-export type CloudSetupNeed = { family: string; model?: string; timedOut?: true };
+export type CloudSetupNeed = { family: string; model?: string; machine?: string; timedOut?: true };
 
 /// The card's ways in, as `cloud.setUp {action}` names them (CloudSetup.Action).
 export const CLOUD_SETUP_ACTIONS = ["connectChatGPT", "setUpClaude", "addKey", "openSettings"] as const;
@@ -47,11 +47,19 @@ export function readCloudSetupNeed(details: unknown): CloudSetupNeed | undefined
   const raw = (details && typeof details === "object" ? details : {}) as {
     family?: unknown;
     model?: unknown;
+    machine?: unknown;
     timedOut?: unknown;
   };
   if (!setupFamily(raw.family)) return undefined;
   const model = typeof raw.model === "string" && raw.model.trim() ? raw.model.trim().slice(0, 128) : undefined;
-  return { family: raw.family, ...(model ? { model } : {}), ...(raw.timedOut === true ? { timedOut: true } : {}) };
+  const machine =
+    typeof raw.machine === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(raw.machine) ? raw.machine : undefined;
+  return {
+    family: raw.family,
+    ...(model ? { model } : {}),
+    ...(machine ? { machine } : {}),
+    ...(raw.timedOut === true ? { timedOut: true } : {}),
+  };
 }
 
 /// The card's single way in, using the same provider as the picker's Connect.
@@ -107,11 +115,12 @@ export function waitForCloudSetUp(
     finish(value);
   };
   const cancelDeadline = schedule(() => end({ ...notReady, details: { ...details, timedOut: true } }, true));
+  const target = machine ?? need.machine;
   call("cloud.setUp", {
     key,
     action,
     family: need.family,
-    ...(machine ? { machine } : {}),
+    ...(target ? { machine: target } : {}),
     ...(environment ? { environment } : {}),
   }).then(
     () => end("signedIn"),

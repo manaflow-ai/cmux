@@ -289,10 +289,12 @@ struct CloudAgentCredentialRefresherTests {
 
     @Test func machineSignInAndRecoveryStayOnTheChatMachine() async throws {
         let setup = CloudSetup(read: { .init(personal: [.init(id: "saved-claude", families: ["claude"])], organization: []) })
-        var opened: String?
-        setup.openConnectionSettings = { family, machine, _, _, _ in
+        var openedMachine: String?
+        var openedSession: String?
+        setup.openConnectionSettings = { family, machine, _, _, session in
             #expect(family == "claude")
-            opened = machine
+            openedMachine = machine
+            openedSession = session
         }
         let credentials = CloudAgentCredentials(read: { _ in
             Issue.record("a machine-login chat tried to read a Mac token")
@@ -302,8 +304,9 @@ struct CloudAgentCredentialRefresherTests {
         credentials.use(connection: nil, chat: "draft", machine: "vm_b", useMachineLogin: true)
         credentials.move(chat: "draft", to: "chat", machine: "vm_b")
         #expect(try await credentials.launchCredential(chat: "chat", machine: "vm_b", harness: "claude") == nil)
-        credentials.openModelConnectionSettings(machine: "vm_b", harness: "claude-work")
-        #expect(opened == "vm_b")
+        credentials.openModelConnectionSettings(machine: "vm_b", harness: "claude-work", session: "session-b")
+        #expect(openedMachine == "vm_b")
+        #expect(openedSession == "session-b")
     }
 
     /// The Cloud start hands its choice to the launch: a `.connection` names its id, every other choice

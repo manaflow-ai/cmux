@@ -240,6 +240,17 @@ test("ordinary Connect confirms an already signed-in target without showing its 
   expect(card(rendered).querySelector("[data-cloud-connected]")?.textContent).toBe("Connected. Your chat is starting.");
 });
 
+test("Add a connection still opens the requested form after Claude is already connected", async () => {
+  const rendered = await render(
+    { ...mockModels.empty, cloudClaudeLogin: { phase: "connected", error: null, machine: "vm_b" } },
+    "/settings/models?provider=claude&machine=vm_b&open=connected",
+  );
+  expect(panel()).toBeNull();
+  await click(card(rendered).querySelector("button[data-models-add]")!);
+  await click(document.querySelector('[data-models-choice="google"]')!);
+  expect(panel()?.dataset.modelsDialog).toBe("google");
+});
+
 test("the CLI can open Claude setup for its exact new machine name", async () => {
   const rendered = await render(
     { ...mockModels.empty, cloudClaudeLogin: { phase: "connected", error: null, machine: "vm_a", machineName: "A" } },
@@ -258,7 +269,7 @@ test("the CLI can open Claude setup for its exact new machine name", async () =>
 test("a rejected Claude token can recover on an already signed-in target", async () => {
   const rendered = await render(
     { ...mockModels.empty, cloudClaudeLogin: { phase: "connected", error: null, machine: "vm_b" } },
-    "/settings/models?provider=claude&machine=vm_b&recovery=1&open=recovery",
+    "/settings/models?provider=claude&machine=vm_b&recoverySession=chat-b&open=recovery",
   );
   const submit = panel()?.querySelector<HTMLButtonElement>('button[type="submit"]');
   expect(submit?.disabled).toBe(false);
@@ -267,6 +278,7 @@ test("a rejected Claude token can recover on an already signed-in target", async
     action: "connectClaude",
     cloud: true,
     machine: "vm_b",
+    recoverySession: "chat-b",
   });
 });
 

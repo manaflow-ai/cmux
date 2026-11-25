@@ -870,16 +870,16 @@ test("Cloud Claude Reauthenticate can start a new approval", async () => {
   });
 });
 
-test("a Cloud Claude recovery link signs in on the affected machine", async () => {
+test("a Cloud Claude recovery link signs in for the affected chat on its machine", async () => {
   const rendered = await render(
     { ...mockModels.claudeTokenOnly, cloudClaudeLogin: { phase: "connected", error: null, machine: "vm_a" } },
-    "/settings/cloud?focus=card.cloudModels&provider=claude&machine=vm_b&open=1",
+    "/settings/cloud?focus=card.cloudModels&provider=claude&machine=vm_b&recoverySession=chat-b&open=1",
   );
   const form = panel()!;
   expect(form.querySelector("[data-models-claude-form]")?.getAttribute("data-login")).toBe("idle");
   await click(action(form, "connectClaude")!);
   expect(rendered.provider.modelRuns).toEqual([
-    { action: "connectClaude", cloud: true, replace: "claude-token", machine: "vm_b" },
+    { action: "connectClaude", cloud: true, machine: "vm_b", recoverySession: "chat-b" },
   ]);
 });
 

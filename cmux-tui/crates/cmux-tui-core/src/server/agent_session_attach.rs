@@ -646,6 +646,8 @@ struct LoginParams {
     key: Option<String>,
     #[serde(default)]
     reauthenticate: bool,
+    #[serde(default)]
+    recovery_session: Option<String>,
     /// The Cloud API's `vmKind` for the caller, as `agent-session-start` takes it: read only for a
     /// tab with no session (`agent-session-login-machine-v1`), whose sign-in is gated as a start.
     #[serde(default, deserialize_with = "crate::server::command_args::present_nullable")]
@@ -656,6 +658,9 @@ struct LoginParams {
 /// on the machine that chat lives on, and restarts its agent signed in), or none for a new chat's
 /// sign-in on this machine; `None` for a step whose fields are missing or out of bounds.
 fn login_request(session: Option<&str>, params: LoginParams) -> Option<(String, Value, Duration)> {
+    if params.recovery_session.is_some() {
+        return None;
+    }
     fn text(value: &Option<String>) -> Option<&str> {
         value.as_deref().filter(|v| (1..=MAX_LOGIN_BYTES).contains(&v.len()) && !v.contains('\0'))
     }
@@ -1177,7 +1182,7 @@ fn machine_login(
     {
         return refuse(writer, id, refusal);
     }
-    if matches!(params.op.as_str(), "status" | "logout") {
+    if params.recovery_session.is_some() || matches!(params.op.as_str(), "status" | "logout") {
         return refuse(writer, id, Refusal::BadRequest);
     }
     run_machine_login(mux, id, socket, params, false, writer)
@@ -1189,6 +1194,16 @@ fn phone_sign_in(mux: &Mux, client: u64) -> bool {
 }
 
 fn settings_login_step(params: &LoginParams) -> bool {
+    if let Some(session) = params.recovery_session.as_deref() {
+        return !session.is_empty()
+            && session.len() <= 128
+            && session.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_.:@".contains(&b))
+            && match params.op.as_str() {
+                "recover_start" => params.agent.as_deref() == Some("claude"),
+                "recover_finish" => params.agent.is_none(),
+                _ => false,
+            };
+    }
     match params.op.as_str() {
         "start" | "status" | "logout" => params.agent.as_deref() == Some("claude"),
         "finish" | "cancel" => params.agent.is_none(),
@@ -1200,16 +1215,28 @@ fn run_machine_login(
     mux: &Arc<Mux>,
     id: Option<Value>,
     socket: PathBuf,
-    params: LoginParams,
+    mut params: LoginParams,
     from_settings: bool,
     writer: &MessageWriter,
 ) -> bool {
     let reauthenticate = params.reauthenticate;
+    let recovery = params.recovery_session.take();
+    if from_settings
+        && recovery.is_some()
+        && let Some(op) = params.op.strip_prefix("recover_")
+    {
+        params.op = op.to_owned();
+    }
     let Some((method, mut body, timeout)) = login_request(None, params) else {
         return refuse(writer, id, Refusal::BadRequest);
     };
-    if from_settings && method == "_acpmux/agent_login/start" {
-        body["reuseExisting"] = json!(!reauthenticate);
+    if from_settings {
+        if method == "_acpmux/agent_login/start" {
+            body["reuseExisting"] = json!(!reauthenticate);
+        }
+        if let Some(session) = recovery {
+            body["recoverySession"] = json!(session);
+        }
     }
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();

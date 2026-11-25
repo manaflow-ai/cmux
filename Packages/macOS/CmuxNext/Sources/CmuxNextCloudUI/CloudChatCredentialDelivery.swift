@@ -9,24 +9,12 @@ extension CloudAgentCredentials {
                                         endpoint: @escaping AgentSessionAttachClient.EndpointProvider,
                                         onDelivered: @escaping @MainActor () -> Void,
                                         onRefusal: @escaping @MainActor (Failure, String?) -> Void) async {
-        let readStatus: @MainActor () async -> AgentSessionAttachClient.CredentialStatus? = {
-            let client = AgentSessionAttachClient(surface: surface, reconnect: reconnect, endpoint: endpoint)
-            let status = try? await client.credentialStatus(ownerLink: ownerLink)
-            await client.close()
-            return status
-        }
-        let status = await readStatus()
-        if let recovery = status?.claudeTokenRecovery {
-            stopDeliveringCredential(chat: chat, machine: machine)
-            if recovery == "rejected" {
-                onRefusal(.refused(reason: "credentials.claude_token_rejected"), status?.harness)
-                observeClaudeRecovery(chat: chat, machine: machine) {
-                    guard await readStatus()?.claudeTokenRecovery == "machineLogin" else { return }
-                    onDelivered()
-                }
-            } else {
-                onDelivered()
-            }
+        let client = AgentSessionAttachClient(surface: surface, reconnect: reconnect, endpoint: endpoint)
+        let status = try? await client.credentialStatus(ownerLink: ownerLink)
+        await client.close()
+        if let status, status.claudeTokenRecovery == "machineLogin" {
+            stopDeliveringCredential(chat: chat, machine: machine, harness: status.harness)
+            onDelivered()
             return
         }
         guard let status, let connection = status.connection else {

@@ -200,12 +200,20 @@ async fn signed_in(
     }
     // Alternate account homes are scoped to this chat; do not flip the machine-wide
     // launcher mode away from team routing for the canonical account.
+    let recovery = recovery_session(hub, agent, params, store).await?;
     let machine = machine(hub);
     let canonical = machine.home.join(agent.home_dir_name());
-    if current.store(agent) == canonical
+    if recovery.is_none()
+        && current.store(agent) == canonical
         && let Err(e) = machine.choose_own(agent)
     {
         tracing::warn!(agent = agent.name(), error = %e, "agent login: record the own sign-in choice");
+    }
+    if let Some(session) = recovery {
+        hub.use_claude_machine_login(&session).await?;
+        hub.login_changed(agent.name(), store, None).await?;
+        let ids = std::collections::BTreeSet::from([session.id.clone()]);
+        return Ok(hub.restart_harnesses(None, Some(&ids)).await.now > 0);
     }
     hub.login_changed(agent.name(), store, route.as_deref()).await?;
     if cfg!(target_os = "macos") && matches!(agent, Agent::Grok | Agent::Cursor) {
@@ -213,43 +221,55 @@ async fn signed_in(
     }
     let Some(key) = text(params, "sessionId") else {
         return if agent == Agent::Claude {
-            restart_claude_account(hub, store, true).await
+            restart_claude_account(hub, store).await
         } else {
             Ok(false)
         };
     };
     let session = hub.resolve(key)?;
-    if agent == Agent::Claude && hub.move_rejected_claude_to_machine_login(&session).await? {
-        hub.login_changed(agent.name(), store, route.as_deref()).await?;
-    }
     let ids = std::collections::BTreeSet::from([session.id.clone()]);
     let done = hub.restart_harnesses(None, Some(&ids)).await;
     Ok(done.now > 0)
 }
 
-/// Restart only chats that use the Claude account being changed.
-async fn restart_claude_account(
-    hub: &Arc<Hub>,
+/// A Settings recovery uses the exact local chat and the machine's own account store.
+async fn recovery_session(
+    hub: &Hub,
+    agent: Agent,
+    params: &Value,
     store: &Path,
-    signed_in: bool,
-) -> Result<bool, RpcError> {
+) -> Result<Option<Arc<crate::hub::Session>>, RpcError> {
+    let Some(id) = text(params, "recoverySession") else { return Ok(None) };
+    if agent != Agent::Claude || text(params, "sessionId").is_some() {
+        return Err(RpcError::invalid_params("recovery requires a Claude chat on this machine"));
+    }
+    let session = hub.session_get(id).ok_or_else(|| {
+        error(LoginError::new(reason::UNKNOWN_SESSION, "no such chat on this machine"))
+    })?;
+    let (profile, route) = hub.login_profile(&session, "claude").await?;
+    if route.is_some()
+        || !cli_for(&*hub.config.read().await, Agent::Claude, Some(profile))
+            .is_some_and(|cli| cli.store(Agent::Claude) == store)
+    {
+        return Err(RpcError::invalid_params("this chat uses a different Claude account store"));
+    }
+    Ok(Some(session))
+}
+
+/// Restart only chats that already use the Claude account being changed.
+async fn restart_claude_account(hub: &Arc<Hub>, store: &Path) -> Result<bool, RpcError> {
     let mut ids = std::collections::BTreeSet::new();
     for session in hub.sessions() {
-        let rejected = signed_in && hub.rejected_claude_token(&session);
-        if (rejected || !hub.has_delivered_credential(&session))
+        if !hub.has_delivered_credential(&session)
             && let Ok((profile, None)) = hub.login_profile(&session, "claude").await
         {
             let matches = cli_for(&*hub.config.read().await, Agent::Claude, Some(profile))
                 .is_some_and(|cli| cli.store(Agent::Claude) == store);
             if matches {
-                if rejected {
-                    hub.move_rejected_claude_to_machine_login(&session).await?;
-                }
                 ids.insert(session.id.clone());
             }
         }
     }
-    hub.login_changed("claude", store, None).await?;
     Ok(hub.restart_harnesses(None, Some(&ids)).await.now > 0)
 }
 
@@ -335,7 +355,8 @@ pub(super) async fn handle(
                 return login::claude_status(&machine(hub), &cli).await.map_err(error);
             }
             login::claude_logout(&machine(hub), &cli).await.map_err(error)?;
-            restart_claude_account(hub, &cli.store(agent), false).await?;
+            hub.login_changed("claude", &cli.store(agent), None).await?;
+            restart_claude_account(hub, &cli.store(agent)).await?;
             Ok(json!({"signedIn": false}))
         }
         method::MUX_AGENT_LOGIN_START => {
@@ -349,6 +370,7 @@ pub(super) async fn handle(
                 )));
             }
             let (cli, _) = cli(hub, agent, params).await?;
+            recovery_session(hub, agent, params, &cli.store(agent)).await?;
             let mut api_key = None;
             if agent == Agent::Claude
                 && text(params, "sessionId").is_none()
@@ -426,7 +448,7 @@ mod tests {
     use crate::hub::NewRequest;
 
     #[tokio::test]
-    async fn machine_claude_login_changes_keep_chat_tokens_and_connection_ids_together() {
+    async fn recovery_uses_the_requested_chat_after_a_retry_and_blocks_redelivery() {
         let home = tempfile::tempdir().unwrap();
         let mut config: Config = serde_json::from_value(json!({
             "store": {"mode": "memory"},
@@ -439,56 +461,58 @@ mod tests {
         let store = crate::store::open(&config.store, home.path()).unwrap();
         let hub = Hub::new(config, store);
         let cli_home = cli(&hub, Agent::Claude, &json!({})).await.unwrap().0.store(Agent::Claude);
-
-        let mut healthy = Vec::new();
-        for connection in [None, Some("saved-claude")] {
-            let mut wire = json!({"env": {CLAUDE_OAUTH: "sk-ant-oat01-fixture"}});
-            if let Some(id) = connection {
-                wire["connection"] = json!(id);
-            }
+        let mut chats = Vec::new();
+        for id in ["claude-token", "claude-token-2"] {
+            let credential = AgentCredential::parse(&json!({
+                "connection": id, "env": {CLAUDE_OAUTH: "sk-ant-oat01-fixture"}
+            }))
+            .unwrap();
             let session = hub
                 .new_session(NewRequest {
                     cwd: Some(home.path().to_owned()),
-                    credential: Some(AgentCredential::parse(&wire).unwrap()),
+                    credential: Some(credential.clone()),
                     ..NewRequest::default()
                 })
                 .await
                 .unwrap();
-            restart_claude_account(&hub, &cli_home, true).await.unwrap();
-            let status = hub.credential_status(&session.id).await.unwrap();
-            assert_eq!(status["connection"], json!(connection));
-            assert_eq!(status["held"], true);
-            assert!(!hub.move_rejected_claude_to_machine_login(&session).await.unwrap());
-            healthy.push((session.id.clone(), connection));
+            hub.edit_test_meta(&session, |meta| {
+                meta.last_turn =
+                    Some(json!({"status": "error", "errorText": "OAuth token revoked"}));
+                meta.claude_token_recovery =
+                    Some(crate::store::ClaudeTokenRecovery::LegacyRejected);
+            });
+            chats.push((session, credential));
         }
-        let session = hub
-            .new_session(NewRequest {
-                cwd: Some(home.path().to_owned()),
-                credential: Some(
-                    AgentCredential::parse(&json!({
-                        "connection": "claude-token",
-                        "env": {CLAUDE_OAUTH: "sk-ant-oat01-rejected"}
-                    }))
-                    .unwrap(),
-                ),
-                ..NewRequest::default()
-            })
+        let (target, token) = &chats[0];
+        let (other, _) = &chats[1];
+        signed_in(&hub, Agent::Claude, &json!({}), &cli_home).await.unwrap();
+        assert_eq!(hub.credential_status(&target.id).await.unwrap()["held"], true);
+
+        hub.edit_test_meta(target, |meta| {
+            meta.last_turn = Some(json!({"status": "error", "errorText": "a later retry failed"}));
+        });
+        // An upgraded daemon may have only the saved connection id until the Mac reconnects.
+        hub.revoke_credential(&target.id).await.unwrap();
+        signed_in(&hub, Agent::Claude, &json!({"recoverySession": target.id}), &cli_home)
             .await
             .unwrap();
-        hub.mark_claude_token_rejected(&session);
-        restart_claude_account(&hub, &cli_home, false).await.unwrap();
+
+        let status = hub.credential_status(&target.id).await.unwrap();
+        assert_eq!(status["claudeTokenRecovery"], "machineLogin");
+        assert!(status["connection"].is_null());
+        assert_eq!(status["held"], false);
+        assert!(hub.update_credential(&target.id, token.clone()).await.is_err());
+        let persisted: crate::store::SessionMeta =
+            serde_json::from_value(serde_json::to_value(target.meta()).unwrap()).unwrap();
         assert_eq!(
-            hub.credential_status(&session.id).await.unwrap()["claudeTokenRecovery"],
-            "rejected"
+            persisted.claude_token_recovery,
+            Some(crate::store::ClaudeTokenRecovery::MachineLogin)
         );
-        restart_claude_account(&hub, &cli_home, true).await.unwrap();
-        let recovered = hub.credential_status(&session.id).await.unwrap();
-        assert_eq!(recovered["claudeTokenRecovery"], "machineLogin");
-        assert!(recovered["connection"].is_null());
-        for (session, connection) in healthy {
-            let status = hub.credential_status(&session).await.unwrap();
-            assert_eq!(status["connection"], json!(connection));
-            assert_eq!(status["held"], true);
-        }
+        assert!(persisted.credential_connection.is_none());
+
+        let status = hub.credential_status(&other.id).await.unwrap();
+        assert_eq!(status["connection"], "claude-token-2");
+        assert_eq!(status["held"], true);
+        assert!(status["claudeTokenRecovery"].is_null());
     }
 }

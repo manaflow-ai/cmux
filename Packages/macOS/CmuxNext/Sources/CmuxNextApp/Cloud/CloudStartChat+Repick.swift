@@ -40,19 +40,15 @@ extension CloudStartChat {
         guard let target = repick.machineID(in: machines), let record = services.machines.session(target)?.machine else {
             return AgentPaneReply.failure(code: "not_a_cloud_start", message: "not_a_cloud_start")
         }
-        guard CloudStartCore().matchesEnvironment(started.start.environment, machine: record) else {
-            return AgentPaneReply.failure(code: "environment_mismatch", message: CloudStartSessionStrings.environmentMismatch.message)
-        }
-        // The machine it is on already: nothing moves.
-        guard target != started.machineID else { return AgentPaneReply.success(["machine": services.machines.session(target)?.machine.title ?? ""]) }
         let toastID = "cloud-start-" + tab.id
-        CloudMove.toast(services, toastID, CloudMoveStrings.moving, duration: CloudMove.working, working: true)
         do {
+            guard CloudStartCore().matchesEnvironment(started.start.environment, machine: record) else { throw CloudStartSessionStrings.environmentMismatch }
+            guard target != started.machineID else { return AgentPaneReply.success(["machine": record.title]) }
+            CloudMove.toast(services, toastID, CloudMoveStrings.moving, duration: CloudMove.working, working: true)
             // Only under the account the send began in (+Machine).
             try Self.checkAccount(started.account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
             guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
             let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
-            // The pick wins over the send's first machine: the plan now names the picked one.
             _ = try Self.checked(await cli.startChatPin(key: started.start.key, account: CloudStartCore().accountText(started.account),
                                                         machine: target, workspace: started.workspace))
             let start = started.start.onMachine(target)
@@ -72,11 +68,12 @@ extension CloudStartChat {
             CloudMove.toast(services, toastID, CloudMoveStrings.moved(machine), duration: .seconds(6))
             return AgentPaneReply.success(["machine": machine])
         } catch {
-            let message = (error as? CloudMove.Failure)?.message ?? (error as? ActionFailure)?.message ?? (error as? CloudMachineRoute.NeedsConnection)?.message
+            let refusal = error as? CloudMove.Failure
+            let message = refusal?.message ?? (error as? ActionFailure)?.message ?? (error as? CloudMachineRoute.NeedsConnection)?.message ?? (error as? CloudMachineRoute.NeedsClaudeLogin)?.message
                 ?? CloudMoveStrings.moveFailed(CloudStrings.errorText(error))
             services.cloud.logger.error("cloud start chat repick failed: \(message, privacy: .public)")
             CloudMove.toast(services, toastID, message, duration: .seconds(12))
-            return AgentPaneReply.failure(code: "cloud_start_failed", message: message)
+            return AgentPaneReply.failure(code: refusal?.code == "environment_mismatch" ? "environment_mismatch" : "cloud_start_failed", message: message)
         }
     }
 }

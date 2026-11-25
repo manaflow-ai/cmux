@@ -2174,7 +2174,6 @@ impl Hub {
                         }
                         o.extend(crate::recovery::fields(e));
                         if claude_cloud_token_rejected {
-                            self.mark_claude_token_rejected(session);
                             o.insert("errorCode".into(), json!("claude_cloud_token_rejected"));
                         } else if crate::turn_errors::model_not_available(&e.message) {
                             o.insert("errorCode".into(), json!("model_not_found"));

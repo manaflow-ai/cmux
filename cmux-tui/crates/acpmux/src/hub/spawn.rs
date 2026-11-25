@@ -255,9 +255,6 @@ impl Hub {
         defaults_env: &std::collections::BTreeMap<String, String>,
         credential: Option<&crate::agent_credentials::AgentCredential>,
     ) -> Result<(HarnessProfile, Option<String>, Option<std::path::PathBuf>), RpcError> {
-        if meta.claude_token_recovery == Some(crate::store::ClaudeTokenRecovery::Rejected) {
-            return Err(super::credentials::rejected_claude_token());
-        }
         if meta.credential_connection.is_some() && credential.is_none() {
             return Err(RpcError::invalid_params(
                 "This chat needs its model connection from your Mac.",
@@ -410,6 +407,9 @@ impl Hub {
         p.env.remove(crate::agent::REMOTE_ENV_POLICY_KEY);
         if meta.remote_origin {
             p.env.insert(crate::agent::REMOTE_ENV_POLICY_KEY.into(), "1".into());
+        }
+        if super::credentials::uses_claude_machine_login(meta) {
+            p.env.insert("CMUX_CLAUDE_AUTH".into(), "own".into());
         }
         // The owner's Cloud credential: straight to the provider, no coderouter route
         // (`agent_credentials.rs`). Its names only are logged, never a value.

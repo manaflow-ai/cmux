@@ -492,13 +492,14 @@ extension AgentPaneModel {
         ownsCloudConnectionMachine = { setup.ownsMachine?($0) == true }
         onCloudSetUp = { await setup.setUp($0, family: $1, machine: $2, environment: $3) }
         onCloudServed = { await setup.served(machine: $0, environment: $1) }
-        onCloudConnect = { setup.connect(family: $0, machine: $1, environment: $2, recovery: $3) }
+        onCloudConnect = { setup.connect(family: $0, machine: $1, environment: $2, recoverySession: $3) }
     }
 
     /// Opens Settings > Cloud > Cloud models for the named family. The picker reads `cloud.setup.state` again when reopened.
     func connectCloud(family: String, machine: String?, environment: String? = nil) async -> [String: Any] {
         guard let onCloudConnect else { return Self.unsupported("cloud.connect") }
         let recoveryMachine: String?
+        let recoverySession: String?
         if chatIsElsewhere {
             guard family == "claude", let mayRecoverCloudConnection, let tab = tabKey(),
                   let session = sessionId else { return Self.unsupported("cloud.connect") }
@@ -506,14 +507,16 @@ extension AgentPaneModel {
             guard let owned = await mayRecoverCloudConnection(tab), tab == tabKey(), session == sessionId,
                   machine == nil || machine == owned else { return Self.unsupported("cloud.connect") }
             recoveryMachine = owned
+            recoverySession = session
         } else {
             guard onCloudStartChat != nil, machine.map({ ownsCloudConnectionMachine?($0) == true }) != false else {
                 return Self.unsupported("cloud.connect")
             }
             guard transport.gestures.consume() else { return Self.transportFailure(.gestureRequired) }
             recoveryMachine = machine
+            recoverySession = nil
         }
-        onCloudConnect(family, recoveryMachine, chatIsElsewhere ? nil : environment, chatIsElsewhere)
+        onCloudConnect(family, recoveryMachine, chatIsElsewhere ? nil : environment, recoverySession)
         return AgentPaneReply.success()
     }
 

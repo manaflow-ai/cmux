@@ -832,6 +832,7 @@ export type ModelsRun =
   | { action: "signOutClaude"; cloud: boolean; machine?: string }
   | {
       action: "connectClaude";
+      recoverySession?: string;
       cloud?: boolean;
       replace?: string;
       machine?: string;

@@ -1,4 +1,5 @@
 public import CmuxNextAgentPane
+import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextPages
 import CmuxNextSettings
@@ -63,6 +64,7 @@ extension SettingsModels {
     struct ClaudeLoginAttempt {
         let id: String
         let machine: CloudClaudeMachine?
+        let recoverySession: String?
     }
 
     /// Cancels the Cloud flow if the user or team changes. A nil account also covers sign-out in progress.
@@ -141,14 +143,20 @@ extension SettingsModels {
             guard stillChecking() else { return }
             setClaudeLogin(target, machine, reply["signedIn"]?.boolValue == true ? "connected" : "idle",
                            apiKey: reply["apiKey"]?.boolValue == true, signedIn: reply["signedIn"]?.boolValue == true)
-            if let machine, reply["signedIn"]?.boolValue == true { await onCloudClaudeSignIn?(machine.id, false) }
+            if let machine, reply["signedIn"]?.boolValue == true { onCloudClaudeSignIn?(machine.id) }
         } catch {
             guard stillChecking(), !(error is CancellationError) else { return }
             setClaudeFailure(target, machine, error)
         }
     }
 
-    func beginClaudeLogin(_ target: ClaudeLoginTarget, replacing: String?, machine requestedMachine: String?, environment: String? = nil, name: String? = nil) throws {
+    func beginClaudeLogin(_ target: ClaudeLoginTarget, replacing: String?, machine requestedMachine: String?, environment: String? = nil, name: String? = nil,
+                          recoverySession: String? = nil) throws {
+        if let recoverySession {
+            guard target == .cloud, requestedMachine != nil, CloudSetup.isConnectionID(recoverySession) else {
+                throw PageError.invalidParams("Claude recovery requires a chat and its Cloud machine")
+            }
+        }
         guard claudeLoginTasks[target] == nil, claudeLoginAttempts[target] == nil else { return }
         let preferred = requestedMachine ?? (replacing == "claude-cloud-login" ? currentCloudClaudeState?.machine : nil)
         let prepare = target == .cloud ? prepareCloudClaudeLogin : nil
@@ -178,6 +186,7 @@ extension SettingsModels {
                 }
                 var fields = ["agent": "claude"]
                 if replacing == "claude-cloud-login" { fields["reauthenticate"] = "true" }
+                if let recoverySession { fields["recoverySession"] = recoverySession }
                 let started = try await claudeCall(.claudeLoginStart, "start", fields, machine: machine)
                 try checkClaudeAccount(target, account)
                 if started["signedIn"]?.boolValue == true {
@@ -192,7 +201,7 @@ extension SettingsModels {
                     setClaudeLogin(target, machine, "approving", apiKey: started["apiKey"]?.boolValue)
                 }
                 guard let id = started["loginId"]?.stringValue else { throw PageError.unavailable("Claude sign-in could not start") }
-                claudeLoginAttempts[target] = .init(id: id, machine: machine)
+                claudeLoginAttempts[target] = .init(id: id, machine: machine, recoverySession: recoverySession)
                 if claudeLogins[target]?.phase == "cancelling" {
                     return await settleClaudeCancellation(target)
                 }
@@ -292,6 +301,7 @@ extension SettingsModels {
         guard let attempt = claudeLoginAttempts[target] else { return }
         let account = cloudClaudeAccount?()
         var fields = ["loginId": attempt.id]
+        if let recoverySession = attempt.recoverySession { fields["recoverySession"] = recoverySession }
         if let code { fields["code"] = code }
         let reply = try await claudeCall(.claudeLoginFinish, "finish", fields, machine: attempt.machine)
         try checkClaudeAccount(target, account)
@@ -308,7 +318,7 @@ extension SettingsModels {
         await refresh()
         try checkClaudeAccount(target, account)
         setClaudeLogin(target, machine, "connected", signedIn: true, completion: UUID().uuidString)
-        if let machine { await onCloudClaudeSignIn?(machine.id, true) }
+        if let machine { onCloudClaudeSignIn?(machine.id) }
     }
 
     private func checkClaudeAccount(_ target: ClaudeLoginTarget, _ account: [String?]?) throws {

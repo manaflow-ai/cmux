@@ -209,7 +209,6 @@ public final class CloudSetup {
     public var claudeMachines: (@MainActor () -> [CloudMachine])?
     public var loadCloudMachines: (@MainActor () async -> Void)?
     public var readClaudeMachineLogin: (@MainActor (String) async -> Bool)?
-    public var refreshRecoveredClaudeChats: (@MainActor (String) async -> Void)?
 
     /// Live owner-only status for the machine the app or CLI is about to use.
     public func readyClaudeMachines(machine: String? = nil, environment: String? = nil, name: String? = nil) async -> [String] {
@@ -251,7 +250,7 @@ public final class CloudSetup {
     }
 
     /// Opens Settings > Cloud > Cloud models for the family selected in the picker.
-    public var openConnectionSettings: (@MainActor (String, String?, Bool, String?, Bool) -> Void)?
+    public var openConnectionSettings: (@MainActor (String, String?, Bool, String?, String?) -> Void)?
 
     /// One wait's wake: fired once, by a change or by its task's cancel, whichever comes first.
     private final class Wake: Sendable {
@@ -453,8 +452,8 @@ public final class CloudSetup {
     }
 
     /// The picker's Connect shows the family's Settings destination.
-    public func connect(family: String, machine: String? = nil, environment: String? = nil, recovery: Bool = false) {
-        openConnectionSettings?(family, machine, false, environment, recovery)
+    public func connect(family: String, machine: String? = nil, environment: String? = nil, recoverySession: String? = nil) {
+        openConnectionSettings?(family, machine, false, environment, recoverySession)
     }
 
     /// The decision for a start on `harness` and `model` (``choose(harness:model:account:)``).
@@ -546,7 +545,7 @@ public final class CloudSetup {
         claudeSetups[id] = claude
         defer { claudeSetups[id] = nil }
         if let run { await run(action, family, machine) }
-        else { openConnectionSettings?(family, machine, true, environment, false) }
+        else { openConnectionSettings?(family, machine, true, environment, nil) }
         connectionsChanged()
         guard await waitUntilServed(family: family, claude: claude), !Task.isCancelled, account == accountScope?() else { return nil }
         let signedIn = claude?.signedInMachine

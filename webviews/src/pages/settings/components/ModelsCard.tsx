@@ -55,8 +55,8 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
   const machine = family === "claude" ? search.machine : undefined;
   const environment = family === "claude" ? search.environment : undefined;
   const machineName = family === "claude" && !machine ? search.machineName : undefined;
-  const recovery = family === "claude" && !!machine && search.recovery === true;
-  const request = JSON.stringify([focus, family, open, fromSend, machine, environment, recovery, machineName]);
+  const recoverySession = family === "claude" && machine ? search.recoverySession : undefined;
+  const request = JSON.stringify([focus, family, open, fromSend, machine, environment, recoverySession, machineName]);
   const add = cloud ? CLOUD_MODELS_ADD_FOCUS : MODELS_ADD_FOCUS;
   const addFocus = focus?.startsWith(add + ".") ? focus.slice(add.length + 1).split(".", 1)[0] : undefined;
 
@@ -219,7 +219,7 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
     !currentVisit.connected &&
     available &&
     family &&
-    ((family === "claude" && nativeCloud && !recovery) ||
+    ((family === "claude" && nativeCloud && !recoverySession) ||
       ready.some((c) => servesFamily(c, family) && !currentVisit.ids.has(c.id)))
   ) {
     setSetupVisit({ ...currentVisit, connected: true });
@@ -237,7 +237,8 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
   const setup = selection && "id" in selection ? selection : undefined;
   const rowAction = selection && "kind" in selection ? selection : undefined;
   const editingConnection = setup?.edit ? connections.find((c) => c.id === setup.target) : undefined;
-  const existingClaude = family === "claude" && nativeCloud && !recovery && !setup?.target;
+  const existingClaude =
+    setup?.id === requestedId && family === "claude" && nativeCloud && !recoverySession && !setup?.target;
   const active = setup && !existingClaude && (!setup.edit || editingConnection) ? providerById(setup.id) : undefined;
   const awaitingSignIn =
     active?.id === devicePreset
@@ -295,6 +296,7 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
       return run({
         ...gesture,
         ...(target ? { machine: target } : {}),
+        ...(recoverySession && setup?.machine === machine && !gesture.replace ? { recoverySession } : {}),
         ...(environment ? { environment } : {}),
         ...(machineName ? { machineName } : {}),
       });
@@ -409,7 +411,7 @@ function ModelConnectionsCard({ focus, cloud, reveal }: { focus: string | null; 
       <ModelConnectionDialog
         visit={request}
         cloud={cloud}
-        recoverClaude={recovery && setup?.machine === machine}
+        recoverClaude={!!recoverySession && setup?.machine === machine && !setup?.target}
         provider={available ? active : undefined}
         models={models && cloud ? { ...models, cloudClaudeLogin: claudeLogin } : (models ?? undefined)}
         busy={locked}

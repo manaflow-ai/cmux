@@ -102,14 +102,16 @@ extension AgentPaneCloudStart {
         return Self.cloudSetupReply(family: family, model: model)
     }
 
-    private static func cloudSetupReply(family: String, model: String?) -> [String: Any] {
-        AgentPaneReply.failure(code: "cloud_setup_required", message: "cloud_setup_required",
-                              details: ["family": family, "model": model ?? ""], retryable: false, origin: "native")
+    private static func cloudSetupReply(family: String, model: String?, machine: String? = nil) -> [String: Any] {
+        var details = ["family": family, "model": model ?? ""]
+        details["machine"] = machine
+        return AgentPaneReply.failure(code: "cloud_setup_required", message: "cloud_setup_required",
+                                     details: details, retryable: false, origin: "native")
     }
 
     /// Offer setup only after the machine reports no usable sign-in and the local connection
     /// list confirms an addable connection is missing.
-    @MainActor public func needsConnectionReply(_ message: String, setup: CloudSetup) async -> [String: Any] {
+    @MainActor public func needsConnectionReply(_ message: String, machine: String? = nil, setup: CloudSetup) async -> [String: Any] {
         let unrouted = await setup.unrouted(harness: harness, model: model, account: account)
         let choice = if let unrouted {
             CloudSetup.Choice.setup(family: unrouted.family, model: unrouted.model)
@@ -122,7 +124,7 @@ extension AgentPaneCloudStart {
         if !CloudSetup.setupFamilies.contains(family), await setup.launchConnection(family)?.endpointProfile != true {
             return AgentPaneReply.failure(code: "cloud_start_failed", message: message, details: nil, retryable: true, origin: "native")
         }
-        return Self.cloudSetupReply(family: family, model: model)
+        return Self.cloudSetupReply(family: family, model: model, machine: machine)
     }
 }
 

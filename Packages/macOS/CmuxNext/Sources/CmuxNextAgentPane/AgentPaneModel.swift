@@ -179,7 +179,7 @@ public final class AgentPaneModel {
     /// Per family a Cloud chat runs, readiness and the reason when disconnected (``CloudSetup/served()``); nil when Cloud is unavailable.
     @ObservationIgnored public var onCloudServed: (@MainActor (String?, String?) async -> CloudSetup.Readiness)?
     /// Opens Settings > Cloud > Cloud models for the picker's Connect (``CloudSetup/connect(family:)``); nil when Cloud is unavailable.
-    @ObservationIgnored public var onCloudConnect: (@MainActor (String, String?, String?, Bool) -> Void)?
+    @ObservationIgnored public var onCloudConnect: (@MainActor (String, String?, String?, String?) -> Void)?
     /// Proves the current tab's connection to its own Cloud machine before opening Models for recovery.
     @ObservationIgnored var ownsCloudConnectionMachine: (@MainActor (String) -> Bool)?
     @ObservationIgnored public var mayRecoverCloudConnection: (@MainActor (String) async -> String?)?

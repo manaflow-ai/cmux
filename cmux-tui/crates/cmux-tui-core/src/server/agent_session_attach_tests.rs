@@ -1773,6 +1773,18 @@ fn settings_claude_login_routes_only_to_owner_cloud() {
             json!({"loginId":"login_1"}),
         ),
         (
+            json!({"cmd":"agent-session-login-settings","surface":0,"op":"recover_start",
+                "agent":"claude","vm_kind":"owner","recovery_session":"chat-b"}),
+            "_acpmux/agent_login/start",
+            json!({"agent":"claude","reuseExisting":true,"recoverySession":"chat-b"}),
+        ),
+        (
+            json!({"cmd":"agent-session-login-settings","surface":0,"op":"recover_finish",
+                "login_id":"login_1","vm_kind":"owner","recovery_session":"chat-b"}),
+            "_acpmux/agent_login/finish",
+            json!({"loginId":"login_1","recoverySession":"chat-b"}),
+        ),
+        (
             json!({"cmd":"agent-session-login-settings","surface":0,"op":"cancel",
                 "login_id":"login_1","vm_kind":"owner"}),
             "_acpmux/agent_login/cancel",

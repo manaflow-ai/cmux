@@ -79,6 +79,7 @@ struct CloudStartChat {
             return AgentPaneReply.success(["machine": machine])
         } catch is CloudMoveFolder.Gone { // the card's own words, with no Retry: picking another folder is the way on
             return AgentPaneCloudFolderRefusal.missing.reply
+        } catch let needs as CloudMachineRoute.NeedsClaudeLogin { return await start.needsConnectionReply(needs.message, machine: needs.machine, setup: services.cloud.setup)
         } catch let needs as CloudMachineRoute.NeedsConnection { return await start.needsConnectionReply(needs.message, setup: services.cloud.setup) // its agent reaches no model there (cmux#45773)
         } catch is CloudMachineCap.RunHere { // the cap card's Run on This Mac: the page sends it here (cloudRun.ts)
             return AgentPaneReply.failure(code: CloudMachineCap.runHereCode, message: CloudMachineCap.runHereCode)
@@ -409,8 +410,8 @@ extension CloudStartChat {
             guard let services, services.cloud.listedMachineIDs.contains(id), let machine = services.machines.session(id) else { return false }
             return CloudTransferRules.isOwner(machine.machine, user: services.cloud.auth.platformUserID)
         }
-        services.cloud.setup.openConnectionSettings = { [weak services] family, machine, fromSend, environment, recovery in
-            try? services?.settingsWindow.show(section: nil, route: DeepLink.cloudModelConnectionsRoute(family: family, fromSend: fromSend, machine: machine, environment: environment, recovery: recovery))
+        services.cloud.setup.openConnectionSettings = { [weak services] family, machine, fromSend, environment, recoverySession in
+            try? services?.settingsWindow.show(section: nil, route: DeepLink.cloudModelConnectionsRoute(family: family, fromSend: fromSend, machine: machine, environment: environment, recoverySession: recoverySession))
         }
         services.cloud.startSessionRuns.began = { [weak services] key in if key.machine.hasPrefix("name:"), key.machine != "name:", let services { warmSpare(services) } } // `cmux chat --on vm:new` and `cloud start-session --name`: a create, which claims the spare, comes next
     }

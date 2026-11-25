@@ -1953,7 +1953,6 @@ impl Hub {
         // every tool on the sync itself gets its prompt at the repository's head (repo_sync.rs).
         // A running agent is judged by what it speaks (a reload may change the profile's harness
         // without replacing it); one started below waits again in `ensure_child`, by its profile.
-        self.require_usable_claude_token(session)?;
         let live = session.child.lock().await.clone();
         let head_ok = match live {
             Some(child) => super::repo_sync::child_gates_its_tools(&child),

@@ -186,35 +186,32 @@ struct CloudStartSession {
                                                             "machine": record.machine.map { .object($0.mapValues { .int($0) }) } ?? .null])]) { $1 }
     }
 
-    private func recorded(_ request: Request, _ invocation: ActionInvocation, _ context: AppActionContext, account: [String?], byPerson: Bool, capCard: Bool, askedBy: String?,
+    private func recorded(_ original: Request, _ invocation: ActionInvocation, _ context: AppActionContext, account: [String?], byPerson: Bool, capCard: Bool, askedBy: String?,
                           revealing: Bool) async throws -> [String: ActionResultValue] {
-        let still = { [services] (machine: String) throws in try Self.checked(account, now: services.cloud.account, request.asked(machine: machine)) }
-        let cloud = services.cloud, setup = cloud.setup
-        try still(request.name ?? request.machineID ?? "")
-        let resolved: Request
-        do { resolved = try await request.preflight(setup: setup, scheme: services.linkScheme) }
+        let still = { [services] (machine: String) throws in try Self.checked(account, now: services.cloud.account, original.asked(machine: machine)) }
+        try still(original.name ?? original.machineID ?? "")
+        let request: Request
+        do { request = try await original.preflight(setup: services.cloud.setup, scheme: services.linkScheme) }
         catch let refusal as Request.Refusal { throw ActionFailure(message: refusal.message) }
-        let request = resolved
         try still(request.name ?? request.machineID ?? "")
-        if let target = request.machineID, let refusal = cloud.computerControl.heldRefusal(invocation, machine: target) { throw ActionFailure(message: refusal) }
         if let local = request.fromFolder, let refused = await services.cloud.move.refusedSource(local, home: NSHomeDirectory(), acpmuxHome: QuitAgents.environment(services)?.home.path, message: { Self.message($0, folder: local) }) { throw ActionFailure(message: refused) } // before any machine
         if let local = request.fromFolder, let cli = services.cloud.move.cli { do { _ = try await CloudMoveCLI(binary: cli).startChatSize(local: local) } catch let refusal as CloudMoveCLI.StartChatPreflightRefusal { throw ActionFailure(message: refusal.message) } } // past the copy's limits, or past the largest machine
         let steps = CloudStartSteps(logger: services.cloud.logger)
         let gateway = services.cloud.gateway.onlineBeside(within: .seconds(10)) // No login step: only the first turn needs this Mac's gateway, so it comes up beside the steps
         let (session, made) = try await machine(request, invocation, account: account, byPerson: byPerson, capCard: capCard, askedBy: askedBy)
         steps.done("machine") // the list read and the take, or the create's answer
-        // A machine this run made is its alone until the session runs: a start that fails for good deletes it and says so (hq#11835 row 8), as the composer's start does (CloudStartChat+Machine).
         return try await releasing(made: made, name: session.machine.title, id: session.machineID, account: account, delete: { [services] in try await services.cloud.deleteMachine(session.machineID) }) {
             try await started(on: session, made: made, request, invocation, context, account: account, byPerson: byPerson, revealing: revealing, steps: steps, gateway: gateway)
         }
     }
 
     /// The start's steps once its machine is chosen: the connect, the copy, the chat's tab and the session's start.
-    private func started(on session: CloudMachineSession, made: Bool, _ request: Request, _ invocation: ActionInvocation, _ context: AppActionContext, account: [String?], byPerson: Bool,
+    func started(on session: CloudMachineSession, made: Bool, _ request: Request, _ invocation: ActionInvocation, _ context: AppActionContext, account: [String?], byPerson: Bool,
                          revealing: Bool, steps: CloudStartSteps, gateway: CloudStartBeside<Bool>) async throws -> [String: ActionResultValue] {
         let still = { [services] (machine: String) throws in try Self.checked(account, now: services.cloud.account, request.asked(machine: machine)) }
         let name = session.machine.title, id = session.machineID, agent = request.agent
         try still(name)
+        if let refusal = services.cloud.computerControl.heldRefusal(invocation, machine: id) { throw ActionFailure(message: refusal) }
         // From the connect until the agent runs, and through its first turn (``CloudStartGate/started(_:)``), the app's automatic update leaves this machine's daemon alone.
         services.cloud.startGate.enter(id)
         defer { services.cloud.startGate.leave(id) }

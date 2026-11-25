@@ -864,6 +864,10 @@ public actor AgentSessionAttachClient {
             return Data(#"{"refused":{"reason":"unsupported"}}"#.utf8)
         }
         var params: [String: any Sendable] = ["op": op, "vm_kind": "owner"]
+        if let session = fields["recoverySession"] {
+            params["op"] = "recover_" + op
+            params["recovery_session"] = session
+        }
         for key in ["agent", "loginId", "code"] {
             if let value = fields[key] { params[key == "loginId" ? "login_id" : key] = value }
         }

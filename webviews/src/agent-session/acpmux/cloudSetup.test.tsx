@@ -155,6 +155,28 @@ test("the picker resumes the failed send on its selected machine", async () => {
   expect(sent).toEqual(["held prompt"]);
 });
 
+test("an automatic send opens Settings on the planned machine, even when another VM is already signed in", async () => {
+  const need = readCloudSetupNeed({ family: "claude", machine: "vm_with_space" });
+  expect(need).toEqual({ family: "claude", machine: "vm_with_space" });
+  const calls: unknown[] = [];
+  const wait = waitForCloudSetUp(
+    async (method, params) => {
+      calls.push({ method, params });
+      return { ready: true };
+    },
+    "held-send",
+    "setUpClaude",
+    need!,
+  );
+  expect(await wait.ended).toBe("signedIn");
+  expect(calls).toEqual([
+    {
+      method: "cloud.setUp",
+      params: { key: "held-send", family: "claude", action: "setUpClaude", machine: "vm_with_space" },
+    },
+  ]);
+});
+
 test("a button runs its way in for the start's key, and the start goes again once a connection serves", async () => {
   const calls: { method: string; params?: Record<string, unknown> }[] = [];
   let answer!: () => void;

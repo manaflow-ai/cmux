@@ -51,7 +51,7 @@ public final class SettingsModels {
     var claudeLogins: [ClaudeLoginTarget: ClaudeLoginState] = [:]
     @ObservationIgnored var claudeLoginTasks: [ClaudeLoginTarget: Task<Void, Never>] = [:]
     @ObservationIgnored var claudeLoginTimers: [ClaudeLoginTarget: DemandTimer] = [:]
-    @ObservationIgnored var onCloudClaudeSignIn: (@MainActor (String, Bool) async -> Void)?
+    @ObservationIgnored var onCloudClaudeSignIn: (@MainActor (String) -> Void)?
     @ObservationIgnored var presentClaudeCallback: CloudClaudeMachine.CallbackOpener?
     @ObservationIgnored var claudeLoginAttempts: [ClaudeLoginTarget: ClaudeLoginAttempt] = [:]
     /// The current owner machine, keeping the machine this dialog used while it is still ready.
@@ -339,7 +339,8 @@ public final class SettingsModels {
         }
         if action == "checkClaudeLogin" {
             await checkClaudeLogin(params["cloud"]?.boolValue == true ? .cloud : .mac,
-                                   machine: params["machine"]?.stringValue, environment: params["environment"]?.stringValue, name: params["machineName"]?.stringValue)
+                                   machine: params["machine"]?.stringValue, environment: params["environment"]?.stringValue, name: params["machineName"]?.stringValue,
+                                     recoverySession: params["recoverySession"]?.stringValue)
             return .object([:])
         }
         if action == "closeKeyPage", let url = params["url"]?.stringValue {

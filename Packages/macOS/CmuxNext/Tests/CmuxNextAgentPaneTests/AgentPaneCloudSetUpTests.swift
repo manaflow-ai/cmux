@@ -206,8 +206,8 @@ struct AgentPaneCloudSetUpTests {
         model.tabKey = { "cloud-tab" }
         var opened: [String] = []
         var authorized = false
-        model.onCloudConnect = { family, machine, _, recovery in
-            #expect(recovery)
+        model.onCloudConnect = { family, machine, _, recoverySession in
+            #expect(recoverySession == "cloud-chat")
             opened.append("\(family):\(machine ?? "")") }
         model.mayRecoverCloudConnection = { $0 == "cloud-tab" && authorized ? "vm_b" : nil }
         let connect = AgentPaneRequest(body: ["method": "cloud.connect", "params": ["family": "claude", "machine": "vm_b"]])
