@@ -97,6 +97,7 @@ public final class BrowserToolbarButtonsView: NSStackView {
         let view = ChromeIconButton(icon: .placeholder, label: "", action: #selector(pressed(_:)), target: self, toolbar: true)
         view.setAccessibilityIdentifier(button.identifier)
         view.rightClickPresses = button.opensMenu
+        view.opensOnPress = button.followsPress
         // One ⋮ in the pane: More draws the tab bar's glyph at its size (Lawrence msg 19627).
         if button == .overflow { view.iconSide = { OverflowButton.paneGlyphSize } }
         let order = BrowserToolbarButton.allCases
@@ -308,16 +309,7 @@ public final class BrowserToolbarButtonsView: NSStackView {
         )
     }
 
-    /// `menu` (More) with a separator and Show in Toolbar at its end
-    /// (`showInToolbarItem`); `pin` is whether the rows are enabled and the
-    /// toggle by button id.
-    public func addingShowInToolbar(to menu: NSMenu, _ pin: (enabled: Bool, toggle: (String) -> Void)) -> NSMenu {
-        menu.addItem(.separator())
-        menu.addItem(showInToolbarItem(enabled: pin.enabled) { pin.toggle($0.rawValue) })
-        return menu
-    }
-
-    /// The More menu's Show in Toolbar item: one checked row per pinnable
+    /// The More menu's Show in Toolbar item (the last row of its Tools): one checked row per pinnable
     /// button (`pinned`); choosing one calls `toggle`. Rows are disabled
     /// when `enabled` is false (a managed list).
     public func showInToolbarItem(enabled: Bool, toggle: @escaping (BrowserToolbarButton) -> Void) -> NSMenuItem {

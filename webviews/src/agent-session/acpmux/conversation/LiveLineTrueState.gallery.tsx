@@ -16,12 +16,6 @@ type Phase = "thinking" | "running" | "waiting" | "subagents";
 type Props = { phase: Phase };
 
 const counts: WorkingCounts = {
-  agents: 0,
-  commands: 0,
-  sessions: 0,
-  openAgents: () => {},
-  openCommands: () => {},
-  openSessions: () => {},
   tokens: 2_200,
 };
 

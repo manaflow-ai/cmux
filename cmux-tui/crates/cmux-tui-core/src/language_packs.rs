@@ -175,7 +175,7 @@ impl Outcome {
         match self {
             Self::Bundled => json!({"state": "bundled"}),
             Self::Ready { root, chromium_pak } => {
-                let mut reply = serde_json::Map::new();
+                let mut reply = Map::new();
                 reply.insert("state".into(), Value::from("ready"));
                 reply.insert("root".into(), Value::from(root.to_string_lossy()));
                 if let Some(pak) = chromium_pak {
@@ -224,7 +224,7 @@ impl Pack {
 }
 
 /// `text` when it is 64 lowercase hex digits.
-fn is_sha256(text: &str) -> bool {
+pub(crate) fn is_sha256(text: &str) -> bool {
     text.len() == 64 && text.bytes().all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
 }
 
@@ -395,13 +395,13 @@ fn shared(cache: &Path, pack: &Pack) -> Outcome {
 }
 
 /// Whether `root` is a folder (not a link) with its marker.
-fn is_complete(root: &Path) -> bool {
+pub(crate) fn is_complete(root: &Path) -> bool {
     std::fs::symlink_metadata(root).is_ok_and(|meta| meta.is_dir())
         && std::fs::symlink_metadata(root.join(COMPLETE)).is_ok_and(|meta| meta.is_file())
 }
 
 /// Downloads, checks, unpacks and puts `pack` in place; its folder.
-fn install(cache: &Path, pack: &Pack) -> Result<PathBuf, Code> {
+pub(crate) fn install(cache: &Path, pack: &Pack) -> Result<PathBuf, Code> {
     std::fs::create_dir_all(cache).map_err(|_| Code::Io)?;
     static SEQUENCE: AtomicU64 = AtomicU64::new(0);
     let n = SEQUENCE.fetch_add(1, Ordering::Relaxed);
@@ -458,7 +458,7 @@ pub(crate) fn download(pack: &Pack, archive: &Path) -> Result<(), Code> {
     let runtime =
         tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|_| Code::Io)?;
     let digest = runtime.block_on(async {
-        let client = reqwest::Client::builder()
+        let client = cmux_egress::client_builder("cmux_tui_core::language_packs")
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
             .timeout(DOWNLOAD_TIMEOUT)
@@ -498,7 +498,7 @@ pub(crate) fn download(_pack: &Pack, _archive: &Path) -> Result<(), Code> {
 }
 
 #[cfg(unix)]
-fn hex(bytes: &[u8]) -> String {
+pub(crate) fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 

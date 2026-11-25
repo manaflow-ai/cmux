@@ -37,7 +37,6 @@ extension HomeHostView {
             cliState: { CLIInstallReport.setupRow(await CLIInstallHandlers.pathCheck(CLIPathInstaller().source)) },
             installCLI: { await CLIInstallHandlers.install(.cmux, replacing: $0, in: NSApp.keyWindow) },
             openAgents: { [weak services] in services?.onboarding.show(step: .agents) },
-            agentTools: services.onboarding.agentTools,
             look: SetupCardLook(design: .shared) { [weak services] in services?.settings })
         guard setupCard == nil, let card = SetupCardHost(setup: services.onboarding.setup, agents: services.onboarding.signInHarnesses,
                                                          environment: environment, overlayProcess: services.overlayProcess,

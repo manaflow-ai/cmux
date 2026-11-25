@@ -49,6 +49,8 @@ nonisolated enum PaletteStrings {
         String(localized: "palette.noMatch.runCommand", defaultValue: "Run “\(text)” in a New Workspace", bundle: .localizedModule)
     }
     static var actions: String { String(localized: "palette.footer.actions", defaultValue: "Actions", bundle: .localizedModule) }
+    /// Between a chord's two strokes on its keycaps: ⌘ J then S.
+    static var keycapThen: String { String(localized: "palette.keycap.then", defaultValue: "then", bundle: .localizedModule) }
     static var hideFromPalette: String { String(localized: "palette.action.hideFromPalette", defaultValue: "Hide from Palette", bundle: .localizedModule) }
     static var showInPalette: String { String(localized: "palette.action.showInPalette", defaultValue: "Show in Palette", bundle: .localizedModule) }
     static var resetRanking: String { String(localized: "palette.action.resetRanking", defaultValue: "Reset Ranking", bundle: .localizedModule) }
@@ -93,6 +95,10 @@ nonisolated enum PaletteStrings {
     }
     static var searchEverythingPlaceholder: String {
         String(localized: "palette.placeholder.searchEverything", defaultValue: "Search workspaces, tabs, history, chats, settings and commands…", bundle: .localizedModule)
+    }
+    /// The line under Search's field: how to search one kind of row.
+    static var searchFiltersHint: String {
+        String(localized: "palette.hint.searchFilters", defaultValue: "Narrow with in:tabs, in:history, in:settings, or leave a kind out with -in:chats", bundle: .module)
     }
     static var goToAnythingPlaceholder: String {
         String(localized: "palette.placeholder.goToAnything", defaultValue: "Search workspaces, groups, panes and tabs…", bundle: .localizedModule)
@@ -188,6 +194,10 @@ extension PaletteStrings {
     // Cmd-P and Cmd-Shift-P rows for a typed path or web address (GoToPaletteRows).
     static var sectionGoTo: String { String(localized: "palette.section.goTo", defaultValue: "Go To", bundle: .localizedModule) }
     static var kindFolder: String { String(localized: "palette.kind.folder", defaultValue: "Folder", bundle: .localizedModule) }
+    /// The footer's Return label naming the row it acts on: "Switch to Tab “Fix the login bug”".
+    static func primaryNamingRow(_ verb: String, _ row: String) -> String {
+        String(localized: "palette.footer.primaryNamingRow", defaultValue: "\(verb) “\(row)”", bundle: .localizedModule)
+    }
     static func goToOpen(_ place: String) -> String { String(localized: "palette.goTo.open", defaultValue: "Open \(place)", bundle: .localizedModule) }
     static var goToFolderHint: String { String(localized: "palette.goTo.folderHint", defaultValue: "New terminal tab in this folder", bundle: .localizedModule) }
     static var goToAskCommand: String { String(localized: "palette.goTo.askCommand", defaultValue: "Ask Agent", bundle: .localizedModule) }

@@ -37,7 +37,7 @@ final class SidebarCardTextButton: NSView {
     override var mouseDownCanMoveWindow: Bool { false }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    static var font: NSFont { Typography.system(size: Typography.caption.pointSize, weight: .medium) }
+    static var font: NSFont { Typography.cardButton }
     static var height: CGFloat { ceil(font.boundingRectForFont.height) + Metrics.space1 }
 
     /// `title` drawn; VoiceOver reads `help` as the label (nil: the title). No tooltip: the button shows its title
@@ -117,7 +117,7 @@ final class SidebarCardTextButton: NSView {
     override func menu(for event: NSEvent) -> NSMenu? {
         var view = superview
         while let current = view {
-            if let menu = current.menu(for: event) { return menu }
+            if let menu = current.menu(for: event) { return NSMenu.withoutSystemItems(menu) }
             view = current.superview
         }
         return nil

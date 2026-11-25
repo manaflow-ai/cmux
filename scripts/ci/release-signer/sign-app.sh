@@ -54,13 +54,17 @@ source "$(dirname "${BASH_SOURCE[0]}")/signer-env.sh"
 MODE="${CMUX_SIGN_MODE:-all}"
 [[ "$MODE" == all ]] && [[ -z "${CMUX_NEXT_CEF_ON_DEMAND:-}${CMUX_NEXT_LANGUAGE_PACKS:-}" ]] ||
   { echo "error: CMUX_SIGN_MODE=$MODE, CMUX_NEXT_CEF_ON_DEMAND and CMUX_NEXT_LANGUAGE_PACKS are not supported here" >&2; exit 2; }
-# The Screen Sharing helper ("<app> Screen Sharing.app"), when the app carries
+# The Screen Sharing helper ("<app> Helper.app", executable cmux-screen-sharing; an app built
+# before the rename has "<app> Screen Sharing.app", which the stamp renames), when the app carries
 # one: stamped for the app's final bundle id and name first (the nightly-next
 # identity went into Info.plist after the build), as sign-cmux-bundle.sh step 2.
 screen_share=""
 find_screen_share() {
   local found
   screen_share=""
+  for found in "$APP_PATH/Contents/Library/"*" Helper.app"; do
+    if [[ -e "$found/Contents/MacOS/cmux-screen-sharing" ]]; then screen_share="$found"; return 0; fi
+  done
   for found in "$APP_PATH/Contents/Library/"*" Screen Sharing.app"; do
     if [[ -d "$found/Contents" ]]; then screen_share="$found"; return 0; fi
   done

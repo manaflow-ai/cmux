@@ -8,7 +8,7 @@ import { installFocusModality } from "../ui/focusModality";
 import { paneLanguage, setPaneLanguage } from "../agent-session/acpmux/i18n";
 import { ChiefWeb } from "./ChiefWeb";
 
-if (import.meta.env.DEV) {
+if (import.meta.env?.DEV) {
   globalThis.__cmuxPaneStrings ??= (await import("../agent-session/acpmux/generated/strings.json")).default;
   setPaneLanguage(paneLanguage());
 }
