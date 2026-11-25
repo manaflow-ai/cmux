@@ -17,6 +17,8 @@ use tokio::runtime::Runtime;
 
 mod auto_chats;
 mod browser;
+#[doc(hidden)]
+pub mod bundle;
 mod catch_up;
 mod chat_prompt_outbox;
 mod classic_leftovers;
@@ -356,6 +358,8 @@ pub struct LinkHandle {
     /// The phone end of viewport sync (cmux_mobile_link::viewport): what
     /// daemon channels ask for, and the link's datagram receivers.
     viewport: PhoneViewport,
+    /// The Mac refused `bundle` (`unknown_service`, an older hostd): files go the old way on this link.
+    bundle_refused: std::sync::atomic::AtomicBool,
 }
 
 impl Drop for LinkHandle {
@@ -1111,6 +1115,7 @@ async fn finish_link(
         tunnel_keys: connected.tunnel_keys,
         media,
         viewport,
+        bundle_refused: std::sync::atomic::AtomicBool::new(false),
     }))
 }
 
