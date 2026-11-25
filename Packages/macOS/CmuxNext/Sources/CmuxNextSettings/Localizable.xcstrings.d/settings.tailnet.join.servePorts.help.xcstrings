@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.tailnet.join.servePorts.help" : {
+      "comment" : "Settings > Devices > Tailscale (schemas/settings/source/tailnet-join.json).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Optional ports to publish through Tailscale Serve, such as 3000 or 8080:8443."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
