@@ -2135,7 +2135,7 @@ class PlanReportTests(unittest.TestCase):
         with mock.patch.object(cron, "now_utc", lambda: now), mock.patch.object(cron, "git", git), \
                 mock.patch.object(cron, "measure_version", lambda sha: 2), \
                 mock.patch.object(cron, "commit_on_branch", lambda repo, t, known=(): cron.is_sha), \
-                mock.patch.object(cron, "tree_published", lambda sha: True), \
+                mock.patch.object(cron, "tree_published", lambda sha, deadline=None: True), \
                 mock.patch.object(cron, "github_busy", lambda *a: None), \
                 mock.patch.object(cron, "frame_pacing_runs", lambda repo: []), \
                 mock.patch.object(cron, "is_ancestor", lambda a, b: False), \
@@ -3654,7 +3654,7 @@ class NoHostTipTests(OneRunRule):
             with mock.patch.object(cron, "now_utc", lambda: at(1)), mock.patch.object(cron, "git", git), \
                     mock.patch.object(cron, "measure_version", lambda sha: 3), \
                     mock.patch.object(cron, "commit_on_branch", lambda repo, t, known=(): cron.is_sha), \
-                    mock.patch.object(cron, "tree_published", lambda sha: False), \
+                    mock.patch.object(cron, "tree_published", lambda sha, deadline=None: False), \
                     mock.patch.object(cron, "github_busy", lambda *a: None), \
                     mock.patch.object(cron, "frame_pacing_runs", lambda repo: []), \
                     mock.patch.object(cron, "is_ancestor", lambda a, b: False), \
@@ -4039,14 +4039,16 @@ class BisectBudgetTests(unittest.TestCase):
     """2026-11-19: the bisect judged every commit of 16 ranges of 300 to 1,900 commits, none measurable, each tick,
     and the plan job hit its 75 min timeout every tick."""
 
-    def tick(self, d, commits, judged):
+    def tick(self, d, commits, judged, lookup_seconds=0):
         tip = "f" * 40
+        clock = [1000.0]
 
         def git(*args, check=True):
             return tip if args[0] in ("rev-parse", "rev-list") else ""
 
-        def tree_published(sha):
+        def tree_published(sha, deadline=None):
             judged.append(sha)
+            clock[0] += lookup_seconds
             return False
         out = os.path.join(d, "plan.out")
         with mock.patch.object(cron, "now_utc", lambda: at(1)), mock.patch.object(cron, "git", git), \
@@ -4059,6 +4061,7 @@ class BisectBudgetTests(unittest.TestCase):
                 mock.patch.object(cron, "frame_pacing_runs", lambda repo: []), \
                 mock.patch.object(cron, "is_ancestor", lambda a, b: False), \
                 mock.patch.object(cron, "supported_parts_at", lambda sha: ["motion"]), \
+                mock.patch.object(cron.time, "monotonic", lambda: clock[0]), \
                 contextlib.redirect_stdout(io.StringIO()) as said:
             cron.cmd_plan(argparse.Namespace(repo="o/r", dir=d, tip="HEAD", yield_mode="queued", no_mac=False,
                                              output=out))
@@ -4088,6 +4091,27 @@ class BisectBudgetTests(unittest.TestCase):
             with open(os.path.join(d, "state.json")) as f:
                 looked = json.load(f)["regressions"][0]["range"]["looked"]
             self.assertEqual(looked["place"], 2 * cron.BISECT_JUDGED_PER_TICK)
+
+
+    def test_slow_tree_lookups_stop_at_the_plan_s_budget_and_the_plan_still_answers(self):
+        """Run 45536170489 (2026-11-25): tree lookups slow enough that the plan step's `timeout 600` killed the plan,
+        so no tick planned. They share TREE_LOOKUP_SECONDS; past it a commit reads as unpublished and the plan goes on."""
+        ranges = [("1" * 40, "2" * 40)]
+        commits = {ranges[0]: [f"{i:040x}" for i in range(500)]}
+        with tempfile.TemporaryDirectory() as d:
+            state = cron.empty_state(T0)
+            state["persisted"] = True
+            state["last_tried"] = {"sha": "f" * 40, "at": cron.iso(at(0))}
+            state["regressions"] = [{"name": "cmd_d.e2e@cmux20", "p95": 30.0, "base": 20.0, "confirmed": True,
+                                     "range": {"good": ranges[0][0], "bad": ranges[0][1], "skip": [], "steps": 0}}]
+            with open(os.path.join(d, "state.json"), "w") as f:
+                json.dump(state, f)
+            judged = []
+            plan, said = self.tick(d, commits, judged, lookup_seconds=200)
+            self.assertEqual(plan["action"], "none", plan.get("reason"))
+            self.assertEqual(len(judged), -(-cron.TREE_LOOKUP_SECONDS // 200), "lookups stop once the budget is spent")
+            self.assertIn(f"tree lookups used this plan's {cron.TREE_LOOKUP_SECONDS} s", said)
+            self.assertIn("took 200 s", said)
 
 
 class DiffBenchVersionTests(unittest.TestCase):
@@ -4169,7 +4193,7 @@ class NotMeasuringTests(unittest.TestCase):
         with mock.patch.object(cron, "now_utc", lambda: at(1)), mock.patch.object(cron, "git", git), \
                 mock.patch.object(cron, "measure_version", lambda sha: version), \
                 mock.patch.object(cron, "commit_on_branch", lambda repo, t, known=(): cron.is_sha), \
-                mock.patch.object(cron, "tree_published", lambda sha: True), \
+                mock.patch.object(cron, "tree_published", lambda sha, deadline=None: True), \
                 mock.patch.object(cron, "github_busy", lambda *a: None), \
                 mock.patch.object(cron, "frame_pacing_runs", lambda repo: []), \
                 mock.patch.object(cron, "is_ancestor", lambda a, b: False), \
@@ -4270,6 +4294,24 @@ class PartRowsStoredAtOnceTests(unittest.TestCase):
                 self.assertEqual(value["part"], "stress")
             self.assertEqual(state["part_stored"]["stress"]["sha"], "a" * 40)
             self.assertNotIn("motion", state["part_stored"])
+
+    def test_an_incomplete_part_keeps_its_finished_benches_rows(self):
+        # web-ui-god on 2026-11-24: transcript-replay-god timed out, the other benches measured (rest wakeups 0).
+        report = {"rows": [{"name": "chat_switch.god.read_ahead.rest_wakeups", "p50": 0, "p95": 0, "unit": "count",
+                            "target": 0, "floor": 0.5}],
+                  "failed": ["transcript-replay-god: timed out after 420 s"],
+                  "incomplete": [{"bench": "transcript-replay-god", "why": "timed out after 420 s"}]}
+        with tempfile.TemporaryDirectory() as d:
+            state = self.state_with(["web-ui-god", "motion"])
+            state = self.report(d, state, [self.part_dir(d, "web-ui-god",
+                                                         {"state": "done", "worker": cron.LINUX_FLEET_CLASS}, report)])
+            rows = state.get("part_rows") or {}
+            name = "webui.chat_switch.god.read_ahead.rest_wakeups@" + cron.LINUX_FLEET_CLASS
+            self.assertIn(name, rows, "a finished bench's row is stored although another bench of the part timed out")
+            self.assertEqual((rows[name]["p95"], rows[name]["sha"]), (0, "a" * 40))
+            stored = state["part_stored"]["web-ui-god"]
+            self.assertIn("transcript-replay-god", stored["incomplete"], "the store says which bench was missing")
+            self.assertFalse(state.get("row_history"), "an incomplete part is still judged only at the finish")
 
     def test_a_measurement_still_running_shows_its_finished_parts(self):
         with tempfile.TemporaryDirectory() as d:
@@ -4739,6 +4781,20 @@ class UnreadPartFirstTests(unittest.TestCase):
         order = cron.part_order(state, state["current"]["parts_todo"], at(27))
         self.assertEqual(order[:2], ["build", "chat-size"], "the unread part goes right after the build")
 
+    def test_a_tip_with_no_mac_part_done_gives_way_at_once(self):
+        # 2026-11-24: tip b76703549055 had run only Linux parts (its one Mac part yielded) 23 h in, so the hold kept
+        # nothing, while the unread web-ui-orchestrator waited for it.
+        state = cron.empty_state(T0)
+        cron.decide(state, T0, self.OLD, None, self.supported, None)
+        cur = state["current"]
+        cron.record_part(cur, "build", {"state": "done", "worker": cron.BENCH_WORKER}, "u", T0)
+        state["part_stored"] = {n: {"sha": self.OLD, "at": cron.iso(T0), "rows": 1}
+                                for n in ALL if n not in ("build", "chat-size")}
+        cron.decide(state, at(1), None, None, self.supported, None, newest=self.NEW)
+        cur = state["current"]
+        self.assertIn("superseded", cur, "no Mac part done: the hold keeps nothing")
+        self.assertFalse([n for n in cur["parts_todo"] if not cron.is_linux_part(n)], "its Mac parts gave way")
+
     def test_a_superseded_tip_stops_waiting_for_an_unanswered_linux_part(self):
         # 2026-11-23: tip 12aa19c2 gave its Mac parts up, then its web-ui-growth request went unanswered 23 h, and the
         # newer tip with chat-size waited for ABANDON_WALL_HOURS.
@@ -5075,7 +5131,7 @@ class BatchTests(unittest.TestCase):
         with mock.patch.object(cron, "now_utc", lambda: now), mock.patch.object(cron, "git", lambda *a, check=True: self.SHA), \
                 mock.patch.object(cron, "measure_version", lambda sha: 2), \
                 mock.patch.object(cron, "commit_on_branch", lambda repo, t, known=(): cron.is_sha), \
-                mock.patch.object(cron, "tree_published", lambda sha: True), \
+                mock.patch.object(cron, "tree_published", lambda sha, deadline=None: True), \
                 mock.patch.object(cron, "github_busy", lambda *a: None), \
                 mock.patch.object(cron, "frame_pacing_runs", lambda repo: []), \
                 mock.patch.object(cron, "is_ancestor", lambda a, b: False), \

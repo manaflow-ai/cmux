@@ -49,6 +49,7 @@ import {
   newIdempotencyKey,
   wireError,
   type AccountsRun,
+  type AccountsRunReply,
   type AccountsState,
   type AgentsRun,
   type AgentsState,
@@ -58,8 +59,6 @@ import {
   type CloudEnvironmentsState,
   type LibraryListing,
   type LibraryRun,
-  type Checklist,
-  type ChecklistFact,
   type SharesState,
   type TailnetState,
   type DevicesRun,
@@ -103,19 +102,20 @@ import {
   type AgentConfigRun,
   type AllotmentSet,
   type AllotmentView,
-  type HubRun,
-  type HubState,
-  type AccountsRunReply,
+  type ArchivedRun,
+  type ArchivedState,
   type DoctorReport,
   type DoctorRun,
+  type HubRun,
+  type HubState,
+  type ConnectionsRun,
+  type ConnectionsState,
   type TailnetVMReply,
   type AutocloudAction,
   type AutocloudAnswer,
   type AutocloudState,
-  type ConnectionsRun,
-  type ConnectionsState,
-  type ArchivedRun,
-  type ArchivedState,
+  type Checklist,
+  type ChecklistFact,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -200,7 +200,7 @@ export type NativeTarget = "cmuxJSON";
 /** `appearance.background`, which the picker's host ops set. */
 const BACKGROUND = "appearance.background";
 
-const emptyDomains: Domains = { themes: [], font_families: [], sounds: [], recent_fonts: [] };
+const emptyDomains: Domains = { themes: [], font_families: [], ui_font_families: [], sounds: [], recent_fonts: [] };
 
 /** The page's state from the cache and the UI state (one function for hooks and getSnapshot). */
 export function composeState(ui: UiState, cache: CacheView): SettingsState {
@@ -1535,6 +1535,14 @@ export class SettingsStore {
 
   playSound(name: string): void {
     void this.request("cmux.settings.sound.play", { name });
+  }
+
+  /** Custom Sound…: the host asks for an audio file, keeps a copy in cmux's sounds folder and sets
+   * it as `key`'s sound. */
+  async importSound(key: string): Promise<void> {
+    const reply = await this.request("cmux.settings.sound.import", { key });
+    if (!reply.ok) this.setError(key, rowError(reply.error));
+    else if (reply.value.name !== null) await this.refresh();
   }
 
   /**
