@@ -61,7 +61,6 @@ type Profile = {
   timeDeltas: number[];
 };
 
-
 /// Prints the profile's main-thread time, then the functions by self time and by total time (a
 /// function's own samples and those of everything it called). `steps` > 0 also prints it per step.
 function printProfile(profile: Profile, steps: number, top = TOP) {
@@ -107,7 +106,8 @@ function printProfile(profile: Profile, steps: number, top = TOP) {
     const ms = byNode.get(node.id);
     if (ms === undefined || ms <= 0 || keyOf.get(node.id) === "(idle)") continue;
     const path: string[] = [];
-    for (let at: number | undefined = node.id; at !== undefined && at !== rootId; at = parent.get(at)) path.unshift(keyOf.get(at)!);
+    for (let at: number | undefined = node.id; at !== undefined && at !== rootId; at = parent.get(at))
+      path.unshift(keyOf.get(at)!);
     const key = path.slice(0, 3).join(" > ") || "(root)";
     entry.set(key, (entry.get(key) ?? 0) + ms);
   }
@@ -198,27 +198,33 @@ try {
     };
     // Warm: the first steps at each width build what later steps reuse.
     await runSteps();
-    if (process.env.CV_FAR) console.log("cv far", await page.evaluate(() => {
-      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-      const view = scroller.getBoundingClientRect();
-      let n = 0;
-      for (const r of document.querySelectorAll<HTMLElement>(".acpmux-row")) {
-        const b = r.getBoundingClientRect();
-        if (b.bottom < view.top - view.height || b.top > view.bottom + view.height) {
-          r.style.contentVisibility = "auto"; r.style.containIntrinsicSize = `auto ${b.height}px`; n += 1;
-        }
-      }
-      return n;
-    }));
+    if (process.env.CV_FAR)
+      console.log(
+        "cv far",
+        await page.evaluate(() => {
+          const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+          const view = scroller.getBoundingClientRect();
+          let n = 0;
+          for (const r of document.querySelectorAll<HTMLElement>(".acpmux-row")) {
+            const b = r.getBoundingClientRect();
+            if (b.bottom < view.top - view.height || b.top > view.bottom + view.height) {
+              r.style.contentVisibility = "auto";
+              r.style.containIntrinsicSize = `auto ${b.height}px`;
+              n += 1;
+            }
+          }
+          return n;
+        }),
+      );
     const untimed = await runSteps();
     console.log(
       `resize-step steps=${untimed.length} frame p50/p95/max=${stepAt(untimed, 0.5)}/${stepAt(untimed, 0.95)}/${stepAt(untimed, 1)} ms (no profiler)`,
     );
     await cdp.send("Profiler.start");
     const profiled = await runSteps();
-      const { profile } = (await cdp.send("Profiler.stop")) as unknown as { profile: Profile };
-      console.log(`resize-step frame p50=${stepAt(profiled, 0.5)} ms (profiled)`);
-      printProfile(profile, STEP_COUNT);
+    const { profile } = (await cdp.send("Profiler.stop")) as unknown as { profile: Profile };
+    console.log(`resize-step frame p50=${stepAt(profiled, 0.5)} ms (profiled)`);
+    printProfile(profile, STEP_COUNT);
     // The floor: the same steps writing the width the chat already has, so nothing resizes. What
     // the profile samples then is the bench's own rhythm (its timers and frames), not the chat's.
     const rest = STEP_WIDTHS[STEP_WIDTHS.length - 1];
@@ -232,42 +238,42 @@ try {
     printProfile(floor, STEP_COUNT, 8);
   } else {
     await cdp.send("Profiler.start");
-      const work = await page.evaluate(
-        async ({ wide, narrow, steps }) => {
-          const root = document.getElementById("root")!;
-          const widths = [
-            ...Array.from({ length: steps }, (_, i) => wide - ((wide - narrow) * (i + 1)) / steps),
-            ...Array.from({ length: steps }, (_, i) => narrow + ((wide - narrow) * (i + 1)) / steps),
-          ].map(Math.round);
-          const step = window as unknown as { __stepFoldStream: () => void };
-          const frames: number[] = [];
-          // Whether the drag's rows were in normal flow this frame (VirtualTranscript `startFlow`, class
-          // `acpmux-thread--flow`): in flow the browser rewraps them with no React pass and no height
-          // read, and the row observer returns early. A drag that never enters it pays a synchronous
-          // render and measure per frame instead, so this counts the frames that got the fast path.
-          let flowed = 0;
-          await new Promise<void>((done) => {
-            let index = 0;
-            const tick = () => {
-              if (index >= widths.length) return done();
-              const started = performance.now();
-              root.style.width = `${widths[index]}px`;
-              index += 1;
-              step.__stepFoldStream();
-              const channel = new MessageChannel();
-              channel.port1.onmessage = () => {
-                frames.push(performance.now() - started);
-                if (document.querySelector(".acpmux-thread--flow")) flowed += 1;
-              };
-              channel.port2.postMessage(0);
-              requestAnimationFrame(tick);
+    const work = await page.evaluate(
+      async ({ wide, narrow, steps }) => {
+        const root = document.getElementById("root")!;
+        const widths = [
+          ...Array.from({ length: steps }, (_, i) => wide - ((wide - narrow) * (i + 1)) / steps),
+          ...Array.from({ length: steps }, (_, i) => narrow + ((wide - narrow) * (i + 1)) / steps),
+        ].map(Math.round);
+        const step = window as unknown as { __stepFoldStream: () => void };
+        const frames: number[] = [];
+        // Whether the drag's rows were in normal flow this frame (VirtualTranscript `startFlow`, class
+        // `acpmux-thread--flow`): in flow the browser rewraps them with no React pass and no height
+        // read, and the row observer returns early. A drag that never enters it pays a synchronous
+        // render and measure per frame instead, so this counts the frames that got the fast path.
+        let flowed = 0;
+        await new Promise<void>((done) => {
+          let index = 0;
+          const tick = () => {
+            if (index >= widths.length) return done();
+            const started = performance.now();
+            root.style.width = `${widths[index]}px`;
+            index += 1;
+            step.__stepFoldStream();
+            const channel = new MessageChannel();
+            channel.port1.onmessage = () => {
+              frames.push(performance.now() - started);
+              if (document.querySelector(".acpmux-thread--flow")) flowed += 1;
             };
+            channel.port2.postMessage(0);
             requestAnimationFrame(tick);
-          });
-          return { frames, flowed };
-        },
-        { wide: WIDE, narrow: NARROW, steps: STEPS },
-      );
+          };
+          requestAnimationFrame(tick);
+        });
+        return { frames, flowed };
+      },
+      { wide: WIDE, narrow: NARROW, steps: STEPS },
+    );
     const { profile } = (await cdp.send("Profiler.stop")) as unknown as { profile: Profile };
 
     const sorted = [...work.frames].sort((a, b) => a - b);
