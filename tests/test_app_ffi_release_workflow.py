@@ -1175,9 +1175,10 @@ class RePinPublication(unittest.TestCase):
     def test_a_release_with_changed_inputs_is_re_pinned(self):
         result, state = self.run_repin()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(state["input_diffs"], [[self.PINNED, self.NEWEST]])
+        # The skip compares the pin with the release, then the hold compares the tip with it before any runs read.
+        self.assertEqual(state["input_diffs"], [[self.PINNED, self.NEWEST], ["a" * 40, self.NEWEST]])
         # The inputs compared are the ones the pin check lists (the fake check-app-ffi-pin.sh --list-inputs).
-        self.assertEqual(state["input_paths"], [["cmux-tui/crates/cmux-app-ffi/src"]])
+        self.assertEqual(state["input_paths"], [["cmux-tui/crates/cmux-app-ffi/src"]] * 2)
         self.assertEqual(state["published"], ["b" * 40])
 
     def test_the_json_pin_is_read_when_the_tree_has_it(self):
