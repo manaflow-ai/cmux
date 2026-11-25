@@ -577,9 +577,13 @@ impl Peer {
             self.timings.connect
         };
         // The first request goes out with the upgrade (`Peer::early_initialize`); a peer whose
-        // listener predates that refuses the upgrade ("junk after client request"), which is
-        // remembered (`early_refused`) and dialed again without it.
+        // listener predates that refuses the upgrade ("junk after client request") and is
+        // dialed again without it, inside the same deadline: the retry never waits longer than
+        // the dial it replaces. Only a retry that opens shows the listener refused the frame
+        // (`early_refused`); a path that fails both ways was failing, not refusing.
+        let until = tokio::time::Instant::now() + deadline;
         let mut use_early = !self.early_refused.load(Ordering::SeqCst);
+        let mut retried = false;
         loop {
             let heard = Heard::default();
             let early = use_early.then(|| self.early_initialize()).flatten();
@@ -601,8 +605,11 @@ impl Peer {
                 // Only an answer that is not the token's refusal may be the early frame's.
                 .map_err(|e| (!tokens::refused(&e), e.to_string()))
             };
-            match tokio::time::timeout(deadline, opening).await {
+            match tokio::time::timeout_at(until, opening).await {
                 Ok(Ok((ws, _))) => {
+                    if retried {
+                        self.early_refused.store(true, Ordering::SeqCst);
+                    }
                     return Ok(Opened {
                         ws: OpenedWs::Boxed(Box::new(ws)),
                         heard,
@@ -611,10 +618,10 @@ impl Peer {
                         early_id,
                     });
                 }
-                Ok(Err((maybe_early, _))) if maybe_early && early_id.is_some() => {
-                    self.early_refused.store(true, Ordering::SeqCst);
-                    tracing::debug!(peer = %self.name, "the peer refused an upgrade with a first request behind it; dialing without");
+                Ok(Err((maybe_early, error))) if maybe_early && early_id.is_some() => {
+                    tracing::debug!(peer = %self.name, via = via.as_str(), %error, "an upgrade with a first request behind it failed; dialing without");
                     use_early = false;
+                    retried = true;
                 }
                 Ok(Err((_, error))) => return Err(error),
                 Err(_) => return Err(connect_timed_out(deadline)),
@@ -624,6 +631,16 @@ impl Peer {
 
     /// Open the peer's WebSocket on the configured `ws://`/`wss://` URL.
     async fn open_url(&self) -> Result<Opened, String> {
+        let until = tokio::time::Instant::now() + self.timings.connect;
+        self.open_url_until(until, false).await
+    }
+
+    /// [`Self::open_url`] by `until`; `retried` when an upgrade with the early frame failed.
+    async fn open_url_until(
+        &self,
+        until: tokio::time::Instant,
+        retried: bool,
+    ) -> Result<Opened, String> {
         // The peer token never crosses a network in clear.
         let peer_token = match self.peer_token.as_deref() {
             Some(_) if !super::carries_peer_token(&self.url) => {
@@ -637,9 +654,11 @@ impl Peer {
         let req = self.ws_request(&self.url, self.token.as_deref(), peer_token)?;
         let heard = Heard::default();
         // Over TLS the upgrade is written inside the stream this would wrap: no early frame.
-        let early = (self.url.starts_with("ws://") && !self.early_refused.load(Ordering::SeqCst))
-            .then(|| self.early_initialize())
-            .flatten();
+        let early = (self.url.starts_with("ws://")
+            && !retried
+            && !self.early_refused.load(Ordering::SeqCst))
+        .then(|| self.early_initialize())
+        .flatten();
         let early_id = early.as_ref().map(|(id, _)| *id);
         let token_said_no = AtomicBool::new(false);
         // `connect_async`'s steps, with the TCP stream's reads counted (`Heard`).
@@ -669,12 +688,19 @@ impl Peer {
                 e.to_string()
             })
         };
-        let (ws, _) = match tokio::time::timeout(self.timings.connect, connect).await {
-            Ok(Ok(opened)) => opened,
-            // A listener that predates the early request refuses the upgrade: dial without.
-            Ok(Err(_)) if early_id.is_some() && !token_said_no.load(Ordering::SeqCst) => {
-                self.early_refused.store(true, Ordering::SeqCst);
-                return Box::pin(self.open_url()).await;
+        let (ws, _) = match tokio::time::timeout_at(until, connect).await {
+            Ok(Ok(opened)) => {
+                // Opened without the frame right after failing with it: the listener refused it.
+                if retried {
+                    self.early_refused.store(true, Ordering::SeqCst);
+                }
+                opened
+            }
+            // A listener that predates the early request refuses the upgrade: dial without,
+            // by the same deadline.
+            Ok(Err(error)) if early_id.is_some() && !token_said_no.load(Ordering::SeqCst) => {
+                tracing::debug!(peer = %self.name, %error, "an upgrade with a first request behind it failed; dialing without");
+                return Box::pin(self.open_url_until(until, true)).await;
             }
             Ok(Err(error)) => return Err(error),
             Err(_) => return Err(connect_timed_out(self.timings.connect)),
