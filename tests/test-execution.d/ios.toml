@@ -92,6 +92,11 @@ path = "tests/test_ios_sim_runtime.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ios_snappy.py"
+lane = "manual"
+reason = "No workflow step runs it yet. Run it yourself: python3 -I tests/test_ios_snappy.py"
+
+[[test]]
 path = "tests/test_ios_testflight_archive_log.py"
 lane = "linux-guard"
 
@@ -130,12 +135,3 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ios_workflow_dispatch_ref.py"
 lane = "linux-guard"
-
-[[test]]
-path = "tests/test_png_opaque.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ios_snappy.py"
-lane = "manual"
-reason = "No workflow step runs it yet. Run it yourself: python3 -I tests/test_ios_snappy.py"

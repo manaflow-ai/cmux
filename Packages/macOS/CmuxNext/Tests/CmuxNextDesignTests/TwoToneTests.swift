@@ -87,10 +87,11 @@ struct TwoToneTests {
         #expect(!cases.isEmpty)
         for item in cases {
             let value = try #require((item["value"] as? String).flatMap(TwoTone.init), "\(item)")
+            let dark = try #require(item["dark"] as? Bool)
             let tones = try #require(value.tones(background: try Self.color(item["background"]),
                                                  foreground: try Self.color(item["foreground"]),
                                                  accent: try Self.color(item["accent"]),
-                                                 dark: try #require(item["dark"] as? Bool)))
+                                                 dark: dark))
             let label = "\(item["theme"] ?? "") \(value)"
             #expect(Self.near(tones.chrome, try Self.color(item["chrome"])), "\(label) chrome \(tones.chrome)")
             #expect(Self.near(tones.accent, try Self.color(item["toneAccent"])), "\(label) accent \(tones.accent)")
