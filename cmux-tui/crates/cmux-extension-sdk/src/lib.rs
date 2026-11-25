@@ -40,6 +40,10 @@ pub use cmux_app_manifest::{Issue, PackageReport, Severity, is_valid};
 /// batch, so a tool can check a motion value exactly as cmux will.
 pub use cmux_app_host::motion;
 
+/// The scene's node vocabulary and the kit nodes' typed props (`Tooltip`, `Pill`, `Card`): the
+/// validator the app host runs on every scene batch.
+pub use cmux_app_manifest::scene_nodes;
+
 use serde_json::{Map, Value, json};
 use std::path::Path;
 

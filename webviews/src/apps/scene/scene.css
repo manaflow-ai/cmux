@@ -136,6 +136,17 @@
 .cmux-app-scene-emptystate > span {
   font-size: var(--text-detail);
 }
+/* Card: its trigger keeps the node's flex box (it is the anchor the kit's hover card sits at), and
+   the card's content stacks as a Panel's does. The card's glass and padding are the kit's. */
+.cmux-app-scene-card-trigger {
+  display: flex;
+  min-width: 0;
+}
+.cmux-app-scene-card-content {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--grid-base) * 2);
+}
 .cmux-app-scene-badge-label {
   display: inline-flex;
   align-items: center;

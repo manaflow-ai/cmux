@@ -46,6 +46,7 @@
     Badge: () => Badge,
     Button: () => Button,
     Capsule: () => Capsule,
+    Card: () => Card,
     Circle: () => Circle,
     Divider: () => Divider,
     EmptyState: () => EmptyState,
@@ -59,6 +60,7 @@
     Menu: () => Menu,
     Panel: () => Panel,
     Particles: () => Particles,
+    Pill: () => Pill,
     ProgressView: () => ProgressView,
     Rectangle: () => Rectangle,
     Reorderable: () => Reorderable,
@@ -69,6 +71,7 @@
     Text: () => Text,
     TextField: () => TextField,
     Toggle: () => Toggle,
+    Tooltip: () => Tooltip,
     VStack: () => VStack,
     ViewNode: () => ViewNode,
     ZStack: () => ZStack,
@@ -931,6 +934,31 @@
     const node = new ViewNode("Badge");
     node.props.text = typeof text === "function" ? () => String(text()) : String(text);
     node.props.tone = tone;
+    return node;
+  }
+  function Pill(text, tone = "neutral", size) {
+    const node = new ViewNode("Pill");
+    node.props.text = typeof text === "function" ? () => String(text()) : String(text);
+    node.props.tone = tone;
+    if (size !== undefined)
+      node.props.size = size;
+    return node;
+  }
+  function Tooltip(text, child, options = {}) {
+    const node = new ViewNode("Tooltip", [child]);
+    node.props.text = text;
+    if (options.detail !== undefined)
+      node.props.detail = options.detail;
+    if (options.shortcut !== undefined)
+      node.props.shortcut = options.shortcut;
+    if (options.side !== undefined)
+      node.props.side = options.side;
+    return node;
+  }
+  function Card(trigger, content, options = {}) {
+    const node = new ViewNode("Card", [trigger, ...clean(content)]);
+    if (options.side !== undefined)
+      node.props.side = options.side;
     return node;
   }
   function EmptyState(props) {

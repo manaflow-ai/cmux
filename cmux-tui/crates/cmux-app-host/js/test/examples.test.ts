@@ -418,4 +418,18 @@ describe("cmux-extension-sdk/testing", () => {
     }
     for (const path of read) expect([path, shipped.some((s) => path === s || path.startsWith(s + "/"))]).toEqual([path, true])
   })
+
+  test("cmux-extension-sdk/web/instrument carries the Instrument kit's version and stylesheet", async () => {
+    const made = Bun.spawnSync(["bun", join(sdk, "tools/gen-instrument.ts")])
+    expect([made.exitCode, made.stderr.toString()]).toEqual([0, ""])
+    const instrument = await import(join(sdk, "src/web-instrument.ts"))
+    const kit = readFileSync(join(root, "webviews/src/kit/version.ts"), "utf8")
+    expect(kit).toContain(`"${instrument.INSTRUMENT_VERSION}"`)
+    for (const part of ["--ds-", ".kit-", "--grid-base"]) expect(instrument.INSTRUMENT_CSS).toContain(part)
+    const added: unknown[] = []
+    const doc = { adoptedStyleSheets: [] as unknown[], defaultView: { CSSStyleSheet: class { replaceSync(css: string) { added.push(css) } } } }
+    const sheet = instrument.adoptInstrument(doc)
+    expect(instrument.adoptInstrument(doc)).toBe(sheet)
+    expect([doc.adoptedStyleSheets.length, added]).toEqual([1, [instrument.INSTRUMENT_CSS]])
+  })
 })

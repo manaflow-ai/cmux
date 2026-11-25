@@ -55,6 +55,10 @@ pub mod particles;
 pub mod protocol;
 #[cfg(feature = "engine")]
 pub mod sandbox;
+/// The kit nodes' typed props (`Tooltip`, `Pill`, `Card`): the manifest crate's validator, compiled
+/// here too so the VM runs it on every scene batch without the manifest crate's dependencies.
+#[path = "../../cmux-app-manifest/src/scene_nodes.rs"]
+pub mod scene_nodes;
 #[cfg(unix)]
 pub mod script;
 #[cfg(feature = "engine")]

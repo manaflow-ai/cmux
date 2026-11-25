@@ -50,6 +50,13 @@
       "status": "build"
     },
     {
+      "id": "extension-sdk-instrument-sheet",
+      "generator": "cmux-tui/crates/cmux-extension-sdk/typescript/tools/gen-instrument.ts",
+      "outputs": ["cmux-tui/crates/cmux-extension-sdk/typescript/src/generated/instrument.ts"],
+      "inputs": ["webviews/src/kit/version.ts", "webviews/src/kit/kit.css", "webviews/src/pages/shared/desktop.css"],
+      "status": "build"
+    },
+    {
       "id": "instrument-tokens",
       "generator": "scripts/cmux-next/gen-instrument-tokens.py",
       "outputs": ["webviews/src/ui/instrument.generated.css"],

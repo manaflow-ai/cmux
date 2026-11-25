@@ -55,6 +55,9 @@ public nonisolated enum AppSceneNodeType: String, Sendable, Hashable, CaseIterab
     case toggle = "Toggle", slider = "Slider", panel = "Panel"
     /// A host-run particle field (`preset`, `colors`, `rate`, `burst`) that fills its frame.
     case particles = "Particles"
+    /// The Instrument kit nodes, drawn on the web by the kit (ABI "Node types"); natively a `Pill` is
+    /// a `Badge`, a `Tooltip` its one child with `text` as its help, a `Card` its first child.
+    case tooltip = "Tooltip", pill = "Pill", card = "Card"
 
     /// Lays its children out inline in the parent's stack.
     public var isInline: Bool { self == .group || self == .forEach }

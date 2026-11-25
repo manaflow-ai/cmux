@@ -1,4 +1,5 @@
 import {
+  Children,
   createContext,
   memo,
   useCallback,
@@ -8,10 +9,13 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type ReactElement,
   type ReactNode,
   type RefObject,
 } from "react";
 import { Spinner } from "../../agent-session/acpmux/conversation/icons";
+import { useHoverCard } from "../../agent-session/acpmux/chips/useHoverCard";
+import { Card as KitCard, Pill as KitPill, Tooltip as KitTooltip, type PillTone } from "../../kit";
 import { Switch } from "../../ui/Switch";
 import { SceneContextMenu, SceneMenu } from "./sceneMenus";
 import { SceneReorderable } from "./SceneReorderable";
@@ -91,6 +95,45 @@ function SceneBadge({ text, tone }: { text: string; tone: unknown }) {
     <span className="cmux-app-scene-badge-label" style={{ color: sceneColor(tone) }}>
       {text}
     </span>
+  );
+}
+
+const PILL_TONES: readonly PillTone[] = ["neutral", "accent", "success", "attention", "danger"];
+
+/** A `Pill` node's tone, as the app host left it (cmux-app-manifest scene_nodes.rs maps the scene
+ * aliases onto the kit's tones); neutral when it names none. */
+function pillTone(tone: unknown): PillTone {
+  return PILL_TONES.find((t) => t === tone) ?? "neutral";
+}
+
+const CARD_SIDES = ["bottom", "top", "inline-end", "inline-start"] as const;
+
+/** A `Card` node: its first child in place, the rest on the kit's hover card anchored to it, with
+ * the card dwell and grace every hover card in the app has (useHoverCard). */
+function SceneCard({ side, trigger, content }: { side: unknown; trigger: ReactNode; content: ReactNode[] }) {
+  const hover = useHoverCard();
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  return (
+    <>
+      <span className="cmux-app-scene-card-trigger" ref={setAnchor} {...hover.trigger}>
+        {trigger}
+      </span>
+      {content.length ? (
+        <KitCard
+          anchor={hover.open ? anchor : null}
+          side={CARD_SIDES.find((s) => s === side) ?? "bottom"}
+          instant
+          interactive
+          hoverBridgeId={hover.card["data-cmux-hover-bridge"]}
+          onPointerEnter={hover.card.onPointerEnter}
+          onPointerLeave={hover.card.onPointerLeave}
+        >
+          <div className="cmux-app-scene-card-content" {...hover.card}>
+            {content}
+          </div>
+        </KitCard>
+      ) : null}
+    </>
   );
 }
 
@@ -386,7 +429,12 @@ function contentOf(
     case "Group":
     case "ForEach":
     case "Reorderable":
+    case "Tooltip":
       return children;
+    case "Card": {
+      const [trigger, ...content] = Children.toArray(children);
+      return <SceneCard side={props.side} trigger={trigger} content={content} />;
+    }
     case "Text": {
       const dateStyle = sceneDateStyle(props);
       return (
@@ -436,6 +484,12 @@ function contentOf(
       );
     case "Badge":
       return <SceneBadge text={sceneText(props.text)} tone={props.tone} />;
+    case "Pill":
+      return (
+        <KitPill tone={pillTone(props.tone)} size={props.size === "sm" ? "sm" : "md"}>
+          {sceneText(props.text)}
+        </KitPill>
+      );
     case "ProgressView": {
       const value = sceneNumber(props.value);
       if (value === undefined) return <Spinner loading size={16} />;
@@ -621,7 +675,8 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
     className: `cmux-app-scene-node cmux-app-scene-${node.type.toLowerCase()}${sceneGlass(props.glass) ? " ui-glass" : ""}`,
     ref: element as RefObject<HTMLDivElement & HTMLButtonElement>,
     style,
-    title: sceneText(props.help) || undefined,
+    // A Tooltip node's text is the kit's tooltip (below), not the browser's.
+    title: (node.type !== "Tooltip" && sceneText(props.help)) || undefined,
   };
   let rendered: ReactNode;
   if (tappable && (node.type === "Button" || node.type === "Row")) {
@@ -666,6 +721,19 @@ const SceneNodeView = memo(function SceneNodeView({ id, store, dispatch, leaving
       <div {...shared} role={node.type === "Divider" ? "separator" : undefined}>
         {content}
       </div>
+    );
+  }
+  if (node.type === "Tooltip" && sceneText(props.text)) {
+    rendered = (
+      <KitTooltip
+        label={sceneText(props.text)}
+        detail={sceneText(props.detail) || undefined}
+        shortcut={sceneText(props.shortcut) || undefined}
+        side={props.side === "top" ? "top" : "bottom"}
+        disabled={disabled}
+      >
+        {rendered as ReactElement}
+      </KitTooltip>
     );
   }
   if (Array.isArray(props.menu) && props.menu.length && node.type !== "Menu" && !disabled) {
