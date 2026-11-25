@@ -4,30 +4,38 @@
 // part the ellipsis cut (cmuxterm-hq#19495).
 import { expect, test } from "bun:test";
 import { translate } from "../i18n";
-import { SUBAGENT_COUNT_ORDER, subagentCountParts, subagentCounts } from "./subagentsSectionModel";
+import { SUBAGENT_COUNT_ORDER, orderedCountParts, orderedCountWords, subagentCounts } from "./subagentsSectionModel";
 import type { Subagent } from "../subagents/subagentFold";
 
 test("the order: waiting, failed, running, queued, idle, stopped, done", () => {
   expect(SUBAGENT_COUNT_ORDER).toEqual(["waiting", "failed", "running", "queued", "idle", "stopped", "done"]);
   expect(
-    subagentCountParts({ done: 40, stopped: 2, idle: 1, queued: 3, running: 4, failed: 1, waiting: 1 }, translate),
+    orderedCountWords({ done: 40, stopped: 2, idle: 1, queued: 3, running: 4, failed: 1, waiting: 1 }, translate),
   ).toEqual(["1 waiting", "1 failed", "4 running", "3 queued", "1 idle", "2 stopped", "40 done"]);
 });
 
+test("the running ones are their mark and number; hover and VoiceOver keep the word", () => {
+  expect(orderedCountParts({ running: 4, failed: 1, waiting: 1 }, translate)).toEqual([
+    "1 waiting",
+    "1 failed",
+    { live: 4, label: "4 running" },
+  ]);
+});
+
 test("a zero or missing count says nothing", () => {
-  expect(subagentCountParts({ waiting: 0, running: 2 }, translate)).toEqual(["2 running"]);
-  expect(subagentCountParts({}, translate)).toEqual([]);
+  expect(orderedCountWords({ waiting: 0, running: 2 }, translate)).toEqual(["2 running"]);
+  expect(orderedCountParts({}, translate)).toEqual([]);
 });
 
 test("a surface's own words keep its place in the order; parts after a kind follow it", () => {
   expect(
-    subagentCountParts({ running: 1, done: 3 }, translate, {
+    orderedCountParts({ running: 1, done: 3 }, translate, {
       words: { running: () => "Working" },
       after: { running: ["2 commands", false] },
     }),
   ).toEqual(["Working", "2 commands", "3 done"]);
   // An `after` part shows with its kind at zero too.
-  expect(subagentCountParts({ failed: 1 }, translate, { after: { running: ["2 commands"] } })).toEqual([
+  expect(orderedCountParts({ failed: 1 }, translate, { after: { running: ["2 commands"] } })).toEqual([
     "1 failed",
     "2 commands",
   ]);
