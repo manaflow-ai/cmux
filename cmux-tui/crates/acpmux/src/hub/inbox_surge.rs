@@ -269,7 +269,7 @@ impl Hub {
             session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner()).reply_period_ms(now);
         let provenance = opts.provenance.as_ref();
         let text = prompt_text(blocks);
-        let notice = tool_notice_of(provenance);
+        let notice = notice_of(provenance, &text);
         let thread = surge_topic(
             opts.thread.as_deref(),
             &text,
