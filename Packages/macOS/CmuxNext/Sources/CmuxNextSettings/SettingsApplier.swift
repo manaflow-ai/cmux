@@ -70,12 +70,17 @@ public final class SettingsApplier {
         if design.sidebarSections != snapshot.sidebarSections { design.sidebarSections = snapshot.sidebarSections }
         let agentBadges = AgentBadgesExperiment(switches: snapshot.experimentSwitches)
         if design.agentBadges != agentBadges { design.agentBadges = agentBadges }
+        let terminalAgentMarks = snapshot.experimentSwitches["terminalAgentMark"] == true
+        if design.terminalAgentMarks != terminalAgentMarks { design.terminalAgentMarks = terminalAgentMarks }
         if design.hoverCardsEnabled != snapshot.hoverCards.enabled { design.hoverCardsEnabled = snapshot.hoverCards.enabled }
         let pageDeveloperTools = AppPageDevToolsSetting().value(in: snapshot.root)
         if design.pageDeveloperTools != pageDeveloperTools { design.pageDeveloperTools = pageDeveloperTools }
         if design.colorTransition != snapshot.colorTransition.transition { design.colorTransition = snapshot.colorTransition.transition }
         if design.inactiveWindowDim != snapshot.inactiveWindowDim { design.inactiveWindowDim = snapshot.inactiveWindowDim }
         if design.wallpaperTint != snapshot.wallpaperTint { design.wallpaperTint = snapshot.wallpaperTint }
+        if design.liveWallpaperFrameRate != snapshot.liveWallpaperFrameRate {
+            design.liveWallpaperFrameRate = snapshot.liveWallpaperFrameRate
+        }
         if design.backgroundPlacements != snapshot.backgroundPlacements { design.backgroundPlacements = snapshot.backgroundPlacements }
         if design.agentGlowEnabled != snapshot.agentGlow { design.agentGlowEnabled = snapshot.agentGlow }
         if design.previousGlass != snapshot.previousGlass { design.previousGlass = snapshot.previousGlass }

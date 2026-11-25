@@ -130,6 +130,31 @@
           ]
         },
         {
+          "key": "experiments.composerCustomizer",
+          "note": "Taste prototype (Leo 2026-11-24, ask-6cba5e7e10): a Customize button centered under the agent chat composer, shown while the pointer is over the composer or it has focus. A click opens the app's Customizations menu at the button (CmuxNextSettingsWindow CustomizationsMenu: every Experiments and Labs switch grouped, with checkmarks, then All Customizations...), the same menu as cmux > Customizations (webviews useExperimentSwitch(\"composerCustomizer\"), acpmux/ComposerCustomizer.tsx; page method customizations.menu). This switch is one of its rows, so it turns itself off from there. Off by default; off keeps today's composer.",
+          "title": {
+            "key": "settings.experiments.composerCustomizer",
+            "text": "Customize Button Under the Composer"
+          },
+          "help": {
+            "key": "settings.experiments.composerCustomizer.help",
+            "text": "Point at the chat box for a Customize button that lists every experiment and Labs switch."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "customize",
+            "customizations",
+            "composer",
+            "labs",
+            "toggle",
+            "menu"
+          ]
+        },
+        {
           "key": "experiments.agentBadges",
           "note": "Taste build 5 (2026-11-19): agent counts and status on the tab strip and the sidebar, drawn natively (CmuxNextTabs TabCell+CountPill, CmuxNextSidebar WorkspaceRowView+AgentPill; DesignSettings.agentBadges). An agent chat tab shows a neutral count pill (unread plus a pending approval) in a slot always as wide as \"99+\", so no tab moves; a sidebar row shows one tinted status pill (Running, Needs approval, Done) in a slot as wide as the widest label. Off by default; off keeps today's marks.",
           "title": {
@@ -182,6 +207,32 @@
             "running",
             "border",
             "edge"
+          ]
+        },
+        {
+          "key": "experiments.terminalAgentMark",
+          "note": "Leo 2026-11-24 (\"terminal agent chats. can they be demarcated a bit differently/should they? than gui agent chats\"): an agent running in a terminal tab (Claude Code, Codex as a CLI) draws its mark on a soft rounded square of its tint (CmuxNextTabs TabAgentMarkCache terminal:, TabStripMetrics.terminalAgentMarks; DesignSettings.terminalAgentMarks; iPhone AgentAvatarMark.terminalShapeEnabled reads the same key from UserDefaults). A GUI agent chat keeps its bare mark (Mac) or circle (iPhone). Picked from a 4-variant gallery (cmux#53018: cut-out badge, dark tile, label, rounded square). Off by default; off keeps today's marks.",
+          "title": {
+            "key": "settings.experiments.terminalAgentMark",
+            "text": "Terminal Agent Marks"
+          },
+          "help": {
+            "key": "settings.experiments.terminalAgentMark.help",
+            "text": "An agent running in a terminal tab shows its icon on a rounded square, so it stands apart from an agent chat."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "agent",
+            "terminal",
+            "icon",
+            "mark",
+            "claude",
+            "codex",
+            "tab"
           ]
         },
         {
