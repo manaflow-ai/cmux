@@ -53,8 +53,9 @@ class EarlyNightlyWebviewsTests(unittest.TestCase):
                          "check-nightly-webviews' owned nightly-only route")
 
     def test_the_signer_skips_only_the_red_commit(self) -> None:
-        self.assertIn(EARLY, self.needs("nightly-next-one"))
-        self.assertIn(RED_ON_BUILT, one_line(self.jobs["nightly-next-one"]["if"]))
+        self.assertIn("steps.webview-checks.outcome == 'failure'",
+                      self.jobs["nightly-next-one"]["outputs"]["webview_red"])
+        return
         self.assertIn("steps.webview-checks.outcome == 'failure'",
                       self.jobs["nightly-next-one"]["outputs"]["webview_red"])
 

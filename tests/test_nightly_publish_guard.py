@@ -275,15 +275,13 @@ class GateTests(unittest.TestCase):
                 self.assertEqual(result.output.get("refused"), "true")
                 self.assertIn("webview checks", result.output.get("refusal_reason", ""))
 
-    def test_a_broken_app_store_shelf_refuses_with_a_reason(self):
-        # The failing case: the shelf check red, skipped or on another commit publishes nothing.
+    def test_a_broken_app_store_shelf_does_not_hold_the_publish(self):
+        # Leo, 2026-11-25: the shelf is advisory; report-nightly-shelf-red files its red after the fact.
         for shelf, sha in (("failure", ""), ("skipped", ""), ("", ""), ("success", "d" * 40)):
             with self.subTest(shelf=shelf, sha=sha):
                 result = self.run_gate(shelf=shelf, shelf_sha=sha)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(result.output.get("refused"), "true", result.stdout)
-                self.assertIn("App Store shelf", result.output.get("refusal_reason", ""))
-                self.assertIn("Publication refused", result.stdout)
+                self.assertNotIn("refused", result.output, result.stdout)
 
     def test_a_listed_commit_is_held_without_a_failure(self):
         # The build commit itself is listed as bad; the fix's ancestry comes from the (fake) compare API.
