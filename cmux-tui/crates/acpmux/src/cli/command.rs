@@ -16,7 +16,7 @@ pub struct AppOpenArgs {
     pub options: Vec<String>,
 }
 
-/// `session place`: where an existing chat runs, from the place menu's choices.
+/// `session place-set`: where an existing chat runs, from the place menu's choices.
 #[derive(Args, Debug, Clone, PartialEq, Eq)]
 pub struct PlaceSessionArgs {
     /// The chats to place (ids or names).
@@ -1711,7 +1711,8 @@ pub enum SessionCmd {
     /// Place an existing chat as the place menu does: `--mode auto`, `--mode cloud` or `--mode machine --machine NAME`. A chat moves only between turns (mid-turn it
     /// moves after the turn); a move that leaves something behind lists it and needs `--yes`;
     /// each move writes one line in the chat. `--undo` moves back; `--status` reads the pin.
-    Place(PlaceSessionArgs),
+    #[command(name = "place-set")]
+    PlaceSet(PlaceSessionArgs),
     /// Move this machine's excess chats off when it holds more live chats than its lanes.max_lanes:
     /// only chats between turns with no work running below them, at most a few a pass, to the
     /// machines placement gives room. Each move leaves a receipt whose undo moves it back. Off
@@ -2200,7 +2201,7 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Route { facts } => Command::RouteDeath { facts },
             SessionCmd::Pause { session } => Command::PauseAgent { session },
             SessionCmd::Wake { session } => Command::WakeAgent { session },
-            SessionCmd::Place(args) => Command::PlaceSession(args),
+            SessionCmd::PlaceSet(args) => Command::PlaceSession(args),
             SessionCmd::Hold { session, fleet, allow, set_allow, reason, status, hold_for } => {
                 Command::SessionHold {
                     session,

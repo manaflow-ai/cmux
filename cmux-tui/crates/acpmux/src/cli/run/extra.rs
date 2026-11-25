@@ -1944,7 +1944,7 @@ async fn print_start_modes() {
     println!("# change: acpmux config --set permissions.default=yolo|standard|ask|default");
 }
 
-/// `acpmux session place`: `_acpmux/place_set`, `place_undo` or `place_get`, and what each chat
+/// `acpmux session place-set`: `_acpmux/place_set`, `place_undo` or `place_get`, and what each chat
 /// answered. A refused or unconfirmed chat ends the command non-zero.
 async fn place_session(args: crate::cli::command::PlaceSessionArgs, json_out: bool) -> Result<()> {
     use crate::cli::errors::{AppError, Code};
