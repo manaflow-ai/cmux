@@ -257,3 +257,54 @@ async fn probes_on_a_dead_candidate_leave_auto_off() {
         assert_eq!(stats.copies_sent, 0, "no duplicate copies: {stats:?}");
     }
 }
+
+const CLIENT_IDLE: &str = "192.0.2.100:51820";
+const SERVER_IDLE: &str = "192.0.2.101:51820";
+
+/// An idle link where each end sends at the same moment, as both ends' TCP
+/// keepalives and a heartbeat do: the peer's packet arrives more than
+/// `RESUME_GAP` after the last one, while this end's own segment is still
+/// in flight. The driver takes that silence as a route that may have
+/// changed and resends what is in flight at once; that resend is forced,
+/// not a loss, and must not turn Auto on (it did, and repair then tripled
+/// every keepalive and ACK of an idle phone link for about 9 minutes).
+#[tokio::test(start_paused = true)]
+async fn segments_crossing_after_a_silence_leave_auto_off() {
+    let sim = SimNet::new();
+    let link = LinkProfile { latency: Duration::from_millis(50), ..LinkProfile::default() };
+    sim.set_link(addr(CLIENT_IDLE), addr(SERVER_IDLE), link);
+    let configs = config_pair(addr(SERVER_IDLE));
+    let server_path = SocketPath::new(sim.bind(addr(SERVER_IDLE)).unwrap(), None);
+    let server = WgNet::start_with_choice(configs.server, server_path, UltraChoice::AUTO).unwrap();
+    let mut listener = server.listen(7000).await.unwrap();
+    let client_path =
+        SocketPath::new(sim.bind(addr(CLIENT_IDLE)).unwrap(), Some(addr(SERVER_IDLE)));
+    let client = WgNet::start_with_choice(configs.client, client_path, UltraChoice::AUTO).unwrap();
+    let mut outbound = client.connect(SocketAddr::new(configs.server_v4, 7000)).await.unwrap();
+    let mut inbound = listener.accept().await.expect("accepted");
+    let mut byte = [0u8; 1];
+    outbound.write_all(&[1]).await.unwrap();
+    inbound.read_exact(&mut byte).await.unwrap();
+
+    for round in 0..3 {
+        // Quiet for longer than RESUME_GAP, less than a TCP keepalive.
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        let message = [round as u8; 17];
+        let (sent_out, sent_in) =
+            tokio::join!(outbound.write_all(&message), inbound.write_all(&message));
+        sent_out.unwrap();
+        sent_in.unwrap();
+        let mut got = [0u8; 17];
+        inbound.read_exact(&mut got).await.unwrap();
+        outbound.read_exact(&mut got).await.unwrap();
+    }
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let stats = (client.ultra_stats(), server.ultra_stats());
+    eprintln!("crossing after silence: client {:?}; server {:?}", stats.0, stats.1);
+    for stats in [stats.0, stats.1] {
+        assert_eq!(stats.auto_on, 0, "a forced resend after a silence is no loss: {stats:?}");
+        assert_eq!(stats.overhead_bytes, 0, "and sends no repair bytes: {stats:?}");
+    }
+    client.shutdown().await;
+    server.shutdown().await;
+}

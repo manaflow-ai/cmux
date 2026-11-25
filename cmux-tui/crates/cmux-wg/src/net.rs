@@ -984,6 +984,7 @@ impl Driver {
         let roamed = self.underlay.take_path_change();
         if std::mem::take(&mut self.resumed) | roamed {
             self.stack.path_changed();
+            self.pacer.path_changed();
         }
         let path_rtt = self.path_rtt();
         self.stack.set_path_rtt(path_rtt);
@@ -991,6 +992,8 @@ impl Driver {
         loop {
             let progressed = self.stack.step();
             self.flush_tx();
+            // Only the first step resends what the path change forced.
+            self.pacer.path_settled();
             if !progressed && !self.stack.has_rx() {
                 break;
             }
