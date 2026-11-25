@@ -426,8 +426,7 @@ pub fn host_cell(
             let mut best: Option<(usize, usize, usize)> = None;
             let mut first_on_row: Option<(usize, usize)> = None;
             for (k, row) in line.iter().enumerate() {
-                for x in 0..row.cells.len() {
-                    let cell = row.cells[x];
+                for (x, &cell) in row.cells.iter().enumerate() {
                     if cell.kind == WIDE_TAIL || cell.kind == SPACER_HEAD || cell.ch == 0 {
                         continue;
                     }
