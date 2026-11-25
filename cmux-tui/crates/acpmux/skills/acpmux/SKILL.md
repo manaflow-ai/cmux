@@ -527,7 +527,8 @@ sign-in), `harness`, `capabilities`,
 `machine-auth`, `hand`, `share-host`, `router`, `web`, `board`, `attach`, `resume-here`,
 `stdio`, `cli-agent`, `uniichat-agent`, `pr-wait` and `ci` (wait on a pull request's checks or a
 workflow run with one shared poller), `scorecard` (tokens and steering per settled pull request),
-`fetch` (one large download over parallel ranges), and `skill` (this guide).
+`fetch` (one large download over parallel ranges), `channel` (named byte channels to an agent on
+another machine: `channel listen SERVICE`, `channel open PEER SERVICE`), and `skill` (this guide).
 
 ## 8. Output
 
