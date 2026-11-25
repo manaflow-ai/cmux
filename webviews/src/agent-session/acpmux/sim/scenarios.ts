@@ -196,6 +196,30 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
     return b.turnEnd().build();
   },
 
+  // A chat forked from a subagent (Fork with <model>… on its composer chips, SubagentForkChips.tsx):
+  // the subagent's own history by reference, the `forked` line naming the subagent and its chat, then
+  // the fork's first turn on the model it was forked onto.
+  "subagent-fork": () => {
+    const b = sim(
+      "subagent-fork",
+      "A chat forked from a subagent: its history, the Forked from line, then its own turn.",
+    );
+    b.prompt("Split unit and integration coverage for the fetch helper.");
+    b.say("Retries have no tests. Splitting unit and integration coverage.");
+    b.turnEnd();
+    b.record(
+      "mux",
+      "forked",
+      { parentId: "sim-parent-chat", subagentId: "a39e817af38ddf5e7", subagentName: "Test coverage" },
+      400,
+      "forked from subagent",
+    );
+    b.prompt("Now write the integration tests, on Sonnet.");
+    b.tool("bun test src/net", { ms: 900 });
+    b.say("Integration tests added; all pass.");
+    return b.turnEnd().build();
+  },
+
   compaction: () => {
     const b = sim("compaction", "A turn compacts its context halfway through its work.");
     b.prompt("Keep going with the migration.");
@@ -368,10 +392,10 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
     b.say(
       Array.from({ length: 50 }, (_, part) =>
         part % 10 === 4
-          ? "| step | ms |\n| --- | --- |\n| link | 900 |\n| sign | 12000 |\n"
+          ? `| step | ms |\n| --- | --- |\n| link | 900 |\n| sign | ${12000 + part} |\n`
           : part % 10 === 7
             ? "```sh\nbun run build --profile\n```\n"
-            : `${PARAGRAPH}\n`,
+            : `${part}. ${PARAGRAPH}\n`,
       ).join("\n"),
       { chunks: 120, chunkMs: 30 },
     );

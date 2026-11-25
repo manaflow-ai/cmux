@@ -1,6 +1,8 @@
 import Foundation
 import Testing
+#if canImport(UserNotifications)
 import UserNotifications
+#endif
 @testable import CmuxMobileNotifications
 
 /// A permission request outside the app reads as the Mac's approval prompt for a
@@ -14,6 +16,7 @@ import UserNotifications
                     previews: previews)
     }
 
+    #if canImport(UserNotifications)
     /// The service extension's own code (`ServicePush.opened`) on a sealed permission push.
     @Test func aSealedPermissionOpensAsTheMacsPrompt() throws {
         let (keys, macKey, pushKey) = try SealedPushTests.setUp()
@@ -38,6 +41,7 @@ import UserNotifications
                                       category: PushCategory.permission.rawValue)
         guard case .openOnly = gate.verdict(userInfo: shown.userInfo, shown: old) else { Issue.record("acted on another banner"); return }
     }
+    #endif
 
     @Test func theCardReadsAsTheMacsPrompt() throws {
         let banner = try #require(ApprovalBanner(payload: Self.permission([("Allow once", "allow_once"), ("Deny", "reject_once")])))

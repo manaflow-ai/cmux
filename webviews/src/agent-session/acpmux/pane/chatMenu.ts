@@ -2,6 +2,7 @@ import type { Dispatch, RefObject, SetStateAction } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { sayActionRefusal } from "../actionRefusal";
 import { callNative } from "../callNative";
+import { autoUnsupported } from "../autoSession/autoSession";
 import type { useCheckpoints } from "../checkpoints/controller";
 import type { CheckpointStrings } from "../checkpoints/strings";
 import { cloudMachineRows, type StopWaiter, type chatCloudMachine } from "../cloudMachineMenu";
@@ -16,6 +17,7 @@ import type { AcpmuxDirectClient } from "../direct";
 import { CONNECT_ACTIONS, type OffloadKind } from "../environments";
 import type { HandoffStrings } from "../handoff/strings";
 import type { archiveRow, markUnreadRow } from "../header/archiveRow";
+import { autoRows } from "../header/autoRow";
 import type { avatarRows } from "../header/avatarRow";
 import { HEADER_ACTIONS, guardedChatMenu, menuGroups, type ChatMenuItem } from "../header/chatHeaderToolsModel";
 import { deleteChatRow, moveMachineRow } from "../header/chatRows";
@@ -319,6 +321,12 @@ export function chatMenuItems(deps: ChatMenuDeps): ChatMenuItem[] {
     client !== undefined && client === directClient.current && client.selectedSession === sessionId;
   const guarded = (row: ChatMenuItem | undefined): Exclude<ChatMenuItem, "separator">[] =>
     row ? guardedChatMenu([row], sameChat).filter((item) => item !== "separator") : [];
+  const setAutoSession = (auto: boolean, keepInCloud?: boolean) => {
+    if (!client || !sessionId) return;
+    void client
+      .setAutoSession(sessionId, auto, keepInCloud)
+      .catch((error: unknown) => (autoUnsupported(error) ? undefined : notices.failed(t("auto.setFailed"))));
+  };
   const moveMachine = moveMachineRow(
     {
       move: moves.includes(CONNECT_ACTIONS.move),
@@ -330,6 +338,17 @@ export function chatMenuItems(deps: ChatMenuDeps): ChatMenuItem[] {
       bringBack: () => (sessionId ? offloadChat("bringBack", sessionId) : undefined),
     },
     t,
+    // Auto and Keep in Cloud (header/autoRow.ts), with the chat's other Cloud rows. An acpmux that
+    // does not know Auto is not an error to show: the rows are only there when it named the chat's
+    // Auto state, so that answer means an older daemon took over since.
+    autoRows(
+      sessionId ? summary?.autoSession : undefined,
+      {
+        setAuto: (auto) => setAutoSession(auto),
+        keepInCloud: (keep) => setAutoSession(true, keep),
+      },
+      t,
+    ),
   );
   const remove = sessionId ? guarded(deleteChatRow(requestDelete, t)) : [];
   const moveRow = guarded(moveMachine);

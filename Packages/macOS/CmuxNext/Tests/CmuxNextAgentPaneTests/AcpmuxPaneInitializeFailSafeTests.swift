@@ -100,6 +100,11 @@ struct AcpmuxPaneInitializeFailSafeTests {
     @Test func theInitializeThePageSendsGoesUnchangedButForTheToken() throws {
         let params = try AcpmuxPaneInitializeParamsContractTests.contract()
         let acpmux = try #require(Self.acpmux(try Self.forwarded(try Self.text("initialize", params))))
-        #expect(Set(acpmux.keys) == ["peerRowBatches", "localAppToken"])
+        let expected = try #require(params["_meta"] as? [String: [String: Bool]])
+        let offered = try #require(expected["acpmux"])
+        #expect(Set(acpmux.keys) == Set(offered.keys).union(["localAppToken"]))
+        for (key, value) in offered {
+            #expect(acpmux[key] as? Bool == value)
+        }
     }
 }
