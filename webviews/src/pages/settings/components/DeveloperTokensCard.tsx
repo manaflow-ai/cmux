@@ -110,13 +110,7 @@ function CreatedPanel({
 }) {
   const curl = curlExample(created.tokenInfo.scopes, platform);
   return (
-    // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-    <div
-      className="accounts-form tokens-created"
-      role="group"
-      aria-label={t("settingsWindow.tokens.created.title")}
-      data-tokens-created=""
-    >
+    <div className="accounts-form tokens-created" data-tokens-created="">
       <div className="row-title">{t("settingsWindow.tokens.created.title")}</div>
       <div className="row-help">{t("settingsWindow.tokens.created.once")}</div>
       <div className="tokens-code-row">
