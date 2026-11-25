@@ -351,8 +351,36 @@ def run_part(args, part: str, scale: float, load: str, out_root: Path) -> list[d
         if held and phase == load:
             r["loadDetail"] = r_load
         (out / "result.json").write_text(json.dumps(r, indent=1))
+        print_result(r)
         results.append(r)
     return results
+
+
+# A CI log cuts a line at 400 characters; the rows go out under that.
+LOG_LINE = 380
+
+
+def result_lines(r: dict) -> list[str]:
+    """`r` as `LAB-RESULT` lines a log keeps whole: a run cut before its artifacts upload (a runner
+    shut down mid-matrix, as every nightly to 2026-11-25 was) still leaves each finished phase's rows."""
+    head = {k: r.get(k) for k in ("part", "scale", "load", "exit", "skipped") if r.get(k) is not None}
+    rows = [*(r.get("runs") or []), *([r["ratio"]] if r.get("ratio") else []), *(r.get("churnSamples") or []),
+            *(r.get("stress") or [])]
+    if r.get("part") == "webview" and r.get("report"):
+        rows.extend(r["report"].get("rows") or [])
+    lines = []
+    for row in rows or [{}]:
+        text = json.dumps({**head, "row": row}, separators=(",", ":"))
+        while len(text) > LOG_LINE:
+            lines.append("LAB-RESULT+ " + text[:LOG_LINE])
+            text = text[LOG_LINE:]
+        lines.append("LAB-RESULT " + text)
+    return lines
+
+
+def print_result(r: dict) -> None:
+    for line in result_lines(r):
+        print(line, flush=True)
 
 
 def main() -> int:

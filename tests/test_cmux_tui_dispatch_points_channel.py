@@ -33,5 +33,34 @@ class DispatchPointsChannel(unittest.TestCase):
         self.assertIn("scripts/ci/cmux-tui-point-channel.sh feat-cmux-next", run)
 
 
+class MarkerJobPoints(unittest.TestCase):
+    """The channel moves in the job that writes the daemon-tests marker, not a job after it (goal
+    fleet-core-skew: run 45557717558 spent about 3 min between the marker and the channel write, mostly
+    point-feat-channel's runner setup and checkout). point-feat-channel stays the fallback."""
+
+    def setUp(self):
+        with open(WORKFLOW, encoding="utf-8") as f:
+            self.jobs = yaml.safe_load(f)["jobs"]
+        self.marker = self.jobs["publish-tree-tested"]
+
+    def test_the_point_follows_the_marker_in_the_same_job(self):
+        steps = self.marker["steps"]
+        runs = [s.get("run", "") for s in steps]
+        mark = next(i for i, r in enumerate(runs) if "cmux-tui-mark-daemon-tested.sh" in r)
+        point = next(i for i, r in enumerate(runs) if "cmux-tui-point-channel.sh feat-cmux-next" in r)
+        self.assertGreater(point, mark)
+        step = steps[point]
+        self.assertTrue(step.get("continue-on-error"))
+        self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", step["if"])
+        self.assertIn("github.repository == 'manaflow-ai/cmux'", step["if"])
+        self.assertIn('echo "pointed=true"', step["run"])
+        self.assertLess(step["run"].index("cmux-tui-point-channel.sh"), step["run"].index("pointed=true"))
+        self.assertEqual(self.marker["outputs"]["pointed"], "${{ steps.point.outputs.pointed }}")
+
+    def test_the_point_job_runs_only_when_the_marker_job_did_not_point(self):
+        cond = self.jobs["point-feat-channel"]["if"]
+        self.assertIn("needs.publish-tree-tested.outputs.pointed != 'true'", cond)
+
+
 if __name__ == "__main__":
     unittest.main()
