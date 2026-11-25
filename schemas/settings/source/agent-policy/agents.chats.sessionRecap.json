@@ -1,0 +1,4 @@
+{
+  "agent": "userOnly",
+  "why": "Each recap is an extra model call on the person's usage: theirs to turn on or off."
+}

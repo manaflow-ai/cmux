@@ -16,9 +16,12 @@ import os
 public struct ClassicFolderItemsMove: Sendable {
     /// Folders only NEXT writes in classic's `cmux`: the fix ledger, recovery drafts, and the folders
     /// ``BuildStatePaths`` and the Rust defaults now keep in `cmux-next` (every workspace's agent home, chat
-    /// attachments, cmux-remote's identity, the browser host's cookie backups, cmux-tasks' store). Each
-    /// keeps a link at its old path: chats and agent configs name agent-home and Chat Uploads paths.
-    static let folders = ["server-fix-ledger", "recovery", "agent-home", "Chat Uploads", "remote", "browser-host", "tasks"]
+    /// attachments, cmux-remote's identity, the browser host's cookie backups, cmux-tasks' store, `cmux app
+    /// try`'s kept builds and the try on now, the codex app-server bundle). Each keeps a link at its old path:
+    /// chats and agent configs name agent-home and Chat Uploads paths, and a CLI from before the move still
+    /// finds its try.
+    static let folders = ["server-fix-ledger", "recovery", "agent-home", "Chat Uploads", "remote", "browser-host", "tasks",
+                          "app-try", "codex-app-server"]
 
     /// Files only NEXT writes in classic's `~/.config/cmux`, moved to ``BuildStatePaths/configDirectory``
     /// (`~/.config/cmux-next`) once, with no link: the settings file and what lives beside it, the
