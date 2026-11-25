@@ -576,9 +576,12 @@ pub(super) fn check_cut(
     session: &Session,
     after: Option<&str>,
     waiting: bool,
+    provenance: Option<&Value>,
 ) -> Result<(), RpcError> {
-    // A rate limit's compaction runs ahead of what the hold queued, as `compact_first` decided.
-    let rate_held = rate_compaction_runs(session);
+    // A rate limit's compaction runs ahead of what the hold queued, as `compact_first` decided;
+    // a cold batch's compaction ahead of the batch (`cold_wake.rs`).
+    let rate_held = rate_compaction_runs(session)
+        || (after.is_some() && super::cold_wake::goes_ahead_of_batch(session, provenance));
     match after {
         Some(cut) if waiting || !still_cut_by(session, cut, rate_held) => Err(superseded()),
         _ => Ok(()),
