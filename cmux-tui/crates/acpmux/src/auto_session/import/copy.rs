@@ -4,6 +4,7 @@
 
 use cmux_auto_session::AutoCloud;
 use cmux_auto_session::chunks;
+use cmux_auto_session::consts::SNAPSHOT_MAX_BYTES;
 use cmux_auto_session::wire::{Cwd, ErrorCode, Manifest, SeqRecord};
 
 use super::local_error;
@@ -54,11 +55,14 @@ pub(super) async fn read<C: AutoCloud>(cloud: &C, id: &str) -> Result<CloudCopy,
                 Cwd::Git { bundle, patch, .. } => (bundle.as_slice(), patch.as_slice()),
                 Cwd::Folder { tar } => (tar.as_slice(), none),
             };
-            let first = file(cloud, id, first).await?;
-            let patch = file(cloud, id, patch).await?;
+            // What the files may still add up to. The store counts each chunk once, so a
+            // manifest that names one chunk many times is small there and large here.
+            let mut left = SNAPSHOT_MAX_BYTES;
+            let first = file(cloud, id, first, &mut left).await?;
+            let patch = file(cloud, id, patch, &mut left).await?;
             let mut native = Vec::new();
             for named in &manifest.native {
-                let bytes = file(cloud, id, &named.chunks).await?;
+                let bytes = file(cloud, id, &named.chunks, &mut left).await?;
                 let (label, path) = (named.label.clone(), named.path.clone());
                 native.push(AgentFile { label, path, bytes });
             }
@@ -92,12 +96,24 @@ async fn events<C: AutoCloud>(cloud: &C, id: &str) -> Result<Vec<SeqRecord>, Imp
     Ok(all)
 }
 
-/// One file of the snapshot: its chunks in order, each the bytes its name says.
-async fn file<C: AutoCloud>(cloud: &C, id: &str, names: &[String]) -> Result<Vec<u8>, ImportError> {
+/// One file of the snapshot: its chunks in order, each the bytes its name says. `left` is what
+/// the snapshot's files may still add up to (a chat keeps at most [`SNAPSHOT_MAX_BYTES`]); a
+/// file that goes past it fails the import before it is whole in memory.
+async fn file<C: AutoCloud>(
+    cloud: &C,
+    id: &str,
+    names: &[String],
+    left: &mut u64,
+) -> Result<Vec<u8>, ImportError> {
     let mut whole = Vec::new();
     for name in names {
         let bytes = cloud.chunk(id, name).await?;
         chunks::check(name, &bytes).map_err(|error| local_error(error.to_string()))?;
+        let size = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+        let Some(rest) = left.checked_sub(size) else {
+            return Err(local_error("the copy's files are larger than a chat's Cloud copy may be"));
+        };
+        *left = rest;
         whole.extend_from_slice(&bytes);
     }
     Ok(whole)
