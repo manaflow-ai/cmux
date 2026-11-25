@@ -113,7 +113,14 @@ impl Hub {
             return;
         }
         match method {
-            INITIALIZE | MUX_STATUS | MUX_PERSON_ENROLL | MUX_PERSON_PROVE => {}
+            // Terminal history reads the harness's own file, even if the acpmux event store or
+            // device chat index is still loading after an app restart.
+            INITIALIZE
+            | MUX_STATUS
+            | MUX_PERSON_ENROLL
+            | MUX_PERSON_PROVE
+            | MUX_CHAT_TRANSCRIPT_PAGE
+            | MUX_CHAT_TRANSCRIPT_FIND => {}
             MUX_ATTACH | MUX_INFO | MUX_EVENTS => {
                 if let Ok(key) = crate::server::session_key(params) {
                     self.session_meta(key).await;

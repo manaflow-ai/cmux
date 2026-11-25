@@ -282,6 +282,10 @@ const fn access(operation: Op) -> Access {
         | Op::SettingsReset
         | Op::SettingsResetAll
         | Op::SettingsEdit
+        | Op::SettingsHistory
+        | Op::SettingsUndo
+        | Op::SettingsRestore
+        | Op::SettingsResetGroup
         | Op::KeybindingsGet
         | Op::KeybindingsSet
         | Op::KeybindingsRemove

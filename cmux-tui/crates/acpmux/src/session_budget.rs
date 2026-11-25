@@ -34,8 +34,11 @@
 //!   on, and a 100 MB/s cap took the neighbor's fsync p99 from 231-336 ms to 779-859 ms. The disk
 //!   watcher (`hub/session_budget_watch.rs`) is the session's disk limit.
 //! - disk: `ACPMUX_SESSION_DISK_MB` / `session.diskMb`, default this host's registry
-//!   `lanes.disk_per_lane_gb`, else a tenth of the home filesystem between 2 and 64 GiB. The
+//!   `lanes.disk_per_lane_gb`, else a tenth of the home filesystem on a host with a lane cap or half
+//!   on one without (one person's machine: a Cloud VM, a Mac), between 2 and 64 GiB. The
 //!   kernel has no per-scope disk limit here, so `hub/session_budget_watch.rs` measures it.
+//! - store: what a chat keeps in acpmux's own store (its event log and background output),
+//!   `ACPMUX_SESSION_STORE_MB`, default an eighth of the disk budget (`session_store.rs`).
 //!
 //! [`status`] is the `sessionBudgets` object of `daemon status` ([`VERSION`]).
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
@@ -46,7 +49,8 @@ use serde_json::{Value, json};
 /// from any version (`budget_line`), so a newer daemon's additions never break an older CLI.
 ///
 /// 2 (2026-11-24): `io`, whether the IO weight takes effect.
-pub(crate) const VERSION: u64 = 2;
+/// 3: `store`, the per-session store budget (`session_store.rs`).
+pub(crate) const VERSION: u64 = 3;
 
 /// How many lanes' worth of RAM one session may use: a lane is a coordinator and its helpers,
 /// and one of them bursts (a link) while the others idle.
@@ -202,10 +206,17 @@ pub(crate) fn memory_default(host: &Host) -> u64 {
 }
 
 /// A session's default disk budget on `host` (0: unknown).
+///
+/// A host with a lane cap shares its disk, so a session gets the registry's per-lane share,
+/// else a tenth. A host with none is one person's machine (a Cloud VM, a Mac): half its disk.
+/// A tenth of a 20 GiB Cloud VM was the 2 GiB floor, under one blobless cmux clone (1.3 GiB)
+/// plus its build.
 pub(crate) fn disk_default(host: &Host) -> u64 {
+    let share =
+        if host.lanes.is_some_and(|n| n > 0) { host.disk_total / 10 } else { host.disk_total / 2 };
     host.disk_per_lane
         .filter(|n| *n > 0)
-        .unwrap_or_else(|| (host.disk_total / 10).clamp(2 * GIB, 64 * GIB))
+        .unwrap_or_else(|| share.clamp(2 * GIB, 64 * GIB))
         .min(if host.disk_total > 0 { host.disk_total } else { u64::MAX })
 }
 
@@ -408,8 +419,15 @@ pub(crate) fn home_disk() -> Option<(u64, u64)> {
 /// `daemon status`'s `sessionBudgets`: the version, the per-scope budget (a session's harness
 /// scope; `perTaskScope` for agent host and background task scopes), what it was sized
 /// from, whether the IO weight takes effect (`io`, version 2), whether the disk watcher runs,
-/// and each measured scope's use (`use`, from `hub/session_budget_watch.rs`).
-pub(crate) fn status(budget: &Budget, task: &Budget, host: &Host, watch: Value) -> Value {
+/// and each measured scope's use (`use`, from `hub/session_budget_watch.rs`); `store` is the
+/// per-session store budget and its readings (`session_store::Watch::json`, version 3).
+pub(crate) fn status(
+    budget: &Budget,
+    task: &Budget,
+    host: &Host,
+    watch: Value,
+    store: Value,
+) -> Value {
     json!({
         "version": VERSION,
         "perScope": budget.json(),
@@ -422,6 +440,7 @@ pub(crate) fn status(budget: &Budget, task: &Budget, host: &Host, watch: Value) 
         },
         "io": host.io.json(),
         "watch": watch,
+        "store": store,
     })
 }
 
@@ -468,6 +487,15 @@ pub(crate) fn budget_line(v: &Value) -> Option<String> {
     }
     if over > 0 {
         line.push_str(&format!(", {over} scope(s) over"));
+    }
+    // Version 2: the store budget, when it is on (an older daemon has no `store`).
+    let store = v.get("store").filter(|s| s.get("on") == Some(&Value::Bool(true)));
+    if let Some(bytes) = store.and_then(|s| s.get("budgetBytes")).and_then(Value::as_u64) {
+        line.push_str(&format!(", store {:.1}G a chat", bytes as f64 / GIB as f64));
+        let over = store.and_then(|s| s.get("over")).and_then(Value::as_u64).unwrap_or(0);
+        if over > 0 {
+            line.push_str(&format!(" ({over} chat(s) over)"));
+        }
     }
     Some(line)
 }
