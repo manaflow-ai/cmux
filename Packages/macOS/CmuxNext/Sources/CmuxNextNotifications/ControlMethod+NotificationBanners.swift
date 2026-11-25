@@ -68,7 +68,7 @@ extension ControlMethod {
         ]
     }
 
-    private static func bannerNotFound(_ id: String) -> ControlError {
+    nonisolated private static func bannerNotFound(_ id: String) -> ControlError {
         let message = String(format: String(localized: "notifications.control.bannerNotFound",
             defaultValue: "No banner %@: notifications.banners lists the banners this app asked for",
             table: "NotificationsPanel", bundle: .localizedModule), id)
