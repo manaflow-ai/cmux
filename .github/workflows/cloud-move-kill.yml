@@ -103,10 +103,11 @@ jobs:
     continue-on-error: true
     strategy:
       fail-fast: false
-      # Two machines a job: within staging's create budget.
-      max-parallel: 4
+      # Two machines a job. Two jobs at once: the staging team's 300-machine cap infra-failed off-dst, random and
+      # kill-dst in run 45468029304 at four. random goes first: it is the seeded 20-run pass.
+      max-parallel: 2
       matrix:
-        kill: [kill-src, kill-dst, off-src, off-dst, cut, pause-src, pause-dst, random]
+        kill: [random, kill-src, pause-src, cut, kill-dst, off-src, off-dst, pause-dst]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -137,11 +138,13 @@ jobs:
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
           KILL: ${{ matrix.kill }}
           SEED: ${{ inputs.seed || format('gh{0}', github.run_id) }}
+          RANDOM_KILLS: kill-src,pause-src,cut
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/move/$KILL"
           mkdir -p "$out"
-          if [ "$KILL" = random ]; then pick=(--runs 20); else pick=(--kill "$KILL"); fi
+          # The seeded pass draws from the kinds that got machines under the cap (RANDOM_KILLS empties it: every kind).
+          if [ "$KILL" = random ]; then pick=(--runs 20 ${RANDOM_KILLS:+--kill "$RANDOM_KILLS"}); else pick=(--kill "$KILL"); fi
           rc=0
           bun scripts/cmux-next/cloud-journey.ts --backend staging --out "$out" --cmux "$RUNNER_TEMP/bin/cmux-tui" \
             --model stub --chaos-move --seed "$SEED-$KILL" --claude-bin "$(command -v claude)" "${pick[@]}" || rc=$?
