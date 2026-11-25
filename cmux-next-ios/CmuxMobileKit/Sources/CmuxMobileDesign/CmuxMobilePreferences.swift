@@ -26,6 +26,10 @@ public enum CmuxMobilePreferences {
         /// toggle js just so a** rn it needs more baking tiem"): on, a Claude Code or Codex tab's
         /// page menu offers Show Chat / Show Terminal where both faces work.
         public static let terminalChatToggle = "cmuxMobile.settings.terminalChatToggle"
+        /// Settings → Terminal → Plain Scroll in Full-Screen Apps (off by default; Leo, 2026-11-24: "we can
+        /// just treat the scroll like any pedestrian scroll"): on, a drag toward older rows in a full-screen
+        /// app scrolls the rows the phone kept (`TerminalTUIReader`), not the app's wheel.
+        public static let terminalPlainScroll = "cmuxMobile.settings.terminalPlainScroll"
         /// Settings → Terminal → Zoom Full-Screen Apps (off by default; Leo, 2026-11-17: "Surely we
         /// can just calculate a f***ing terminal and resize whatever needs exceptions when it comes /
         /// Fall back if need be"): on, a full-screen app shows at the Mac's grid, zoomed, and only
@@ -73,6 +77,8 @@ public enum CmuxMobilePreferences {
     /// prose (Leo, 2026-11-24: "an autocorect toggle in the terminal composer").
     public static let defaultTerminalComposerAutocorrect = false
     public static let defaultTerminalChatToggle = false
+    /// Off until Leo picks it up (UI merges default-off).
+    public static let defaultTerminalPlainScroll = false
     public static let defaultQuietCloudConnect = false
     public static let defaultTerminalZoomFullScreenApps = false
     public static let defaultDismissKeyboardAfterSend = true
@@ -113,6 +119,13 @@ public enum CmuxMobilePreferences {
         // `bool(forKey:)` also reads a launch argument's "NO"/"YES" string.
         defaults.object(forKey: Key.terminalChatToggle) == nil
             ? defaultTerminalChatToggle : defaults.bool(forKey: Key.terminalChatToggle)
+    }
+
+    /// Whether a full-screen app's drag toward older rows scrolls the rows the phone kept (off by default).
+    public static func terminalPlainScroll(_ defaults: UserDefaults = .standard) -> Bool {
+        // `bool(forKey:)` also reads a launch argument's "NO"/"YES" string.
+        defaults.object(forKey: Key.terminalPlainScroll) == nil
+            ? defaultTerminalPlainScroll : defaults.bool(forKey: Key.terminalPlainScroll)
     }
 
     /// Whether Cloud waits and short Cloud outages stay quiet until they last (on), or show at once
