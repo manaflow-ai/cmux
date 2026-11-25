@@ -482,6 +482,7 @@ export function MenuPopup({
           // The App's menu glass under the page (glass/hostGlass.ts).
           data-host-glass="menu"
           data-host-glass-cover=""
+          data-surface-role="menu"
           // The experiments' arms (menuStyleV2, menuRowStates), styled in popupSurface.css; off draws none.
           data-menu-style={arms.look === "off" ? undefined : arms.look}
           data-menu-states={arms.states === "off" ? undefined : arms.states}
@@ -618,6 +619,9 @@ export interface MenuItemProps {
   onFocus?(event: FocusEvent<HTMLElement>): void;
   /** An `async` row returns its work's promise (the type stays `void`, so any handler fits). */
   onSelect?(event: MouseEvent<HTMLElement> | PointerEvent<HTMLElement>): void;
+  /** The row's place among all of a windowed menu's rows (only some are mounted). */
+  "aria-posinset"?: number;
+  "aria-setsize"?: number;
   children: ReactNode;
 }
 
@@ -650,6 +654,8 @@ export function MenuItem({
   closeOnClick,
   expanded,
   controls,
+  "aria-posinset": posinset,
+  "aria-setsize": setsize,
   destructive,
   async: isAsync,
   children,
@@ -710,6 +716,7 @@ export function MenuItem({
       {...(keepsOpen === undefined ? {} : { closeOnClick: keepsOpen })}
       {...(expanded === undefined ? {} : { "aria-expanded": expanded })}
       {...(controls ? { "aria-controls": controls } : {})}
+      {...(posinset === undefined ? {} : { "aria-posinset": posinset, "aria-setsize": setsize })}
       {...(keepsOpen === false ? { "data-keeps-open": "" } : {})}
       {...(pending ? { "aria-busy": true, "data-pending": "" } : {})}
       onPointerMove={(event) => {
@@ -830,6 +837,8 @@ export function MenuRadioItem({
   closeOnClick,
   label,
   title,
+  "aria-posinset": posinset,
+  "aria-setsize": setsize,
   children,
 }: {
   value: string;
@@ -847,6 +856,7 @@ export function MenuRadioItem({
       value={value}
       aria-label={label}
       title={title}
+      {...(posinset === undefined ? {} : { "aria-posinset": posinset, "aria-setsize": setsize })}
       disabled={disabled}
       closeOnClick={closeOnClick}
       onPointerMove={(event) => context?.movePointer(event)}

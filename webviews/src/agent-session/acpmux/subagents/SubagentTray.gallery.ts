@@ -2,7 +2,7 @@
 // Running subagents, background commands and chats the agent started in one tray at the foot of
 // the chat, right above the composer (SubagentTray.tsx, runningTray.ts), never in the middle of
 // history, in a turn and after it ("Running in background · …"): one running is its line alone;
-// several get a header ("3 subagents running · 1 command") with a line each; past three they start
+// several get a header ("3 subagents · 1 command") with a line each; past three they start
 // folded to the header. The transcript has no "Running in background" row. A subagent that ended
 // remains a bounded status card in the tray and leaves one line where it ended
 // (SubagentDoneLine.tsx), a failure in the danger color, a stopped one with why when known, and
@@ -1123,7 +1123,7 @@ export default pinKindsHead(
         ),
       },
       "one-agent-two-commands": {
-        note: "One subagent and two background commands, opened: the header reads exactly `1 subagent running · 1 test run · 1 build` above its lines, the commands counted by what they do (folded, it names them: agent-pane.subagent-tray-names).",
+        note: "One subagent and two background commands, opened: the header reads exactly `1 subagent · 1 test run · 1 build` above its lines, the commands counted by what they do (folded, it names them: agent-pane.subagent-tray-names).",
         play: async (ctx) => {
           await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
           await ctx.click({ selector: ".acpmux-running-tray__head" });
@@ -1131,7 +1131,7 @@ export default pinKindsHead(
           // leaving words are gone.
           await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-running-tray__title .acpmux-tick__out"));
           const title = ctx.find({ selector: ".acpmux-running-tray__title" }).textContent;
-          if (title !== "1 subagent running · 1 test run · 1 build") throw new Error(`unexpected tray title: ${title}`);
+          if (title !== "1 subagent · 1 test run · 1 build") throw new Error(`unexpected tray title: ${title}`);
         },
         snapshot: chat(
           [
@@ -1239,7 +1239,7 @@ export default pinKindsHead(
           const title = ctx.find({ selector: ".acpmux-running-tray__title" }).textContent;
           // Kind by kind (trayHeadKinds.ts): the chats it started read as sessions, and what ended in
           // the list counts after what runs.
-          if (title !== "2 subagents running · 2 sessions · 1 test run · 1 build · 3 done")
+          if (title !== "2 subagents · 2 sessions · 1 test run · 1 build · 3 done")
             throw new Error(`the header must count the rows: ${title}`);
         },
         snapshot: countsChats(false),

@@ -18,6 +18,10 @@ runs the job again). When it is a failure the PR job is
 skipped, and the annotation names the base run that is red. A green, a missing verdict, or any read that fails or
 runs past the deadline runs the job: the skip fails open.
 
+`--events push,workflow_dispatch --dispatch-title PREFIX` also reads the base's dispatched runs whose title starts
+with PREFIX (one page of 100, each event keeping its own --runs): cmux-next.yml's generated files job is judged on
+the base only by the `cmux-next base tier` dispatch (cmux-next-base-tier-kick.yml); its push runs skip it.
+
 What runs anyway:
 - a pull request labeled full-ci (a PR that fixes the base red proves it there, or merges and the next base push
   run proves it);
@@ -31,7 +35,8 @@ The miss: a PR that adds a new red inside a job already red on the base merges. 
 is red where it was red already; base-red-watch bisects its new failing tests over the covered pushes.
 
 usage:
-  base_red_skip.py decide --workflow FILE --job NAME [--base feat-cmux-next] [--runs 6] [--max-age-hours 12]
+  base_red_skip.py decide --workflow FILE --job NAME [--base feat-cmux-next] [--events push] [--dispatch-title PREFIX] [--runs 6]
+      [--max-age-hours 12]
       [--audit-percent 10] -> `base_red=true|false` and `base_run=<url>` lines on stdout (for $GITHUB_OUTPUT)
 Environment: GITHUB_REPOSITORY, GH_TOKEN (actions: read), GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT, GITHUB_EVENT_NAME.
 """
@@ -67,12 +72,31 @@ def get_json(path: str, token: str, deadline: deadline_http.Deadline):
 
 
 def base_verdict(repo: str, workflow: str, job: str, base: str, runs: int, read, max_age_hours: float = 12.0,
-                 now: dt.datetime | None = None) -> tuple[bool | None, str]:
-    """(red, run url) of JOB's newest decided verdict on BASE's push runs of WORKFLOW; (None, '') when none is."""
+                 now: dt.datetime | None = None, events: tuple[str, ...] = ("push",),
+                 dispatch_title: str = "") -> tuple[bool | None, str]:
+    """(red, run url) of JOB's newest decided verdict on BASE's EVENTS runs of WORKFLOW; (None, '') when none is."""
     now = now or dt.datetime.now(dt.timezone.utc)
-    query = urllib.parse.urlencode({"branch": base, "event": "push", "status": "completed", "per_page": runs})
-    listed = read(f"/repos/{repo}/actions/workflows/{urllib.parse.quote(workflow)}/runs?{query}")
-    for run in (listed.get("workflow_runs") or [])[:runs]:
+    listed_runs = []
+    for event in events:
+        titled = event == "workflow_dispatch" and bool(dispatch_title)
+        # A titled list reads one page of 100 (about 12 h of cmux-next.yml dispatches, 2026-11-24) and keeps --runs.
+        query = urllib.parse.urlencode({"branch": base, "event": event, "status": "completed",
+                                        "per_page": 100 if titled else runs})
+        listed = read(f"/repos/{repo}/actions/workflows/{urllib.parse.quote(workflow)}/runs?{query}")
+        kept = 0
+        for run in listed.get("workflow_runs") or []:
+            # cmux-next.yml's dispatches are mostly DEV daily runs without the job; only the base tier judges it.
+            if titled and not (run.get("display_title") or "").startswith(dispatch_title):
+                continue
+            listed_runs.append(run)
+            kept += 1
+            if kept >= runs:
+                break
+    # Newest first across the events (ISO timestamps sort as text); one event keeps GitHub's own order. Each event
+    # keeps its own --runs: base pushes come every few minutes, and a shared cap would leave out the slower dispatch.
+    if len(events) > 1:
+        listed_runs.sort(key=lambda run: run.get("created_at") or "", reverse=True)
+    for run in listed_runs:
         created = run.get("created_at") or ""
         try:
             age_h = (now - dt.datetime.strptime(created, "%Y-%m-%dT%H:%M:%SZ").replace(
@@ -86,6 +110,10 @@ def base_verdict(repo: str, workflow: str, job: str, base: str, runs: int, read,
             if item.get("name") == job and item.get("conclusion") in DECIDED:
                 return DECIDED[item["conclusion"]], item.get("html_url") or run.get("html_url", "")
     return None, ""
+
+
+def events_of(args) -> tuple[str, ...]:
+    return tuple(e.strip() for e in (getattr(args, "events", None) or "push").split(",") if e.strip()) or ("push",)
 
 
 def audited(percent: int, run_id: str, attempt: str, job: str) -> bool:
@@ -106,7 +134,8 @@ def decide(args, env=os.environ, read=None, now=None) -> list[str]:
         read = lambda path: get_json(path, token, deadline)  # noqa: E731
     try:
         red, url = base_verdict(repo, args.workflow, job, args.base, args.runs, read,
-                                getattr(args, "max_age_hours", 12.0), now)
+                                getattr(args, "max_age_hours", 12.0), now, events_of(args),
+                                getattr(args, "dispatch_title", "") or "")
     except Exception as err:  # fail open: an unread base runs the job
         print(f"::notice title=base-red skip: {job}::the base verdict could not be read ({err}); running it",
               file=sys.stderr)
@@ -131,6 +160,9 @@ def main(argv=None) -> int:
     d.add_argument("--job", required=True, help="the job's check name")
     d.add_argument("--base", default="feat-cmux-next")
     d.add_argument("--runs", type=int, default=6)
+    d.add_argument("--events", default="push",
+                   help="comma-separated base run events; cmux-next.yml's base tier runs are workflow_dispatch")
+    d.add_argument("--dispatch-title", default="", help="keep only dispatched runs whose title starts with this")
     d.add_argument("--max-age-hours", type=float, default=12.0)
     d.add_argument("--audit-percent", type=int, default=int(os.environ.get("AUDIT_PERCENT") or 10))
     args = parser.parse_args(argv)
