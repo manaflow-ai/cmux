@@ -22,6 +22,18 @@ struct ChatRestingStack: Codable, Equatable {
     static let fallback = ChatRestingStack(height: 96, bottomGap: 80)
 }
 
+/// A transcript's reading place: the row at the top of the visible part, by its row id, and how
+/// far the view is scrolled past that row's top, in points.
+public struct ChatReadingAnchor: Equatable, Sendable {
+    public var row: String
+    public var offset: Double
+
+    public init(row: String, offset: Double) {
+        self.row = row
+        self.offset = offset
+    }
+}
+
 /// View state of one open agent chat, shared by its transcript and its
 /// bottom stack. The pushed `AgentChatScreen` owns one; a workspace tab
 /// (CmuxTabsKit) keeps one per tab so the transcript (the tab's page) and
@@ -35,6 +47,12 @@ public final class AgentChatSurface {
     }
     /// Told when the draft changes: a workspace tab keeps it on disk (`ComposerDraftStore`).
     @ObservationIgnored public var onTextChange: (@MainActor (String) -> Void)?
+    /// Where the reader was when the app last ran (a workspace tab's chat, `LastPlaceMemory`):
+    /// applied once, when the transcript first lays out its cached rows, instead of the newest
+    /// turn. A row that is not among them leaves the chat on its newest turn.
+    @ObservationIgnored public var restoreAnchor: ChatReadingAnchor?
+    /// Told when the reader comes to rest: the row at the top, or nil on the newest turn.
+    @ObservationIgnored public var onReadingAnchor: (@MainActor (ChatReadingAnchor?) -> Void)?
     /// The transcript holds its rows as they are (the page is shown as a
     /// small card on the tab grid): streamed changes wait and apply in one
     /// reload when this goes back to false, or on `refreshHeldTranscript()`.
@@ -745,6 +763,7 @@ struct AgentChatConnectionLine: View {
                     .padding(.leading, 20)
                     .alignmentGuide(.top) { $0[.bottom] + 8 }
                     .accessibilityIdentifier("agentChat.connectionLine")
+                    .placeholderBound("chat.connection.chip", .milliseconds(0))
                     .transition(.opacity)
             }
         }
@@ -1118,6 +1137,8 @@ struct UserBubble: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 11)
                 .background(Color.cmuxMobileChatBubble, in: .rect(cornerRadius: 20, style: .continuous))
+                // A bubble with no words and no attachment is an empty grey bubble: never drawn.
+                .placeholderBound("chat.user.empty", .milliseconds(0), when: prompt.isEmpty && attachments.isEmpty)
         }
         .selectionMenu(menuRows)
         .containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in Self.maxWidth(in: width) }
