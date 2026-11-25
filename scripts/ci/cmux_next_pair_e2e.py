@@ -111,6 +111,16 @@ def mac_workspace(app, sock, home):
     relaunch_restore_check does): "created <id8>, terminal <id8>", or why not."""
     cli = os.path.join(app, "Contents/Resources/bin/cmux")
     env = {"HOME": home, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_SOCKET_PATH": sock, "CMUX_QUIET": "1"}
+    # The app starts its terminal daemon with TMPDIR set to the user's Darwin temp folder
+    # (DaemonLauncher.userTemporaryDirectory), so its socket is TEMP/cmux-tui-UID/SESSION.sock. Without the same
+    # TMPDIR the CLI looked under /tmp and found "no cmux session is running" (run 45551555308).
+    try:
+        temp = subprocess.run(["/usr/bin/getconf", "DARWIN_USER_TEMP_DIR"], capture_output=True, text=True,
+                              stdin=subprocess.DEVNULL, timeout=10).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        temp = ""
+    if temp:
+        env["TMPDIR"] = temp
     try:
         done = subprocess.run([cli, "--json", "--app-socket", sock, "workspace", "create", "--name", "pair-e2e"],
                               env=env, cwd=home, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=60)
@@ -518,7 +528,7 @@ def main():
             phone_env["SIMCTL_CHILD_CMUX_MOBILE_FOCUS_MAC"] = mac_id
             # A new tag's Mac opens with no workspace, so the phone's live-terminal and live-attach
             # demos found "no terminal" (run 45538405955): one terminal workspace for them to open.
-            note(f"- Mac terminal workspace: {mac_workspace(a.mac_app, sock, rig)}")
+            note(f"- Mac terminal workspace: {mac_workspace(a.mac_app, sock, pwd.getpwuid(os.getuid()).pw_dir)}")
 
         # ---- the phone ------------------------------------------------------
         # A new install, setup marked done (the account's preferences are the live keys until the
