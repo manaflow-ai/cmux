@@ -209,13 +209,16 @@ impl<T, Fut: Future<Output = io::Result<T>>> Future for Attempt<Fut> {
     }
 }
 
-async fn run<A, T, F, Fut>(
+// Generic in `on_failure` (not `&mut dyn FnMut`): the race's future is `Send` exactly when the
+// caller's closure is, so a race spawned on a multi-thread runtime still compiles.
+async fn run<A, T, F, Fut, O>(
     targets: &[A],
     policy: RacePolicy,
     mut connect: F,
-    on_failure: &mut dyn FnMut(usize, &io::Error),
+    on_failure: &mut O,
 ) -> io::Result<(Won<T>, FuturesUnordered<Attempt<Fut>>)>
 where
+    O: FnMut(usize, &io::Error),
     A: Clone,
     F: FnMut(A) -> Fut,
     Fut: Future<Output = io::Result<T>>,
