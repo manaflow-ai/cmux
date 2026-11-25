@@ -1,4 +1,8 @@
+#if canImport(AppKit) // the Mac; the Linux settings exporter builds the model below without it
 public import AppKit
+#else
+public import Foundation
+#endif
 
 /// `window.titlebar` in cmux.json.
 public nonisolated enum TitlebarStyle: String, Sendable, CaseIterable, Codable {

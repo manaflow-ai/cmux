@@ -1,5 +1,9 @@
-public import AppKit
 public import CmuxNextDesignTokens
+#if canImport(AppKit) // the Mac; the Linux settings exporter builds the model below without it
+public import AppKit
+#else
+public import Foundation
+#endif
 
 /// `appearance.borders` in cmux.json: `default` draws the app's borders,
 /// hairlines and separators; `none` removes every one of them.

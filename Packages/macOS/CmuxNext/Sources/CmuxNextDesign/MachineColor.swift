@@ -1,6 +1,10 @@
-public import AppKit
 public import CmuxTheme
 public import CmuxNextDesignTokens
+#if canImport(AppKit) // the Mac; the Linux settings exporter builds the model below without it
+public import AppKit
+#else
+public import Foundation
+#endif
 
 /// A machine's identity color: the color the person picked for it
 /// (`appearance.machineColors`, MachineColorOverrides), else one of the theme's

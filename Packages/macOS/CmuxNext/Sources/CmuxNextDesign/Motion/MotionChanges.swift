@@ -1,5 +1,9 @@
-public import AppKit
 import CmuxNextCompat
+#if canImport(AppKit) // the Mac; the Linux settings exporter builds the model below without it
+public import AppKit
+#else
+public import Foundation
+#endif
 
 /// Which motion setting changed (``MotionChanges``).
 public enum MotionChange: Sendable, Equatable {

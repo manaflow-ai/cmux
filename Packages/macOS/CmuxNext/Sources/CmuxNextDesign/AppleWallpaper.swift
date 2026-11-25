@@ -1,5 +1,9 @@
 public import Foundation
+#if canImport(AppKit) // the Mac; the Linux settings exporter builds the model below without it
 import os
+#else
+import Foundation
+#endif
 
 /// One macOS wallpaper as the Wallpaper pane lists it: a picture file in Desktop Pictures, or a
 /// `.madesktop` description of one that macOS downloads when the person first picks it. Read

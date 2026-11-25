@@ -1,5 +1,9 @@
-public import AppKit
 public import CoreGraphics
+#if canImport(AppKit) // the Mac; the Linux settings exporter builds the model below without it
+public import AppKit
+#else
+public import Foundation
+#endif
 
 /// The color of the macOS desktop picture that the window's theme tint leans toward
 /// (`appearance.wallpaperTint`), as macOS tints its own window backgrounds with the wallpaper.

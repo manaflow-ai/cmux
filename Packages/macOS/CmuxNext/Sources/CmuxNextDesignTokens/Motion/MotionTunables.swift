@@ -213,13 +213,15 @@ public nonisolated enum MotionTunables {
 
     /// Every Motion tunable, for the catalog.
     public static var all: [TunableDescriptor] {
-        MotionSpring.allCases.compactMap { springs[$0]?.descriptor }
-            + MotionFade.allCases.compactMap { fades[$0]?.descriptor }
-            + MotionLoop.allCases.compactMap { loops[$0]?.descriptor }
-            + [marqueeDelay, marqueeSpeed, marqueeMinimumScroll, marqueeHold, marqueeMinimumTravel,
-               tooltipDelay, tooltipWarm, hoverCardGrace, hoverCardAim].map(\.descriptor)
-            + [panelOpenScale, panelCloseScale, popupOpenScale, popupCloseScale].map(\.descriptor)
-            + [agentCursorGlideScale, agentCursorGlideMax].map(\.descriptor)
+        // In steps: as one expression it takes the type checker past its limit on Linux.
+        let springDescriptors: [TunableDescriptor] = MotionSpring.allCases.compactMap { springs[$0]?.descriptor }
+        let fadeDescriptors: [TunableDescriptor] = MotionFade.allCases.compactMap { fades[$0]?.descriptor }
+        let loopDescriptors: [TunableDescriptor] = MotionLoop.allCases.compactMap { loops[$0]?.descriptor }
+        let timings: [Tunable<Double>] = [marqueeDelay, marqueeSpeed, marqueeMinimumScroll, marqueeHold, marqueeMinimumTravel,
+                                          tooltipDelay, tooltipWarm, hoverCardGrace, hoverCardAim]
+        let scales: [Tunable<Double>] = [panelOpenScale, panelCloseScale, popupOpenScale, popupCloseScale]
+        let glide: [Tunable<Double>] = [agentCursorGlideScale, agentCursorGlideMax]
+        return springDescriptors + fadeDescriptors + loopDescriptors + (timings + scales + glide).map(\.descriptor)
     }
 }
 

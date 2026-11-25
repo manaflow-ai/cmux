@@ -1,5 +1,9 @@
-public import AppKit
 public import CmuxNextDesignTokens
+#if canImport(AppKit) // the Mac; the Linux settings exporter builds the model below without it
+public import AppKit
+#else
+public import Foundation
+#endif
 
 /// The flush corner (`appearance.cornerFlush`, overridden by the Debug Settings tunable `chrome.cornerFlush`;
 /// Thunderdome round 2, direction A).

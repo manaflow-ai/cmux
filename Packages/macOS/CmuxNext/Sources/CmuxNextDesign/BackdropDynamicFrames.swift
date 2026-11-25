@@ -1,5 +1,9 @@
 public import Foundation
+#if canImport(AppKit) // the Mac; the Linux settings exporter builds the model below without it
 import ImageIO
+#else
+import Foundation
+#endif
 
 /// How a dynamic macOS wallpaper changes (`appearance.backgroundDynamic`).
 public nonisolated enum BackdropDynamicMode: String, CaseIterable, Sendable {
