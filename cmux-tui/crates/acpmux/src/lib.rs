@@ -49,6 +49,7 @@ pub mod caller_stats;
 pub mod capabilities;
 pub mod catalog;
 pub mod chat_fork;
+pub mod chat_place;
 pub mod chat_size_fixture;
 pub mod chatgpt;
 pub mod chats;
@@ -182,6 +183,9 @@ mod joined_model_plane;
 /// `cmux github` and the GitHub MCP bridge on a joined machine ask its hub (`joined_model_plane`).
 #[cfg(unix)]
 pub use joined_model_plane::install_github_source;
+/// Hot paths for the instruction-count bench (`benches/icount.rs`); not an API.
+#[doc(hidden)]
+pub mod icount;
 pub mod launch_credential;
 pub mod launch_policy;
 pub mod left_on_mac;
@@ -251,6 +255,7 @@ pub mod peer;
 pub mod peer_kept_tokens;
 pub mod peer_last_good;
 pub mod peer_link;
+pub mod perf_trace;
 // One host-wide gate for peer links' dials, so many dropped links do not redial in one instant.
 pub mod peer_dial_gate;
 pub(crate) mod peer_notice_outbox;
@@ -266,6 +271,8 @@ pub mod person_tokens;
 pub mod fleet_elastic;
 pub mod place_mode;
 pub mod placement;
+// `acpmux machine cells`: lane hosts against their caps and the registry (RFD 0181 B2).
+pub mod cell_report;
 pub mod plan_build_records;
 #[cfg(not(unix))]
 mod platform;

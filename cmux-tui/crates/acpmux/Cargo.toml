@@ -32,6 +32,12 @@ harness = false
 name = "turn_overhead"
 harness = false
 
+# Instruction counts of the hot paths under Callgrind, checked against
+# benches/icount_baseline.json (ci/steps.toml step acpmux-icount).
+[[bench]]
+name = "icount"
+harness = false
+
 [features]
 default = ["build-id"]
 # The stamped build id (acpmux-build-id) as the default of `hub::build()`.
