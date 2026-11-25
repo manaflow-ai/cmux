@@ -241,6 +241,7 @@ pub fn registry() -> Vec<MethodDecl> {
         request::<sync::SyncPushParams, sync::SyncPushDone>(method::MUX_SYNC_PUSH),
         request::<events::MarkUnreadParams, events::Done>(method::MUX_MARK_UNREAD),
         request::<events::SessionRef, events::Done>(method::MUX_MARK_READ),
+        request::<events::PinParams, session::SessionSummary>(method::MUX_PIN),
         request::<events::SeenParams, events::SeenDone>(method::MUX_SEEN),
         request::<events::WatchParams, session::SessionsResult>(method::MUX_WATCH),
         untyped(method::MUX_RENAME, Request),
@@ -580,6 +581,10 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_CONNECTIONS_CHATGPT_TOKEN, Request),
         untyped(method::MUX_CONNECTIONS_CHATGPT_IMPORT, Request),
         untyped(method::MUX_CONNECTIONS_CLAUDE_TOKEN_ADD, Request),
+        untyped(method::MUX_CONNECTIONS_CLAUDE_TOKEN_BEGIN, Request),
+        untyped(method::MUX_CONNECTIONS_CLAUDE_TOKEN_WAIT, Request),
+        untyped(method::MUX_CONNECTIONS_CLAUDE_TOKEN_CODE, Request),
+        untyped(method::MUX_CONNECTIONS_CLAUDE_TOKEN_CANCEL, Request),
         untyped(method::MUX_CONNECTIONS_CREDENTIAL, Request),
         // Daemon.
         untyped(method::MUX_WEB_MODES, Request),
