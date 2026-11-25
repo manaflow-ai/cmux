@@ -206,7 +206,7 @@ struct TaskComposerScreen: View {
                 attachMenu
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
-                        if !creator.cloudTaskTargets.isEmpty { placePill }
+                        if !creator.cloudTaskTargets.isEmpty || onCloud { placePill }
                         if onCloud {
                             cloudAgentPill
                         } else {

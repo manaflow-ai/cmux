@@ -121,7 +121,8 @@ struct TaskComposerOptionsSheet: View {
     @ViewBuilder private var macRow: some View {
         let macs = creator.taskMacs
         let clouds = creator.cloudTaskTargets
-        if macs.count > 1 || !clouds.isEmpty, let shown = placeName {
+        // A remembered Cloud pick the Mac no longer lists keeps the menu, so a Mac can be chosen.
+        if macs.count > 1 || !clouds.isEmpty || onCloud, let shown = placeName {
             TaskPlaceMenu(creator: creator, sameNames: sameNames, sent: sent) {
                 routeLabel(symbol: onCloud ? "cloud" : "desktopcomputer", title: onCloud ? "Cloud machine" : "Mac", value: shown,
                            chevron: "chevron.up.chevron.down")
