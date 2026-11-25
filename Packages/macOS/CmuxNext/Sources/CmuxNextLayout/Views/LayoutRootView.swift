@@ -170,6 +170,9 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         var revealRequest: ColumnCenterRequest?
         var centerMode: CenterFocusedColumn
         var attention: [PaneID: AttentionMark]
+        /// ``LayoutModel/holdsAttentionUntilShown``: the rings take ``LayoutModel/attentionWhileHeld`` (a ring the switch read
+        /// stays, so it blinks out when the hold ends, in a frame that shows it) but draw nothing yet (cmux#46908, cmux#56125).
+        var holdsAttention: Bool
         var scrollbar: StripScrollbarMode
         var rowOps: Bool
         var canvases: [ScreenID: CanvasScreen]
@@ -368,6 +371,7 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
     /// ``sync(_:)``'s body (`LayoutRootView+AvoiderBatch`).
     func syncBatched(_ snapshot: Snapshot) {
         let previous = lastSnapshot
+        var snapshot = snapshot
         lastSnapshot = snapshot
         // A newly earned ring, or the ring moving to another pane by key, measures pointer travel from
         // zero (``handlePointerTravel(_:)``).
@@ -543,6 +547,11 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         }
         updateVisibility()
         overlayIsStale = true
+        // A layout just shown draws its rings from the frame that shows its content, not over the one before (cmux#46908).
+        // Released after the chrome took its rings above: a blink starts in the same transaction that shows it.
+        if snapshot.holdsAttention || previous?.holdsAttention == true {
+            for host in context.hosts.values { host.chrome.holdsAttention = snapshot.holdsAttention }
+        }
         flushOverlaySync()
         // Pane padding or corners changed: pages drawn as child windows
         // re-read their clip shape (their frames may not have moved).
@@ -775,7 +784,7 @@ extension LayoutRootView.Snapshot {
         self.init(screens: model.screens, activeScreen: model.activeScreenID, focused: model.focusedPane,
                   focusRingEarned: model.focusRingEarned, dimsInactive: model.dimsInactivePanes,
                   style: model.style, gestureActive: model.isGestureActive, centerRequest: model.centerRequest,
-                  revealRequest: model.revealRequest, centerMode: model.centerFocusedColumn, attention: model.attention,
+                  revealRequest: model.revealRequest, centerMode: model.centerFocusedColumn, attention: model.holdsAttentionUntilShown ? model.attentionWhileHeld : model.attention, holdsAttention: model.holdsAttentionUntilShown,
                   scrollbar: model.stripScrollbar, rowOps: model.acceptsRowOps, canvases: model.canvases)
     }
 }

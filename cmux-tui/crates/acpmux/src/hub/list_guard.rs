@@ -17,6 +17,7 @@ use super::session_pages::PageRow;
 use super::*;
 use cmux_json::JsonSet as _;
 use std::collections::HashSet;
+#[cfg(test)]
 use std::ops::Range;
 
 /// The hub's event channel. Every send is a change some list shows.
@@ -442,6 +443,7 @@ pub(super) fn reaches_other_rows(dir: &str, kind: &str) -> bool {
 }
 
 /// Where each row of a list's text is, and the paging keys of each (`at` its place).
+#[cfg(test)]
 pub(crate) type Built = (String, Vec<Range<usize>>, Vec<Value>);
 
 /// The reply to `params` that has no `limit` (the whole list, or a filter of it), of `sorted`
@@ -547,6 +549,7 @@ pub(crate) fn page_text<R: AsRef<str>>(next: Option<String>, rows: &[R]) -> Stri
 /// cut short by its bytes ends with the `nextCursor` of its last row, as a page of that many rows
 /// would: 1000 rows of a busy host with usage were more than one message, refused whole on every
 /// retry. A row larger than `budget` alone is trimmed ([`row_text`]).
+#[cfg(test)]
 pub(crate) fn cut_page(
     (text, spans): (&str, &[Range<usize>]),
     rows: &[Value],
@@ -572,11 +575,13 @@ pub(crate) fn cut_page(
 
 /// A list row built for a page (`Hub::session_page_rows`): this daemon's as a tree, or a peer's
 /// as its text (`PeerRow::listed`) with its row, whose paging keys are kept typed: never parsed.
+#[cfg(test)]
 pub(crate) enum BuiltRow {
     Tree(Value),
     Peer(String, Arc<RemoteSession>),
 }
 
+#[cfg(test)]
 impl PageRow for BuiltRow {
     fn session_id(&self) -> &str {
         match self {
@@ -605,14 +610,23 @@ impl PageRow for BuiltRow {
             Self::Peer(_, r) => r.summary.status(),
         }
     }
+
+    fn top_level(&self) -> bool {
+        match self {
+            Self::Tree(row) => PageRow::top_level(row),
+            Self::Peer(_, r) => r.summary.top_level(),
+        }
+    }
 }
 
 /// A row [`serialize_in_order`] writes: its text, and its paging keys.
+#[cfg(test)]
 pub(crate) trait InOrder {
     fn write(&self, out: &mut Vec<u8>);
     fn paging_keys(&self, at: usize) -> Value;
 }
 
+#[cfg(test)]
 impl InOrder for Value {
     fn write(&self, out: &mut Vec<u8>) {
         // A Value always serializes, and Vec's writer cannot fail.
@@ -624,6 +638,7 @@ impl InOrder for Value {
     }
 }
 
+#[cfg(test)]
 impl InOrder for BuiltRow {
     fn write(&self, out: &mut Vec<u8>) {
         match self {
@@ -645,6 +660,7 @@ impl InOrder for BuiltRow {
 
 /// `rows`, in the order given (not sorted), as a list's text, where each is in it, and the
 /// paging keys of each (`at` its place): what [`cut_page`] cuts.
+#[cfg(test)]
 pub(crate) fn serialize_in_order<R: InOrder>(rows: &[R]) -> Built {
     let prefix = br#"{"sessions":["#;
     let mut whole = Vec::from(&prefix[..]);
@@ -668,6 +684,7 @@ pub(crate) fn serialize_in_order<R: InOrder>(rows: &[R]) -> Built {
 pub(crate) const LINE_ROOM: usize = 256;
 
 /// Row `key` of `text` ([`fit_row`]).
+#[cfg(test)]
 fn row_text<'a>(
     text: &'a str,
     spans: &[Range<usize>],
@@ -684,7 +701,7 @@ fn row_text<'a>(
 /// `row` (whose paging keys are `key`): whole when it fits in `budget`, else trimmed to fit, its
 /// largest fields first (`reply_fit.rs`), or as [`too_large_stub`] when even the fields it keeps
 /// do not.
-fn fit_row<'a, K: PageRow + ?Sized>(
+pub(crate) fn fit_row<'a, K: PageRow + ?Sized>(
     row: &'a str,
     key: &K,
     budget: usize,
@@ -717,10 +734,10 @@ pub(crate) fn fit_text(row: String, budget: usize) -> String {
 
 /// The cursor of the page after `last`: a census's (`orderBy`, `s:<id>`) or the list's
 /// (`session_pages::cursor_after`).
-fn page_cursor(params: &Value, last: &Value) -> String {
+pub(crate) fn page_cursor<K: PageRow + ?Sized>(params: &Value, last: &K) -> String {
     let census = params.get("orderBy").and_then(Value::as_str).is_some_and(|o| !o.is_empty());
     if census {
-        format!("s:{}", last.get("sessionId").and_then(Value::as_str).unwrap_or(""))
+        format!("s:{}", last.session_id())
     } else {
         super::session_pages::cursor_after(last)
     }

@@ -130,13 +130,17 @@ test("This Mac with no folder reads No folder too, the same width, with no Cloud
   expect(label?.hasAttribute("aria-description")).toBe(false);
 });
 
-test("Cloud with a folder picked keeps the folder's name: choosing a folder still works", async () => {
+test("Cloud uses the Mac folder’s GitHub repository when known, else shows No folder", async () => {
+  const cwd = "/Users/you/src/cmux";
+  const summary = { sessionId: "", harness: "claude", host: "This Mac", hostKind: "local" as const, cwd };
+  await mount({ ...cloud, summary });
+  expect(folderLabel()?.textContent).toBe(t("composer.cloudNoFolder"));
   await mount({
     ...cloud,
-    summary: { sessionId: "", harness: "claude", host: "This Mac", hostKind: "local", cwd: "/Users/you/src/cmux" },
+    summary,
+    projectChoices: [{ cwd, label: "cmux", repo: { name: "cmux", root: cwd, github: "acme/cmux" } }],
   });
-  expect(stripText()).toContain("cmux");
-  expect(stripText()).not.toContain(t("composer.cloudNoFolder"));
+  expect(folderLabel()?.textContent).toBe("acme/cmux");
 });
 
 test("a started Cloud chat in its machine's fresh folder names that folder, not No folder", async () => {
@@ -177,35 +181,18 @@ test("an SSH chat in a folder shaped like a Cloud chat's keeps its name: only Cl
   expect(stripText()).not.toContain(t("composer.chooseFolder"));
 });
 
-// A Cloud start copies the folder the chip names and nothing else (cloudRun.ts composerCloudStartFolder):
-// a chip that reads No folder starts in the machine's own folder, with nothing copied. A New Tab
-// page's inherited folder (the app's launch folder, `newTab.cwd`) once went as the project of a chat
-// whose chip said No folder, and the start asked to copy a 23 GB folder instead of starting.
-test("what a Cloud start copies is what the folder chip names", async () => {
-  const { composerCloudStartFolder } = await import("../src/agent-session/acpmux/cloudRun");
-  const local = { sessionId: "", harness: "claude", host: "This Mac", hostKind: "local" as const };
-  const cases = [
-    { name: "no folder", summary: local, copies: undefined },
-    {
-      name: "agent home",
-      summary: { ...local, cwd: "/Users/you/Library/Application Support/cmux/agent-home/abc" },
-      copies: undefined,
-    },
-    { name: "a picked project", summary: { ...local, cwd: "/Users/you/src/cmux/" }, copies: "/Users/you/src/cmux" },
-  ];
-  for (const { name, summary, copies } of cases) {
-    await mount({ ...cloud, summary });
-    const label = folderLabel();
-    const start = composerCloudStartFolder(summary);
-    if (copies === undefined) {
-      expect(label?.dataset.folderState, name).toBe("cloudFresh");
-      expect(start, name).toEqual({ home: true });
-    } else {
-      expect(label?.dataset.folderState, name).toBe("folder");
-      expect(start, name).toEqual({ cwd: copies });
-      expect(label?.textContent, name).toBe("cmux");
-    }
+test("a Cloud source without a GitHub remote starts without a copied folder", async () => {
+  const { cloudStartFolder } = await import("../src/agent-session/acpmux/cloudRun");
+  const { cloudRepositoryPick } = await import("../src/agent-session/acpmux/sourcePickerModel");
+  for (const cwd of [undefined, "/Users/you/src/cmux/", "/Users/you/Library/Application Support/cmux/agent-home/abc"]) {
+    const selected = cloudRepositoryPick(cwd);
+    await mount({ ...cloud, summary: { sessionId: "", cwd } });
+    expect(folderLabel()?.dataset.folderState).toBe("cloudFresh");
+    expect(cloudStartFolder(selected)).toEqual({ home: true });
   }
+  expect(cloudStartFolder(cloudRepositoryPick("/Users/you/src/cmux", "acme/cmux"))).toEqual({
+    cwd: "github:acme/cmux",
+  });
 });
 
 // cmux#46023: a Cloud chat started with a folder from a New Tab page read No folder beside Cloud. The page's

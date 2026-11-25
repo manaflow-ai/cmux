@@ -267,13 +267,16 @@ async fn a_retry_and_a_notice_start_no_turn_while_the_rate_limit_holds() {
 
 /// Leo, 2026-11-18: "claude-sr2-coord fell into a weird "rate limited" loop again 429 and
 /// whatever". Six turns in a row that fail on the limit park the chat: its continuation waits,
-/// a message from another agent starts nothing, and the row says so. `_acpmux/retry` sends the
-/// waiting continuation on, and the message goes in with it as one turn.
+/// a message from another agent starts nothing, and the row says so. Leo, 2026-11-24: "didn't we
+/// build auto retries for this? why do they fail instead of waiting it out?": the park lifts
+/// itself once its backoff ran out (20 ms doubled per strike: 640 ms here, half an hour by
+/// default), and the waiting continuation goes on with the message as one turn.
 #[tokio::test]
-async fn six_failed_turns_in_a_row_park_the_chat_until_a_retry() {
+async fn six_failed_turns_in_a_row_park_the_chat_until_its_backoff_ran_out() {
     let (hub, mut c) = setup_queue(PermissionPolicy::ApproveAll).await;
-    // Six attempts, so a continuation still waits when the sixth turn fails.
-    hub.config.write().await.auto_resume_delays_ms = Some(vec![20; 6]);
+    // Two configured waits, fewer than the six failures: a rate limit never uses its attempts
+    // up, so a continuation still waits when the sixth turn fails.
+    hub.config.write().await.auto_resume_delays_ms = Some(vec![20; 2]);
     let id = new_session(&mut c, "parked").await;
     let r = c
         .request(
@@ -299,21 +302,25 @@ async fn six_failed_turns_in_a_row_park_the_chat_until_a_retry() {
         assert!(e.msg["delayMs"].as_u64().unwrap() >= floor, "attempt {}: {e:?}", n + 1);
     }
 
-    // Parked: another agent's message waits, and no timer sends the continuation.
+    // Parked: another agent's message waits, and nothing starts before the backoff ran out.
+    let parked_at = parked[0].at;
     let _late =
         c.send(method::SESSION_PROMPT, from_agent(&id, "m-late", "lane", "late report")).await;
-    tokio::time::sleep(Duration::from_millis(1_500)).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
     assert_eq!(of_kind(&hub, &id, "turn_started").len(), 6, "{:?}", kinds(&hub, &id));
     let row = hub.session_summary(&hub.resolve(&id).unwrap());
     assert!(row["rateLimitParked"].as_u64().is_some(), "{row}");
     assert!(row.get("rateLimitedUntil").is_none(), "{row}");
 
-    // A retry sends the waiting continuation on: one turn, carrying the late message.
-    c.request("_acpmux/retry", json!({"sessionId": id})).await.unwrap();
+    // The park lifts itself: the waiting continuation goes on as one turn, with the message.
     let k = until(&hub, &id, |k| k.iter().filter(|k| *k == "turn_result").count() >= 7).await;
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert_eq!(of_kind(&hub, &id, "turn_started").len(), 7, "{k:?}");
-    assert_eq!(of_kind(&hub, &id, "rate_limit_unparked").len(), 1, "{k:?}");
+    let unparked = of_kind(&hub, &id, "rate_limit_unparked");
+    assert_eq!(unparked.len(), 1, "{k:?}");
+    assert_eq!(unparked[0].msg["why"], "backoff", "{unparked:?}");
+    assert!(unparked[0].at >= parked_at + 600, "lifted before its backoff: {unparked:?}");
+    assert!(of_kind(&hub, &id, "auto_resume_exhausted").is_empty(), "{k:?}");
     let last = user_messages(&hub, &id).pop().unwrap().to_string();
     assert!(last.contains("late report"), "{last}");
     let row = hub.session_summary(&hub.resolve(&id).unwrap());
@@ -525,11 +532,11 @@ async fn a_rate_limit_hold_survives_a_daemon_restart() {
     assert_eq!(strikes, 1, "{k:?}");
 }
 
-/// A chat parked after six 429s in a row stays parked across a restart: no timer and no turn,
-/// another agent's message waits, its strikes carry over, and `acpmux retry` sends the
-/// continuation on with that message as one turn.
+/// A chat parked after six 429s in a row stays parked across a restart until its backoff ran
+/// out, counted from when it parked: another agent's message waits, its strikes carry over, and
+/// the restored park lifts itself and sends the continuation on with that message as one turn.
 #[tokio::test]
-async fn a_parked_chat_stays_parked_across_a_daemon_restart() {
+async fn a_parked_chat_stays_parked_across_a_daemon_restart_until_its_backoff() {
     let dir = temp_dir("parked");
     let (hub, mut c) = daemon_on_disk(&dir).await;
     let id = new_session(&mut c, "parked").await;
@@ -549,8 +556,8 @@ async fn a_parked_chat_stays_parked_across_a_daemon_restart() {
     c.send(method::SESSION_PROMPT, from_agent(&id, "m-late", "lane", "late report")).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
 
-    let (hub, mut c) = restarted(hub, c, &dir, &id).await;
-    tokio::time::sleep(Duration::from_millis(1_500)).await;
+    let parked_at = of_kind(&hub, &id, "rate_limit_parked")[0].at;
+    let (hub, c) = restarted(hub, c, &dir, &id).await;
     let started = of_kind(&hub, &id, "turn_started").len();
     let row = hub.session_summary(&hub.resolve(&id).unwrap());
     let strikes = hub.resolve(&id).unwrap().rate_hold_strikes();
@@ -561,8 +568,9 @@ async fn a_parked_chat_stays_parked_across_a_daemon_restart() {
         panic!("not parked after the restart: {started} turns, {strikes} strikes, {row}, {k:?}");
     }
 
-    c.request("_acpmux/retry", json!({"sessionId": id})).await.unwrap();
     let k = until(&hub, &id, |k| k.iter().filter(|k| *k == "turn_result").count() >= 7).await;
+    let unparked = of_kind(&hub, &id, "rate_limit_unparked");
+    drop(c);
     tokio::time::sleep(Duration::from_millis(500)).await;
     let started = of_kind(&hub, &id, "turn_started").len();
     let last = user_messages(&hub, &id).pop().unwrap().to_string();
@@ -570,6 +578,9 @@ async fn a_parked_chat_stays_parked_across_a_daemon_restart() {
     let _ = std::fs::remove_dir_all(&dir);
     assert_eq!(started, 7, "{k:?}");
     assert!(last.contains("late report") && last.contains("rate limit"), "{last}");
+    assert_eq!(unparked.len(), 1, "{k:?}");
+    assert_eq!(unparked[0].msg["why"], "backoff", "{unparked:?}");
+    assert!(unparked[0].at >= parked_at + 600, "lifted before its backoff: {unparked:?}");
 }
 
 /// A connection from inside session `sid` (its caller token): an agent's, not the person's.
@@ -702,4 +713,51 @@ async fn a_parent_agents_resume_of_a_stopped_sub_session_honours_the_park() {
         "{resumed}"
     );
     assert_eq!(of_kind(&hub, &child, "turn_started").len(), 3, "{:?}", kinds(&hub, &child));
+}
+
+/// Leo, 2026-11-24: "i wonder what will happen with claudes on vms... do they get stranded!? ...
+/// is our logistics for being able to durably wake them up good?" A chat waiting out a capacity
+/// outage (the pool's 503, its retry-after 2 s) when the daemon restarts: the next daemon
+/// restores the wait from the log and continues it exactly once, at its deadline, under the
+/// same `~resume-1` id; the old daemon's timer sends nothing.
+#[tokio::test]
+async fn a_capacity_wait_cut_by_a_daemon_restart_resumes_once_at_its_deadline() {
+    let dir = temp_dir("capacity");
+    let (hub, mut c) = daemon_on_disk(&dir).await;
+    let id = new_session(&mut c, "paused").await;
+    let pool = "API Error: 503 no non-exhausted claude accounts available; next account frees up in 1m (retry after 2s).";
+    let r = c
+        .request(
+            method::SESSION_PROMPT,
+            json!({
+                "sessionId": id,
+                "prompt": [{"type": "text", "text": format!("recover-once: {pool}")}],
+                "_meta": {"acpmux": {"promptId": "p-pool"}}
+            }),
+        )
+        .await;
+    assert!(r.is_err());
+    until(&hub, &id, |k| k.iter().any(|k| k == "auto_resume_scheduled")).await;
+    let scheduled = of_kind(&hub, &id, "auto_resume_scheduled")[0].msg.clone();
+    assert_eq!(scheduled["reason"], "capacity", "{scheduled}");
+    let next_at = scheduled["nextAt"].as_u64().unwrap();
+    // The pool's retry-after is honoured: no attempt before it.
+    assert!(next_at >= of_kind(&hub, &id, "turn_result")[0].at + 1_900, "{scheduled}");
+
+    let (hub, _c) = restarted(hub, c, &dir, &id).await;
+    let row = hub.session_summary(&hub.resolve(&id).unwrap());
+    assert_eq!(row["retry"]["reason"], "capacity", "the restored wait shows: {row}");
+    assert_eq!(row["retry"]["nextAt"], next_at, "{row}");
+    let k = until(&hub, &id, |k| k.iter().filter(|k| *k == "turn_result").count() >= 2).await;
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    let messages = user_messages(&hub, &id);
+    let started = of_kind(&hub, &id, "turn_started");
+    let after = hub.session_summary(&hub.resolve(&id).unwrap());
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+    let ids: Vec<&Value> = messages.iter().map(|m| &m["promptId"]).collect();
+    assert_eq!(ids, [&json!("p-pool"), &json!("p-pool~resume-1")], "{k:?}");
+    assert!(started[1].at >= next_at, "fired before its deadline: {k:?}");
+    assert_eq!(after["lastTurn"]["status"], "completed", "{after}");
+    assert_eq!(after["retry"], Value::Null, "{after}");
 }

@@ -122,21 +122,37 @@ public final class WebMarkdownRenderer {
     }
 }
 
+/// WebKit owns range selection in rendered math. Append the same surrounding message actions
+/// as a native label when WebKit asks its responder chain to build the edit menu.
+private final class MarkdownWebView: WKWebView {
+    var selectionMenuRows: SelectionMenuRows?
+
+    override func buildMenu(with builder: any UIMenuBuilder) {
+        super.buildMenu(with: builder)
+        guard builder.system == .context, let rows = selectionMenuRows?(self), !rows.isEmpty else { return }
+        builder.insertChild(UIMenu(options: .displayInline, children: rows), atEndOfMenu: .root)
+    }
+}
+
 /// One reusable web view. Holds the template, routes height messages to the current owner.
 @MainActor
 final class PooledWebView: UIView, WKNavigationDelegate {
-    let webView: WKWebView
+    fileprivate let webView: MarkdownWebView
     private var isReady = false
     private var pending: (() -> Void)?
     var onHeight: ((CGFloat) -> Void)?
-    /// Set when the host wants taps (and side-scrolling code and tables); nil keeps the
-    /// web view inert so the cell's own gestures win.
-    var onTap: (() -> Void)? {
+    var onTap: (() -> Void)? { didSet { updateInteraction() } }
+    var allowsTextSelection = false {
         didSet {
-            let interactive = onTap != nil
-            webView.isUserInteractionEnabled = interactive
-            isUserInteractionEnabled = interactive
+            webView.allowsLinkPreview = !allowsTextSelection
+            updateInteraction()
         }
+    }
+
+    private func updateInteraction() {
+        let interactive = allowsTextSelection || onTap != nil
+        webView.isUserInteractionEnabled = interactive
+        isUserInteractionEnabled = interactive
     }
     private(set) var renderedKey: String?
 
@@ -147,7 +163,7 @@ final class PooledWebView: UIView, WKNavigationDelegate {
         configuration.dataDetectorTypes = []
         let controller = WKUserContentController()
         configuration.userContentController = controller
-        webView = WKWebView(frame: CGRect(x: 0, y: 0, width: 360, height: 100), configuration: configuration)
+        webView = MarkdownWebView(frame: CGRect(x: 0, y: 0, width: 360, height: 100), configuration: configuration)
         super.init(frame: .zero)
         controller.add(MessageProxy(owner: self), name: "cmuxMobile")
         webView.isOpaque = false
@@ -208,7 +224,7 @@ final class PooledWebView: UIView, WKNavigationDelegate {
         let work = { [weak self] in
             guard let self else { return }
             let json = (try? JSONEncoder().encode([markdown])).flatMap { String(data: $0, encoding: .utf8) } ?? "[\"\"]"
-            let script = "cmuxMobileRender(\(json)[0], \(style == .compact))"
+            let script = "cmuxMobileRender(\(json)[0], \(style == .compact), \(self.allowsTextSelection))"
             self.webView.evaluateJavaScript(script) { result, _ in
                 let height = (result as? Double).map { CGFloat($0) } ?? (result as? Int).map { CGFloat($0) }
                 MainActor.assumeIsolated {
@@ -223,6 +239,8 @@ final class PooledWebView: UIView, WKNavigationDelegate {
     func reset() {
         onHeight = nil
         onTap = nil
+        allowsTextSelection = false
+        webView.selectionMenuRows = nil
         renderedKey = nil
         contentHeight = 0
         // No clearing render: the next `render` hides the view until its own
@@ -284,6 +302,7 @@ public struct WebMarkdownView: View {
     let style: WebMarkdownRenderer.Style
     var collapsedHeight: CGFloat?
     var isExpanded: Bool
+    let allowsTextSelection: Bool
     var onContentHeight: ((CGFloat) -> Void)?
     var onTap: (() -> Void)?
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -292,9 +311,10 @@ public struct WebMarkdownView: View {
 
     public init(
         markdown: String, style: WebMarkdownRenderer.Style = .body, collapsedHeight: CGFloat? = nil,
-        isExpanded: Bool = false, onTap: (() -> Void)? = nil, onContentHeight: ((CGFloat) -> Void)? = nil
+        isExpanded: Bool = false, allowsTextSelection: Bool = false, onTap: (() -> Void)? = nil, onContentHeight: ((CGFloat) -> Void)? = nil
     ) {
         self.onTap = onTap
+        self.allowsTextSelection = allowsTextSelection
         self.markdown = markdown
         self.style = style
         self.collapsedHeight = collapsedHeight
@@ -315,7 +335,8 @@ public struct WebMarkdownView: View {
     public var body: some View {
         let full = contentHeight
         let shown = (collapsedHeight.map { isExpanded ? full : min(full, $0) }) ?? full
-        WebMarkdownRepresentable(markdown: markdown, style: style, contentHeight: full, textSize: dynamicTypeSize, onTap: onTap) { height in
+        WebMarkdownRepresentable(markdown: markdown, style: style, contentHeight: full, textSize: dynamicTypeSize,
+                                 allowsTextSelection: allowsTextSelection, onTap: onTap) { height in
             guard measured != height else { return }
             WebMarkdownRenderer.shared.store(height: height, markdown: markdown, style: style, width: width)
             measured = height
@@ -357,6 +378,8 @@ struct WebMarkdownRepresentable: UIViewRepresentable {
     let style: WebMarkdownRenderer.Style
     let contentHeight: CGFloat
     var textSize: DynamicTypeSize = .large
+    var allowsTextSelection = false
+    @Environment(\.selectionMenuRows) var menuRows
     var onTap: (() -> Void)?
     let onHeight: (CGFloat) -> Void
 
@@ -364,6 +387,8 @@ struct WebMarkdownRepresentable: UIViewRepresentable {
         let view = WebMarkdownRenderer.shared.dequeue()
         view.onHeight = onHeight
         view.onTap = onTap
+        view.allowsTextSelection = allowsTextSelection
+        view.webView.selectionMenuRows = allowsTextSelection ? menuRows : nil
         view.contentHeight = contentHeight
         view.render(markdown: markdown, style: style)
         return view
@@ -373,8 +398,11 @@ struct WebMarkdownRepresentable: UIViewRepresentable {
         view.onHeight = onHeight
         view.contentHeight = contentHeight
         view.onTap = onTap
+        let selectionChanged = view.allowsTextSelection != allowsTextSelection
+        view.allowsTextSelection = allowsTextSelection
+        view.webView.selectionMenuRows = allowsTextSelection ? menuRows : nil
         let key = PooledWebView.key(markdown: markdown, style: style)
-        if view.renderedKey != key {
+        if selectionChanged || view.renderedKey != key {
             view.render(markdown: markdown, style: style)
         }
     }

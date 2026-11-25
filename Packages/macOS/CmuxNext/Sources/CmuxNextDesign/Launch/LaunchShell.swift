@@ -1,5 +1,6 @@
 public import AppKit
 import CCmuxLaunchShellFFI
+import CCmuxLayoutCacheFFI
 import CmuxNextCompat
 public import CmuxNextWakeups
 import ImageIO
@@ -21,6 +22,10 @@ public final class LaunchShell {
     public static let backstop: Duration = .seconds(5)
 
     private let prepared: Prepared?
+    /// The layout cache this launch read, gated by `usable` (cmux-layout-cache): the real windows'
+    /// frames, sidebars and splits as they last drew, so the first frame is the final one. Read in
+    /// `prepare`, before the first commit; nil when there is none or nothing in it applies.
+    public private(set) var layoutCache: LayoutCacheLaunch?
     private let mark: @Sendable (String) -> Void
     /// The stage-0 window while it is up.
     public private(set) var window: LaunchShellWindow?
@@ -29,6 +34,7 @@ public final class LaunchShell {
     private let backstopTimer = DemandTimer(owner: "LaunchShell.backstop")
     private let framedTimer = DemandTimer(owner: "LaunchShell.framed")
     private let bareTimer = DemandTimer(owner: "LaunchShell.bareBound")
+    private let contentTimer = DemandTimer(owner: "LaunchShell.contentBound")
     /// Stage 0 shows the bare launch's content (its swap waits for Home: `presented`).
     private var showsBare = false
     /// Stage 0 drew the saved image, so a held click aimed at a place in it (`replays`).
@@ -36,14 +42,18 @@ public final class LaunchShell {
     /// The real window did not take stage 0's place (or none was there at the dismissal): held
     /// clicks aimed at nothing it shows, so only keys replay.
     private var mismatched = false
+    /// True once the real window showed what stage 0's image did (`contentReady`): only then do clicks on
+    /// the image replay into it. Equal frames alone are not enough (a connecting view, a timed-out wait).
+    private var contentMatched = false
     private var shownAt = ContinuousClock.now
     /// Held input with no real window to take it yet (stage 0 was dismissed first).
     private var heldForReal: [NSEvent] = []
     /// The real launch window, once ordered in: a hold that reaches its swap point swaps to it.
     private weak var real: NSWindow?
 
-    private init(prepared: Prepared?, mark: @escaping @Sendable (String) -> Void) {
+    private init(prepared: Prepared?, layoutCache: LayoutCacheLaunch? = nil, mark: @escaping @Sendable (String) -> Void) {
         self.prepared = prepared
+        self.layoutCache = layoutCache
         self.mark = mark
     }
 
@@ -83,10 +93,12 @@ public final class LaunchShell {
             } }
         } }
         mark("launch_shell.plan_ready")
-        guard read, plan.shows_window else { return LaunchShell(prepared: nil, mark: mark) }
-        let prepared = Prepared(plan: plan)
+        let layoutCache = LayoutCacheLaunch.read(support: support, build: build)
+        mark(layoutCache == nil ? "layout_cache.none" : "layout_cache.read")
+        guard read, plan.shows_window else { return LaunchShell(prepared: nil, layoutCache: layoutCache, mark: mark) }
+        let prepared = Prepared(plan: plan, cachedFrame: layoutCache?.front.flatMap { layoutCache?.frame(for: $0.id) })
         if let path = prepared.imagePath { prepared.decode(path, mark: mark) }
-        return LaunchShell(prepared: prepared, mark: mark)
+        return LaunchShell(prepared: prepared, layoutCache: layoutCache, mark: mark)
     }
 
     /// Makes the window and commits its first frame, marking `launch_shell.committed` when the
@@ -168,6 +180,28 @@ public final class LaunchShell {
         // Stage 0 went first (the backstop): what it held goes to this window now.
         guard let frame, let window else { return replay(to: real) }
         if real.frame != frame { real.setFrame(frame, display: false) }
+        // Over the saved image or the plain shell the real window waits below until what it shows
+        // matches stage 0 (every visible region has its saved or live content: `contentReady`), at
+        // most the Rust bound (cmux-layout-cache `swap_wait_ms`), so the swap shows no blank pane
+        // filling in afterwards (Leo, 2026-11-24: "it's another to say \"ok it's already loaded\"").
+        if !showsBare, let contentReady = content.contentReady {
+            real.order(.below, relativeTo: window.windowNumber)
+            let kind: UInt8 = showedImage ? 0 : 1
+            let elapsed = { [shownAt] in UInt64(max(0, shownAt.duration(to: .now) / .milliseconds(1))) }
+            var swapped = false
+            let swapOnce: @MainActor (String) -> Void = { [weak self, weak real] reason in
+                guard !swapped, let self, let real, self.window != nil else { return }
+                swapped = true
+                self.contentMatched = reason == "ready"
+                self.contentTimer.cancel()
+                self.mark("launch_shell.content_\(reason)")
+                self.swap(to: real, front: true)
+            }
+            let wait = cmux_layout_cache_swap_wait_ms(kind, 1, 0, elapsed())
+            contentTimer.schedule(after: .milliseconds(Int(wait))) { @MainActor in swapOnce("timeout") }
+            contentReady { swapOnce("ready") }
+            return
+        }
         guard showsBare, let bareReady = content.bareReady else {
             CATransaction.setMainCompletion { [weak self, weak real] in if let real { self?.swap(to: real) } }
             return
@@ -214,7 +248,7 @@ public final class LaunchShell {
         backstopTimer.cancel()
         if showsBare, let view = window.contentView { content.handoff?(view) }
         heldForReal += window.takeHeld()
-        mismatched = real?.frame != window.frame
+        mismatched = real?.frame != window.frame || !contentMatched
         let kind = real == nil ? "dismissed" : mismatched ? "swapped.mismatch" : "swapped"
         window.orderOut(nil)
         window.close()
@@ -231,6 +265,11 @@ public final class LaunchShell {
     /// (the bare lane's marks); the swap waits for it, at most `LaunchShell.bareBound` after
     /// `show`. Nil: the swap is at the real window's first commit.
     public var bareReady: ((_ ready: @escaping @MainActor () -> Void) -> Void)?
+    /// Calls `ready` (on the main actor, once) when the real window's visible regions (sidebar,
+    /// tab strips, panes) have their saved or live content, so it looks as stage 0's image does;
+    /// over the image or the plain shell the swap waits for it, at most the Rust bound. Nil: the
+    /// swap is at the real window's first commit.
+    public var contentReady: (@MainActor (_ ready: @escaping @MainActor () -> Void) -> Void)?
     /// Called with `bare`'s view at the swap, before stage 0 closes: the bare lane takes what was
     /// typed and sent into it (its own store; the real Home claims it).
     public var handoff: ((NSView) -> Void)?
@@ -270,9 +309,13 @@ public struct LaunchShellPaths {
     let imagePath: String?
     private let decoded = DecodedImage()
 
-    init(plan: CmuxLaunchShellPlan) {
+    /// `cachedFrame`: the layout cache's front window, where the real window opens when the
+    /// launch record has no frame (`WindowManager.makeController`): stage 0 stands at the same place.
+    init(plan: CmuxLaunchShellPlan, cachedFrame: CGRect? = nil) {
         var plan = plan
-        if plan.uses_default_frame {
+        if plan.uses_default_frame, let cachedFrame {
+            frame = cachedFrame
+        } else if plan.uses_default_frame {
             // The real window's own default (1100 x 720, centered): the swap cannot jump.
             let visible = NSScreen.main?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
             frame = CGRect(x: visible.midX - 550, y: visible.midY - 360, width: 1100, height: 720).integral
