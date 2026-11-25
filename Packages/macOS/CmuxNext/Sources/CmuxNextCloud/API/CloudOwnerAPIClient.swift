@@ -1,3 +1,4 @@
+import CmuxEgress
 public import CMUXAuthCore
 public import Foundation
 
@@ -257,7 +258,7 @@ public struct CloudOwnerAPIClient: Sendable {
         configuration.urlCache = nil
         configuration.httpShouldSetCookies = false
         configuration.httpCookieAcceptPolicy = .never
-        return URLSession(configuration: configuration, delegate: RefuseRedirects(), delegateQueue: nil)
+        return CmuxEgress.session(site: "CmuxNextCloud.CloudOwnerAPIClient", configuration: configuration, delegate: RefuseRedirects(), delegateQueue: nil)
     }()
 
     private final class RefuseRedirects: NSObject, URLSessionTaskDelegate, Sendable {
