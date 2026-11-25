@@ -341,7 +341,8 @@ pub(crate) mod linux {
                 fd,
                 headers.as_mut_ptr(),
                 RECEIVE_SLOTS as libc::c_uint,
-                libc::MSG_DONTWAIT,
+                // glibc types the flags c_int, musl c_uint.
+                libc::MSG_DONTWAIT as _,
                 std::ptr::null_mut(),
             )
         };
