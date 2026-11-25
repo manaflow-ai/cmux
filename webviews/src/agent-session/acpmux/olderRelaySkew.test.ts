@@ -32,7 +32,18 @@ const turns = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 /// NIGHTLY a3a24c8's params rule for the methods a chat's open sends (AcpmuxPaneMethods+Params.swift at a3a24c8).
 const OLD_RULE: Record<string, readonly string[]> = {
-  "_acpmux/attach": ["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "waitLogs", "settled", "hold", "afterSeq"],
+  "_acpmux/attach": [
+    "sessionId",
+    "limit",
+    "maxBytes",
+    "kinds",
+    "eventStream",
+    "visible",
+    "waitLogs",
+    "settled",
+    "hold",
+    "afterSeq",
+  ],
   "_acpmux/view": ["sessionId", "visible"],
 };
 
