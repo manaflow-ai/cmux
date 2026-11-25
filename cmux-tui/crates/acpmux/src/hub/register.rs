@@ -327,20 +327,37 @@ impl Hub {
         static REGISTERING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
         let _one_at_a_time = REGISTERING.lock().await;
         let stores = super::adoption::store_families(&*self.config.read().await);
-        let shown = {
+        let (shown, holder) = {
             let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
             let shown = super::adoption::adopted_in(&sessions, &stores, family, &agent_session_id);
-            let taken = sessions.values().any(|s| {
-                s.read_meta(|m| m.name == name) && shown.as_ref().is_none_or(|own| own.id != s.id)
-            });
-            if taken {
+            let holder = sessions
+                .values()
+                .find(|s| {
+                    s.read_meta(|m| m.name == name)
+                        && shown.as_ref().is_none_or(|own| own.id != s.id)
+                })
+                .cloned();
+            (shown, holder)
+        };
+        if let Some(holder) = holder {
+            // A registered chat whose process is gone holds its name forever otherwise: only its
+            // own session may rename it, and that session will never run again (Leo, 2026-11-25:
+            // "you can update the landing situation so that ppl can message you"). The proven
+            // new chat takes the name; the gone one keeps it as a former name under a new one.
+            if !registered_chat_gone(&holder, &claude_home) {
                 return Err(RpcError::invalid_params(format!(
                     "session name {name:?} is taken: pick another, or rename that session first"
                 ))
                 .with_data(json!({"reason": "register.name_taken"})));
             }
-            shown
-        };
+            let short: String = holder.id.chars().take(8).collect();
+            let freed = format!("{name}-gone-{short}");
+            tracing::info!(
+                "register: {name:?} was held by gone chat {}; it is now {freed:?}",
+                holder.id
+            );
+            self.rename_as(&holder, freed, super::task_names::Naming::Address).await?;
+        }
         // A registered chat is taken over only by a process the kernel says was started for its
         // conversation (`--resume ID` in its launch arguments, which no file rewrites; a desktop
         // session's restart has it), and never while the process it is registered to still runs:
@@ -643,6 +660,24 @@ fn take_code(
 
 /// The session the caller's process tree holds could not be proven to run the conversation its
 /// registry entry names.
+/// Whether `session` is a registered chat whose recorded Claude Code process no longer runs (or
+/// was never recorded): no one can reach it, and no one but it could free its name.
+fn registered_chat_gone(session: &Session, claude_home: &std::path::Path) -> bool {
+    if !is_registered(session) {
+        return false;
+    }
+    // Files: off the runtime's workers (RFD 0124 R6).
+    let kept = crate::qos::off_worker(|| {
+        crate::claude_peers::kept_token(&crate::config::home(), &session.id)
+    });
+    let live = kept.as_ref().is_some_and(|k| {
+        k.started.is_some()
+            && crate::qos::off_worker(|| crate::claude_peers::started_at(claude_home, k.pid))
+                == k.started
+    });
+    !live
+}
+
 fn unproven(why: String) -> RpcError {
     RpcError::invalid_params(format!(
         "register.unproven: {why}; run `acpmux register NAME` from the Claude Code session's own Bash tool"
