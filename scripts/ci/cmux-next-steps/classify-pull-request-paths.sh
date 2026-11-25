@@ -247,6 +247,7 @@ if [[ "$EVENT_NAME" == pull_request && "${PR_BASE_REF:-}" == feat-cmux-next && "
   printf '%s=false\n' "${deferred[@]}" >> "$GITHUB_OUTPUT"
   echo "::notice title=cmux-next PR fast tier::Mac jobs, the cargo fast tier and web bundles are deferred to the feat-cmux-next push run; add the full-ci label to run them here"
   echo "- PR fast tier (vars.CI_PR_FAST_ONLY): deferred to the feat-cmux-next push run: ${deferred[*]}. The full-ci label runs every tier here." >> "$GITHUB_STEP_SUMMARY"
+fi
 # Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period." The cheap tier skips the
 # cargo fast tier too; the ready-to-land label runs it at the head handed to land.
 if [[ "$head_tier" == cheap || "$head_tier" == none ]]; then

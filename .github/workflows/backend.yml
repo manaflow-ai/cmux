@@ -901,7 +901,7 @@ jobs:
     timeout-minutes: 30
     environment: cmux-next-development
     concurrency:
-      group: cmux-next-deploy-development
+      group: cmux-next-deploy-development${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && format('-label-{0}', github.run_id) || '' }}
       queue: max
       cancel-in-progress: false
     defaults:
@@ -1041,7 +1041,7 @@ jobs:
     timeout-minutes: 25
     # One repository-wide queue with promote-production and deploy-production (review P2).
     concurrency:
-      group: cmux-next-deploy-production
+      group: cmux-next-deploy-production${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && format('-label-{0}', github.run_id) || '' }}
       queue: max
       cancel-in-progress: false
     permissions:
@@ -1141,7 +1141,7 @@ jobs:
     timeout-minutes: 30
     environment: cmux-next-production
     concurrency:
-      group: cmux-next-deploy-production
+      group: cmux-next-deploy-production${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && format('-label-{0}', github.run_id) || '' }}
       queue: max
       cancel-in-progress: false
     permissions:
@@ -1237,7 +1237,7 @@ jobs:
     timeout-minutes: 30
     environment: cmux-next-production
     concurrency:
-      group: cmux-next-deploy-production
+      group: cmux-next-deploy-production${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && format('-label-{0}', github.run_id) || '' }}
       queue: max
       cancel-in-progress: false
     permissions:
@@ -1287,7 +1287,7 @@ jobs:
     timeout-minutes: 15
     environment: cmux-next-production
     concurrency:
-      group: cmux-next-deploy-production
+      group: cmux-next-deploy-production${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && format('-label-{0}', github.run_id) || '' }}
       queue: max
       cancel-in-progress: false
     permissions:
@@ -1381,7 +1381,7 @@ jobs:
     timeout-minutes: 30
     environment: cmux-next-production
     concurrency:
-      group: cmux-next-deploy-production
+      group: cmux-next-deploy-production${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && format('-label-{0}', github.run_id) || '' }}
       queue: max
       cancel-in-progress: false
     defaults:

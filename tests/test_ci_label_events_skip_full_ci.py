@@ -54,10 +54,10 @@ GUARDED: dict[str, tuple[str, ...]] = {
     # adding ready-to-land (or full-ci) re-runs it there; no other label starts a run.
     **{name: ("full-ci", "ready-to-land") for name in (
         "app-store-shelf.yml", "auth-refresh-tests.yml", "backend.yml", "billing.yml", "chat-open-perf-report.yml",
-        "chief-evals.yml", "cloud-chief-machine.yml", "cloud-journey-pr.yml", "cloud-vm-guest-install.yml",
-        "cloudflare-relay.yml", "cmux-cloud-cli.yml", "cmux-mobile-ffi.yml", "cmux-next-car-guards.yml",
+        "cloud-chief-machine.yml", "cloud-journey-pr.yml", "cloud-vm-guest-install.yml",
+        "cloudflare-relay.yml", "cmux-cloud-cli.yml", "cmux-next-car-guards.yml",
         "cmux-next-fast-gates.yml", "cmux-next-guards.yml", "cmux-next-hot-verify.yml", "cmux-next-ios-kit.yml",
-        "cmux-next-pr-autofix.yml", "cmux-next-shell-integration.yml", "cmux-next-terminal.yml", "cmux-rd-windows.yml",
+        "cmux-next-pr-autofix.yml", "cmux-next-shell-integration.yml",
         "cmux-vm-clients.yml", "cmux-vm-cloud.yml", "cmux-vnc.yml", "ios-e2e.yml", "ios-reliability-matrix.yml",
         "iroh-v2.yml", "measure-swift-typecheck.yml", "relay-tls.yml", "release-rails.yml",
         "signing-keychain-macos.yml", "terminal-hang-diagnostics.yml", "test-ios.yml")},
@@ -82,6 +82,8 @@ REACTS: dict[str, str] = {
     "cmux-next-batch.yml": "debounce only; hold and landing labels change batch eligibility",
     "cmux-next-media.yml": "labeled-only; its jobs already run only for media-tour / no-media-tour",
     "cmux-next-motion-golden.yml": "its job already runs only when motion-golden is the label added",
+    "cloud-resume-matrix.yml": "its plan job runs only for the resume-matrix labels (or the body marker on a "
+    "non-label event); every other job needs plan",
 }
 
 
