@@ -60,6 +60,11 @@ struct ToolRowView: View {
             }
             // The 44 pt target overlaps the gaps between rows (a 32 pt row in the layout).
             .padding(.vertical, -6)
+            // Its pictures always show: a screenshot or an image the agent sent is what the
+            // row is, not output to open (`outputText` left them out, so they drew nothing).
+            if call.hasImages {
+                ToolOutputImages(call: call)
+            }
             if expanded {
                 // Grows down from under the row, never slides in over it.
                 ToolOutputView(call: call)
@@ -112,6 +117,12 @@ struct ToolRowView: View {
     }
 }
 
+/// What an expanded tool call draws under its card: nothing while its cut output's rest is read
+/// (the head stays in the card), a Try Again line only once the read failed.
+enum ToolOutputFooter {
+    static func shows(cut: Bool, failed: Bool) -> Bool { cut && failed }
+}
+
 /// Expanded output: a code card; bash shows `$ command` first; capped at 12 lines. An output
 /// the Mac sent cut (a page's oversized one) shows its head and reads the rest as it opens.
 struct ToolOutputView: View {
@@ -123,20 +134,17 @@ struct ToolOutputView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             card
-            if call.outputCut != nil {
-                if loadFailed {
-                    Button("Couldn't load the full output. Try Again") {
-                        loadFailed = false
-                        Task { loadFailed = !(await loadFull(call)) }
-                    }
-                    .font(.footnote)
-                    .padding(.leading, 26)
-                } else {
-                    Text("Loading the full output…")
-                        .font(.footnote)
-                        .foregroundStyle(.tertiary)
-                        .padding(.leading, 26)
+            // The head the Mac sent stays drawn while the rest is read, and the whole text
+            // takes its place in the same card (capped at the same height): no "Loading the full
+            // output…" line that comes and goes under it. Leo, 2026-11-24: "wer need to chase
+            // all these placeholders doen and prevent them". Only a failed read adds a line.
+            if ToolOutputFooter.shows(cut: call.outputCut != nil, failed: loadFailed) {
+                Button("Couldn't load the full output. Try Again") {
+                    loadFailed = false
+                    Task { loadFailed = !(await loadFull(call)) }
                 }
+                .font(.footnote)
+                .padding(.leading, 26)
             }
         }
         .task(id: call.outputCut) {
@@ -154,12 +162,84 @@ struct ToolOutputView: View {
         } else if !output.isEmpty {
             CodeCard(language: call.locations.first.map { ($0.path as NSString).pathExtension } ?? nil, code: output,
                      title: call.locations.first?.path ?? call.title, maxHeight: 12 * 19 + 60)
+        } else if call.hasImages {
+            // Its pictures are drawn under its line (`ToolOutputImages`).
+            EmptyView()
         } else {
             Text(call.isRunning ? "Loading output…" : "No output.")
                 .font(.footnote)
                 .foregroundStyle(.tertiary)
                 .padding(.leading, 26)
         }
+    }
+}
+
+/// The pictures in a call's output (ACP `image` blocks), each drawn as the image it is, fit in
+/// `maxHeight`. One whose bytes do not decode shows what it is (its type and size), never a
+/// waiting state. Plain SwiftUI images, so a tab card's still draws them too.
+struct ToolOutputImages: View {
+    let call: ACPToolCall
+    static let maxHeight: CGFloat = 240
+    /// The pictures one row draws (a call rarely holds more than one or two).
+    static let maxShown = 8
+
+    var body: some View {
+        let images = Array(call.images.prefix(Self.maxShown))
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(images.indices, id: \.self) { index in // visible-only: at most maxShown (8) pictures of one call, in the order the call holds them
+                let image = images[index]
+                if let picture = ToolImageCache.image(key: "\(call.id)#\(index)", base64: image.data) {
+                    Image(uiImage: picture)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxWidth: 320, maxHeight: Self.maxHeight, alignment: .leading)
+                        .clipShape(.rect(cornerRadius: 12, style: .continuous))
+                        .accessibilityLabel(Text("Image"))
+                } else {
+                    Label(ToolImageCache.describe(mimeType: image.mimeType, base64: image.data), systemImage: "photo")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(.leading, 26)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Decoded tool output pictures, by call and index: decoded once (downscaled to what a row
+/// shows), not on every pass of a row's body.
+@MainActor
+enum ToolImageCache {
+    private static let cache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 64
+        return cache
+    }()
+    /// Keys whose bytes did not decode: not tried again on every pass.
+    private static var failed: Set<String> = []
+
+    static func image(key: String, base64: String) -> UIImage? {
+        if let image = cache.object(forKey: key as NSString) { return image }
+        guard !failed.contains(key) else { return nil }
+        guard let data = Data(base64Encoded: base64, options: .ignoreUnknownCharacters), let full = UIImage(data: data) else {
+            failed.insert(key)
+            return nil
+        }
+        // A row shows at most 320 x 240 pt: the decoded bitmap need not be bigger (3x).
+        let longest = max(full.size.width, full.size.height)
+        let image = longest > 960
+            ? full.preparingThumbnail(of: CGSize(width: full.size.width * 960 / longest, height: full.size.height * 960 / longest)) ?? full
+            : full
+        cache.setObject(image, forKey: key as NSString)
+        return image
+    }
+
+    /// "PNG image, 34 KB": what an image whose bytes do not decode is.
+    static func describe(mimeType: String, base64: String) -> String {
+        let kind = mimeType.split(separator: "/").last.map { $0.uppercased() } ?? "Image"
+        let bytes = Int64(base64.utf8.count) * 3 / 4
+        return "\(kind) image, \(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))"
     }
 }
 
