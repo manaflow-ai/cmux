@@ -12,8 +12,8 @@ import XCTest
 ///   d. wide terminal output pans sideways under a left swipe;
 ///   e. a wide Markdown table in an agent chat scrolls sideways under a left swipe.
 /// "Landscape" is the app's own window: wider than tall. A step whose
-/// behaviour is missing is marked with `XCTExpectFailure` naming the gap,
-/// so the suite stays green and the gap stays visible in its results.
+/// behaviour is by design is marked with `XCTExpectFailure` saying why;
+/// every other step is a plain assertion.
 /// Run it with `cmux-next-ios-sim.sh test ui=LandscapeUITests video`.
 final class LandscapeUITests: XCTestCase {
     override func setUp() {
@@ -64,10 +64,7 @@ final class LandscapeUITests: XCTestCase {
         settle(1.5)
         attach(app, "b2-swiped-to-browser-tab")
         let onBrowser = isLandscape(app)
-        XCTExpectFailure("gap: only a terminal page turns sideways (ScreenSharingOrientation.resting); " +
-                         "the browser tab a swipe lands on is portrait", strict: false) {
-            XCTAssertTrue(onBrowser, "landed on the browser tab, the window stays landscape: \(size(app))")
-        }
+        XCTAssertTrue(onBrowser, "landed on the browser tab, the window stays landscape: \(size(app))")
 
         swipeTopBar(app, toLeft: false)
         _ = waitFor(5) { self.isLandscape(app) }
@@ -97,10 +94,7 @@ final class LandscapeUITests: XCTestCase {
         attach(app, "c2-address-bar-editing")
         let during = isLandscape(app)
         print("LANDSCAPE c before=\(before) during=\(during) size=\(size(app))")
-        XCTExpectFailure("gap: the address bar lives on a browser tab, and a browser tab is portrait only " +
-                         "(ScreenSharingOrientation.resting turns only terminal pages)", strict: false) {
-            XCTAssertTrue(during, "editing the address bar, the window stays landscape: \(size(app))")
-        }
+        XCTAssertTrue(during, "editing the address bar, the window stays landscape: \(size(app))")
         XCTAssertEqual(before, during, "starting the edit does not turn the window (before \(before), during \(during))")
     }
 
@@ -201,10 +195,7 @@ final class LandscapeUITests: XCTestCase {
         settle(2.0)
         let landscape = isLandscape(app)
         print("LANDSCAPE e landscape=\(landscape) size=\(size(app))")
-        XCTExpectFailure("gap: an agent chat is portrait only (ScreenSharingOrientation.resting turns only " +
-                         "terminal pages), so the wide table is read sideways only on a turned terminal", strict: false) {
-            XCTAssertTrue(landscape, "the agent chat turns landscape: \(size(app))")
-        }
+        XCTAssertTrue(landscape, "the agent chat turns landscape: \(size(app))")
 
         let header = app.staticTexts["Run"].firstMatch
         let end = app.staticTexts["END-COLUMN"].firstMatch
