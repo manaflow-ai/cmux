@@ -117,7 +117,7 @@ export const CELLS: Cell[] = [
     signIn: "none: must fail fast with Antigravity's sign-in error",
     proof: "expect",
     args: ["--agent", "antigravity", "--skip", "lifecycle", "--chat-timeout", "120"],
-    expect: { step: "reply", error: /authenticat|auth.?required|not (?:logged|signed) in|log ?in|sign ?in|api key/i, withinMs: 60_000 },
+    expect: { step: "start agent (antigravity)", error: /authenticat|auth.?required|not (?:logged|signed) in|log ?in|sign ?in|api key/i, withinMs: 60_000 },
   },
   // No Cursor, Grok (SuperGrok, xAI key) or third-party provider-key cells: Leo has none of those accounts (Leo,
   // 2026-11-10: "I only have ChatGPT and Google ... Or else I ask the company to get me basic accounts later").

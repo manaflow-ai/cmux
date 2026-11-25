@@ -1067,6 +1067,16 @@ env_key = "BENCH_API_KEY"
     home = os.path.join(scratch, "home")
     os.makedirs(home, exist_ok=True)
     env["HOME"] = home
+    if os.environ.get("ACPMUX_BENCH_AGY"):
+        # Discovery launches `agy` on the daemon side. Pin it to the same override the
+        # raw side uses, even if another installation already appears on PATH.
+        agy = shutil.which(AGY)
+        if not agy:
+            raise RuntimeError(f"ACPMUX_BENCH_AGY is not executable: {AGY}")
+        bench_bin = os.path.join(scratch, "bin")
+        os.makedirs(bench_bin, exist_ok=True)
+        os.symlink(os.path.abspath(agy), os.path.join(bench_bin, "agy"))
+        env["PATH"] = bench_bin + os.pathsep + env.get("PATH", os.defpath)
     claude_dir = os.path.join(scratch, "claude-config")
     os.makedirs(claude_dir, exist_ok=True)
     env.update({
