@@ -153,6 +153,18 @@ struct CloudStartChatMachineTests {
         }
         #expect(sockets == ["link-1.sock"])
 
+        let refused = Link()
+        sockets = []
+        let seed = CloudMoveCLI.Answer(ok: false, errorCode: "seed_refused")
+        let named = try await CloudOutdatedMachine.copy(socket: { refused.socket }, link: { refused.key }, notConnected: CancellationError(),
+                                                        relink: .seconds(30)) { (socket: String) async throws -> CloudMoveCLI.Answer in
+            sockets.append(socket)
+            refused.restart()
+            return seed
+        } answer: { ($0.ok, $0.errorCode, $0.side) } update: { false }
+        #expect(sockets == ["link-1.sock"], "a refusal the copy named is final, never copied again")
+        #expect(named == seed)
+
         let rethrown = Link()
         sockets = []
         await #expect(throws: Closed.self, "a second copy's own error was dropped for the first answer") {

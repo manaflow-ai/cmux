@@ -389,7 +389,7 @@ public struct CloudOutdatedMachine {
             return try await copiedAgain(after: error, before: before, socket: socket, link: link, relink: relink, copy)
         }
         let read = answer(first)
-        if !read.ok, !updatesBeforeCopyingAgain(ok: read.ok, errorCode: read.errorCode, side: read.side), !Task.isCancelled,
+        if !read.ok, Self.mayBeADrop(read.errorCode), !Task.isCancelled,
            await restarted(since: before, link: link) {
             do { return try await copiedAgain(after: nil, before: before, socket: socket, link: link, relink: relink, copy) }
             catch is RelinkMissing { return first } // no new link came: the first answer says why
@@ -411,6 +411,11 @@ public struct CloudOutdatedMachine {
         guard relinked, let again = await socket() else { throw error ?? RelinkMissing() }
         return try await copy(again)
     }
+
+    /// Whether a failed copy's answer could be its daemon closing under it: the copy CLI answers a dropped connection
+    /// as `sync_failed` (or with no code). A refusal it names (`seed_refused`, `folder_too_broad`, `ledger_failed`,
+    /// `machine_outdated`) is final, and answers at once without waiting to see the link change.
+    static func mayBeADrop(_ errorCode: String?) -> Bool { errorCode == nil || errorCode == "sync_failed" }
 
     /// No new link came after the machine's daemon restarted under a copy.
     struct RelinkMissing: Error {}
