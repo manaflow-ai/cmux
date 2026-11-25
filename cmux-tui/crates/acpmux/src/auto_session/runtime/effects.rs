@@ -92,9 +92,16 @@ impl<C: AutoCloud + 'static> Loop<C> {
 
     /// Starts a copy, or keeps it as the next one while another is on its way: a newer copy
     /// replaces one that waits.
+    ///
+    /// A give's copy is the last the next holder gets of the chat, so it also waits for what
+    /// the chat's lane is in the middle of: an inbox message taken a moment ago is written to
+    /// the log and then acked, and a copy read between the two would leave it in neither the
+    /// copy nor the inbox. Nothing new starts in the lane of a chat that is given
+    /// (`run_lane`), and the lane's end starts the copy (`lane_done`).
     fn copy(&mut self, id: &str, epoch: u64, copy: u64) {
         let Some(tracked) = self.chats.get_mut(id) else { return };
-        if tracked.copying.is_some() {
+        let lane_writes = tracked.lane_busy && tracked.chat.moving().is_some();
+        if tracked.copying.is_some() || lane_writes {
             tracked.wanted = Some(copy);
             return;
         }
@@ -191,9 +198,18 @@ impl<C: AutoCloud + 'static> Loop<C> {
     pub(super) fn lane_done(&mut self, id: &str, drained: bool) {
         let Some(tracked) = self.chats.get_mut(id) else { return };
         tracked.lane_busy = false;
-        let runs = tracked.chat.may_run();
-        if drained && runs {
+        let chat = tracked.chat;
+        // The copy that waited for the lane (`copy`), when the chat still copies.
+        let waited = match tracked.copying {
+            None => tracked.wanted.take(),
+            Some(_) => None,
+        };
+        if drained && chat.may_run() {
             self.read_work(id, Some(Change::QueueChanged));
+        }
+        let copies = chat.may_run() || chat.moving().is_some();
+        if let (Some(copy), Some(epoch)) = (waited, chat.epoch().filter(|_| copies)) {
+            self.copy(id, epoch, copy);
         }
         self.run_lane(id);
         self.forget_spent(id);

@@ -623,6 +623,15 @@ As built (2026-11-24, `acpmux/src/auto_session/runtime/moves.rs`, `surface.rs`, 
 - `move` and `set` are the person's only, as `set` was: not an agent's connection, not a remote connection or
   a peer. A Cloud machine's daemon refuses `move` (a chat is moved from the person's own devices).
 - Neither request is in the pane's policy (`cmux-agent-pane-policy/policy.json`): the page sends neither yet.
+- A laptop that wakes, or whose network changes, while its give is asked of the store (`giving`, step
+  `asking`) only renews: the store may have taken the chat, so the chat stays frozen until the give or the
+  renewal answers, and the turn the give stopped does not go on here meanwhile. Before the store was asked
+  (steps `stopping`, `copying`) a wake ends the give as before: stop, ask, and a wish in the answer starts
+  another.
+- A give's copy waits for the chat's lane (`runtime/effects.rs` `copy`, `lane_done`). A holder caught in the
+  middle of taking its inbox writes the message into the log and then acks it; a copy read between the two
+  would hand the chat over with the message in neither the copy nor the inbox. Nothing new starts in the lane
+  of a chat that is given, so the wait ends with the one thing that was running.
 
 ### Surfaces: none of its own (the place picker's work owns them)
 

@@ -17,6 +17,7 @@
 //! - [`asked`]: the same two moves asked of the laptop's own request.
 //! - [`modes`]: a chat set to Cloud or to this machine only, and a move the Cloud refuses.
 //! - [`native`]: the agent's own session file going with the copy, both ways.
+//! - [`taking`]: a chat moved while its holder is in the middle of taking the Cloud's inbox.
 #![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
@@ -38,6 +39,8 @@ mod moved;
 mod native;
 #[path = "auto_journey/steps.rs"]
 mod steps;
+#[path = "auto_journey/taking.rs"]
+mod taking;
 #[path = "auto_journey/variants.rs"]
 mod variants;
 #[path = "auto_journey/world.rs"]
