@@ -46,6 +46,10 @@ public final class TooltipPresenter {
 
     /// The text and shortcut on screen, nil while hidden (tests and debug).
     public private(set) var shown: (text: String, shortcut: String?)?
+    /// The anchor (screen) the shown tooltip was placed at: it stays there while the layout under it
+    /// shifts (Leo 2026-11-24: "affected by layout shifts when it shouldnt be"), and moves only when the
+    /// pointer takes another target. Nil while hidden.
+    private(set) var placedAnchor: NSRect?
 
     init(clock: any Clock<Duration> = ContinuousClock()) {
         checker = DemandTimer(owner: "tooltip-check", clock: clock)
@@ -71,13 +75,16 @@ public final class TooltipPresenter {
         resolve()
     }
 
-    /// A tooltip's text changed: the shown one shows the new text, or hides when it has none.
+    /// A tooltip's text changed: the shown one shows the new text where it is, or hides when it has none.
+    /// A relayout that sets the same text again (a row reconfigured as the list shifts) changes nothing:
+    /// the tooltip keeps its place, never re-placed at where its view moved to.
     func changed(_ tracker: TooltipTracker) {
         guard tracker === current else { return }
         if tracker.text == nil {
             exit(tracker)
-        } else if shown != nil {
-            show()
+        } else if let shown {
+            guard shown.text != tracker.text || shown.shortcut != tracker.shortcut else { return }
+            show(at: placedAnchor)
         }
     }
 
@@ -155,10 +162,11 @@ public final class TooltipPresenter {
         if inside.isEmpty, shown == nil, !scrolling, !intent.isWarm { unwatch() }
     }
 
-    /// Shows `current`, in one frame.
-    private func show() {
+    /// Shows `current`, in one frame, below its view, or at `placed` (the anchor it was shown at) when it
+    /// shows again with new text.
+    private func show(at placed: NSRect? = nil) {
         guard let tracker = current, let view = tracker.view, let window = view.window, !Self.isClear(view),
-              let text = tracker.text, let anchor = tracker.screenRect else { return }
+              let text = tracker.text, let anchor = placed ?? tracker.screenRect else { return }
         let center = NSPoint(x: anchor.midX, y: anchor.midY)
         let screen = NSScreen.screens.first { $0.frame.contains(center) } ?? window.screen ?? NSScreen.main
         panel.show(text: text, shortcut: tracker.shortcut, scope: view.themeScope.fullStrength,
@@ -169,6 +177,7 @@ public final class TooltipPresenter {
         external = nil
         panel.present()
         shown = (text, tracker.shortcut)
+        placedAnchor = anchor
         scheduleCheck()
     }
 
@@ -177,6 +186,7 @@ public final class TooltipPresenter {
         checker.cancel()
         if shown != nil || immediately, external == nil, panel.isVisible { panel.hideNow() }
         shown = nil
+        placedAnchor = nil
         current = nil
         if inside.isEmpty, !scrolling, candidate == nil, !intent.isWarm { unwatch() }
     }
