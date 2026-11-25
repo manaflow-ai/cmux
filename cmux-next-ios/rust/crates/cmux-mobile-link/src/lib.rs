@@ -15,6 +15,10 @@
 //! - [`local`], [`local_hub`]: nearby links with no internet (mDNS ad policy, the Mac's local hub).
 //! - [`reconnect`]: the reconnect decision as one pure step (a port of `LinkMachine.swift`).
 
+// A test function that lost its `#[test]` in a merge is dead code: fail the
+// test build on it instead of skipping the test with a warning nobody reads.
+#![cfg_attr(test, deny(dead_code))]
+
 pub mod api;
 pub mod build_space;
 pub mod class_queue;
