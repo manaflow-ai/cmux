@@ -42,6 +42,8 @@ on:
       - cmux-tui/crates/cmux-host/**
       # The journey's carrier dial runs this pull request's CLI, so a carrier change is timed here.
       - cmux-tui/crates/cmux-tui/src/carrier/**
+      # cmux-autocloud (RFD 0139) chats over the same carrier dial after it.
+      - cmux-tui/crates/cmux-autocloud/**
       - cmux-tui/crates/acpmux/src/cli/cloud_join*
       - cmux-tui/crates/acpmux/src/cli/cloud_join/**
       - scripts/cmux-next/cloud-journey.ts
@@ -203,8 +205,9 @@ jobs:
         run: |
           target_dir="${CARGO_TARGET_DIR:-target}"
           binary="$target_dir/debug/cmux-tui"
-          cargo build -p cmux-tui --bin cmux-tui --locked
+          cargo build -p cmux-tui --bin cmux-tui -p cmux-autocloud --bin cmux-autocloud --locked
           test -x "$binary"
+          test -x "$target_dir/debug/cmux-autocloud"
           file "$binary" | grep -q 'ELF 64-bit'
           sha256sum "$binary"
           # Bind the caller to the checkout's actual merge, not just the PR head.
@@ -225,8 +228,10 @@ jobs:
           PY
           if [[ "$binary" = /* ]]; then
             echo "path=$binary" >> "$GITHUB_OUTPUT"
+            echo "autocloud=$target_dir/debug/cmux-autocloud" >> "$GITHUB_OUTPUT"
           else
             echo "path=$PWD/$binary" >> "$GITHUB_OUTPUT"
+            echo "autocloud=$PWD/$target_dir/debug/cmux-autocloud" >> "$GITHUB_OUTPUT"
           fi
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
@@ -255,6 +260,7 @@ jobs:
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
           PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
           CMUX_PATH: ${{ steps.build-cmux-tui.outputs.path }}
+          AUTOCLOUD_TUI_PATH: ${{ steps.build-cmux-tui.outputs.autocloud }}
           JOURNEY_MODEL: stub
           TARGET: staging
           CMUX_JOURNEY_REPO_SEED_RUNS: ${{ steps.repo-seed.outputs.runs || '0' }}
