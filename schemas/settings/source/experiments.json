@@ -330,6 +330,30 @@
           ]
         },
         {
+          "key": "experiments.subagentHeader",
+          "note": "Leo, 2026-11-22 (ask-6a4fc080a7): \"it is prob ok to somehow denote the \\\"subagent of\\\"... at the top i feel like\". A subagent's view lays out as a chat's: no \"Subagent of\" pill over its rows; its own pane's header names the subagent with \"Subagent of <chat>\" beside it, and its close and Resume sit in the transcript's top end corner (webviews useExperimentSwitch(\"subagentHeader\"), subagents/subagentPanes.ts paneHeading, subagents/SubagentViewCorner.tsx). Off by default (Leo's UI merge hold, 2026-11-24); off keeps today's pinned \"Subagent of\" pill, its close and Resume, and the \"Subagent of <chat>\" tab name. The subagent pane's first frame is a subagent's either way.",
+          "title": {
+            "key": "settings.experiments.subagentHeader",
+            "text": "Subagent Header"
+          },
+          "help": {
+            "key": "settings.experiments.subagentHeader.help",
+            "text": "A subagent's view says whose it is at the top, beside its name, instead of a line over its messages."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "subagent",
+            "header",
+            "parent",
+            "provenance",
+            "helper"
+          ]
+        },
+        {
           "key": "experiments.attachmentTypeIcons",
           "note": "Taste prototype: while the App looks up a dropped or pasted file's local path, its composer chip shows a file or image icon instead of the loading mark, and an image keeps its image icon until its thumbnail arrives (webviews experimentSwitchOn(\"attachmentTypeIcons\"), composer/attachmentIntakeModel.ts resolvingPath). Off by default; off keeps the loading mark. The path-first attach itself is not behind this switch.",
           "title": {

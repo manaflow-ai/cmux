@@ -1,4 +1,5 @@
-// Escape closes a subagent's view to the chat's, as the × in its corner does
+// Escape closes a subagent's view to the chat's, as the "Subagent of" pill's × does
+// (SubagentGroup.tsx SubagentOfRow), or the × in its corner with Subagent Header on
 // (SubagentViewCorner.tsx). Leo, 2026-11-03: "this opened subagent has no close button".
 import { useEffect, useRef } from "react";
 import { escapeSurfaceOpen } from "../paneSurface";

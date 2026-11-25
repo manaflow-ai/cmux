@@ -2,6 +2,8 @@
 // Where a subagent's own pane says whose subagent it is (Leo, 2026-11-22: "it is prob ok to somehow
 // denote the \"subagent of\"... at the top i feel like"), beside a normal chat's header at the same
 // width, so the two layouts match (Leo, 2026-11-22: "we should align things better").
+// The picked look ships behind Settings > Experiments > Subagent Header, off by default (Leo,
+// 2026-11-24: "don't unilaterally MERGE ui stuff yet for now until we get better sens of stuff").
 // - `summary-slot` (picked): the subagent's name in the title, "Subagent of <chat>" muted beside it
 //   where a chat's rolling summary used to go (.acpmux-subagent-of). A chat's header is its name
 //   alone (#53564), so both are one line, as tall, and nothing below moves.

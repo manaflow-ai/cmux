@@ -11,6 +11,7 @@ import { childView } from "./subagentRows";
 type Props = {
   state: string;
   populated?: boolean;
+  parent?: string;
   pending?: "loading" | "missing";
   look?: "words" | "skeleton" | "spinner";
 };
@@ -89,8 +90,15 @@ export default componentEntry<Props>({
                   ? { loading: true }
                   : { loading: false, log: foldOwnLog("reviewer", [], { session: "gallery" }) },
                 new Set(),
+                props.parent ?? "Release review",
               )
-            : childView("reviewer", [group], props.populated ? { reviewer: [reply] } : {}, new Set())!;
+            : childView(
+                "reviewer",
+                [group],
+                props.populated ? { reviewer: [reply] } : {},
+                new Set(),
+                props.parent ?? "Release review",
+              )!;
           return (
             <div className="acpmux-main" style={{ height: "100%", position: "relative" }}>
               <VirtualTranscript
@@ -106,7 +114,7 @@ export default componentEntry<Props>({
   variants: {
     empty: {
       props: { state: "completed" },
-      note: "A known child without recorded content explains the empty transcript.",
+      note: "A known child without recorded content keeps its parent breadcrumb and explains the empty transcript.",
     },
     running: {
       props: { state: "running" },
@@ -130,6 +138,9 @@ export default componentEntry<Props>({
     "own-missing": {
       props: { state: "completed", pending: "missing" },
       note: "Its own records came back empty: the empty row, never the chat's rows.",
+    },
+    "long-parent": {
+      props: { state: "completed", parent: "Release review for the very long project name with several components" },
     },
   },
 });

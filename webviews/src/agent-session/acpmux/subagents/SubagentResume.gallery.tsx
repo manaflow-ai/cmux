@@ -2,8 +2,7 @@
 // Resume on a stopped helper wherever its row or tab shows (ResumeControl.tsx; Leo, 2026-11-12: "A
 // Resume button in cmux on a stopped helper's row and tab. It starts a fresh session from that
 // helper's record and original instructions, and carries on from there."): the tray's finished
-// line, Session Info's Subagents and the helper's own tab, in its transcript's top end corner
-// (SubagentViewCorner.tsx), which draws no line about where the helper came from (Leo, 2026-11-22). Each at rest,
+// line, Session Info's Subagents and the helper's own tab, on its "Subagent of" line. Each at rest,
 // busy once clicked (acpmux has it), and refused with the note it leaves. Synthetic data.
 import { componentEntry } from "../../../gallery/format";
 import { minutesAgo } from "../../../gallery/clock";
@@ -70,14 +69,15 @@ export default componentEntry<Props>({
     "agent-session/acpmux/subagents/ResumeControl.tsx",
     "agent-session/acpmux/subagents/SubagentTray.tsx",
     "agent-session/acpmux/session-info/SubagentsSection.tsx",
-    "agent-session/acpmux/subagents/SubagentViewCorner.tsx#SubagentViewCorner",
+    "agent-session/acpmux/subagents/SubagentGroup.tsx#SubagentOfRow",
   ],
   keywords: ["subagent", "resume", "stopped", "helper"],
   load: async () => {
     const { SubagentTray } = await import("./SubagentTray");
     const { SubagentsSection } = await import("../session-info/SubagentsSection");
-    const { SubagentViewCorner } = await import("./SubagentViewCorner");
+    const { SubagentOfRow } = await import("./SubagentGroup");
     const { TurnActionsContext } = await import("../conversation/turnActions");
+    const { SUBAGENT_OF } = await import("./subagentRows");
     const { RESUME_CAPABILITY } = await import("./resumeState");
     const retryCapabilities = new Set([RESUME_CAPABILITY]);
     return function GallerySubagentResume({ surface, answer }: Props) {
@@ -110,9 +110,16 @@ export default componentEntry<Props>({
           )}
           {surface === "tab" && (
             <TurnActionsContext.Provider value={resume}>
-              <div className="acpmux-view-corner" data-zone="top-end" style={{ position: "relative" }}>
-                <SubagentViewCorner view={STOPPED.id} agent={STOPPED} close={false} />
-              </div>
+              <SubagentOfRow
+                row={{
+                  id: `${STOPPED.id}:of`,
+                  version: 1,
+                  at: STOPPED.startedAt,
+                  kind: SUBAGENT_OF,
+                  subagents: [STOPPED],
+                  text: "cmux chat",
+                }}
+              />
             </TurnActionsContext.Provider>
           )}
         </div>
@@ -158,7 +165,7 @@ export default componentEntry<Props>({
       play: press("sessionInfo"),
     },
     "tab-idle": {
-      note: "The helper's own tab: Resume in its transcript's top end corner, over no row's room; its tab closes it, so no ×.",
+      note: 'The helper\'s own tab: Resume beside its "Subagent of" line, at the head of its transcript.',
       props: { surface: "tab" },
     },
     "tab-busy": {

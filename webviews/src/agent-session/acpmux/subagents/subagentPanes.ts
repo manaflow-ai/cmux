@@ -66,13 +66,19 @@ export function useAutoOpenSubagents(): [boolean, (on: boolean) => void] {
 
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 
-/// The name subagent `agent`'s pane tab shows: its own, else its task (the Agent call's
-/// description, its first line), else `fallback`, a plain "Subagent". Never the chat it came from
-/// (Leo, 2026-11-22: "the metadata about provenance or whatever like subagent of something. we
-/// shouldn't have those.").
-export function subagentTabTitle(agent: Pick<Subagent, "id" | "name" | "task"> | undefined, fallback: string): string {
+/// The name subagent `agent`'s pane tab shows: its own, else `fallback` ("Subagent of" the chat; Leo
+/// 2026-10-30: "the sidebar tab shouldn't just be named claude sr2 coord if you can just say it's
+/// SUbagent of sr2 coord"). With `byTask` (Settings > Experiments > Subagent Header, where the pane's
+/// header says whose it is), its task (the Agent call's description, its first line) comes before a
+/// plain "Subagent" `fallback`.
+export function subagentTabTitle(
+  agent: Pick<Subagent, "id" | "name" | "task"> | undefined,
+  fallback: string,
+  byTask = false,
+): string {
   const own = agent?.name?.trim();
   if (own && own !== agent?.id) return own;
+  if (!byTask) return fallback;
   const task = agent?.task
     ?.split("\n")
     .map((line) => line.trim())

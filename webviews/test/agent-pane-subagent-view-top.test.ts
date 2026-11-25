@@ -108,6 +108,14 @@ await requireBrowserLane("agent-pane-subagent-view-top.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url(session));
     await page.getByText("The review is in.").waitFor({ timeout: 25_000 });
+    // The corner draws only with Settings > Experiments > Subagent Header on (off by default: the pill).
+    await page.evaluate(() =>
+      (
+        window as {
+          cmuxAcpmuxBridge?: { applyExperiments?(value: unknown): void };
+        }
+      ).cmuxAcpmuxBridge?.applyExperiments?.({ subagentHeader: true }),
+    );
     // The finished line opens its view and names the task before the agent's name (#33252).
     // A finished Claude turn folds under one Worked for (Codex parity): open it to the line.
     const worked = page.locator('button.cv-worked[aria-expanded="false"]');
