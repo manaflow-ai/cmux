@@ -17,6 +17,10 @@
 //!
 //! 1. The phone sends a `wg-init` to the Mac, so the hub binds the session;
 //!    its `lanes` carry the mode (`relay-rtt-probe:before|after`).
+//!    The Mac answers with a `wg-resp`, which makes both devices parties of the
+//!    session and carries each side's relay ticket (a join presents it in
+//!    `x-cmux-relay-ticket`); `signal_to_join_ms` is the phone's time from that
+//!    `wg-init` to its join being accepted.
 //! 2. `before`: the Mac closes its signal socket at once; the phone waits until
 //!    the Mac's presence says offline, then joins `/v1/relay/<session>`. The
 //!    peer has no live signal socket at the first join, so the Worker places
@@ -206,7 +210,11 @@ fn wss(base: &str, path: &str) -> String {
 
 /// Open a WebSocket with the bearer and the relay subprotocol. `Err` carries
 /// the HTTP status when the upgrade was refused.
-async fn open(args: &Args, url: &str) -> std::result::Result<Ws, (Option<u16>, String)> {
+async fn open(
+    args: &Args,
+    url: &str,
+    ticket: Option<&str>,
+) -> std::result::Result<Ws, (Option<u16>, String)> {
     cmux_mobile_link::install_crypto_provider();
     let mut request = url.into_client_request().map_err(|e| (None, e.to_string()))?;
     let headers = request.headers_mut();
@@ -215,6 +223,10 @@ async fn open(args: &Args, url: &str) -> std::result::Result<Ws, (Option<u16>, S
         format!("Bearer {}", args.token).parse().map_err(|_| (None, "token".into()))?,
     );
     headers.insert("sec-websocket-protocol", "cmux-relay.v1".parse().expect("header"));
+    if let Some(ticket) = ticket {
+        // The Worker admits a join only with the device's own relay ticket (PROTOCOL.md "WebSocket relay").
+        headers.insert("x-cmux-relay-ticket", ticket.parse().map_err(|_| (None, "ticket".into()))?);
+    }
     match tokio::time::timeout(Duration::from_secs(10), tokio_tungstenite::connect_async(request)).await {
         Err(_) => Err((None, "no answer to the upgrade in 10 s".into())),
         Ok(Ok((ws, _))) => Ok(ws),
@@ -231,12 +243,12 @@ async fn open(args: &Args, url: &str) -> std::result::Result<Ws, (Option<u16>, S
 /// Join the session's relay; a `403 not_in_session` is retried for 5 s (the
 /// hub binds the session when it admits the first signal, which may land after
 /// this join). Returns the socket, the join time and the relay's `joined` frame.
-async fn join(args: &Args, session: &str, device: &str) -> Result<(Ws, f64, Value)> {
+async fn join(args: &Args, session: &str, device: &str, ticket: Option<&str>) -> Result<(Ws, f64, Value)> {
     let url = wss(&args.base_url, &format!("/v1/relay/{session}?deviceId={device}"));
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
         let started = Instant::now();
-        match open(args, &url).await {
+        match open(args, &url, ticket).await {
             Ok(mut ws) => {
                 let took = ms(started.elapsed());
                 let joined = loop {
@@ -290,7 +302,8 @@ async fn pings(ws: &mut Ws, n: usize) -> Vec<Option<f64>> {
 async fn netcheck(args: &Args) -> BTreeMap<String, f64> {
     let mut out = BTreeMap::new();
     for region in REGIONS {
-        let Ok(mut ws) = open(args, &wss(&args.base_url, &format!("/v1/netcheck/{region}"))).await else {
+        let Ok(mut ws) = open(args, &wss(&args.base_url, &format!("/v1/netcheck/{region}")), None).await
+        else {
             if region == REGIONS[0] {
                 return out;
             }
@@ -375,6 +388,7 @@ async fn run_mac(args: Args) -> Result<Value> {
             }
         };
         let first = session.first;
+        let ticket = first.relay_ticket.clone();
         let SignalPayload::WgInit { lanes, .. } = &first.payload else { continue };
         let Some(mode) = lanes.iter().find_map(|l| l.strip_prefix(LANE_PREFIX)).map(str::to_owned) else {
             continue;
@@ -384,13 +398,16 @@ async fn run_mac(args: Args) -> Result<Value> {
             eprintln!("relay-rtt mac: the phone said quit");
             break;
         }
+        // Both devices are parties of the session once the Mac answers: the relay admits a join only then.
+        signaling.send_signal(&first.from, &first.session_id, wg_resp())?;
         if mode == "before" {
+            tokio::time::sleep(Duration::from_millis(300)).await;
             // The peer of the phone's first join must have no live signal socket.
             signaling.close();
             tokio::time::sleep(args.reconnect).await;
             signaling = SignalingClient::connect(&args.base_url, &args.token, &team, &args.mac).await?;
         }
-        match echo(&args, &first.session_id, &first.from, &me).await {
+        match echo(&args, &first.session_id, &first.from, &me, ticket.as_deref()).await {
             Ok(n) => {
                 served += 1;
                 eprintln!("relay-rtt mac: session {} ({mode}) echoed {n}", first.session_id);
@@ -403,8 +420,8 @@ async fn run_mac(args: Args) -> Result<Value> {
 }
 
 /// Join, time the leg, tell the phone, echo every datagram until `X` or 60 s.
-async fn echo(args: &Args, session: &str, phone: &str, me: &Value) -> Result<usize> {
-    let (mut ws, join_ms, joined) = join(args, session, &args.mac).await?;
+async fn echo(args: &Args, session: &str, phone: &str, me: &Value, ticket: Option<&str>) -> Result<usize> {
+    let (mut ws, join_ms, joined) = join(args, session, &args.mac, ticket).await?;
     let leg = pings(&mut ws, LEG_PINGS).await;
     let ready = json!({"leg_ms": leg, "join_ms": join_ms, "joined": joined, "mac": me});
     let mut datagram = b"R".to_vec();
@@ -466,6 +483,19 @@ async fn until_online(api: &ApiClient, team: &str, mac: &str, want: bool, wait: 
     }
 }
 
+fn wg_resp() -> SignalPayload {
+    SignalPayload::WgResp {
+        public_key: "relay-rtt-probe".into(),
+        endpoints: Vec::new(),
+        overlay_ip: "0.0.0.1".into(),
+        lanes: Vec::new(),
+        relayed: Vec::new(),
+        relayed_tls: Vec::new(),
+        version: 0,
+        relay: None,
+    }
+}
+
 fn wg_init(mode: &str) -> SignalPayload {
     SignalPayload::WgInit {
         public_key: "relay-rtt-probe".into(),
@@ -475,6 +505,7 @@ fn wg_init(mode: &str) -> SignalPayload {
         relayed: Vec::new(),
         relayed_tls: Vec::new(),
         version: 0,
+        relay: None,
     }
 }
 
@@ -488,14 +519,34 @@ async fn trial(
     mode: &str,
 ) -> Result<Value> {
     let session = uuid::Uuid::new_v4().to_string();
+    let mut events = signaling.subscribe(&session);
+    let first_signal = Instant::now();
     signaling.send_signal(&args.mac, &session, wg_init(mode))?;
+    // The Mac's wg-resp makes both devices parties of the session and carries this device's relay ticket.
+    let ticket = tokio::time::timeout(Duration::from_secs(15), async {
+        while let Some(event) = events.recv().await {
+            if let cmux_mobile_link::signaling::SessionEvent::Signal(envelope) = event {
+                if matches!(envelope.payload, SignalPayload::WgResp { .. }) {
+                    return envelope.relay_ticket;
+                }
+            }
+        }
+        None
+    })
+    .await
+    .ok()
+    .flatten()
+    .context("no wg-resp with a relay ticket from the Mac in 15 s")?;
+    let resp_ms = ms(first_signal.elapsed());
     // `before`: the Mac closes its signal socket on this signal; join once its presence says so.
     let peer_live = if mode == "before" {
         !until_online(api, team, &args.mac, false, Duration::from_secs(10)).await
     } else {
         until_online(api, team, &args.mac, true, Duration::from_secs(10)).await
     };
-    let (mut ws, join_ms, joined) = join(args, &session, phone).await?;
+    let (mut ws, join_ms, joined) = join(args, &session, phone, Some(&ticket)).await?;
+    let signal_to_join_ms = ms(first_signal.elapsed());
+    signaling.unsubscribe(&session);
     let leg = pings(&mut ws, LEG_PINGS).await;
     // The Mac's `R` datagram: its leg and where it is.
     let ready = tokio::time::timeout(Duration::from_secs(30), async {
@@ -577,6 +628,8 @@ async fn trial(
         "session": session,
         "mac_signal_live_at_first_join": peer_live,
         "phone_join_ms": join_ms,
+        "wg_resp_ms": resp_ms,
+        "signal_to_join_ms": signal_to_join_ms,
         "phone_joined": joined,
         "mac_joined": ready["joined"],
         "rtt_ms": Summary::of(&rtts),
