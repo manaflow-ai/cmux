@@ -16,6 +16,7 @@ use tokio::runtime::Runtime;
 
 mod browser;
 mod classic_leftovers;
+mod cloud_wake;
 mod composer_outbox;
 mod follow_camera;
 mod link_side;
@@ -30,6 +31,10 @@ mod window_layout;
 
 pub use browser::{BrowserFrame, BrowserObserver, BrowserStats, BrowserStream};
 pub use classic_leftovers::{ClassicCleanupPlan, KeychainDelete, KeychainLeftover};
+pub use cloud_wake::{
+    CloudWakeAnswer, CloudWakeHint, CloudWakeIdle, CloudWakeOutcome, cloud_wake_hint, cloud_wake_idle,
+    cloud_wake_input, cloud_wake_resumed, cloud_wake_version,
+};
 pub use composer_outbox::{
     ComposerOutbox, ComposerSendAnswer, ComposerSendDone, ComposerSendOutcome, ComposerSendRequest,
 };
@@ -1589,6 +1594,7 @@ mod redial_tests {
             include_loopback: true,
             relay_only: true,
             block_udp: false,
+            force_relay: false,
             video_lane: false,
             webrtc_media: false,
             ultra: cmux_mobile_link::UltraSetting::Off,
