@@ -157,8 +157,12 @@ await requireBrowserLane("agent-pane-picks-hold.test.ts", async () => {
           await page.goto(paneUrl(lane.base, lane.daemon));
           await page.locator(".nt-field").waitFor();
           await page.waitForFunction(() => !!document.querySelector(".acpmux-access-trigger"));
+          note(`new tab: ${JSON.stringify(await settled(page))}`);
+          // A New Tab opens on the default harness, Claude Code: move it to Codex on its own default
+          // model (Astra) first, so the picks below each change one chip from Codex's starting values.
+          await pickModel(page, "Codex", "GPT-6 Astra");
           const start = await settled(page);
-          note(`new tab: ${JSON.stringify(start)}`);
+          note(`on Codex: ${JSON.stringify(start)}`);
           await startValueSampler(page);
           await takeValues(page);
 
