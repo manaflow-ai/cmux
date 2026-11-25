@@ -10,6 +10,10 @@
     "usagePatterns": [
       "usagePatternRows",
       "HangReportsSettingsSchema"
+    ],
+    "anonymousTelemetry": [
+      "anonymousTelemetryRows",
+      "HangReportsSettingsSchema"
     ]
   },
   "joined": "descriptors"
