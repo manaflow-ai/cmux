@@ -960,7 +960,9 @@ fn with_bytes(mut request: Value, part: &[u8], coded: Option<Coded>) -> Value {
             request.set("encoding", json!(encoding));
             request.set("decoded_size", json!(part.len()));
         }
-        None => request.set("bytes_base64", json!(encode(part))),
+        None => {
+            request.set("bytes_base64", json!(encode(part)));
+        }
     }
     request
 }
