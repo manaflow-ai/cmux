@@ -1,4 +1,4 @@
-# cmux-next sidebar: owner note
+# cmux-next sidebar: owner note (frozen log: a new entry is its own file in [`plans/cmux-next/sidebar-owner/`](sidebar-owner/README.md))
 
 - 2026-11-19 (lane/look-proportions): Sidebar-Look: no visual change. Leo, 2026-11-19: "the layout and proportions as
   well". A look (theme file) may set the rows' fill-to-edge inset, fill-to-content padding and gap

@@ -63,6 +63,8 @@ public final class AgentPaneView: NSView {
     var crashReloadCount = 0
     /// The automatic retries after the page's web content ended.
     let crashRetry = AgentPageCrashRetry()
+    /// The person's reload in flight (``reloadForPerson()``): a repeat while it saves joins it, and the pane's close cancels it.
+    var personReload: Task<Void, Never>?
     /// The rect the window's toasts last heard this pane avoids, window coordinates (AgentPaneView+ToastAvoidance.swift).
     var lastToastAvoidance: NSRect = .zero
     /// The window that rect was in: a move to another window at the same frame is a move too.
@@ -584,6 +586,14 @@ public final class AgentPaneView: NSView {
         DictationMicrophone.shared.stopListening()
     }
 
+    /// This page carries a Cloud chat started from it, in place (``AgentPaneModel/rehome(onto:seed:)``): its
+    /// socket closes, and the page's own reconnect (the React tree stays mounted, its transcript, composer and
+    /// scroll with it) asks `host`, which starts the chat there from `seed`. One page from Enter to the end.
+    public func rehome(onto host: any AgentPaneHostProviding, seed: AgentPaneSeedSource?) {
+        model.rehome(onto: host, seed: seed)
+        if let connection = model.transport.connection { model.transport.close(connection: connection) }
+    }
+
     /// Stops the page (and its WebSocket) for good; call when the tab closes.
     public func close() {
         model.pageClosed = true // it leaves the live pages (``AgentPageLiveness``)
@@ -592,6 +602,8 @@ public final class AgentPaneView: NSView {
         // A closed chat leaves its crash group: a sibling's Reload must not reload it.
         terminations.forget(self)
         crashRetry.cancel()
+        personReload?.cancel()
+        personReload = nil
         dismissProjectPalette()
         popupHostStorage?.hide()
         rateReapply?.cancel()
