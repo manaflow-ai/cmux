@@ -216,6 +216,9 @@ export interface ComputerUseState {
 /** GUI-first (recommended: chats, browsers and terminals side by side, Cmd-T the New Tab page) or
  * terminal-first (Cmd-T opens a terminal). */
 export type WorkStyle = "gui" | "terminal";
+/** Where a new chat runs (`agentPane.newChatsIn`): this Mac (the default) or Cloud, which needs
+ * nothing installed here. */
+export type ChatsRunIn = "local" | "cloud";
 /** A density offered: an `appearance.density` preset id (`cozy` is Settings' Default) and its name as
  * Settings shows it. Every density Settings has (cmux#49636). */
 export interface MakeItYoursDensity {
@@ -249,6 +252,8 @@ export interface MakeItYoursState {
   /** `appearance.backgroundBlur`; null: unset (the theme's). */
   material: MakeItYoursMaterial | null;
   materials: MakeItYoursMaterial[];
+  /** Where a new chat runs; an older host leaves it out, and the row is not drawn. */
+  chatsRunIn?: ChatsRunIn;
   /** The backgrounds' previews were read. */
   loaded: boolean;
 }
@@ -321,6 +326,7 @@ export interface OnboardingOps {
   /** Make cmux Yours: each pick is written at once, so the window behind shows it. */
   "cmux.onboarding.makeItYours.workStyle": [{ value: WorkStyle }, unknown];
   "cmux.onboarding.makeItYours.density": [{ value: string }, unknown];
+  "cmux.onboarding.makeItYours.chatsRunIn": [{ value: ChatsRunIn }, unknown];
   /** `id` null: no background. */
   "cmux.onboarding.makeItYours.background": [{ id: string | null }, unknown];
   /** The window's Opacity, 0 to 1 (Settings > Appearance's own row). */
@@ -354,6 +360,7 @@ export const OPS = {
   restart: "cmux.onboarding.computerUse.restart",
   workStyle: "cmux.onboarding.makeItYours.workStyle",
   density: "cmux.onboarding.makeItYours.density",
+  chatsRunIn: "cmux.onboarding.makeItYours.chatsRunIn",
   background: "cmux.onboarding.makeItYours.background",
   opacity: "cmux.onboarding.makeItYours.opacity",
   material: "cmux.onboarding.makeItYours.material",

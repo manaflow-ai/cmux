@@ -13,7 +13,8 @@ import UniformTypeIdentifiers
 /// - density: `appearance.density` (a built-in ends a custom density; the reload applies the tokens);
 /// - background: `appearance.background`, removed for none;
 /// - its Opacity and Material: `appearance.backgroundOpacity` and `appearance.backgroundBlur`, the
-///   rows Settings > Appearance draws under its background picker, removed when put back unset.
+///   rows Settings > Appearance draws under its background picker, removed when put back unset;
+/// - where chats run: `agentPane.newChatsIn` `cloud`, removed for this Mac (the setting's default).
 /// When the step opens it reads the file's own values at every path a pick may write, linked edits
 /// included (`SettingsController.pathsWritten`); Skip writes exactly those back in one publish, so the
 /// file is as it was at open, even over a person's own settings.
@@ -42,8 +43,10 @@ public final class FirstRunChoicesSettingsSource: FirstRunChoicesSource {
     /// Every path a pick writes, as the step offers them.
     nonisolated static let pickPaths: [[String]] = [
         NewTabTemplate.configPath, DensitySetting.configPath, BackdropSelectionSetting.configPath,
-        WindowBackgroundSetting.opacityPath, WindowBackgroundSetting.materialPath,
+        WindowBackgroundSetting.opacityPath, WindowBackgroundSetting.materialPath, newChatsInPath,
     ]
+    /// `agentPane.newChatsIn` (Settings > Start New Chats In).
+    nonisolated static let newChatsInPath = ["agentPane", "newChatsIn"]
 
     private let settings: @MainActor () -> SettingsController?
     private let windowOpacity: @MainActor () -> Double?
@@ -81,11 +84,13 @@ public final class FirstRunChoicesSettingsSource: FirstRunChoicesSource {
         guard let snapshot = settings()?.snapshot else { return .recommended }
         let template = snapshot.root.value(at: ["tabs", "newTabTemplate"])?.stringValue
         let background = snapshot.root.value(at: ["appearance", "background"])?.stringValue
+        let runIn = snapshot.root.value(at: Self.newChatsInPath)?.stringValue
         return FirstRunChoices(workStyle: template == "terminal" ? .terminal : .gui,
                                density: Self.density(snapshot.density),
                                background: background == "none" ? nil : background,
                                opacity: snapshot.windowBackground.opacity,
-                               material: snapshot.windowBackground.material.flatMap { FirstRunMaterial(rawValue: $0.rawValue) })
+                               material: snapshot.windowBackground.material.flatMap { FirstRunMaterial(rawValue: $0.rawValue) },
+                               chatsRunIn: runIn == "cloud" ? .cloud : .local)
     }
 
     /// The density setting as a preset id: unset is Settings' Default.
@@ -135,6 +140,7 @@ public final class FirstRunChoicesSettingsSource: FirstRunChoicesSource {
         if new.background != old.background { writes.append((BackdropSelectionSetting.configPath, new.background.map(JSONValue.string))) }
         if new.opacity != old.opacity { writes.append((WindowBackgroundSetting.opacityPath, new.opacity.map(JSONValue.number))) }
         if new.material != old.material { writes.append((WindowBackgroundSetting.materialPath, new.material.map { .string($0.rawValue) })) }
+        if new.chatsRunIn != old.chatsRunIn { writes.append((Self.newChatsInPath, new.chatsRunIn == .cloud ? .string("cloud") : nil)) }
         guard !writes.isEmpty else { return }
         if case .write(var queued)? = pending.last {
             for write in writes {

@@ -8,6 +8,13 @@ public enum WorkStyle: String, CaseIterable, Sendable {
     case gui, terminal
 }
 
+/// Where a new chat runs (`agentPane.newChatsIn`): on this Mac, the setting's default, or in Cloud,
+/// which needs nothing installed here, so a person with no agent CLI on this Mac has a way to start
+/// (Leo's ask c-8f5f7ff8b3: "how can someone who has no idea ... just start and keep going?").
+public enum ChatsRunIn: String, CaseIterable, Sendable {
+    case local, cloud
+}
+
 /// One density the step offers: a built-in `appearance.density` preset id and its name as Settings
 /// shows it (cmux#49636: every density Settings has, not three of them).
 public struct FirstRunDensity: Sendable, Equatable, Identifiable {
@@ -51,6 +58,8 @@ public struct FirstRunChoices: Sendable, Equatable {
     public var opacity: Double?
     /// `appearance.backgroundBlur`; nil: unset (the theme's).
     public var material: FirstRunMaterial?
+    /// Where a new chat runs (`agentPane.newChatsIn`); this Mac unless the person picks Cloud.
+    public var chatsRunIn: ChatsRunIn
 
     /// GUI-first, Default density, no background, the theme's opacity and material: what a person
     /// gets who skips on a new Mac.
@@ -58,12 +67,14 @@ public struct FirstRunChoices: Sendable, Equatable {
     /// Settings' Default density.
     public static let defaultDensity = "cozy"
 
-    public init(workStyle: WorkStyle, density: String, background: String?, opacity: Double? = nil, material: FirstRunMaterial? = nil) {
+    public init(workStyle: WorkStyle, density: String, background: String?, opacity: Double? = nil, material: FirstRunMaterial? = nil,
+                chatsRunIn: ChatsRunIn = .local) {
         self.workStyle = workStyle
         self.density = density
         self.background = background
         self.opacity = opacity.map { min(max($0, 0), 1) }
         self.material = material
+        self.chatsRunIn = chatsRunIn
     }
 }
 
@@ -162,6 +173,7 @@ public final class MakeItYoursStepModel {
     public var shownOpacity: Double? { choices.opacity ?? source?.shownOpacity() }
 
     public func setWorkStyle(_ value: WorkStyle) { update { $0.workStyle = value } }
+    public func setChatsRunIn(_ value: ChatsRunIn) { update { $0.chatsRunIn = value } }
 
     /// An id the step does not offer is refused.
     @discardableResult

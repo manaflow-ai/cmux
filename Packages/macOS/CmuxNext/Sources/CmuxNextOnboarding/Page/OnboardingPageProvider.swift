@@ -112,6 +112,9 @@ final class OnboardingPageProvider: PageProvider {
             model.makeItYours.setWorkStyle(value)
         case "cmux.onboarding.makeItYours.density":
             guard model.makeItYours.setDensity(try Self.string(params, "value")) else { throw PageError.invalidParams("unknown density") }
+        case "cmux.onboarding.makeItYours.chatsRunIn":
+            guard let value = ChatsRunIn(rawValue: try Self.string(params, "value")) else { throw PageError.invalidParams("unknown chat location") }
+            model.makeItYours.setChatsRunIn(value)
         case "cmux.onboarding.makeItYours.background":
             // null: no background.
             guard model.makeItYours.setBackground(params["id"]?.stringValue) else { throw PageError.invalidParams("unknown background") }

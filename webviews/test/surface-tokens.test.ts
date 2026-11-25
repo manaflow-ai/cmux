@@ -66,18 +66,17 @@ describe("component tokens", () => {
     if (family.prefix) {
       test(`no ${family.prefix}* token is read under a name the schema does not know`, () => {
         const known = new Set(FAMILIES.flatMap((f) => f.tokens.map((t) => t.name)));
-        const used = new Set(
-          [...css.matchAll(new RegExp(`var\\((${family.prefix}[a-z-]+)`, "g"))].map((m) => m[1]),
-        );
+        const used = new Set([...css.matchAll(new RegExp(`var\\((${family.prefix}[a-z-]+)`, "g"))].map((m) => m[1]));
         expect([...used].filter((name) => !known.has(name))).toEqual([]);
       });
     }
 
     const shadows = family.tokens.filter((t) => t.kind === "box-shadow").map((t) => t.name);
-    if (shadows.length) test(`a ${family.name} shadow token is read only at no specificity`, () => {
-      for (const d of decls.filter((d) => shadows.some((name) => d.value.includes(name)))) {
-        expect(d.selector).toMatch(/^:where\([^)]*\)$/);
-      }
-    });
+    if (shadows.length)
+      test(`a ${family.name} shadow token is read only at no specificity`, () => {
+        for (const d of decls.filter((d) => shadows.some((name) => d.value.includes(name)))) {
+          expect(d.selector).toMatch(/^:where\([^)]*\)$/);
+        }
+      });
   }
 });

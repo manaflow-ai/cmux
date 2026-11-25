@@ -49,16 +49,18 @@ import {
   newIdempotencyKey,
   wireError,
   type AccountsRun,
+  type AllotmentSet,
+  type AllotmentView,
   type AccountsState,
   type AgentsRun,
   type AgentsState,
   type AppUpdateAction,
-  type PreviousBuild,
   type ChannelsState,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
   type LibraryListing,
   type LibraryRun,
+  type Standup,
   type SharesState,
   type TailnetState,
   type DevicesRun,
@@ -91,6 +93,8 @@ import {
   type AgentToolsCardState,
   type McpServersRun,
   type McpServersState,
+  type HubRun,
+  type HubState,
   type RowNoteData,
   type AgentSkillsRun,
   type AgentSkillsState,
@@ -100,23 +104,20 @@ import {
   type AgentHooksState,
   type AgentConfigAnswer,
   type AgentConfigRun,
-  type AllotmentSet,
-  type AllotmentView,
-  type HubRun,
-  type HubState,
   type AccountsRunReply,
   type DoctorReport,
   type DoctorRun,
+  type ArchivedRun,
+  type ArchivedState,
   type ConnectionsRun,
   type ConnectionsState,
-  type Checklist,
-  type ChecklistFact,
   type TailnetVMReply,
   type AutocloudAction,
   type AutocloudAnswer,
   type AutocloudState,
-  type ArchivedRun,
-  type ArchivedState,
+  type Checklist,
+  type ChecklistFact,
+  type PreviousBuild,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -1141,6 +1142,13 @@ export class SettingsStore {
       ? null
       : (answer.message ?? (answer.code ? t("settingsPage.customizeLibrary.notChanged") : null));
     return { library: answer.library ?? null, refusal };
+  }
+
+  /** Settings > Customize's Standup: every library entry as one line (`cmux customize library
+   * standup`); null when the host cannot run it (an older build, no CLI). */
+  async customizeStandup(): Promise<Standup | null> {
+    const reply = await this.request("cmux.settings.customize.library", { verb: "standup" });
+    return reply.ok ? (reply.value?.standup ?? null) : null;
   }
 
   /** Settings > General > Customize cmux: the checklist and progress, with `has` the connections the
