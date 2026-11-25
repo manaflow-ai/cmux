@@ -1,3 +1,5 @@
+import CmuxNextWindowRules
+
 /// `notifications.sounds` in cmux.json: per-event sounds, master volume, when sounds play, the
 /// burst cooldown, and the levels a workspace, a group or an agent kind can override.
 ///
@@ -36,29 +38,17 @@ public nonisolated struct NotificationSoundPreferences: Hashable, Sendable {
 
     public init() {}
 
-    /// The levels that apply to `scope`, most specific first: the agent kind, the workspace, then
-    /// each group from the innermost out.
-    public func levels(for scope: NotificationSoundScope) -> [(name: String, rule: NotificationSoundRule)] {
-        var levels: [(name: String, rule: NotificationSoundRule)] = []
-        if let agent = scope.agent?.lowercased(), let rule = agents[agent] { levels.append(("agent:\(agent)", rule)) }
-        if let workspace = scope.workspace, let rule = workspaces[workspace] { levels.append(("workspace:\(workspace)", rule)) }
-        for group in scope.groups {
-            if let rule = groups[group.id] ?? groups[group.name] { levels.append(("group:\(group.name)", rule)) }
-        }
-        return levels
-    }
-
-    /// The sound `event` plays in `scope`: the most specific level that names one wins, then the
-    /// event's global sound, then `fallback` (`notifications.sound`, or its source's). `"none"`
-    /// anywhere on that path mutes it (nil). The volume is the most specific level's that sets one,
-    /// times the master volume.
+    /// The sound `event` plays in `scope`: the most specific level that names one wins (the agent
+    /// kind, the workspace, then each group from the innermost out), then the event's global sound,
+    /// then `fallback` (`notifications.sound`, or its source's). `"none"` anywhere on that path mutes
+    /// it (nil). The volume is the most specific level's that sets one, times the master volume.
+    /// Rust's rule (op `window_notifications_sound_choice`).
     public func choice(for event: NotificationSoundEvent, in scope: NotificationSoundScope, fallback: String) -> NotificationSoundChoice? {
-        let levels = levels(for: scope)
-        let picked = levels.lazy.compactMap { level in level.rule.sound(for: event).map { (name: $0, level: level.name) } }.first
-            ?? events[event].map { (name: $0, level: "event:\(event.rawValue)") }
-            ?? (name: fallback, level: "global")
-        guard picked.name != "none", !picked.name.isEmpty else { return nil }
-        let share = levels.lazy.compactMap { $0.rule.volume }.first ?? 1
-        return NotificationSoundChoice(name: picked.name, volume: min(max(share * volume, 0), 1), level: picked.level)
+        struct Request: Encodable { var sounds: Wire, event: String, scope: NotificationSoundScope.Wire, fallback: String }
+        struct Choice: Decodable { var name: String, volume: Double, level: String }
+        struct Reply: Decodable { var choice: Choice? }
+        let request = Request(sounds: Wire(self), event: event.rawValue, scope: NotificationSoundScope.Wire(scope), fallback: fallback)
+        guard let choice = WindowRules().call("window_notifications_sound_choice", request, as: Reply.self)?.choice else { return nil }
+        return NotificationSoundChoice(name: choice.name, volume: choice.volume, level: choice.level)
     }
 }

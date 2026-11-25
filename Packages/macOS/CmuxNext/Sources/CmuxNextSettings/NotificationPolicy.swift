@@ -1,3 +1,5 @@
+import CmuxNextWindowRules
+
 /// A user interaction with a pane that has an unread notification.
 public nonisolated enum NotificationTrigger: String, Hashable, Sendable {
     /// The pane became the focused pane of the key window while cmux is active.
@@ -12,10 +14,11 @@ public nonisolated enum NotificationTrigger: String, Hashable, Sendable {
     case timeout
 }
 
-/// The notification rules (plans/cmux-next/notifications.md), pure so every
-/// case is a table test. The daemon owns unread state; these rules only
-/// decide when the app acknowledges it and what an arrival shows. Lives
-/// beside the preferences it reads, outside the App target (SW14).
+/// The notification rules (plans/cmux-next/notifications.md), asked of Rust
+/// (cmux-tui/crates/cmux-window-rules `notification_policy`, with their table
+/// tests) over the app FFI: ops `window_notifications_decide` and
+/// `window_notifications_clears_table`. The daemon owns unread state; these
+/// rules only decide when the app acknowledges it and what an arrival shows.
 public nonisolated struct NotificationPolicy: Sendable {
     public let prefs: NotificationPreferences
 
@@ -31,15 +34,17 @@ public nonisolated struct NotificationPolicy: Sendable {
     }
 
     static func clears(_ trigger: NotificationTrigger, mode: NotificationDismissal) -> Bool {
-        switch mode {
-        case .focus: trigger != .timeout
-        case .click: [.click, .keystroke, .open].contains(trigger)
-        case .keystroke: [.keystroke, .open].contains(trigger)
-        case .explicit: trigger == .open
-        case .timeout: [.open, .timeout].contains(trigger)
-        case .never: false
-        }
+        clearing[mode]?.contains(trigger) ?? false
     }
+
+    /// Each mode's clearing triggers, asked once: a focus, click or keystroke reads the table.
+    private static let clearing: [NotificationDismissal: Set<NotificationTrigger>] = {
+        struct Empty: Encodable {}
+        let table = WindowRules().call("window_notifications_clears_table", Empty(), as: [String: [String]].self) ?? [:]
+        return Dictionary(uniqueKeysWithValues: table.compactMap { mode, triggers in
+            NotificationDismissal(rawValue: mode).map { ($0, Set(triggers.compactMap(NotificationTrigger.init(rawValue:)))) }
+        })
+    }()
 
     /// What the app knows when a notification arrives.
     public struct Arrival: Hashable, Sendable {
@@ -91,47 +96,8 @@ public nonisolated struct NotificationPolicy: Sendable {
     }
 
     public func decide(_ arrival: Arrival) -> Decision {
-        var decision = Decision()
-        let mode = prefs.dismissal(for: arrival.source)
-        if prefs.suppressWhileTypingSeconds > 0, let typed = arrival.typedAgo, typed <= prefs.suppressWhileTypingSeconds {
-            decision.acknowledge = true
-            decision.attention = false
-            return decision
-        }
-        let quiet = prefs.quietHours?.contains(minuteOfDay: arrival.minuteOfDay) ?? false
-        if mode == .focus && arrival.paneIsViewed {
-            decision.acknowledge = true
-            decision.attention = false
-            // Read on sight, but `sounds.when = always` means always: the viewed pane still sounds.
-            if prefs.sounds.when == .always { chooseSound(for: arrival, quiet: quiet, into: &decision) }
-            return decision
-        }
-        if arrival.workspaceMuted { decision.attention = false }
-        if !arrival.workspaceMuted && !quiet && prefs.postsDesktop(for: arrival.source) {
-            switch prefs.desktop {
-            case .always: decision.alerts = true
-            case .unlessFocused: decision.alerts = !arrival.paneIsViewed
-            case .whenInactive: decision.alerts = !arrival.appActive
-            case .never: decision.alerts = false
-            }
-        }
-        decision.desktop = decision.alerts && arrival.bannerAllowed
-        chooseSound(for: arrival, quiet: quiet, into: &decision)
-        if mode == .timeout { decision.timeout = prefs.timeoutSeconds }
-        // A poster asking for no banner (`notify --desktop false`) gets no bounce either.
-        if decision.desktop, !arrival.appActive, prefs.dockBounce != .off { decision.bounce = prefs.dockBounce }
-        return decision
-    }
-
-    /// The arrival's sound event, and its sound when `notifications.sounds.when` plays it and
-    /// neither a muted workspace nor quiet hours silence it.
-    private func chooseSound(for arrival: Arrival, quiet: Bool, into decision: inout Decision) {
-        let event = arrival.soundEvent ?? NotificationSoundEvent(source: arrival.source, level: .info)
-        decision.soundEvent = event
-        guard !arrival.workspaceMuted, !quiet, prefs.sounds.when.plays(viewed: arrival.paneIsViewed, appActive: arrival.appActive),
-              let choice = prefs.sounds.choice(for: event, in: arrival.soundScope, fallback: prefs.sound(for: arrival.source)) else { return }
-        decision.sound = choice.name
-        decision.soundVolume = choice.volume
-        decision.soundLevel = choice.level
+        struct Request: Encodable { var prefs: NotificationPreferences.Wire, arrival: Arrival.Wire }
+        let request = Request(prefs: NotificationPreferences.Wire(prefs), arrival: Arrival.Wire(arrival))
+        return WindowRules().call("window_notifications_decide", request, as: Decision.Wire.self)?.decision ?? Decision()
     }
 }

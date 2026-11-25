@@ -18,11 +18,6 @@ public nonisolated struct NotificationSoundRule: Hashable, Sendable {
     /// True when every field inherits: the level can be removed from cmux.json.
     public var isEmpty: Bool { sound == nil && volume == nil && events.isEmpty }
 
-    /// The sound this level sets for `event`: its event's own, else its `sound`; nil inherits.
-    public func sound(for event: NotificationSoundEvent) -> String? {
-        events[event] ?? sound
-    }
-
     /// The rule as cmux.json writes it.
     public var json: JSONValue {
         var members: [String: JSONValue] = [:]
