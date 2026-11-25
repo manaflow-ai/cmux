@@ -37,3 +37,24 @@ fn spans_become_chrome_trace_events_with_the_parents_trace_id() {
     assert_eq!(events[1]["name"], "close_tab");
     assert_eq!(events[1]["ph"], "X");
 }
+
+#[test]
+fn a_request_carries_the_callers_trace_id_into_its_steps() {
+    let params = serde_json::json!({"_meta": {"traceId": "phone-close-7"}, "tab": 3});
+    assert_eq!(super::trace_id_of(Some(&params)), Some("phone-close-7"));
+    assert_eq!(super::trace_id_of(Some(&serde_json::json!({}))), None);
+    assert_eq!(super::trace_id_of(None), None);
+
+    let buf = Buf::default();
+    let sub = tracing_subscriber::registry().with(PerfTraceLayer::new(buf.clone()));
+    tracing::subscriber::with_default(sub, || {
+        let span = super::request_span("tab.close", Some(&params));
+        let _g = span.enter();
+        drop(tracing::info_span!("journal_sync").entered());
+    });
+    let text = String::from_utf8(buf.0.lock().unwrap().clone()).unwrap();
+    let json = format!("{}]", text.trim_end().trim_end_matches(','));
+    let events: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
+    assert_eq!(events[0]["args"]["trace_id"], "phone-close-7");
+    assert_eq!(events[1]["args"]["method"], "tab.close");
+}

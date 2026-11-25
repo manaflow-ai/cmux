@@ -59,6 +59,17 @@ pub fn from_env() -> Option<PerfTraceLayer<std::io::BufWriter<std::fs::File>>> {
     Some(PerfTraceLayer::new(std::io::BufWriter::new(file)))
 }
 
+/// The caller's end-to-end id on a request: `params._meta.traceId` (the Mac and the phone mint
+/// one per user action and send it on every request that action makes).
+pub fn trace_id_of(params: Option<&serde_json::Value>) -> Option<&str> {
+    params?.get("_meta")?.get("traceId")?.as_str().filter(|t| !t.is_empty() && t.len() <= 128)
+}
+
+/// The span one RPC request runs in; its `trace_id` is empty when the caller sent none.
+pub fn request_span(method: &str, params: Option<&serde_json::Value>) -> tracing::Span {
+    tracing::info_span!("rpc", method = method, trace_id = trace_id_of(params).unwrap_or(""))
+}
+
 fn thread_id() -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
