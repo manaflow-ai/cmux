@@ -2,6 +2,9 @@ import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
+#if canImport(CmuxEgress)
+import CmuxEgress
+#endif
 
 public enum CmxCredentialedHTTPSessionError: Error, Equatable, Sendable {
     case responseTooLarge
@@ -33,11 +36,13 @@ public final class CmxCredentialedHTTPSession: @unchecked Sendable {
         // A limit below one byte accepts only an empty body; any byte throws
         // `responseTooLarge`, so no limit value can trap.
         self.maximumResponseByteCount = maximumResponseByteCount
-        session = URLSession(
-            configuration: configuration,
-            delegate: redirectDelegate,
-            delegateQueue: nil
-        )
+        #if canImport(CmuxEgress)
+        // Broker requests carry bearer and refresh tokens: an unlisted host is refused before any byte leaves.
+        session = CmuxEgress.session(site: "CMUXMobileCore.CmxCredentialedHTTPSession", configuration: configuration,
+                                     delegate: redirectDelegate)
+        #else
+        session = URLSession(configuration: configuration, delegate: redirectDelegate, delegateQueue: nil)
+        #endif
     }
 
     public func data(for request: URLRequest) async throws -> (Data, URLResponse) {

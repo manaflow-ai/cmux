@@ -359,6 +359,8 @@ public protocol AgentVoiceSource: AnyObject {
     func startVoiceFeed(_ speak: @escaping @MainActor (String) -> Void) -> AgentVoiceFeed
     /// Whether voice mode is offered now (a terminal only while an agent runs in it).
     var voiceAvailable: Bool { get }
+    /// The Mac whose link carries the session (it stays unparked while voice mode runs).
+    var voiceMacID: String? { get }
     /// The user's words as a prompt to the agent. Returns nil when sent, or
     /// what to tell the user when it was not (it is read aloud).
     func sendVoicePrompt(_ text: String) -> String?
@@ -366,6 +368,7 @@ public protocol AgentVoiceSource: AnyObject {
 
 public extension AgentVoiceSource {
     var voiceAvailable: Bool { true }
+    var voiceMacID: String? { nil }
 }
 
 /// Keeps a voice feed running; cancelling (or dropping) it stops the feed.

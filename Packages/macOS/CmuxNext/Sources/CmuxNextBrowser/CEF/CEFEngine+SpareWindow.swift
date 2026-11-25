@@ -69,6 +69,16 @@ extension CEFEngine {
         CEFRuntime.shared.spareWindow.holdPages(held)
     }
 
+    /// A web tab is likely soon (`ChromiumWarmup.webTabLikely`): a web spare window and page released while no
+    /// web page was live (`CEFSpareWindow.webPagesChanged`) are asked for again at the next idle moment.
+    public func webPageLikely() {
+        CEFRuntime.shared.spareWindow.webPageLikely(runtime: .shared)
+    }
+
+    /// `held`, `pending` (no web page is live; the quiet period runs) or `released` (the web spare window and
+    /// page closed while no web page is live) (`debug.cef` `spare_release`).
+    public var spareReleaseState: String { CEFRuntime.shared.spareWindow.releaseState }
+
     /// `none`, `creating`, `live`, `taken` or `closed` (`debug.cef`).
     public var spareWindowState: String { CEFRuntime.shared.spareWindow.state.rawValue }
 

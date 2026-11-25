@@ -69,7 +69,7 @@ fn par_filter(phase: &str, ids: &[String], each: impl Fn(&str) -> bool + Sync) -
                     let Some(id) = ids.get(i) else { break };
                     *kept[i].lock().unwrap() = each(id);
                     let n = done.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-                    if n % 100 == 0 || n == ids.len() {
+                    if n.is_multiple_of(100) || n == ids.len() {
                         eprintln!(
                             "{phase}: {n}/{} in {:.0}s",
                             ids.len(),

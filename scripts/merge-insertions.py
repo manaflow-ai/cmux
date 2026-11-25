@@ -14,7 +14,11 @@ all of ours and then all of theirs. Every other conflict (a line both sides chan
 against a change) stays an ordinary conflict for the author. A .json or .toml
 result, settled or clean, that no longer parses or names a key twice is written
 back as the plain line merge and left conflicted, so a missing comma or a
-doubled key never merges silently.
+doubled key never merges silently. When the line merge of such a file is clean, so
+git wrote no markers, the line the parser stops at is marked as the conflict and the
+reason is said on stderr, with the side that was already malformed before the merge
+(cmux#50003: the base held `cmux-deadline` twice in one Cargo.toml, and every branch
+merging it got a file with a conflict status, no markers and no reason).
 
 A .plist or .mobileconfig result must still be well-formed XML the same way.
 
@@ -197,9 +201,10 @@ def unique_keys(pairs):
     return dict(pairs)
 
 
-def parses(path: str, text: bytes) -> bool:
-    """A .json result must parse with no key twice in one object (both sides added the same
-    key); .toml rejects a repeated key itself."""
+def parse_error(path: str, text: bytes) -> tuple[str, int | None] | None:
+    """Why a .json, .toml or .plist text is no result, with the 1-based line the parser stopped
+    at when it names one; None when the text is fine. A .json result must parse with no key
+    twice in one object (both sides added the same key); .toml rejects a repeated key itself."""
     try:
         if path.endswith(".json"):
             json.loads(text, object_pairs_hook=unique_keys)
@@ -210,9 +215,37 @@ def parses(path: str, text: bytes) -> bool:
             # Well-formed XML, not plistlib: the Intune plist is a fragment (key and value elements, no root).
             whole = text.lstrip().startswith((b"<?xml", b"<!DOCTYPE"))
             xml.parsers.expat.ParserCreate().Parse(text if whole else b"<fragment>" + text + b"</fragment>", True)
-    except (ValueError, UnicodeDecodeError, ImportError, xml.parsers.expat.ExpatError):
-        return False
-    return True
+    except ImportError:
+        return "this python3 has no tomllib (3.11+) to check it with", None
+    except xml.parsers.expat.ExpatError as error:
+        return str(error), error.lineno
+    except (ValueError, UnicodeDecodeError) as error:
+        line = getattr(error, "lineno", None)
+        if line is None:
+            named = re.search(r"\(at line (\d+)", str(error))  # tomllib says it only in the message
+            line = int(named.group(1)) if named else None
+        return str(error), line
+    return None
+
+
+def mark_unparsed(merged: bytes, ours: bytes, theirs: bytes, line: int | None, size: int) -> bytes:
+    """A line merge that is clean but does not parse, with standard markers: around the line the
+    parser stopped at, under the side or sides that hold that line, or around both sides whole
+    when the parser names no line."""
+    start, mid, end = (c * size for c in (b"<", b"=", b">"))
+    lines = merged.splitlines(keepends=True)
+
+    def block(ours_part: list[bytes], theirs_part: list[bytes]) -> list[bytes]:
+        for part in (ours_part, theirs_part):
+            if part and not part[-1].endswith(b"\n"):
+                part[-1] += b"\n"
+        return [start + b" ours\n", *ours_part, mid + b"\n", *theirs_part, end + b" theirs\n"]
+
+    if line is None or not 1 <= line <= len(lines):
+        return b"".join(block(ours.splitlines(keepends=True), theirs.splitlines(keepends=True)))
+    bad = lines[line - 1]
+    sides = [[bad] if bad.strip() in {row.strip() for row in side.splitlines()} else [] for side in (ours, theirs)]
+    return b"".join(lines[:line - 1] + block(*sides) + lines[line:])
 
 
 # TypeScript: two branches that each import a new name from one module both change that
@@ -461,8 +494,25 @@ def main(argv: list[str]) -> int:
     # different places), must parse with no key twice, and a python3 with no tomllib
     # cannot say it does. Otherwise it is git's plain merge, marked conflicted for the
     # author, even when a side was already malformed.
-    if remaining == 0 and not parses(path, result):
-        result, remaining = plain_merge(ours, base, theirs, size)[0], 1
+    error = parse_error(path, result) if remaining == 0 else None
+    if error:
+        why, line = error
+        with open(ours, "rb") as handle:
+            our_text = handle.read()
+        with open(theirs, "rb") as handle:
+            their_text = handle.read()
+        plain, status = plain_merge(ours, base, theirs, size)
+        if status == 0 or status > 127:
+            # No hunk for git to mark: the two sides' lines merge, the file they make does not parse.
+            plain = mark_unparsed(result, our_text, their_text, line, size)
+        result, remaining = plain, 1
+        if not generated:
+            broken = [name for name, text in (("this branch's copy", our_text), ("the copy being merged in", their_text))
+                      if parse_error(path, text)]
+            already = (f"; {' and '.join(broken)} already did not parse before this merge, so fix it there too"
+                       if broken else "")
+            print(f"cmux merge: {path}: the merged file does not parse ({why}){already}. It is left as a conflict "
+                  "with markers at the line to fix.", file=sys.stderr)
     if remaining and generated:
         # %A already holds this branch's copy: leave it, and say so.
         print(f"cmux merge: {path}: both sides rebuilt this generated file and their copies do not merge; kept "
