@@ -34,6 +34,8 @@ pub struct Session {
     /// The applied machine.toml's idle window (cmux-cloud-start-core `machine_config::idle`), read
     /// on each workload probe; None while the file declares none.
     idle_window: Option<u64>,
+    /// The pressure probe's last block (`pressure.rs`); None until it reads.
+    pressure: Option<super::pressure::Pressure>,
     /// This service is the restart a flip or a rollback queued: the reports say degraded until
     /// the restarted session host answers `identify` ([`Session::after_restart`]).
     awaiting_daemon: bool,
@@ -194,6 +196,7 @@ impl Session {
             stream_live: false,
             workload: None,
             idle_window: None,
+            pressure: None,
             awaiting_daemon: false,
             wake: WakeEcho::default(),
         }
@@ -310,6 +313,7 @@ impl Session {
         );
         activity.workload = self.workload.as_ref().map(Workload::to_json);
         activity.idle_window_seconds = self.idle_window;
+        activity.pressure = self.pressure.as_ref().map(super::pressure::Pressure::to_json);
         activity
     }
 
@@ -361,6 +365,17 @@ impl Session {
             return Vec::new();
         }
         self.idle_window = seconds;
+        let activity = self.activity();
+        self.reporter.set_activity(activity, true, now).into_iter().collect()
+    }
+
+    /// A change the pressure probe saw (`pressure.rs` only returns changes): a report goes at
+    /// once (within the reporter's 10 s spacing), so the Cloud sizes a starved machine in seconds.
+    pub fn pressure(&mut self, seen: super::pressure::Pressure, now: u64) -> Vec<OpRequest> {
+        if self.pressure == Some(seen) {
+            return Vec::new();
+        }
+        self.pressure = Some(seen);
         let activity = self.activity();
         self.reporter.set_activity(activity, true, now).into_iter().collect()
     }
@@ -1186,6 +1201,30 @@ mod tests {
         assert!(!cap(&r[0]));
         assert!(r[0].params["activity"].get("workload").is_none());
         assert!(s.workload(None, 160_000).is_empty());
+    }
+
+    /// The pressure probe's change reaches the next report as `activity.pressure`; the same
+    /// block again sends nothing (RFD 0133: the Cloud grows a starved machine within seconds).
+    #[test]
+    fn a_pressure_change_reaches_the_report_and_a_repeat_does_not() {
+        use super::super::pressure::Pressure;
+        let mut s = session();
+        let send = |s: &mut Session, mut r: Vec<OpRequest>, now: u64| {
+            r.extend(s.fire(now));
+            for req in &r {
+                s.answered(req, &ok(), now, 0.5);
+            }
+            r
+        };
+        let start = s.start(0);
+        let r = send(&mut s, start, 0);
+        assert!(r[0].params["activity"].get("pressure").is_none());
+        let low = Pressure { memory_low: true, oom_rise_at: Some(7) };
+        let r = s.pressure(low, 20_000);
+        let r = send(&mut s, r, 20_000);
+        assert_eq!(r.len(), 1);
+        assert_eq!(r[0].params["activity"]["pressure"], json!({"memory": "low", "oom_rise_at": 7}));
+        assert!(s.pressure(low, 40_000).is_empty(), "nothing changed");
     }
 
     /// A lane's machine.toml window (300 s) rides in every report's activity once read, and a

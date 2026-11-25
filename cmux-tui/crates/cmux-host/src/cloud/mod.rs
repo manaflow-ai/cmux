@@ -19,6 +19,8 @@
 //!   listening sockets and timers that are not the system's ([`workload`]),
 //!   reported as `activity.workload` with `activity-workload` while it reads;
 //!   the Cloud reads a machine as idle only when it counts none;
+//! - pressure: every second available memory and the OOM-kill count ([`pressure`]), reported
+//!   as `activity.pressure` when either crosses a line, so the Cloud sizes the machine at once;
 //! - resume: the supervisor's `Resumed` event (clock-set wake, id
 //!   confirmed) sends one report named `resume`.
 //!
@@ -86,6 +88,7 @@ mod mcp_call_tests;
 pub mod page_cache;
 #[cfg(target_os = "linux")]
 mod poster_http;
+pub mod pressure;
 #[cfg(target_os = "linux")]
 pub mod role;
 pub mod sender;

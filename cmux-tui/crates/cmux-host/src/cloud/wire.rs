@@ -377,6 +377,10 @@ pub struct Activity {
     /// `machine_config::idle`; a lane: 300 s): the Cloud pauses it this long after its last
     /// activity (cmux-platform `domain/Pause.ts`). None: the file declares none.
     pub idle_window_seconds: Option<u64>,
+    /// The agent's pressure probe (`pressure.rs`): `{"memory": "low"|"ok", "oom_rise_at"?}`.
+    /// cmux-platform wakes the machine's sizer (`AutoSize.ts`) when it reads pressure, instead of
+    /// waiting for its next once-a-minute sample. None until the probe reads.
+    pub pressure: Option<Value>,
 }
 
 impl Activity {
@@ -405,6 +409,9 @@ impl Activity {
         if let Some(seconds) = self.idle_window_seconds {
             out.insert("idle_window_seconds".to_owned(), json!(seconds));
         }
+        if let Some(pressure) = &self.pressure {
+            out.insert("pressure".to_owned(), pressure.clone());
+        }
         Value::Object(out)
     }
 }
@@ -429,6 +436,7 @@ impl Activity {
             last_person_prompt_at: acp_prompt_at,
             workload: self.workload.clone(),
             idle_window_seconds: self.idle_window_seconds,
+            pressure: self.pressure.clone(),
         }
     }
 }
