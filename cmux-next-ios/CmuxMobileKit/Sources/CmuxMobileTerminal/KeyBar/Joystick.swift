@@ -201,7 +201,7 @@ struct Joystick: View {
     let engine: JoystickEngine
 
     var body: some View {
-        // Classic cmux iOS's arrow nub, at the key row's 44 pt: a circle with a 12 pt dot.
+        // Classic cmux iOS's arrow nub: a 28 pt circle (the key row's height) with a 12 pt dot.
         let size = JoystickGeometry.circle
         Circle()
             .fill(Color.white.opacity(0.9))

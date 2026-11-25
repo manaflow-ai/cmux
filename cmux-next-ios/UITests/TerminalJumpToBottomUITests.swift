@@ -108,7 +108,7 @@ final class TerminalJumpToBottomUITests: XCTestCase {
         let hide = app.buttons["Hide Toolbar"]
         let window = app.windows.firstMatch.frame
         let rowY = (keyboardKey.frame.midY - window.minY) / window.height
-        // 44 pt keys: the row is ~1900 pt wide, so a few more drags than the old 28 pt row took.
+        // The row is ~1240 pt wide: up to 16 drags reach its end.
         for _ in 0..<16 where !(hide.exists && hide.isHittable) {
             app.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: rowY))
                 .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.38, dy: rowY)))
