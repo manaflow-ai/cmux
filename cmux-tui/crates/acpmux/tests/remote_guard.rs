@@ -717,9 +717,11 @@ fn with_via(mut p: Value, via: Option<&str>) -> Value {
 
 type Caller = (&'static str, Origin, acpmux::server::ConnAuth, Option<&'static str>);
 
-fn not_the_owner() -> [Caller; 5] {
+fn not_the_owner() -> [Caller; 6] {
     use acpmux::server::ConnAuth;
     [
+        // A control the mesh hub relayed under a grant below approve-all (`maxPolicy`).
+        ("hub-relayed control", Origin::Peer, ConnAuth::MeshControl, None),
         ("web", Origin::Web, ConnAuth::ListenerToken, None),
         ("web claims app", Origin::Web, ConnAuth::ListenerToken, Some("app")),
         ("paired device", Origin::Peer, ConnAuth::Device, None),
@@ -791,4 +793,31 @@ async fn the_owners_daemon_starts_this_machines_own_chat_and_no_one_else_does() 
         assert_eq!(meta.permission_policy, None, "{what}: no forced ask");
         assert_eq!(meta.harness, "plain", "{what}");
     }
+}
+
+/// A control the mesh hub relayed under a `meshRelay.controlFrom` entry below approve-all
+/// (`ConnAuth::MeshControl`) is a remote start: a remote chain that settles into `ask`, and an
+/// approve-all start is refused on this proof whatever it names.
+#[tokio::test]
+async fn a_hub_relayed_start_below_the_owners_grant_starts_asking_and_never_approve_all() {
+    use acpmux::server::ConnAuth;
+    let hub = owner_hub();
+    let cwd = std::env::temp_dir().to_string_lossy().into_owned();
+    let mut relayed = Client::authed(&hub, Origin::Peer, ConnAuth::MeshControl);
+    let r = relayed.call("session/new", new_session(&cwd, json!({}))).await;
+    let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}"));
+    let meta = hub.resolve(id).unwrap().meta();
+    assert!(meta.remote_origin, "a relayed start is a remote chain");
+    assert_eq!(meta.permission_policy.as_deref(), Some("ask"), "not the approve-all default");
+    let before = hub.sessions().len();
+    for asked in [
+        json!({"policy": "approve-all"}),
+        json!({"policy": "yolo"}),
+        json!({"_meta": {"acpmux": {"policy": "approve-all"}}}),
+        json!({"_meta": {"acpmux": {"policy": "yolo"}}}),
+    ] {
+        let r = relayed.call("session/new", new_session(&cwd, asked.clone())).await;
+        assert!(r.get("error").is_some(), "{asked}: {r}");
+    }
+    assert_eq!(hub.sessions().len(), before, "a refused start makes nothing");
 }

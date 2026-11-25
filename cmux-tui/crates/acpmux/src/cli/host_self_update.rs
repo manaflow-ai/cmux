@@ -30,6 +30,8 @@
 //! `host update`, `host setup` and `host enroll --fix` from another machine
 //! take the same lease, so no two updates replace the binary or
 //! `acpmux.prev` at once.
+//! After acpmux's step, the cmux-tui beside it (the one the `chief` harness
+//! runs) is brought to the same R2 tree (`host_self_update_tui.rs`).
 
 use super::super::host_auto_update::NO_AUTO_UPDATE;
 use super::super::host_lock::Lease;
@@ -52,6 +54,13 @@ use std::process::{Child, Command, Stdio};
 #[path = "host_self_update_rd.rs"]
 pub(super) mod rd;
 use rd::{RdOutcome, RdPaths};
+
+#[path = "host_self_update_tui.rs"]
+pub(super) mod tui;
+
+#[path = "host_update_watch.rs"]
+pub(super) mod watch;
+use tui::{TuiOutcome, TuiSource};
 
 /// Where CI publishes the cmux-tui builds: public, no credentials.
 const FILES: &str = "https://files.cmux.com/cmux-tui";
@@ -374,6 +383,10 @@ pub(super) struct Paths {
     /// cmux-rd, the screen host's program, kept on the channel's build too
     /// (`host_self_update_rd.rs`); None leaves it alone.
     pub(super) rd: Option<RdPaths>,
+    /// The cmux-tui beside the installed acpmux, the one the `chief` harness runs
+    /// (`config::discover::add_chief`), kept on the channel's tree after acpmux's step
+    /// (`host_self_update_tui.rs`); None leaves it alone.
+    pub(super) tui: Option<PathBuf>,
     /// Install the channel's build even when the installed one is built from
     /// a newer commit (`--allow-downgrade`: pulling a bad channel build back).
     /// Off, the host keeps a newer build ([`apply`]).
@@ -386,8 +399,10 @@ impl Paths {
             local_target().ok_or_else(|| anyhow!("no acpmux build runs on this platform"))?;
         let user = dirs::home_dir().ok_or_else(|| anyhow!("this user has no home folder"))?;
         let home = crate::config::default_home();
+        let installed = user.join(".local/bin/acpmux");
         Ok(Paths {
-            installed: user.join(".local/bin/acpmux"),
+            tui: Some(installed.with_file_name("cmux-tui")),
+            installed,
             off: home.join(NO_AUTO_UPDATE),
             rd: RdPaths::here(&user, &home, target, now),
             allow_downgrade,
@@ -423,6 +438,9 @@ pub(super) struct Plan {
     pub(super) picked: Picked,
     /// [`Paths::allow_downgrade`].
     allow_downgrade: bool,
+    /// The R2 channel's tree for cmux-tui ([`tui::refresh`] after acpmux's step), or why the
+    /// channel could not be read.
+    pub(super) tui_source: Result<TuiSource, String>,
     /// `update/<sha256>/`, holding the checked `acpmux-<target>`.
     dir: PathBuf,
     /// The host's update lease, held until the plan is dropped.
@@ -472,6 +490,10 @@ pub(super) async fn prepare(
             Channel::parse(&body).map_err(|e| format!("the {channel} channel ({url}): {e:#}"))
         }
     };
+    let tui_source = match &feed {
+        Ok(feed) => Ok(TuiSource::of(feed, paths.target)),
+        Err(why) => Err(why.clone()),
+    };
     // cmux-rd first: a restart of acpmux below never waits on it, and its
     // outcome never fails acpmux's update.
     let rd = match (&paths.rd, &feed) {
@@ -504,6 +526,7 @@ pub(super) async fn prepare(
                             rd,
                             picked,
                             allow_downgrade: paths.allow_downgrade,
+                            tui_source,
                             dir: downloads.join(&marker.sha256),
                             lease,
                         }));
@@ -529,7 +552,7 @@ pub(super) async fn prepare(
         && let Some(why) = same_commit(bytes, &feed.commit, None)
     {
         picked.kept_installed = Some(why);
-        return kept(paths, &downloads, bytes, feed.commit, rd, picked, lease);
+        return kept(paths, &downloads, bytes, feed.commit, rd, picked, tui_source, lease);
     }
     let from = Origin::R2(&feed);
     let step = match choose(paths, fetch, &downloads, installed.as_deref(), &sha, from).await? {
@@ -546,7 +569,7 @@ pub(super) async fn prepare(
             r2s.as_deref().and_then(|r2s| same_commit(bytes, &feed.commit, Some(r2s)))
         {
             picked.kept_installed = Some(why);
-            return kept(paths, &downloads, bytes, feed.commit, rd, picked, lease);
+            return kept(paths, &downloads, bytes, feed.commit, rd, picked, tui_source, lease);
         }
     }
     Ok(Prepared::Ready(Plan {
@@ -557,6 +580,7 @@ pub(super) async fn prepare(
         rd,
         picked,
         allow_downgrade: paths.allow_downgrade,
+        tui_source,
         lease,
     }))
 }
@@ -581,6 +605,7 @@ fn same_commit(installed: &[u8], channel_commit: &str, r2s: Option<&[u8]>) -> Op
 
 /// A plan that keeps the installed binary ([`Step::Current`], its own
 /// download folder): the update still finishes a restart an earlier run left.
+#[allow(clippy::too_many_arguments)]
 fn kept(
     paths: &Paths,
     downloads: &Path,
@@ -588,6 +613,7 @@ fn kept(
     commit: String,
     rd: RdOutcome,
     picked: Picked,
+    tui_source: Result<TuiSource, String>,
     lease: Lease,
 ) -> Result<Prepared> {
     let sha = crate::sha256::sha256_hex(bytes);
@@ -600,6 +626,7 @@ fn kept(
         rd,
         picked,
         allow_downgrade: paths.allow_downgrade,
+        tui_source,
         dir,
         lease,
     }))
@@ -799,6 +826,32 @@ pub(super) fn apply(
     up
 }
 
+/// After acpmux's step (`up`), bring the cmux-tui beside acpmux ([`Paths::tui`]) to the R2
+/// channel's tree ([`tui::refresh`]), still under the plan's lease. Only when that step left the
+/// channel's build running: `updated`, or `current` but not on a newer installed build; a
+/// rollback, failure or held restart leaves cmux-tui with the acpmux that still runs.
+pub(super) async fn refresh_tui(
+    paths: &Paths,
+    fetch: &dyn Fetch,
+    plan: &Plan,
+    up: &PeerUpdate,
+) -> TuiOutcome {
+    let Some(tui) = &paths.tui else { return TuiOutcome::Absent };
+    let follows = match up.outcome {
+        Outcome::Updated => true,
+        Outcome::Current => up.reason.as_deref() != Some(super::NEWER_INSTALLED),
+        _ => false,
+    };
+    if !follows {
+        if !tui.is_file() {
+            return TuiOutcome::Absent;
+        }
+        let reason = up.reason.as_deref().map(|r| format!(", {r}")).unwrap_or_default();
+        return TuiOutcome::Skipped(format!("acpmux's step was {}{reason}", up.outcome.as_str()));
+    }
+    tui::refresh(tui, fetch, &plan.tui_source, paths.target).await
+}
+
 /// The file in [`REMOTE_HOME`] that turns [`idle_restart`] off when it says
 /// `0` (else `ACPMUX_UPDATE_IDLE_RESTART` in the timer's environment).
 pub(crate) const IDLE_RESTART_FILE: &str = "update.idle-restart";
@@ -946,7 +999,9 @@ impl Remote for LocalRemote {
 /// "updated": [ROW]}`: `source` is `controller` (the build controller's
 /// marker) or `r2` (the channel file), `markerSkipped` says why the marker
 /// was not used, and `keptInstalled` why an installed build of the R2
-/// channel's commit (most likely the controller's) was kept. With automatic updates off, another update of this
+/// channel's commit (most likely the controller's) was kept; `cmuxRd` and `cmuxTui`
+/// (`{"outcome", "message"}`) say what happened to cmux-rd and to the cmux-tui beside acpmux
+/// (`host_self_update_tui.rs`), never failing the row. With automatic updates off, another update of this
 /// host running, or the chosen build rolled back here before, nothing
 /// happens: `{"channel", "skipped": "off" | "locked" | "rolledBack",
 /// "message", "updated": []}` (`rolledBack` with `source` and
@@ -992,6 +1047,7 @@ pub(crate) async fn self_update(
         Prepared::Ready(plan) => plan,
     };
     let up = apply(&LocalRemote, &plan, paths.target, now);
+    let tui = refresh_tui(&paths, &R2_FETCH, &plan, &up).await;
     let name = crate::hand::pair::hostname();
     if json_out {
         print_json(&json!({
@@ -1003,6 +1059,7 @@ pub(crate) async fn self_update(
             "keptInstalled": plan.picked.kept_installed,
             "updated": [up.to_json(&name, LocalRemote.host())],
             "cmuxRd": plan.rd.json(),
+            "cmuxTui": tui.json(),
         }));
     } else {
         if up.outcome.failed() {
@@ -1011,6 +1068,9 @@ pub(crate) async fn self_update(
             println!("{name} (local): {}", up.line());
         }
         print_rd(&plan.rd, false);
+        if let Some(line) = tui.line() {
+            println!("{line}");
+        }
     }
     if up.outcome.failed() {
         // crash-allow: the row above is the whole output; exit 1 is the documented failure code, as in `host update`

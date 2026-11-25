@@ -333,12 +333,12 @@ mod tests {
         hub.goal_update(&other, Reported::Complete, None).unwrap();
         assert_eq!(other.meta.lock().unwrap().goal.as_ref().unwrap().lifecycle(), "done");
 
-        // A harness's own goal (a Claude plan) is never replaced by one.
+        // A harness's own goal (Codex's) is never replaced by one.
         let planned = chat(&hub);
-        let plan = crate::goal::GoalState::from_plan_update(&json!({
-            "sessionUpdate": "plan",
-            "entries": [{"content": "Fix it", "status": "in_progress", "priority": "high"}]
-        }))
+        let plan = crate::goal::GoalState::from_value(
+            &json!({"objective": "Fix it", "status": "active"}),
+            Some("codex"),
+        )
         .unwrap();
         planned.meta.lock().unwrap().goal = Some(plan.clone());
         assert!(hub.goal_update(&planned, Reported::Blocked, Some("waits")).is_err());
