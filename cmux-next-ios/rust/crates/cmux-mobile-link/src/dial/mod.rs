@@ -1053,6 +1053,7 @@ mod tests {
         }
     }
 
+    #[test]
     fn a_peer_is_on_this_network_a_tailnet_or_the_internet() {
         let ip = |text: &str| Some(text.parse::<std::net::IpAddr>().unwrap());
         // A Mac on the phone's own wifi or ethernet.
