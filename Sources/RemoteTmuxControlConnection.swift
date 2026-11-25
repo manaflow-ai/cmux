@@ -196,7 +196,7 @@ final class RemoteTmuxControlConnection {
     /// build protocol-anchored state machines on that guarantee.
     var trackedSendCompletions: [UUID: (Bool) -> Void] = [:]
 
-    private var process: Process?
+    private(set) var process: Process?
     /// Cleanup belongs to the ended spawn, and must finish even if a replacement
     /// stream starts or the last mirror releases this connection in the meantime.
     private var processTerminationTasks: [UUID: Task<Void, Never>] = [:]

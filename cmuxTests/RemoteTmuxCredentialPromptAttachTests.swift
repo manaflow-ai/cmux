@@ -145,13 +145,18 @@ struct RemoteTmuxCredentialPromptAttachTests {
             host: RemoteTmuxHost(destination: "user@host"), sessionName: "work", transportProfile: transport)
         defer { connection.stop() }
         let states = Self.stateChanges(of: connection)
+        var exits = 0
+        let exitToken = connection.addObserver(onExit: { exits += 1 })
 
         try connection.start()
 
         #expect(await Self.awaitState(.ended, in: states.stream), "the attempt was left waiting at the prompt")
+        #expect(connection.process == nil, "the process waiting at the prompt must be torn down")
+        #expect(exits == 1, "the attach's caller learns the connection ended")
         #expect(!connection.isAwaitingCredentials)
         #expect(!connection.awaitingInteractiveAuth)
         connection.removeObserver(states.token)
+        connection.removeObserver(exitToken)
     }
 
     /// A refused reconnect attempt that sits on a prompt must be torn down and retried, so the next
