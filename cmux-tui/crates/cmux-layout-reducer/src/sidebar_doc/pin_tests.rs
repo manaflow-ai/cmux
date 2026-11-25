@@ -131,6 +131,24 @@ fn batch_unpin_restores_sibling_order_for_either_selection_order() {
 }
 
 #[test]
+fn separate_unpin_restores_sibling_order_for_either_selection_order() {
+    for unpins in [["w2", "w3"], ["w3", "w2"]] {
+        let mut doc = fixture();
+        for id in ["w2", "w3"] {
+            run(&mut doc, vec![Op::Pin { items: vec![item_id(id)] }]);
+        }
+        for id in unpins {
+            run(&mut doc, vec![Op::Unpin { items: vec![item_id(id)] }]);
+        }
+        assert_eq!(
+            list(&doc, &machine(), Some("g1")),
+            ["w1", "w2", "w3"],
+            "separate unpins {unpins:?}"
+        );
+    }
+}
+
+#[test]
 fn batch_unpin_returns_a_group_before_its_separately_pinned_child() {
     let mut doc = fixture();
     run(&mut doc, vec![Op::Pin { items: vec![item_id("w2")] }]);

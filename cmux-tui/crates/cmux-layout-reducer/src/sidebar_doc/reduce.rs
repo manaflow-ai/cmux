@@ -1092,22 +1092,47 @@ fn remembered_place(doc: &Doc, item: &Item, machine: &str) -> Option<Target> {
     {
         return None;
     }
-    let target = match remembered.get("after").and_then(Value::as_str) {
-        None => {
-            Some(Target { section: section.into(), parent, index: Some(0), ..Target::default() })
+    let after = remembered.get("after").and_then(Value::as_str);
+    let anchor = after.and_then(|id| doc.item(id)).filter(|anchor| {
+        anchor.id != item.id && anchor.section == section && anchor.parent == parent
+    });
+    if after.is_some() && anchor.is_none() {
+        return None;
+    }
+
+    // Separate Unpin operations can share one remembered anchor. If the first
+    // sibling is restored with no high neighbor, its generated order key is
+    // after the anchor but before the later sibling's saved key. Use the saved
+    // key to stop before the first existing sibling that originally followed
+    // this item; otherwise a later restore would be inserted before the first.
+    let before = remembered.get("order").and_then(Value::as_str).and_then(|saved| {
+        let list = doc.list_entries(section, parent.as_deref())?;
+        let mut past_anchor = anchor.is_none();
+        list.iter().find_map(|(order, id)| {
+            if !past_anchor {
+                past_anchor = anchor.is_some_and(|anchor| anchor.id == *id);
+                return None;
+            }
+            (id != &item.id && order.as_str() >= saved).then_some(id.clone())
+        })
+    });
+    let target = match before {
+        Some(before) => {
+            Target { section: section.into(), parent, before: Some(before), ..Target::default() }
         }
-        Some(after) => {
-            let anchor = doc.item(after)?;
-            (anchor.id != item.id && anchor.section == section && anchor.parent == parent).then(
-                || Target {
-                    section: section.into(),
-                    parent,
-                    after: Some(after.into()),
-                    ..Target::default()
-                },
-            )
-        }
-    }?;
+        None => match anchor {
+            Some(anchor) => Target {
+                section: section.into(),
+                parent,
+                after: Some(anchor.id.clone()),
+                ..Target::default()
+            },
+            None => {
+                let index = remembered.get("order").is_none().then_some(0);
+                Target { section: section.into(), parent, index, ..Target::default() }
+            }
+        },
+    };
     validate_placement(
         doc,
         std::slice::from_ref(&item.id),
