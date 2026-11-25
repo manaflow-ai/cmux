@@ -202,8 +202,8 @@ pub(crate) fn plan(
     }
 }
 
+/// Unknown fields are ignored, so an older or newer page still talks to this daemon.
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct SetParams {
     id: String,
     on: bool,
@@ -211,7 +211,6 @@ struct SetParams {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct ListParams {}
 
 fn decode<T: for<'de> Deserialize<'de>>(params: Map<String, Value>) -> Result<T, ResourceError> {

@@ -1519,7 +1519,7 @@ code {
 .apps-features {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 24px;
   padding: 12px var(--page-edge) 24px;
 }
 
@@ -1549,8 +1549,8 @@ code {
   display: flex;
   align-items: center;
   gap: 12px;
-  min-height: 36px;
-  padding: 6px 12px;
+  min-height: 32px;
+  padding: 4px 12px;
 }
 
 .apps-features[data-features-style="list"] .apps-feature + .apps-feature {
@@ -1567,7 +1567,7 @@ code {
 .apps-feature-title {
   color: var(--page-text);
   font-size: var(--text-detail);
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .apps-feature-summary,
@@ -1585,10 +1585,9 @@ code {
 
 .apps-features[data-features-style="tiles"] .apps-feature {
   align-items: flex-start;
-  min-height: 64px;
-  padding: 10px 12px;
+  padding: 8px 12px;
   border: 1px solid var(--page-separator);
-  border-radius: 10px;
+  border-radius: 8px;
 }
 
 .apps-features[data-features-style="tiles"] .apps-feature[data-on] {
@@ -1598,7 +1597,7 @@ code {
 .apps-features[data-features-style="chips"] .apps-features-list {
   flex-direction: row;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 4px;
   border: 0;
 }
 
@@ -1608,7 +1607,7 @@ code {
 }
 
 .apps-feature-chip {
-  padding: var(--grid-half-step) 10px;
+  padding: var(--grid-half-step) 8px;
   border: 1px solid var(--page-separator);
   border-radius: 999px;
   background: transparent;
