@@ -11,7 +11,7 @@
 //! WireGuard tunnel are left to the live probe: neither runs in CI.
 #![cfg(target_os = "linux")]
 
-use crate::carrier_support;
+mod carrier_support;
 
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::fs::PermissionsExt as _;

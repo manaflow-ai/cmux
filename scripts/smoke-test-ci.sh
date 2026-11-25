@@ -29,7 +29,7 @@ for _ in $(seq 1 100); do
   sleep 0.1
 done
 if pgrep -x "cmux DEV" >/dev/null 2>&1; then
-  echo "ERROR: an old cmux DEV instance did not exit within 10s of the signal"
+  echo "ERROR: an old cmux DEV instance did not exit within 10s of pkill"
   pgrep -lx "cmux DEV" || true
   exit 1
 fi

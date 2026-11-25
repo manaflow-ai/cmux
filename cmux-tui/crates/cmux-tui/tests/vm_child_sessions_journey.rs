@@ -11,7 +11,7 @@
 //! the VM's store that attaches to it, while the other chat is refused.
 #![cfg(unix)]
 
-use crate::journey_support;
+mod journey_support;
 
 use std::collections::VecDeque;
 use std::fs;

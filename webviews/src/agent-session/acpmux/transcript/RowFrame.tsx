@@ -144,7 +144,6 @@ export const RowFrame = React.memo(function RowFrame({
   queueDrawn,
   sendThinking,
   enter,
-  enterUnseen,
   onEntered,
   loadFade,
   onLoadFaded,
@@ -215,9 +214,6 @@ export const RowFrame = React.memo(function RowFrame({
   sendThinking: boolean;
   /// The row arrived live: it enters with the shared motion on this, its first mount.
   enter: boolean;
-  /// The row arrived out of view (rowFrames `entersUnseen`): it draws in place, with no entrance, and
-  /// its arrival is still consumed. Read on the first mount only.
-  enterUnseen?: boolean;
   onEntered: (id: string) => void;
   /// The row arrived while the chat loaded and mounts now, its first time: it fades in once.
   loadFade: boolean;
@@ -244,8 +240,7 @@ export const RowFrame = React.memo(function RowFrame({
   if (acpmuxPerf.enabled) acpmuxPerf.render(`row:${row.id}`);
   const t = useT();
   const ref = useRef<HTMLElement>(null);
-  const [arrived] = useState(enter);
-  const [entering] = useState(enter && enterUnseen !== true);
+  const [entering] = useState(enter);
   // Prompts and replies get the message-specific entrance. Tool/status rows keep the existing
   // generic rise, while the row's reserved height and absolute placement stay unchanged.
   // Hidden user rows render no content and keep the empty-row geometry. Notice rows are user-kind
@@ -329,7 +324,7 @@ export const RowFrame = React.memo(function RowFrame({
   useLayoutEffect(() => fadeInOnMount(), []);
   // Only the first mount enters.
   const enterOnMount = useEffectEvent(() => {
-    if (arrived) onEntered(rowFrameKey(row));
+    if (entering) onEntered(rowFrameKey(row));
   });
   useLayoutEffect(() => enterOnMount(), []);
   // A generic row's entrance starts on the frame that first draws it, not at this commit: WebKit

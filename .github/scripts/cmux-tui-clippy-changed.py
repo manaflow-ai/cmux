@@ -288,12 +288,11 @@ def autofixed(repo: Path, command: list[str], paths: list[str], workspace: dict[
     if not re.fullmatch(r"[0-9a-f]{40}", head) or is_autofix_head(repo, head):
         return False
     own = {path for path in paths if path.startswith(f"{ROOT}/") and path.endswith(".rs")}
-    names, directories = set(), set()
+    names = set()
     for path in own:
         for directory in sorted(workspace, key=len, reverse=True):
             if path.startswith(f"{directory}/"):
                 names.add(workspace[directory])
-                directories.add(directory)
                 break
     if not names:
         return False
@@ -304,8 +303,7 @@ def autofixed(repo: Path, command: list[str], paths: list[str], workspace: dict[
     try:
         subprocess.run(["cargo", "clippy", "--fix", "--allow-dirty", "--allow-staged", "--locked", "--all-targets",
                         *packages], cwd=cwd, check=True, stdout=subprocess.DEVNULL)
-        extra = [path for directory in sorted(directories) for path in fmt_changed.it_test_files(repo, directory)]
-        subprocess.run(["cargo", "fmt", *packages, *(["--", *extra] if extra else [])], cwd=cwd, check=True)
+        subprocess.run(["cargo", "fmt", *packages], cwd=cwd, check=True)
     except subprocess.CalledProcessError:
         fmt_changed.git(repo, "checkout", "--quiet", "--", ROOT)
         return False

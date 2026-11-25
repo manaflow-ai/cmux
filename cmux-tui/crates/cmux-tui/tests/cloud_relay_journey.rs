@@ -15,7 +15,7 @@
 //! Linux only, as a Cloud host is.
 #![cfg(target_os = "linux")]
 
-use crate::journey_support;
+mod journey_support;
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt as _;

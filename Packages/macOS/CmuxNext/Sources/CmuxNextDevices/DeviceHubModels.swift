@@ -43,19 +43,12 @@ public struct HubDevice: Codable, Sendable, Equatable, Identifiable {
     public var lastSeenAt: Date?
     public var macScreenShared: Bool
     public var online: Bool
-    /// The hub's id of the physical machine, per account (PROTOCOL.md, One record per machine):
-    /// records with one `machineId` are one device. Nil for a record registered without a `machineKey`.
-    public var machineId: String?
-    /// The app install whose identity the record is (the macOS bundle id), when it sent one.
-    public var appId: String?
 
     public init(id: String, name: String, platform: DevicePlatform? = nil, signingKey: String? = nil, agreementKey: String? = nil,
-                createdAt: Date? = nil, lastSeenAt: Date? = nil, macScreenShared: Bool = false, online: Bool = false,
-                machineId: String? = nil, appId: String? = nil) {
+                createdAt: Date? = nil, lastSeenAt: Date? = nil, macScreenShared: Bool = false, online: Bool = false) {
         self.id = id; self.name = name; self.platform = platform; self.signingKey = signingKey
         self.agreementKey = agreementKey; self.createdAt = createdAt; self.lastSeenAt = lastSeenAt
         self.macScreenShared = macScreenShared; self.online = online
-        self.machineId = machineId; self.appId = appId
     }
 
     /// Whether this Mac can view this device's screen (``DevicePlatform/hostsScreenThisMacViews``); a device
@@ -73,7 +66,7 @@ public struct HubDevice: Codable, Sendable, Equatable, Identifiable {
     public var fingerprint: String? { signingKey.flatMap(DeviceIdentity.fingerprint(signingKey:)) }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, platform, signingKey, agreementKey, createdAt, lastSeenAt, macScreenShared, online, machineId, appId
+        case id, name, platform, signingKey, agreementKey, createdAt, lastSeenAt, macScreenShared, online
     }
 
     public init(from decoder: any Decoder) throws {
@@ -87,8 +80,6 @@ public struct HubDevice: Codable, Sendable, Equatable, Identifiable {
         lastSeenAt = c.date(.lastSeenAt)
         macScreenShared = c.flag(.macScreenShared)
         online = c.flag(.online)
-        machineId = c.lenient(String.self, .machineId).flatMap { $0.isEmpty ? nil : $0 }
-        appId = c.lenient(String.self, .appId)
     }
 }
 

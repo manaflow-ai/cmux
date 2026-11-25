@@ -4,9 +4,9 @@
 //! showed "blocked" before both still shows it, with the same `updated_seq`.
 
 use super::host_replacement::{wait_for_daemon_custody, wait_for_replacement};
-use super::program_status_restart::{program_status, wait_for_program_status, without_since};
 use super::pty_custody::{signal_pid, wait_for_dead_host};
 use super::*;
+use crate::program_status_restart::{program_status, wait_for_program_status, without_since};
 
 #[test]
 fn program_status_records_survive_a_host_replacement_then_a_daemon_restart() {

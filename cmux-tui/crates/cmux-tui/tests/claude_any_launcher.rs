@@ -25,7 +25,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use crate::private_state;
+#[path = "support/private_state.rs"]
+mod private_state;
 
 /// Claude Code's hook loading, reduced to what the test needs.
 const FAKE_CLAUDE: &str = r#"#!/usr/bin/env python3

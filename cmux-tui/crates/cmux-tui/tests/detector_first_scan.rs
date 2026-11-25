@@ -20,7 +20,7 @@
 
 #![cfg(unix)]
 
-use crate::fault_support;
+mod fault_support;
 
 #[path = "../../../bindings/examples/rust-agent-screen-detection/src/first_scan.rs"]
 mod detector_first_scan;

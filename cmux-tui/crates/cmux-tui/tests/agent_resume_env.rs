@@ -23,7 +23,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::private_state;
+#[path = "support/private_state.rs"]
+mod private_state;
 
 /// The value every caller session variable of this test has.
 const SENTINEL: &str = "w5r-caller-session-value";

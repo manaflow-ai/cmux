@@ -8,7 +8,7 @@
 //!
 //! The last test drives a real `muse` binary (CMUX_TEST_MUSE_BIN) against a
 //! loopback model endpoint, so it needs no Meta account:
-//! `CMUX_TEST_MUSE_BIN=/path/to/muse cargo test -p cmux-tui --test it -- muse_agent_hooks:: --include-ignored`.
+//! `CMUX_TEST_MUSE_BIN=/path/to/muse cargo test -p cmux-tui --test muse_agent_hooks -- --include-ignored`.
 
 #![cfg(unix)]
 
@@ -193,12 +193,7 @@ fn run_like_muse(command: &str, home: &Path, agent_env: &[(&str, &str)], payload
     let out = scratch.path().join("hook");
     let mut parent = Command::new(std::env::current_exe().unwrap());
     parent
-        .args([
-            "--exact",
-            own_test_name("stand_in_muse_process").as_str(),
-            "--nocapture",
-            "--test-threads=1",
-        ])
+        .args(["--exact", "stand_in_muse_process", "--nocapture", "--test-threads=1"])
         .env_clear()
         .env("HOME", home)
         .env("PATH", "/usr/bin:/bin")
@@ -412,14 +407,5 @@ fn a_real_muse_session_reports_its_start_turn_and_stop_to_the_terminal() {
                     == &(native.to_owned(), kind.to_owned(), Some(TERMINAL.to_owned()))),
             "no {native} from the terminal in {events:?}"
         );
-    }
-}
-
-/// The full name of the test `name` of this file, for `--exact`: its file's module path in
-/// tests/it (`muse_agent_hooks::NAME`), or `NAME` when the file is a test binary of its own.
-fn own_test_name(name: &str) -> String {
-    match module_path!().split_once("::") {
-        Some((_, module)) => format!("{module}::{name}"),
-        None => name.to_owned(),
     }
 }

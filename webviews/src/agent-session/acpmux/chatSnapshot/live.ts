@@ -1,7 +1,6 @@
 // The live page's side of a chat's snapshot (shared.ts): it tells the host the chat is on screen as
 // soon as the bundle runs, takes over from the copy in one frame once it drew the chat itself, and
 // writes the copy the next launch draws (capture.ts), from the visible window only.
-import { slackTimersFor } from "../../../pages/shared/slackTimers";
 import { captureMiss, captureSnapshot } from "./capture";
 import { liveMatchesCopy, noteSwap, swapDiff } from "./swapDiff";
 import {
@@ -382,7 +381,6 @@ export function watchChatSnapshot(
   const root = doc.getElementById("root");
   const view = doc.defaultView;
   if (!root || !view) return () => {};
-  const slackTimers = slackTimersFor(view);
   let timer: number | undefined;
   let changedAt = 0;
   let wroteAt = 0;
@@ -423,9 +421,7 @@ export function watchChatSnapshot(
     if (timer !== undefined || stopped) return;
     const now = performance.now();
     const due = Math.max(changedAt + QUIET_MS, wroteAt + WRITE_GAP_MS) - now;
-    // On the page's shared timer, up to a heartbeat late: the quiet write rides a beat instead of
-    // waking a chat at rest by itself (slackTimers.ts).
-    timer = slackTimers.later(
+    timer = view.setTimeout(
       () => {
         timer = undefined;
         const late = Math.max(changedAt + QUIET_MS, wroteAt + WRITE_GAP_MS) - performance.now();
@@ -440,7 +436,7 @@ export function watchChatSnapshot(
   // idle_wakeups). One MutationObserver callback per batch of changes: a clear and a set, no wakeup.
   const changed = () => {
     changedAt = performance.now();
-    slackTimers.cancel(timer);
+    if (timer !== undefined) view.clearTimeout(timer);
     timer = undefined;
     schedule();
   };
@@ -458,13 +454,13 @@ export function watchChatSnapshot(
     view.clearTimeout(resizeTimer);
     resizeTimer = view.setTimeout(() => {
       resizeTimer = undefined;
-      slackTimers.cancel(timer);
+      if (timer !== undefined) view.clearTimeout(timer);
       write("resize");
     }, RESIZE_QUIET_MS);
   };
   view.addEventListener("resize", resized);
   const now = (cause: string) => {
-    slackTimers.cancel(timer);
+    if (timer !== undefined) view.clearTimeout(timer);
     write(cause);
   };
   const hidden = () => {
@@ -481,7 +477,7 @@ export function watchChatSnapshot(
     observer.disconnect();
     view.removeEventListener("resize", resized);
     view.clearTimeout(resizeTimer);
-    slackTimers.cancel(timer);
+    if (timer !== undefined) view.clearTimeout(timer);
     doc.removeEventListener("visibilitychange", hidden);
     view.removeEventListener(SNAPSHOT_WRITE_EVENT, asked);
   };

@@ -19,7 +19,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::platform::transport;
 
-use crate::private_state;
+#[path = "support/private_state.rs"]
+mod private_state;
 
 struct HeadlessServer {
     child: Child,

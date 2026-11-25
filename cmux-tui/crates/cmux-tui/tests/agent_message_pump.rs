@@ -10,7 +10,8 @@
 //! itself, an unsend never takes back what acpmux may hold without asking
 //! it, and one refusing recipient does not undo the others.
 
-use crate::harness;
+#[path = "agent_message_policy/harness.rs"]
+mod harness;
 
 /// One module, so `cargo test agent_message_pump` selects these tests.
 mod agent_message_pump {

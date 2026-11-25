@@ -14,7 +14,7 @@
 //! nothing, and the page saving a comment again keeps its thread.
 #![cfg(unix)]
 
-use crate::journey_support;
+mod journey_support;
 
 /// One module, so `cargo test diff_review_threads_journey` selects these tests. Its `cmux_next_` prefix puts them in
 /// every push's `cmux_next_ daemon tests` (cmux-tui-artifacts.yml), not only the daily probe.
