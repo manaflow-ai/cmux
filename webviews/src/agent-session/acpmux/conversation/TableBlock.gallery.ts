@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures (sample prompts and replies), not shipped UI.
 // A reply's Markdown table (TableBlock.tsx): columns as wide as their text and no wider than the
 // column, cells that wrap, an empty top-left corner labeling the rows, and Open and Copy on the
-// table's own top-right corner on hover. The experiment's arms (tableActions.experiment.ts) put
+// table's own top-right corner on hover. A table narrower than the column sits centered in it. The experiment's arms (tableActions.experiment.ts) put
 // that pair in the corner, above it or beside it; `corner` ships.
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
@@ -57,6 +57,27 @@ const unbreakable = `| File | Head |
 | webviews/src/agent-session/acpmux/conversation/TableBlock.tsx | 0e8648b1ba0c67d0be0123a61d7772ad05cc9deb |
 | webviews/src/agent-session/acpmux/conversation/conversation.css | 4115c9aa1f29ac24d44ed188117dea29a2321c91 |`;
 
+// The reply Leo saw flush left (2026-11-22): four short columns, much narrower than the text above
+// and below it. It sits centered in the column; the bullets after it keep the column's start.
+const restartTimes = `On your ask for chat to restore as fast as the terminal after a restart, this is the progress so far. Times are median ms from restart to settled chat, with the terminal's time for comparison:
+
+| network | before any work | now | terminal |
+| --- | --- | --- | --- |
+| local | 716 | 591 | 2 |
+| 50 ms latency | 772 | 631 | 152 |
+| 200 ms latency | 1228 | 791 | 603 |
+| slow link (150 ms, 1 Mbps) | 1690 | 795 | 778 |
+
+- **Bytes:** data sent drops from about 79 KB to 10 KB. No layout shift in any round.
+- **What remains:** on a 50 ms connection chat is still about 4x slower than the terminal.`;
+
+// A token no column can hold (a long base64 blob): the table is wider than the column, so it starts
+// at the column's start and scrolls sideways inside its own box, never past the column's edge.
+const tooWide = `| Key | Value |
+| --- | --- |
+| token | eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG5Eb2UiLCJpYXQiOjE1MTYyMzkwMjJ9 |
+| size | 108 bytes |`;
+
 const snapshot = chat([
   user("How many tooltips are left?", 5),
   assistant(audit, 4.9),
@@ -76,6 +97,14 @@ export default agentPaneEntry({
     rest: {
       note: "Columns fit their text; the table with an empty corner labels its rows.",
       snapshot,
+    },
+    centered: {
+      note: "Leo's reply (2026-11-22): a table narrower than the column sits centered in it, its rules as wide as its text; the prose and bullets around it keep the column's start.",
+      snapshot: chat([
+        user("How fast does chat restore now?", 2),
+        assistant(restartTimes, 1.9),
+        summary(1.9, { status: "completed", durationMs: 41_000 }),
+      ]),
     },
     hover: {
       note: "Hovering a table shows same-size Open and Copy controls on one centered line on its own top-right corner.",
@@ -128,6 +157,14 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.hover({ selector: ".cv-table-block" });
       },
+    },
+    "too-wide": {
+      note: "A token wider than the column: the table fills the column and scrolls sideways in its own box, with a fading edge, never past the column.",
+      snapshot: chat([
+        user("What's in the token?", 2),
+        assistant(tooWide, 1.9),
+        summary(1.9, { status: "completed", durationMs: 5_000 }),
+      ]),
     },
   },
   experiment: {
