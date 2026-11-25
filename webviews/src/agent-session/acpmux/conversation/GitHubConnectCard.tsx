@@ -90,7 +90,12 @@ export function GitHubConnectCardView({
           <GitHubMark size={16} className="cv-settings-ask__icon" />
           <span className="cv-settings-ask__line text-fg">{line}</span>
           {offer && phase.kind !== "continuing" && (
-            <ConnectButton phase={phase} install={need.reason === "not-installed"} onConnect={onConnect} onContinue={onContinue} />
+            <ConnectButton
+              phase={phase}
+              install={need.reason === "not-installed"}
+              onConnect={onConnect}
+              onContinue={onContinue}
+            />
           )}
         </div>
       </section>
@@ -109,7 +114,12 @@ export function GitHubConnectCardView({
       </span>
       {offer && phase.kind !== "continuing" && (
         <span className="cv-turn-error__actions">
-          <ConnectButton phase={phase} install={need.reason === "not-installed"} onConnect={onConnect} onContinue={onContinue} />
+          <ConnectButton
+            phase={phase}
+            install={need.reason === "not-installed"}
+            onConnect={onConnect}
+            onContinue={onContinue}
+          />
         </span>
       )}
     </div>
