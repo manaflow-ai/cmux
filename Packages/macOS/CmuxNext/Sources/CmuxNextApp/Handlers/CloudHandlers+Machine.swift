@@ -267,8 +267,6 @@ extension CloudHandlers {
         }
         // Not only for Cloud: an own machine needs no sign-in (deliverSecrets checks it for a Cloud machine).
         bind("cloudDeliverSecrets", registry, reason: { nil }) { invocation in try deliverSecrets(invocation, context) }
-        bind("cloudUseGitHubLogin", registry, reason: { nil }) { invocation in try gitHubLogin(invocation, context, forget: false) }
-        bind("cloudForgetGitHubLogin", registry, reason: { nil }) { invocation in try gitHubLogin(invocation, context, forget: true) }
         bind("palette.cloud.status", registry, reason: reason) { invocation in
             let session = try machine(invocation, context); guard session.machine.allows(.stats) else { throw operationUnavailable }
             answer("machine status", invocation, context) {
@@ -522,32 +520,6 @@ extension CloudHandlers {
             answer["delivered"] = .array(items.map { .string($0.name) })
             answer["written"] = .int(count)
             answer["next"] = .string("cmux cloud apply-machine-config --target machine:\(machineID)")
-            return answer
-        }
-    }
-
-    /// `cloud github-login-use` / `cloud github-login-forget --target machine:<id>` (``CloudGitHubLoginCarry``): this Mac's own
-    /// gh login carried to the Cloud machine, sealed to its daemon, or taken off it. Answers `status` (`carried`,
-    /// `no_gh_login`, `forgotten`) and the `login` carried.
-    static func gitHubLogin(_ invocation: ActionInvocation, _ context: AppActionContext, forget: Bool) throws {
-        if let reason = context.services.cloud.unavailableReason ?? (context.services.cloud.isSignedIn ? nil : CloudStrings.signInFirst) {
-            throw ActionFailure(message: reason)
-        }
-        let services = context.services, session = try machine(invocation, context), machineID = session.machineID
-        result(forget ? "forget the GitHub login" : "carry the GitHub login", context) {
-            let done = forget ? await CloudGitHubLoginCarry.forget(services, on: machineID)
-                : await services.cloud.machineAPI.daemon.carryGitHubLogin(machineID, deadline: .seconds(60))
-            var answer: [String: ActionResultValue] = ["machine_id": .string(machineID)]
-            switch done {
-            case .carried(let login):
-                answer["status"] = .string("carried")
-                if let login { answer["login"] = .string(login) }
-            case .noLogin:
-                answer["status"] = .string("no_gh_login")
-                answer["next"] = .string("gh auth login")
-            case .forgotten: answer["status"] = .string("forgotten")
-            case .failed(let code): throw ActionFailure(message: CloudStrings.secretsNotDelivered(code))
-            }
             return answer
         }
     }

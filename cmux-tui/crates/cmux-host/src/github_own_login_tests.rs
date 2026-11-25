@@ -103,4 +103,7 @@ fn the_token_file_is_read_with_the_gitlab_checks() {
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
     let note = token(home.path()).unwrap_err();
     assert!(!note.contains(TOKEN));
+    assert!(forget(home.path()).unwrap());
+    assert!(!file.exists());
+    assert!(!forget(home.path()).unwrap());
 }

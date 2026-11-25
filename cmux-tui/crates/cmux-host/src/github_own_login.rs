@@ -4,8 +4,8 @@
 //! The Mac app seals the token of the Mac's own `gh` login to this machine's daemon
 //! (`git-host-tokens-v1`, `cmux carrier secrets` `use-github-login`), which writes it to
 //! `~/.config/cmux/git-hosts/github.com` (0600, one line): the same folder and checks as the
-//! person's GitLab token (`gitlab_cli.rs`). It is never in an env file, argv or a log; forgetting
-//! it (the machine's settings, `cmux cloud github-login forget`) removes the file.
+//! person's GitLab token (`gitlab_cli.rs`). It is never in an env file, argv or a log;
+//! `cmux github login forget` on the machine removes the file.
 //!
 //! git (`cmux github credential`) and `gh` (the image's shim, `cmux github gh --auto`) use it
 //! first, when it reaches the repository: one `gh api repos/OWNER/NAME` with it says whether it
@@ -149,6 +149,64 @@ pub fn credential_get_own_first(
         return (out, Some(format!("{first}{rest}")));
     }
     (out, Some(format!("{first} Using the cmux GitHub App's token for it.")))
+}
+
+/// `cmux github login [status|forget]` on the machine: whether a carried login is here, or remove
+/// it (the person's own revoke on this one machine; Settings > Machines' Use My GitHub Login on
+/// Cloud Machines stops new carries). Never prints the token.
+pub fn login_command(args: &[String]) -> u8 {
+    let Some(home) =
+        std::env::var_os("HOME").filter(|h| !h.is_empty()).map(std::path::PathBuf::from)
+    else {
+        eprintln!("cmux github login: HOME is not set");
+        return 1;
+    };
+    match args.first().map(String::as_str) {
+        None | Some("status") => match token(&home) {
+            Ok(Some(_)) => {
+                println!("your GitHub login is on this machine (git and gh use it first)");
+                0
+            }
+            Ok(None) => {
+                println!(
+                    "no carried GitHub login on this machine (git and gh use the cmux GitHub App)"
+                );
+                0
+            }
+            Err(note) => {
+                eprintln!("cmux github login: {note}");
+                1
+            }
+        },
+        Some("forget") => match forget(&home) {
+            Ok(true) => {
+                println!("removed your GitHub login from this machine");
+                0
+            }
+            Ok(false) => {
+                println!("no carried GitHub login on this machine");
+                0
+            }
+            Err(e) => {
+                eprintln!("cmux github login: cannot remove it: {e}");
+                1
+            }
+        },
+        Some(other) => {
+            eprintln!("cmux github login: unknown verb {other}; use status or forget");
+            2
+        }
+    }
+}
+
+/// Remove the carried login under `home`; whether there was one.
+pub fn forget(home: &Path) -> std::io::Result<bool> {
+    let Some(path) = crate::gitlab_cli::token_path(home, HOST) else { return Ok(false) };
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(true),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(e),
+    }
 }
 
 #[cfg(test)]

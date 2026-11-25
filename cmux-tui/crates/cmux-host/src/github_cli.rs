@@ -50,7 +50,7 @@ use crate::cloud::wire::AGENT_SOCKET;
 use crate::github_cli_joined::{JoinedMachine, Post, ask_hub, https_post, joined_now};
 use crate::json::JsonField;
 
-const USAGE: &str = "usage: cmux github credential get|store|erase | gh [--write] [--] ARGS... | gh --auto [--] ARGS... | setup [--unset]";
+const USAGE: &str = "usage: cmux github credential get|store|erase | gh [--write] [--] ARGS... | gh --auto [--] ARGS... | setup [--unset] | login [status|forget]";
 const HOST_KEY: &str = "credential.https://github.com.helper";
 const PATH_KEY: &str = "credential.https://github.com.useHttpPath";
 /// The agent answers within this: an ask that waited 60 s in its queue is
@@ -1340,6 +1340,7 @@ pub fn run(args: &[String]) -> u8 {
         "credential" => credential(rest),
         "gh" => gh(rest),
         "setup" => setup(rest),
+        "login" => crate::github_own_login::login_command(rest),
         "--help" | "-h" | "help" => {
             println!("{USAGE}");
             0

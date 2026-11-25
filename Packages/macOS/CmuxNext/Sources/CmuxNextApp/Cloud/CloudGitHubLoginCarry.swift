@@ -35,12 +35,6 @@ enum CloudGitHubLoginCarry {
         return result
     }
 
-    /// Removes it from `machineID` (the machine's settings, `cmux cloud github-login forget`).
-    static func forget(_ services: AppServices, on machineID: String) async -> CloudDaemon.GitHubLoginCarry {
-        carried[machineID] = nil
-        return await services.cloud.machineAPI.daemon.forgetGitHubLogin(machineID)
-    }
-
     /// What the start's card is told about the login when the machine can't reach the repository.
     static func detail(_ result: CloudDaemon.GitHubLoginCarry?) -> AgentPaneGitHubLogin {
         switch result {
