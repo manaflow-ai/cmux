@@ -57,9 +57,23 @@ final class PaneLayerController: UIViewController {
     }
 
     override func loadView() {
-        view = UIView(frame: .zero)
+        let view = PaneLayerView(frame: .zero)
+        view.controller = self
         view.isUserInteractionEnabled = false
         view.isHidden = true
+        self.view = view
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        watchGestures()
+    }
+
+    /// The page's view reached a window: its navigation controller is known by now (it may not
+    /// be when this controller joins its parent, and SwiftUI does not always forward appearance
+    /// callbacks to it), so the pop gestures are followed from the first swipe.
+    fileprivate func didMoveToWindow() {
+        watchGestures()
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -86,6 +100,7 @@ final class PaneLayerController: UIViewController {
 
     @objc private func navigationWillChange() {
         guard view.window != nil else { return }
+        watchGestures()
         startTracking()
     }
 
@@ -212,29 +227,36 @@ final class PaneLayerController: UIViewController {
     /// button) draw through a backdrop that the bar's mask does not clip: each is shown only
     /// while it lies wholly inside `visible`, fading in over its last points there, so it is
     /// never drawn over the page that hides the bar (no doubled bars).
-    /// The glass views this transition fades, with the opacity each had before it.
-    private var fadedGlass: [ObjectIdentifier: (view: UIView, alpha: CGFloat)] = [:]
+    /// The glass layers this transition fades, with the opacity each had before it.
+    private var fadedGlass: [ObjectIdentifier: (layer: CALayer, opacity: Float)] = [:]
 
     private func fadeGlass(in bar: UINavigationBar, to visible: ClosedRange<CGFloat>, barMinX: CGFloat) {
         // Every frame: UIKit builds the bar's transition container (and its glass) anew for
-        // each transition.
-        for view in PaneLayerGeometry.glassGroups(in: bar) {
-            let id = ObjectIdentifier(view)
-            if fadedGlass[id] == nil { fadedGlass[id] = (view, view.alpha) }
-            let span = view.convert(view.bounds, to: bar)
+        // each transition. Its glass hangs in the layer tree, not always as subviews.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for layer in PaneLayerGeometry.glassLayers(in: bar.layer) {
+            let id = ObjectIdentifier(layer)
+            if fadedGlass[id] == nil { fadedGlass[id] = (layer, layer.opacity) }
+            let span = layer.convert(layer.bounds, to: bar.layer)
             let minX = barMinX + span.minX
             let maxX = barMinX + span.maxX
             let room = min(minX - visible.lowerBound, visible.upperBound - maxX)
-            let alpha = (fadedGlass[id]?.alpha ?? 1) * max(0, min(1, room / 24))
+            let opacity = (fadedGlass[id]?.opacity ?? 1) * Float(max(0, min(1, room / 24)))
             // UIKit's own bar animation in the transition (paused under a swipe) would draw its
             // opacity over ours: this transition's opacity is ours.
-            if view.layer.animation(forKey: "opacity") != nil { view.layer.removeAnimation(forKey: "opacity") }
-            if abs(view.alpha - alpha) >= 0.002 { view.alpha = alpha }
+            if layer.animation(forKey: "opacity") != nil { layer.removeAnimation(forKey: "opacity") }
+            if abs(layer.opacity - opacity) >= 0.002 { layer.opacity = opacity }
         }
+        CATransaction.commit()
     }
 
     private func unfadeGlass() {
-        for entry in fadedGlass.values { entry.view.alpha = entry.alpha }
+        guard !fadedGlass.isEmpty else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for entry in fadedGlass.values { entry.layer.opacity = entry.opacity }
+        CATransaction.commit()
         fadedGlass = [:]
     }
 
@@ -242,8 +264,18 @@ final class PaneLayerController: UIViewController {
         MainActor.assumeIsolated {
             link?.invalidate()
             maskedBar?.layer.mask = nil
-            for entry in fadedGlass.values { entry.view.alpha = entry.alpha }
+            for entry in fadedGlass.values { entry.layer.opacity = entry.opacity }
         }
+    }
+}
+
+/// The pane layer's own (hidden, empty) view: tells its controller when it reaches a window.
+private final class PaneLayerView: UIView {
+    weak var controller: PaneLayerController?
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil { controller?.didMoveToWindow() }
     }
 }
 
@@ -271,24 +303,28 @@ enum PaneLayerGeometry {
         return layer == nil ? nil : x
     }
 
-    /// The bar's Liquid Glass backdrops (the capsules behind its buttons, its edge effect): the
-    /// views that draw through a backdrop layer, which the bar's mask does not clip. Their icons
-    /// and the title are ordinary layers the mask clips.
-    @MainActor
-    static func glassGroups(in bar: UINavigationBar) -> [UIView] {
-        var groups: [UIView] = []
-        func walk(_ view: UIView, depth: Int) {
-            for sub in view.subviews where !sub.isHidden {
-                if NSStringFromClass(type(of: sub)).contains("Backdrop")
-                    || NSStringFromClass(type(of: sub.layer)).contains("Backdrop") {
-                    groups.append(sub)
-                } else if depth < 12 {
+    /// The bar's Liquid Glass backdrops (one group behind all its buttons, in iOS 26 a
+    /// full-width `NavigationBarPlatterContainer`): the layers that draw through a backdrop,
+    /// which the bar's mask does not clip. Their icons and the title are ordinary layers the
+    /// mask clips.
+    static func glassLayers(in root: CALayer) -> [CALayer] {
+        var found: [CALayer] = []
+        func isBackdrop(_ layer: CALayer) -> Bool {
+            if NSStringFromClass(type(of: layer)).contains("Backdrop") { return true }
+            if let delegate = layer.delegate, NSStringFromClass(type(of: delegate)).contains("Backdrop") { return true }
+            return false
+        }
+        func walk(_ layer: CALayer, depth: Int) {
+            for sub in layer.sublayers ?? [] where !sub.isHidden {
+                if isBackdrop(sub) {
+                    found.append(sub)
+                } else if depth < 16 {
                     walk(sub, depth: depth + 1)
                 }
             }
         }
-        walk(bar, depth: 0)
-        return groups
+        walk(root, depth: 0)
+        return found
     }
 
     /// The bar's span as drawn (empty when hidden or transparent), clipped by
