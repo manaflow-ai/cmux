@@ -303,6 +303,8 @@ pub mod range_fetch;
 pub(crate) mod rebalance;
 pub mod recovery;
 pub mod registry;
+#[cfg(unix)]
+pub mod rehearsal;
 pub(crate) mod remote_chain_profile;
 pub(crate) mod replay_rules;
 pub mod request_cancel;
