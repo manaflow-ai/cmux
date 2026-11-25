@@ -378,6 +378,10 @@ public final class DeviceHubService {
         }
         // task-owner: the sign-out call (an older hub: one /end per session), then the stop
         let completion = Task {
+            // Signed out, this Mac is no longer the account's to view: its sharing bit goes off first (the
+            // hub's sign-out keeps it; a removal clears it there). Not the person's off: a later sign-in
+            // turns it on again by default.
+            await Self.clearSharing(hub)
             await hub.freezeForCapture()
             for start in starts { await start.completion.value }
             await hub.signOut(ending: ids, reason: MacScreenHubReason.signedOut.rawValue)
@@ -385,6 +389,13 @@ public final class DeviceHubService {
         }
         trackStop(completion)
         logger.info("device hub signing out")
+    }
+
+    /// Sign-out turns this Mac's sharing bit off when the hub has it on (one write; it fails only with
+    /// the hub unreachable, and then no device can reach this Mac through it either).
+    static func clearSharing(_ hub: DeviceHub) async {
+        guard hub.thisDevice?.macScreenShared == true else { return }
+        try? await hub.setMacScreenShared(false)
     }
 
     private func trackLoading(_ task: Task<Void, Never>) {
