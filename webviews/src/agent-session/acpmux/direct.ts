@@ -340,6 +340,7 @@ import {
   readClaims,
   textFromContent,
   appendThought,
+  withRecipient,
 } from "./direct/toolItems";
 import { permissionFromMessage } from "./direct/permissions";
 import {
@@ -402,6 +403,7 @@ export {
   toolDiffs,
   inputDiffs,
   mergeToolItem,
+  withRecipient,
   callDescription,
   shellCommand,
   readClaims,
@@ -10747,7 +10749,13 @@ export class AcpmuxDirectClient {
       const items = [...(existing?.items ?? [])];
       const itemIndex = items.findIndex((item) => item.tool?.id === callId);
       const merged = this.holdEdit(
-        mergeToolItem(itemIndex >= 0 ? items[itemIndex] : undefined, update, callId, text, event.at),
+        mergeToolItem(
+          itemIndex >= 0 ? items[itemIndex] : undefined,
+          withRecipient(update, event.msg.params),
+          callId,
+          text,
+          event.at,
+        ),
         itemIndex < 0 || items[itemIndex].tool?.status === "pending",
       );
       const awaiting =
