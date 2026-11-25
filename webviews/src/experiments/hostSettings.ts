@@ -18,6 +18,7 @@ type SettingArmEntry = SettingArm | readonly SettingArm[];
 export const SETTING_ARMS: Readonly<Record<string, SettingArmEntry>> = {
   menuStyleV2: { experiment: "menu-style-v2", arm: "v2" },
   menuRowStates: { experiment: "menu-row-states", arm: "on" },
+  toastGlass: { experiment: "toast-glass", arm: "host" },
   composerHatGroups: [
     { experiment: "subagent-tray-fold-head", arm: "line" },
     { experiment: "subagent-tray-column", arm: "glyph" },
