@@ -27,6 +27,7 @@ import { type DropOverlayState, HIDDEN_DROP, landDropOverlay, stepDropOverlay } 
 import { isVideoName, useVideoInfo } from "./videoAttachments";
 import { draftShapeOf, localDraftShape, type LocalDraftShape } from "./draftMediaShape";
 import { videoShapeOf } from "./videoShape";
+import { sendBehind, type BehindSendResult } from "./sendBehind";
 import { experimentSwitchOn } from "../../../experiments/switches";
 
 export const ATTACHMENT_LABELS = {
@@ -325,8 +326,13 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   const [pending, setPending] = useState<PendingAttachment[]>([]);
   /// The gestures whose files are still read for twins (attachments.ts filesOnce), each with its chat.
   const [twinReads, setTwinReads] = useState<GestureChat[]>([]);
+  const twinReadsRef = useRef<GestureChat[]>([]);
+  twinReadsRef.current = twinReads;
   const pendingRef = useRef<PendingAttachment[]>([]);
   pendingRef.current = pending;
+  /// The files a send went ahead of (`goAhead`), by chip id: what each becomes settles its stand-in
+  /// in the sent prompt (composer/sendBehind.ts) instead of a chip in the strip.
+  const ahead = useRef(new Map<string, (result: BehindSendResult) => void>());
   const [attachError, setAttachError] = useState<string | undefined>();
   const [dropping, setDropping] = useState(false);
   /// The drop overlay's state (composer/DropOverlay.tsx). Kept in a ref too: a refused drag's
@@ -606,6 +612,13 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     };
     const ready = (index: number, read: ComposerAttachment): void => {
       if (!settle(index)) return;
+      // A file the prompt already went with: its chip settles the prompt's stand-in, never the strip.
+      const behind = ahead.current.get(shown[index]!.id);
+      if (behind) {
+        ahead.current.delete(shown[index]!.id);
+        behind({ chip: sourced(index, { ...read, id: shown[index]!.id }) });
+        return;
+      }
       const thumb = keptThumb(read.id);
       if (thumb) keepThumb(shown[index]!.id, thumb);
       const tile = shown[index]!;
@@ -637,6 +650,15 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       if (!owns(index)) return;
       marked.add(index);
       const failed = intakeErrorText(error, live.current.t);
+      // A file the prompt already went with: the prompt's row fails with its words (no tile is left
+      // here to show a Retry on).
+      const behind = ahead.current.get(id);
+      if (behind) {
+        ahead.current.delete(id);
+        settle(index);
+        behind({ error: failed });
+        return;
+      }
       // An upload that failed (its host's words, never a file the composer refused) is tried again
       // on its own first; its chip keeps loading meanwhile, and shows Retry only once that fails.
       // One the host refused outright (the app could not save it) shows Retry at once.
@@ -873,6 +895,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// is making (attachLater) is stopped there too. A file's source is kept a while for an undo
   /// that brings its node back (`revive`).
   const [cancel] = useState(() => (id: string) => {
+    // A file a sent prompt went ahead of is that prompt's now: the composer clearing its node keeps it.
+    if (ahead.current.has(id)) return;
     const source = sources.current.get(id);
     if (source && "make" in source) source.stop?.();
     else if (source) {
@@ -890,6 +914,44 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     autoRetries.current.delete(id);
     for (const changed of cancellationListeners.current) changed();
     setPending((chips) => chips.filter((chip) => chip.id !== id));
+  });
+  /// The person sends while files they dropped, pasted or picked are still attaching (their path
+  /// still asked of the host, or their bytes still streaming to the chat's machine): the send goes
+  /// now, never held (Leo, 2026-11-17: "I DRAG AND DROP IT IN WTF ARE YOU FUCKING ENCODING"). Each
+  /// such file leaves the strip as a stand-in chip that goes with the prompt (composer/sendBehind.ts)
+  /// and settles when the file is its chip; its read or upload goes on behind the sent prompt.
+  /// Answers the stand-ins, or undefined when the send must still wait: an image (its preview is
+  /// what goes), a chip the host makes (`bound`), a failed one, or a gesture's files still sorted.
+  const [goAhead] = useState(() => (): ComposerAttachment[] | undefined => {
+    const scope = live.current.options.scope;
+    const here = pendingRef.current.filter((chip) => chip.scope === scope);
+    if (!here.length || twinReadsRef.current.some((read) => read.scope === scope)) return undefined;
+    const files = here.map((chip) => {
+      const source = sources.current.get(chip.id);
+      // A file whose bytes are still being made (a huge paste's text) is not one yet.
+      // One the chat's host may not take (`uploads` false) could only be refused: the send waits as before.
+      const file = source && "file" in source && source.uploads && !("then" in source.file) ? source.file : undefined;
+      return chip.image || chip.failed || chip.bound || chip.uploadFailed || !file ? undefined : { chip, file };
+    });
+    if (files.some((entry) => entry === undefined)) return undefined;
+    const standIns = files.map((entry) => {
+      const { chip, file } = entry!;
+      let settle!: (result: BehindSendResult) => void;
+      sendBehind(chip.id, new Promise<BehindSendResult>((resolve) => (settle = resolve)));
+      ahead.current.set(chip.id, settle);
+      return {
+        id: chip.id,
+        kind: "link",
+        name: chip.name,
+        mimeType: file.type || "application/octet-stream",
+        size: file.size,
+        ...(chip.videoShape ? { videoShape: chip.videoShape } : {}),
+      } satisfies ComposerAttachment;
+    });
+    const gone = new Set(standIns.map((chip) => chip.id));
+    pendingRef.current = pendingRef.current.filter((chip) => !gone.has(chip.id));
+    setPending((chips) => chips.filter((chip) => !gone.has(chip.id)));
+    return standIns;
   });
   /// A cancelled loading chip's node came back (undo): its file is read again under its id, so the
   /// node draws it loading and then what the read makes. A file whose bytes were still being made
@@ -1063,6 +1125,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     unsettled,
     videoReading,
     cancel,
+    goAhead,
     retry,
     revive,
     attachError,

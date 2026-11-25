@@ -48,7 +48,7 @@ export const trayFoldHeadLook = defineExperiment({
     },
     counts: {
       label: "Counts",
-      description: "Only counts (1 subagent running · 1 command), as before, for comparison.",
+      description: "Only counts (1 subagent · 1 command), as before, for comparison.",
     },
   },
   // One newest name that fits beats two cut ones (Leo, 2026-11-03, on a bar that read "Context
@@ -72,5 +72,5 @@ export const trayFoldHeadLook = defineExperiment({
   // boom. waits, etc, they're just normal tool calls that are backgrounded instead of dozesns of
   // possible different buttons. we can obviously keep the icons the stuff but... we can group them up
   // more"). trayHeadKinds.ts `trayHeadGroups` counts them.
-  defaultArm: "tally",
+  defaultArm: "groups",
 });

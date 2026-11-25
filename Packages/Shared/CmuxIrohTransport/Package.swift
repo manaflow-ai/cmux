@@ -15,6 +15,7 @@ let package = Package(
         ),
     ],
     dependencies: [
+        .package(path: "../CmuxEgress"),
         .package(path: "../CMUXMobileCore"),
         .package(
             url: "https://github.com/manaflow-ai/iroh-ffi.git",
@@ -24,8 +25,9 @@ let package = Package(
     targets: [
         .target(
             name: "CmuxIrohTransport",
-            dependencies: [
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CMUXMobileCore",
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
                 .product(name: "IrohLib", package: "iroh-ffi"),
             ],
             swiftSettings: [
@@ -39,9 +41,9 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxIrohTransportTests",
-            dependencies: [
-                "CmuxIrohTransport",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CMUXMobileCore",
+                "CmuxIrohTransport",
                 .product(name: "IrohLib", package: "iroh-ffi"),
             ],
             swiftSettings: [
