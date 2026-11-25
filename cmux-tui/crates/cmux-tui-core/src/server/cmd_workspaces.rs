@@ -84,6 +84,26 @@ pub(super) fn list_workspaces(
     Ok(reply)
 }
 
+/// `list-workspaces {since}` (`workspace-list-delta-v1`, list_workspaces_delta.rs): the
+/// entries that changed past the client's cursor, or the whole tree with a fresh cursor. A
+/// remote device that must not see some workspaces gets its whole pruned tree with no cursor
+/// (the ring is the daemon's whole tree), so it never holds one to send.
+pub(super) fn list_workspaces_delta(
+    mux: &Arc<Mux>,
+    client: u64,
+    lines_written: Option<u64>,
+    since: &super::list_workspaces_delta::DeltaCursor,
+) -> anyhow::Result<Value> {
+    let mut reply = super::incognito_remote::list_with_one_view(mux, client, |view| match view {
+        Some(_) => list_workspaces_reply(mux),
+        None => super::list_workspaces_delta::list_workspaces_reply_delta(mux, since),
+    })?;
+    if let Some(lines) = lines_written {
+        reply.set("lines_written_before_read", json!(lines));
+    }
+    Ok(reply)
+}
+
 /// [`list_workspaces`] for a reply that the socket writes from its build's shared tree text
 /// (tree_reply_text.rs): the same reply, with no copy of the tree.
 pub(super) fn list_workspaces_text(
@@ -123,6 +143,7 @@ pub(super) fn create_workspace(
     name: Option<String>,
     key: Option<String>,
     first_tab: Option<frontend_browser_history::FirstTabParams>,
+    explicit_name: bool,
     mutation: MutationRequest,
 ) -> anyhow::Result<Value> {
     if let Some(key) = key.as_deref()
@@ -140,6 +161,7 @@ pub(super) fn create_workspace(
         mutation.expected_generation.as_deref(),
         mutation.expected_revision,
         &workspace_mutation,
+        explicit_name,
     )?;
     // `workspace-first-tab-v1`: the first tab in the same request. A replayed
     // create replays a keyed tab and makes no second unkeyed one; a tab that
@@ -511,6 +533,13 @@ pub(super) fn rename_workspace(
         "registry_id": registry_id,
         "generation": generation,
     }))
+}
+
+/// `release-workspace-names`: every user-owned workspace name goes back to the
+/// automatic namer in one call. Idempotent: a second call releases nothing.
+pub(super) fn release_workspace_names(mux: &Arc<Mux>, actor: Actor) -> anyhow::Result<Value> {
+    let (released, still_pinned) = mux.release_workspace_names(&actor)?;
+    Ok(json!({"released": released, "still_pinned": still_pinned}))
 }
 
 pub(super) fn rename_provider_managed_workspace(

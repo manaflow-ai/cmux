@@ -202,6 +202,14 @@ export const MAP: MapEntry[] = [
     scenario: "received-sent-as-activity",
   },
   {
+    id: "messages-steer-mid-turn",
+    when: "Other agents' messages steer into a running turn between its commands, two back to back.",
+    wrong:
+      'Leo, 2026-11-22: "sometimes you get these way-too-big gaps. i think it\'s the message recieving not properly getting treated like the tool call ish thing it should be".',
+    expected: "Rule d: each received line sits on the tool rows' pitch, at most a step's gap from its neighbours.",
+    scenario: "messages-mid-turn",
+  },
+  {
     id: "background-shell",
     when: "A turn leaves a shell running; it ends later and the agent works on its own.",
     wrong: "The agent's own turn drew no head, or its line pinned under the turn before.",
@@ -214,6 +222,14 @@ export const MAP: MapEntry[] = [
     wrong: "The subagent's row folded away while it still ran.",
     expected: "Rule b: the subagent's row stays drawn, open, until the turn ends.",
     scenario: "subagent",
+  },
+  {
+    id: "subagent-fork",
+    when: "A chat forked from a subagent (Fork with <model>… on its composer chips) opens on the subagent's history.",
+    wrong: "The Forked from line could land inside the history's turn, or the fork's own turn fold into it.",
+    expected:
+      "Rules a, b, c: the subagent's history keeps its turn, the Forked from line stands between it and the fork's own turn, which folds only when it ends.",
+    scenario: "subagent-fork",
   },
   {
     id: "compaction-mid-turn",
@@ -629,6 +645,15 @@ export const MAP: MapEntry[] = [
     wrong: "Rows doubled after the reconnect; the live line ran on through the outage.",
     expected: "The transcript after a reconnect is the one an unbroken read draws.",
     open: "No scenario writes host_notice or failover records. A later page's read is checked: every scenario is also played from the turn that opens nearest its middle (test/chat-sim-map.test.ts), as the pane's pages split (before a turn's opening record). A read cut inside a turn, which no page makes, leaves the typing placeholder over the turn's rows.",
+  },
+  {
+    id: "busy-turn-churn",
+    when: "A busy coordinator turn: quick commands, thoughts, steers that land mid-turn, subagents in and out, another agent's message, then a prompt right after the turn settles.",
+    wrong:
+      'Leo, 2026-11-22: "this is also a crazy situation for the folding and whatever the steer and you think and messages and situations come in and subagents come in and out"; rows flickered in and out under a second.',
+    expected:
+      "Rules a, b, c at every step; in the browser lane, no layout shift above the reader's anchor mid-turn and no row drawn for under a second (`chat-sim churn --churn` counts both per minute).",
+    scenario: "churn",
   },
   {
     id: "limits-and-refusals",
