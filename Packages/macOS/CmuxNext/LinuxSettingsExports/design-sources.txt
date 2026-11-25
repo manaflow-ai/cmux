@@ -1,31 +1,21 @@
 # CmuxNextDesign's files the Linux settings exporter compiles (scripts/cmux-next/regenerate-settings-exports-linux.sh),
 # relative to Sources/CmuxNextDesign: the design model the settings read, none of it AppKit.
-AgentPresenceColor.swift
-AppleWallpaper.swift
 AppleWallpapers.swift
 BackdropAgentGlow.swift
 BackdropArt.swift
 BackdropCatalog.swift
-BackdropDynamicFrames.swift
+BackdropDynamicMode.swift
 BackdropLocation.swift
 BackdropRotation.swift
-BackdropSelection.swift
 BackdropTimeOfDay.swift
 BackdropUserImages.swift
-Borders.swift
-CornerFlush.swift
+BorderMode.swift
 DensityPreset.swift
 DensityTokenCatalog.swift
 DensityTokens.swift
 DesignSettings.swift
-GroupColor.swift
-GroupTint.swift
 HoverCards/HoverCardTiming.swift
-MachineColor.swift
 MachineColorOverrides.swift
-Metrics.swift
-Motion/MotionChanges.swift
-Motion/MotionTween.swift
 StatusIndicator/StaticStatusGlyph.generated.swift
 StatusIndicator/StatusIconSet.swift
 StatusIndicator/StatusIndicatorPlan.swift
@@ -35,12 +25,11 @@ TabShape.swift
 Text/FontSmoothing.swift
 Text/ProcessFontSmoothing.swift
 TitleAreaTone.swift
+TitlebarStyle.swift
 Toast/CmuxToastLook.swift
 Toast/CmuxToastStyle.swift
 Tunables/BrowserChromeTuning.swift
 Tunables/MetricTunables.swift
 TwoTone.swift
-WallpaperTint/WallpaperTint.swift
 WindowBackdrop.swift
-WindowTitlebar.swift
 Windows/SurfaceBackgrounds.swift
