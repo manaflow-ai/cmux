@@ -373,9 +373,28 @@ enum Sent {
     Unauthorized,
 }
 
+/// The hosted server's HTTP client, made once per process and shared by every chat's
+/// [`Bridge`] (a `reqwest::Client` is a handle to one pool). Made per bridge, its TLS setup ran
+/// on every chat's MCP connect, used or not: 3.7x the connect's instructions
+/// (`benches/icount.rs` `mcp_connect`, 132.7M to 487.8M Ir).
+fn http_client() -> Result<reqwest::Client, String> {
+    static HTTP: std::sync::OnceLock<Result<reqwest::Client, String>> = std::sync::OnceLock::new();
+    HTTP.get_or_init(|| {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        crate::happy_dial::http_client()
+            .default_headers(cmux_build_space::headers().map_err(|e| e.to_string())?)
+            .redirect(reqwest::redirect::Policy::none())
+            .connect_timeout(CONNECT_TIMEOUT)
+            .timeout(CALL_TIMEOUT)
+            .user_agent(concat!("acpmux/", env!("CARGO_PKG_VERSION")))
+            .build()
+            .map_err(|_| "could not start an HTTP client".to_owned())
+    })
+    .clone()
+}
+
 /// The bridge: the held token and the hosted server's session.
 pub struct Bridge {
-    http: reqwest::Client,
     cmux: std::ffi::OsString,
     origin: Option<String>,
     held: Option<Minted>,
@@ -390,17 +409,7 @@ pub struct Bridge {
 
 impl Bridge {
     pub fn new(cmux: std::ffi::OsString, origin: Option<String>) -> Result<Self, String> {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        let http = crate::happy_dial::http_client()
-            .default_headers(cmux_build_space::headers().map_err(|e| e.to_string())?)
-            .redirect(reqwest::redirect::Policy::none())
-            .connect_timeout(CONNECT_TIMEOUT)
-            .timeout(CALL_TIMEOUT)
-            .user_agent(concat!("acpmux/", env!("CARGO_PKG_VERSION")))
-            .build()
-            .map_err(|_| "could not start an HTTP client".to_owned())?;
         Ok(Self {
-            http,
             cmux,
             origin,
             held: None,
@@ -463,8 +472,7 @@ impl Bridge {
         body: &Value,
         id: Option<&Value>,
     ) -> Result<Sent, String> {
-        let mut request = self
-            .http
+        let mut request = http_client()?
             .post(url)
             .bearer_auth(token)
             .header("accept", "application/json, text/event-stream")
