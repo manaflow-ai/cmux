@@ -18,6 +18,14 @@ import Testing
         #expect(MobileHostEvent(line: #"{"type":"pair_request","phone_device_id":"p1"}"#) == nil)
     }
 
+    /// Another paired device's answer (hostd `pair-requests`): every field or nothing.
+    @Test func parsesAnAnswerFromAnotherPairedDevice() {
+        let line = #"{"type":"pair_answer","phone_device_id":"p1","identity_key":"\#(Self.identity)","approval_key":"\#(Self.approval)","allow":true,"by_device_id":"p0"}"#
+        #expect(MobileHostEvent(line: line) == .pairAnswer(phoneDeviceID: "p1", identityKey: Self.identity,
+                                                           approvalKey: Self.approval, allow: true, byDeviceID: "p0"))
+        #expect(MobileHostEvent(line: #"{"type":"pair_answer","phone_device_id":"p1","allow":true}"#) == nil)
+    }
+
     @Test func readsTheRegistrationDate() {
         let line = #"{"type":"pair_request","phone_device_id":"p1","name":"Aziz's iPhone","identity_key":"\#(Self.identity)","approval_key":"\#(Self.approval)","registered_at_ms":1800000000500}"#
         guard case .pairRequest(let request)? = MobileHostEvent(line: line) else {

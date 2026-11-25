@@ -173,7 +173,7 @@ import Testing
         #expect(grown.atLeast(cpu: 4, memoryMb: 16_384, diskMb: 65_536) == (16, 32_768, 136 * 1_024))
     }
 
-    /// The create a start sends for `folder` GiB under `planMax`, on the default machine (4 vCPU, 16 GB, 64 GB).
+    /// The create a start sends for `folder` GiB under `planMax`, on a 4 vCPU, 16 GB, 64 GB machine (the `md` row).
     func asked(folder: Int64, planMax: CloudChatSize?) throws -> (cpu: Int, memoryMb: Int, diskMb: Int) {
         let size = try #require(CloudChatSize.planned(bytes: folder * gib, planMax: planMax))
         let request = CloudMachineRequest(startChatKey: "k", sizedFor: nil, team: nil, size: size,

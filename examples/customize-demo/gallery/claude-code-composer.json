@@ -1,0 +1,17 @@
+{
+  "cmuxProfile": 1,
+  "name": "setup-manaflow-ai-claude-code-composer",
+  "description": "A charcoal prompt field with a one-point edge, 12 pt corners and a context-usage ring.",
+  "created_ms": 0,
+  "settings": {
+    "agentPane.composerRing": "context"
+  },
+  "files": {
+    "agent-pane/theme.css": "/* The composer's paint. `:root .acpmux-shell` outranks the pane's own `.acpmux-shell` tokens and its\n   `appearance.borders` none rule, so the 1 pt edge the app draws stays. */\n:root .acpmux-shell,\n:root[data-borders] .acpmux-shell {\n  --acpmux-composer-bg: #303030;\n  --acpmux-composer-edge: #404040;\n  --acpmux-composer-hover: #353535;\n  --acpmux-composer-placeholder: #a6a6a6;\n  --acpmux-composer-dim: #9c9c9c;\n}\n:root .acpmux-composer-box {\n  --acpmux-composer-radius: 12px;\n  --acpmux-card-ring: inset 0 0 0 1px var(--acpmux-composer-edge);\n}\n"
+  },
+  "x-setup": {
+    "id": "manaflow-ai/claude-code-composer",
+    "name": "Claude Code composer",
+    "source": "looks/claude-code/composer"
+  }
+}

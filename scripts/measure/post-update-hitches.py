@@ -626,7 +626,7 @@ class App:
         self.diagnostics = None  # Diagnostics, set per phase: kept when a control call goes unanswered
 
     def env(self, marks_path, activate):
-        env = smoke.fresh_env(self.root, self.sock, 0)
+        env = smoke.fresh_env(self.root, self.sock, 0, updater=True)  # this measures a real Sparkle update
         env.pop("CMUX_NEXT_LAUNCH_MARKS_FD")
         env["CMUX_NEXT_LAUNCH_MARKS_PATH"] = str(marks_path)
         env["CMUX_NEXT_SKIP_ONBOARDING"] = "1"
@@ -847,7 +847,31 @@ def resident_daemon_sockets(root: Path):
 
 # ---- seeding --------------------------------------------------------------------------------------------------
 
+def terminal_children(app: App):
+    """Pids whose parent is one of this run's terminal hosts or app processes: the shells its terminals run."""
+    rows = ps_rows()
+    parents = {pid for pid, _pp, _u, _c, _r, command in rows if under(command, app.root)}
+    parents |= set(smoke.terminal_host_pids(app.root))
+    return {pid for pid, ppid, _u, _c, _r, command in rows if ppid in parents and not under(command, app.root)
+            and "__terminal-host" not in command}
+
+
+def wait_stable_processes(root: Path, quiet=1.0, seconds=30.0):
+    """Until the processes under ROOT stay the same set for QUIET s; False when they still change at SECONDS."""
+    deadline = time.monotonic() + seconds
+    last, since = None, time.monotonic()
+    while time.monotonic() < deadline:
+        now = frozenset((pid, command) for pid, _pp, _u, _c, _r, command in ps_rows() if under(command, root))
+        if now != last:
+            last, since = now, time.monotonic()
+        elif time.monotonic() - since >= quiet:
+            return True
+        time.sleep(0.2)  # harness: polling the process table
+    return False
+
+
 def new_workspace(app: App, known):
+    shells = terminal_children(app)
     before = app.shown()[0]
     reply = app.action("workspace.newAtBottom")
     deadline = time.monotonic() + 15
@@ -860,7 +884,12 @@ def new_workspace(app: App, known):
     if not current or current == before or current in known:
         say(f"SETUP workspace not created: {reply}")
         return None
-    time.sleep(1.0)  # harness: let the shell start before typing into it
+    # The new terminal's shell process starts before typing into it (its pty holds typed text until it reads).
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline and not (terminal_children(app) - shells):
+        time.sleep(0.1)  # harness: waiting for the new terminal's shell process
+    if not (terminal_children(app) - shells):
+        say(f"note: no new shell process under the app's terminals within 15 s for {current}; typing anyway")
     return current
 
 
@@ -1022,7 +1051,12 @@ def measure(app: App, name, opts, seed_info, recorder_bin, out: Path, resident_s
     logger = subprocess.Popen(["/usr/bin/log", "stream", "--style", "ndjson", "--level", "debug", "--predicate",
                                'subsystem BEGINSWITH "com.cmuxterm"'], stdout=logs, stderr=subprocess.STDOUT,
                               start_new_session=True)
-    time.sleep(1.0)  # harness: log stream attaches
+    # `log stream` prints its "Filtering the log data" header once it is attached.
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline and logger.poll() is None and (out / "log-stream.ndjson").stat().st_size == 0:
+        time.sleep(0.05)  # harness: log stream attaches
+    if (out / "log-stream.ndjson").stat().st_size == 0:
+        say(f"note: {name}: log stream wrote nothing in 10 s (exit {logger.poll()}); its log may miss the start")
     t0 = time.monotonic()
     sampler = Sampler(app.root, t0)
     sampler.start()
@@ -1074,7 +1108,7 @@ def measure(app: App, name, opts, seed_info, recorder_bin, out: Path, resident_s
             say(f"{name} round{index} at {row['at_s']}s: {round_line(row)}")
         rest = opts.seconds - (time.monotonic() - t0)
         if rest > 0:
-            time.sleep(rest)  # harness: the rest of the measured window
+            time.sleep(rest)  # sleep-ok: the rest of the fixed --seconds measured window
     finally:
         probe.stop.set()
         probe.join(timeout=40)
@@ -1332,7 +1366,7 @@ def run(opts, root: Path, report):
                 raise StepFailed("FROM: the control socket never answered")
             report["N_isolation"] = check_isolation(app, resident)
             seed_info = seed(app, opts, report)
-            time.sleep(opts.settle)  # the asked settle before staging
+            time.sleep(opts.settle)  # sleep-ok: --settle is the scenario's idle period with the seeded app before staging
             app.action("palette.checkForUpdates", focus=False)
             staged, deadline = None, time.monotonic() + 900
             while time.monotonic() < deadline and not staged:
@@ -1352,15 +1386,25 @@ def run(opts, root: Path, report):
         if bundle_build(path) != to_item["build"]:
             raise StepFailed(f"install on quit left build {bundle_build(path)}, want {to_item['build']}")
         say(f"INSTALLED {bundle_build(path)} in {report['install_s']} s")
-        # Sparkle relaunches only when asked; a relaunch would be a process of the root we did not start.
-        time.sleep(3)  # harness: a relaunch would show by now
+        # Sparkle relaunches only when asked; a relaunch would be a process of the root we did not start. Its
+        # installer (Autoupdate) would start that relaunch before it exits, so wait for the installer to be gone.
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline and any("Autoupdate" in command and under(command, root)
+                                                  for _p, _pp, _u, _c, _r, command in ps_rows()):
+            time.sleep(0.2)  # harness: Sparkle's installer exits
+        if any("Autoupdate" in command and under(command, root) for _p, _pp, _u, _c, _r, command in ps_rows()):
+            say("note: Sparkle's Autoupdate still runs 60 s after the install; checking for a relaunch anyway")
+        if not wait_stable_processes(root, quiet=1.0, seconds=30):
+            say("note: processes under the root still changed 30 s after the install")
         for pid, _pp, _u, _c, _r, command in ps_rows():
             if command.startswith(str(path / "Contents/MacOS/")):
                 raise StepFailed(f"something relaunched the app (pid {pid}); the measurement would lose its env")
         app = App(path, root, opts)
         report["A"] = measure(app, "A", opts, seed_info, recorder_bin, out / "A", resident)
         app.quit()
-        time.sleep(5)  # harness: the quit's daemons hand over
+        # The quit's daemons hand over: the processes under the root stop changing.
+        if not wait_stable_processes(root, quiet=1.0, seconds=30):
+            say("note: processes under the root still changed 30 s after A's quit")
         report["B"] = measure(app, "B", opts, seed_info, recorder_bin, out / "B", resident)
         report["hangs"] = hang_files(home, out, report.get("started_wall", 0))
         app.quit(end_everything=True)

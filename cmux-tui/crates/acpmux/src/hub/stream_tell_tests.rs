@@ -119,7 +119,11 @@ async fn a_streaming_chats_row_is_told_once_per_window_however_often_the_list_is
 #[tokio::test]
 async fn a_held_streaming_row_is_told_at_the_first_read_after_its_window() {
     let (hub, chats) = hub_with_streaming_chats();
-    hub.events.set_stream_tell_every(std::time::Duration::from_millis(200));
+    // The window's clock moves only when the test moves it: on a loaded runner a real 200 ms
+    // window passed between two reads, and the held row was told early.
+    let window = std::time::Duration::from_millis(200);
+    hub.events.set_stream_tell_every(window);
+    hub.events.freeze_stream_clock();
     let chat = &chats[0];
     let mut heard = hub.events.subscribe();
     stream(&hub, chat, 0);
@@ -148,7 +152,7 @@ async fn a_held_streaming_row_is_told_at_the_first_read_after_its_window() {
     stream(&hub, chat, 2);
     let head_held = hub.list_cursor().0;
     assert!(hub.events.stream_untold(&chat.id));
-    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    hub.events.advance_stream_clock(window);
     let _ = hub.list_cursor();
     let follow = hub.list_follow(head_held, false, false, usize::MAX).expect("the log follows it");
     let follow: Value = serde_json::from_str(&follow.text).unwrap();

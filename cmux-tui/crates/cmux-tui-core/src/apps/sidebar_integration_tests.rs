@@ -52,6 +52,8 @@ impl Session {
             extra: Vec::new(),
             local: Some(self.0.join("local")),
             customize: Some(self.0.join("customize")),
+            setups: None,
+            saved_prompts: None,
             defaults: Some(Vec::new()),
         }
     }
@@ -728,6 +730,53 @@ fn a_read_the_person_turned_off_stays_off_through_a_broken_save() {
     save("1.0.4", json!({"workspace:read": "r"}));
     supervisor.reload_local_apps(&prints);
     assert!(grants(&supervisor).is_empty(), "after dropping and re-adding it");
+    drop(supervisor);
+    mux.shutdown();
+}
+
+/// A setup's views layer (`cmux setup install`, `Sources::setups`) that
+/// appears while cmux runs installs as the person's own customize folder
+/// does: its read scopes and the sandbox, nothing more until they allow it.
+/// Turned off (its row gone from `layers.json`), it is no longer loaded;
+/// the person's own `local/customize` stays loaded throughout.
+#[test]
+fn a_setup_layer_that_appears_while_running_installs_with_its_reads_and_turns_off() {
+    let session = Session::new();
+    let mux = session.open();
+    let setups = session.0.join("setups");
+    let sources = Sources { setups: Some(setups.clone()), ..session.sources() };
+    let supervisor = session.supervisor_with_sources(&mux, sources);
+    write_app(&session.0.join("customize"), "local/customize", "1.0.0");
+    let layer = setups.join("setup-leo-dusk");
+    write_app(&layer, "local/setup-leo-dusk", "1.0.0");
+    let path = layer.join("cmux-app.v2.json");
+    let mut manifest: Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    manifest["scopes"] = json!({"workspace:read": "r", "terminal:write": "w"});
+    std::fs::write(&path, manifest.to_string()).unwrap();
+    let index = |layers: Value| {
+        let index = json!({"cmuxSetupLayers": 1, "layers": layers});
+        std::fs::write(setups.join("layers.json"), index.to_string()).unwrap();
+    };
+    index(json!([{"id": "leo/dusk", "app": "local/setup-leo-dusk", "dir": "setup-leo-dusk"}]));
+    let prints = supervisor.reload_local_apps(&HashMap::new());
+    let record = supervisor.inner.lock().unwrap().mirror.apps["local/setup-leo-dusk"].clone();
+    assert!(record.installed);
+    assert_eq!(record.grants.into_iter().collect::<Vec<_>>(), vec!["workspace:read".to_string()]);
+    assert!(record.sandboxed);
+    assert_eq!(
+        supervisor.inner.lock().unwrap().catalog.setup_layers,
+        vec!["local/setup-leo-dusk".to_string()]
+    );
+
+    index(json!([]));
+    let mut unread = prints;
+    unread.values_mut().for_each(|print| *print = u64::MAX);
+    supervisor.reload_local_apps(&unread);
+    let inner = supervisor.inner.lock().unwrap();
+    assert!(!inner.catalog.packages.contains_key("local/setup-leo-dusk"), "off: not loaded");
+    assert!(inner.catalog.packages.contains_key("local/customize"));
+    drop(inner);
     drop(supervisor);
     mux.shutdown();
 }

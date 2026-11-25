@@ -3,12 +3,13 @@ import Foundation
 /// App strings for history (table History.xcstrings).
 enum HistoryAppStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "History", bundle: .module)
+        String(localized: key, defaultValue: value, table: "History", bundle: .module.inAppLanguage)
     }
 
     static var nothingBack: String { t("history.refusal.nothingBack", "No earlier location to go back to") }
     static var nothingForward: String { t("history.refusal.nothingForward", "No later location to go forward to") }
     static var nothingLast: String { t("history.refusal.nothingLast", "No last location to go to") }
+    static var nothingSession: String { t("history.refusal.nothingSession", "No earlier agent session to go back to") }
     static var nothingClosed: String { t("history.refusal.nothingClosed", "No recently closed tab to reopen") }
     static var noSession: String { t("history.refusal.noSession", "No agent session with that ID") }
     static var noResume: String { t("history.refusal.noResume", "cmux does not know how to resume this agent") }

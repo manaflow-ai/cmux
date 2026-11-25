@@ -8,13 +8,17 @@
   {"title": "The Home chat over the fixture's Chief history", "rpc": {"method": "debug.home_native_fixture.open", "params": {}}, "wait": 3},
   {"title": "Partial swipe: 40 pt in 0.3 s, held 0.3 s (springs back, no reply)", "rpc": {"method": "debug.home.drive", "params": {"action": "swipe", "dx": "40", "duration": "0.3", "hold": "0.3"}}, "record": true, "wait": 1.6, "shot": false, "displayRecord": true},
   {"title": "After the partial swipe: no thread", "rpc": {"method": "debug.home.drive", "params": {"action": "thread_state"}}, "record": true, "wait": 0.2, "shot": false},
+  {"title": "Its events, as the swipe took or left them", "rpc": {"method": "debug.home.drive", "params": {"action": "swipe_trail"}}, "record": true, "wait": 0.1, "shot": false},
   {"title": "Full swipe: 160 pt in 0.35 s (opens the reply)", "rpc": {"method": "debug.home.drive", "params": {"action": "swipe", "dx": "160", "duration": "0.35"}}, "record": true, "wait": 1.8, "shot": false, "displayRecord": true},
   {"title": "After the full swipe: the reply is open", "rpc": {"method": "debug.home.drive", "params": {"action": "thread_state"}}, "record": true, "wait": 0.2},
+  {"title": "Its events, as the swipe took or left them", "rpc": {"method": "debug.home.drive", "params": {"action": "swipe_trail"}}, "record": true, "wait": 0.1, "shot": false},
   {"title": "Esc", "rpc": {"method": "debug.home.drive", "params": {"action": "escape"}}, "record": true, "wait": 1, "shot": false},
   {"title": "Slow full swipe: 120 pt in 0.9 s, held 0.4 s", "rpc": {"method": "debug.home.drive", "params": {"action": "swipe", "dx": "120", "duration": "0.9", "hold": "0.4"}}, "record": true, "wait": 2.6, "shot": false, "displayRecord": true},
   {"title": "After the slow swipe: the reply is open", "rpc": {"method": "debug.home.drive", "params": {"action": "thread_state"}}, "record": true, "wait": 0.2, "shot": false},
+  {"title": "Its events, as the swipe took or left them", "rpc": {"method": "debug.home.drive", "params": {"action": "swipe_trail"}}, "record": true, "wait": 0.1, "shot": false},
   {"title": "Esc again", "rpc": {"method": "debug.home.drive", "params": {"action": "escape"}}, "record": true, "wait": 1, "shot": false},
-  {"title": "Diagonal scroll on the bubble: 100 pt right, 90 pt up in 0.4 s (stays a scroll, no reply)", "rpc": {"method": "debug.home.drive", "params": {"action": "swipe", "dx": "100", "dy": "-90", "duration": "0.4"}}, "record": true, "wait": 1.6, "shot": false, "displayRecord": true},
-  {"title": "After the diagonal scroll: no thread", "rpc": {"method": "debug.home.drive", "params": {"action": "thread_state"}}, "record": true, "wait": 0.2}
+  {"title": "Diagonal scroll on the bubble: 100 pt right, 90 pt down in 0.4 s (stays a scroll: the transcript moves, no reply)", "rpc": {"method": "debug.home.drive", "params": {"action": "swipe", "dx": "100", "dy": "90", "duration": "0.4"}}, "record": true, "wait": 1.6, "shot": false, "displayRecord": true},
+  {"title": "After the diagonal scroll: no thread", "rpc": {"method": "debug.home.drive", "params": {"action": "thread_state"}}, "record": true, "wait": 0.2},
+  {"title": "Its events, as the swipe took or left them", "rpc": {"method": "debug.home.drive", "params": {"action": "swipe_trail"}}, "record": true, "wait": 0.1, "shot": false}
  ]
 }

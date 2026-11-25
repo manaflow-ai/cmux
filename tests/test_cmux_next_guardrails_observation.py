@@ -5,7 +5,7 @@ An observation's `onChange:` runs inside the write that fired it (the store drai
 enqueues. An observation closure reads one item, or the list of ids an `ObservedItems` owner keeps, never a walk
 over every workspace or tab. Both rules judge only the lines a push adds.
 
-Not on CI (Lawrence 2026-10-23: no new CI gates): run it yourself after a change to either rule:
+Not on CI (Lawrence 2026-10-23: no new CI gates, lifted 2026-11-18): run it yourself after a change to either rule:
 python3 tests/test_cmux_next_guardrails_observation.py
 """
 import importlib.util

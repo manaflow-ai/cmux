@@ -29,7 +29,7 @@ public nonisolated struct KeychainCookieBackupKey: CookieBackupKeySource {
         add[kSecValueData as String] = fresh
         add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         add[kSecAttrLabel as String] = "cmux cookie backup key"
-        let status = SecItemAdd(add as CFDictionary, nil)
+        let status = loginKeychain.withoutUI { SecItemAdd(add as CFDictionary, nil) }
         if status == errSecSuccess { return SymmetricKey(data: fresh) }
         // Another process made it first: use that one.
         if status == errSecDuplicateItem, let existing = try read() { return SymmetricKey(data: existing) }

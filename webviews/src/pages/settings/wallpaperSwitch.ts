@@ -30,6 +30,8 @@ export type WallpaperValues = {
   schedule: Record<string, string> | null;
   /** `appearance` (the light or dark frame) or `time` (frames follow the sun). */
   dynamic: string;
+  /** What each mode last showed (appearance.backgroundMemory); none when absent. */
+  memory?: WallpaperMemory;
 };
 
 /** A picture the background can show; `dynamic`: a macOS dynamic wallpaper (frames by sun or clock). */
@@ -50,6 +52,55 @@ export function isFixed(id: string): boolean {
   return (
     id !== FOLLOW_APPEARANCE && id !== FOLLOW_SCHEDULE && id !== SHUFFLE_PAINTINGS && !id.startsWith(FOLDER_PREFIX)
   );
+}
+
+/** A shuffle: the paintings (`daily`) or a folder (`folder:<path>`), what Rotate shows. */
+export function isShuffle(id: string): boolean {
+  return id === SHUFFLE_PAINTINGS || id.startsWith(FOLDER_PREFIX);
+}
+
+// What each mode last showed, kept while another mode is on (Leo, 2026-11-19: "switched around from
+// the rotating to day/night/whatever but it lost the folder ... i couldn't get back into it"). Light &
+// Dark and Time of Day keep theirs in their own keys; Rotate's folder and Off's picture live only in
+// appearance.background, which the next mode writes over, so they are kept in a settings key of their
+// own, appearance.backgroundMemory. It is in the settings file, so a new Settings web view and cmux
+// after a restart read it back.
+export const MEMORY_KEY = "appearance.backgroundMemory";
+/** rotate: what Rotate last showed; folder: the last folder it shuffled (kept while it shows the
+ * paintings, so the folder stays one click away); off: the picture Off last showed. */
+export type WallpaperMemory = { rotate: string | null; folder: string | null; off: string | null };
+export const NO_MEMORY: WallpaperMemory = { rotate: null, folder: null, off: null };
+
+/** The memory a stored value holds; a member of the wrong shape is none. */
+export function readMemory(value: unknown): WallpaperMemory {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return NO_MEMORY;
+  const stored = value as Record<string, unknown>;
+  const text = (key: string) => (typeof stored[key] === "string" ? (stored[key] as string) : null);
+  const rotate = text("rotate");
+  const folder = text("folder");
+  const off = text("off");
+  return {
+    rotate: rotate !== null && isShuffle(rotate) ? rotate : null,
+    folder: folder !== null && folder.startsWith(FOLDER_PREFIX) ? folder : null,
+    off: off !== null && isFixed(off) ? off : null,
+  };
+}
+
+/** The memory once `background` was shown: a shuffle (and its folder) for Rotate, a picture for
+ * Off. Null when it already holds that, so there is nothing to write. */
+export function rememberBackground(memory: WallpaperMemory, background: string): WallpaperMemory | null {
+  const next: WallpaperMemory = isShuffle(background)
+    ? { ...memory, rotate: background, folder: background.startsWith(FOLDER_PREFIX) ? background : memory.folder }
+    : isFixed(background)
+      ? { ...memory, off: background }
+      : memory;
+  if (next.rotate === memory.rotate && next.folder === memory.folder && next.off === memory.off) return null;
+  return next;
+}
+
+/** The value to store: only the members that hold something. */
+export function memoryValue(memory: WallpaperMemory): Record<string, string> {
+  return Object.fromEntries(Object.entries(memory).filter((entry): entry is [string, string] => entry[1] !== null));
 }
 
 /** A macOS dynamic wallpaper: the host marks it (`dynamic`); without the mark, a system `.madesktop`
@@ -79,27 +130,27 @@ export function dynamicChoices(choices: readonly PictureChoice[]): PictureChoice
 }
 
 /** The one picture Off shows: the one on screen when the values hold one, else the light picture,
- * the first scheduled one, the last picture the page saw, or none. */
+ * the first scheduled one, the last picture the page saw, or none. From Rotate: the last picture,
+ * else one Light & Dark or Time of Day still names, so Off never drops to no background while a
+ * picture is kept. */
 export function fixedPicture(values: WallpaperValues, lastFixed: string | null): string {
   if (isFixed(values.background)) return values.background;
+  const first = values.schedule ? Object.values(values.schedule)[0] : undefined;
   if (values.background === FOLLOW_APPEARANCE) return values.light ?? values.dark ?? lastFixed ?? "none";
-  if (values.background === FOLLOW_SCHEDULE) {
-    const first = values.schedule ? Object.values(values.schedule)[0] : undefined;
-    return lastFixed ?? first ?? "none";
-  }
-  return lastFixed ?? "none";
+  if (values.background === FOLLOW_SCHEDULE) return lastFixed ?? first ?? "none";
+  return lastFixed ?? values.light ?? values.dark ?? first ?? "none";
 }
 
 /**
  * The writes that turn the values into `mode`, keeping what the person sees where it can: Light &
  * Dark starts with the current picture on the light side, Time of Day with it at sunrise and
- * sunset, Rotate shuffles the paintings, Sun uses the current dynamic picture (or the first one).
+ * sunset, Rotate goes back to the folder it last shuffled (else the paintings), Sun uses the current dynamic picture (or the first one).
  * Off puts one fixed picture back and the dynamic picture on its light and dark frames.
  */
 export function writesFor(
   mode: WallpaperMode,
   values: WallpaperValues,
-  context: { choices: readonly PictureChoice[]; lastFixed: string | null },
+  context: { choices: readonly PictureChoice[]; lastFixed: string | null; lastShuffle?: string | null },
 ): WallpaperWrite[] {
   const fixed = fixedPicture(values, context.lastFixed);
   // A mode's seed must be a picture: from no background, Light & Dark and Time of Day start on the desktop's.
@@ -130,7 +181,8 @@ export function writesFor(
       return [...(picture === values.background ? [] : [[BACKGROUND_KEY, picture] as const]), [DYNAMIC_KEY, "time"]];
     }
     case "rotate":
-      return [[BACKGROUND_KEY, SHUFFLE_PAINTINGS], ...dynamicOff];
+      // Back to the folder Rotate last shuffled; the paintings the first time.
+      return [[BACKGROUND_KEY, context.lastShuffle ?? SHUFFLE_PAINTINGS], ...dynamicOff];
   }
 }
 

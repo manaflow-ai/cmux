@@ -38,7 +38,7 @@ struct WorkspaceTodoRow: View {
                 Label { Text(verbatim: "\(item.attachments.count)") } icon: { Image(systemName: "photo") }
                     .labelStyle(.titleAndIcon)
                     .foregroundStyle(.secondary)
-                    .themedHelp(item.attachments.map(\.name).joined(separator: "\n"))
+                    .themedHelp(item.attachments.map(\.name).joined(separator: ", "))
             }
         }
         .padding(.vertical, 4)

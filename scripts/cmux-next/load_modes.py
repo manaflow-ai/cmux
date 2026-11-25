@@ -26,7 +26,7 @@ def registry(path=REGISTRY):
 
 
 def gate_p95_ms(path=REGISTRY):
-    """The design's key-to-frame target (16 ms). A harness flag, never a CI gate."""
+    """The design's key-to-frame target (16 ms). A harness flag, not a CI gate."""
     return registry(path)["gate_p95_ms"]
 
 

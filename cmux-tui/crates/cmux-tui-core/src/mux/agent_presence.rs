@@ -257,7 +257,7 @@ impl Mux {
         else {
             return;
         };
-        let Some(surface) = self.resource_surface_for_terminal(&terminal_id) else { return };
+        let Some(surface) = self.agent_view_surface_for_terminal(&terminal_id) else { return };
         // Emit while holding the table so two events of one terminal reach
         // subscribers in the order they changed it. `emit` takes only the
         // subscriber lock and never this one.

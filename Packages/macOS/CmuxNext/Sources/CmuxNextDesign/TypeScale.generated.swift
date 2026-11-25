@@ -58,3 +58,33 @@ public nonisolated struct TypeScale: Sendable {
     /// Monogram initials drawn in an avatar circle.
     public static let strong: NSFont.Weight = .bold
 }
+
+/// The scene DSL's type (RFD 0009): every name a scene node's `font` may take, a cmux type role or an
+/// Apple text style, at one size and weight. The web scene renderer reads the same table
+/// (schemas/type-scale/scene-type.json), so both draw a name alike.
+public nonisolated struct SceneType {
+    public nonisolated init() {}
+    /// One name's size in points at the default text size, and its weight.
+    public struct Style: Sendable, Equatable {
+        public let size: CGFloat
+        public let weight: NSFont.Weight
+    }
+
+    /// Roles first (`numeral` ... `footnote`), then the Apple style names.
+    public static let styles: [String: Style] = [
+        "numeral": Style(size: 34, weight: .semibold),
+        "heading": Style(size: 20, weight: .semibold),
+        "title": Style(size: 15, weight: .semibold),
+        "label": Style(size: 13, weight: .semibold),
+        "body": Style(size: 13, weight: .regular),
+        "caption": Style(size: 12, weight: .regular),
+        "footnote": Style(size: 11, weight: .regular),
+        "largeTitle": Style(size: 34, weight: .regular),
+        "title2": Style(size: 20, weight: .regular),
+        "title3": Style(size: 15, weight: .regular),
+        "headline": Style(size: 13, weight: .semibold),
+        "callout": Style(size: 13, weight: .regular),
+        "subheadline": Style(size: 12, weight: .regular),
+        "caption2": Style(size: 11, weight: .regular),
+    ]
+}

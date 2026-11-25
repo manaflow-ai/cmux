@@ -4,6 +4,7 @@
 import type { ReactNode } from "react";
 import { returnBrief, type EvidenceLevel, type ReturnBriefInput, type ReviewItem } from "./returnBriefModel";
 import "./returnBrief.css";
+import { WithFacts } from "../chips/FactsHoverCard";
 
 export type ReturnBriefProps = {
   input: ReturnBriefInput;
@@ -68,7 +69,9 @@ export function ReturnBrief({ input, onReviewChanges, onOpenArtifact }: ReturnBr
       </div>
       <div className="acpmux-return-brief__source">
         <span>Source revision</span>
-        <code title={input.commit}>{report.source}</code>
+        <WithFacts facts={[{ value: input.commit, code: true }]}>
+          {(facts) => <code {...facts}>{report.source}</code>}
+        </WithFacts>
         <span>
           Session {input.sessionId} · turn {input.turnId}
         </span>

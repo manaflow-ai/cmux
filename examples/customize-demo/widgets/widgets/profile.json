@@ -32,6 +32,9 @@
     "sidebar.groupHeader.background": "sections",
     "sidebar.workspaceRow.icon": true,
     "sidebar.workspaceRow.notification": true,
-    "workspaceColors.indicatorStyle": "leftRail"
+    "workspaceColors.indicatorStyle": "leftRail",
+    "window.titlebarButtons": "always",
+    "tabs.plusButton": "always",
+    "agentPane.display.sessionInfo.placement": "overlay"
   }
 }

@@ -189,56 +189,56 @@ public nonisolated struct SessionMoveSelection: Equatable {
 
     /// Localized text: dialogTitle.
     public static var dialogTitle: String {
-        String(localized: "sessionMove.dialog.title", defaultValue: "Move Sessions from Another cmux Build", bundle: .module)
+        String(localized: "sessionMove.dialog.title", defaultValue: "Move Sessions from Another cmux Build", bundle: .localizedModule)
     }
     /// Localized text: dialogLine.
     public static var dialogLine: String {
         String(localized: "sessionMove.dialog.line",
-               defaultValue: "Each checked session opens here and closes in the build it came from.", bundle: .module)
+               defaultValue: "Each checked session opens here and closes in the build it came from.", bundle: .localizedModule)
     }
     /// Localized text: terminalLine.
     public static var terminalLine: String {
         String(localized: "sessionMove.dialog.terminalLine",
                defaultValue: "A moved terminal reopens here as a new shell, and its program and scrollback in the other build end.",
-               bundle: .module)
+               bundle: .localizedModule)
     }
     /// Localized text: a terminal that can't move because it runs `program`.
     public static func running(_ title: String, _ program: String) -> String {
-        String(localized: "sessionMove.row.running", defaultValue: "\(title): running \(program), so it stays in the other build.", bundle: .module)
+        String(localized: "sessionMove.row.running", defaultValue: "\(title): running \(program), so it stays in the other build.", bundle: .localizedModule)
     }
     /// Localized text: a terminal that can't move because its build can't tell whether a program runs in it.
     public static func unknownActivity(_ title: String) -> String {
         String(localized: "sessionMove.row.unknownActivity",
-               defaultValue: "\(title): the other build can’t tell whether a program is running, so it stays there.", bundle: .module)
+               defaultValue: "\(title): the other build can’t tell whether a program is running, so it stays there.", bundle: .localizedModule)
     }
     /// Localized text: a picked terminal that started running `program` before the move.
     public static func becameBusy(_ program: String) -> String {
         String(localized: "sessionMove.handoff.running",
-               defaultValue: "It started running \(program) after you picked it, so it stayed in the other build.", bundle: .module)
+               defaultValue: "It started running \(program) after you picked it, so it stayed in the other build.", bundle: .localizedModule)
     }
     /// Localized text: a picked terminal whose build could no longer tell whether a program runs in it.
     public static var becameUnknown: String {
         String(localized: "sessionMove.handoff.unknownActivity",
-               defaultValue: "The other build could no longer tell whether a program is running in it, so it stayed there.", bundle: .module)
+               defaultValue: "The other build could no longer tell whether a program is running in it, so it stayed there.", bundle: .localizedModule)
     }
     /// Localized text: endTerminalsTitle.
     public static var endTerminalsTitle: String {
-        String(localized: "sessionMove.endTerminals.title", defaultValue: "End These Terminals in the Other Build?", bundle: .module)
+        String(localized: "sessionMove.endTerminals.title", defaultValue: "End These Terminals in the Other Build?", bundle: .localizedModule)
     }
     /// Localized text: moveAndEndTerminals.
     public static var moveAndEndTerminals: String {
-        String(localized: "sessionMove.endTerminals.move", defaultValue: "Move and End Terminals", bundle: .module)
+        String(localized: "sessionMove.endTerminals.move", defaultValue: "Move and End Terminals", bundle: .localizedModule)
     }
     /// Localized text: move.
     public static var move: String {
-        String(localized: "sessionMove.dialog.move", defaultValue: "Move", bundle: .module)
+        String(localized: "sessionMove.dialog.move", defaultValue: "Move", bundle: .localizedModule)
     }
     /// Localized text: terminal.
     public static var terminal: String {
-        String(localized: "sessionMove.row.terminal", defaultValue: "Terminal session", bundle: .module)
+        String(localized: "sessionMove.row.terminal", defaultValue: "Terminal session", bundle: .localizedModule)
     }
     /// Localized text: agentChat.
     public static var agentChat: String {
-        String(localized: "sessionMove.row.agentChat", defaultValue: "Agent chat", bundle: .module)
+        String(localized: "sessionMove.row.agentChat", defaultValue: "Agent chat", bundle: .localizedModule)
     }
 }

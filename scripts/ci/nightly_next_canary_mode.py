@@ -327,7 +327,7 @@ def await_gate(fetch: Callable[[], list[Mapping[str, Any]]], job_name: str, queu
 
     def rest() -> None:
         # The last look lands on the budget itself, never a whole interval past it.
-        sleep(max(0.0, min(interval_s, run_budget_s - (clock() - start))))
+        sleep(max(0.0, min(interval_s, run_budget_s - (clock() - start))))  # sleep-ok: the poll loop's interval
 
     for _ in range(polls):
         elapsed = clock() - start

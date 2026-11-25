@@ -84,6 +84,8 @@ final class HomeService {
     @ObservationIgnored let ensureOwner = HomeEnsureOwnerWait() // the ensure whose Chief tab step is on the owner
     /// The last step the home workspace setup reached, for `debug.home`.
     @ObservationIgnored var homeWorkspaceStep = "not started"
+    /// The last step the Chief tab's setup reached, beside the home workspace's (``HomeChiefTabStep``).
+    @ObservationIgnored var chiefTabStep = HomeChiefTabStep.notStarted
     /// The chief tab creation's idempotency key (one per creation).
     @ObservationIgnored let chiefTabKey = HomeChiefTabKey()
     @ObservationIgnored let chiefHomes = HomeChiefHomes() // each Home's turn actions; Start now on a queued agent
@@ -185,6 +187,15 @@ final class HomeService {
             guard let auth = self?.services.cloud.auth, let id = auth.user?.id else { return nil }
             return CloudIdentity.workerUserID(stackProjectID: auth.configuration.stackProjectID, stackUserID: id)
         })
+    /// New Chief's maker on this Mac's Chief owner (`chief.profile.create`), nil while the owner
+    /// is not connected. Tests give it a fake owner.
+    @ObservationIgnored lazy var localChiefCreator: @MainActor () -> HomeLocalChiefCreator? = { [weak self] in
+        guard let connection = self?.connection else { return nil }
+        return HomeLocalChiefCreator(connection: connection, me: Self.localUser)
+    }
+    /// New Chief's `chief.create` on the signed-in account's cloud Chiefs, the default for an engine
+    /// whose Chiefs are not this Mac's (Claude). Tests give it a fake owner.
+    @ObservationIgnored lazy var cloudChiefCreate: @MainActor (String) async throws -> HomeChiefRecord = { [weak self] in try await (self?.directory ?? { throw CancellationError() }()).createChief(named: $0) }
     /// The active team (`ActiveTeam`, Switch Active Team) as the Worker names it: Home lists its people only.
     var activeWorkerTeam: String? {
         let auth = services.cloud.auth
@@ -199,6 +210,7 @@ final class HomeService {
     var pendingSelection: ConversationID?
     /// Each chat's own bubble colours (`home.chatColors`), kept on this Mac, and the app's one Chat Colors… panel (AppKit).
     @ObservationIgnored let chatColors = HomeChatColorStore(defaults: .standard)
+    @ObservationIgnored private(set) lazy var clipboardHistory = HomeClipboardHistory { [weak services] in services?.settings } // the + menu's recent copies
     @ObservationIgnored private(set) lazy var chatColorsPanel = HomeChatColorsPanel(store: chatColors, design: .shared)
     @ObservationIgnored var cloudLinker: HomeCloudLink?
     /// Each conversation tab's view, by tab id; released with the tab.

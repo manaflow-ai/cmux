@@ -44,6 +44,11 @@ impl Brain {
                 urls.push(item.clone());
                 continue;
             }
+            if call.delay_seconds.is_some() {
+                return Err(
+                    "send: a message sent later carries text and URLs; send files now".into(),
+                );
+            }
             let path = media::local_path(item, home.as_deref()).ok_or_else(|| {
                 format!("send: attachment {item:?} is not an absolute path, ~/path, file:// or http(s) URL")
             })?;
@@ -113,6 +118,9 @@ impl Brain {
         if let Some(id) = call.reply_to {
             fingerprint.push_str(&format!("\u{0}reply_to={id}"));
         }
+        if let Some(seconds) = call.delay_seconds {
+            fingerprint.push_str(&format!("\u{0}delay={seconds}"));
+        }
         let key = format!(
             "send-{conversation}-{turn}-{:016x}",
             super::replies::fnv(fingerprint.as_bytes())
@@ -159,7 +167,10 @@ impl Brain {
             });
             *thread_root = Some(root.clone());
         }
-        self.sent_keys.insert(key);
+        if let Some(seconds) = call.delay_seconds {
+            return self.send_later(entry, key, seconds);
+        }
+        self.sent_keys.insert(key.clone());
         // The wake run's `result`: the posted text, or the files it sent.
         let posted = if text.is_empty() {
             let names: Vec<String> = files
@@ -170,19 +181,120 @@ impl Brain {
         } else {
             text.clone()
         };
-        self.wake_run_posted(&posted);
         let entry = self.reply_with_media(entry, files.clone());
         self.state.outbox.push(entry);
         self.save();
         self.flush_outbox();
+        // What the owner did with it: "sent" only when it took the message.
+        // A refusal is the Chief's to know (2026-11-20: 25 messages the
+        // owner refused with agent_budget were answered "sent").
+        // The key it went under: a merge into an earlier waiting message
+        // (pacing::coalesce) shares that message's fate; a refused link
+        // card retries as `{key}:text`, a refused thread as `{key}:top`.
+        let mut under = key.clone();
+        while let Some(into) = self.merged_sends.remove(&under) {
+            under = into;
+        }
+        let ours = |k: &str| {
+            k == under
+                || k.strip_prefix(under.as_str())
+                    .is_some_and(|r| r.starts_with(':'))
+        };
+        let refused_at = self.refused.iter().position(|r| ours(&r.key));
+        if let Some(refused) = refused_at.map(|at| self.refused.remove(at)) {
+            self.sent_keys.remove(&key);
+            let mut error = format!(
+                "send: refused by the conversation, nothing was posted ({}): {}",
+                refused.reason,
+                refusal_meaning(&refused.reason)
+            );
+            error.push_str(&self.untold_refusals());
+            return Err(error);
+        }
+        self.wake_run_posted(&posted);
         let what = match (files.len(), urls.len()) {
             (0, 0) => String::new(),
             (f, u) => format!(" with {} attachment(s)", f + u),
         };
-        Ok(match (placed, call.reply_to) {
-            (Some(placed), _) => format!("outcome: done. {placed}{what}"),
-            (None, Some(id)) => format!("outcome: done. sent{what} in the thread of message {id}"),
-            (None, None) => format!("outcome: done. sent{what}"),
-        })
+        let queued = self.state.outbox.iter().any(|e| ours(&e.idempotency_key));
+        let mut answer = match (queued, placed, call.reply_to) {
+            (true, placed, _) => format!(
+                "outcome: queued. not posted yet{what}: it waits its turn in the outbox (the gap after the last message, an upload or link previews){}; a refusal is told on your next send",
+                placed.map(|p| format!("; {p}")).unwrap_or_default()
+            ),
+            (false, Some(placed), _) => format!("outcome: done. {placed}{what}"),
+            (false, None, Some(id)) => {
+                format!("outcome: done. sent{what} in the thread of message {id}")
+            }
+            (false, None, None) => format!("outcome: done. sent{what}"),
+        };
+        answer.push_str(&self.untold_refusals());
+        Ok(answer)
+    }
+
+    /// `send` with `delay_seconds`: the conversation owner holds the message
+    /// and posts it as the Chief then (`conversation-scheduled-v1`), whether
+    /// or not the Chief runs; the user sees it waiting and can change it.
+    fn send_later(
+        &mut self,
+        entry: crate::state::OutboxEntry,
+        key: String,
+        seconds: u64,
+    ) -> Result<String, String> {
+        let send_at_ms = super::now_ms().saturating_add(seconds.saturating_mul(1_000));
+        let daemon = self
+            .daemon
+            .as_mut()
+            .ok_or("send: the conversation is not connected yet; try again")?;
+        let id = match daemon.schedule(&entry.conversation, &entry.op, send_at_ms) {
+            Ok(id) => id,
+            // The same message under its key is already queued (a replay
+            // returns it) or already sent: never queue it a second time.
+            Err(crate::daemon::OpError::Rejected(reason))
+                if reason.contains("idempotency_conflict") =>
+            {
+                self.sent_keys.insert(key);
+                return Ok("outcome: noop. this message is already scheduled or sent".to_owned());
+            }
+            Err(error) => return Err(format!("send: not scheduled: {error}")),
+        };
+        self.sent_keys.insert(key);
+        Ok(format!(
+            "outcome: done. scheduled {id} to send in {seconds} s"
+        ))
+    }
+}
+
+impl Brain {
+    /// The refusals the Chief has not been told yet (messages queued earlier
+    /// that the owner refused later), as lines to append to an answer.
+    fn untold_refusals(&mut self) -> String {
+        self.take_all_refused()
+            .into_iter()
+            .map(|r| {
+                let text: String = r.text.chars().take(80).collect();
+                let more = if r.text.chars().count() > 80 {
+                    "…"
+                } else {
+                    ""
+                };
+                format!(
+                    "\nearlier message not posted ({}): {text:?}{more}: {}",
+                    r.reason,
+                    refusal_meaning(&r.reason)
+                )
+            })
+            .collect()
+    }
+}
+
+/// What an owner's reject code means for the Chief.
+fn refusal_meaning(reason: &str) -> &'static str {
+    if reason.contains("agent_budget") {
+        "the loop guard between agents takes no more agent messages in this thread until a person writes in it (6 agent messages follow their last one, and another agent shares the conversation). Sending again posts nothing: end the turn (stop). The host keeps what is owed (untold outcomes, unannounced starts) and puts it in your turn for the person's next message"
+    } else if reason.contains("idempotency_conflict") {
+        "this message's key was already used for other text (a host bug)"
+    } else {
+        "the conversation refused the message"
     }
 }
