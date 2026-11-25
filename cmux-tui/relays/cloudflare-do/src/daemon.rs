@@ -396,7 +396,7 @@ mod tests {
         assert_eq!(live_daemon([("dying", OPEN, dying)], SLOT, connect_ms), Some("dying"));
 
         let mut ledger = CircuitLedger::default();
-        let route = PendingRoute { lane: LaneToken("lane".into()), generation: 1 };
+        let route = PendingRoute { lane: LaneToken("lane".into()), generation: 1, region: None };
         let join_deadline_ms = connect_ms + 30_000;
         assert!(ledger.reserve_for("c1".into(), join_deadline_ms, connect_ms, Some(route.clone())));
 
