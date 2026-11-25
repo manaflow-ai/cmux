@@ -148,4 +148,5 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
         return try await AgentRemoteStartCoordinator(approvals: approvals, servesKeyedReason: servesKeyedReason, updateMachine: updateMachine, restartsInStart: cloudMachineID == nil)
             .keyedStart(cwd, harness, model, proceed: proceed, start: start)
     }
+
 }

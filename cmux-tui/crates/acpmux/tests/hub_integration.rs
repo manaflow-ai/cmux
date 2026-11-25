@@ -57,8 +57,6 @@ mod held_queue;
 mod held_rows;
 #[path = "hub_integration/inbox_digest.rs"]
 mod inbox_digest;
-#[path = "hub_integration/key_auth.rs"]
-mod key_auth;
 #[path = "hub_integration/lanes.rs"]
 mod lanes;
 #[path = "hub_integration/log_retention.rs"]

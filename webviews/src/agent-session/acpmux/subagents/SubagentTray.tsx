@@ -112,9 +112,7 @@ import { StopButton } from "./SubagentGroup";
 import { ResumeControl, type ResumeActions } from "./ResumeControl";
 import { SubagentHarnessContext, ticking } from "./subagentGroupModel";
 import { Elapsed } from "./Elapsed";
-import { commandStatus, itemStart, trayItemKey, type TrayItem, SILENT_TURN_ICON } from "./runningTray";
-import type { SilentTurn } from "../conversation/silentTurns";
-import { backgroundTurnLabel } from "../conversation/backgroundTurns";
+import { commandStatus, itemStart, trayItemKey, type TrayItem } from "./runningTray";
 import { longestRunningFirst, runSince } from "./trayHeadOrder";
 import { attentionFirst, type TrayCard } from "./trayAttention";
 import { actionDetail, latestLine, namedAction } from "./trayDetail";
@@ -1422,33 +1420,6 @@ export const SubagentTray = memo(function SubagentTray({
         </>
       );
     }
-    if (item.kind === "turn") {
-      // A silent turn (conversation/silentTurns.ts): a finished line in the command's row style, its
-      // time, and opened, what it did and any words it kept to itself.
-      const name = silentTurnName(t, item.turn);
-      const steps = item.turn.steps.join("\n");
-      return (
-        <>
-          <AgentLine
-            name={name}
-            chevron
-            icon={SILENT_TURN_ICON}
-            working={false}
-            status="done"
-            doneLook={doneLook}
-            state={t(STATUS_LABEL.done)}
-            quiet
-            expanded={isOpen}
-            trayColumns
-            time={<Elapsed since={item.turn.startedAt} until={item.turn.endedAt} />}
-            onOpen={steps || item.turn.reply ? toggleThis : undefined}
-          />
-          <TrayLineFold open={isOpen}>
-            <TrayAgentDetail name={name} task={steps || undefined} latest={item.turn.reply} />
-          </TrayLineFold>
-        </>
-      );
-    }
     // The chat's retry, as every surface reads it (retryState.ts ``sessionRetry``).
     const sessionPhase = sessionRetry(item.session);
     const sessionRetrying = sessionPhase.kind === "retrying" ? sessionPhase.retry : undefined;
@@ -1603,13 +1574,6 @@ function loneHeadOf(
       time: commandTime(item.command),
     };
   }
-  if (item.kind === "turn")
-    return {
-      title: silentTurnName(t, item.turn),
-      status: "done",
-      state: t(STATUS_LABEL.done),
-      time: <Elapsed since={item.turn.startedAt} until={item.turn.endedAt} />,
-    };
   // The chat's retry, as its line reads it (retryState.ts `sessionRetry`): a failed turn that acpmux
   // retries reads as retrying, never Failed.
   const phase = sessionRetry(item.session);
@@ -1631,7 +1595,15 @@ function loneHeadOf(
 /// start times, never a label per item.
 /// The first two names of `leading` (longest-running first, trayHeadOrder.ts).
 function leadNames(t: Translate, leading: readonly TrayItem[]): readonly string[] {
-  return leading.slice(0, 2).map((item) => itemName(t, item));
+  return leading
+    .slice(0, 2)
+    .map((item) =>
+      item.kind === "agent"
+        ? subagentTaskLabel(t, item.agent)
+        : item.kind === "command"
+          ? (sendLabel(t, item.command) ?? commandRead(t, item.command, undefined, currentCommandRules()).label)
+          : item.session.title,
+    );
 }
 
 const NO_PARTS: readonly TrayHeadPart[] = [];
@@ -1645,15 +1617,7 @@ function itemName(t: Translate, item: TrayItem): string {
     ? subagentTaskLabel(t, item.agent)
     : item.kind === "command"
       ? (sendLabel(t, item.command) ?? commandRead(t, item.command, undefined, currentCommandRules()).label)
-      : item.kind === "turn"
-        ? silentTurnName(t, item.turn)
-        : item.session.title;
-}
-
-/// A silent turn's line (conversation/silentTurns.ts): what started it, as the transcript's
-/// background-turn line names it ("Background update", "Scheduled check").
-function silentTurnName(t: Translate, turn: SilentTurn): string {
-  return turn.background ? backgroundTurnLabel(t, turn.background) : t("backgroundTurn.other");
+      : item.session.title;
 }
 
 /// The header's kinds (trayFoldHead.experiment.ts `kinds`): each kind's mark then its count, one gap
@@ -1822,14 +1786,12 @@ function stackMarks(
           }
         : item.kind === "command"
           ? { key: "commands", icon: "terminal" }
-          : item.kind === "turn"
-            ? { key: "turns", icon: SILENT_TURN_ICON }
-            : {
-                key: itemKey(item),
-                harness: item.session.harness,
-                tone: agentTone(item.session.sessionId),
-                icon: "agent.chat",
-              },
+          : {
+              key: itemKey(item),
+              harness: item.session.harness,
+              tone: agentTone(item.session.sessionId),
+              icon: "agent.chat",
+            },
     );
   }
   return marks;

@@ -1022,8 +1022,7 @@
         "agentPane.spellChecking",
         "agentPane.composerVimKeys",
         "agentPane.attachmentView",
-        "agentPane.showMachineLoadWarnings",
-        "developerTools.overloadNotice"
+        "agentPane.showMachineLoadWarnings"
       ]
     },
     {
