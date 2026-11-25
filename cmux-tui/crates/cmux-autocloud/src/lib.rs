@@ -215,9 +215,15 @@ impl App {
 async fn chat(args: ChatArgs) -> Result<()> {
     let spec = args.spec();
     let token = if spec.needs_sign_in() {
-        match login::load() {
-            Some(s) => Some(s.access_token),
-            None => bail!("not signed in: run `cmux-autocloud login` first"),
+        // A saved sign-in wins; a token already in the environment (CI, a
+        // scripted run) is the fallback `cmux carrier dial` reads anyway.
+        let saved = login::load().map(|s| s.access_token);
+        let env = std::env::var("CMUX_CLOUD_ACCESS_TOKEN").ok().filter(|t| !t.trim().is_empty());
+        match saved.or(env) {
+            Some(token) => Some(token),
+            None => bail!(
+                "not signed in: run `cmux autocloud login` first (or set CMUX_CLOUD_ACCESS_TOKEN)"
+            ),
         }
     } else {
         None
