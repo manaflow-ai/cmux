@@ -772,3 +772,23 @@ fn the_pick_order_is_under_then_headroom_then_unread_then_full() {
     let v = place(&[full], Some(&reg), Work::Agent);
     assert_eq!((&v["pick"], &v["overloaded"]), (&json!("big"), &json!(true)), "{v:#}");
 }
+
+#[test]
+fn role_holders_fold_into_machine_roles() {
+    let mut reg = json!({
+        "machines": {"mac": {"roles": ["ci-runner"]}, "air": {}, "other": {"roles": ["x"]}},
+        "role_holders": {"leo-mac": ["mac", "ghost"], "attended": ["air", "mac"], "ci-runner": ["mac"]}
+    });
+    fold_role_holders(&mut reg);
+    // Held by role_holders, appended in sorted role order, no duplicate of the legacy ci-runner.
+    assert_eq!(reg["machines"]["mac"]["roles"], json!(["ci-runner", "attended", "leo-mac"]));
+    assert_eq!(reg["machines"]["air"]["roles"], json!(["attended"]));
+    assert_eq!(reg["machines"]["other"]["roles"], json!(["x"]));
+    // A holder that is no machine is ignored, not added.
+    assert!(reg["machines"].get("ghost").is_none());
+    assert!(interactive(Some(&reg), "air") && interactive(Some(&reg), "mac"));
+    // Idempotent.
+    let once = reg.clone();
+    fold_role_holders(&mut reg);
+    assert_eq!(reg, once);
+}
