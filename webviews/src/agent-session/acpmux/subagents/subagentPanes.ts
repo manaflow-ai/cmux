@@ -85,10 +85,13 @@ export function subagentTabTitle(agent: Pick<Subagent, "id" | "name" | "task"> |
 /// is as tall as a chat's (Leo, 2026-11-22: "it is prob ok to somehow denote the \"subagent of\"...
 /// at the top i feel like"; SubagentHeaderOf.gallery.tsx).
 export function paneHeading(
-  subagent: { title: string; of: string } | undefined,
+  subagent: { title: string; of?: string } | undefined,
   chat: { title: string },
 ): { title: string; of?: string; renamable: boolean } {
-  if (subagent !== undefined) return { title: subagent.title, of: subagent.of, renamable: false };
+  if (subagent !== undefined)
+    return subagent.of
+      ? { title: subagent.title, of: subagent.of, renamable: false }
+      : { title: subagent.title, renamable: false };
   return { title: chat.title, renamable: true };
 }
 

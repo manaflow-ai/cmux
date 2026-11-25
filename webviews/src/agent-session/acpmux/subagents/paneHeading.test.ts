@@ -2,11 +2,17 @@ import { describe, expect, test } from "bun:test";
 import { paneHeading } from "./subagentPanes";
 
 describe("paneHeading", () => {
-  test("a subagent's own pane names the subagent and whose it is, with no rename", () => {
+  test("with Subagent Of in Header on, a subagent's own pane names the subagent and whose it is, with no rename", () => {
     const subagent = { title: "Audit the reconciler", of: "Subagent of Parent chat" };
     expect(paneHeading(subagent, { title: "Parent chat" })).toEqual({
       title: "Audit the reconciler",
       of: "Subagent of Parent chat",
+      renamable: false,
+    });
+  });
+  test("with Subagent Of in Header off (the default), a subagent's own pane names the subagent alone", () => {
+    expect(paneHeading({ title: "Audit the reconciler" }, { title: "Parent chat" })).toEqual({
+      title: "Audit the reconciler",
       renamable: false,
     });
   });

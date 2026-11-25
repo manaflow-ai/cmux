@@ -2,7 +2,9 @@
 // Where a subagent's own pane says whose subagent it is (Leo, 2026-11-22: "it is prob ok to somehow
 // denote the \"subagent of\"... at the top i feel like"), beside a normal chat's header at the same
 // width, so the two layouts match (Leo, 2026-11-22: "we should align things better").
-// - `summary-slot` (picked): the subagent's name in the title, "Subagent of <chat>" muted beside it
+// Behind Subagent Of in Header (agentPane.display.subagentOf), default off:
+// - `name-only` (off, the default): the subagent's name alone, as a chat's header draws its name.
+// - `summary-slot` (on): the subagent's name in the title, "Subagent of <chat>" muted beside it
 //   where a chat's rolling summary used to go (.acpmux-subagent-of). A chat's header is its name
 //   alone (#53564), so both are one line, as tall, and nothing below moves.
 // - `breadcrumb`: "<chat> › <subagent>" as the title. Same height, but the chat's name crowds the
@@ -14,7 +16,7 @@ import type { ReactNode } from "react";
 import { componentEntry, type ComponentVariant } from "../../../gallery/format";
 import { ThreadTitle } from "../header/ThreadTitle";
 
-type Look = "summary-slot" | "breadcrumb" | "title-badge";
+type Look = "name-only" | "summary-slot" | "breadcrumb" | "title-badge";
 type Props = { look: Look };
 
 const CHAT = "Release prep";
@@ -37,6 +39,7 @@ function SubagentHeaderOfGallery({ look }: Props) {
         <ThreadTitle title={CHAT} onRename={() => undefined} />
       </Header>
       <Header pane="subagent">
+        {look === "name-only" && <ThreadTitle title={AGENT} />}
         {look === "summary-slot" && (
           <>
             <ThreadTitle title={AGENT} />
@@ -67,7 +70,9 @@ function SubagentHeaderOfGallery({ look }: Props) {
 }
 
 const NOTES: Record<Look, string> = {
-  "summary-slot": "Picked: the subagent's name with whose subagent it is muted beside it; same height as the chat's.",
+  "name-only": "Subagent Of in Header off (the default): the subagent's name alone; same height as the chat's.",
+  "summary-slot":
+    "Subagent Of in Header on: the subagent's name with whose subagent it is muted beside it; same height as the chat's.",
   breadcrumb: "Not picked: the chat's name in the title crowds the subagent's out first at narrow widths.",
   "title-badge": "Not picked: the chat it came from is only in a tooltip.",
 };
@@ -82,8 +87,10 @@ function variant(look: Look): ComponentVariant<Props> {
     play: async (ctx) => {
       await ctx.waitFor(() => height(ctx, "chat") !== undefined && height(ctx, "subagent") !== undefined);
       const text = ctx.document.querySelector('[data-pane="subagent"]')?.textContent ?? "";
-      if (look !== "title-badge" && !text.includes(CHAT)) throw new Error(`${look} does not name the chat`);
-      if (look !== "summary-slot") return;
+      const namesChat = look === "summary-slot" || look === "breadcrumb";
+      if (namesChat !== text.includes(CHAT))
+        throw new Error(`${look} ${namesChat ? "does not name" : "names"} the chat`);
+      if (look !== "summary-slot" && look !== "name-only") return;
       const off = Math.abs((height(ctx, "chat") ?? 0) - (height(ctx, "subagent") ?? 0));
       if (off > 1) throw new Error(`the subagent's header is ${off} px off the chat's`);
     },
@@ -104,6 +111,7 @@ export default componentEntry<Props>({
   styles: () => Promise.all([import("../styles.css"), import("../header/header.css")]),
   load: async () => SubagentHeaderOfGallery,
   variants: {
+    "name-only": variant("name-only"),
     "summary-slot": variant("summary-slot"),
     breadcrumb: variant("breadcrumb"),
     "title-badge": variant("title-badge"),
