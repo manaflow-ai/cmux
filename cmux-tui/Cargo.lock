@@ -1517,6 +1517,10 @@ name = "cmux-braid-carrier"
 version = "0.1.0"
 
 [[package]]
+name = "cmux-braid-class"
+version = "0.1.0"
+
+[[package]]
 name = "cmux-braid-path"
 version = "0.1.0"
 dependencies = [
@@ -2768,6 +2772,7 @@ name = "cmux-remote-protocol"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-braid-class",
  "serde",
  "serde_json",
  "uuid",
@@ -3719,6 +3724,7 @@ dependencies = [
  "blake2",
  "boringtun",
  "bytes",
+ "cmux-braid-class",
  "cmux-braid-path",
  "cmux-rd-core",
  "cmux-rd-engine",
