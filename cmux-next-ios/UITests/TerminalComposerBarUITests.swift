@@ -46,21 +46,21 @@ final class TerminalComposerBarUITests: XCTestCase {
 
         let field = app.textViews["terminal.composer.field"]
         XCTAssertTrue(field.waitForExistence(timeout: 30), "composer field\n\(app.debugDescription)")
-        let keyboardKey = app.buttons["terminal.key.keyboard"]
-        XCTAssertTrue(keyboardKey.waitForExistence(timeout: 10), "the key row's keyboard key")
         Thread.sleep(forTimeInterval: 1.5)
 
-        // Keyboard down, empty field: the row at its start, middle and end.
-        var seen = Set<String>()
-        try rowStates(app, keyRowY: keyboardKey.frame.midY, name: "\(look)-kbd-down-empty", seen: &seen)
-        let missing = Self.scrollerKeys.filter { !seen.contains($0) }
-        XCTAssertTrue(missing.isEmpty, "\(look): keys never on screen along the row: \(missing)")
+        // Keyboard down: the key row is away (#53325, it rides the keyboard).
+        shoot(app, "\(look)-kbd-down-empty")
 
-        // Keyboard up, empty.
+        // Keyboard up, empty: the row at its start, middle and end.
         field.tap()
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "the keyboard comes up")
+        let keyboardKey = app.buttons["terminal.key.keyboard"]
+        XCTAssertTrue(keyboardKey.waitForExistence(timeout: 10), "the key row's keyboard key over the keyboard")
         Thread.sleep(forTimeInterval: 1)
+        var seen = Set<String>()
         try rowStates(app, keyRowY: keyboardKey.frame.midY, name: "\(look)-kbd-up-empty", seen: &seen)
+        let missing = Self.scrollerKeys.filter { !seen.contains($0) }
+        XCTAssertTrue(missing.isEmpty, "\(look): keys never on screen along the row: \(missing)")
 
         // Keyboard up, filled.
         field.typeText("git status --short && ls -la ~/Development")
@@ -70,7 +70,7 @@ final class TerminalComposerBarUITests: XCTestCase {
         // Keyboard down, filled: the key row's keyboard key hides it.
         keyboardKey.tap()
         Thread.sleep(forTimeInterval: 1.2)
-        try rowStates(app, keyRowY: keyboardKey.frame.midY, name: "\(look)-kbd-down-filled", seen: &seen)
+        shoot(app, "\(look)-kbd-down-filled")
 
         // Leave no draft behind: drafts persist (#48958), and the next suite
         // (TerminalComposerLookUITests) measures the empty field.
