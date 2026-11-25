@@ -78,6 +78,10 @@ pub struct AttachParams {
     /// False attaches showing the chat to a person who is away (`_acpmux/view` `attending`): it
     /// sees nothing, so a reconnect while they are away keeps the chat's unread; default true.
     pub attending: Option<bool>,
+    /// True: the client draws nothing of the chat while it is hidden (`visible: false`), so the
+    /// agent's `session/update` stream is left out until `_acpmux/view` shows it, which then sends
+    /// one `_acpmux/lagged` naming the chat (`server/view.rs`); default false.
+    pub quiet_hidden: Option<bool>,
     /// Page forward from here (oldest first) when `beforeSeq` is absent.
     pub after_seq: Option<u64>,
     /// The newest `limit` records before this one.
