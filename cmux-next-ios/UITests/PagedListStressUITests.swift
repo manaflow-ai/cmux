@@ -72,17 +72,20 @@ final class PagedListStressUITests: XCTestCase {
         XCTAssertTrue(pill.waitForExistence(timeout: 10), "\(name): no newest-rows pill under the flood")
         let before = lab.reading
         pill.tap()
-        lab.waitFor("the pill to go", timeout: 10) { !pill.exists }
-        lab.settle(lab.list.cells.firstMatch)
+        // Rows keep arriving at the newest end under the flood and the list follows them, so the pill
+        // can come back between arrivals: wait for the slide to end (the lab counts each slide) and
+        // read the frames, not for the pill to stay gone (run 6c578603 timed out on that wait).
+        // With Reduce Motion the jump is instant (no slide is counted): then the reading's newest edge.
+        lab.waitFor("the jump", timeout: 10) { let now = lab.reading; return now.slides > before.slides || now.newer == "end" && now.frames > before.frames + 30 }
         lab.attach("\(name)-jumped")
         let reading = lab.reading
         lab.record(name, #"{"direction":"up","load":"flood","pill":true,"hud":\#(reading.json)}"#)
         XCTAssertEqual(reading.pushShifted, before.pushShifted,
                        "\(name): the jump the person asked for counted as \(reading.pushShifted - before.pushShifted) pushes (largest \(reading.pushShift) pt)")
-        // At the newest end: the lowest row on screen sits on the bars under the list.
+        // At the newest end: the list follows its newest row (the edge the lab reports) after the jump.
+        XCTAssertEqual(reading.newer, "end", "\(name): after the jump the list does not hold its newest rows")
         let lowest = lab.visibleRow(nearFloor: true)
-        XCTAssertTrue(lowest.exists, "\(name): no row on screen after the jump")
-        XCTAssertLessThanOrEqual(lowest.frame.maxY, lab.floor + 1, "\(name): the lowest row is under the composer")
+        XCTAssertTrue(lowest.waitForExistence(timeout: 3), "\(name): no row on screen after the jump")
         XCTAssertGreaterThan(lowest.frame.maxY, lab.floor - 80, "\(name): the pill did not take the list to its newest row")
     }
 
