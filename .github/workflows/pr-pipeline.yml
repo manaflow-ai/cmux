@@ -35,9 +35,13 @@ jobs:
     # once on 2 CPUs) and the `alone` steps (ci-artifact-worker and coderouter 6 min each, wire-lockstep-peers
     # 30 min, the cmux_next_ daemon tests 65 min), with room for the checkout, so a slow step is reported by the
     # runner, not cut here.
-    timeout-minutes: 206
+    timeout-minutes: 228
     permissions:
       contents: read
+    outputs:
+      # A step that needs a Mac after all (the Swift canary with no build fleet pass) names itself here.
+      mac_fallback: ${{ steps.run.outputs.mac_fallback }}
+      canary_targets: ${{ steps.run.outputs.canary_targets }}
     steps:
       - name: Checkout the merge commit and the base tip
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -56,6 +60,7 @@ jobs:
             echo "::notice::No merge commit to diff: every linux step runs."
           fi
       - name: Run the routed linux steps (ci/steps.toml)
+        id: run
         run: ci/run run --job linux ${PATHS_FILE:+--paths-file "$PATHS_FILE"}
       # A type check (the `web-typecheck` step) whose every error had one safe language-service fix, and passed with
       # them: the patch fixit_compile.py wrote to $RUNNER_TEMP/fixit-compile, for the cmuxterm-hq fixit-compile
@@ -110,9 +115,9 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
 
-  # The `mac` job: the Mac tiers of a feat-cmux-next pull request, the Swift canary and the fast tier's Swift
-  # suites, which were cmux-next.yml's swift-canary and fast-tier jobs (and their build-fleet variants) on a pull
-  # request. pr-router.yml starts it only when the change routes a `mac` step and the head is in the full tier (a
+  # The `mac` job: the Mac tier of a feat-cmux-next pull request, the fast tier's Swift suites, which was
+  # cmux-next.yml's fast-tier job (and its build-fleet variants) on a pull request. The Swift canary is a `linux`
+  # step now (swift-canary): it reads the build fleet's Debug compile of the head instead of compiling on a Mac. pr-router.yml starts it only when the change routes a `mac` step and the head is in the full tier (a
   # draft runs no Mac, scripts/ci/pr_router.py FULL_TIER_JOBS). Each step asks scripts/ci/mac_tiers.py whether its
   # tier is routed (cmux_next_route.py, the router cmux-next.yml's path_route runs), and so does the step below
   # that gates this job's Mac setup, so a path the steps' globs over-route costs a checkout and a few seconds.
@@ -122,7 +127,7 @@ jobs:
     if: ${{ inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'mac') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
     # The Mac setup below (Xcode, the owned build root, two cache restores of up to 8 min each), then ci/run: its
-    # setup (10 min), the tool downloads (3 min), the canary, then the `alone` fast tier (tests/test_ci_step_table.py
+    # setup (10 min), the tool downloads (3 min), then the `alone` fast tier (tests/test_ci_step_table.py
     # holds this).
     timeout-minutes: 165
     permissions:
@@ -156,7 +161,7 @@ jobs:
           CI_IDLE_BASE_MERGE_SKIP: ${{ vars.CI_IDLE_BASE_MERGE_SKIP || '1' }}
         run: python3 -I scripts/ci/mac_tiers.py route --github-output "$GITHUB_OUTPUT"
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
-        if: steps.tiers.outputs.fast_tier == 'true' || steps.tiers.outputs.swift_canary == 'true'
+        if: steps.tiers.outputs.fast_tier == 'true'
         run: |
           scripts/ci/reset-stale-submodules.sh
           git clean -ffd
@@ -171,13 +176,13 @@ jobs:
           echo "ACPMUX_SOCKET=" >> "$GITHUB_ENV"
       # owned_pool_rescue.py reads this step by name.
       - name: Select Xcode
-        if: steps.tiers.outputs.fast_tier == 'true' || steps.tiers.outputs.swift_canary == 'true'
+        if: steps.tiers.outputs.fast_tier == 'true'
         run: ./scripts/select-ci-xcode.sh
       # On an owned Mac the Swift steps build in a leased root every runner slot shares (owned_spm_scratch.py
       # lease); its holder process keeps the lease until the job ends, so this stays a workflow step.
       - name: Keep Swift package builds on this owned Mac
         id: spm-root
-        if: (steps.tiers.outputs.fast_tier == 'true' || steps.tiers.outputs.swift_canary == 'true') && contains(runner.name, '-glaeda')
+        if: steps.tiers.outputs.fast_tier == 'true' && contains(runner.name, '-glaeda')
         continue-on-error: true
         env:
           CMUX_FAST_TIER_OWNED_SEED: ${{ (vars.CI_FAST_TIER_OWNED_SEED || '1') != '0' && '1' || '' }}
@@ -185,7 +190,7 @@ jobs:
           python3 scripts/ci/owned_spm_scratch.py lease "$GITHUB_WORKSPACE"
           python3 scripts/ci/swiftpm_prefetch_binary_artifacts.py --package-path Packages/macOS/CmuxNext
       - name: Name the build root
-        if: steps.tiers.outputs.fast_tier == 'true' || steps.tiers.outputs.swift_canary == 'true'
+        if: steps.tiers.outputs.fast_tier == 'true'
         env:
           ROOT: ${{ steps.spm-root.outputs.root || github.workspace }}
         run: echo "CMUX_MAC_ROOT=$ROOT" >> "$GITHUB_ENV"
@@ -242,6 +247,8 @@ jobs:
           CMUX_FAST_SWIFT_CACHE_KEY: ${{ steps.fast-cache-key.outputs.swift-key }}
           CMUX_FAST_SWIFT_CACHE_HIT: ${{ steps.fast-cache-restore.outputs.cache-hit }}
           CMUX_FAST_CACHE_MATCHED_KEY: ${{ steps.fast-cache-restore.outputs.cache-matched-key }}
+          # `0` runs every fast tier suite on the pull request again, not only the ones the change reaches.
+          CI_FAST_TIER_PR_SCOPE: ${{ vars.CI_FAST_TIER_PR_SCOPE || '1' }}
         run: ci/run run --job mac ${PATHS_FILE:+--paths-file "$PATHS_FILE"}
       - name: Stop this job's acpmux daemons and remove its home
         if: ${{ always() && steps.tiers.outputs.fast_tier == 'true' }}
@@ -263,3 +270,46 @@ jobs:
           path: ${{ runner.temp }}/cmux-next-fast-tier.json
           if-no-files-found: warn
           retention-days: 7
+
+  # The Mac fallback: a linux step that could not get its answer from the build fleet (the Swift canary with a
+  # fail or no verdict) runs here on a Mac, and this run's verdict is the step's. Every run of this job is a
+  # fallback, logged by its name in the timing records and by the linux step's `fleet fallback` warning, so the
+  # fleet side gets fixed. Leo, 2026-11-25: "having our mac fleet be able to like... exist as fallbacks if we
+  # fucked up logic for linux and whatnot is still fine".
+  mac-fallback:
+    name: mac fallback
+    needs: linux
+    if: ${{ !cancelled() && needs.linux.outputs.mac_fallback != '' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+    steps:
+      - name: Checkout the merge commit and the base tip
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+          submodules: false
+          clean: false
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+      - name: Swift canary on a Mac (fleet fallback)
+        if: ${{ contains(needs.linux.outputs.mac_fallback, 'swift-canary') }}
+        env:
+          TARGETS: ${{ needs.linux.outputs.canary_targets }}
+        run: |
+          echo "::warning title=fleet fallback::Swift canary compiled on a Mac: the build fleet had no pass for this head"
+          read -r -a targets <<< "$TARGETS"
+          if ((${#targets[@]} == 0)); then
+            echo "the Swift canary fell back with no target" >&2
+            exit 1
+          fi
+          cd Packages/macOS/CmuxNext
+          for target in "${targets[@]}"; do
+            echo "Canary target: $target"
+            swift build --configuration debug --target "$target"
+          done
