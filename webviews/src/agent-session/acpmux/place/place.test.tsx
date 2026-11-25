@@ -457,7 +457,10 @@ test("Evacuate with counts only still draws the summary and a bar", async () => 
 
 test("bring back is read from the app: its direction and the count it can bring home", () => {
   expect(evacuateOf({ running: 0, done: 0, failed: 0, total: 0, canBringBack: 3 })?.canBringBack).toBe(3);
-  expect(evacuateOf({ running: 0, done: 0, failed: 0, total: 0, canBringBack: 0 })?.canBringBack).toBeUndefined();
+  expect(evacuateOf({ running: 0, done: 0, failed: 0, total: 0, canBringBack: 0 })?.canBringBack).toBe(0);
+  // An Evacuate to Cloud that finished, its chats since brought back one by one: the app's 0 wins over the run's count.
+  expect(bringBackCount(evacuateOf({ running: 0, done: 2, failed: 0, total: 2, canBringBack: 0 }))).toBe(0);
+  expect(bringBackCount(evacuateOf({ running: 0, done: 2, failed: 0, total: 2 }))).toBe(2);
   expect(evacuateOf({ running: 0, done: 0, failed: 0, total: 0, direction: "toLocal" })?.direction).toBe("toLocal");
   expect(evacuateOf({ running: 0, done: 0, failed: 0, total: 0, direction: "sideways" })?.direction).toBeUndefined();
   expect(bringBackCount(EVACUATES.bringBackIdle)).toBe(3);

@@ -15,7 +15,16 @@
 //   and out as the new roll in, both opaque, so no frame is blank and none shows both at once.
 // Reduce Motion, the host's motion switch (`data-agent-motion="off"`, a 0 ms token) and a page that
 // is away apply every change at once, and no copy is made.
-import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  Fragment,
+  useCallback,
+  useContext,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Sign, signed } from "../../../ui/Typography";
 import { cssTimeMs } from "../conversation/fold";
 import { motionAllowed, sameWords } from "./trayMotionModel";
@@ -214,12 +223,23 @@ const SLIDE = "acpmux-slide";
 ///   ResizeObserver on the row's children sees the size change, and the parts glide from their last
 ///   laid-out place plus whatever offset they are still drawn at. While a width ease runs in the row,
 ///   that ease owns the movement and nothing glides on top of it.
+/// - A change a child renders that moves the parts by its own width (the subagent icons' held count,
+///   HatFaces.tsx): the child glides from the last laid-out places in its own layout effect, before
+///   the browser paints the new layout. The ResizeObserver would see it a
+///   layout too late: Chrome scores the jump as layout shift though a translate puts it back before
+///   paint (20 subagents joining: 0.013 against the feel harness's 0.01).
 /// A row that changed width (a window resize) puts every part in its place at once, cancelling a glide
 /// in flight, and so does every change while motion may not run.
-export function useGlide(row: { readonly current: HTMLElement | null }, selector: string): void {
+export function useGlide(row: { readonly current: HTMLElement | null }, selector: string): () => void {
   const before = useRef<Placed | undefined>(undefined);
   const laid = useRef<Placed | undefined>(undefined);
   const observer = useRef<ResizeObserver | undefined>(undefined);
+  const glideChild = useCallback(() => {
+    // If the row also rendered, its layout effect runs after its children's and owns this move.
+    const node = row.current;
+    if (!node || before.current || !laid.current) return;
+    laid.current = glideFrom(node, selector, stillDrawnAt(laid.current));
+  }, [row, selector]);
   const node = row.current;
   if (node) before.current = drawnPlaces(node, selector);
   useLayoutEffect(() => {
@@ -243,6 +263,23 @@ export function useGlide(row: { readonly current: HTMLElement | null }, selector
     for (const child of node.children) observer.current?.observe(child);
   });
   useLayoutEffect(() => () => observer.current?.disconnect(), []);
+  return glideChild;
+}
+
+/// A child of this row can start its glide in the same commit that changes its width.
+export const GlideRow = createContext<(() => void) | undefined>(undefined);
+
+/// For a child of a gliding row whose own render moves the parts after it by `width` (HatFaces' held
+/// count): a change to `width` glides them in this commit, before the browser lays out, so the move
+/// never reads as layout shift.
+export function useGlideAround(width: number): void {
+  const glide = useContext(GlideRow);
+  const was = useRef(width);
+  useLayoutEffect(() => {
+    if (was.current === width) return;
+    was.current = width;
+    glide?.();
+  }, [glide, width]);
 }
 
 /// Where the parts sit in a row, from its left edge, and the row's width.

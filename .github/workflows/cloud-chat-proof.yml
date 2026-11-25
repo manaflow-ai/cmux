@@ -1,5 +1,5 @@
 name: Cloud chat proof (staging and production, tagged DEV app)
-run-name: ${{ inputs.signin_pubkey != '' && format('DEV sign-in session {0}', inputs.request_id) || inputs.flow == 'share-two-accounts' && 'Two-account chat sharing (staging)' || inputs.flow == 'github-pr-app' && format('GitHub main path recording (staging, {0}){1}', inputs.build, inputs.request_id != '' && format(' {0}', inputs.request_id) || '') || inputs.cleanup_machine != '' && format('Cloud machine cleanup ({0})', inputs.cleanup_machine) || inputs.paused_capture && format('Cloud paused price capture (staging, {0}){1}', inputs.build, inputs.request_id != '' && format(' {0}', inputs.request_id) || '') || inputs.matrix && format('Cloud workspace matrix ({0}, {1}){2}', inputs.build, inputs.agent, inputs.request_id != '' && format(' {0}', inputs.request_id) || '') || format('Cloud chat proof ({0}, {1}{2}){3}', inputs.build, inputs.agent, inputs.from_folder && ', from a folder' || '', inputs.request_id != '' && format(' {0}', inputs.request_id) || '') }}
+run-name: ${{ inputs.signin_pubkey != '' && format('DEV sign-in session {0}', inputs.request_id) || inputs.flow == 'share-two-accounts' && 'Two-account chat sharing (staging)' || inputs.flow == 'github-pr-app' && format('GitHub main path recording (staging, {0}){1}', inputs.build, inputs.request_id != '' && format(' {0}', inputs.request_id) || '') || inputs.cleanup_machine != '' && format('Cloud machine cleanup ({0})', inputs.cleanup_machine) || inputs.paused_capture && format('Cloud paused price capture (staging, {0}){1}', inputs.build, inputs.request_id != '' && format(' {0}', inputs.request_id) || '') || inputs.matrix && format('{0}Cloud workspace matrix ({1}, {2}){3}', inputs.projection_kinds && 'Projection ' || '', inputs.build, inputs.agent, inputs.request_id != '' && format(' {0}', inputs.request_id) || '') || format('Cloud chat proof ({0}, {1}{2}){3}', inputs.build, inputs.agent, inputs.from_folder && ', from a folder' || '', inputs.request_id != '' && format(' {0}', inputs.request_id) || '') }}
 
 # One manual trip through a Cloud chat from one tagged DEV build of the dispatched commit, signed in as
 # the agent test account on staging and production. The bundle is built (or downloaded) once per backend job,
@@ -106,6 +106,11 @@ on:
         type: boolean
       matrix:
         description: "Instead of the one proof chat: the Cloud workspace matrix (scripts/cmux-next/cloud-chat-matrix.py), a chat from every kind of folder, each timed and its copy checked by hash"
+        required: false
+        default: false
+        type: boolean
+      projection_kinds:
+        description: "With matrix: run the seven projected-folder kinds used by RFD 0007, including agent file actions"
         required: false
         default: false
         type: boolean
@@ -317,6 +322,11 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -617,11 +627,23 @@ jobs:
       # Same toolchain as reload-build.yml: the webviews `vp build` runs on node,
       # and check-webviews-bun-version.sh refuses a bun older than the
       # webviews/package.json devEngines pin, which stopped run 41798237731.
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        if: env.CMUX_PROOF_BUILD != 'published'
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
+
       - name: Setup Node
         if: env.CMUX_PROOF_BUILD != 'published'
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
+
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        if: env.CMUX_PROOF_BUILD != 'published'
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - name: Setup Bun
         if: env.CMUX_PROOF_BUILD != 'published'
@@ -896,15 +918,18 @@ jobs:
         timeout-minutes: 90
         env:
           PROOF_AGENT: ${{ inputs.agent }}
+          PROJECTION_KINDS: ${{ inputs.projection_kinds }}
           # The agent test account's Claude login, cached for the run's own app only (--cache-claude-login).
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/cloud-chat-proof/matrix-staging"
           status=0
+          projection=()
+          [ "$PROJECTION_KINDS" = true ] && projection+=(--projection-kinds)
           python3 -I scripts/cmux-next/cloud-chat-matrix.py --app "$CMUX_PROOF_APP" --tag "cwm-$GITHUB_RUN_ID-staging" \
             --agents "$PROOF_AGENT" --cloud-backend staging --expected-api-origin https://cloud-api-staging.cmux.dev \
-            --credentials-file "$CMUX_PROOF_CREDENTIALS" --grant-claude-login --cache-claude-login --login pass --out "$out" || status=$?
+            --credentials-file "$CMUX_PROOF_CREDENTIALS" --grant-claude-login --cache-claude-login --login pass --out "$out" "${projection[@]}" || status=$?
           [ -s "$out/matrix.md" ] && cat "$out/matrix.md" >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
@@ -1135,15 +1160,18 @@ jobs:
         timeout-minutes: 90
         env:
           PROOF_AGENT: ${{ inputs.agent }}
+          PROJECTION_KINDS: ${{ inputs.projection_kinds }}
           # The agent test account's Claude login, cached for the run's own app only (--cache-claude-login).
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/cloud-chat-proof/matrix-prod"
           status=0
+          projection=()
+          [ "$PROJECTION_KINDS" = true ] && projection+=(--projection-kinds)
           python3 -I scripts/cmux-next/cloud-chat-matrix.py --app "$CMUX_PROOF_APP" --tag "cwm-$GITHUB_RUN_ID-prod" \
             --agents "$PROOF_AGENT" --cloud-backend prod --expected-api-origin https://cloud-api.cmux.dev \
-            --credentials-file "$CMUX_PROOF_CREDENTIALS" --grant-claude-login --cache-claude-login --login pass --out "$out" || status=$?
+            --credentials-file "$CMUX_PROOF_CREDENTIALS" --grant-claude-login --cache-claude-login --login pass --out "$out" "${projection[@]}" || status=$?
           [ -s "$out/matrix.md" ] && cat "$out/matrix.md" >> "$GITHUB_STEP_SUMMARY"
           exit "$status"
 
