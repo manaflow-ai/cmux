@@ -25,7 +25,6 @@ enum Strings {
     }
     /// The footer's Search button: its VoiceOver label and tooltip.
     static var searchButton: String { String(localized: "sidebar.search", defaultValue: "Search", bundle: .localizedModule) }
-    static var restoringDetails: String { String(localized: "sidebar.restoring.details", defaultValue: "Details", bundle: .localizedModule) }
     /// The thin rail's VoiceOver label (`sidebar.style` = rail).
     static var railLabel: String { String(localized: "sidebar.rail.label", defaultValue: "Workspaces", bundle: .localizedModule) }
     static var rename: String { String(localized: "sidebar.rename", defaultValue: "Rename", bundle: .localizedModule) }

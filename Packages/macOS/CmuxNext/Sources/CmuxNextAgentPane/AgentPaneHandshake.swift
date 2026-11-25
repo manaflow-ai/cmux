@@ -26,7 +26,7 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, promptAttachments, promptTicket, harness, model, effort, peer, adopt, surface,
              linkScheme, sessionMustExist, revealTurn, chooseFolder, startKind, folderNeeded, pastTurns, machineName, localMachineName, githubRepository, harnesses, pickCloud, wake,
-             workspaceContext, sandboxState, tab, cloudMachineID, cloudAccount, cloudHandoffs, cloudRepositoryAvailable, cloudStartHandoff, cloudTurnRewind
+             workspaceContext, sandboxState, tab, cloudMachineID, cloudAccount, cloudHandoffs, cloudRepositoryAvailable, cloudStartHandoff, autoCloudStartKey, cloudTurnRewind
     }
 
     public var protocolVersion: Int
@@ -116,6 +116,8 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// The one-time token of the page whose `/side --on cloud` or `/cd --on cloud` opened this New
     /// Cloud Chat (``AgentPaneSeed/cloudStartHandoff``). Handed out once. Pages that predate it ignore it.
     public var cloudStartHandoff: String?
+    /// UUID of the Auto placement that started this Cloud chat. Handed out once with its prompt.
+    public var autoCloudStartKey: String?
     /// The past turns of the device-wide chat a new chat opened for (cx-khns1): the page shows
     /// them read-only until the chat has a session. Pages that predate it ignore it.
     public var pastTurns: [AgentPanePastTurn]?

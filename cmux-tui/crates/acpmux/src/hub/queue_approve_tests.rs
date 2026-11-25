@@ -120,6 +120,7 @@ fn insert(hub: &Hub, session: &Arc<Session>, id: &str, provenance: Option<&Value
         admitted: false,
         after_turn: false,
         steer_on_start: false,
+        answer_due: None,
     };
     session.queued.fetch_add(1, Ordering::SeqCst);
     let limits = super::super::queue_admission::QueueLimits { prompts: None, bytes: None };
@@ -448,7 +449,7 @@ async fn a_child_with_only_an_owner_held_prompt_takes_no_width_slot() {
         offered: false,
     };
     let child = hub.new_session(new(Some(link))).await.unwrap();
-    hub.set_status(&child, SessionStatus::Idle);
+    hub.set_status(&child, NotWaiting::Idle);
     assert_eq!(hub.width_used(&parent.id), 0, "a hibernated child frees its slot");
     insert(&hub, &child, "g-1", Some(&held_guest()));
     assert!(child.queue()[0].awaiting_owner);

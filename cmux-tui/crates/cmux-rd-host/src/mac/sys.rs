@@ -118,6 +118,9 @@ pub const SCROLL_UNIT_LINE: u32 = 1;
 pub const TAP_HID: u32 = 0;
 pub const SOURCE_STATE_HID_SYSTEM: i32 = 1;
 
+/// kCGWindowListOptionIncludingWindow: CGWindowListCopyWindowInfo describes one window.
+pub const WINDOW_LIST_INCLUDING_WINDOW: u32 = 1 << 3;
+
 /// kCMTimeFlags_Valid.
 pub const CM_TIME_VALID: u32 = 1;
 /// kCFNumberSInt64Type.
@@ -131,12 +134,15 @@ framework! {
         fn CFArrayGetValueAtIndex(array: CFArrayRef, index: c_long) -> CFTypeRef;
         fn CFDictionaryGetValue(dictionary: CFDictionaryRef, key: CFTypeRef) -> CFTypeRef;
         fn CFNumberGetValue(number: CFNumberRef, kind: c_long, out: *mut c_void) -> u8;
+        fn CFBooleanGetValue(boolean: CFTypeRef) -> u8;
     }
 }
 
 framework! {
     pub mod cg = "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics" {
         static kCGColorSpaceSRGB: CFStringRef;
+        static kCGWindowBounds: CFStringRef;
+        static kCGWindowIsOnscreen: CFStringRef;
         fn CGMainDisplayID() -> u32;
         fn CGDisplayBounds(display: u32) -> CGRect;
         fn CGDisplayCopyDisplayMode(display: u32) -> CGDisplayModeRef;
@@ -145,6 +151,10 @@ framework! {
         fn CGDisplayModeGetRefreshRate(mode: CGDisplayModeRef) -> f64;
         fn CGDisplayModeRelease(mode: CGDisplayModeRef);
         fn CGRectMakeWithDictionaryRepresentation(dictionary: CFDictionaryRef, rect: *mut CGRect) -> u8;
+        // One shared window (window.rs): its frame and whether it is on screen, read again
+        // while it is shared, and the display it is on (CGWindowListCopyWindowInfo below).
+        fn CGWindowListCopyWindowInfo(option: u32, relative_to: u32) -> CFArrayRef;
+        fn CGGetDisplaysWithPoint(point: CGPoint, max: u32, displays: *mut u32, count: *mut u32) -> i32;
         fn CGEventSourceCreate(state: i32) -> CGEventSourceRef;
         fn CGEventCreateMouseEvent(source: CGEventSourceRef, kind: u32, point: CGPoint, button: u32) -> CGEventRef;
         fn CGEventCreateKeyboardEvent(source: CGEventSourceRef, code: u16, down: bool) -> CGEventRef;

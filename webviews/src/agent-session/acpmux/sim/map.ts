@@ -216,6 +216,14 @@ export const MAP: MapEntry[] = [
     scenario: "subagent",
   },
   {
+    id: "subagent-fork",
+    when: "A chat forked from a subagent (Fork with <model>… on its composer chips) opens on the subagent's history.",
+    wrong: "The Forked from line could land inside the history's turn, or the fork's own turn fold into it.",
+    expected:
+      "Rules a, b, c: the subagent's history keeps its turn, the Forked from line stands between it and the fork's own turn, which folds only when it ends.",
+    scenario: "subagent-fork",
+  },
+  {
     id: "compaction-mid-turn",
     when: "The agent compacts its context halfway through a turn.",
     wrong: "The compaction line split the run around it and closed it early.",
@@ -629,6 +637,15 @@ export const MAP: MapEntry[] = [
     wrong: "Rows doubled after the reconnect; the live line ran on through the outage.",
     expected: "The transcript after a reconnect is the one an unbroken read draws.",
     open: "No scenario writes host_notice or failover records. A later page's read is checked: every scenario is also played from the turn that opens nearest its middle (test/chat-sim-map.test.ts), as the pane's pages split (before a turn's opening record). A read cut inside a turn, which no page makes, leaves the typing placeholder over the turn's rows.",
+  },
+  {
+    id: "busy-turn-churn",
+    when: "A busy coordinator turn: quick commands, thoughts, steers that land mid-turn, subagents in and out, another agent's message, then a prompt right after the turn settles.",
+    wrong:
+      'Leo, 2026-11-22: "this is also a crazy situation for the folding and whatever the steer and you think and messages and situations come in and subagents come in and out"; rows flickered in and out under a second.',
+    expected:
+      "Rules a, b, c at every step; in the browser lane, no layout shift above the reader's anchor mid-turn and no row drawn for under a second (`chat-sim churn --churn` counts both per minute).",
+    scenario: "churn",
   },
   {
     id: "limits-and-refusals",

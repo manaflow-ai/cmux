@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// What detection needs from the system: a home directory (a fixture folder
@@ -12,14 +13,24 @@ public struct ImportEnvironment: Sendable {
     /// The browser storage Keychain items by name (never their passwords), so
     /// a browser the registry names no item for still finds its own.
     public var safeStorageNames: @Sendable () -> [SafeStorageName]
+    /// Whether detection may look inside other apps' containers (Safari's cookies, a sandboxed browser's
+    /// folder): never in a `cmux app try` copy (``OtherAppContainers``), so it raises no "Data Access" prompt.
+    public var readsOtherAppContainers: Bool
 
     public init(homeDirectory: URL, locateApp: @escaping @Sendable (String) -> URL?,
                 locateAppNamed: @escaping @Sendable (String) -> URL? = { _ in nil },
-                safeStorageNames: @escaping @Sendable () -> [SafeStorageName] = { [] }) {
+                safeStorageNames: @escaping @Sendable () -> [SafeStorageName] = { [] },
+                readsOtherAppContainers: Bool? = nil) {
         self.homeDirectory = homeDirectory
         self.locateApp = locateApp
         self.locateAppNamed = locateAppNamed
         self.safeStorageNames = safeStorageNames
+        self.readsOtherAppContainers = readsOtherAppContainers ?? OtherAppContainers.mayRead  // nil: this build's own answer
+    }
+
+    /// Whether detection may look at `url`: outside other apps' containers, or in a build that may read them.
+    public func mayLook(at url: URL) -> Bool {
+        OtherAppContainers.mayLook(at: url, readsContainers: readsOtherAppContainers)
     }
 
     /// `/Applications/<name>.app` or `~/Applications/<name>.app`.
@@ -68,7 +79,7 @@ public struct ImportEnvironment: Sendable {
     /// that exists, else the first one.
     public func dataDirectory(_ browser: ImportBrowser) -> URL {
         let candidates = browser.dataDirectories.map { homeDirectory.appending(path: $0, directoryHint: .isDirectory) }
-        return candidates.first { FileManager.default.fileExists(atPath: $0.path) }
+        return candidates.first { mayLook(at: $0) && FileManager.default.fileExists(atPath: $0.path) }
             ?? homeDirectory.appending(path: browser.dataDirectory, directoryHint: .isDirectory)
     }
 
