@@ -38,7 +38,7 @@ function IconMark({ icon, name }: { icon: string | null | undefined; name: strin
 
 /** A machine row's color, from the whole map of picks: what its well shows and offers. */
 type MachinePick = {
-  /** The pick for this machine's color key, if any ("Big-Red " and "big-red" are the same key). */
+  /** The pick for this machine's color key, if any ("My-VM " and "my-vm" are the same key). */
   pick: string | undefined;
   disabled: boolean;
   /** Writes this machine's pick (null: Automatic), keeping every other machine's. */
@@ -120,7 +120,7 @@ const HostRow = memo(function HostRow({
   );
 });
 
-/** The pick for a color key: cmux.json may spell the machine another way ("Big-Red "); the app reads
+/** The pick for a color key: cmux.json may spell the machine another way ("My-VM "); the app reads
  * the first in key order. */
 function pickOf(picks: Record<string, string>, key: string): string | undefined {
   const own = Object.keys(picks)

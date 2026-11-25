@@ -600,7 +600,7 @@ class Worker:
         if receipt.get("error"):
             lines.append(f"Partly: {receipt['error']}")
         if self.public:
-            lines.append(f"Read one: curl -s -o /tmp/ui-preview-{head}.png URL, then open it (tailnet only).")
+            lines.append(f"Read one: d=$(mktemp -d) && curl -s -o \"$d/ui-preview-{head}.png\" URL, then open it (tailnet only).")
         return "\n".join(lines) + "\n"
 
     def send(self, recipient: str, text: str) -> None:
