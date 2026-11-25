@@ -323,3 +323,30 @@ test("a lost prompt that shows on the next connection is sent; one that never sh
   // A refusal is not a lost prompt: its sender says so at once.
   expect(await resentAfterLoss(new Error("refused"), shows, from, 1_000, 1_000)).toBe(false);
 });
+
+// Leo, 2026-11-24: an app update restarted acpmux, which took longer than the 30 s a lost prompt's
+// sender waited for the next connection. The sender gave up, and the host's journal sent the prompt
+// again on the connection that came later all the same.
+test("a lost prompt waits for the next connection however long it takes, never for a time", async () => {
+  const { jest } = await import("bun:test");
+  const lost = Object.assign(new Error("gone"), {
+    interrupted: true,
+    lostPrompt: { sessionId: "s-1", promptId: "p-1" },
+  });
+  const from: Waiting = { name: "from", isClosed: true, awaitResent: async () => false };
+  const clients = clientWaiter<Waiting>();
+  jest.useFakeTimers();
+  try {
+    let settled: boolean | undefined;
+    const waited = resentAfterLoss(lost, clients, from).then((shown) => (settled = shown));
+    // Ten minutes with no connection: still waiting, nothing given up.
+    jest.advanceTimersByTime(10 * 60_000);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(settled).toBeUndefined();
+    clients.connected({ name: "back", isClosed: false, awaitResent: async (_s, promptId) => promptId === "p-1" });
+    expect(await waited).toBe(true);
+  } finally {
+    jest.useRealTimers();
+  }
+});

@@ -44,14 +44,14 @@ log or PR lists.";
 pub(super) fn tool() -> Value {
     json!({
         "name": NAME,
-        "description": format!("Who else is working on these files: the other live and recent agent sessions (any harness, this machine and its peers) that read or edited them, sit in this chat's worktree or on its branch, or work on the topic. Each row: name, harness, host, branch, its pull requests, the files in common (edited or read) and how recent. With no files and no topic, the files this chat edited lately. Message one with the send tool. The answer is a line per session and at most {MAX_CHARS} characters: it keeps the top {BRIEF_SESSIONS} rows, clips long titles, folders and file lists, and counts what it left out under omitted. Pass detail: true for every row and field, which can be far longer."),
+        "description": format!("Find live or recent sessions here and on peers by file, worktree, branch or topic. Defaults to your recent edits. Up to {BRIEF_SESSIONS} rows and {MAX_CHARS} characters. Use detail: true if omitted counts show a match you need."),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "files": {"type": "array", "items": {"type": "string"}, "description": "Paths, absolute or relative to this chat's folder."},
                 "topic": {"type": "string", "description": "Words a session's name, title or prompt should share."},
                 "since": {"type": "string", "description": "How far back a touch counts: 30m, 6h, 2d (default 1d)."},
-                "detail": {"type": "boolean", "description": format!("Every session row and every field, whole, instead of the {MAX_CHARS}-character answer (default false). Only when the short answer's omitted counts say the detail you need was cut.")},
+                "detail": {"type": "boolean", "description": "Return every row and field whole (default false)."},
                 "description": {"type": "string", "description": "A few words on why you look, shown as this call's title."}
             }
         }

@@ -16,7 +16,7 @@ import { categories, categoryOf, defaultCategory, isCategory } from "./categorie
 import { MockTeams } from "./mockTeams";
 import { mockThemeColors } from "./mockThemes";
 import { schema } from "./schema";
-import { mockDevicesState } from "./mockProvider";
+import { mockDevicesState, mockDomains } from "./mockProvider";
 import { ACCOUNT_LISTS } from "../shared/signIn/galleryFixtures";
 import MARTIN_PANDEMONIUM from "../../gallery/fixtures/art/martin-pandemonium.jpg?inline";
 import FRIEDRICH_FOREST_MOONLIGHT from "../../gallery/fixtures/art/friedrich-forest-moonlight.jpg?inline";
@@ -341,6 +341,25 @@ const variants: Record<string, SettingsPageVariant> = {
     options: { values: { "agentPane.display.harnessPlacement": "symbols" } },
     note: "An explicit top symbols choice wins over the old left rail and offers Reset.",
   }),
+  // Taste Board #15: Beta chips on experimental rows (appearance.settingsBetaChips, off by default).
+  "beta-chips-off": variant("experimental", {
+    focus: "appearance.settingsBetaChips",
+    note: "Beta chips off (the default): the Experimental page and its sidebar entry exactly as today.",
+  }),
+  "beta-chips-on": variant("experimental", {
+    focus: "appearance.settingsBetaChips",
+    options: { values: { "appearance.settingsBetaChips": true } },
+    note: "Beta chips on: each experimental row's title and the Experimental sidebar entry carry a small Beta chip.",
+  }),
+  "beta-chips-on-labs": variant("experimental", {
+    focus: "labs.previewFeatures",
+    options: { values: { "appearance.settingsBetaChips": true } },
+    note: "Beta chips on, scrolled to the Labs rows (Preview Features, Voice Room, Live Code).",
+  }),
+  "beta-chips-on-general": variant("general", {
+    options: { values: { "appearance.settingsBetaChips": true } },
+    note: "Beta chips on, on an everyday page: no row gets a chip; only the Experimental sidebar entry does.",
+  }),
   "agent-tools": variant("agents", {
     focus: "agents.cmuxMcp",
     note: "Give Agents cmux’s Tools (on by default) with its Claude Code and Codex switches, each coding agent on this Mac, and the manual lines for agents started elsewhere.",
@@ -521,6 +540,56 @@ Object.assign(variants, {
       ],
     },
   }),
+  // Per-account usage (feature map `usage-per-account`, Leo 2026-11-23: "Per-account 5-hour and weekly
+  // limits and the last cache-miss cause"): a Claude account's newest saved windows, and its usage
+  // block's hover line naming the last prompt cache miss (the `title`, read by the capture as
+  // `data-cache-miss`).
+  ...Object.fromEntries(
+    (
+      [
+        ["expired", "the 5-hour cache window lapsed between turns", true],
+        ["model", "a model switch started a new cache", true],
+        ["compaction", "only a miss is known yet: no windows, the hover line alone", false],
+      ] as const
+    ).map(([cause, why, windows]) => [
+      `agents-harnesses-claude-usage-miss-${cause}`,
+      variant("agents", {
+        note: `Claude's account row shows the 5-hour and weekly limits its chats last saved; hovering the usage names the last cache miss: ${cause} (${why}).`,
+        harnesses: {
+          loading: false,
+          problem: null,
+          accounts: providerAccounts.map((account) =>
+            account.id === "claude-login"
+              ? {
+                  ...account,
+                  usage: {
+                    windows: windows
+                      ? [
+                          { id: "session", usedPercent: 34, windowMins: 300 },
+                          { id: "weekly", usedPercent: 18, windowMins: 10080 },
+                        ]
+                      : [],
+                    plan: "max",
+                    lastCacheMiss: { cause, at: minutesAgo(12) },
+                  },
+                }
+              : account,
+          ),
+          harnesses: [
+            {
+              id: "claude",
+              name: null,
+              kind: "claude-stdio",
+              source: "path",
+              problem: null,
+              version: "2.0.9",
+              checkedAt: minutesAgo(54),
+            },
+          ],
+        },
+      }),
+    ]),
+  ),
   // A signed-out account whose usage read before its sign-out is no longer shown.
   "agents-harnesses-account-signed-out": variant("agents", {
     note: "ChatGPT 2 after its sign-out: Sign In comes back and the usage read before it is no longer shown.",
@@ -1037,6 +1106,22 @@ Object.assign(variants, {
     focus: "notifications.attention.mark",
     options: { values: { "notifications.attention.mark": "glow" } },
     note: "Settings > Notifications with Needs You Look set to Glow: a waiting tab or sidebar row glows in place of its badge.",
+  }),
+  // What's New custom-notification-sound (https://github.com/manaflow-ai/cmux/issues/55219): a sound
+  // of the person's own picked with Custom Sound… (the menu's last item) and a Sound Duration.
+  "custom-notification-sound": variant("notifications", {
+    focus: "notifications.sounds.maxSeconds",
+    options: {
+      values: { "notifications.sound": "My Chime", "notifications.sounds.maxSeconds": 3 },
+      domains: { ...mockDomains, sounds: [...mockDomains.sounds, "My Chime"] },
+    },
+    note: "Sound set to a custom file (My Chime) and Sound Duration at 3 s.",
+  }),
+  // What's New agent-blocked-notification: Agent Blocked delivery set to Banner (default Off).
+  "agent-blocked-banner": variant("notifications", {
+    focus: "notifications.delivery.blocked",
+    options: { values: { "notifications.delivery.blocked": "banner" } },
+    note: "Settings > Notifications with Agent Blocked set to Banner: an agent that turns Blocked posts a banner.",
   }),
   "search-results": variant("general", { steps: [input("[data-settings-search]", "browser")] }),
   "search-results-font": variant("general", { steps: [input("[data-settings-search]", "font")] }),
@@ -1982,6 +2067,7 @@ export default settingsPageEntry({
     "pages/settings/components/SearchField.tsx",
     "pages/settings/components/SearchResults.tsx",
     "pages/settings/components/SectionActions.tsx",
+    "pages/settings/components/BetaChip.tsx",
     "pages/settings/components/SectionList.tsx",
     "pages/settings/components/SectionRoute.tsx",
     "pages/settings/components/SectionView.tsx",

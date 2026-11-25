@@ -427,3 +427,39 @@ fn verbs_cloud_refuses_are_marked_in_the_list_and_their_help() {
     assert!(help.contains("--yes"), "{help}");
     assert!(!verb_help("kill-machine", false).unwrap().contains("does not offer"));
 }
+
+/// CMUX-674 item 15: `cmux vm status --help` printed the whole overview. Every short verb
+/// (vm_short.rs) answers its own usage and names the long spelling it runs.
+#[test]
+#[cfg(unix)]
+fn short_verbs_answer_their_own_help() {
+    let overview = overview(false);
+    let shorts = [
+        "ls", "list", "status", "pause", "shutdown", "resume", "rm", "resize", "fork", "rename",
+        "exec", "ssh", "move",
+    ];
+    for short in shorts {
+        let long = super::super::vm_short::long_verb(short).expect(short);
+        let help = verb_help(short, false).unwrap_or_else(|| panic!("no help for {short}"));
+        assert_ne!(help, overview, "{short}");
+        assert!(help.starts_with(&format!("usage: cmux vm {short}")), "{short}: {help}");
+        assert!(help.contains(&format!("cmux vm {long}")), "{short}: {help}");
+        let japanese = verb_help(short, true).unwrap();
+        assert!(japanese.starts_with(&format!("使い方: cmux vm {short}")), "{short}: {japanese}");
+    }
+    assert!(verb_help("rm", false).unwrap().contains("[--yes]"));
+    let exec = verb_help("exec", false).unwrap();
+    assert!(exec.starts_with("usage: cmux vm exec [NAME|ID] -- COMMAND..."), "{exec}");
+    let rename = verb_help("rename", false).unwrap();
+    assert!(rename.starts_with("usage: cmux vm rename [NAME|ID] NEW_NAME"), "{rename}");
+    assert!(verb_help("shutdown", false).unwrap().contains("`shutdown` is `pause`"));
+    // Review F3 on #48221: only the VM API's own verbs claim its fallback.
+    for short in ["status", "resize", "rename", "ssh", "move"] {
+        let help = verb_help(short, false).unwrap();
+        assert!(!help.contains("verb of the same name"), "{short}: {help}");
+        assert!(help.contains("needs the cmux app"), "{short}: {help}");
+    }
+    for short in ["pause", "resume", "rm", "fork", "ls"] {
+        assert!(verb_help(short, false).unwrap().contains("verb of the same name"), "{short}");
+    }
+}

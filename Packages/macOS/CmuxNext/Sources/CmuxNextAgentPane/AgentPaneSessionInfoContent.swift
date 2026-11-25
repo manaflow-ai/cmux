@@ -201,14 +201,14 @@ final class AgentPaneSessionInfoContent: NSView {
         // pixels leave the list untouched. At either scroll edge that end becomes fully opaque.
         let topAlpha: CGFloat = offset <= 1 ? 1 : 0
         let bottomAlpha: CGFloat = offset >= maxOffset - 1 ? 1 : 0
-        let fadeFraction = min(0.5, 18 / max(1, scroll.contentView.bounds.height))
-        edgeFadeMask.colors = [
-            NSColor.black.withAlphaComponent(topAlpha).cgColor,
-            NSColor.black.cgColor,
-            NSColor.black.cgColor,
-            NSColor.black.withAlphaComponent(bottomAlpha).cgColor,
-        ]
-        edgeFadeMask.locations = [NSNumber(value: 0), NSNumber(value: Double(fadeFraction)), NSNumber(value: Double(1 - fadeFraction)), NSNumber(value: 1)]
+        // Eased bands, as `ScrollEdgeFadeView`'s: smoothstep from the edge to full ink, so the fade
+        // ends in no line (Leo 2026-11-22: "simultaneously a fade AND a hard break").
+        let n = ScrollEdgeFadeView.bandSamples
+        let fadeFraction = min(0.5, Metrics.scrollEdgeFade / max(1, scroll.contentView.bounds.height))
+        let ramp = (0...n).map { CGFloat($0) / CGFloat(n) }
+        let alphas = ramp.map { max(topAlpha, ScrollEdgeFadeView.ease($0)) } + ramp.map { max(bottomAlpha, ScrollEdgeFadeView.ease(1 - $0)) }
+        edgeFadeMask.colors = alphas.map { NSColor.black.withAlphaComponent($0).cgColor }
+        edgeFadeMask.locations = (ramp.map { fadeFraction * $0 } + ramp.map { 1 - fadeFraction + fadeFraction * $0 }).map { NSNumber(value: Double($0)) }
         edgeFadeMask.frame = scroll.contentView.bounds
     }
 

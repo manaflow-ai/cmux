@@ -72,6 +72,24 @@ fn only_a_closed_connection_or_a_gone_or_refused_socket_is_a_dropped_link() {
 }
 
 #[test]
+fn a_timeout_on_a_fresh_connections_first_request_is_a_dropped_link() {
+    let timed_out = |what: &str| StartFailure::TimedOut { what: what.to_owned() };
+    assert!(link_dropped(&timed_out("identify (no reply within 10.0 seconds)")));
+    assert!(link_dropped(&timed_out("set-client-info (no reply within 10.0 seconds)")));
+    assert!(
+        !link_dropped(&timed_out("agent-session-start (no reply within 10.0 seconds)")),
+        "the start itself may have run on the machine"
+    );
+    assert!(!link_dropped(&timed_out("identify-extra (no reply within 10.0 seconds)")));
+    assert!(!link_dropped(&timed_out("")));
+    let read: StartFailure = serde_json::from_value(
+        json!({"kind": "timedOut", "what": "identify (no reply within 10.0 seconds)"}),
+    )
+    .unwrap();
+    assert!(link_dropped(&read));
+}
+
+#[test]
 fn only_the_machines_older_daemon_refusing_updates_it_first() {
     assert!(updates_before_copying_again(false, Some("machine_outdated"), Some("target")));
     assert!(updates_before_copying_again(false, Some("machine_outdated"), None));
@@ -185,4 +203,28 @@ fn the_plan_request_carries_the_send_its_account_workspace_and_the_listed_machin
         (Some("R"), Some("https://p"), Some("team_1"), Some(false))
     );
     assert_eq!(warm["machines"], json!([{"id": "vm-a"}]));
+}
+
+#[test]
+fn an_attach_reads_again_only_a_record_no_fresh_answer_gave() {
+    // A claimed spare: the claim's answer says running a few ms ago, so no list read.
+    let claimed = RecordLook { running: true, answered_ago_ms: Some(5), ..RecordLook::default() };
+    assert!(!rereads_record(claimed));
+    assert!(!rereads_record(RecordLook { answered_ago_ms: Some(ANSWER_FRESH_MS - 1), ..claimed }));
+    // Older than that, a list's record, or a record that does not read running: read again.
+    assert!(rereads_record(RecordLook { answered_ago_ms: Some(ANSWER_FRESH_MS), ..claimed }));
+    assert!(rereads_record(RecordLook { answered_ago_ms: None, ..claimed }));
+    assert!(rereads_record(RecordLook { running: false, ..claimed }));
+    // Connected, or paused (the attach resumes it): nothing to read.
+    assert!(!rereads_record(RecordLook { connected: true, answered_ago_ms: None, ..claimed }));
+    assert!(!rereads_record(RecordLook {
+        paused: true,
+        running: false,
+        answered_ago_ms: None,
+        ..claimed
+    }));
+    let read: RecordLook =
+        serde_json::from_value(json!({"running": true, "answeredAgoMs": 40})).unwrap();
+    assert!(!rereads_record(read));
+    assert!(rereads_record(RecordLook::default()), "an empty look reads again, as before");
 }

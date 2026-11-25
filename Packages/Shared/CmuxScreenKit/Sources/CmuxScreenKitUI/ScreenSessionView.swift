@@ -221,6 +221,7 @@ public struct ScreenSessionView: View {
                 } else if features.contains(.stats), session.preferences.showStats, case .connected = session.phase { stats }
             }
             Spacer(minLength: 8)
+            if let camera = session.camera, camera.isAvailable, case .connected = session.phase { ScreenFollowButton(camera: camera) }
             if hasMenu { optionsMenu }
             if features.contains(.pasteImage), session.supportsImagePaste, case .connected = session.phase {
                 PhotosPicker(selection: $pickedPhoto, matching: .images, preferredItemEncoding: .current) {

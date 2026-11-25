@@ -1,7 +1,7 @@
 public import Foundation
 
 /// The settings file a launch runs on when it is not the shared
-/// `~/.config/cmux/cmux-next.json`: `CMUX_NEXT_CONFIG_FILE`, as the absolute path of the file the
+/// `~/.config/cmux-next/cmux-next.json`: `CMUX_NEXT_CONFIG_FILE`, as the absolute path of the file the
 /// app itself opens (`CmuxConfigFile.defaultURL`: unset or empty is the shared file, `~` expanded,
 /// a relative path against this process's directory). The app's terminals, its daemon, the acpmux
 /// daemon (`LaunchIdentity.terminalEnvironment`) and the Chief owner (`DaemonLauncher.chiefEnvironment`)

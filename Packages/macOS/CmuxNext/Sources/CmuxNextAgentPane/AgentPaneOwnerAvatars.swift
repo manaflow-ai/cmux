@@ -1,3 +1,4 @@
+import CmuxEgress
 import CmuxNextCompat
 import Foundation
 
@@ -30,7 +31,7 @@ actor AgentPaneOwnerAvatars {
         self.now = now
     }
 
-    /// `~/Library/Caches/cmux/project-avatars`, a DEV build's own (``BuildStatePaths/projectAvatarsCache``).
+    /// `~/Library/Caches/cmux-next/project-avatars`, a DEV build's own (``BuildStatePaths/projectAvatarsCache``).
     static var defaultFolder: URL? { BuildStatePaths.current.projectAvatarsCache }
 
     /// The avatar of `owner` as a data URL, or nil.
@@ -90,7 +91,7 @@ actor AgentPaneOwnerAvatars {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = timeout
         configuration.timeoutIntervalForResource = timeout
-        let session = URLSession(configuration: configuration)
+        let session = CmuxEgress.session(site: "CmuxNextAgentPane.AgentPaneOwnerAvatars", configuration: configuration)
         defer { session.finishTasksAndInvalidate() }
         guard let (data, response) = try? await session.data(from: url),
               (response as? HTTPURLResponse)?.statusCode == 200,

@@ -121,7 +121,7 @@ fn the_builder_makes_the_example_extensions_manifest() {
     );
 }
 
-/// A whole New Tab page (`cmux.newtab/1`, picked with `tabs.newTabApp`): the builder writes the
+/// A New Tab view (`cmux.newtab/1`, picked with `tabs.newTabApp`): the builder writes the
 /// place, its activation and the scope a launcher's buttons need, and cmux's validator takes it.
 #[test]
 fn the_builder_makes_a_whole_new_tab_page_cmux_loads() {
@@ -315,4 +315,14 @@ fn the_builder_adds_composer_chips_cmux_accepts() {
         "{:?}",
         twice.validate()
     );
+}
+
+#[test]
+fn motion_contract_is_exported() {
+    use cmux_extension_sdk::motion;
+    use serde_json::json;
+    assert_eq!(motion::SCHEMA, "cmux.motion/1");
+    let parsed = motion::Motion::parse(&json!({"spring": {"response": 0.3}})).expect("a spring");
+    assert_eq!(parsed, motion::Motion::Spring { response: 0.3, damping_fraction: 1.0 });
+    assert!(motion::normalize_prop("transition", &json!("zoom")).expect("owned").is_err());
 }

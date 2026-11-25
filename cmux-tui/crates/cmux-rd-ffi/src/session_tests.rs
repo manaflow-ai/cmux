@@ -401,6 +401,96 @@ fn bulk_frames_on_the_stream_carrier_are_queued_as_bulk_messages() {
     assert_eq!(&out[..len], &bytes[..]);
 }
 
+/// The session's stall flag through the C ABI.
+fn stalled(s: &Owned) -> i32 {
+    // SAFETY: live session.
+    unsafe { cmux_rd_session_stalled(s.0) }
+}
+
+fn tick(s: &Owned, now: u64) {
+    // SAFETY: live session.
+    assert!(unsafe { cmux_rd_session_tick(s.0, now) } >= 0);
+}
+
+/// `datagram` framed for the stream carrier and pushed at `now`.
+fn push_framed(s: &Owned, datagram: &[u8], now: u64) {
+    let mut bytes = Vec::new();
+    encode_stream_frame(STREAM_DATAGRAM, datagram, &mut bytes).expect("frame");
+    // SAFETY: live session, readable slice.
+    let rc = unsafe { cmux_rd_session_push_stream(s.0, bytes.as_ptr(), bytes.len(), now) };
+    assert!(rc >= 0, "push_stream {rc}");
+}
+
+/// The host's cursor position datagram: sent at least every second while the
+/// session lives, even with a still pointer on a still screen.
+fn cursor_keepalive(seq: u32) -> Vec<u8> {
+    cmux_rd_proto::CursorPos { shape: 1, x: 10, y: 20, visible: true }.datagram(seq)
+}
+
+/// A network drop under a Mac Screen session: the host's heartbeats stop, so
+/// the session reports stalled within STALL_AFTER_US of the last bytes heard,
+/// and reports live again as soon as any bytes arrive.
+#[test]
+fn a_session_hearing_heartbeats_stalls_after_silence_and_resumes_on_bytes() {
+    let s = session(CMUX_RD_CARRIER_STREAM);
+    assert_eq!(stalled(&s), 0, "a new session is not stalled");
+    push_framed(&s, &cursor_keepalive(1), 0);
+    tick(&s, STALL_AFTER_US - 1);
+    assert_eq!(stalled(&s), 0, "silence shorter than the window");
+    tick(&s, STALL_AFTER_US);
+    assert_eq!(stalled(&s), 1, "silence past the window");
+    // Frames (not only heartbeats) count as heard once heartbeats armed the check.
+    for d in frames(0, 1, 500) {
+        push_framed(&s, &d, 2 * STALL_AFTER_US);
+    }
+    assert_eq!(stalled(&s), 0, "bytes heard: live again without a tick");
+    tick(&s, 3 * STALL_AFTER_US - 1);
+    assert_eq!(stalled(&s), 0);
+    tick(&s, 3 * STALL_AFTER_US);
+    assert_eq!(stalled(&s), 1, "silent again after the frame");
+    push_framed(&s, &cursor_keepalive(2), 3 * STALL_AFTER_US + 10);
+    assert_eq!(stalled(&s), 0, "the next heartbeat clears it");
+    // SAFETY: NULL is refused.
+    assert_eq!(unsafe { cmux_rd_session_stalled(std::ptr::null()) }, CMUX_RD_ERR_NULL);
+}
+
+/// The caller arms one timer from next_deadline_us: it must wake at the stall
+/// time, and once the stall is reported it must not ask for a wake in the
+/// past (a timer loop).
+#[test]
+fn the_stall_time_is_a_session_deadline_until_it_is_reported() {
+    let s = session(CMUX_RD_CARRIER_STREAM);
+    push_framed(&s, &cursor_keepalive(1), 0);
+    feedbacks(&s, 0, true);
+    // The keepalive feedback at 1 s moves the feedback deadline to 2 s.
+    feedbacks(&s, 1_000_000, true);
+    // SAFETY: live session.
+    let next = unsafe { cmux_rd_session_next_deadline_us(s.0) };
+    assert_eq!(next, STALL_AFTER_US, "woken at the stall time, before the next keepalive");
+    tick(&s, STALL_AFTER_US);
+    assert_eq!(stalled(&s), 1);
+    // SAFETY: live session.
+    let next = unsafe { cmux_rd_session_next_deadline_us(s.0) };
+    assert!(next > STALL_AFTER_US, "no wake in the past once stalled: {next}");
+}
+
+/// An idle, unchanging screen sends no frames and no stats. A host without
+/// heartbeats (no cursor channel, no clock answers) gives no way to tell
+/// idle from dead, so the session never calls it stalled.
+#[test]
+fn a_still_screen_without_heartbeats_never_stalls() {
+    let s = session(CMUX_RD_CARRIER_STREAM);
+    let mut bytes = Vec::new();
+    encode_stream_frame(1, br#"{"t":"welcome"}"#, &mut bytes).expect("frame");
+    // SAFETY: live session, readable slice.
+    assert!(unsafe { cmux_rd_session_push_stream(s.0, bytes.as_ptr(), bytes.len(), 0) } >= 0);
+    for d in frames(0, 2, 500) {
+        push_framed(&s, &d, 0);
+    }
+    tick(&s, 60_000_000);
+    assert_eq!(stalled(&s), 0, "a minute of a still screen is not a stall");
+}
+
 /// The stage ledger (D8) through the C ABI: host times from a `FrameTimes`
 /// datagram, release from reassembly, decode and present from the caller's
 /// notes; the summary is one JSON object on the host clock.

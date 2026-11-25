@@ -143,6 +143,16 @@ fn open(
     capability: bool,
     resume: Option<(u64, &str)>,
 ) -> (Link, Value) {
+    open_bounded(mux, surface, capability, resume, None)
+}
+
+fn open_bounded(
+    mux: &Arc<Mux>,
+    surface: &Surface,
+    capability: bool,
+    resume: Option<(u64, &str)>,
+    max_bytes: Option<u64>,
+) -> (Link, Value) {
     let (writer, outbound) = captured_writer();
     let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
     if capability {
@@ -158,6 +168,12 @@ fn open(
     if let Some((offset, generation)) = resume {
         request["resume_offset"] = json!(offset);
         request["resume_generation"] = json!(generation);
+    }
+    if let Some(max_bytes) = max_bytes {
+        // As the phone attaches (DaemonTerminalSession.historyAttachParams): a replay is the
+        // screen, and its history pages in on scroll.
+        request["resume_max_bytes"] = json!(max_bytes);
+        request["replay_history_rows"] = json!(0);
     }
     let reply = handle_command(mux, client, command(request), &writer).unwrap();
     (Link { client, outbound, writer }, reply)
@@ -426,6 +442,66 @@ fn gaps_and_old_clients_get_todays_answer() {
     mux.shutdown();
 }
 
+/// `terminal-resume-bounded-v1`: a viewer back after a short time away gets
+/// the exact missed bytes; back after a long one (more missed than its bound,
+/// the size of its last replay) it gets one screen replay instead of every
+/// byte, so the catch-up costs a screen whatever the time away.
+#[test]
+fn a_bounded_resume_replays_one_screen_after_a_long_time_away() {
+    let (mux, surface) = quiet_surface("resume-bounded");
+    let mut producer = Producer { surface, next: 0, produced: Vec::new() };
+    producer.lines(10);
+    let mut mirror = Mirror::default();
+    let (link, _) = open(&mux, &producer.surface, true, None);
+    let first = pop(&link);
+    mirror.apply(&first, true);
+    disconnect_client(&mux, link.client, false);
+    let bound = 4 * 1024u64;
+
+    // A short time away: 20 lines, under the bound, exact.
+    producer.lines(20);
+    let held = (mirror.offset, mirror.generation.clone());
+    let (link, reply) =
+        open_bounded(&mux, &producer.surface, true, Some((held.0, &held.1)), Some(bound));
+    assert_eq!(reply["resume"], "exact", "{reply}");
+    let missing = producer.offset() - mirror.offset;
+    mirror.apply(&pop(&link), false);
+    assert_eq!(*mirror.answer_bytes.last().unwrap(), missing);
+    disconnect_client(&mux, link.client, false);
+
+    // A long time away: 20,000 lines (about 260 KB, still in the 4 MiB ring).
+    producer.lines(20_000);
+    let missing = producer.offset() - mirror.offset;
+    assert!(missing > 50 * bound, "{missing}");
+    let held = (mirror.offset, mirror.generation.clone());
+    let (link, reply) =
+        open_bounded(&mux, &producer.surface, true, Some((held.0, &held.1)), Some(bound));
+    assert_eq!(reply["resume"], "gap", "{reply}");
+    let state = pop(&link);
+    assert_eq!(
+        (state["event"].as_str(), state["resume"].as_str()),
+        (Some("vt-state"), Some("gap"))
+    );
+    mirror.apply(&state, false);
+    let replay = *mirror.answer_bytes.last().unwrap();
+    assert!(replay * 10 < missing, "one screen ({replay} B) instead of {missing} B");
+    assert_eq!(mirror.offset, producer.offset(), "current after one answer");
+    netcond("after ", "long-away", "resume_bytes", replay as f64, 0);
+    netcond("before ", "long-away", "resume_bytes", missing as f64, 0);
+    disconnect_client(&mux, link.client, false);
+
+    // Without the bound the same cursor gets every byte (terminal-resume-v1).
+    let (link, reply) = open(
+        &mux,
+        &producer.surface,
+        true,
+        Some((first["offset"].as_u64().unwrap(), first["generation"].as_str().unwrap())),
+    );
+    assert_eq!(reply["resume"], "exact");
+    disconnect_client(&mux, link.client, false);
+    mux.shutdown();
+}
+
 #[test]
 fn the_capability_is_advertised() {
     let (mux, _surface) = quiet_surface("resume-identify");
@@ -435,6 +511,7 @@ fn the_capability_is_advertised() {
         handle_command(&mux, client, command(json!({"cmd": "identify"})), &writer).unwrap();
     let capabilities = identity["capabilities"].as_array().expect("capabilities");
     assert!(capabilities.iter().any(|value| value == "terminal-resume-v1"), "{identity}");
+    assert!(capabilities.iter().any(|value| value == "terminal-resume-bounded-v1"), "{identity}");
     disconnect_client(&mux, client, false);
     mux.shutdown();
 }
