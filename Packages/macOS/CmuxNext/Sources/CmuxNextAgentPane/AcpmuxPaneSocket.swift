@@ -1,3 +1,4 @@
+import CmuxEgress
 import Foundation
 import CmuxNextCompat
 import CmuxNextWakeups
@@ -145,7 +146,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         let queue = OperationQueue()
         queue.maxConcurrentOperationCount = 1
         queue.qualityOfService = .userInitiated
-        let session = URLSession(configuration: .ephemeral, delegate: self, delegateQueue: queue)
+        let session = CmuxEgress.session(site: "CmuxNextAgentPane.AcpmuxPaneSocket", configuration: .ephemeral, delegate: self, delegateQueue: queue)
         defer { openDeadline.cancel() }
         var request = request
         // A URLSession task's timeout is also how long it waits between frames, open or not: the
@@ -154,7 +155,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         // YET"). An open socket waits as long as the chat is quiet; the connect timeout bounds only
         // the open (``openDeadline``), and a daemon gone silent is the page's liveness check's call.
         request.timeoutInterval = Self.quietSocketLimit
-        let task = session.webSocketTask(with: request)
+        let task = CmuxEgress.websocket(session, with: request, site: "CmuxNextAgentPane.AcpmuxPaneSocket")
         task.maximumMessageSize = AcpmuxPaneMethods.maximumFrameBytes
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
             let cancelled = state.withLock { state -> Bool in
