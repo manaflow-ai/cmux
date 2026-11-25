@@ -55,3 +55,24 @@ fn browser_rules_refuse_a_request_that_is_not_their_json() {
     let (code, _) = call("browser_rules_link_action", br#"{"gesture": "wave"}"#);
     assert_eq!(code, ERR_INVALID);
 }
+
+#[test]
+fn browser_rules_terminal_link_resolves_a_printed_path_under_the_terminals_folder() {
+    let folder = std::env::temp_dir().join(format!("ffi-terminal-link-{}", std::process::id()));
+    std::fs::create_dir_all(folder.join("src")).unwrap();
+    std::fs::write(folder.join("src/app.ts"), "code").unwrap();
+    let cwd = folder.to_str().unwrap().to_owned();
+    let request = json!({"text": "\"src/app.ts:3:5\",", "cwd": cwd, "allowsLocalFiles": true,
+                         "localHostNames": ["localhost"]});
+    let (code, body) = call("browser_rules_terminal_link", &serde_json::to_vec(&request).unwrap());
+    let (web_code, web) =
+        call("browser_rules_terminal_link", br#"{"text": "localhost:3000/docs"}"#);
+    let _ = std::fs::remove_dir_all(&folder);
+    assert_eq!(code, OK);
+    assert_eq!(
+        body,
+        json!({"file": {"_0": format!("file://{cwd}/src/app.ts"), "isDirectory": false}})
+    );
+    assert_eq!(web_code, OK);
+    assert_eq!(web, json!({"url": {"_0": "http://localhost:3000/docs"}}));
+}
