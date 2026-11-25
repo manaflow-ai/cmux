@@ -219,6 +219,9 @@ pub struct Pairing {
     /// The requests this hostd asked the app about and still waits on, which another of the
     /// person's paired devices may answer (`pair_requests.rs`).
     pub waiting: Arc<crate::pair_requests::Waiting>,
+    /// What this Mac last published to the relay cache, per surface (`relay_feed.rs`): the
+    /// `relay` heads a `catch-up` reply carries. Empty while the feed is off.
+    pub relay_heads: Arc<crate::relay_feed::RelayHeads>,
 }
 
 impl Pairing {
@@ -240,6 +243,7 @@ impl Pairing {
             mailbox_cursor: Arc::new(crate::mailbox::MailboxCursor::memory()),
             activity: Arc::new(crate::activity::Activity::memory()),
             waiting: Arc::default(),
+            relay_heads: Arc::default(),
         }
     }
 
@@ -577,6 +581,9 @@ pub struct MacIdentity {
     /// mailbox replies are sealed to it.
     boxed: Arc<p256::SecretKey>,
     box_public: String,
+    /// The same identity scalar as an ECDSA key: the relay cache's source key
+    /// (`relay_feed.rs`), which the phone checks against the identity it pinned.
+    relay: Arc<p256::ecdsa::SigningKey>,
 }
 
 impl std::fmt::Debug for MacIdentity {
@@ -601,7 +608,14 @@ impl MacIdentity {
         .ok()?;
         let boxed = crate::seal::box_key(&private)?;
         let box_public = crate::seal::point_hex(&boxed.public_key());
-        Some(Self { pair: Arc::new(pair), public: public_hex.to_owned(), boxed: Arc::new(boxed), box_public })
+        let relay = p256::ecdsa::SigningKey::from_slice(&private).ok()?;
+        Some(Self {
+            pair: Arc::new(pair),
+            public: public_hex.to_owned(),
+            boxed: Arc::new(boxed),
+            box_public,
+            relay: Arc::new(relay),
+        })
     }
 
     /// A fresh key (tests, and a hostd that runs without the app).
@@ -623,6 +637,11 @@ impl MacIdentity {
     /// The box key (opens mailbox replies).
     pub fn box_secret(&self) -> &p256::SecretKey {
         &self.boxed
+    }
+
+    /// The identity key as the relay cache's source key: what `relay_feed.rs` seals with.
+    pub fn relay_key(&self) -> &p256::ecdsa::SigningKey {
+        &self.relay
     }
 
     /// Raw `r || s` over `message`, as hex.

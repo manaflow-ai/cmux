@@ -1,5 +1,6 @@
 @testable import CmuxNextBridge
 @testable import CmuxNextSidebar
+import AppKit
 import CoreGraphics
 import Foundation
 import Testing
@@ -46,9 +47,18 @@ import Testing
         let strip = try #require(row.content?.subagents)
         #expect(strip.rows.count == SidebarSubagentStrip.visibleRows)
         #expect(strip.rows.first?.subagent.id == "t3", "the latest ones")
-        #expect(strip.more == 35)
+        #expect(strip.more == 3, "the listed ones past five, never the lifetime 40")
         #expect(strip.lineCount == 6)
         #expect(Strings.moreSubagents(35) == "35 more")
+    }
+
+    /// Leo, 2026-11-25: a coordinator row read "4,272 more" under its five rows: every helper it ever started.
+    /// "N more" counts only the listed (recent) ones past five, so a lifetime total never shows.
+    @Test func moreNeverCountsTheLifetimeTotal() throws {
+        let row = try #require(Self.layout(Self.subagents([.running, .done, .failed], total: 4_277), tree: SidebarSessionTreeState()))
+        let strip = try #require(row.content?.subagents)
+        #expect(strip.more == 0)
+        #expect(strip.lineCount == 3)
     }
 
     /// Leo 2026-11-23 on "◇◇◇◇◇ 4 running · 3 failed" under a row: "this is weird and bad and unncessary". Folded,
@@ -90,6 +100,22 @@ import Testing
         #expect(SidebarSubagentStrip.make(Self.subagents([.running]), tree: false, folded: false) == nil)
     }
 
+    /// Leo, 2026-11-24 (screenshot): "8 running" was cut off by its row's bottom edge. The stacked line's view took a
+    /// subagent row's 24 pt while the row reserved 18, so its frame hung past the strip and its text sat low.
+    @Test func theStackedLineFitsTheHeightTheRowReservesForIt() throws {
+        let tree = SidebarSessionTreeState(collapsed: [Self.chat])
+        let strip = try #require(Self.layout(Self.subagents([.running, .running, .failed, .done, .done]), tree: tree)?.content?.subagents)
+        let reserved = SidebarLayoutMetrics.standard.subagentStackHeight
+        let view = SidebarSubagentsView(frame: NSRect(x: 0, y: 0, width: 260, height: reserved))
+        view.textX = 36
+        view.trailingInset = 6
+        view.configure(strip)
+        view.layoutSubtreeIfNeeded()
+        let line = try #require(view.pressable.first)
+        #expect(line.frame.height == reserved)
+        #expect(view.bounds.contains(line.frame), "the line stays inside the strip the row reserved")
+    }
+
     @Test func theThreeLooks() throws {
         let tree = SidebarSessionTreeState()
         #expect(Self.layout(Self.subagents([.running]), tree: tree, look: .rows)?.content?.subagents?.mode == .rows)
@@ -106,7 +132,7 @@ import Testing
 
     @Test func aFoldOnAChatWithOnlySubagentsSurvivesTheSave() {
         let defaults = UserDefaults(suiteName: "SidebarSubagentRowsTests-\(UUID().uuidString)")!
-        let tree = SidebarSessionTree(defaults: defaults)
+        let tree = SidebarSessionTree(defaults: defaults, showsStarted: true)
         tree.state = SidebarSessionTreeState(parents: [WorkspaceID("lane"): WorkspaceID("chief")])
         tree.toggle(Self.chat, keeping: [Self.chat])
         #expect(tree.collapsed.contains(Self.chat))

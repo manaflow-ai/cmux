@@ -1,0 +1,4 @@
+{
+  "agent": "settable",
+  "why": "Every browser.links.* key: what each modified link click does (no network, privacy or destructive effect)."
+}

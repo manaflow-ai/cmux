@@ -227,6 +227,16 @@ final class TerminalDemoDriver {
             await wait(1)
         }
         mark("wide ready " + (model.controller?.wideProbe ?? "-"))
+        // `-CmuxMobileTerminalDemoWideType`: Wide on, then a 120-column paste
+        // at the prompt: its echo carries the cursor far right of the page,
+        // and the page pans after it (TerminalWideOutputUITests).
+        if CommandLine.arguments.contains("-CmuxMobileTerminalDemoWideType") {
+            model.setWide(true)
+            await wait(2)
+            model.controller?.surface.sendText(String(repeating: "x", count: 120), pressReturn: false)
+            await wait(1.5)
+            mark("wide typed " + (model.controller?.wideProbe ?? "-"))
+        }
         let deadline = Date().addingTimeInterval(120)
         while Date() < deadline {
             model.demoNote = "wide ready " + (model.controller?.wideProbe ?? "-")
