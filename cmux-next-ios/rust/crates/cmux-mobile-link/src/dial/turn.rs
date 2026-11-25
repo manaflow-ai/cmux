@@ -179,13 +179,28 @@ fn parse_url(url: &str, username: &str, credential: &str) -> Option<TurnServer> 
 /// The TURN servers of `servers` to try: the first one over UDP, and the
 /// best one over a stream (TLS on 443, else any TLS, else plain TCP).
 pub fn turn_servers(servers: &[IceServer]) -> (Option<TurnServer>, Option<TurnServer>) {
+    let (udp, streams) = turn_server_candidates(servers);
+    let stream = streams.into_iter().next();
+    (udp, stream)
+}
+
+/// The first UDP endpoint and every ranked stream endpoint from an ICE list.
+fn turn_server_candidates(servers: &[IceServer]) -> (Option<TurnServer>, Vec<TurnServer>) {
     let all = servers_in_order(servers);
     let endpoints: Vec<Endpoint> = all.iter().map(TurnServer::endpoint).collect();
-    let pick = |kinds: &[CarrierKind]| {
-        let best = cmux_braid_carrier::best(&endpoints, kinds, NetFacts::default())?;
-        all.iter().find(|server| server.endpoint() == *best).cloned()
-    };
-    (pick(&[CarrierKind::TurnUdp]), pick(&[CarrierKind::TurnTls, CarrierKind::TurnTcp]))
+    let udp = cmux_braid_carrier::best(&endpoints, &[CarrierKind::TurnUdp], NetFacts::default())
+        .and_then(|best| all.iter().find(|server| server.endpoint() == *best).cloned());
+    let streams = ranked_stream_servers(&all);
+    (udp, streams)
+}
+
+/// Stream TURN endpoints in the order the carrier ladder uses. Keep every
+/// endpoint at a rank so a failed preferred relay can fall through to the
+/// next advertised TLS or TCP listener within the dial's stream deadline.
+fn ranked_stream_servers(servers: &[TurnServer]) -> Vec<TurnServer> {
+    let mut streams: Vec<_> = servers.iter().filter(|server| server.transport.is_stream()).cloned().collect();
+    streams.sort_by_key(|server| cmux_braid_carrier::rank(&server.endpoint()));
+    streams
 }
 
 /// TURN as a braid carrier ([`cmux_braid_carrier::Carrier`]): opening an endpoint allocates on its
@@ -454,15 +469,18 @@ impl TurnCarrier {
         late: Option<&LateTurn>,
     ) -> Option<Self> {
         let silent_now = || udp_silent.as_ref().is_some_and(|silent| *silent.borrow());
-        let (udp, stream) = turn_servers(&options.ice_servers);
+        let (udp, streams) = turn_server_candidates(&options.ice_servers);
         let udp = udp.filter(|_| !options.block_udp);
         let tried_udp = udp.is_some();
         // UDP_WAIT hands a slow UDP allocation over to the stream one; with
         // no stream server there is nothing to hand over to, and UDP gets
         // NO_STREAM_UDP_WAIT (on a lossy link, losing an answer or two
         // takes it past UDP_WAIT), within the dial's own bound.
-        let udp_wait =
-            if stream.is_some() { UDP_WAIT } else { NO_STREAM_UDP_WAIT.min(options.timeout.max(UDP_WAIT)) };
+        let udp_wait = if !streams.is_empty() {
+            UDP_WAIT
+        } else {
+            NO_STREAM_UDP_WAIT.min(options.timeout.max(UDP_WAIT))
+        };
         let udp = async {
             match udp {
                 Some(server) => bounded(udp_wait, Self::spawn_on(server, options), late).await,
@@ -470,15 +488,34 @@ impl TurnCarrier {
             }
         };
         let stream_attempt = |delay: Duration| {
-            let stream = stream.clone();
+            let streams = streams.clone();
             let silent = udp_silent.clone();
             async move {
-                let server = stream?;
                 tokio::select! {
                     () = tokio::time::sleep(delay) => {}
                     () = until_silent(silent) => {}
                 }
-                bounded(STREAM_WAIT, Self::spawn_on(server, options), late).await
+                let deadline = tokio::time::Instant::now() + STREAM_WAIT;
+                let stream_count = streams.len();
+                for (index, server) in streams.into_iter().enumerate() {
+                    let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+                    if remaining.is_zero() {
+                        break;
+                    }
+                    // A silently black-holed preferred relay must not consume the
+                    // whole stream budget. Share the remaining time among the
+                    // endpoints still to try, while letting a fast failure pass
+                    // its unused time to the next endpoint.
+                    let endpoints_left = (stream_count - index) as u32;
+                    let attempt = remaining / endpoints_left;
+                    if attempt.is_zero() {
+                        break;
+                    }
+                    if let Some(carrier) = bounded(attempt, Self::spawn_on(server, options), late).await {
+                        return Some(carrier);
+                    }
+                }
+                None
             }
         };
         if !tried_udp {
