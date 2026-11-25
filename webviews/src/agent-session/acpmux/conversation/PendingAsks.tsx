@@ -1,3 +1,4 @@
+import type { AnswerBlock } from "../subagents/restart";
 import { memo, useLayoutEffect, useRef, useSyncExternalStore, useCallback, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import * as watch from "../layoutWatch";
@@ -17,8 +18,8 @@ const expectMove = (reason: string, rows: string[]) =>
   });
 
 /// The questions still waiting on the person (waitingAskStore.ts), pinned in the bottom stack above the
-/// composer, oldest first, each the transcript's own card (NextStepCard.tsx) under the "Needs your input" line the
-/// live question card uses, with its Dismiss. The card in the transcript stays where it was asked; this copy is the
+/// composer, oldest first, each the transcript's own card (NextStepCard.tsx), whose "Needs your input" line
+/// carries the close that dismisses it. The card in the transcript stays where it was asked; this copy is the
 /// one in reach. An answer goes as the person's next message, which settles both. The newest takes
 /// the composer's ⌘↩.
 /// The pinned list as drawn: the asks still waiting, and each one that just left (answered, dismissed,
@@ -126,12 +127,15 @@ export const PendingAsks = memo(function PendingAsks({
   registerKey,
   onDismiss,
   asker,
+  blocked,
 }: {
   asks: readonly AcpmuxRow[];
   /// The asks in `asks` that have left and fold out (`useLeavingAsks`); `onFolded` hears each fold end.
   /// Without them an ask answered here leaves in the click's frame.
   leaving?: ReadonlySet<string>;
   onFolded?: (key: string) => void;
+  /// Why this pane cannot send, where `onAnswer` is absent (NextStepCard.tsx `blocked`).
+  blocked?: AnswerBlock;
   /// Sends an answer; absent where this pane cannot send.
   onAnswer?: (text: string) => Promise<unknown>;
   registerKey?: (fire: () => void) => () => void;
@@ -139,7 +143,6 @@ export const PendingAsks = memo(function PendingAsks({
   /// Who asked: an answer quotes the ask under this name (NextStepCard.tsx).
   asker?: string;
 }) {
-  const t = useT();
   // An ask answered from this page leaves in the click's frame, header and all (waitingAskStore.ts
   // `givenAnswer`): its answer may wait in the queue, where no prompt row settles it yet. One App
   // keeps (`leaving`) folds out instead.
@@ -164,16 +167,12 @@ export const PendingAsks = memo(function PendingAsks({
         if (!step) return null;
         return (
           <PinnedAsk key={row.id} row={row} leaving={leaving?.has(askKey(row)) ?? false} onFolded={onFolded}>
-            <div className="acpmux-pending-ask__head" data-dock-clear="">
-              <span className="acpmux-pending-ask__label">{t("question.needsInput")}</span>
-              <button type="button" className="acpmux-pending-ask__dismiss" onClick={() => onDismiss(askKey(row))}>
-                {t("message.dismiss")}
-              </button>
-            </div>
             <NextStepCard
+              onDismiss={() => onDismiss(askKey(row))}
               className="ui-glass ui-glass-floats acpmux-stack-material"
               ask={pinnedAsk(step.ask)}
               onAnswer={onAnswer}
+              blocked={blocked}
               registerKey={row === keyHolder ? registerKey : undefined}
               answerKey={askKey(row)}
               asker={asker}
