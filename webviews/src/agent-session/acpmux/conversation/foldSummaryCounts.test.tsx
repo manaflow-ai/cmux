@@ -69,9 +69,20 @@ test("the label builder is unchanged: the time alone", () => {
   expect(workedLabel(t, row)).toBe("Worked for 36s");
 });
 
+// The worked-line experiment's default arm (outcome, #49934) already names the work on every line;
+// this switch is what the line says on its "Time only" arm, so the two tests below pin that arm.
+type ArmHost = { cmuxExperiments?: Record<string, string> };
+const timeOnly = () => {
+  (globalThis as ArmHost).cmuxExperiments = { "worked-line": "time" };
+};
+afterEach(() => {
+  delete (globalThis as ArmHost).cmuxExperiments;
+});
+
 const html = (row: AcpmuxRow) => renderToStaticMarkup(<WorkedFor row={row} expanded={false} onToggle={() => {}} />);
 
 test("off by default: the line reads the time alone, with its chevron", () => {
+  timeOnly();
   const row = worked([
     prompt,
     work("w", 1_000, [...commands(4), ...edits("a.ts", "b.ts")]),
@@ -85,6 +96,7 @@ test("off by default: the line reads the time alone, with its chevron", () => {
 });
 
 test("switched on: the line names its counts in the quiet tone, failures in the failure tone", () => {
+  timeOnly();
   setExperimentSwitches({ [FOLD_COUNTS_SWITCH]: true });
   const row = worked([
     prompt,
