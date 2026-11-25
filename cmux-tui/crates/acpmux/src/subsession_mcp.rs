@@ -316,6 +316,7 @@ fn moved_text(r: &Value) -> String {
     let to = r["to"].as_str().unwrap_or("?");
     match r["status"].as_str() {
         Some("moved") => format!("Moved this chat to {to}."),
+        Some("moving") => format!("This chat is on its way to {to}."),
         Some("already") => format!("This chat already runs {to}."),
         _ => format!(
             "Not moved: {}. Ask the person to run: {}",
