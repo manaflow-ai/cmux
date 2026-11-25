@@ -65,8 +65,11 @@ cmux-computer-use = { path = "../cmux-computer-use", features = ["desktop", "ser
 cmux-process = { path = "../cmux-process" }
 
 [target.'cfg(windows)'.dependencies]
-# `cmux-rd windows-host` (src/windows_host.rs): the same device hub client as `linux-host`.
+# `cmux-rd windows-host` (src/windows_host.rs): the same device hub client and session serving
+# as `linux-host`.
 cmux-hub-host = { path = "../cmux-hub-host" }
+# `windows-serve-selftest`'s own `cmux-rd serve` child: owned, ended with the test.
+cmux-process = { path = "../cmux-process" }
 windows = { version = "0.62.2", features = [
     "Win32_Foundation", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D11",
     "Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common", "Win32_Graphics_Gdi",
@@ -77,6 +80,7 @@ windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
     "Win32_System_LibraryLoader",
+    "Win32_System_Performance",
     "Win32_System_RemoteDesktop",
     "Win32_System_StationsAndDesktops",
     "Win32_UI_Input_KeyboardAndMouse",
