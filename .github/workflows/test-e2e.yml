@@ -243,7 +243,7 @@ jobs:
     # otherwise surface only once a full compile had already been paid for.
     # It reads the pool only to turn video off on owned Macs.
     needs: [runner]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     outputs:
       target: ${{ steps.filter.outputs.target }}
       filter: ${{ steps.filter.outputs.filter }}
@@ -416,7 +416,7 @@ jobs:
     # Linux, so this run holds no macOS runner meanwhile; the build job then
     # adopts that product through its reuse step. See e2e_sibling_build.py.
     needs: [resolve-ref, runner]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 35
     permissions:
       contents: read

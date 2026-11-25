@@ -79,7 +79,7 @@ jobs:
     # The wrapper dispatches to manaflow-ai/cmux, so a fork keeps its own
     # `tests` job.
     if: ${{ github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && inputs.unit_test_suites != '' && inputs.skip_ui_tests && !inputs.skip_unit_tests }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       actions: write

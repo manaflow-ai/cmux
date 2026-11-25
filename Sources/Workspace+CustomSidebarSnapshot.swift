@@ -81,11 +81,11 @@ extension Workspace {
         guard let service = TerminalController.shared.agentChatTranscriptService else { return [] }
         let records = service.sessionRecords(workspaceID: nil)
         guard !records.isEmpty else { return [] }
-        var surfaceIdByPanelId: [UUID: UUID] = [:]
+        var localPanelIds: Set<UUID> = []
         for paneId in bonsplitController.allPaneIds {
             for tab in bonsplitController.tabs(inPane: paneId) {
                 guard let panelId = panelIdFromSurfaceId(tab.id) else { continue }
-                surfaceIdByPanelId[panelId] = tab.id.uuid
+                localPanelIds.insert(panelId)
             }
         }
         let workspaceIdString = id.uuidString
@@ -93,7 +93,7 @@ extension Workspace {
         for record in records {
             let panelId = record.surfaceID.flatMap(UUID.init(uuidString:))
             if let panelId {
-                guard surfaceIdByPanelId[panelId] != nil else { continue }
+                guard localPanelIds.contains(panelId) else { continue }
             } else {
                 guard record.workspaceID == workspaceIdString else { continue }
             }
@@ -123,7 +123,7 @@ extension Workspace {
                     lastActivityAt: record.lastActivityAt,
                     title: record.title,
                     panelId: panelId,
-                    surfaceId: panelId.flatMap { surfaceIdByPanelId[$0] },
+                    surfaceId: panelId.flatMap { customSidebarFocusSurfaceId(panelId: $0) },
                     workingDirectory: record.workingDirectory,
                     transcriptPath: record.transcriptPath,
                     pid: record.pid,
@@ -143,16 +143,21 @@ extension Workspace {
         return agents
     }
 
+    /// The id `surface.focus` accepts for a tab's panel, shared by tab and
+    /// agent snapshots. A mirror without a projection has no focus target.
+    private func customSidebarFocusSurfaceId(panelId: UUID) -> UUID? {
+        isRemoteTmuxControlContainer(panelId)
+            ? activeRemoteTmuxControlSurfaceProjection(containerPanelID: panelId)?.surfaceID
+            : panelId
+    }
+
     private func customSidebarSurfaceSnapshots(focusedPanelId: UUID?) -> [CustomSidebarSurfaceSnapshot] {
         var surfaces: [CustomSidebarSurfaceSnapshot] = []
         for paneId in bonsplitController.allPaneIds {
             for tab in bonsplitController.tabs(inPane: paneId) {
                 guard let panelId = panelIdFromSurfaceId(tab.id) else { continue }
                 // Keep tab identity stable, but expose only IDs accepted by surface.*.
-                // A mirror without a projection stays visible without a focus target.
-                let focusSurfaceId = isRemoteTmuxControlContainer(panelId)
-                    ? activeRemoteTmuxControlSurfaceProjection(containerPanelID: panelId)?.surfaceID
-                    : panelId
+                let focusSurfaceId = customSidebarFocusSurfaceId(panelId: panelId)
                 let git = reportedPanelGitBranch(panelId: panelId)
                 let prompt = panelPrompts[panelId]
                 surfaces.append(

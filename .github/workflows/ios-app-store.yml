@@ -53,7 +53,7 @@ jobs:
   refuse-classic:
     name: Refuse to ship the classic app to com.cmux.app
     # No secrets: any Linux pool will do.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
       - name: Refuse the classic App Store upload and submission

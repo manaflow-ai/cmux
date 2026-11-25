@@ -39,9 +39,9 @@ if RUNNER_TEMP="$TMP_DIR" \
   CMUX_VDISPLAY_LOCK_DIR="$LOCK_DIR" \
   CMUX_VDISPLAY_LOCK_TIMEOUT_SECONDS=1 \
   CMUX_VDISPLAY_LOCK_POLL_SECONDS=1 \
-  "$SCRIPT" acquire >/tmp/cmux-vdisplay-second-acquire.out 2>/tmp/cmux-vdisplay-second-acquire.err; then
-  cat /tmp/cmux-vdisplay-second-acquire.out
-  cat /tmp/cmux-vdisplay-second-acquire.err >&2
+  "$SCRIPT" acquire >"$TMP_DIR/second-acquire.out" 2>"$TMP_DIR/second-acquire.err"; then
+  cat "$TMP_DIR/second-acquire.out"
+  cat "$TMP_DIR/second-acquire.err" >&2
   echo "FAIL: second acquire succeeded while lock was held" >&2
   exit 1
 fi
@@ -56,9 +56,9 @@ if RUNNER_TEMP="$TMP_DIR" \
   CMUX_VDISPLAY_LOCK_TIMEOUT_SECONDS=1 \
   CMUX_VDISPLAY_LOCK_STALE_SECONDS=1 \
   CMUX_VDISPLAY_LOCK_POLL_SECONDS=1 \
-  "$SCRIPT" acquire >/tmp/cmux-vdisplay-live-owner-acquire.out 2>/tmp/cmux-vdisplay-live-owner-acquire.err; then
-  cat /tmp/cmux-vdisplay-live-owner-acquire.out
-  cat /tmp/cmux-vdisplay-live-owner-acquire.err >&2
+  "$SCRIPT" acquire >"$TMP_DIR/live-owner-acquire.out" 2>"$TMP_DIR/live-owner-acquire.err"; then
+  cat "$TMP_DIR/live-owner-acquire.out"
+  cat "$TMP_DIR/live-owner-acquire.err" >&2
   echo "FAIL: stale cleanup removed a lock whose owner PID was alive" >&2
   exit 1
 fi
@@ -75,9 +75,9 @@ if ps -p 1 >/dev/null 2>&1; then
     CMUX_VDISPLAY_LOCK_TIMEOUT_SECONDS=1 \
     CMUX_VDISPLAY_LOCK_STALE_SECONDS=1 \
     CMUX_VDISPLAY_LOCK_POLL_SECONDS=1 \
-    "$SCRIPT" acquire >/tmp/cmux-vdisplay-foreign-owner-acquire.out 2>/tmp/cmux-vdisplay-foreign-owner-acquire.err; then
-    cat /tmp/cmux-vdisplay-foreign-owner-acquire.out
-    cat /tmp/cmux-vdisplay-foreign-owner-acquire.err >&2
+    "$SCRIPT" acquire >"$TMP_DIR/foreign-owner-acquire.out" 2>"$TMP_DIR/foreign-owner-acquire.err"; then
+    cat "$TMP_DIR/foreign-owner-acquire.out"
+    cat "$TMP_DIR/foreign-owner-acquire.err" >&2
     echo "FAIL: stale cleanup removed a lock whose owner PID exists but may reject kill -0" >&2
     exit 1
   fi
@@ -86,7 +86,7 @@ fi
 RUNNER_TEMP="$TMP_DIR" \
 CMUX_VDISPLAY_LOCK_DIR="$CMUX_VDISPLAY_LOCK_DIR" \
 CMUX_VDISPLAY_LOCK_TOKEN="wrong-token" \
-  "$SCRIPT" release 2>/tmp/cmux-vdisplay-wrong-token-release.err
+  "$SCRIPT" release 2>"$TMP_DIR/wrong-token-release.err"
 
 if [ ! -d "$CMUX_VDISPLAY_LOCK_DIR" ]; then
   echo "FAIL: release removed a lock with the wrong token" >&2
@@ -105,7 +105,7 @@ OWNERLESS_LOCK_ENV="$(
   CMUX_VDISPLAY_LOCK_TIMEOUT_SECONDS=2 \
   CMUX_VDISPLAY_LOCK_STALE_SECONDS=1800 \
   CMUX_VDISPLAY_LOCK_POLL_SECONDS=1 \
-  "$SCRIPT" acquire 2>/tmp/cmux-vdisplay-ownerless-acquire.err
+  "$SCRIPT" acquire 2>"$TMP_DIR/ownerless-acquire.err"
 )"
 eval "$OWNERLESS_LOCK_ENV"
 
@@ -116,7 +116,7 @@ DEAD_OWNER_LOCK_ENV="$(
   CMUX_VDISPLAY_LOCK_TIMEOUT_SECONDS=2 \
   CMUX_VDISPLAY_LOCK_STALE_SECONDS=1800 \
   CMUX_VDISPLAY_LOCK_POLL_SECONDS=1 \
-  "$SCRIPT" acquire 2>/tmp/cmux-vdisplay-dead-owner-acquire.err
+  "$SCRIPT" acquire 2>"$TMP_DIR/dead-owner-acquire.err"
 )"
 eval "$DEAD_OWNER_LOCK_ENV"
 

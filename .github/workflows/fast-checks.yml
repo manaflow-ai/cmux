@@ -232,6 +232,17 @@ jobs:
           path: ${{ runner.temp }}/fast-checks-cache
           commit: on-change
 
+      # Owned runners clear runner.temp after each job. Keep downloaded dependencies
+      # across workers without granting the test access to any release cache secrets.
+      - name: Restore fast-check dependencies on fleet runners
+        if: needs.admit.outputs.runner && !startsWith(needs.admit.outputs.runner, 'blacksmith-')
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ${{ runner.temp }}/fast-checks-cache/cargo/registry/cache
+            ${{ runner.temp }}/fast-checks-cache/bun
+          key: fast-checks-deps-v1-${{ runner.os }}-${{ runner.arch }}-${{ inputs.setup }}-${{ hashFiles('.fast-checks-checkout/**/Cargo.lock', '.fast-checks-checkout/**/bun.lock', '.fast-checks-checkout/**/bun.lockb') }}
+
       - name: Read repository Bun pin
         if: inputs.setup == 'webviews' || inputs.setup == 'playwright'
         id: bun-pin

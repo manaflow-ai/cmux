@@ -43,3 +43,82 @@ import Testing
         }
     }
 }
+
+/// `--socket-name <name>` selects a tmux server (`tmux -L <name>`) so one host can mirror
+/// separate servers into separate windows (#15022).
+@Suite struct RemoteTmuxInvocationSocketNameTests {
+    @Test func socketNameIsAcceptedAsAConnectionOption() throws {
+        let invocation = try RemoteTmuxInvocation.parse(["dev@host", "--socket-name", "alpha"])
+        #expect(invocation.action == .mirror)
+        #expect(invocation.destination == "dev@host")
+    }
+
+    @Test func socketNameIsRecorded() throws {
+        let invocation = try RemoteTmuxInvocation.parse(["dev@host", "--socket-name", "alpha"])
+        #expect(invocation.socketName == "alpha")
+    }
+
+    @Test func socketNameDefaultsToTheServerDefault() throws {
+        let invocation = try RemoteTmuxInvocation.parse(["dev@host"])
+        #expect(invocation.socketName == nil)
+    }
+
+    @Test func socketNameWorksWithListAndAttach() throws {
+        let list = try RemoteTmuxInvocation.parse(["dev@host", "list", "--socket-name", "alpha"])
+        #expect(list.action == .list)
+        #expect(list.socketName == "alpha")
+
+        let attach = try RemoteTmuxInvocation.parse(["dev@host", "--socket-name", "beta", "attach", "work"])
+        #expect(attach.action == .attach(session: "work"))
+        #expect(attach.socketName == "beta")
+    }
+
+    @Test(arguments: ["alpha", "proj.v2", "team_a", "a-b-c", "A1"])
+    func socketNameAcceptsLettersDigitsDotUnderscoreAndHyphen(_ name: String) throws {
+        let invocation = try RemoteTmuxInvocation.parse(["dev@host", "--socket-name", name])
+        #expect(invocation.socketName == name)
+    }
+
+    /// The value is interpolated into a remote shell command, so anything outside the strict
+    /// character set is refused at the parser rather than relying on quoting.
+    @Test(arguments: [
+        ["dev@host", "--socket-name"],
+        ["dev@host", "--socket-name", ""],
+        ["dev@host", "--socket-name", "-x"],
+        ["dev@host", "--socket-name", "a b"],
+        ["dev@host", "--socket-name", "a/b"],
+        ["dev@host", "--socket-name", "a;rm"],
+        ["dev@host", "--socket-name", "a'b"],
+        ["dev@host", "--socket-name", "a$b"],
+        ["dev@host", "--socket-name", "名前"],
+        ["dev@host", "--socket-name", String(repeating: "a", count: 65)],
+    ])
+    func rejectsMissingOrUnsafeSocketNames(_ arguments: [String]) {
+        #expect(throws: CLIError.self) {
+            try RemoteTmuxInvocation.parse(arguments)
+        }
+    }
+
+    /// The CLI executable has no string catalog, so the `--socket-name` errors must take their
+    /// text from the bundle the command hands in (the enclosing app) and not from `Bundle.main`.
+    @Test(arguments: [
+        (["dev@host", "--socket-name"], "translated: name required"),
+        (["dev@host", "--socket-name", "a/b"], "translated: name invalid"),
+    ])
+    func socketNameErrorsReadTheirTextFromTheGivenBundle(_ arguments: [String], _ expected: String) throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-socket-name-strings-\(UUID().uuidString).bundle", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try """
+        "cli.sshTmux.error.socketNameRequired" = "translated: name required";
+        "cli.sshTmux.error.socketNameInvalid" = "translated: name invalid";
+        """.write(to: directory.appendingPathComponent("Localizable.strings"), atomically: true, encoding: .utf8)
+        let bundle = try #require(Bundle(url: directory))
+
+        let error = try #require(throws: CLIError.self) {
+            try RemoteTmuxInvocation.parse(arguments, localizationBundle: bundle)
+        }
+        #expect(error.message == expected)
+    }
+}
