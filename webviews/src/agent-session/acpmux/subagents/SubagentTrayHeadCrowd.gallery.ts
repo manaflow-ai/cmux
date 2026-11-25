@@ -87,7 +87,7 @@ export default agentPaneEntry({
       snapshot: crowded,
     },
     "two-kinds": {
-      note: "A subagent and a CI wait: `1 subagent running · 1 wait`, no header time.",
+      note: "A subagent and a CI wait: `1 subagent · 1 wait`, no header time.",
       play: folded,
       snapshot: twoKinds,
     },

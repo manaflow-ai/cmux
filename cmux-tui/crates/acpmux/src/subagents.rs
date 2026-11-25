@@ -100,11 +100,6 @@ pub struct SubagentTree {
     /// `recentSubagents`, which the sidebar nests under the chat (`subagents_recent.rs`).
     #[serde(default)]
     recent: std::collections::VecDeque<recent::RecentEntry>,
-    /// When the logged record being folded was written (`annotate_at`): a fold of the log
-    /// stamps a subagent's start and end with it, never with the moment it is read, so a
-    /// read resumed from a checkpoint and a whole read agree.
-    #[serde(skip)]
-    fold_at: Option<u64>,
     /// Moves once on each live change to `recent`, so the hub tells watchers the list moved
     /// even when the running count did not (`hub/tap.rs`).
     #[serde(default)]
@@ -117,6 +112,11 @@ pub struct SubagentTree {
     /// Moves on each state change `listed` takes: the order the ended ones list in, latest first.
     #[serde(default)]
     listed_seq: u64,
+    /// The stamp of the logged update a fold of the chat's log reads now (`set_log_clock`), so
+    /// `listed` takes the log's times, not the fold's: an adoption resumed from its checkpoint
+    /// lists what a whole read does. None for a live update (`set_clock`).
+    #[serde(skip)]
+    logged_at: Option<u64>,
 }
 
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
@@ -202,6 +202,11 @@ impl SubagentTree {
             || self.previews.values().any(|p| p.agent_id.as_deref() == Some(to))
     }
 
+    /// Whether `session_id` is one this session knows: one of its subagents, or a root thread.
+    pub fn knows(&self, session_id: &str) -> bool {
+        self.parents.contains_key(session_id) || self.is_root(session_id)
+    }
+
     /// Whether `session_id` is one of this session's subagents.
     pub fn owns(&self, session_id: &str) -> bool {
         self.own.as_deref() != Some(session_id) && self.parents.contains_key(session_id)
@@ -227,9 +232,9 @@ impl SubagentTree {
 
     /// `annotate_live` of a logged record written at `at`, its time the one a start or end takes.
     pub fn annotate_at(&mut self, params: &mut Value, live: bool, at: u64) -> Option<String> {
-        self.fold_at = Some(at);
+        let was = self.logged_at.replace(at);
         let owner = self.annotate_live(params, live);
-        self.fold_at = None;
+        self.logged_at = was;
         owner
     }
 
