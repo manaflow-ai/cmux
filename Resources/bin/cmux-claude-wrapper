@@ -1733,6 +1733,44 @@ should_inject_claude_hooks() {
     return 0
 }
 
+# True when argv asks for a headless (`-p`/`--print`) run, reading options up to `--`.
+claude_args_request_headless() {
+    local arg skip_next=false
+    for arg in "$@"; do
+        if [[ "$skip_next" == true ]]; then
+            skip_next=false
+            continue
+        fi
+        case "$arg" in
+            --) return 1 ;;
+            -p|--print|--print=*) return 0 ;;
+            -*)
+                if [[ "$arg" != *=* ]] && claude_option_consumes_value "$arg"; then
+                    skip_next=true
+                fi
+                ;;
+        esac
+    done
+    return 1
+}
+
+# A headless `claude -p` that a live cmux Claude session started from one of its
+# tool calls (review tools and skills do this) is that session's helper, not a new
+# agent on the pane. Given hooks, its SessionStart superseded the parent on the
+# surface, so every later finish of the parent was decided stale and no
+# notification fired, for good (https://github.com/manaflow-ai/cmux/issues/23401).
+# Claude Code marks its tool shells with CLAUDECODE, and the parent's wrapper
+# exported its own PID as CMUX_CLAUDE_PID; while that process lives, the child
+# takes the documented opt-out below, which the issue showed keeps the parent's
+# notifications. A `claude -p` typed into a pane has no live parent and keeps hooks.
+if [[ "$CMUX_CLAUDE_HOOKS_DISABLED" != "1" && "$IN_CMUX" == "1" \
+      && -n "${CLAUDECODE:-}" && "${CMUX_CLAUDE_PID:-}" =~ ^[0-9]+$ \
+      && "$CMUX_CLAUDE_PID" != "$$" ]] \
+      && kill -0 "$CMUX_CLAUDE_PID" 2>/dev/null \
+      && claude_args_request_headless "$@"; then
+    export CMUX_CLAUDE_HOOKS_DISABLED=1
+fi
+
 # CMUX_CLAUDE_HOOKS_DISABLED is the documented MASTER opt-out: the wrapper
 # stays fully inert — no cmux calls, no computer-use attach, no argv changes
 # (the disabled-integration regression asserts exactly this).
@@ -1845,23 +1883,9 @@ export CMUX_CLAUDE_PID=$$
 # Headless (`-p`/`--print`) runs share the pane's surface with any interactive
 # session there, so the agent message hooks skip them.
 export CMUX_CLAUDE_HEADLESS=0
-cmux_claude_skip_next=false
-for cmux_claude_arg in "$@"; do
-    if [[ "$cmux_claude_skip_next" == true ]]; then
-        cmux_claude_skip_next=false
-        continue
-    fi
-    case "$cmux_claude_arg" in
-        --) break ;;
-        -p|--print|--print=*) export CMUX_CLAUDE_HEADLESS=1; break ;;
-        -*)
-            if [[ "$cmux_claude_arg" != *=* ]] && claude_option_consumes_value "$cmux_claude_arg"; then
-                cmux_claude_skip_next=true
-            fi
-            ;;
-    esac
-done
-unset cmux_claude_arg cmux_claude_skip_next
+if claude_args_request_headless "$@"; then
+    export CMUX_CLAUDE_HEADLESS=1
+fi
 # A parent session's hook spool belongs to that session; this launch starts its own below.
 unset CMUX_CLAUDE_HOOK_SPOOL_DIR
 if [[ -z "$cmux_claude_hook_cmux_bin" ]]; then

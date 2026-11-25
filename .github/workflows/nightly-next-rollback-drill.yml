@@ -1,6 +1,6 @@
 name: nightly-next rollback drill
 
-# The weekly rollback drill (cmuxterm-hq goals/release-rollback-drilled.md). It
+# The daily rollback drill (weekly until 2026-11-25; cmuxterm-hq goals/release-rollback-drilled.md). It
 # publishes a deliberately bad canary to a test channel, then rolls it back
 # through the real rollback jobs, so the pull is timed on the production
 # route: R2 and files-next.cmux.com. A fleet Mac (the cmuxterm-hq probe
@@ -26,14 +26,14 @@ name: nightly-next rollback drill
 #
 # The probe reads feed_s from the receipt: served_at minus pull_ordered_at.
 # GitHub runs a schedule, and registers a dispatch, only from the default
-# branch, so this file is on main too, with main's runner labels. There the Monday cron
+# branch, so this file is on main too, with main's runner labels. There the daily cron
 # (publish 09:15 UTC, pull 10:15 UTC; the probe starts at 09:29) runs job
 # start, which dispatches the step here on nightly-next, where release-next
 # releases the feed's R2 token. Every other job runs only on nightly-next.
 on:
   schedule:
-    - cron: "15 9 * * 1"
-    - cron: "15 10 * * 1"
+    - cron: "15 9 * * *"
+    - cron: "15 10 * * *"
   workflow_dispatch:
     inputs:
       step:
@@ -65,13 +65,13 @@ jobs:
     permissions:
       contents: read # check out the GitHub API wait
       actions: write # dispatch nightly-next-rollback-drill.yml
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 20
     env:
       # A scheduled job's GitHub API waits stop here and fail loud (scripts/ci/gh_budget_wait.sh).
       GH_BUDGET_WAIT_MAX_SECONDS: "900"
       GH_TOKEN: ${{ github.token }}
-      STEP: ${{ github.event.schedule == '15 9 * * 1' && 'publish' || 'pull' }}
+      STEP: ${{ github.event.schedule == '15 9 * * *' && 'publish' || 'pull' }}
     steps:
       # This commit's GitHub API wait (scripts/ci/gh_budget_wait.sh): every later gh call, and
       # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
@@ -180,7 +180,7 @@ jobs:
     if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && inputs.step == 'pull'
     permissions:
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     outputs:
       bad: ${{ steps.check.outputs.bad }}
@@ -227,7 +227,7 @@ jobs:
       NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
       NIGHTLY_NEXT_R2_ACCOUNT_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}
     with:
-      reason: weekly rollback drill (deliberately bad canary)
+      reason: daily rollback drill (deliberately bad canary)
       bad_build: ${{ needs.order.outputs.bad }}
       if_newest: ${{ needs.order.outputs.bad }}
       drill: true

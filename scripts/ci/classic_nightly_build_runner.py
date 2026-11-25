@@ -10,8 +10,11 @@ This reads the pinned runner live once, before the build is queued:
 - online and idle: `trusted=true`, and the build asks for the same pinned tuple as before;
 - online and busy: look again every LOOK_SECONDS for up to WAIT_SECONDS, then Blacksmith;
 - offline, or no runner carries both labels: Blacksmith now;
-- the runner list could not be read: keep the pinned tuple (the behaviour before this script;
-  the rescue still watches it), with a warning.
+- the runner list could not be read: count the nightly builds already queued or running on the
+  pinned runner label (BACKLOG, read with SNAPSHOT_TOKEN's actions: read); any, Blacksmith now;
+  none, keep the pinned tuple (the rescue still watches it); that count unreadable too, keep the
+  pinned tuple, with a warning. On 2026-11-25 the list was refused, a stale census left it unread,
+  and every pick kept the pin: nine build-nightly-app jobs queued behind one mini, the oldest 124 min.
 
 `blacksmith` is the Blacksmith macOS 26 label whose queue moves, by simple_pool_picker's one stall
 rule over the queue janitor's snapshot: FIRST's label first, else 12 vCPU, then the other; with
@@ -48,7 +51,11 @@ It never fails the job and never prints an empty `cloud`:
 
 from __future__ import annotations
 
+import base64
 import datetime as dt
+import gzip
+import io
+import json
 import os
 import re
 import sys
@@ -68,11 +75,22 @@ WAIT_SECONDS = 5 * 60
 LOOK_SECONDS = 30
 TRUSTED_POOL = re.compile(r"glaeda-(?:root-)?trusted-(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
 TRUSTED_RUNNER = re.compile(r"glaeda-runner-[a-z0-9][a-z0-9-]*")
+# The nightly's own runs read for the pinned runner's backlog when the runner list is unread.
+NIGHTLY_WORKFLOW = "nightly.yml"
+BACKLOG_RUNS = 10
+BACKLOG_STATUSES = ("queued", "in_progress", "waiting", "pending", "requested")
 # RUNNER_POOLS' dead marks (label -> when last seen dead) and the pool the candidates form. A mark older than
 # runner_pools.DEAD_TTL is one its writer would drop (it re-marks a still-dead label every pass), so it proves nothing.
 DEAD_KEY = picker.DEAD_MARKS_KEY
 POOL = "macos_26"
 MARK_TTL = dt.timedelta(minutes=picker.DEAD_MARK_TTL_MINUTES)
+# vars.CI_RUNNER_STATE (cmuxterm-hq build-fleet/mini-ops/RUNNER-STATE.md): the registration census, read when the
+# live runner list is refused. On 2026-11-25 the routing token got 403 listing runners, the unread list kept the
+# pinned pair, no online runner carried both labels, and run 45540008136's build-nightly-app sat queued over an hour.
+CENSUS_SCHEMA = "runner-state/v1"
+CENSUS_MAX_ENCODED = 48 * 1024
+CENSUS_MAX_DECODED = 2 * 1024 * 1024
+CENSUS_MAX_AGE = dt.timedelta(minutes=30)
 
 
 def runner_state(pool: str, runner: str, runners: Sequence[Mapping[str, Any]] | None) -> str:
@@ -80,17 +98,41 @@ def runner_state(pool: str, runner: str, runners: Sequence[Mapping[str, Any]] | 
     if runners is None:
         return "unread"
     online = [item for item in runners if item.get("status") == "online"
-              and {pool, runner} <= {str(label.get("name")) for label in item.get("labels") or ()
-                                     if isinstance(label, Mapping)}]
+              and {pool, runner} <= {str(label.get("name") if isinstance(label, Mapping) else label)
+                                     for label in item.get("labels") or ()}]
     if not online:
         return "offline"
     return "idle" if any(not item.get("busy") for item in online) else "busy"
 
 
+def census_runners(raw: str | None, now: dt.datetime) -> list[Mapping[str, Any]] | None:
+    """The runner rows of vars.CI_RUNNER_STATE (gzip, base64, runner-state/v1), or None when it is missing, out of
+    shape, incomplete or more than CENSUS_MAX_AGE old: then the list stays unread, as before."""
+    if not raw or len(raw) > CENSUS_MAX_ENCODED:
+        return None
+    try:
+        with gzip.GzipFile(fileobj=io.BytesIO(base64.b64decode(raw, validate=True))) as source:
+            body = source.read(CENSUS_MAX_DECODED + 1)
+        state = json.loads(body) if len(body) <= CENSUS_MAX_DECODED else None
+        if not isinstance(state, Mapping) or state.get("schema") != CENSUS_SCHEMA or state.get("complete") is not True:
+            return None
+        stamp = dt.datetime.fromisoformat(str(state.get("generated_at")).replace("Z", "+00:00"))
+        if stamp.tzinfo is None or not -dt.timedelta(seconds=5) <= now - stamp <= CENSUS_MAX_AGE:
+            return None
+        rows = list(state.get("repository_runners") or [])
+        groups = state.get("runner_groups")
+        for group in (groups.values() if isinstance(groups, Mapping) else ()):
+            rows += list(group or [])
+    except Exception:  # noqa: BLE001 - an unreadable census keeps the old behaviour
+        return None
+    return [row for row in rows if isinstance(row, Mapping) and isinstance(row.get("labels") or [], list)]
+
+
 def trusted_route(pool: str, runner: str, read: Callable[[], Sequence[Mapping[str, Any]] | None],
                   enabled: bool, attempt: str, *, wait_seconds: float = WAIT_SECONDS,
                   look_seconds: float = LOOK_SECONDS, sleep: Callable[[float], None] = time.sleep,
-                  clock: Callable[[], float] = time.monotonic, unread_keeps: bool = True) -> tuple[bool, str]:
+                  clock: Callable[[], float] = time.monotonic, unread_keeps: bool = True,
+                  backlog: Callable[[], int | None] | None = None) -> tuple[bool, str]:
     """(whether the build asks for the pinned trusted tuple, why).
 
     `unread_keeps` False (the prepare pick) takes Blacksmith when the runner list cannot be read."""
@@ -108,6 +150,13 @@ def trusted_route(pool: str, runner: str, read: Callable[[], Sequence[Mapping[st
         if state == "unread":
             if not unread_keeps:
                 return False, "the runner list could not be read"
+            waiting = backlog() if backlog is not None else None
+            if waiting:
+                return False, (f"the runner list could not be read and {waiting} nightly build(s) already queue or "
+                               f"run on `{runner}`")
+            if waiting == 0:
+                return True, (f"the runner list could not be read and no other nightly build queues on `{runner}`, "
+                              "so it keeps the build (the rescue watches it)")
             return True, f"the runner list could not be read, so `{runner}` keeps the build (the rescue watches it)"
         if state == "offline":
             return False, f"`{runner}` is offline"
@@ -221,9 +270,31 @@ def alternate(label: str, snapshot: Mapping[str, Any] | None = None, now: dt.dat
     return other
 
 
+def pinned_backlog(get: Callable[[str], Any], runner: str, own_run: str) -> int:
+    """Jobs of the nightly's other unfinished runs that queue or run on the pinned runner label `runner`.
+
+    `get` is a GET under the repository. At most 1 + BACKLOG_RUNS requests, newest runs first."""
+    runs: list[Mapping[str, Any]] = []
+    for status in ("in_progress", "queued"):
+        page = get(f"/actions/workflows/{NIGHTLY_WORKFLOW}/runs?status={status}&per_page={BACKLOG_RUNS}")
+        runs += [run for run in (page.get("workflow_runs") or []) if isinstance(run, Mapping)]
+    count = 0
+    seen: set[str] = set()
+    for run in runs[:BACKLOG_RUNS]:
+        run_id = str(run.get("id") or "")
+        if not run_id or run_id == own_run or run_id in seen:
+            continue
+        seen.add(run_id)
+        jobs = get(f"/actions/runs/{run_id}/jobs?filter=latest&per_page=100").get("jobs") or []
+        count += sum(1 for job in jobs if isinstance(job, Mapping) and job.get("status") in BACKLOG_STATUSES
+                     and runner in (job.get("labels") or ()))
+    return count
+
+
 def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
          read_runners: Callable[[str, str], Sequence[Mapping[str, Any]]] | None = None,
          read_snapshot: Callable[[str, str], Any] | None = None, now: dt.datetime | None = None,
+         read_backlog: Callable[[str, str, str, str], int] | None = None,
          sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic,
          wall: Callable[[], dt.datetime] = lambda: dt.datetime.now(dt.timezone.utc)) -> int:
     repo = env.get("GITHUB_REPOSITORY", "")
@@ -231,7 +302,7 @@ def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
 
     def read() -> Sequence[Mapping[str, Any]] | None:
         if not (route_token and repo):
-            return None
+            return census_runners(env.get("RUNNER_STATE"), now or wall())
         try:
             if read_runners is not None:
                 return read_runners(route_token, repo)
@@ -240,6 +311,26 @@ def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
             return pr_runner_pool.GitHub(route_token, repo).runners()
         except Exception as error:  # noqa: BLE001 - never fail the job
             print(f"::warning title=classic nightly build runner::could not list runners ({str(error)[:200]})")
+            rows = census_runners(env.get("RUNNER_STATE"), now or wall())
+            if rows is not None:
+                print("classic nightly build runner: judged the pinned runner from vars.CI_RUNNER_STATE")
+            return rows
+
+    def backlog() -> int | None:
+        token = env.get("SNAPSHOT_TOKEN", "")
+        if not (token and repo):
+            return None
+        try:
+            if read_backlog is not None:
+                return read_backlog(token, repo, (env.get("TRUSTED_RUNNER") or "").strip(),
+                                    env.get("GITHUB_RUN_ID", ""))
+            import pr_runner_pool  # noqa: PLC0415 - only for the live read
+
+            return pinned_backlog(pr_runner_pool.GitHub(token, repo).get, (env.get("TRUSTED_RUNNER") or "").strip(),
+                                  env.get("GITHUB_RUN_ID", ""))
+        except Exception as error:  # noqa: BLE001 - never fail the job
+            print(f"::warning title=classic nightly build runner::could not count the pinned runner's backlog "
+                  f"({str(error)[:200]})")
             return None
 
     # Wall time before the wait: the snapshot's queue ages are read against it plus the wait.
@@ -250,7 +341,8 @@ def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
                                          (env.get("TRUSTED_RUNNER") or "").strip(), read,
                                          (env.get("ENABLED") or "").strip() == "1",
                                          (env.get("GITHUB_RUN_ATTEMPT") or "").strip(), sleep=sleep, clock=clock,
-                                         wait_seconds=0 if prepare else WAIT_SECONDS, unread_keeps=not prepare)
+                                         wait_seconds=0 if prepare else WAIT_SECONDS, unread_keeps=not prepare,
+                                         backlog=backlog)
     if prepare:
         line = f"prepare: {'trusted' if trusted else 'blacksmith'} ({trusted_why})"
         print(f"classic nightly build runner: {line}")
