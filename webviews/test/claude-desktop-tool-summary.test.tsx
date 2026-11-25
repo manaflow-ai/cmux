@@ -94,7 +94,7 @@ test("while a background command runs, an opened run lists it as a step, with no
   expect(group.match(/class="cv-step"/g)).toHaveLength(3);
 });
 
-test("a failed call's row is its command, then its failure tag, then its chevron", () => {
+test("a failed call shows its readable label, failure tag and chevron in order", () => {
   const failing = shell(undefined, { status: "failed", output: "Exit code 1\nls: nope" });
   // A step of an opened run is tagged "failed" (drawn "Failed"); its Shell block names the exit.
   const step = renderToStaticMarkup(
@@ -102,14 +102,15 @@ test("a failed call's row is its command, then its failure tag, then its chevron
       <CommandRow item={failing} />
     </InStep.Provider>,
   );
-  // Command, the tag (clipped on screen, read aloud), the chevron, in that order; the tag is not in
-  // the trailing column.
-  expect(step).toMatch(/make check<\/code><\/span>.*class="cv-command__failed"[^>]*>failed<.*cv-tool__chevron/s);
+  // The failure tag follows the readable label and precedes the chevron.
+  expect(words(step)).toMatch(/Running tests.*failed/);
+  expect(step).toMatch(/class="cv-command__failed"[^>]*>failed<.*cv-tool__chevron/s);
+  expect(step).not.toContain("make check");
   expect(step).not.toMatch(/cv-command__meta[^>]*>[^]*cv-command__failed/);
   // A lone command keeps its exit word, in the same place.
-  expect(renderToStaticMarkup(<CommandRow item={failing} />)).toMatch(
-    /make check<\/code><\/span>.*class="cv-command__failed"[^>]*>Exit 1<.*cv-tool__chevron/s,
-  );
+  const lone = renderToStaticMarkup(<CommandRow item={failing} />);
+  expect(words(lone)).toMatch(/Running tests.*Exit 1/);
+  expect(lone).toMatch(/class="cv-command__failed"[^>]*>Exit 1<.*cv-tool__chevron/s);
   // A background command that failed says so the same way.
   const background = renderToStaticMarkup(
     <CommandRow item={shell("Check both workers", { background: { state: "failed", endedAt: 3 } })} />,
@@ -119,8 +120,9 @@ test("a failed call's row is its command, then its failure tag, then its chevron
   expect(css).toMatch(
     /\.cv-command > \.cv-command__failed::first-letter,\s*\.cv-tool > \.cv-tool__failed:not\(\.cv-tool__icon\)::first-letter \{\s*text-transform: uppercase;/,
   );
-  // Without a description the row keeps its command.
-  expect(words(renderToStaticMarkup(<CommandRow item={shell(undefined)} />))).toContain("make check");
+  const successful = renderToStaticMarkup(<CommandRow item={shell(undefined)} />);
+  expect(words(successful)).toContain("Ran tests with make");
+  expect(successful).not.toContain("cv-command__failed");
 });
 
 test("background notices use the description, then a command summary, followed by the outcome", () => {

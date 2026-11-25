@@ -240,6 +240,7 @@ test("the live line names a heredoc script as a script, and a pipeline by its wo
     expect(line.kind).toBe(THINKING);
     return line.doing;
   };
+  expect(liveOf("sleep 30 && deploy")).toBe("sleep 30 && deploy");
   expect(liveOf(ALS)).toBe("A Python script on als.json");
   expect(liveOf(LEO)?.startsWith("ffmpeg -v error")).toBe(true);
 });

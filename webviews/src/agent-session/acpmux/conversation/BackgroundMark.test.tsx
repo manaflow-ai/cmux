@@ -203,7 +203,7 @@ test("a background task names and links its owner, and keeps its duration in the
   const opened: string[] = [];
   const task: AcpmuxBackgroundTask = {
     toolCallId: "bg-owner",
-    command: "sleep 299; echo t",
+    command: "sleep 299",
     ownerId: "chat/helper-1",
     ownerTitle: "Cut create overhead",
     startedAt: STARTED,

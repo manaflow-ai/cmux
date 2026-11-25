@@ -1236,7 +1236,7 @@ export function commandSummary(
   t: Translate,
   command: string,
   configured: readonly CommandRule[],
-  completed = false,
+  completed: boolean | "background" = false,
   depth = 0,
 ): string | undefined {
   const match = ruleOf(command, configured);
@@ -1264,8 +1264,13 @@ export function commandSummary(
     values = { ...values, label };
   }
   if (completed && read.key === "commandRules.waiting") return t("command.waitedDuration", values);
+  if (completed && read.key === "commandRules.testingAll") {
+    const program = unwrap(first.words.map((word) => word.text))[0];
+    if (program) return t("command.tested", { tool: baseName(program) });
+  }
   const label = t(read.key, values);
-  return completed ? `${label} · ${t("bgTask.state.completed")}` : label;
+  // Background rows display their own terminal state beside the label.
+  return completed === true ? `${label} · ${t("bgTask.state.completed")}` : label;
 }
 
 /// Prefer the author's description, including while the process is running or has failed.
@@ -1279,10 +1284,9 @@ export function commandSaid(t: Translate, tool: Tool): string | undefined {
   const success = succeeded(tool);
   const action = success ? commandAction(command) : undefined;
   if (action && !action.more) return actionText(t, action);
+  const completed = success && (tool.background ? "background" : true);
   return (
-    pipelineSaid(t, command) ??
-    scriptSaid(t, command) ??
-    (success ? commandSummary(t, command, currentCommandRules(), true) : undefined)
+    pipelineSaid(t, command) ?? scriptSaid(t, command) ?? commandSummary(t, command, currentCommandRules(), completed)
   );
 }
 
@@ -1302,7 +1306,8 @@ function pipelineSaid(t: Translate, command: string): string | undefined {
 /// plumbing after it; as written (its setup left out, whitespace one space) for the `command` look,
 /// a running call and the live line, which name what is running (#36940).
 export function commandLine(command: string, look: CommandLabelLook = commandLook(), finished = true): string {
-  return look === "command" || !finished ? shortCommand(command, ROW_WIDTH) : cleanCommand(command);
+  if (finished && look !== "command") return cleanCommand(command);
+  return mainStep(command).more ? wholeLine(command) : shortCommand(command, ROW_WIDTH);
 }
 
 /// A finished group of commands that all did one kind of thing: "Searched memory twice", "Read 3

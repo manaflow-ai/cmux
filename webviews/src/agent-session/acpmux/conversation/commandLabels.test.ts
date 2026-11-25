@@ -221,12 +221,15 @@ test("a tool description labels known and unknown commands throughout their life
 test("safe shell summaries describe a live action and its successful completion", () => {
   for (const [command, live, done] of [
     ["sleep 30", "Waiting 30s", "Waited 30s"],
+    ["make check", t("commandRules.testingAll"), "Ran tests with make"],
     ["cd /tmp && sleep 1m 30s", "Waiting 1m 30s", "Waited 1m 30s"],
     ["curl -fsSL https://example.com/file", "Requesting example.com", "Fetched example.com/file"],
   ] as const) {
     expect(label(shell(command, { status: "in_progress" }))).toBe(live);
     expect(label(shell(command))).toBe(done);
   }
+  const built = shell("make release", { background: { state: "completed" } }).tool!;
+  expect(commandSaid(t, built)).toBe(t("commandRules.building", { target: "release" }));
   const configured = [
     { id: "logs", program: "collect-logs", icon: "terminal", read: () => ({ text: "Collect service logs" }) },
   ];
@@ -237,6 +240,7 @@ test("safe shell summaries describe a live action and its successful completion"
 test("partial and ambiguous commands retain their line throughout the call", () => {
   for (const command of [
     "sleep 30 && deploy",
+    "deploy && postcheck",
     "sleep 30 && git push",
     "curl -X DELETE https://example.com/record",
     "curl --data payload https://example.com/items",
@@ -248,9 +252,9 @@ test("partial and ambiguous commands retain their line throughout the call", () 
     expect(label(shell(command, { status: "in_progress" }))).toBe(command);
     expect(label(shell(command))).toBe(`Ran ${command}`);
   }
-  expect(label(shell("sleep 30", { status: "failed" }))).toBe("Ran sleep 30");
-  expect(label(shell("sleep 30", { status: "stopped" }))).toBe("Ran sleep 30");
-  expect(label(shell("sleep 30", { background: { state: "stopped" } }))).toBe("Ran sleep 30");
+  expect(label(shell("sleep 30", { status: "failed" }))).toBe("Waiting 30s");
+  expect(label(shell("sleep 30", { status: "stopped" }))).toBe("Waiting 30s");
+  expect(label(shell("sleep 30", { background: { state: "stopped" } }))).toBe("Waiting 30s");
 });
 
 test("a running command without a matching rule retains its working command", () => {
@@ -340,13 +344,13 @@ test("a group of one kind of work names it; a mixed group counts its commands", 
 });
 
 // A verb says what a command did, so a call that failed, was denied or a hook blocked never gets
-// one: it reads as its line, and a group with one counts its commands.
+// one: its action in progress or the original line names the attempt. A group with one counts its commands.
 const HOOK = "PreToolUse:Bash hook error: Blocked: the fixture guard needs a passing review first.";
-test("a failed, denied or hook-blocked call reads as its line, never as done", () => {
+test("a failed, denied or hook-blocked call names the attempt, never success", () => {
   const merge = "gh pr merge 101 --squash --match-head-commit 0123456789abcdef";
-  expect(label(shell(merge, { status: "failed", output: HOOK }))).toBe(`Ran ${merge}`);
+  expect(label(shell(merge, { status: "failed", output: HOOK }))).toBe(t("commandRules.merging", { target: "#101" }));
   expect(label(shell("git push origin main", { status: "failed", output: "Exit code 1\n! [rejected] main" }))).toBe(
-    "Ran git push origin main",
+    t("commandRules.pushingBranch", { branch: "main" }),
   );
   expect(label(shell("rm -rf build", { exitCode: 1 }))).toBe("Ran rm -rf build");
   expect(label(shell("git push origin main", { status: "completed", exitCode: 0 }))).toBe("Pushed main");

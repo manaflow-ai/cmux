@@ -35,8 +35,7 @@ import { lastWrapUp, withoutWrapUp, execWrapUp, isWrapUp, wrapUpAsk } from "./wr
 import { lastWalkthrough } from "./walkthroughModel";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
-import { ROW_WIDTH, shortCommand } from "./shortCommand";
-import { commandSaid, scriptNoun } from "./commandActions";
+import { commandLine, commandSaid, scriptNoun } from "./commandActions";
 import { awaitsPermission, isDraftCall, isRunning, toolGroups } from "./toolGroups";
 import { acpmuxMcpSends } from "./acpmuxMcpSends";
 import { acpmuxSendCalls } from "./acpmuxSends";
@@ -3901,7 +3900,7 @@ function liveShellLabel(tool: NonNullable<AcpmuxActivity["tool"]>): string | und
 /// script its interpreter reads from a heredoc as "a Python script on als.json", never its
 /// `<<'EOF'` marker (Leo, 2026-11-07: "it's just weird, um, that it just says EOF").
 function liveCommand(command: string): string {
-  return scriptNoun(translatorFor(currentLanguage()), command) ?? shortCommand(command, ROW_WIDTH);
+  return scriptNoun(translatorFor(currentLanguage()), command) ?? commandLine(command, "command", false);
 }
 
 /// A running call in one short line: a command as itself ("Ran …" would say it has finished), a
