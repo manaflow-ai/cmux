@@ -876,6 +876,8 @@ export function NewTabScreen(props: Props) {
   // This Mac's checkout of a GitHub repository the person picked (`localGitHubPick`) is that repository's pick:
   // Cloud clones the repository, never copies the checkout (cmux#53226).
   const checkedOutRepo = project !== undefined && localGitHubPick?.cwd === project;
+  // The checkout a Cloud pick carried as its repository (pickRunMode), for the way back to This Mac.
+  const cloudCarried = useRef<{ cwd: string; name: string }>(undefined);
   const pickedHereFolder =
     picked && project !== undefined && localAskFolder === project && !githubFolderRepo(project) && !checkedOutRepo
       ? project
@@ -918,15 +920,36 @@ export function NewTabScreen(props: Props) {
   // A GitHub repository can carry over to Cloud. A folder path on This Mac cannot.
   const pickRunMode = (mode: RunMode): void => {
     placePicked.current = true;
+    const carried = cloudCarried.current;
+    cloudCarried.current = undefined;
     if (mode !== props.runMode?.mode) {
       projectChoice.current += 1;
       setCloudFolderWaiting(false);
+      // This Mac's checkout of the picked repository goes to Cloud as the repository; back on This Mac it is the
+      // chip's folder again (cmux#53226), never No folder.
+      if (mode === "cloud" && checkedOutRepo && localGitHubPick?.cwd)
+        cloudCarried.current = { cwd: localGitHubPick.cwd, name: localGitHubPick.name };
       setLocalGitHubPick(undefined);
     }
     // Cloud and Sandboxed start no chat in a folder of this Mac: New project ends.
     if (mode !== "persistent") {
       setNewProject(undefined);
       newProjectMade.current = undefined;
+    }
+    if (
+      mode === "persistent" &&
+      cloudMode &&
+      carried &&
+      githubFolderRepo(localAskFolder)?.toLowerCase() === carried.name.toLowerCase()
+    ) {
+      saved.pick(undefined);
+      setMachine(undefined);
+      setLocalGitHubPick(carried);
+      setPicked(true);
+      setNone(false);
+      setProject(carried.cwd);
+      props.runMode?.onMode(mode);
+      return;
     }
     if (mode === "cloud" || (cloudMode && githubFolderRepo(localAskFolder))) {
       const next = mode === "cloud" ? cloudFolder : undefined;

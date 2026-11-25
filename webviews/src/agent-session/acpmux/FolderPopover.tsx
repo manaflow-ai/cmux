@@ -9,7 +9,7 @@ import { ExtraFolderList } from "./ExtraFolderList";
 import type { ExtraFolderRows } from "./extraFolders";
 import { LockIcon, GitHubGlyph } from "./GitHubIcons";
 import { folderUsedAt, mergeByRecentUse, readAddedRepos, rememberAddedRepo, type AddedRepo } from "./addedRepos";
-import { githubFolder, githubFolderRepo } from "./githubRepos";
+import { githubFolder, githubFolderRepo, type GitHubStatus } from "./githubRepos";
 import { useT } from "./i18n";
 import { FOLDER_MENU_LIST_CAP, folderMenuShortest, useLocationOpener, useLocationPopover } from "./locationPopover";
 import { ProjectBadge } from "./ProjectBadge";
@@ -91,12 +91,15 @@ export function FolderPopover({
   // Connect to GitHub from Add project sends the person to the browser, and the palette closes. When the connect
   // ends connected, the palette opens again on its GitHub page with the repositories (cmux#53226: "it should
   // connect and then this menu should remain open with all of the github repositories afterwards").
-  const [reopenGitHub, setReopenGitHub] = useState(false);
-  const githubConnectOut =
-    sources?.github !== undefined && (sources.github.state.waiting || sources.github.state.connecting === true);
-  if (reopenGitHub && !githubConnectOut) {
-    setReopenGitHub(false);
-    if (sources?.github?.state.status?.state === "ready") {
+  // Armed by the close a Connect to GitHub causes, with the status GitHub had then: the next status read decides
+  // (the app back from the browser, or the app saying GitHub changed). Connected: the palette opens again; anything
+  // else (the person cancelled in the browser) disarms it, so a later connect elsewhere never opens it unasked.
+  const [reopenGitHub, setReopenGitHub] = useState<{ from: GitHubStatus | undefined }>();
+  const githubState = sources?.github?.state;
+  const githubConnectOut = githubState !== undefined && (githubState.waiting || githubState.connecting === true);
+  if (reopenGitHub && githubState?.connecting !== true && githubState?.status !== reopenGitHub.from) {
+    setReopenGitHub(undefined);
+    if (githubState?.status?.state === "ready") {
       setSourcesPage("github");
       setSourcesOpen(true);
     }
@@ -663,7 +666,7 @@ export function FolderPopover({
           onClose={() => {
             setSourcesOpen(false);
             setSourcesPage(undefined);
-            if (githubConnectOut) setReopenGitHub(true);
+            if (githubConnectOut) setReopenGitHub({ from: githubState?.status });
           }}
           onBrowse={onBrowse && browse}
           onPick={(value) => {

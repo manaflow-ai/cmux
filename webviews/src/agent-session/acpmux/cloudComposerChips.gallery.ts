@@ -321,9 +321,17 @@ const modelHoldsStill: Play = async (ctx) => {
   await ctx.waitFor(() => boxOf(ctx.document.querySelector(MODEL)) && ctx.document.querySelector(".acpmux-mode-text"), {
     capMs: 10_000,
   });
-  await frames(view);
-  await frames(view);
-  const rest = boxOf(ctx.document.querySelector(MODEL))!;
+  // At rest: the model chip's box unchanged for 5 frames running (its label can arrive after the chip shows).
+  let rest = boxOf(ctx.document.querySelector(MODEL))!;
+  for (let still = 0, frame = 0; still < 5 && frame < 120; frame++) {
+    await frames(view);
+    const now = boxOf(ctx.document.querySelector(MODEL));
+    if (now && !moved(now, rest)) still++;
+    else {
+      still = 0;
+      if (now) rest = now;
+    }
+  }
   const stripTop = () => boxOf(ctx.document.querySelector(STRIP))?.y;
   const restStrip = stripTop();
   // Each frame's model box, by the step it belongs to.

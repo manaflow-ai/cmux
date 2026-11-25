@@ -414,6 +414,33 @@ test("Connect to GitHub from Add project opens the palette again on its reposito
   }
 });
 
+test("a Connect to GitHub cancelled in the browser never opens Add project when GitHub connects later elsewhere", async () => {
+  const uninstall = installPageKey(doc());
+  const gh = host({ "github.status": status("not_connected"), "github.connect": { opened: true } });
+  const { root } = await renderTray({}, gh.store);
+  try {
+    await openFolderMenu();
+    await openSources();
+    await press(gitHubRow());
+    await press(option("Connect to GitHub")!);
+    await key("Escape");
+    await key("Escape");
+    // Back from the browser, cancelled: still not connected.
+    await gh.back();
+    await settle();
+    expect(palette()).toBeNull();
+    // Later the app says GitHub connected (another surface's Connect): this palette stays closed.
+    gh.answers["github.status"] = ready;
+    gh.answers["github.repos.list"] = installed;
+    await act(async () => dom.window.dispatchEvent(new dom.window.Event("cmux-github-changed")));
+    await settle();
+    expect(palette()).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    uninstall();
+  }
+});
+
 test("Connect to GitHub that ends unconnected leaves Add project closed", async () => {
   const uninstall = installPageKey(doc());
   const gh = host({ "github.status": status("not_connected"), "github.connect": { opened: true } });

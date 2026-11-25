@@ -2995,10 +2995,8 @@ test("a GitHub repository checked out on this Mac and then taken to Cloud starts
   });
   const clouded: unknown[][] = [];
   let land: (folder: string | undefined) => void = () => {};
-  let toCloud: () => void = () => {};
   function Page() {
     const [mode, setMode] = useState<RunMode>("persistent");
-    toCloud = () => setMode("cloud");
     return (
       <NewTabScreen
         {...firstRunProps}
@@ -3030,15 +3028,29 @@ test("a GitHub repository checked out on this Mac and then taken to Cloud starts
   await act(async () => land("/Users/you/.cmux/worktrees/api/lane"));
   await settle();
   await settle();
-  // The checkout is the chip's pick now; the person takes the chat to Cloud.
-  await act(async () => toCloud());
-  await settle();
+  // The checkout is the chip's pick now; the person takes the chat to Cloud in the Where menu.
+  const where = () =>
+    container.querySelector<HTMLButtonElement>('.acpmux-location-picker[data-kind="computer"] button')!;
+  const choose = async (name: string) => {
+    await act(async () => where().click());
+    await settle();
+    const row = [...document.querySelectorAll<HTMLElement>('.acpmux-env-popover [role="option"]')].find((option) =>
+      option.textContent?.startsWith(name),
+    )!;
+    await act(async () => row.click());
+    await settle();
+  };
+  await choose("Cloud");
   expect(folder().textContent).toContain("acme/api");
   await typePrompt("fix the login bug");
   await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
   await settle();
   expect(clouded.length).toBe(1);
   expect((clouded[0] as unknown[])[2]).toBe("github:acme/api");
+  // Back on This Mac the checkout is the chip's folder again, never No folder.
+  await choose("This Mac");
+  expect(folder().textContent).toContain("acme/api");
+  expect(folder().textContent).not.toContain("No folder");
   forgetAddedRepos();
 });
 
