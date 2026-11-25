@@ -6,7 +6,7 @@ import type { BrowseRequest, BrowseResult } from "./browseProject";
 import { useLocationShortcut } from "./composerControls";
 import { MenuFolderIcon, PlusIcon } from "./ComposerPickers";
 import { ExtraFolderList } from "./ExtraFolderList";
-import { isExtraFolderPath, trimFolder, type ExtraFolderRows } from "./extraFolders";
+import { isExtraFolderPath, MAX_EXTRA_FOLDERS, trimFolder, type ExtraFolderRows } from "./extraFolders";
 import { LockIcon, GitHubGlyph } from "./GitHubIcons";
 import { folderUsedAt, mergeByRecentUse, readAddedRepos, rememberAddedRepo, type AddedRepo } from "./addedRepos";
 import { githubFolder, githubFolderRepo } from "./githubRepos";
@@ -164,11 +164,12 @@ export function FolderPopover({
     });
   };
   const typedPath = !cloud && /^(?:\/|~\/)/.test(typed) && !shown.has(typed) ? typed : undefined;
-  // A folder of this machine the new chat can also see (its row's +): never the chat's own folder or one
-  // already added. Cloud starts carry none (cmux#34403).
+  // A folder of this machine the new chat can also see (its row's +): never the chat's own folder, one already
+  // added, a `~/` path (acpmux takes absolute ones) or past acpmux's cap. Cloud starts carry none (cmux#34403).
   const addsExtra = (id: string) =>
     extra !== undefined &&
     !cloud &&
+    extra.folders.length < MAX_EXTRA_FOLDERS &&
     isExtraFolderPath(id) &&
     trimFolder(id) !== (current && trimFolder(current)) &&
     !extra.folders.includes(trimFolder(id));
@@ -603,22 +604,27 @@ export function FolderPopover({
               event.preventBaseUIHandler?.();
             }
             // Shift-Return on a folder: the chat also sees it (its row's +), and the menu stays open. Never a
-            // pick: on the chat's own folder or one already added it does nothing.
-            const folder = highlighted.current;
+            // pick, on any row: on the chat's own folder, one already added or a row that is no folder it does
+            // nothing. With words typed and no
+            // folder highlighted it is the first match, the row Return would pick (Combobox `firstMatch`).
+            const isFolder = (value: string | undefined): value is string =>
+              value !== undefined && value !== ACTION_WORKTREE && (shown.has(value) || value === typedPath);
+            const folder = isFolder(highlighted.current)
+              ? highlighted.current
+              : typed && highlightBy !== "keyboard"
+                ? listValues.find(isFolder)
+                : undefined;
             if (
               extra &&
               event.key === "Enter" &&
               event.shiftKey &&
               !event.altKey &&
               !event.metaKey &&
-              !event.ctrlKey &&
-              folder &&
-              (shown.has(folder) || folder === typedPath) &&
-              folder !== ACTION_WORKTREE
+              !event.ctrlKey
             ) {
               event.preventDefault();
               event.preventBaseUIHandler?.();
-              if (addsExtra(folder)) extra.onAdd(folder);
+              if (folder && addsExtra(folder)) extra.onAdd(folder);
             }
           }}
           label={t("composer.folderSearch")}

@@ -1399,8 +1399,8 @@
 .acpmux-location-worktrees[aria-expanded="true"] > .acpmux-location-worktrees-chevron { transform: rotate(90deg); }
 .acpmux-location-worktrees + .acpmux-location-check { margin-left: 0; }
 /* A folder row's + (FolderPopover `AlsoSee`, cmux#48299): the new chat also sees that folder. It takes no
-   room and no paint until its row is hovered or arrowed to (not the open's automatic highlight), so the rows
-   read as before; only then does it take the auto margin from the count or the check after it. */
+   room and no paint until its row is hovered or highlighted (not the open's automatic highlight before words
+   are typed; with words typed it marks the first match, Shift-Return's row), so the rows read as before; only then does it take the auto margin from the count or the check after it. */
 .acpmux-location-also {
   display: none;
   flex: none;

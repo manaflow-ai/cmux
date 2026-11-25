@@ -248,7 +248,13 @@ test("a folder row's + adds it beside the chat's folder, the menu stays open, an
     // The chat's own folder has no +; the others do, named for what they do.
     expect(alsoSee("app")).toBeNull();
     expect(alsoSee("notes")?.getAttribute("title")).toBe("Also let the chat see notes");
-    await press(alsoSee("notes")!);
+    // A real press: pointerdown and mousedown (where a row submits) before the click.
+    const plus = alsoSee("notes")!;
+    await act(async () => {
+      for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup"])
+        plus.dispatchEvent(new dom.window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0 }));
+    });
+    await press(plus);
     expect(changes.at(-1)).toEqual({ machine: "local", folders: ["/Users/me/notes"] });
     expect(picked).toEqual([]);
     expect(dom.window.document.querySelector(".acpmux-folder-popover")).not.toBeNull();
@@ -282,6 +288,13 @@ test("Shift-Return adds the highlighted folder and keeps the menu open; Return s
     await keyFolder("Enter", { shiftKey: true });
     expect(changes.length).toBe(2);
     expect(picked).toEqual([]);
+    // Shift-Return on a row that is no folder (No folder) neither adds nor picks.
+    await typeFolder("");
+    await keyFolder("ArrowUp");
+    await keyFolder("Enter", { shiftKey: true });
+    expect(changes.length).toBe(2);
+    expect(picked).toEqual([]);
+    expect(dom.window.document.querySelector(".acpmux-folder-popover")).not.toBeNull();
     await typeFolder("notes");
     await keyFolder("Enter");
     expect(picked).toEqual(["/Users/me/notes"]);
@@ -292,9 +305,11 @@ test("Shift-Return adds the highlighted folder and keeps the menu open; Return s
 
 test("Cloud and Sandboxed folder menus draw no folder row +", async () => {
   for (const mode of ["cloud", "sandboxed"] as const) {
-    const { root } = await renderTray({ runMode: { mode, onMode: () => {} } });
+    const { root } = await renderTray({ runMode: { mode, onMode: () => {} }, onNoProject: () => {} });
     try {
       await openFolderMenu();
+      // The menu is open with its rows; none of them has a +.
+      expect(dom.window.document.querySelector(".acpmux-folder-popover [role=option]")).not.toBeNull();
       expect(dom.window.document.querySelector("[data-also-see]")).toBeNull();
     } finally {
       await act(async () => root.unmount());
