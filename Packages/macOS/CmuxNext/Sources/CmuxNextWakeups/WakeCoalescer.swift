@@ -26,7 +26,7 @@ public final class WakeCoalescer: Sendable {
     private let nextID = Atomic<UInt64>(0)
 
     /// - Parameter now: Monotonic nanoseconds (tests pass a manual clock's).
-    public init(now: @escaping @Sendable () -> UInt64 = { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }) {
+    public init(now: @escaping @Sendable () -> UInt64 = WakeupLedger.systemUptime) {
         self.now = now
     }
 
