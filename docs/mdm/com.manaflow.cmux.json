@@ -842,6 +842,17 @@
       "title" : "Internal Developer Mode",
       "type" : "boolean"
     },
+    "app.keyStyle" : {
+      "default" : "standard",
+      "description" : "Vim moves through lists with j, k, gg, G and /. Emacs uses Control-N, P, F, B, A and E.",
+      "enum" : [
+        "standard",
+        "vim",
+        "emacs"
+      ],
+      "title" : "Key Style",
+      "type" : "string"
+    },
     "app.language" : {
       "default" : "system",
       "description" : "The language of cmux's menus, pages and messages.",
@@ -881,6 +892,16 @@
         "end-everything"
       ],
       "title" : "When Quitting",
+      "type" : "string"
+    },
+    "app.shortcutLayout" : {
+      "default" : "followLayout",
+      "description" : "Keep QWERTY Positions puts shortcuts on the US keys, for Dvorak, Colemak, AZERTY and QWERTZ.",
+      "enum" : [
+        "followLayout",
+        "qwertyPositions"
+      ],
+      "title" : "Keyboard Layout",
       "type" : "string"
     },
     "app.showMenuBarIcon" : {
@@ -3162,6 +3183,23 @@
       "title" : "Show Customize Menu…",
       "type" : "boolean"
     },
+    "customize.checklist.done" : {
+      "default" : [
+
+      ],
+      "description" : "The checklist steps you marked done yourself.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Checked Off Customize Steps",
+      "type" : "array"
+    },
+    "customize.checklist.enabled" : {
+      "default" : true,
+      "description" : "Shows the steps for making cmux your own at the top of Settings, with how many are done.",
+      "title" : "Show the Customize cmux Checklist",
+      "type" : "boolean"
+    },
     "customize.doctorNotice" : {
       "default" : true,
       "description" : "customize.doctorNotice",
@@ -3648,6 +3686,12 @@
       "default" : false,
       "description" : "editor.trimTrailingWhitespace",
       "title" : "Remove Trailing Spaces on Save",
+      "type" : "boolean"
+    },
+    "editor.vimMode" : {
+      "default" : false,
+      "description" : "Normal, Insert and Visual modes in the code editor, with the mode shown in its status bar.",
+      "title" : "Vim Keys in the Editor",
       "type" : "boolean"
     },
     "editor.wordBasedSuggestions" : {
@@ -6510,6 +6554,12 @@
       "title" : "Program Link Rules",
       "type" : "array"
     },
+    "terminal.predictiveLocalEcho" : {
+      "default" : true,
+      "description" : "Shows characters you type in a terminal on another machine right away when the link is slow, underlined until the remote confirms them. Local terminals, password prompts and full-screen programs are never predicted.",
+      "title" : "Predictive Local Echo",
+      "type" : "boolean"
+    },
     "terminal.term" : {
       "default" : "xterm-256color",
       "description" : "xterm-ghostty needs Ghostty's terminfo on every host you ssh to.",
@@ -6697,7 +6747,7 @@
     },
     "updates.installWhenIdle" : {
       "default" : false,
-      "description" : "Installs a downloaded update after cmux has been idle for the time below, never while an agent is working or a message is unsent. Agents keep running.",
+      "description" : "Installs a downloaded update and restarts while you are away: no input for the time below, or the screen locked. Never over an unsent message. Agents and their turns keep running.",
       "title" : "Update When Idle",
       "type" : "boolean"
     },

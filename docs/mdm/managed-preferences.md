@@ -59,6 +59,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `layout.centerFocusedColumn` | string | `"never"` | `never`, `always`, `on-overflow` | Center Focused Column |
 | `layout.stripScrollbar` | string | `"system"` | `system`, `auto`, `always`, `off` | Column Scroll Bar. A thin bar under the columns that shows and moves the visible range. |
 | `layout.closeFocus` | string | `"mostRecent"` | `previousNeighbor`, `mostRecent` | Focus After Closing a Pane. Which pane gets focus when the focused pane closes. |
+| `app.keyStyle` | string | `"standard"` | `standard`, `vim`, `emacs` | Key Style. Vim moves through lists with j, k, gg, G and /. Emacs uses Control-N, P, F, B, A and E. |
+| `app.shortcutLayout` | string | `"followLayout"` | `followLayout`, `qwertyPositions` | Keyboard Layout. Keep QWERTY Positions puts shortcuts on the US keys, for Dvorak, Colemak, AZERTY and QWERTZ. |
 | `shortcuts.showModifierHoldHints` | boolean | `true` |  | Show Shortcuts When Holding a Modifier. Hold Command or Control for 0.30 seconds to show shortcut hints. |
 | `updates.channel` | string | `"nightly"` | `stable`, `nightly`, `canary`, `dev` | Update Channel. Stable gets builds that ran a week without problems; Canary and Dev get them first. |
 | `updates.checkAutomatically` | boolean | `true` |  | Check for Updates Automatically |
@@ -70,7 +72,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `updates.web` | string | `"every-merge"` | `every-merge`, `nightly`, `off` | Web UI Updates. Every Merge gets web UI changes minutes after they land. |
 | `updates.liveWebReload` | boolean | `true` |  | cmux Live. Lets cmux live start show your checkout's web UI, each saved edit at once. |
 | `updates.installOnQuit` | boolean | `false` |  | Install Updates When Quitting. A downloaded update installs as cmux quits. Terminals keep running. |
-| `updates.installWhenIdle` | boolean | `false` |  | Update When Idle. Installs a downloaded update after cmux has been idle for the time below, never while an agent is working or a message is unsent. Agents keep running. |
+| `updates.installWhenIdle` | boolean | `false` |  | Update When Idle. Installs a downloaded update and restarts while you are away: no input for the time below, or the screen locked. Never over an unsent message. Agents and their turns keep running. |
 | `updates.installWhenIdleMinutes` | real | `15` | 1 to 240 | Idle Time Before Updating. How long cmux must be idle before Update When Idle installs. |
 | `updates.notify` | string | `"badge"` | `badge`, `silent` | When an Update Is Ready |
 | `updates.keepPreviousVersions` | real | `1` | 0 to 5 | Keep Previous Versions. Earlier builds kept so you can roll back. Uses almost no disk until files change. |
@@ -156,6 +158,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `palette.aliases` | dictionary | `{}` |  | Command Aliases. A word for a command, such as "vs": "splitRight". |
 | `palette.pins` | array | `[]` |  | Pinned Commands. Commands shown first when the command palette opens, in this order, by action id. |
 | `palette.searchHistory` | boolean | `true` |  | Remember Palette Searches. Rows you pick and use often rank higher. Off records nothing. |
+| `customize.checklist.enabled` | boolean | `true` |  | Show the Customize cmux Checklist. Shows the steps for making cmux your own at the top of Settings, with how many are done. |
+| `customize.checklist.done` | array | `[]` |  | Checked Off Customize Steps. The checklist steps you marked done yourself. |
 | `agents.chats.enabled` | boolean | `true` |  | Enable Chats. Show chats stored on this device. Nothing is uploaded. |
 | `agents.chats.discovery` | boolean | `true` |  | Discover Chat Folders. Find harness chat folders automatically. When off, only the listed folders are used. |
 | `agents.chats.roots` | array | `[]` |  | Chat Folders. Folders agents may also use. |
@@ -374,6 +378,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `terminal.linkOpener.default` | string | `"cmux"` |  | Open Program Links In. Where terminal programs open URLs: cmux, system, chrome, safari, app:<name> or command:<cmd>. |
 | `terminal.linkOpener.rules` | array | `[]` |  | Program Link Rules. <match> -> <target>, first match wins. Example: caller:gh github.com -> safari |
 | `terminal.term` | string | `"xterm-256color"` | `xterm-256color`, `xterm-ghostty` | Terminal Type (TERM). xterm-ghostty needs Ghostty's terminfo on every host you ssh to. |
+| `terminal.predictiveLocalEcho` | boolean | `true` |  | Predictive Local Echo. Shows characters you type in a terminal on another machine right away when the link is slow, underlined until the remote confirms them. Local terminals, password prompts and full-screen programs are never predicted. |
 | `editor.fontFamily` | string |  |  | Font Family. Empty uses the terminal font. |
 | `editor.fontSize` | real |  | 6 to 72 | Font Size. Empty uses the terminal font size. Cmd-= and Cmd-- change it in one editor. |
 | `editor.fontWeight` | string | `"normal"` | `normal`, `bold`, `300`, `500`, `600` | Font Weight |
@@ -405,6 +410,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `editor.cursorSmoothCaretAnimation` | string | `"off"` | `off`, `explicit`, `on` | Animate Cursor Movement |
 | `editor.cursorSurroundingLines` | real | `0` | 0 to 50 | Lines Kept Around the Cursor |
 | `editor.multiCursorModifier` | string | `"alt"` | `alt`, `ctrlCmd` | Add a Cursor With. The key you hold while you click to add a cursor. |
+| `editor.vimMode` | boolean | `false` |  | Vim Keys in the Editor. Normal, Insert and Visual modes in the code editor, with the mode shown in its status bar. |
 | `editor.autoClosingBrackets` | boolean | `true` |  | Close Brackets |
 | `editor.autoClosingQuotes` | boolean | `true` |  | Close Quotes |
 | `editor.linkedEditing` | boolean | `false` |  | Rename Matching Tags Together |

@@ -80,6 +80,7 @@ root="$(pwd -P)"
 msrv=1.88.0
 
 first_rc=0
+last_rc=0
 step_rows=()
 step() { # NAME CMD...: runs CMD, records pass or fail and seconds
   local name="$1" t0 rc=0
@@ -87,6 +88,7 @@ step() { # NAME CMD...: runs CMD, records pass or fail and seconds
   echo "=== step $name: $*"
   t0=$SECONDS
   "$@" || rc=$?
+  last_rc=$rc
   if [[ "$rc" -eq 0 ]]; then
     step_rows+=("$name"$'\t'"pass"$'\t'"$((SECONDS - t0))")
   else
@@ -325,7 +327,21 @@ required_base() { # BASE: fetch it when the checkout lacks it, then print the me
     echo "base: cannot fetch $base (tried the commit, $requiredChecksBranch and the full history)" >&2
     return 3
   fi
-  git -C "$root" merge-base "$base" HEAD 2>/dev/null || echo "$base"
+  # The merge base, never BASE itself when HEAD is not on it: a pool checkout holds HEAD at depth 1, so `merge-base`
+  # found nothing and BASE (the base tip) stood in. Every file the base changed since the branch was cut then read as
+  # the branch's own (2026-11-24: cmux#53262's panic ratchet counted its old cli/hub.rs, 890 indexing_slicing hits,
+  # against a base where #51720 had rewritten it; the merge base was 20 commits back). Deepen HEAD until they meet.
+  local head merged
+  head="$(git -C "$root" rev-parse HEAD)"
+  merged="$(git -C "$root" merge-base "$base" HEAD 2>/dev/null)" && { echo "$merged"; return 0; }
+  if [[ "$(git -C "$root" rev-parse --is-shallow-repository)" == true ]]; then
+    git -C "$root" fetch --quiet --no-tags --deepen=200 "$remote" "$head" || true
+    merged="$(git -C "$root" merge-base "$base" HEAD 2>/dev/null)" && { echo "$merged"; return 0; }
+    git -C "$root" fetch --quiet --no-tags --unshallow "$remote" "$head" || true
+    merged="$(git -C "$root" merge-base "$base" HEAD 2>/dev/null)" && { echo "$merged"; return 0; }
+  fi
+  echo "base: HEAD and $base share no history here; comparing with $base itself" >&2
+  echo "$base"
 }
 requiredChecksBranch=feat-cmux-next
 # Go at cmux-tailnet's pin (crates/cmux-tailnet/go-version) first on PATH: its build.rs builds libtailscale with
@@ -380,6 +396,7 @@ if [[ "$mode" == clippy-changed ]]; then
   [[ -n "${CARGO_TARGET_DIR:-}" ]] || export CARGO_TARGET_DIR="$root/.build/cmux-tui-clippy-target"
   echo "cargo target: $CARGO_TARGET_DIR"
   step "cargo clippy --all-targets on changed cmux-tui packages" python3 "$tools/cmux-tui-clippy-changed.py" --repo "$root" --base "$base"
+  clippy_rc=$last_rc
   host_identity() {
     local changed log rc=0
     if changed="$(git diff --no-renames --name-only "$base" HEAD)" \
@@ -393,7 +410,17 @@ if [[ "$mode" == clippy-changed ]]; then
     grep -qE 'test result: ok\. [1-9][0-9]* passed' "$log" || { echo "error: identity selected no test" >&2; return 1; }
   }
   step "Cloud host identity tests" host_identity
-  step "Rust panic ratchet on changed cmux-tui packages" python3 "$tools/cmux-tui-clippy-changed.py" --repo "$root" --base "$base" --panic-ratchet "$root/.build/panic-clippy.jsonl" --compare-base
+  # A red clippy step is a compile or manifest red (lints never fail it), so the check is already red. The ratchet
+  # would lint HEAD and then the base again (a red HEAD lints both) for no verdict: 2026-11-24, in 38 sampled red
+  # clippy-changed steps the ratchet after a red clippy step took 12,393 of 28,504 s (43%), and 17 of them ended
+  # "the clippy run did not finish successfully" anyway (goal ci-runner-min-per-day-250k). It runs once the
+  # change compiles.
+  if [[ "$clippy_rc" -ne 0 ]]; then
+    echo "=== step Rust panic ratchet on changed cmux-tui packages: not run (the clippy step is red, exit $clippy_rc: fix its errors first)"
+    step_rows+=("Rust panic ratchet on changed cmux-tui packages"$'\t'"skip (clippy red)"$'\t'"0")
+  else
+    step "Rust panic ratchet on changed cmux-tui packages" python3 "$tools/cmux-tui-clippy-changed.py" --repo "$root" --base "$base" --panic-ratchet "$root/.build/panic-clippy.jsonl" --compare-base
+  fi
   finish
 fi
 if [[ "$mode" == head-check ]]; then

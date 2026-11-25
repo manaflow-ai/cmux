@@ -192,6 +192,31 @@ import UIKit
         #expect(next.entry(Self.key("never-seen")).image == nil)
     }
 
+    /// A picture an earlier build saved with the cannot-draw mark in it (yellow with red) is never shown
+    /// on the next launch; a clean one is.
+    @Test func aSavedPictureHoldingTheCannotDrawMarkIsNotShown() async throws {
+        let store = TabSnapshotStore(directory: Self.directory())
+        let first = TabCardSnapshots(store: store, memoryPressure: MemoryPressure(observesSystem: false))
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let mark = UIGraphicsImageRenderer(size: CGSize(width: 40, height: 56), format: format).image { context in
+            UIColor(red: 1, green: 0.85, blue: 0, alpha: 1).setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 40, height: 56))
+            UIColor(red: 1, green: 0, blue: 0, alpha: 1).setFill()
+            context.fill(CGRect(x: 10, y: 18, width: 20, height: 20))
+        }
+        #expect(CannotDrawMark.isIn(mark))
+        first.put(mark, for: Self.key("marked"))
+        first.put(Self.picture(.systemBlue), for: Self.key("clean"))
+        try await Self.wait("both pictures are written") { first.saves == 2 }
+
+        let next = TabCardSnapshots(store: store, memoryPressure: MemoryPressure(observesSystem: false))
+        next.warm([Self.key("marked"), Self.key("clean")])
+        try await Self.wait("both reads finish") { next.loads == 2 }
+        #expect(next.entry(Self.key("marked")).image == nil, "the mark is never on a card")
+        #expect(next.entry(Self.key("clean")).image != nil)
+    }
+
     @Test func aPagesSnapshotIsKeptAtTheCardsResolution() async throws {
         let snapshots = TabCardSnapshots(store: TabSnapshotStore(directory: Self.directory()),
                                          memoryPressure: MemoryPressure(observesSystem: false))

@@ -605,9 +605,12 @@ jobs:
       # Off Blacksmith the GitHub store above misses (it is full and churns in minutes), so the dependency
       # builds of the three shipped legs that run on pool hosts (aarch64-apple-darwin built on Linux, and both
       # musl targets) come from R2, as the fast tier's do. Why: docs/ci/cmux-next-workflow-notes.md#note-210c
+      # The Cloud machine channel's thin musl legs (build-machine-channel, lto=thin, on cmux-linux) too, under
+      # their own key (LEG carries the lto): they had no warm start off Blacksmith and built cold, 17-18 min
+      # of a 22.6 min aarch64 leg in run 45443556021 (2026-11-24), which the channel point waits for.
       - name: Key the cargo build in R2
         id: r2-cargo-key
-        if: ${{ github.repository == 'manaflow-ai/cmux' && !startsWith(runner.name, 'blacksmith') && runner.os == 'Linux' && ((matrix.cross == true && !matrix.darwin_on_linux && inputs.lto != 'thin') || matrix.darwin_on_linux) && steps.fat-warm-x86_64.outcome != 'success' && steps.fat-warm-aarch64.outcome != 'success' && steps.fat-warm-darwin-aarch64.outcome != 'success' }}
+        if: ${{ github.repository == 'manaflow-ai/cmux' && !startsWith(runner.name, 'blacksmith') && runner.os == 'Linux' && ((matrix.cross == true && !matrix.darwin_on_linux) || matrix.darwin_on_linux) && steps.fat-warm-x86_64.outcome != 'success' && steps.fat-warm-aarch64.outcome != 'success' && steps.fat-warm-darwin-aarch64.outcome != 'success' }}
         continue-on-error: true
         env:
           LEG: ${{ matrix.target }}-${{ inputs.lto }}
