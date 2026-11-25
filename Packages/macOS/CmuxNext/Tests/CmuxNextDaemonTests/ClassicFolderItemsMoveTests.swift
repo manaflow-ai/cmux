@@ -278,4 +278,83 @@ struct ClassicFolderItemsMoveTests {
         // Once: a second launch finds nothing of NEXT's left to move.
         #expect(ClassicFolderItemsMove.moveConfigItems(paths: paths).values.allSatisfy { $0 == .nothing })
     }
+
+    /// The folders BuildStatePaths and the Rust defaults now keep in `cmux-next` (agent homes, chat
+    /// attachments, cmux-remote's identity, the browser host's backups, cmux-tasks' store, app-try, the codex
+    /// bundle) move once, each
+    /// leaving a link: chats and agent configs name agent-home and Chat Uploads paths.
+    @Test func theApplicationSupportFoldersMoveOnceWithALinkBack() throws {
+        let support = try Self.support()
+        defer { try? FileManager.default.removeItem(at: support) }
+        let moved = ["agent-home", "Chat Uploads", "remote", "browser-host", "tasks", "app-try", "codex-app-server"]
+        for name in moved { try Self.write(name, support.appending(path: "cmux/\(name)/f")) }
+        try Self.write("classic", support.appending(path: "cmux/session-com.cmuxterm.app.json"))
+
+        let move = ClassicFolderItemsMove(applicationSupport: support)
+        let outcomes = move.run()
+        for (name, outcome) in zip(ClassicFolderItemsMove.folders, outcomes) {
+            #expect(outcome == (moved.contains(name) ? StateFolderMove.Outcome.moved : .nothing), "\(name)")
+        }
+        for name in moved {
+            #expect(try Self.read(support.appending(path: "cmux-next/\(name)/f")) == name)
+            // A chat naming the old path still reads its file through the link.
+            #expect(Self.isLink(support.appending(path: "cmux/\(name)")), "\(name)")
+            #expect(try Self.read(support.appending(path: "cmux/\(name)/f")) == name)
+        }
+        #expect(try Self.read(support.appending(path: "cmux/session-com.cmuxterm.app.json")) == "classic")
+        #expect(move.run() == Array(repeating: StateFolderMove.Outcome.nothing, count: ClassicFolderItemsMove.folders.count))
+    }
+
+    private static func nightlyPaths(home: URL) -> BuildStatePaths {
+        BuildStatePaths(build: BuildIdentity(bundleID: "com.cmuxterm.app.nightly", bundledTag: nil), userHome: home,
+                        applicationSupport: home.appending(path: "Library/Application Support"),
+                        caches: home.appending(path: "Library/Caches"))
+    }
+
+    /// git records each worktree's path, so the GitHub feed's worktrees keep a link at the old path; the
+    /// other config folders move with none.
+    @Test func githubWorktreesKeepALinkAndOtherConfigFoldersDoNot() throws {
+        let home = try Self.support()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let old = home.appending(path: ".config/cmux"), new = home.appending(path: ".config/cmux-next")
+        try Self.write("gitdir", old.appending(path: "github-worktrees/repo/.git"))
+        try Self.write("auto", old.appending(path: "automations/a.json"))
+
+        let outcomes = ClassicFolderItemsMove.moveConfigItems(paths: Self.nightlyPaths(home: home))
+        #expect(outcomes["github-worktrees"] == .moved)
+        #expect(outcomes["automations"] == .moved)
+        #expect(try Self.read(new.appending(path: "github-worktrees/repo/.git")) == "gitdir")
+        #expect(Self.isLink(old.appending(path: "github-worktrees")))
+        #expect(try Self.read(old.appending(path: "github-worktrees/repo/.git")) == "gitdir")
+        var info = stat()
+        #expect(lstat(old.appending(path: "automations").path, &info) != 0)
+        #expect(try Self.read(new.appending(path: "automations/a.json")) == "auto")
+        // Once: the link is not moved again.
+        #expect(ClassicFolderItemsMove.moveConfigItems(paths: Self.nightlyPaths(home: home))["github-worktrees"] == nil)
+    }
+
+    /// A config file, folder, skill or copy already at the new path is never replaced: both stay as they were.
+    @Test func aConfigItemAlreadyInCmuxNextIsNeverReplaced() throws {
+        let home = try Self.support()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let old = home.appending(path: ".config/cmux"), new = home.appending(path: ".config/cmux-next")
+        for item in ["cmux-next.json", "automations/a.json", "skills/mine.md", "cmux-tui.json"] {
+            try Self.write("old", old.appending(path: item))
+            try Self.write("new", new.appending(path: item))
+        }
+
+        let outcomes = ClassicFolderItemsMove.moveConfigItems(paths: Self.nightlyPaths(home: home))
+        for key in ["cmux-next.json", "automations", "skills/mine.md"] {
+            guard case .kept = outcomes[key] else {
+                Issue.record("a move over \(key) in cmux-next: \(outcomes)")
+                continue
+            }
+        }
+        // The copy is skipped, not attempted, when cmux-next has its own.
+        #expect(outcomes["cmux-tui.json"] == nil)
+        for item in ["cmux-next.json", "automations/a.json", "skills/mine.md", "cmux-tui.json"] {
+            #expect(try Self.read(old.appending(path: item)) == "old", "\(item)")
+            #expect(try Self.read(new.appending(path: item)) == "new", "\(item)")
+        }
+    }
 }
