@@ -2594,6 +2594,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextWindowRules",
       "targets": [
         "CCmuxAppFFI",
+        "CmuxNextCompat",
         "CmuxNextDaemon"
       ],
       "packages": []
