@@ -50,7 +50,7 @@ jobs:
           python3 scripts/ci/nightly_pr_build.py keys --rev "$HEAD_SHA" | tee -a "$GITHUB_OUTPUT"
 
   swift:
-    name: nightly app compile ${{ matrix.arch }} (fleet job, advisory)
+    name: nightly app compile ${{ matrix.arch }} fleet job (advisory)
     needs: [route]
     if: ${{ needs.route.outputs.swift == 'true' && vars.CI_EVAL_STEP_GATEWAY != '' }}
     # The literal fallback never schedules: the job's if: skips when the variable is unset.

@@ -1568,6 +1568,7 @@ jobs:
             python3 tests/test_nightly_release_product_key.py
             # Why: 2026-11-24-checks-15.md
             python3 tests/test_nightly_release_product_reuse.py
+            python3 tests/test_nightly_pr_build.py
             # Why: 2026-11-24-checks-16.md
             python3 tests/test_ci_compile_test_plan.py
             # Why: 2026-11-24-checks-17.md
