@@ -170,7 +170,7 @@ const CAPABILITIES: &[Capability] = &[
         id: "rich-output",
         server: Some(agent_tools::CMUX_SERVER),
         places: &[],
-        line: "Show images, charts, diagrams and live HTML artifacts in the chat (cmux-rich-output skill).",
+        line: "This chat renders charts and diagrams: answer with a ```chart, ```vega-lite or ```mermaid block, not ASCII art; images and live HTML artifacts show too (cmux-rich-output skill).",
         detail: "Mermaid, Vega-Lite and ```chart blocks, KaTeX, images and live HTML cards render in the chat itself.",
     },
     Capability {

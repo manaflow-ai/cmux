@@ -104,8 +104,11 @@ def main():
     ap.add_argument("--runs", type=int, default=3)
     ap.add_argument("--model", default="sonnet")
     ap.add_argument("--show", action="store_true", help="print every answer")
+    ap.add_argument("--only", help="comma-separated task names to run")
     args = ap.parse_args()
     card = open(args.card, encoding="utf-8").read()
+    if args.only:
+        TASKS[:] = [t for t in TASKS if t[0] in args.only.split(",")]
     jobs = [
         (task, cond, run)
         for task in TASKS
