@@ -561,9 +561,11 @@ def listable(path: str) -> bool:
     return not any(c in path for c in " #") and path.isprintable() and path.isascii()
 
 
-def export_rows(man: dict, pinned: list[str]) -> list[str]:
+def export_rows(man: dict, pinned: list[str], idx: dict | None = None) -> list[str]:
     """The manifest as receipt_input_key rows (`* KIND PATH`): F -> blob, N -> names, E -> blob (keyed absent or
-    present). A path both listed and read through is a tree only when PINNED names it (the check's own code)."""
+    present). A path both listed and read through is a tree only when PINNED names it (the check's own code).
+    With IDX (the traced revision's tree index), a path that is a directory there and was only probed or opened
+    (E or F, never listed) is an `exists` row: states() keys it as `tree`, and a blob row would be its whole tree."""
     rows = []
     for path, kind in man["entries"].items():
         if not path:
@@ -578,6 +580,9 @@ def export_rows(man: dict, pinned: list[str]) -> list[str]:
                 parent = parent.rpartition("/")[0]
             rows.append(f"* tree {parent or '.'}")
             continue
+        if idx is not None and kind in ("E", "F") and idx.get(path, ("", "", ""))[1] == "tree":
+            rows.append(f"* exists {path}")
+            continue
         rows.append(f"* {ROW_KIND[kind]} {path}")
     rows += [f"* blob {p}" for p in pinned]
     return sorted(set(rows))
@@ -591,8 +596,9 @@ def cmd_export(a: argparse.Namespace) -> int:
     if man.get("git") == "L":
         print("traced_inputs: the check asks git for the path list; keyed on the root listing too", file=sys.stderr)
     entries = man["entries"]
-    man = {**man, "entries": compact(entries, tree_index(Path(a.root), man["rev"]))}
-    rows = export_rows(man, a.pin)
+    idx = tree_index(Path(a.root), man["rev"])
+    man = {**man, "entries": compact(entries, idx)}
+    rows = export_rows(man, a.pin, idx)
     if man.get("git") == "L":
         rows.append("* tree .")
     head = [f"# Traced inputs of {a.check} (scripts/ci/traced_inputs.py; cmuxterm-hq RFD 0148 row 9). Generated:",
@@ -629,6 +635,8 @@ def cmd_audit(a: argparse.Namespace) -> int:
             continue
         have = covered.get(path)
         # names covers a listing, blob covers a file read or an absent probe; a blob row on a directory is its tree.
+        # exists covers a probe, and a read of a path that is a directory (states() keys both as its type); it
+        # never covers a listing, and it keys a file on its blob id, so it covers a file read too.
         if have is None or (kind == "N" and have not in ("names", "blob")) or (kind != "N" and have == "names"):
             missed.append(f"{kind} {path}")
     out = {"missed": len(missed), "examples": missed[:30], "git": man.get("git"),

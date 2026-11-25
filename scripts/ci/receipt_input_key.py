@@ -88,7 +88,12 @@ GIT_ENV = {**os.environ, "GIT_NO_LAZY_FETCH": "1"}
 # entries, so editing a file under it changes nothing and adding, removing or renaming one does. A traced inputs
 # list (scripts/ci/traced_inputs.py, hq RFD 0148 row 9) writes names rows; the controller's parseInputRows takes
 # blob and tree only, so a class with names rows stays shadow-only until it learns them.
-KINDS = ("tree", "blob", "names")
+# exists: a path the check only probed or opened without reading through (a stat of `scripts` on the way to a
+# file under it). Its key is whether it is there and, for a directory, only that it is one, so an edit under it
+# changes nothing; a file there keys on its blob id. traced_inputs.py's own key reads such a path the same way; a
+# blob row on a directory is its whole tree, which changed the key on every edit under it (RFD 0148 row 34).
+KINDS = ("tree", "blob", "names", "exists")
+KIND_RANK = {"exists": 0, "names": 1, "blob": 2, "tree": 2}
 
 
 def git(*args: str) -> str:
@@ -133,6 +138,18 @@ def object_ids(revision: str, rels: list[str]) -> dict[str, str | None]:
 
 
 _OBJECT_ID = object_id
+
+
+def object_types(revision: str, rels: list[str]) -> dict[str, str]:
+    """The git object type (tree, blob, commit) of each path present at REVISION, in one git process."""
+    if not rels:
+        return {}
+    out = subprocess.run(["git", "-C", str(ROOT), "cat-file", "--batch-check=%(objecttype)"],
+                         input="".join(f"{revision}:{rel}\n" for rel in rels), capture_output=True, text=True,
+                         env=GIT_ENV, timeout=120, check=True).stdout.splitlines()
+    if len(out) != len(rels):
+        raise RuntimeError(f"git cat-file answered {len(out)} lines for {len(rels)} paths")
+    return dict(zip(rels, out))
 
 
 def names_id(revision: str, rel: str, oid: str | None) -> str | None:
@@ -181,18 +198,23 @@ def input_key(check: str, units: list[str], revision: str = "HEAD", rows=None) -
 
 
 def input_ids(revision: str, selected: list[tuple[str, str]]) -> dict[str, str | None]:
-    """Each selected path's id at REVISION: its object id (blob, tree) or its names id (names). A path listed both as
-    names and as blob or tree keys on its object id, which covers the names."""
+    """Each selected path's id at REVISION: its object id (blob, tree), its names id (names) or `exists:tree` for a
+    directory only probed (exists). A path listed under several kinds keys on the widest: its object id covers its
+    names, and its names cover its being there."""
     by_path: dict[str, str] = {}
     for kind, rel in selected:
-        if by_path.get(rel) in (None, "names"):
+        if rel not in by_path or KIND_RANK[kind] > KIND_RANK[by_path[rel]]:
             by_path[rel] = kind
     oids = object_ids(revision, sorted(by_path))
+    probed = [rel for rel, kind in by_path.items() if kind == "exists" and oids[rel] is not None]
+    types = object_types(revision, probed)
     names = [rel for rel, kind in by_path.items() if kind == "names" and oids[rel] is not None]
     listings = tree_listings(revision, names) if len(names) > 8 else {}
     out = {}
     for rel in sorted(by_path):
-        if by_path[rel] != "names" or oids[rel] is None:
+        if by_path[rel] == "exists":
+            out[rel] = "exists:tree" if types.get(rel) == "tree" else oids[rel]
+        elif by_path[rel] != "names" or oids[rel] is None:
             out[rel] = oids[rel]
         elif rel in listings:
             out[rel] = names_hash(listings[rel]) if listings[rel] is not None else oids[rel]
@@ -232,7 +254,8 @@ CHECK_PATHS = "scripts/ci/check-paths.txt"
 def pinned_patterns(check: str, base: str, rows=None) -> list[str]:
     rows = load_inputs(check) if rows is None else rows
     # A names row pins nothing: the check only listed that directory, so editing a file in it is not running new code.
-    patterns = [rel + "/*" if kind == "tree" else rel for unit, kind, rel in rows if unit == "*" and kind != "names"]
+    patterns = [rel + "/*" if kind == "tree" else rel for unit, kind, rel in rows
+                if unit == "*" and kind not in ("names", "exists")]
     try:
         text = git("show", f"{base}:{CHECK_PATHS}")
     except subprocess.CalledProcessError:
