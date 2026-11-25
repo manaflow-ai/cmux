@@ -1,8 +1,8 @@
 "use client";
 
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import { useSyncExternalStore } from "react";
-import { Link } from "../../../i18n/navigation";
+import { routing } from "../../../i18n/routing";
 import {
   ANALYTICS_CONSENT_CHANGED_EVENT,
   ANALYTICS_CONSENT_STORAGE_KEY,
@@ -40,9 +40,18 @@ export function useAnalyticsConsent(): ConsentState {
  * is not loaded: no cookie, no identify, no capture.
  */
 export function AnalyticsConsentBanner() {
+  // Nothing renders on the server or once the visitor has chosen, so the
+  // banner's text and links load only when it is actually shown.
+  if (useAnalyticsConsent() !== "unset") return null;
+  return <AnalyticsConsentNotice />;
+}
+
+function AnalyticsConsentNotice() {
   const t = useTranslations("analyticsConsent");
-  const consent = useAnalyticsConsent();
-  if (consent !== "unset") return null;
+  const locale = useLocale();
+  // A plain link (locale prefix "as-needed"), so this client component does
+  // not pull in next-intl's navigation and its server-side redirect helpers.
+  const privacyHref = locale === routing.defaultLocale ? "/privacy-policy" : `/${locale}/privacy-policy`;
 
   return (
     <div
@@ -52,12 +61,12 @@ export function AnalyticsConsentBanner() {
     >
       <p className="flex-1 text-muted">
         {t("message")}{" "}
-        <Link
-          href="/privacy-policy"
+        <a
+          href={privacyHref}
           className="underline underline-offset-2 decoration-link-underline hover:decoration-foreground transition-colors"
         >
           {t("privacy")}
-        </Link>
+        </a>
       </p>
       <div className="flex shrink-0 gap-2">
         <button
