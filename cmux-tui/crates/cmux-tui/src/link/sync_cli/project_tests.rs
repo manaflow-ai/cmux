@@ -30,6 +30,22 @@ fn the_manifest_holds_what_a_copy_sends_and_never_a_secret() {
 }
 
 #[test]
+fn the_sent_line_counts_only_the_file_bytes_answered() {
+    let folder = tempfile::tempdir().unwrap();
+    let root = folder.path();
+    std::fs::write(root.join("a.txt"), "0123456789").unwrap();
+    let listed = list(&std::fs::canonicalize(root).unwrap()).unwrap();
+    let entry = listed.manifest.resolve("a.txt").unwrap();
+    let sent = Sent::default();
+    let counted = Counted { source: &listed, sent: &sent };
+    assert_eq!(Source::whole(&counted, entry), Part::ok(b"0123456789".to_vec()));
+    assert_eq!(Source::read(&counted, entry, 2, 3), Part::ok(b"234".to_vec()));
+    // A refusal is no bytes moved.
+    assert_eq!(Source::whole(&counted, 9999).status, wire::REFUSED);
+    assert_eq!(sent.line(), json!({"reads": 2, "bytes": 13}));
+}
+
+#[test]
 fn each_chat_folder_has_its_own_projection_name() {
     assert_eq!(name_of("/home/cmux/work/a"), name_of("/home/cmux/work/a"));
     assert_ne!(name_of("/home/cmux/work/a"), name_of("/home/cmux/work/b"));
