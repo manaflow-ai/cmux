@@ -253,6 +253,7 @@ import {
   noReplyCame,
   broughtSentPrompt,
   newestPromptIndex,
+  promptLanded,
 } from "./transcript/arrivals";
 import {
   scrollRangeIn,
@@ -1578,6 +1579,9 @@ function TranscriptView({
   const queuedIds = useRef(new Set<string>());
   /// The prompts whose cards left, which the room under the last row is kept for (`floor`).
   const heldFor = useRef(new Set<string>());
+  /// The rows as of the last render, which tell a card whose prompt's row already landed.
+  const landedRows = useRef(rows);
+  landedRows.current = rows;
   const withdrawnSet = useMemo(() => new Set(queueWithdrawn), [queueWithdrawn]);
   const withdrawn = useRef(withdrawnSet);
   withdrawn.current = withdrawnSet;
@@ -1614,7 +1618,9 @@ function TranscriptView({
       queueLeft.current = false;
       return;
     }
-    const left = [...queuedIds.current].filter((id) => !now.has(id));
+    // A card whose prompt's row already landed above (it can land a pass before the card leaves)
+    // brings nothing more: no room is held for it, and the rows settle with the stack as it shrinks.
+    const left = [...queuedIds.current].filter((id) => !now.has(id) && !promptLanded(landedRows.current, id));
     queuedIds.current = now;
     if (!left.length) return;
     for (const id of left) heldFor.current.add(id);
