@@ -283,7 +283,12 @@ export const IntegrationComplete = def({
     state: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4000)),
     code: Schema.optionalKey(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(2000))),
     installation_id: Schema.optionalKey(Schema.String.check(isPattern(/^[0-9]{1,20}$/))),
-    setup_action: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(40)))
+    setup_action: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(40))),
+    /**
+     * GitHub, staging and development only: a GitHub Actions OIDC token from an allowed workflow run, in place of
+     * `code` (cmux-api integrations/github-actions-connect.ts). Production refuses it.
+     */
+    actions_oidc: Schema.optionalKey(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(8000)))
   }),
   /**
    * From the verified state, never the redirect's query: `return_to`, the connect's return link; `configure_url`,

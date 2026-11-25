@@ -3325,6 +3325,7 @@ export interface CloudOps {
       readonly code?: string
       readonly installation_id?: string
       readonly setup_action?: string
+      readonly actions_oidc?: string
     }
     readonly result: {
       readonly id: ConnectionId
