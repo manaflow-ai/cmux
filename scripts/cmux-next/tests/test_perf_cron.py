@@ -3670,6 +3670,37 @@ class NoHostTipTests(OneRunRule):
                          {"web-ui": "done", "build": "no_tree", "motion": "no_tree"})
         self.assertIn("no published cmux-tui tree", cur["parts"]["motion"]["reason"])
 
+    def test_a_tip_whose_tree_never_comes_gives_its_linux_parts_a_bound(self):
+        """2026-11-23: tip 2322b92a's Mac parts ended no_tree at 19:14Z, and its 16 Linux parts still to do held the
+        next tip (tree published, tabs never read) back past 22:30Z."""
+        state = cron.empty_state(T0)
+        no_tree = lambda sha: False  # noqa: E731
+        cron.decide(state, T0, self.NEW, None, lambda sha: ["motion", "web-ui", "coord-sim"], None, tree_ready=no_tree)
+        cur = state["current"]
+        t = cron.TREE_WAIT_HOURS + 0.1
+        d = cron.decide(state, at(t), None, None, lambda sha: [], None, tree_ready=no_tree)
+        self.assertEqual(d["action"], "part", "the Linux parts may still run")
+        self.assertIn(d["linux_part"], ("web-ui", "coord-sim"))
+        d = cron.decide(state, at(t + cron.SUPERSEDED_LINUX_HOURS / 2), None, None, lambda sha: [], None,
+                        tree_ready=no_tree)
+        self.assertNotEqual(d["action"], "finish", "inside its bound it keeps the Linux parts")
+        d = cron.decide(state, at(t + cron.SUPERSEDED_LINUX_HOURS + 0.1), None, None, lambda sha: [], None,
+                        tree_ready=no_tree)
+        self.assertEqual((d["action"], d["sha"]), ("finish", self.NEW), d["reason"])
+        self.assertEqual(cur["parts"]["motion"]["state"], "no_tree")
+        self.assertEqual(cur["parts"]["coord-sim"]["state"], "superseded")
+
+    def test_a_no_tree_tip_from_before_the_bound_ends_its_linux_parts_at_once(self):
+        state = cron.empty_state(T0)
+        no_tree = lambda sha: False  # noqa: E731
+        cron.decide(state, T0, self.NEW, None, lambda sha: ["motion", "web-ui"], None, tree_ready=no_tree)
+        cur = state["current"]
+        for name in [n for n in cur["parts_todo"] if not cron.is_linux_part(n)]:
+            cur["parts"][name] = {"state": "no_tree", "reason": "no published cmux-tui tree of x for 2 h"}
+            cur["parts_todo"].remove(name)
+        d = cron.decide(state, at(9), None, None, lambda sha: [], None, tree_ready=no_tree)
+        self.assertEqual((d["action"], d["sha"]), ("finish", self.NEW), d["reason"])
+
     def test_a_bisect_step_never_waits_for_a_tree(self):
         state = cron.empty_state(T0)
         state["current"] = cron.new_measurement(self.OLD, "bisect", ["build", "motion"], T0, {"good": "9" * 40, "bad": "8" * 40})
