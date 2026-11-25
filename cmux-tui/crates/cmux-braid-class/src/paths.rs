@@ -67,15 +67,18 @@ fn rtt_key<Id>(path: &PathView<Id>) -> Duration {
 ///
 /// Ties keep the caller's order, so a caller that lists its current path first stays on it.
 pub fn paths_for<Id: Copy>(class: Class, paths: &[PathView<Id>]) -> Pick<Id> {
-    let mut alive: [Option<&PathView<Id>>; 4] = [None; 4];
-    for (slot, path) in alive.iter_mut().zip(paths.iter().filter(|p| p.alive)) {
+    let mut slots: [Option<&PathView<Id>>; 4] = [None; 4];
+    let mut count = 0;
+    for (slot, path) in slots.iter_mut().zip(paths.iter().filter(|p| p.alive)) {
         *slot = Some(path);
+        count += 1;
     }
-    let alive = &mut alive[..alive.iter().take_while(|p| p.is_some()).count()];
+    let alive = &mut slots[..count];
+    // Stable sorts: ties keep the caller's order.
     let take = match class {
         Class::Bulk => {
             alive.sort_by_key(|p| std::cmp::Reverse(p.map_or(0, |p| p.capacity.unwrap_or(0))));
-            alive.len()
+            count
         }
         _ => {
             alive.sort_by_key(|p| p.map_or(Duration::MAX, rtt_key));
