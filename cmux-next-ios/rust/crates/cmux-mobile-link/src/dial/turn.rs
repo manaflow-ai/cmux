@@ -35,6 +35,8 @@ use webrtc::stun::message as stun_message;
 use webrtc::stun::textattrs::{Nonce, Realm, Username};
 use webrtc::util::Conn;
 
+use cmux_braid_carrier::{Carrier, CarrierKind, Endpoint, Login, NetFacts, OpenFuture};
+
 use super::DialOptions;
 use crate::api::IceServer;
 use crate::class_queue::{ClassQueue, Queued, SendClass};
@@ -106,6 +108,29 @@ pub struct TurnServer {
     pub credential: String,
 }
 
+impl TurnTransport {
+    /// The braid carrier this leg is.
+    pub fn carrier_kind(self) -> CarrierKind {
+        match self {
+            Self::Udp => CarrierKind::TurnUdp,
+            Self::Tcp => CarrierKind::TurnTcp,
+            Self::Tls => CarrierKind::TurnTls,
+        }
+    }
+}
+
+impl TurnServer {
+    /// The server as a braid endpoint, which ranks it among the dial's rungs.
+    pub fn endpoint(&self) -> Endpoint {
+        Endpoint {
+            kind: self.transport.carrier_kind(),
+            address: self.address.clone(),
+            host: self.host.clone(),
+            login: Some(Login { user: self.username.clone(), secret: self.credential.clone() }),
+        }
+    }
+}
+
 /// `host[:port]` or `[v6][:port]` → `(host, port)`.
 fn split_host_port(text: &str, default_port: u16) -> Option<(String, u16)> {
     if let Some(rest) = text.strip_prefix('[') {
@@ -154,17 +179,103 @@ fn parse_url(url: &str, username: &str, credential: &str) -> Option<TurnServer> 
 /// The TURN servers of `servers` to try: the first one over UDP, and the
 /// best one over a stream (TLS on 443, else any TLS, else plain TCP).
 pub fn turn_servers(servers: &[IceServer]) -> (Option<TurnServer>, Option<TurnServer>) {
-    let all = servers_in_order(servers);
-    let udp = all.iter().find(|server| server.transport == TurnTransport::Udp).cloned();
-    let rank = |server: &TurnServer| match server.transport {
-        TurnTransport::Tls if server.address.ends_with(":443") => 0,
-        TurnTransport::Tls => 1,
-        TurnTransport::Tcp => 2,
-        TurnTransport::Udp => 3,
+    let mut all = servers_in_order(servers);
+    // A server whose last allocation failed goes behind the others (stable:
+    // the listed order otherwise), so the next dial, redial or TURN retry
+    // starts on one that may answer.
+    all.sort_by_key(|server| failed_recently(&server.address));
+    let endpoints: Vec<Endpoint> = all.iter().map(TurnServer::endpoint).collect();
+    let pick = |kinds: &[CarrierKind]| {
+        let best = cmux_braid_carrier::best(&endpoints, kinds, NetFacts::default())?;
+        all.iter().find(|server| server.endpoint() == *best).cloned()
     };
-    let stream =
-        all.iter().filter(|server| server.transport.is_stream()).min_by_key(|server| rank(server)).cloned();
-    (udp, stream)
+    (pick(&[CarrierKind::TurnUdp]), pick(&[CarrierKind::TurnTls, CarrierKind::TurnTcp]))
+}
+
+/// A TURN server whose allocation failed is tried after the others for this
+/// long (a server that went away is not asked first by every dial after).
+const FAILED_SERVER_WAIT: Duration = Duration::from_secs(60);
+
+/// TURN servers (`host:port`) whose last allocation failed, and when.
+fn failed_servers() -> &'static Mutex<HashMap<String, tokio::time::Instant>> {
+    static FAILED: std::sync::OnceLock<Mutex<HashMap<String, tokio::time::Instant>>> =
+        std::sync::OnceLock::new();
+    FAILED.get_or_init(Mutex::default)
+}
+
+/// Note how an allocation on `address` ended.
+fn note_server(address: &str, allocated: bool) {
+    let mut failed = failed_servers().lock().unwrap_or_else(PoisonError::into_inner);
+    if allocated {
+        failed.remove(address);
+    } else {
+        tracing::info!(server = address, "TURN allocation failed; other servers go first");
+        failed.insert(address.to_owned(), tokio::time::Instant::now());
+    }
+}
+
+/// Whether an allocation on `address` failed within [`FAILED_SERVER_WAIT`].
+fn failed_recently(address: &str) -> bool {
+    let mut failed = failed_servers().lock().unwrap_or_else(PoisonError::into_inner);
+    failed.retain(|_, at| at.elapsed() < FAILED_SERVER_WAIT);
+    failed.contains_key(address)
+}
+
+/// The UDP TURN servers of `servers` in the order [`turn_servers`] would
+/// try them.
+fn udp_fallbacks(servers: &[IceServer]) -> Vec<TurnServer> {
+    let mut udp: Vec<TurnServer> = servers_in_order(servers)
+        .into_iter()
+        .filter(|server| server.transport == TurnTransport::Udp)
+        .collect();
+    udp.sort_by_key(|server| failed_recently(&server.address));
+    udp
+}
+
+/// TURN as a braid carrier ([`cmux_braid_carrier::Carrier`]): opening an endpoint allocates on its
+/// server, over the leg its kind names, in a task of its own ([`TurnCarrier::allocate_on`]).
+pub struct TurnRung<'o> {
+    kind: CarrierKind,
+    options: &'o DialOptions,
+}
+
+impl<'o> TurnRung<'o> {
+    /// `None` for a kind that is not a TURN leg.
+    pub fn new(kind: CarrierKind, options: &'o DialOptions) -> Option<Self> {
+        matches!(kind, CarrierKind::TurnUdp | CarrierKind::TurnTcp | CarrierKind::TurnTls)
+            .then_some(Self { kind, options })
+    }
+}
+
+impl Carrier for TurnRung<'_> {
+    type Link = TurnCarrier;
+
+    fn kind(&self) -> CarrierKind {
+        self.kind
+    }
+
+    fn open<'a>(&'a self, endpoint: &'a Endpoint) -> OpenFuture<'a, TurnCarrier> {
+        Box::pin(async move {
+            let transport = match endpoint.kind {
+                CarrierKind::TurnUdp => TurnTransport::Udp,
+                CarrierKind::TurnTcp => TurnTransport::Tcp,
+                CarrierKind::TurnTls => TurnTransport::Tls,
+                other => return Err(std::io::Error::other(format!("{other:?} is not a TURN leg"))),
+            };
+            if endpoint.kind != self.kind {
+                return Err(std::io::Error::other("the endpoint is another carrier's"));
+            }
+            let login = endpoint.login.clone().ok_or_else(|| std::io::Error::other("TURN needs a login"))?;
+            let server = TurnServer {
+                address: endpoint.address.clone(),
+                host: endpoint.host.clone(),
+                transport,
+                username: login.user,
+                credential: login.secret,
+            };
+            TurnCarrier::allocate_on(server, self.options).await.map_err(std::io::Error::other)
+        })
+    }
 }
 
 /// Why a WireGuard dial with these options cannot work, before it starts:
@@ -357,8 +468,17 @@ impl TurnCarrier {
     /// Allocate on the servers `options` offer: UDP first (unless UDP is
     /// blocked), then, if UDP gives nothing, a stream (TLS on 443 first).
     /// `None` when there is no server or every allocation failed in time.
+    #[cfg(test)]
     pub async fn allocate(options: &DialOptions) -> Option<Self> {
-        Self::allocate_with(options, None, false).await
+        Self::allocate_with(options, None, false, None).await
+    }
+
+    /// [`Self::allocate`], keeping in `late` each attempt that ran past its
+    /// bound: it still runs, and a grant it lands later is this side's
+    /// allocation after all ([`LateTurn::landed`]) instead of being
+    /// released. The bounds, and what this returns, are `allocate`'s.
+    pub(crate) async fn allocate_keeping(options: &DialOptions, late: &LateTurn) -> Option<Self> {
+        Self::allocate_with(options, None, false, Some(late)).await
     }
 
     /// [`Self::allocate`], told by the STUN wait running beside it whether
@@ -369,10 +489,13 @@ impl TurnCarrier {
     /// every dial on a network that drops UDP (a hotel, a guest network)
     /// about 1.5 s before TURN over TLS. `stream_now` (a dial): the stream
     /// allocation starts at once, beside UDP, instead of after its stagger.
+    /// Each attempt that runs past its bound is kept in `late` (when given)
+    /// instead of dropping its answer.
     pub(crate) async fn allocate_with(
         options: &DialOptions,
         udp_silent: Option<watch::Receiver<bool>>,
         stream_now: bool,
+        late: Option<&LateTurn>,
     ) -> Option<Self> {
         let silent_now = || udp_silent.as_ref().is_some_and(|silent| *silent.borrow());
         let (udp, stream) = turn_servers(&options.ice_servers);
@@ -384,11 +507,30 @@ impl TurnCarrier {
         // takes it past UDP_WAIT), within the dial's own bound.
         let udp_wait =
             if stream.is_some() { UDP_WAIT } else { NO_STREAM_UDP_WAIT.min(options.timeout.max(UDP_WAIT)) };
+        // Every UDP server listed, the one `turn_servers` picks first: a dead
+        // first server (its process gone, its host unreachable) hands over to
+        // the next one, each with its own `udp_wait`, instead of leaving a
+        // relay-only dial and every redial and TURN retry after it on a server
+        // that will never answer (cmux#53760's pair matrix, ios-mac relay
+        // failover: 3/3 failed idle and under duress).
+        let udp_servers: Vec<TurnServer> = match udp {
+            Some(first) => std::iter::once(first.clone())
+                .chain(udp_fallbacks(&options.ice_servers).into_iter().filter(|server| *server != first))
+                .collect(),
+            None => Vec::new(),
+        };
         let udp = async {
-            match udp {
-                Some(server) => bounded(udp_wait, Self::allocate_on(server, options)).await,
-                None => None,
+            for server in udp_servers {
+                let address = server.address.clone();
+                match bounded(udp_wait, Self::spawn_on(server, options), late).await {
+                    Some(carrier) => {
+                        note_server(&address, true);
+                        return Some(carrier);
+                    }
+                    None => note_server(&address, false),
+                }
             }
+            None
         };
         let stream_attempt = |delay: Duration| {
             let stream = stream.clone();
@@ -399,7 +541,7 @@ impl TurnCarrier {
                     () = tokio::time::sleep(delay) => {}
                     () = until_silent(silent) => {}
                 }
-                bounded(STREAM_WAIT, Self::allocate_on(server, options)).await
+                bounded(STREAM_WAIT, Self::spawn_on(server, options), late).await
             }
         };
         if !tried_udp {
@@ -441,6 +583,11 @@ impl TurnCarrier {
     /// timeout, the losing side of the UDP and TLS race) drops only the
     /// answer, and the task still finishes and releases what it opened.
     async fn allocate_on(server: TurnServer, options: &DialOptions) -> Result<Self, String> {
+        Self::spawn_on(server, options).await.map_err(|_| "the TURN allocation task ended".to_owned())?
+    }
+
+    /// The allocation task of [`Self::allocate_on`], its answer to come.
+    fn spawn_on(server: TurnServer, options: &DialOptions) -> Attempt {
         let (tx, rx) = tokio::sync::oneshot::channel();
         let options = options.clone();
         tokio::spawn(async move {
@@ -448,7 +595,7 @@ impl TurnCarrier {
             // Unwanted by now: dropping the carrier releases the allocation.
             let _ = tx.send(result);
         });
-        rx.await.map_err(|_| "the TURN allocation task ended".to_owned())?
+        rx
     }
 
     async fn connect_stream(
@@ -1084,21 +1231,85 @@ async fn until_silent(silent: Option<watch::Receiver<bool>>) {
     std::future::pending::<()>().await;
 }
 
-/// `attempt`, or `None` when it fails or takes longer than `limit`.
-async fn bounded(
-    limit: Duration,
-    attempt: impl std::future::Future<Output = Result<TurnCarrier, String>>,
-) -> Option<TurnCarrier> {
-    match tokio::time::timeout(limit, attempt).await {
-        Ok(Ok(carrier)) => Some(carrier),
-        Ok(Err(error)) => {
+/// An allocation task's answer ([`TurnCarrier::spawn_on`]).
+type Attempt = tokio::sync::oneshot::Receiver<Result<TurnCarrier, String>>;
+
+/// `attempt`'s carrier, or `None` once it failed or `limit` passed. Past
+/// `limit` the attempt goes on: kept in `late` (when given) its grant can
+/// still be taken; otherwise its answer is dropped and it releases what it
+/// opens.
+async fn bounded(limit: Duration, mut attempt: Attempt, late: Option<&LateTurn>) -> Option<TurnCarrier> {
+    match tokio::time::timeout(limit, &mut attempt).await {
+        Ok(Ok(Ok(carrier))) => Some(carrier),
+        Ok(Ok(Err(error))) => {
             tracing::debug!(%error, "TURN allocation failed");
             None
         }
-        Err(_) => {
-            tracing::debug!("TURN allocation timed out");
+        Ok(Err(_)) => {
+            tracing::debug!("TURN allocation task ended");
             None
         }
+        Err(_) => {
+            tracing::debug!(kept = late.is_some(), "TURN allocation timed out");
+            if let Some(late) = late {
+                late.keep(attempt);
+            }
+            None
+        }
+    }
+}
+
+/// Allocation attempts that ran past their bound and still run (a slow
+/// network's first seconds: the server granted, its answer is on the way).
+/// The first that lands is taken ([`Self::landed`]) instead of asking the
+/// server again: a roam that missed TURN in its wait has a relay as soon as
+/// the grant arrives, not after a new allocation's round trips. Dropped, it
+/// drops their answers, and each attempt releases what it opens.
+#[derive(Default)]
+pub(crate) struct LateTurn(Mutex<Late>);
+
+#[derive(Default)]
+struct Late {
+    attempts: Vec<Attempt>,
+    /// The task waiting in [`LateTurn::landed`], woken when an attempt joins.
+    waiting: Option<std::task::Waker>,
+}
+
+impl LateTurn {
+    fn keep(&self, attempt: Attempt) {
+        let mut late = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        late.attempts.push(attempt);
+        if let Some(waker) = late.waiting.take() {
+            waker.wake();
+        }
+    }
+
+    /// The first late attempt to land a carrier, or `None` once every one
+    /// failed (at once when there is none). Cancel-safe: the attempts stay
+    /// here while it waits, and one kept meanwhile is waited for too.
+    pub(crate) async fn landed(&self) -> Option<TurnCarrier> {
+        std::future::poll_fn(|cx| {
+            let mut late = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut index = 0;
+            while index < late.attempts.len() {
+                match std::future::Future::poll(std::pin::Pin::new(&mut late.attempts[index]), cx) {
+                    std::task::Poll::Ready(Ok(Ok(carrier))) => {
+                        late.attempts.swap_remove(index);
+                        return std::task::Poll::Ready(Some(carrier));
+                    }
+                    std::task::Poll::Ready(_) => {
+                        late.attempts.swap_remove(index);
+                    }
+                    std::task::Poll::Pending => index += 1,
+                }
+            }
+            if late.attempts.is_empty() {
+                return std::task::Poll::Ready(None);
+            }
+            late.waiting = Some(cx.waker().clone());
+            std::task::Poll::Pending
+        })
+        .await
     }
 }
 
@@ -1149,16 +1360,18 @@ pub async fn timed_allocation(
 ) -> Result<TimedAllocation, String> {
     let mut candidates: Vec<TurnServer> =
         servers_in_order(servers).into_iter().filter(|server| server.transport == transport).collect();
-    // UDP: the first listed, as a dial takes it. A stream: 443 first (stable).
-    if transport.is_stream() {
-        candidates.sort_by_key(|server| !server.address.ends_with(":443"));
-    }
+    // UDP: the first listed, as a dial takes it. A stream: in the dial's order (443 first, stable).
+    candidates.sort_by_key(|server| cmux_braid_carrier::rank(&server.endpoint()));
     let server = candidates.into_iter().next().ok_or_else(|| format!("no TURN server over {transport:?}"))?;
     let address = server.address.clone();
+    // Through the braid carrier, as the ladder opens a TURN rung.
+    let rung = TurnRung::new(transport.carrier_kind(), options).ok_or("not a TURN leg")?;
+    let endpoint = server.endpoint();
     let started = tokio::time::Instant::now();
-    let carrier = tokio::time::timeout(CONNECT_WAIT + STREAM_WAIT, TurnCarrier::allocate_on(server, options))
+    let carrier = tokio::time::timeout(CONNECT_WAIT + STREAM_WAIT, rung.open(&endpoint))
         .await
-        .map_err(|_| "TURN allocation timed out".to_owned())??;
+        .map_err(|_| "TURN allocation timed out".to_owned())?
+        .map_err(|error| error.to_string())?;
     let elapsed = started.elapsed();
     let relayed = carrier.relayed;
     drop(carrier);
@@ -1179,6 +1392,29 @@ fn servers_in_order(servers: &[IceServer]) -> Vec<TurnServer> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// B7: a TURN server is a braid carrier. The dial's ranking and an open through the trait
+    /// reach the same allocation a dial makes.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_turn_server_opens_as_a_braid_carrier() {
+        let turn = crate::testing::TestTurn::start().await;
+        let options = DialOptions {
+            ice_servers: vec![turn.udp_only()],
+            include_loopback: true,
+            ..DialOptions::default()
+        };
+        let (udp, stream) = turn_servers(&options.ice_servers);
+        let endpoint = udp.expect("the test server's UDP leg").endpoint();
+        assert_eq!(stream, None);
+        assert_eq!(endpoint.kind, CarrierKind::TurnUdp);
+        assert!(TurnRung::new(CarrierKind::WssRelay, &options).is_none());
+        let rung = TurnRung::new(CarrierKind::TurnUdp, &options).expect("a TURN kind");
+        assert!(!rung.reliable());
+        let carrier = rung.open(&endpoint).await.expect("an allocation through the trait");
+        assert_eq!(carrier.transport, TurnTransport::Udp);
+        let tls = Endpoint { kind: CarrierKind::TurnTls, ..endpoint.clone() };
+        assert!(rung.open(&tls).await.is_err(), "a rung opens only its own kind");
+    }
 
     /// lossy-3 lost 2 dials in 20 (lan_roundtrip, before): the server's
     /// answer to the Allocate was lost, the client's retransmit met the
@@ -1216,6 +1452,32 @@ mod tests {
         let elapsed = started.elapsed();
         assert!(elapsed >= NO_STREAM_UDP_WAIT - Duration::from_millis(50), "took {elapsed:?}");
         assert!(elapsed < NO_STREAM_UDP_WAIT + Duration::from_millis(500), "took {elapsed:?}");
+    }
+
+    /// cmux#53760's pair matrix, ios-mac relay failover (3/3 failed, idle and
+    /// under duress): with relay A gone and relay B listed, every redial of
+    /// the relay-only phone allocated on A again and failed with "no TURN
+    /// allocation, and plain UDP is off" until the 90 s bound. An allocation
+    /// must hand a dead first UDP server over to the next one, and the next
+    /// allocation must start on the one that answered.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_dead_first_udp_server_hands_over_to_the_next() {
+        let first = crate::testing::TestTurn::start().await;
+        let second = crate::testing::TestTurn::start().await;
+        let options = DialOptions {
+            ice_servers: vec![first.udp_only(), second.udp_only()],
+            include_loopback: true,
+            ..DialOptions::default()
+        };
+        drop(first);
+        let carrier = TurnCarrier::allocate(&options).await.expect("an allocation on the second server");
+        assert!(second.is_relayed(&carrier.relayed), "allocated on {}", carrier.relayed);
+        drop(carrier);
+        // The next dial, redial or TURN retry does not wait out the dead one first.
+        let started = tokio::time::Instant::now();
+        let carrier = TurnCarrier::allocate(&options).await.expect("a second allocation");
+        assert!(second.is_relayed(&carrier.relayed), "allocated on {}", carrier.relayed);
+        assert!(started.elapsed() < UDP_WAIT, "waited on the dead server: {:?}", started.elapsed());
     }
 
     fn ice(urls: &[&str]) -> Vec<IceServer> {
