@@ -158,6 +158,7 @@ import Testing
         }
     }
 
+    #if canImport(CmuxMobileLinkFFI)
     /// (a) A prompt whose write took longer than the window (a large attachment on a slow link)
     /// and then failed is held, not bounced as "unreachable": it is delivered once the link is
     /// back, with no notice and no draft returned.
@@ -184,7 +185,9 @@ import Testing
         #expect(store.clientError == nil)
         #expect(store.returnedDraft == nil)
     }
+    #endif
 
+    #if canImport(CmuxMobileLinkFFI)
     /// (b) A prompt write that times out on a ready link says nothing within the window, though
     /// each write took longer than the window; past a window with no write getting through, the
     /// draft comes back with the short line.
@@ -196,22 +199,28 @@ import Testing
         defer { withExtendedLifetime(hub) {} }
 
         store.send(prompt: "run the tests")
-        // The first write times out, the held prompt is flushed again 500 ms later and times out again.
+        // The first write times out; the outbox retries after its backoff (on the prompts' clock,
+        // so the test moves it) and the second times out again.
+        await eventually { source.heldPrompts.count == 1 }
+        clock.advance(by: .seconds(2))
         await eventually { channel.promptWrites >= 2 && source.heldPrompts.count == 1 }
         #expect(channel.promptWrites >= 2)
         #expect(store.clientError == nil)
         #expect(store.returnedDraft == nil)
         #expect(mac.prompts.isEmpty)
 
-        // A whole window passes between two attempts (the prompt is held, not being written):
-        // the next attempt finds it past the window and the draft comes back.
+        // A whole window passes between two attempts (the prompt is held, not being written;
+        // the outbox gives back only what is queued, never one mid-write): the draft comes back.
         await eventually { source.heldPrompts.count == 1 }
-        clock.advance(by: .seconds(11))
+        // Past the window the outbox holds (Rust's default, 30 s since #55099), not a number of its own.
+        clock.advance(by: source.heldPromptWindow + .seconds(1))
         await eventually { store.returnedDraft != nil }
         #expect(store.returnedDraft?.text == "run the tests")
         #expect(store.clientError == "Not sent: mini is offline.")
     }
+    #endif
 
+    #if canImport(CmuxMobileLinkFFI)
     /// (b2) A write that fails at once, again and again, on a channel that still says ready is
     /// not held for good: each failure moves the wait on only by what the write took (nothing),
     /// so the window still runs out and the draft comes back.
@@ -225,14 +234,17 @@ import Testing
         store.send(prompt: "run the tests")
         await eventually { channel.promptWrites >= 1 && source.heldPrompts.count == 1 }
         #expect(store.returnedDraft == nil)
-        // One second at a time, with a failed attempt in each: never a whole window between two
-        // attempts, so only a wait that is not restarted by each failure can run out.
-        for _ in 0..<12 where store.returnedDraft == nil {
+        // A few seconds at a time (past each retry's backoff, which is on the prompts' clock),
+        // with a failed attempt in each: never a whole window between two attempts, so only a
+        // wait that is not restarted by each failure can run out (the Rust outbox ages it from
+        // the first failure and moves it on by what each write took: nothing here).
+        // Enough 4 s steps to pass the window the outbox holds (30 s since #55099), and two more.
+        let steps = Int(source.heldPromptWindow / .seconds(4)) + 2
+        for _ in 0..<steps where store.returnedDraft == nil {
             let before = channel.promptWrites
-            clock.advance(by: .seconds(1))
-            // Held again before the clock moves: an advance that lands between the write's
-            // failure and the hold reads as time the write took, which the wait is moved on by,
-            // and on a loaded runner that happened every second, so the window never ran out.
+            clock.advance(by: .seconds(4))
+            // The prompt is queued (not mid-write) whenever the test moves the clock, so the
+            // advance is never counted as time a write took.
             await eventually {
                 (channel.promptWrites > before && source.heldPrompts.count == 1) || store.returnedDraft != nil
             }
@@ -242,6 +254,7 @@ import Testing
         #expect(store.clientError == "Not sent: mini is offline.")
         #expect(mac.prompts.isEmpty)
     }
+    #endif
 
     /// (c) A read stalled behind a large prompt write still going out on the same channel is slow,
     /// not stalled: the channel is not rebound (which cut the write off and sent the prompt twice

@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.window.titlebarButtons.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "With the sidebar hidden, On Hover shows its buttons only over the top row."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "サイドバーを隠しているとき、「ポインタを置いたとき」ではポインタが上端の行にあるときだけボタンを表示します。"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "عند إخفاء الشريط الجانبي، يُظهر «عند التمرير» أزراره فقط فوق الصف العلوي."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kad je bočna traka skrivena, Pri prelasku prikazuje njena dugmad samo iznad gornjeg reda."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Når sidepanelet er skjult, viser Ved hover dets knapper kun over den øverste række."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bei ausgeblendeter Seitenleiste zeigt „Bei Hover“ ihre Tasten nur über der oberen Zeile."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Con la barra lateral oculta, Al pasar el puntero muestra sus botones solo sobre la fila superior."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Barre latérale masquée, Au survol n’affiche ses boutons que sur la ligne du haut."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Con la barra laterale nascosta, Al passaggio mostra i suoi pulsanti solo sulla riga in alto."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "នៅពេលរបារចំហៀងត្រូវបានលាក់ «ពេលដាក់ព្រួញលើ» បង្ហាញប៊ូតុងរបស់វាតែលើជួរខាងលើប៉ុណ្ណោះ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "사이드바가 숨겨져 있으면 '호버 시'는 맨 위 행에서만 버튼을 표시합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Når sidefeltet er skjult, viser Ved peker knappene bare over den øverste raden."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gdy pasek boczny jest ukryty, Po najechaniu pokazuje jego przyciski tylko nad górnym wierszem."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Com a barra lateral oculta, Ao passar o cursor mostra os botões dela só sobre a linha superior."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Когда боковая панель скрыта, «При наведении» показывает её кнопки только над верхней строкой."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เมื่อซ่อนแถบด้านข้าง «เมื่อวางเมาส์» จะแสดงปุ่มเฉพาะเมื่อตัวชี้อยู่เหนือแถวบนสุด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kenar çubuğu gizliyken, Üzerine gelince düğmelerini yalnızca üst satırın üzerindeyken gösterir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Коли бічну панель приховано, «При наведенні» показує її кнопки лише над верхнім рядком."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Khi thanh bên bị ẩn, Khi di chuột chỉ hiện các nút của nó khi con trỏ ở trên hàng trên cùng."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "隐藏边栏时，“悬停时”仅在指针位于顶部一行时显示其按钮。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "隱藏側邊欄時，「游標停留時」僅在頂部一列上方顯示其按鈕。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

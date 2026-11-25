@@ -26,7 +26,6 @@ import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { ChromeArea, type HideableChromeItem } from "../../ui/HideableChrome";
 import { ComposerListAnchor } from "./backdropLayer";
 import { remember } from "./composer/pasteMarks";
-import { type PromptText, usePromptTextValue } from "./composer/promptText";
 import { acpmuxPerf } from "./perf";
 import { composerChanged } from "./launchInputEcho";
 import { holdFlag, setRef } from "./heldFlag";
@@ -59,9 +58,6 @@ export type ComposerBoxProps = {
   /// The prompt field: its value and the host's own behavior (what Return does, its menus). The box
   /// runs a huge paste (a Pasted text chip, pastedChips.ts) and ⌘⇧V before the host hears them.
   field: Omit<MarkdownFieldProps, "plugins">;
-  /// The prompt's text when the host keeps it outside React state (the chat pane, composer/promptText.ts):
-  /// the box reads it itself, so a key renders the box and the field, not the host. Over `field.value`.
-  prompt?: PromptText;
   /// Receives the prompt field's handle.
   fieldRef?: (handle: MarkdownFieldHandle | null) => void;
   handle?: React.Ref<ComposerBoxHandle>;
@@ -109,6 +105,8 @@ export type ComposerBoxProps = {
   onFieldMenuOpen?(): void;
   /// Drawn with the prompt, inside its menu (the chat's shell field over the hidden prompt).
   fieldOverlay?: React.ReactNode;
+  /// The vim mode to show (`agentPane.composerVimKeys` on); unset, nothing is drawn.
+  vimMode?: "normal" | "insert";
   /// The box's first children: menus anchored to the field (the `/` and `@` lists, which draw out of
   /// the box's glass, backdropLayer.tsx) and hidden inputs.
   top?: React.ReactNode;
@@ -121,6 +119,9 @@ export type ComposerBoxProps = {
   chips?: React.ReactNode;
   /// What ends the quiet row (the context ring).
   ring?: React.ReactNode;
+  /// Drawn centered in the quiet row, out of its flow (the chat's Customize button,
+  /// ComposerCustomizer.tsx); the row's fit never counts it.
+  footCenter?: React.ReactNode;
   /// The one send control (Send or Stop) before the mic, which keeps the right edge (the plain
   /// footer, in both looks); without the plain footer it is last (`trailing`).
   actionsLead?: React.ReactNode;
@@ -139,7 +140,6 @@ export type ComposerBoxProps = {
 /// anchor to the field and the controls of their row.
 export function ComposerBox({
   field,
-  prompt: promptText,
   fieldRef,
   handle,
   boxRef,
@@ -164,11 +164,13 @@ export function ComposerBox({
   fieldMenu,
   onFieldMenuOpen,
   fieldOverlay,
+  vimMode,
   top,
   onCardPress,
   leading,
   chips,
   ring,
+  footCenter,
   actionsLead,
   accessory,
   trailing,
@@ -188,7 +190,7 @@ export function ComposerBox({
   // The composer refresh (Settings > Advanced > Experiments, composerV2.ts): its arm and whether the draft has
   // words, as attributes composerV2.css reads; both absent while it is off.
   const composerV2 = useComposerV2();
-  const value = usePromptTextValue(promptText, field.value);
+  const value = field.value;
   const hasText = composerV2 !== undefined && /\S/.test(value);
   // The footer look and the row's place can change while this component stays mounted: the fit key
   // has both, so the live row is measured again before the new form paints.
@@ -313,6 +315,7 @@ export function ComposerBox({
       <ComposerFoot ref={bar} plain={plainFooter}>
         {shownChips}
         {ring}
+        {footCenter}
       </ComposerFoot>
     </ChromeArea>
   );
@@ -351,6 +354,9 @@ export function ComposerBox({
       <div
         ref={attachBox}
         className="ui-glass ui-glass-floats ui-glass-material acpmux-composer-box"
+        // The page's glass, at the popups' tokens (composerStates.css, ONE MATERIAL FAMILY), never the App's:
+        // the card animates its height and the App's glass trails a report, and the stack's seams are one rim.
+        data-page-glass="docked composer: animates its height and joins the stack's rim, which the App's glass cannot follow"
         // The compact grid (composerLocation.css): a state attribute, not a :has() on the box.
         data-composer-grid=""
         data-attachment-view={attachmentView}
@@ -491,6 +497,11 @@ export function ComposerBox({
               field's own caret as before. */}
           <Slot slot={composerCaretSlot} props={{ empty: !/\S/.test(field.value) }} />
         </ContextMenu>
+        {vimMode && (
+          <output className="acpmux-vim-mode" data-vim-mode={vimMode} aria-live="off">
+            {vimMode === "normal" ? "NORMAL" : "INSERT"}
+          </output>
+        )}
         {/* The button row: a right-click here shows a control hidden from its own (composerChrome.tsx). */}
         <ChromeArea className="acpmux-chrome-area" items={chromeItems}>
           {/* The box grid for +, the prompt, the mic and Send, with the model group in
