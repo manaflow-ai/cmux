@@ -98,9 +98,11 @@
    ],
    "draft": true,
    "table_jobs": [
-    "linux"
+    "linux",
+    "web-browser",
+    "mac"
    ],
-   "table_why": "The step table's jobs this workflow runs (ci/steps.toml, `ci/run`). It starts when the change routes a step of one of them: a step's `inputs` are the path filter of the workflow it replaced. Runs on a draft, as those workflows did."
+   "table_why": "The step table's jobs this workflow runs (ci/steps.toml, `ci/run`). It starts when the change routes a step of one of them: a step's `inputs` are the path filter of the workflow it replaced. Runs on a draft, as those workflows did. Each job runs only when the change routes a step of it (the router's `table` output, pr-pipeline.yml's job `if:`s); the `mac` job only on a full-tier head (pr_router.py FULL_TIER_JOBS: a draft runs no Mac)."
   },
   "screen-share-drop-gate.yml": {
    "types": [
