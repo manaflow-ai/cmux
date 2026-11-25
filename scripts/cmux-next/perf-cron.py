@@ -108,6 +108,8 @@ MAX_YIELDS = 3
 PART_RUN_SECONDS = 900      # one part, its app build included (Lawrence: under 15 minutes each)
 PART_QUEUE_SECONDS = 300    # a part that does not start at once gives its place back
 CANDIDATE_DEPTH = 80
+# What one plan's tree lookups (tree_published) may take together, inside the plan step's `timeout 600`.
+TREE_LOOKUP_SECONDS = 300
 # feat-cmux-next gets ~400 first-parent commits a day and a tip measurement takes 3 h or more, so a newer tip
 # always exists: while a regression range can be bisected, a tip measurement starts at most once per TIP_EVERY_HOURS
 # and the ticks in between go to the bisect.
@@ -2461,16 +2463,24 @@ def part_minutes(run_seconds):
     return step_minutes, step_minutes + 5
 
 
-def tree_published(sha):
+def tree_published(sha, deadline=None):
+    """Whether sha's cmux-tui tree is on files.cmux.com. deadline (time.monotonic()) bounds the key and the fetch: past
+    it the answer is False, as for a tree not yet published, and the caller says so (plan's tree_ready)."""
     for version in ("v2", "v1"):
+        left = 120 if deadline is None else min(120, deadline - time.monotonic())
+        if left <= 1:
+            return False
         try:
             key = subprocess.run([sys.executable, os.path.join(ROOT, "scripts/ci/cmux_tui_tree_key.py"), "--version", version, sha],
-                                 capture_output=True, text=True, check=True, timeout=120).stdout.strip()
+                                 capture_output=True, text=True, check=True, timeout=left).stdout.strip()
         except subprocess.SubprocessError:
             continue
         url = f"https://files.cmux.com/cmux-tui/tree/{key}/cmux-tui-aarch64-apple-darwin.sha256"
+        left = 20 if deadline is None else min(20, deadline - time.monotonic())
+        if left <= 1:
+            return False
         try:
-            with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "cmux-ci"}), timeout=20) as r:
+            with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "cmux-ci"}), timeout=left) as r:
                 if r.status == 200:
                     return True
         except (urllib.error.URLError, TimeoutError):
@@ -3759,10 +3769,23 @@ def plan(o):
     last_sha = (state.get("last_tried") or state.get("last") or {}).get("sha")
     candidate, newest = None, None
     trees = {}
+    # Every tree lookup of this plan shares one budget: the step's `timeout 600` killed a plan that walked the unread
+    # loop's 80 commits at up to 280 s each (run 45536170489, 2026-11-25), so no tick planned and the cron stopped.
+    # Past it a commit reads as unpublished, which every caller already handles (the next tick looks again).
+    tree_deadline = time.monotonic() + TREE_LOOKUP_SECONDS
 
     def tree_ready(sha):
         if sha not in trees:
-            trees[sha] = tree_published(sha)
+            if time.monotonic() >= tree_deadline:
+                if not trees.get("_spent"):
+                    trees["_spent"] = True
+                    print(f"perf-cron: tree lookups used this plan's {TREE_LOOKUP_SECONDS} s; later commits read as "
+                          "unpublished this tick")
+                return False
+            started = time.monotonic()
+            trees[sha] = tree_published(sha, tree_deadline)
+            if time.monotonic() - started > 30:
+                print(f"perf-cron: the tree lookup of {sha[:12]} took {round(time.monotonic() - started)} s")
         return trees[sha]
     if not state.get("current"):
         for sha in git("rev-list", "--first-parent", f"-n{CANDIDATE_DEPTH}", tip).split():
