@@ -1847,6 +1847,8 @@ export function ContextRing({
   now,
   breakdown: reported,
   onOpenDetails,
+  onCompact,
+  compactDisabled,
   plan,
 }: {
   /// The chat the reading is of: a new chat's ring shows its value at once, with no ease from the last.
@@ -1863,6 +1865,10 @@ export function ContextRing({
   breakdown?: unknown;
   /// Opens Session Info at its Context section; the card shows Details › only with it.
   onOpenDetails?(): void;
+  /// Sends the agent's /compact; the card shows Compact conversation above Details only with it.
+  onCompact?(): void;
+  /// A turn or a compaction is running: the row stays in place, disabled.
+  compactDisabled?: boolean;
   /// The ring shows the account's plan usage: its limits (acpmux `usageLimits`) and the chat's
   /// harness family, which names the usage page.
   plan?: { limits?: AcpmuxUsageLimits; family?: string };
@@ -2104,6 +2110,14 @@ export function ContextRing({
                   onOpenDetails();
                 })
               }
+              onCompact={
+                onCompact &&
+                (() => {
+                  closeCard();
+                  onCompact();
+                })
+              }
+              compactDisabled={compactDisabled}
             />
           </div>
         )}

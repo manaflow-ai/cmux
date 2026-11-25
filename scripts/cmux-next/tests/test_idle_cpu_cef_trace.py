@@ -112,6 +112,23 @@ class CefTraceTasks(unittest.TestCase):
         for want in ("ipc", "mojom", "loading", "blink.resource"):
             self.assertIn(want, cats)
 
+    def test_only_the_measured_windows_count(self):
+        # 557acd48 (cmux20-bench, 2026-11-25): a 150 s trace from the launch covered only the settle before the
+        # windows (the bench idles --minutes first), where the hidden agent pages still loaded their chunks. Events
+        # count only between the windows' start and end (monotonic seconds, the clock Chromium stamps with).
+        events = META + [task(t, "Settle") for t in range(0, 200)] + [task(t, "Idle") for t in range(200, 260, 2)] + [task(300, "After")]
+        got = idle_cpu.cef_trace_tasks({"traceEvents": events}, skip_s=30, window=(200.0, 260.0))
+        self.assertEqual([(r["posted_from"], r["per_s"]) for r in got["tasks"]], [("Idle (a/b.cc)", 0.5)])
+        self.assertEqual((got["seconds"], got["window"]), (60.0, "measured"))
+        # A window the trace does not reach (another clock): the old skip, said so.
+        got = idle_cpu.cef_trace_tasks({"traceEvents": events}, skip_s=30, window=(9000.0, 9060.0))
+        self.assertEqual(got["window"], "unmatched")
+        self.assertIn("Settle (a/b.cc)", [r["posted_from"] for r in got["tasks"]])
+
+    def test_the_trace_lasts_through_the_windows(self):
+        self.assertEqual(idle_cpu.cef_trace_seconds(minutes=3, windows=3, window=60), 390)
+        self.assertEqual(idle_cpu.cef_trace_seconds(minutes=10, windows=3, window=60), 600)
+
     def test_a_bare_event_list_and_no_tasks(self):
         self.assertEqual(idle_cpu.cef_trace_tasks(META, skip_s=30)["tasks"], [])
 
