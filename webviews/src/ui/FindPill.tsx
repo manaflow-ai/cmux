@@ -229,7 +229,7 @@ export function FindPill(props: FindPillProps) {
       props.onClose();
     }
   };
-  const rootClass = ["find-pill", replace?.open ? "find-pill--replace" : "", props.className ?? ""]
+  const rootClass = ["find-pill", "ui-glass", replace?.open ? "find-pill--replace" : "", props.className ?? ""]
     .filter(Boolean)
     .join(" ");
   return (
