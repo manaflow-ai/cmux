@@ -76,7 +76,7 @@ final class TunnelTestTCPServer: @unchecked Sendable {
         defer { lock.unlock() }
         guard !stopped else { return }
         stopped = true
-        shutdown(listenFD, SHUT_RDWR)
+        shutdown(listenFD, Int32(SHUT_RDWR))
         close(listenFD)
     }
 }

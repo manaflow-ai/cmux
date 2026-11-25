@@ -1,3 +1,5 @@
+// The stale keep-alive server is Network.framework, and the retry it reproduces is URLSession on Apple.
+#if canImport(Network)
 #if canImport(CryptoKit)
 import CryptoKit
 #else
@@ -347,3 +349,4 @@ final class IrxStaleKeepAliveHTTPServer: @unchecked Sendable {
         return buffer.count >= total ? total : nil
     }
 }
+#endif
