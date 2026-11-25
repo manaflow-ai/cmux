@@ -505,7 +505,7 @@ async fn open_socket(
     let (tcp, via) = crate::egress::connect_tcp_with(&host, port, secure, &egress, direct)
         .await
         .map_err(|error| SignalingError::Connect(error.to_string()))?;
-    if let crate::egress::Via::Proxy(hop) = &via {
+    if let crate::egress::Via::Proxy(hop) = via {
         tracing::info!(%hop, host, "signaling through the proxy");
     }
     let connector = if secure {
@@ -514,12 +514,10 @@ async fn open_socket(
     } else {
         tokio_tungstenite::Connector::Plain
     };
-    let (socket, _) = tokio_tungstenite::client_async_tls_with_config(request, tcp, None, Some(connector))
+    tokio_tungstenite::client_async_tls_with_config(request, tcp, None, Some(connector))
         .await
-        .map_err(connect_error)?;
-    // After the handshake: the verifier has marked a TLS-inspected host by now.
-    crate::egress::note(crate::egress::PathKind::of(&via, &host));
-    Ok(socket)
+        .map(|(socket, _)| socket)
+        .map_err(connect_error)
 }
 
 impl SignalingClient {

@@ -805,6 +805,10 @@ concurrency:
 jobs:
   # Why: 2026-11-24-workflow-1.md
   pure-checks-coalesce:
+    # actions: read: base-coalesce's coalesce job asks for it (its failed-window lookup); GitHub checks a called job's
+    # permissions at startup, and this workflow's `contents: read` alone ended every run startup_failure.
+    permissions:
+      actions: read
     uses: ./.github/workflows/base-coalesce.yml
     with:
       key: cmux-next-pure-checks

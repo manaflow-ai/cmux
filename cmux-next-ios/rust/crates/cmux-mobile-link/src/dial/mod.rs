@@ -1252,15 +1252,6 @@ mod tests {
             if !held(&turn, 1).await {
                 return Err("no TURN allocation while signaling reconnected");
             }
-            // The server counts the allocation before its answer reaches the
-            // phone, which marks it then: wait for the phone's mark too.
-            let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-            while options.timeline.get("turn_early_allocated").is_none() {
-                if tokio::time::Instant::now() >= deadline {
-                    return Err("the phone never had its early allocation");
-                }
-                tokio::time::sleep(Duration::from_millis(5)).await;
-            }
             SignalingClient::connect(&signaling.base_url, "user:alice", "team", "phone")
                 .await
                 .map_err(|_| "signaling")

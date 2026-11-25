@@ -222,6 +222,10 @@ jobs:
   # cancels the window's claiming run (04:26Z run 45546778077, #55756), and an unmarked cancel held that window with
   # no tree. A hand cancel costs at most one more build in its window.
   coalesce-failed:
+    # actions: read: base-coalesce's coalesce job asks for it, and GitHub checks a called job's permissions at startup
+    # even when its `if` skips it; without this grant every run of this workflow ended startup_failure (09efc7e6).
+    permissions:
+      actions: read
     needs: [coalesce, tree-preflight, build-linux, build, build-windows, cmux-next-daemon-tests, publish-tree]
     if: ${{ always() && needs.coalesce.outputs.claimed == 'true' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
     uses: ./.github/workflows/base-coalesce.yml
