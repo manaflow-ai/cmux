@@ -559,6 +559,8 @@ SIDE_WORKFLOW_PATHS = frozenset({
     # The post-publish launch smoke's Mac job takes the side label on attempt 1.
     ".github/workflows/nightly-next-cua-signed-host.yml",  # feat-cmux-next only
     ".github/workflows/nightly-next-launch-smoke.yml",
+    # feat-cmux-next only; calls pr-pipeline.yml, whose ios job takes the ios-runner pool picker's output.
+    ".github/workflows/pr-router.yml",
     ".github/workflows/macos-cross-parity.yml",
     ".github/workflows/relay-tls.yml",
     ".github/workflows/remote-daemon.yml",
