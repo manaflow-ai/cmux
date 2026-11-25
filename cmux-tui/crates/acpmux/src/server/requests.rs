@@ -2206,6 +2206,8 @@ async fn dispatch_request_with_identity(
             // The felt send-to-ack starts here, before the admission wait (`felt.rs`).
             let felt_started = std::time::Instant::now();
             let s = resolved_session(hub, resolved.as_ref(), &params)?;
+            // A Cloud VM's part of the send's start trace begins here (`send_trace.rs`).
+            crate::send_trace::received(&s.id, &params);
             // A delivery again names the generation it first reached (`outbox.rs`
             // `redeliver_open`): a session purged and made again under its id never runs it.
             if let Some(generation) =
