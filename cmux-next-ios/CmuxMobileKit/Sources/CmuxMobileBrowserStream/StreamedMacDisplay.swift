@@ -9,17 +9,17 @@ import Foundation
 /// hub's WebRTC session.
 extension StreamedBrowserDirectory {
     /// The capability a Mac's host lists in `version` when it streams its own displays.
-    public static let macDisplayCapability = "mac-display-v1"
+    public nonisolated static let macDisplayCapability = "mac-display-v1"
 
     /// The `surface` tab key of a Mac display: a CGDirectDisplayID in decimal, no sign, padding
     /// or leading zero (hostd's `mac_display_of`); 0 is the Mac's main display.
-    public static func macDisplayTab(display: UInt32 = 0) -> String {
+    public nonisolated static func macDisplayTab(display: UInt32 = 0) -> String {
         "d~\(display)"
     }
 
     /// The display of a Mac display tab key, or nil when `tab` is not one (hostd's
     /// `mac_display_of`, so the phone and the Mac read one key the same way).
-    public static func macDisplay(ofTab tab: String) -> UInt32? {
+    public nonisolated static func macDisplay(ofTab tab: String) -> UInt32? {
         guard tab.hasPrefix("d~") else { return nil }
         let digits = tab.dropFirst(2)
         guard !digits.isEmpty, digits.count <= 10, digits.allSatisfy({ $0.isASCII && $0.isNumber }),
