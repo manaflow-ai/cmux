@@ -387,7 +387,7 @@
         },
         {
           "key": "experiments.composerHatGroups",
-          "note": "Composer hat prototype: the folded running tray groups subagents and background tasks, and aligns the hat's leading column with the composer's plus glyph (webviews experiments subagent-tray-fold-head, arm groups, and subagent-tray-column, arm glyph). On by default (Leo, 2026-11-25: \"did u guys fix the composer hat yet :( let's go ahead on those\"); turned off it keeps the earlier tally and chip look (hostSettings.ts SETTING_OFF_ARMS).",
+          "note": "Composer hat prototype: the folded running tray groups subagents and background tasks (webviews experiment subagent-tray-fold-head, arm groups). The hat's leading column always centres its marks on the composer's plus glyph and starts its words at the prompt's (cmux#56151 retired the subagent-tray-column experiment, whose glyph arm offset it twice). On by default (Leo, 2026-11-25: \"did u guys fix the composer hat yet :( let's go ahead on those\"); turned off it keeps the earlier tally header (hostSettings.ts SETTING_OFF_ARMS).",
           "title": {
             "key": "settings.experiments.composerHatGroups",
             "text": "Composer Hat: Two Groups"
@@ -432,6 +432,31 @@
             "toast",
             "undo",
             "spinner"
+          ]
+        },
+        {
+          "key": "experiments.themedPrompts",
+          "note": "Prompts that float over every app (the join consent, the device-control prompt, App Health, cmux Remote's device-control banner and Computer Use question) draw the theme-tinted prompt glass (SurfaceRole.prompt) with inks fit over any app, a small icon beside the title, a quieter note, and the join consent's Settings… button (CmuxDialogView.overApps, DesignSettings.experiment(\"themedPrompts\"); cmux Remote reads the theme the app writes to prompt-theme.json only while this is on). Off by default (Leo's UI merge hold, 2026-11-24); off keeps today's system-glass prompts, unchanged.",
+          "title": {
+            "key": "settings.experiments.themedPrompts",
+            "text": "Themed Floating Prompts"
+          },
+          "help": {
+            "key": "settings.experiments.themedPrompts.help",
+            "text": "Prompts over other apps, such as a teammate asking to control this Mac, use your theme's glass and colors."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "prompt",
+            "consent",
+            "control",
+            "screen sharing",
+            "glass",
+            "theme"
           ]
         },
         {
