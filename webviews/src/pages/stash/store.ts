@@ -5,7 +5,7 @@
 import { isPageError, type PageClient } from "../shared/pageClient";
 import { userMessage } from "../shared/userMessage";
 import { subscribePageStreams } from "../shared/pageStreams";
-import { memberKey, normalized, parseOneTab, visibleGroups } from "./model";
+import { keepUnchanged, memberKey, normalized, parseOneTab, visibleGroups } from "./model";
 import {
   StashOps,
   type StashDeleted,
@@ -215,7 +215,8 @@ export class StashStore {
     try {
       const records = await this.client.call<StashRecord[]>(StashOps.list, {});
       if (generation !== this.generation) return;
-      this.loaded = (records ?? []).map(normalized);
+      // Unchanged members keep their objects, so the page's memoized rows draw only the changed ones.
+      this.loaded = keepUnchanged(this.loaded, (records ?? []).map(normalized));
       const clearRead = this.noticeIsRead ? { notice: undefined } : {};
       this.noticeIsRead = false;
       this.set({ ...clearRead, groups: this.visible(), loading: false, connection: "connected" });

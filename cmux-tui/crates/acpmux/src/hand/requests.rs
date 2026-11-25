@@ -45,13 +45,13 @@ where
     Fut: Future<Output = Result<bool, HandError>>,
 {
     handle_with_consent(ctx, action, p, approve, || {
-        crate::cli::cloud_join::require_joined_consent("control")
+        crate::machine_record::require_joined_consent("control")
             .map_err(|_| HandError::new("consent_required", "local control consent is required"))
     })
     .await
 }
 
-async fn handle_with_consent<F, Fut, C>(
+pub(crate) async fn handle_with_consent<F, Fut, C>(
     ctx: &Ctx<'_>,
     action: &str,
     p: &Value,

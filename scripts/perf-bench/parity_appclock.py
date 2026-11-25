@@ -44,7 +44,7 @@ Honesty rules (the `selfcheck` command proves 2-4 on the host, with the real app
      silence says only "not shown yet". A run with more than BLIND_MAX_SHARE of its inputs blind (and more
      than 2) is "not run".
 
-A bench tool: never a CI gate, job, step or perf-gate row. Python 3.9 standard library only.
+A bench tool: not a CI gate, job, step or perf-gate row. Python 3.9 standard library only.
 
   parity_appclock.py run --cmux APP --out DIR [--rows a,b] [--loads light,load] [--rounds 2] [--screen last]
                          [--hz 120] [--chrome APP] [--note TEXT] [--no-lock] [--arms cmux,chrome]
@@ -120,7 +120,7 @@ def now_ns():
 
 
 def pause(seconds):
-    time.sleep(seconds)  # bench: pacing of synthetic input, never a wait for app state
+    time.sleep(seconds)  # sleep-ok: bench pacing of synthetic input, never a wait for app state
 
 
 def sleep_until(deadline_ns):

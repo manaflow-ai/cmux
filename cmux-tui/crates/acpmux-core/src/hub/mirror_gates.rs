@@ -164,6 +164,15 @@ fn pr08_mirror_apply() {
     let counts = god.hub.mirror_counts();
     let units = counts.applied - marks_before.applied;
     let mark_bytes = (counts.mark_bytes - marks_before.mark_bytes) / units.max(1);
+    let line = format!(
+        "{{\"name\":\"v2.pr08.mirror_apply\",\"small_p95\":{small_p95},\"god_p95\":{god_p95},\"god_p95_all\":{god_all},\"mark_bytes\":{mark_bytes},\"unit\":\"ns\"}}"
+    );
+    eprintln!("{line}");
+    if let Ok(path) = std::env::var("V2_GATE_OUT")
+        && let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path)
+    {
+        let _ = writeln!(file, "{line}");
+    }
     assert_eq!(
         counts.full
             + counts.not_owner
@@ -174,15 +183,6 @@ fn pr08_mirror_apply() {
             + counts.join_refused,
         0
     );
-    let line = format!(
-        "{{\"name\":\"v2.pr08.mirror_apply\",\"small_p95\":{small_p95},\"god_p95\":{god_p95},\"god_p95_all\":{god_all},\"mark_bytes\":{mark_bytes},\"unit\":\"ns\"}}"
-    );
-    eprintln!("{line}");
-    if let Ok(path) = std::env::var("V2_GATE_OUT")
-        && let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path)
-    {
-        let _ = writeln!(file, "{line}");
-    }
     assert!(god_p95 * 10 <= small_p95 * 12, "unit p95 exceeded 1.2x: {small_p95} -> {god_p95} ns");
 }
 
@@ -266,7 +266,6 @@ fn pr08_mirror_local_row() {
     let god_all = p95(&mut pooled);
     let alone_p95 = alone_rounds.into_iter().min().unwrap_or(1);
     let counts = god.hub.mirror_counts();
-    assert_eq!(counts.full + counts.held + counts.out_of_order + counts.join_refused, 0);
     let line = format!(
         "{{\"name\":\"v2.pr08.mirror_local_row\",\"small_p95\":{small_p95},\"god_p95\":{god_p95},\"god_p95_all\":{god_all},\"alone_p95\":{alone_p95},\"unit_changes\":{MAX_UNIT_CHANGES},\"unit\":\"ns\"}}"
     );
@@ -276,6 +275,7 @@ fn pr08_mirror_local_row() {
     {
         let _ = writeln!(file, "{line}");
     }
+    assert_eq!(counts.full + counts.held + counts.out_of_order + counts.join_refused, 0);
     assert!(
         god_p95 * 10 <= small_p95 * 12,
         "local row p95 under units exceeded 1.2x: {small_p95} -> {god_p95} ns"
@@ -352,7 +352,6 @@ fn pr08_mirror_local_row_thirty() {
     let capped_all = p95(&mut pooled);
     let lifted_p95 = lifted_rounds.into_iter().min().unwrap_or(1);
     let counts = god.hub.mirror_counts();
-    assert_eq!(counts.full + counts.held + counts.out_of_order + counts.join_refused, 0);
     let line = format!(
         "{{\"name\":\"v2.pr08.mirror_local_row_thirty\",\"small_p95\":0,\"god_p95\":{capped_p95},\"god_p95_all\":{capped_all},\"capped_p95\":{capped_p95},\"capped_p95_all\":{capped_all},\"lifted_p95\":{lifted_p95},\"origins\":{ORIGINS},\"unit_changes\":{MAX_UNIT_CHANGES},\"turn_changes\":{MAX_TURN_UNIT_CHANGES},\"unit\":\"ns\"}}"
     );
@@ -362,5 +361,68 @@ fn pr08_mirror_local_row_thirty() {
     {
         let _ = writeln!(file, "{line}");
     }
+    assert_eq!(counts.full + counts.held + counts.out_of_order + counts.join_refused, 0);
     assert!(capped_p95 <= 10_000_000, "local row p95 under 30 units over 10 ms: {capped_p95} ns");
+}
+
+/// One drain: a unit of [`MAX_UNIT_CHANGES`] changes queued for each of the 30 origins, and
+/// the time from the last unit's submit to the turn that writes the last origin's mark.
+fn drain_sample(fixture: &mut Fixture) -> u128 {
+    let cursor = fixture.next;
+    fixture.next += 1;
+    let mut submitted = Instant::now();
+    for origin in 0..ORIGINS {
+        let name = format!("peer-{origin:02}");
+        let changes = (0..MAX_UNIT_CHANGES)
+            .map(|n| UnitChange::Summary(Box::new(row(&name, format!("big-{n:05}"), cursor))))
+            .collect();
+        let unit = MirrorUnit {
+            origin: name.clone(),
+            after: fixture.hub.mirror_mark(&name),
+            changes,
+            mark: MirrorMark { cursor, edition: 3, whole: true },
+        };
+        fixture.hub.submit_unit(Source::Mirror, unit).expect("unit");
+        submitted = Instant::now();
+    }
+    while (0..ORIGINS).any(|origin| {
+        fixture.hub.mirror_mark(&format!("peer-{origin:02}")).map(|mark| mark.cursor)
+            != Some(cursor)
+    }) {
+        fixture.writer.process_batch();
+    }
+    submitted.elapsed().as_nanos().max(1)
+}
+
+/// Decision 298's before and after from one harness: the thirty row's capped p95 and the
+/// drain of the whole 30-unit backlog (15,360 changes), at four units a turn and at
+/// [`MAX_TURN_UNIT_CHANGES`], rounds alternating.
+#[test]
+#[ignore = "release measurement; run with --ignored --release --nocapture"]
+fn turn_cap_compare() {
+    let mut god = fixture(11_000, ORIGINS, 16_000);
+    thirty_sample(&mut god);
+    let caps = [4 * MAX_UNIT_CHANGES, MAX_TURN_UNIT_CHANGES];
+    let mut capped: [Vec<u128>; 2] = Default::default();
+    let mut drains: [Vec<u128>; 2] = Default::default();
+    for _ in 0..LOCAL_ROUNDS {
+        for (side, cap) in caps.iter().enumerate() {
+            god.writer.mirror.turn_changes = *cap;
+            let mut samples: Vec<u128> =
+                (0..LOCAL_SAMPLES).map(|_| thirty_sample(&mut god)).collect();
+            capped[side].push(p95(&mut samples));
+            drains[side].extend((0..10).map(|_| drain_sample(&mut god)));
+        }
+    }
+    for (side, cap) in caps.iter().enumerate() {
+        let best = capped[side].iter().min().copied().unwrap_or(1);
+        let mut drain = drains[side].clone();
+        drain.sort_unstable();
+        let drain_p50 = drain[drain.len() / 2];
+        let drain_p95 = p95(&mut drain);
+        eprintln!(
+            "turn_cap_compare cap {cap}: capped p95 best of rounds {best} rounds {:?}; drain p50 {} p95 {} ns",
+            capped[side], drain_p50, drain_p95
+        );
+    }
 }

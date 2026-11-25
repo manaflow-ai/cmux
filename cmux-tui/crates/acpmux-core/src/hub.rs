@@ -112,6 +112,8 @@ struct Pending {
     controls: std::collections::BTreeMap<UpdateKey, std::collections::VecDeque<PendingUpdate>>,
     /// Origins whose unit failed its append and waits in the writer's retry.
     retrying: std::collections::HashSet<Arc<str>>,
+    /// The origin whose unit the last turn took last: the next turn's units start after it.
+    turn_after: Option<UpdateKey>,
 }
 
 impl Pending {
@@ -225,32 +227,56 @@ impl UpdateQueue {
 
     /// At most `limit` updates, and units of at most `unit_changes` changes
     /// together (one unit at least): an origin's unit past that count waits in
-    /// its slot, with what queued behind it, for the next turn.
+    /// its slot, with what queued behind it, for the next turn. Origin records
+    /// go first; the origins' slots start after the one whose unit the last
+    /// turn took last, so a unit the cap passed over is taken before any unit
+    /// queued after it (decision 279), and once the cap passes over a unit no
+    /// later unit is taken in that turn.
     fn take_batch_limit(
         &self,
         limit: usize,
         unit_changes: usize,
     ) -> Vec<(UpdateKey, PendingUpdate)> {
         let Ok(mut pending) = self.pending.lock() else { return Vec::new() };
+        let pending = &mut *pending;
         let mut batch = Vec::new();
         let mut changes = 0;
-        let mut waiting = Vec::new();
-        while batch.len() < limit {
-            let Some((key, mut updates)) = pending.controls.pop_first() else { break };
-            if let Some(PendingUpdate::Unit { unit, .. }) = updates.front() {
-                if changes > 0 && changes + unit.changes.len() > unit_changes {
-                    waiting.push((key, updates));
-                    continue;
+        let mut passed_over = false;
+        let mut last = None;
+        // The controls hold at most 512 keys (`enqueue`), so the order costs one pass of them.
+        let (mut sources, records): (Vec<UpdateKey>, Vec<UpdateKey>) =
+            pending.controls.keys().cloned().partition(|key| matches!(key, UpdateKey::Source(_)));
+        let split = pending
+            .turn_after
+            .as_ref()
+            .map_or(0, |after| sources.partition_point(|key| key <= after));
+        // `partition_point` is at most the length, so the rotation stays in bounds.
+        sources.rotate_left(split);
+        let order = records.into_iter().chain(sources);
+        for key in order {
+            if batch.len() >= limit {
+                break;
+            }
+            let Some(updates) = pending.controls.get_mut(&key) else { continue };
+            while batch.len() < limit {
+                if let Some(PendingUpdate::Unit { unit, .. }) = updates.front() {
+                    if passed_over || (changes > 0 && changes + unit.changes.len() > unit_changes) {
+                        passed_over = true;
+                        break;
+                    }
+                    changes += unit.changes.len();
+                    last = Some(key.clone());
                 }
-                changes += unit.changes.len();
+                let Some(update) = updates.pop_front() else { break };
+                batch.push((key.clone(), update));
             }
-            let Some(update) = updates.pop_front() else { continue };
-            if !updates.is_empty() {
-                pending.controls.insert(key.clone(), updates);
+            if updates.is_empty() {
+                pending.controls.remove(&key);
             }
-            batch.push((key, update));
         }
-        pending.controls.extend(waiting);
+        if last.is_some() {
+            pending.turn_after = last;
+        }
         let keys: Vec<_> = pending.rows.keys().take(limit - batch.len()).cloned().collect();
         batch.extend(keys.into_iter().filter_map(|key| {
             pending.rows.remove(&key).map(|value| (UpdateKey::Row(key.0), value))
@@ -348,7 +374,7 @@ impl ListReceiver {
         let bytes = {
             let history = self.history.lock().ok()?;
             let first = history.first_seq();
-            let last = history.last_seq().unwrap_or_else(|| self.published.load().seq());
+            let last = history.recorded_through(self.published.load().seq());
             if cursor >= last {
                 return None;
             }
@@ -445,7 +471,7 @@ impl ListReceiver {
             }
         } else {
             let history = self.history.lock().ok()?;
-            let last = history.last_seq().unwrap_or_else(|| self.published.load().seq());
+            let last = history.recorded_through(self.published.load().seq());
             // A live pump consumes exactly one operation. A replay captures
             // its target once and may consume several bounded spans.
             let target = through.unwrap_or(cursor.saturating_add(1)).min(last);
@@ -1063,7 +1089,7 @@ impl Hub {
 
     pub fn resume_target(&self, cursor: u64) -> Result<Option<u64>, HubError> {
         let history = self.history.lock().map_err(|_| HubError::WriterGone)?;
-        let target = history.last_seq().unwrap_or_else(|| self.published.load().seq());
+        let target = history.recorded_through(self.published.load().seq());
         if cursor > target
             || history.first_seq().is_some_and(|first| cursor.saturating_add(1) < first)
             || (history.first_seq().is_none() && cursor != target)
@@ -1972,6 +1998,7 @@ impl HubWriter {
         );
         let summary = Arc::new(record.summary.clone());
         let event = SummaryEvent { seq: record.seq, summary };
+        self.hold_history(current.seq(), record.seq);
         self.publish_folder_index(next, &folder_ops);
         self.record_history(ListItem::Summary(event.clone()));
         self.publish(event.clone());
@@ -2045,6 +2072,7 @@ impl HubWriter {
             return Ok(false);
         };
         let folder_ops = next.folder_changes(&current, current.get_row(key).as_deref(), None);
+        self.hold_history(current.seq(), seq);
         self.publish_folder_index(next, &folder_ops);
         self.record_history(ListItem::Gone {
             seq,
@@ -2072,6 +2100,14 @@ impl HubWriter {
             if seq > state.cursor && !state.ended {
                 subscriber.notify.notify_one();
             }
+        }
+    }
+
+    /// Called before publishing an index whose ops `(committed, through]` are appended
+    /// next: a list reader between the two waits for them and is not told it lagged.
+    pub(super) fn hold_history(&self, committed: u64, through: u64) {
+        if let Ok(mut history) = self.history.lock() {
+            history.hold(committed, through);
         }
     }
 

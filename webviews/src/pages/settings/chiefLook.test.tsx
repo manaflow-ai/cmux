@@ -11,9 +11,10 @@ afterAll(() => restore());
 const { changeValue, fire, renderPage, settle } = await import("./testing");
 const { CHIEF_PET_MASCOTS } = await import("./components/ChiefPetCard");
 
-// The Look card's one page is Personalization's Chief part (SectionView HUB_KEYS); Chief keeps the
-// chat rows (Bubble Style, its colors, Show the Feed) in its own Chief Chat card, their home.
-const LOOK_PAGE = "/settings/personalization";
+// The Look card's page is Chief, the home of its rows (Personalization, which drew it for a while,
+// folded into Appearance): the card draws the chat rows (Bubble Style, its colors, Show the Feed), so
+// Chief draws no Chief Chat card of its own.
+const LOOK_PAGE = "/settings/chief";
 const look = (container: HTMLElement) => container.querySelector<HTMLElement>('[data-card="chief-pet"]')!;
 const BUBBLE_COLORS = ["sent", "sentText", "received", "receivedText"].map((role) => `home.bubbleColors.${role}`);
 
@@ -40,13 +41,6 @@ test("Bubble Style shows once, in Look: no Chief Chat card of its own", async ()
   expect(look(page.container).querySelector('[data-row-key="home.chiefBubbleStyle"]')).not.toBeNull();
   expect(page.container.querySelector('[data-group="settings.group.chiefChat"]')).toBeNull();
   page.unmount();
-  // On Chief, its home, it shows once too, in the Chief Chat card with the other chat rows.
-  const chief = await renderPage({ path: "/settings/chief" });
-  await settle();
-  expect(chief.container.querySelectorAll('[data-row-key="home.chiefBubbleStyle"]')).toHaveLength(1);
-  const chat = chief.container.querySelector('[data-group="settings.group.chiefChat"]')!;
-  expect(chat.querySelector('[data-row-key="home.chiefBubbleStyle"]')).not.toBeNull();
-  chief.unmount();
 });
 
 test("Show the Feed in Chief draws once, in Look, after the bubble colors", async () => {
@@ -70,12 +64,12 @@ test("search renders Show the Feed in Chief in the Look card", async () => {
   page.unmount();
 });
 
-// A search result opens a row's home: Bubble Style's is Chief, where its Chief Chat card draws it.
-test("a search result for Bubble Style lands on its row in Chief's Chief Chat card", async () => {
+// A search result opens a row's home: Bubble Style's is Chief, where the Look card draws it.
+test("a search result for Bubble Style lands on its row in Chief's Look card", async () => {
   const page = await renderPage({ path: "/settings/chief?focus=home.chiefBubbleStyle" });
   await settle();
   const row = page.container.querySelector<HTMLElement>(
-    '[data-group="settings.group.chiefChat"] [data-row-key="home.chiefBubbleStyle"]',
+    '[data-card="chief-pet"] [data-row-key="home.chiefBubbleStyle"]',
   )!;
   expect(row.contains(document.activeElement)).toBe(true);
   page.unmount();

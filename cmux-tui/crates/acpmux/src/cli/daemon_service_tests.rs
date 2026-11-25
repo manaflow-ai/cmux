@@ -6,6 +6,7 @@ use std::cell::RefCell;
 struct Fake {
     home: tempfile::TempDir,
     linux: bool,
+    windows: bool,
     running: bool,
     answers: Vec<(&'static str, Option<(i32, &'static str, &'static str)>)>,
     calls: RefCell<Vec<String>>,
@@ -16,6 +17,7 @@ impl Fake {
         Self {
             home: tempfile::tempdir().unwrap(),
             linux,
+            windows: false,
             running: false,
             answers: Vec::new(),
             calls: RefCell::default(),
@@ -29,6 +31,13 @@ impl Fake {
     ) -> Self {
         self.answers.push((argv, out));
         self
+    }
+
+    /// A Windows machine whose `whoami` is `HOST\leo`.
+    fn windows() -> Self {
+        let mut m = Self::new(false).answer("whoami", Some((0, "host\\leo\r\n", "")));
+        m.windows = true;
+        m
     }
 
     fn calls(&self) -> Vec<String> {
@@ -47,6 +56,14 @@ impl Machine for Fake {
 
     fn linux(&self) -> bool {
         self.linux
+    }
+
+    fn windows(&self) -> bool {
+        self.windows
+    }
+
+    fn exe(&self) -> PathBuf {
+        PathBuf::from(r"C:\Users\leo & co\.local\bin\acpmux.exe")
     }
 
     fn run(&self, program: &str, args: &[&str], _wait: Duration) -> Option<(i32, String, String)> {
@@ -242,4 +259,91 @@ fn unit_plan_replaces_only_acpmux_written_units() {
         assert_eq!(unit_plan(Some(old)), UnitFile::Write);
     }
     assert_eq!(unit_plan(Some("[Unit]\n")), UnitFile::Foreign);
+}
+
+/// The UTF-16LE task file `install` wrote, as text.
+fn task_file(m: &Fake) -> String {
+    let bytes = std::fs::read(task_path(m.home.path())).unwrap();
+    assert_eq!(&bytes[..2], &[0xFF, 0xFE], "Task Scheduler reads UTF-16LE with its mark");
+    let units: Vec<u16> =
+        bytes[2..].chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
+    String::from_utf16(&units).unwrap()
+}
+
+#[test]
+fn windows_install_registers_a_logon_task_for_this_user_only() {
+    let m = Fake::windows();
+    let report = install(&m).unwrap();
+    assert_eq!(report.manager, "task");
+    assert!(report.installed && report.changed);
+    // Not running yet: the join line starts it, and every logon after.
+    assert_eq!(report.state, State::AtNextLogin);
+    let xml = task_file(&m);
+    assert_eq!(xml.matches("<UserId>host\\leo</UserId>").count(), 2, "{xml}");
+    assert!(xml.contains("<LogonType>InteractiveToken</LogonType>"));
+    assert!(xml.contains("<RunLevel>LeastPrivilege</RunLevel>"));
+    assert!(xml.contains("<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>"));
+    // The path is data: escaped, never markup.
+    assert!(xml.contains(r"<Command>C:\Users\leo &amp; co\.local\bin\acpmux.exe</Command>"));
+    assert!(xml.contains("<Arguments>daemon start</Arguments>"));
+    let xml_path = task_path(m.home.path()).display().to_string();
+    assert!(
+        m.called(&format!("schtasks /Create /TN acpmux /XML {xml_path} /F")),
+        "{:?}",
+        m.calls()
+    );
+    assert!(
+        m.called(r"reg delete HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v acpmux /f")
+    );
+    assert!(!m.called("systemctl") && !m.called("launchctl"));
+}
+
+#[test]
+fn windows_install_leaves_a_registered_task_with_the_same_xml() {
+    let m = Fake::windows();
+    install(&m).unwrap();
+    m.calls.borrow_mut().clear();
+    let again = install(&m).unwrap();
+    assert!(!again.changed);
+    assert!(m.called("schtasks /Query /TN acpmux"));
+    assert!(!m.called("schtasks /Create"), "{:?}", m.calls());
+}
+
+#[test]
+fn windows_install_falls_back_to_the_run_key_when_task_scheduler_refuses() {
+    let mut m = Fake::windows();
+    m.running = true;
+    // Any /Create argv: the path is the fake's temporary home.
+    let xml_path: &'static str = Box::leak(
+        format!("schtasks /Create /TN acpmux /XML {} /F", task_path(m.home.path()).display())
+            .into_boxed_str(),
+    );
+    let m = m.answer(xml_path, Some((1, "", "ERROR: Access is denied.")));
+    let report = install(&m).unwrap();
+    assert_eq!(report.manager, "run-key");
+    assert_eq!(report.state, State::Running);
+    assert!(report.note.as_deref().unwrap().contains("Access is denied"));
+    assert!(m.called(
+        r#"reg add HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v acpmux /t REG_SZ /d "C:\Users\leo & co\.local\bin\acpmux.exe" daemon start /f"#
+    ));
+}
+
+#[test]
+fn windows_uninstall_and_status() {
+    let m = Fake::windows()
+        .answer(
+            "schtasks /Query /TN acpmux",
+            Some((1, "", "ERROR: The system cannot find the file specified.")),
+        )
+        .answer(
+            r"reg query HKCU\Software\Microsoft\Windows\CurrentVersion\Run /v acpmux",
+            Some((1, "", "")),
+        );
+    assert_eq!(status(&m).state, State::Absent);
+    install(&m).unwrap();
+    let gone = uninstall(&m).unwrap();
+    assert_eq!(gone.state, State::Absent);
+    assert!(gone.changed);
+    assert!(!task_path(m.home.path()).exists());
+    assert!(m.called("schtasks /Delete /TN acpmux /F"));
 }

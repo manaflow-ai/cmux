@@ -67,6 +67,7 @@ public extension ActionRunScope {
     }
 }
 
+#if canImport(AppKit)
 extension ActionRegistry {
     /// Runs `action`'s handler with its run scope bound as a task local, so
     /// the tasks the handler starts keep the run's view-change permission,
@@ -80,6 +81,12 @@ extension ActionRegistry {
         // later with this invocation does not report this press's age.
         var handed = invocation
         handed.inputTimestamp = nil
+        // A person's run its handler refuses only while cmux is starting is held, not refused (`refusalDeferrals`).
+        // The run that refused is the one held: a nested run is its own (the outer one goes on, its own refusals shown).
+        let tracked = run.origin == .user && !isCapturingRefusal && !refusalDeferrals.isEmpty
+        let outer = personRun
+        if tracked { personRun = PersonRun(id: id, invocation: handed) }
+        defer { if tracked { personRun = outer } }
         // The effect is settled inside the run's scopes, so the remote half it starts keeps the run's
         // view-change permission and machine routing.
         ActionRunScope.$current.withValueInTask(run) {
@@ -92,3 +99,4 @@ extension ActionRegistry {
         runObserver?(id, handed)
     }
 }
+#endif

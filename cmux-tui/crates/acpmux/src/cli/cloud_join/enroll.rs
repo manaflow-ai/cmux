@@ -54,8 +54,7 @@ use std::future::Future;
 use std::path::Path;
 use zeroize::Zeroizing;
 
-/// `joined_by` of a join signing in made.
-pub(crate) const JOINED_BY_SIGN_IN: &str = "sign-in";
+pub(crate) use crate::machine_record::JOINED_BY_SIGN_IN;
 /// The minted token's life: the shortest the hub takes; it is redeemed at once.
 const MINT_TTL_SECS: u64 = 60;
 /// How long an enroll waits for another join or leave on this machine to finish.
@@ -199,7 +198,7 @@ pub(super) fn owner_among(recorded: Option<&str>, accounts: &[String]) -> Owner 
 
 /// The machine's name: its host name, with a DEV build's tag after it.
 fn enroll_name(build_tag: Option<&str>) -> String {
-    let base = crate::pairing::machine_name();
+    let base = crate::pairing::host_label();
     let tag: String = build_tag
         .unwrap_or_default()
         .chars()
@@ -467,6 +466,11 @@ pub(super) async fn enroll_at(
     if let Err(e) = port.resume().await {
         tracing::debug!("sign-in enroll: no join to finish: {e:#}");
     }
+    // A proposal another account's sign-in left unfinished is set aside, so this join's mint and
+    // redeem make a proposal of their own, under this account.
+    if recovery::retire_other_account_pending_at(home, current, account).is_err() {
+        return EnrollOutcome::Unavailable;
+    }
     let Ok(mut record) = load_at(home) else { return EnrollOutcome::Unavailable };
     // The last person's sign-in join, recorded under their account, and another person signs in
     // (an account switch whose sign-out's leave acpmux never got): that person's leave is
@@ -659,6 +663,33 @@ impl Platform {
     }
 }
 
+/// A single-use join token minted at `hub` by the person whose access token is `access`: the
+/// first half of every join, this machine's sign-in enroll and a browser's own device enroll
+/// (`server/web_device.rs`) alike.
+pub(crate) async fn mint_join_token(
+    hub: &str,
+    access: &Zeroizing<String>,
+    label: &str,
+) -> Result<Zeroizing<String>> {
+    let body: cmux_cloud_client::types::JoinTokenMint =
+        serde_json::from_value(json!({"label": label, "ttlSeconds": MINT_TTL_SECS}))?;
+    let minted = match hub_client(hub, Some(access))?.machine_join_mint(&body).await {
+        Ok(body) => serde_json::to_value(body.into_inner())?,
+        // What was sent where, never the token: the next probe row explains itself.
+        Err(error) => {
+            let sent = super::sent_credential::describe(access, now_ms() / 1000);
+            return Err(refused(error)
+                .await
+                .context(format!("POST {hub}/v1/machines/join-tokens with {sent}")));
+        }
+    };
+    let token = minted
+        .get("token")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("the hub minted no token"))?;
+    Ok(Zeroizing::new(parse_token_text(token).map_err(|_| anyhow!("minted token malformed"))?))
+}
+
 /// A refusal's status and code only: its message may repeat what was sent.
 async fn refused(error: cmux_cloud_client::Error<cmux_cloud_client::ByteStream>) -> anyhow::Error {
     let error = cmux_cloud_client::ApiError::from_api(error).await;
@@ -712,23 +743,7 @@ impl EnrollHub for Platform {
     }
 
     async fn mint(&self, label: &str) -> Result<Zeroizing<String>> {
-        let body: cmux_cloud_client::types::JoinTokenMint =
-            serde_json::from_value(json!({"label": label, "ttlSeconds": MINT_TTL_SECS}))?;
-        let minted = match self.person()?.machine_join_mint(&body).await {
-            Ok(body) => serde_json::to_value(body.into_inner())?,
-            // What was sent where, never the token: the next probe row explains itself.
-            Err(error) => {
-                let sent = super::sent_credential::describe(&self.access, now_ms() / 1000);
-                return Err(refused(error)
-                    .await
-                    .context(format!("POST {}/v1/machines/join-tokens with {sent}", self.hub)));
-            }
-        };
-        let token = minted
-            .get("token")
-            .and_then(Value::as_str)
-            .ok_or_else(|| anyhow!("the hub minted no token"))?;
-        Ok(Zeroizing::new(parse_token_text(token).map_err(|_| anyhow!("minted token malformed"))?))
+        mint_join_token(&self.hub, &self.access, label).await
     }
 
     async fn redeem(

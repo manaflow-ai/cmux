@@ -17,6 +17,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unicodedata
 import unittest
@@ -70,6 +71,7 @@ class InstallGitHooksTests(unittest.TestCase):
             "scripts/merge-baseline.py",
             "scripts/merge-daemon-capabilities.py",
             "scripts/merge-insertions.py",
+            "scripts/merge-cargo-lock.py",
             "scripts/ci/merge_main_resolver.py",
             "scripts/ci/validate_test_execution_registry.py",
             "scripts/ci/test_execution_registry.py",
@@ -83,8 +85,12 @@ class InstallGitHooksTests(unittest.TestCase):
             "scripts/ci/base_merge_warning.py",
             "scripts/ci/github_release_download.py",
             "scripts/ci/deadline_http.py",
+            "scripts/ci/generated_files_guard.py",
+            "scripts/ci/ci_process_tree.py",
             "scripts/webviews_bun_version.py",
             "scripts/check-webviews-bun-version.sh",
+            *self.installed_sources(),
+            *self.copy_input_files(),
         ):
             source, target = SOURCE / relative, root / relative
             if not source.exists():
@@ -94,6 +100,38 @@ class InstallGitHooksTests(unittest.TestCase):
                 shutil.copytree(source, target)
             else:
                 shutil.copyfile(source, target)
+
+    @staticmethod
+    def installed_sources():
+        """Every scripts/ file the installer copies with `install`, so a new copy line never leaves the fixture behind.
+
+        #48396 added scripts/ci/workflow_job_bounds.py to the installer and every fixture install failed with
+        "cannot stat" until this list named it; reading the installer keeps the two in step.
+        """
+        text = (SOURCE / INSTALLER).read_text(encoding="utf-8")
+        installed = set(re.findall(r"^\s*install\s+-m\s+\d+\s+(scripts/\S+)", text, re.MULTILINE))
+        # The checks copy's file inputs too: a37b619481 added scripts/ci/generated_files_guard.py and ci_process_tree.py to
+        # checks-copy-inputs and every fixture install lacked them, so the stamp test read a file the fixture never had.
+        manifest = SOURCE / "scripts/git-hooks/checks-copy-inputs"
+        if manifest.exists():
+            for line in manifest.read_text(encoding="utf-8").splitlines():
+                source = line.strip().split(" -> ")[0].strip()
+                if source and not source.startswith("#") and not source.endswith("/"):
+                    installed.add(source)
+        return sorted(installed)
+
+    @staticmethod
+    def copy_input_files():
+        """Every single-file entry of scripts/git-hooks/checks-copy-inputs, so a new entry never leaves the fixture behind.
+
+        The base added scripts/ci/generated_files_guard.py and scripts/ci/ci_process_tree.py to that list (prepush gate:
+        refuse a push that commits a generated file) and the stamp test failed reading them from the fixture until it
+        named them; reading the list keeps the two in step, like installed_sources() does for the installer.
+        """
+        lines = (SOURCE / "scripts/git-hooks/checks-copy-inputs").read_text(encoding="utf-8").splitlines()
+        sources = (line.strip().split(" -> ")[0].strip() for line in lines
+                   if line.strip() and not line.strip().startswith("#"))
+        return sorted({source for source in sources if not source.endswith("/")})
 
     def git(self, *args, check=True):
         return subprocess.run(["git", "-C", str(self.repo), *args], env=self.env,
@@ -151,9 +189,11 @@ class InstallGitHooksTests(unittest.TestCase):
         ):
             command = self.git("config", "--get", key).stdout.strip()
             words = shlex.split(command)
-            self.assertTrue(Path(words[0]).is_absolute())
-            self.assertFalse(Path(words[0]).resolve().is_relative_to(self.repo.resolve()))
-            self.assertEqual(words[1], "-I")
+            # The interpreter is picked on this host each merge (scripts/git-hooks/merge_python.sh), never one
+            # recorded path; the wrapper is the reviewed copy in the clone's hook folder.
+            self.assertEqual(words[0], "/bin/bash")
+            self.assertEqual(Path(words[1]).resolve(),
+                             (self.common_dir() / "cmux-git-hooks" / "merge_python.sh").resolve())
             self.assertEqual(Path(words[2]).resolve(), (installed / name).resolve())
             self.assertEqual(words[3:], expected_args)
             self.assertNotIn(f"scripts/{name}", command)
@@ -263,8 +303,8 @@ class InstallGitHooksTests(unittest.TestCase):
         self.assertFalse(marker.exists(), "a helper from the checked-out branch executed")
 
     # Formatters at the commit boundary: the hook formats staged Rust in every
-    # Cargo package (not only cmux-tui), and a missing formatter stops an agent's
-    # commit instead of skipping silently.
+    # Cargo package (not only cmux-tui), and a formatter that cannot run warns
+    # and lets the commit through (CI checks formatting).
     AGENT_VARS = ("CMUX_AGENT", "CMUX_REQUIRE_FORMATTERS", "CI", "CLAUDECODE", "CODEX_CI", "CODEX_THREAD_ID", "CODEX_SANDBOX", "CMUX_SKIP_FORMAT_HOOKS")
 
     def formatter_env(self, with_rustfmt, **extra):
@@ -278,7 +318,9 @@ class InstallGitHooksTests(unittest.TestCase):
         self.rustfmt_log = self.root / "rustfmt.log"
         if with_rustfmt:
             fake = bin_dir / "rustfmt"
-            fake.write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" >> {shlex.quote(str(self.rustfmt_log))}\n')
+            # Formats stdin to stdout as rustfmt does there: runs of spaces become one.
+            fake.write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" >> {shlex.quote(str(self.rustfmt_log))}\n'
+                            f"exec {shlex.quote(shutil.which('sed'))} 's/  */ /g'\n")
             fake.chmod(0o755)
         env = dict(self.env, PATH=str(bin_dir), **extra)
         return env
@@ -295,7 +337,8 @@ class InstallGitHooksTests(unittest.TestCase):
 
     def run_pre_commit(self, env):
         hook = Path(self.local_hooks_path()) / "pre-commit"
-        return subprocess.run([str(hook)], cwd=self.repo, env=env, text=True, capture_output=True)
+        return subprocess.run([str(hook)], cwd=self.repo, env=env, text=True, capture_output=True,
+                              stdin=subprocess.DEVNULL)
 
     def test_pre_commit_registers_only_the_commits_own_tests(self):
         """The base carried an unregistered test; the hook wrote it into whichever pull request
@@ -431,33 +474,62 @@ class InstallGitHooksTests(unittest.TestCase):
         self.assertEqual(len(calls), 1, calls)
         # No rustfmt.toml in the checkout: rustfmt's defaults, never a config
         # found above the checkout.
-        edition_flag, edition, config_flag, config, path = calls[0].split(" ")
-        self.assertEqual((edition_flag, edition, config_flag, path),
-                         ("--edition", "2024", "--config-path", str(source.resolve())), calls)
+        # The staged file goes in on stdin, so no file path is an argument.
+        edition_flag, edition, config_flag, config = calls[0].split(" ")
+        self.assertEqual((edition_flag, edition, config_flag), ("--edition", "2024", "--config-path"), calls)
         self.assertFalse(Path(config).resolve().is_relative_to(self.repo.resolve()), config)
+        self.assertEqual(self.git("show", ":Native/OptChat/probe/src/main.rs").stdout, source.read_text())
+
+    def test_an_edit_saved_while_rustfmt_runs_is_kept(self):
+        """Review F1 on #50609: the hook wrote rustfmt's earlier snapshot over the file, so an edit saved in an
+        editor while rustfmt ran was lost from both the worktree and the index."""
+        self.assertEqual(self.install().returncode, 0)
+        source = self.stage_rust_package("workers/probe", "2021", source="fn   main() {}\n")
+        env = self.formatter_env(with_rustfmt=True)
+        saved = "fn main() { saved_during_rustfmt(); }\n"
+        # This rustfmt reads its input, then the person saves the file, then it prints its output.
+        (self.root / "bin-rustfmt" / "rustfmt").write_text(
+            f"#!/bin/sh\nin=$({shlex.quote(shutil.which('cat'))})\n"
+            f"printf '%s' {shlex.quote(saved)} > {shlex.quote(str(source))}\n"
+            f"printf '%s\\n' \"$in\" | {shlex.quote(shutil.which('sed'))} 's/  */ /g'\n")
+        result = self.run_pre_commit(env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(source.read_text(), saved, "the edit saved during rustfmt survives")
+        self.assertIn("changed while rustfmt ran", result.stderr)
+        self.assertEqual(self.git("show", ":workers/probe/src/main.rs").stdout, "fn   main() {}\n",
+                         "the index keeps what was staged")
+
+    def test_an_unchanged_format_never_rewrites_the_file(self):
+        self.assertEqual(self.install().returncode, 0)
+        source = self.stage_rust_package("workers/probe", "2021", source="fn main() {}\n")
+        before = source.stat().st_mtime_ns
+        os.utime(source, ns=(before - 10**9, before - 10**9))
+        before = source.stat().st_mtime_ns
+        result = self.run_pre_commit(self.formatter_env(with_rustfmt=True))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(source.stat().st_mtime_ns, before, "formatting changed nothing, so nothing is written")
 
     def test_pre_commit_uses_the_package_rustfmt_config(self):
         self.assertEqual(self.install().returncode, 0)
-        source = self.stage_rust_package("workers/probe", "2021", config="max_width = 100\n")
+        self.stage_rust_package("workers/probe", "2021", source="fn   main() {}\n", config="max_width = 100\n")
         result = self.run_pre_commit(self.formatter_env(with_rustfmt=True))
         self.assertEqual(result.returncode, 0, result.stderr)
         config = (self.repo / "workers/probe/rustfmt.toml").resolve()
         self.assertEqual(self.rustfmt_log.read_text().splitlines(),
-                         [f"--edition 2021 --config-path {config} {source.resolve()}"])
+                         [f"--edition 2021 --config-path {config}"])
+        self.assertEqual(self.git("show", ":workers/probe/src/main.rs").stdout, "fn main() {}\n",
+                         "the formatted file is restaged")
 
-    def test_missing_rustfmt_stops_an_agent_commit_and_warns_a_person(self):
+    def test_missing_rustfmt_warns_and_commits_for_agents_and_people(self):
         self.assertEqual(self.install().returncode, 0)
         self.stage_rust_package("Native/OptChat/probe", "2021")
-        agent = self.run_pre_commit(self.formatter_env(with_rustfmt=False, CMUX_AGENT="1"))
-        self.assertNotEqual(agent.returncode, 0, agent.stderr)
-        self.assertIn("rustfmt is unavailable", agent.stderr)
-        self.assertIn("do not pass --no-verify", agent.stderr)
         # A Codex shell sets CODEX_THREAD_ID, not CMUX_AGENT.
-        codex = self.run_pre_commit(self.formatter_env(with_rustfmt=False, CODEX_THREAD_ID="thread"))
-        self.assertNotEqual(codex.returncode, 0, codex.stderr)
-        person = self.run_pre_commit(self.formatter_env(with_rustfmt=False))
-        self.assertEqual(person.returncode, 0, person.stderr)
-        self.assertIn("rustfmt is unavailable", person.stderr)
+        for extra in ({"CMUX_AGENT": "1"}, {"CODEX_THREAD_ID": "thread"}, {}):
+            with self.subTest(env=extra):
+                result = self.run_pre_commit(self.formatter_env(with_rustfmt=False, **extra))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("rustfmt is unavailable", result.stderr)
+                self.assertIn("committing without formatting (CI checks formatting)", result.stderr)
 
     # A recording vp: logs "cwd<TAB>args" and replaces each file argument's text.
     FAKE_VP = """#!/bin/sh
@@ -496,6 +568,38 @@ done
                 self.assertEqual(args.split()[-1], "src/app.ts")
                 staged = self.git("show", f":{package}/src/app.ts").stdout
                 self.assertEqual(staged, "formatted\n", "the formatted file is restaged")
+
+    def link_web_install(self, target):
+        """webviews/node_modules as a link to TARGET (holding the recording vp), the way wt projects it."""
+        self.stage_web_file("webviews")
+        installed = self.repo / "webviews/node_modules"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.rmtree(target, ignore_errors=True)
+        shutil.move(str(installed), str(target))
+        installed.symlink_to(target)
+
+    def test_pre_commit_runs_vp_from_a_node_modules_linked_outside_the_checkout(self):
+        """wt checkouts link webviews/node_modules to a shared install outside the checkout; the
+        hook refused that link ("passes through ... inside this checkout"), so no webviews commit
+        from a wt checkout could pass."""
+        self.assertEqual(self.install().returncode, 0)
+        vp_log = self.root / "vp.log"
+        self.link_web_install(self.root / "projection/webviews/node_modules")
+        result = self.run_pre_commit(self.formatter_env(with_rustfmt=False, FAKE_VP_LOG=str(vp_log), CMUX_AGENT="1"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("inside this checkout", result.stderr)
+        self.assertEqual(self.git("show", ":webviews/src/app.ts").stdout, "formatted\n", result.stderr)
+
+    def test_pre_commit_never_runs_a_node_modules_linked_back_into_the_checkout(self):
+        """The vp is never run; like any formatter that cannot run, the commit goes on with a warning."""
+        self.assertEqual(self.install().returncode, 0)
+        vp_log = self.root / "vp.log"
+        self.link_web_install(self.repo / "elsewhere/node_modules")
+        result = self.run_pre_commit(self.formatter_env(with_rustfmt=False, FAKE_VP_LOG=str(vp_log), CMUX_AGENT="1"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("inside this checkout", result.stderr)
+        self.assertIn("committing without formatting", result.stderr)
+        self.assertFalse(vp_log.exists(), "a vp the checkout points at never runs")
 
     def test_pre_commit_takes_over_an_install_lock_whose_holder_died(self):
         # A hook killed mid-install leaves its lock; this worktree has no vp yet.
@@ -550,7 +654,7 @@ mkdir -p node_modules/.bin
         return path
 
     def bootstrap_env(self, pin="1.4.4", **extra):
-        """An agent commit (a missing vp is fatal) whose webviews has a bun.lock and no vp."""
+        """An agent commit whose webviews has a bun.lock and no vp."""
         self.stage_web_file("webviews")
         web = self.repo / "webviews"
         (web / "node_modules/.bin/vp").unlink()
@@ -602,7 +706,7 @@ mkdir -p node_modules/.bin
             result = self.run_pre_commit(env)
         finally:
             bun.unlink()
-        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("vp is unavailable for webviews", result.stderr)
         for line in (
             f"command: env -u BUN_OPTIONS {bun} install --frozen-lockfile --ignore-scripts",
@@ -636,8 +740,8 @@ mkdir -p node_modules/.bin
         result = self.run_pre_commit(env)
         self.assertFalse(canary.exists(), result.stderr)
         self.assertIn("not an exact major.minor.patch version", result.stderr)
-        self.assertNotEqual(result.returncode, 0, "a refused pin refuses the commit")
-        self.assertIn("refusing to install webviews packages", result.stderr)
+        self.assertEqual(result.returncode, 0, "a refused pin installs nothing; the commit goes on")
+        self.assertIn("not installing webviews packages", result.stderr)
 
     def test_a_pinned_install_resolving_into_the_checkout_is_not_run(self):
         self.assertEqual(self.install().returncode, 0)
@@ -648,7 +752,7 @@ mkdir -p node_modules/.bin
         result = self.run_pre_commit(env)
         self.assertFalse(canary.exists(), result.stderr)
         self.assertIn("outside its install root", result.stderr)
-        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_a_path_bun_inside_the_checkout_is_not_run(self):
         self.assertEqual(self.install().returncode, 0)
@@ -658,7 +762,7 @@ mkdir -p node_modules/.bin
         result = self.run_pre_commit(env)
         self.assertFalse(canary.exists(), result.stderr)
         self.assertIn("inside this checkout", result.stderr)
-        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     # devEngines shapes where the first "version" is not bun's (#41001 review, F1): the hook took
     # the first version inside devEngines, so an npm entry listed first, or a runtime engine before
@@ -677,9 +781,10 @@ mkdir -p node_modules/.bin
         "no bun entry": ({"packageManager": {"name": "npm", "version": "10.9.2", "onFail": "error"}}, None),
     }
 
-    def test_a_bun_the_hook_cannot_vouch_for_refuses_the_commit(self):
+    def test_a_bun_the_hook_cannot_vouch_for_never_runs(self):
         """#41001 review: no trusted reader copy, a refused pin or no bun at the pin used to fall
-        back to PATH's bun by name. Each now refuses with the fix, and the planted PATH bun (outside
+        back to PATH's bun by name. Each now installs nothing and says the fix (the commit goes on
+        unformatted; CI checks formatting), and the planted PATH bun (outside
         the checkout, so the resolver alone would let it run) never runs, --version included."""
         self.assertEqual(self.install().returncode, 0)
         reader = Path(self.local_hooks_path()) / "webviews_bun_version.py"
@@ -707,9 +812,9 @@ mkdir -p node_modules/.bin
                     result = self.run_pre_commit(env)
                 finally:
                     reader.write_bytes(saved)
-                self.assertNotEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn(says, result.stderr)
-                self.assertIn("refusing to install webviews packages", result.stderr)
+                self.assertIn("not installing webviews packages", result.stderr)
                 self.assertNotIn("PATH's bun", result.stderr)
                 if case == "no bun at the pin":
                     # Only the pinned candidates are asked their version; none is 1.4.4, so nothing installs.
@@ -741,10 +846,10 @@ mkdir -p node_modules/.bin
                     self.assertEqual(len(ran), 1, result.stderr)
                     hook = next(version for version, bun in installed.items() if ran[0] == str(bun))
                 else:
-                    # No pin it accepts: the hook installs with nothing and refuses the commit.
+                    # No pin it accepts: the hook installs nothing and commits unformatted.
                     hook = None
-                    self.assertNotEqual(result.returncode, 0, result.stderr)
-                    self.assertIn("refusing to install webviews packages", result.stderr)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("not installing webviews packages", result.stderr)
                 # The checker, on the same package.json, against a bun older than any pin: its
                 # install command names the version it wants, or it refuses the declaration.
                 checked = subprocess.run(["sh", str(self.repo / "scripts/check-webviews-bun-version.sh"), str(old_bun)],
@@ -772,6 +877,93 @@ mkdir -p node_modules/.bin
         self.assertFalse(vp_log.exists())
         self.assertFalse(self.rustfmt_log.exists())
 
+    def test_a_formatter_that_cannot_run_lets_an_agent_commit_through_with_a_warning(self):
+        """The machine's toolchain says nothing about the commit, and CI checks formatting. No vp, no
+        node_modules, a vp that cannot start, an install lock another hook holds, or no rustfmt used to
+        refuse every agent commit (CMUX_AGENT, CLAUDECODE, CODEX_*, CI); each now commits with one line naming why."""
+        self.assertEqual(self.install().returncode, 0)
+        web = self.repo / "webviews"
+        lock = Path(self.git("rev-parse", "--absolute-git-dir").stdout.strip()) / "cmux-format-install-webviews.lock"
+
+        def no_node_modules():
+            self.stage_web_file("webviews")
+            shutil.rmtree(web / "node_modules")
+
+        def vp_cannot_start():
+            self.stage_web_file("webviews")
+            (web / "node_modules/.bin/vp").write_text("#!/bin/sh\necho 'env: node: No such file or directory' >&2\nexit 127\n")
+
+        def lock_held_by_another_hook():
+            no_node_modules()
+            (web / "bun.lock").write_text("{}\n")
+            lock.mkdir()
+            (lock / "pid").write_text(f"{os.getpid()}\n")
+            # The holder finishes (without a vp) while this hook waits for it.
+            threading.Timer(1.0, shutil.rmtree, (lock,)).start()
+
+        def no_rustfmt():
+            self.stage_rust_package("Native/OptChat/probe", "2021")
+
+        for case, arrange, says in (
+            ("no node_modules (no vp)", no_node_modules, "vp is unavailable for webviews"),
+            ("vp cannot start", vp_cannot_start, "vp fmt exited 127 in webviews"),
+            ("install lock held", lock_held_by_another_hook, "vp is unavailable for webviews"),
+            ("no rustfmt", no_rustfmt, "rustfmt is unavailable"),
+        ):
+            for agent in ({"CMUX_AGENT": "1"}, {"CLAUDECODE": "1"}, {"CI": "true"}):
+                with self.subTest(case=case, agent=agent):
+                    self.git("rm", "-r", "-q", "--cached", "--ignore-unmatch", "webviews", "Native")
+                    shutil.rmtree(web, ignore_errors=True)
+                    shutil.rmtree(self.repo / "Native", ignore_errors=True)
+                    arrange()
+                    staged = self.git("diff", "--cached", "--name-only").stdout
+                    result = self.run_pre_commit(self.formatter_env(with_rustfmt=False, **agent))
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn(says, result.stderr)
+                    self.assertIn("committing without formatting (CI checks formatting)", result.stderr)
+                    self.assertNotIn("refusing", result.stderr)
+                    self.assertEqual(self.git("diff", "--cached", "--name-only").stdout, staged,
+                                     "the commit keeps exactly what was staged")
+
+    def test_a_bad_staged_file_still_gets_formatted_or_refused(self):
+        """What stays: a staged file vp can format is formatted and restaged for an agent too, and a
+        staged file with unstaged edits still refuses (formatting would stage those edits)."""
+        self.assertEqual(self.install().returncode, 0)
+        vp_log = self.root / "vp.log"
+        web = self.stage_web_file("webviews")
+        env = self.formatter_env(with_rustfmt=False, FAKE_VP_LOG=str(vp_log), CMUX_AGENT="1")
+        result = self.run_pre_commit(env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.git("show", ":webviews/src/app.ts").stdout, "formatted\n")
+        web.write_text("const   x=1\nconst   y=2\n")
+        self.git("add", "webviews/src/app.ts")
+        web.write_text(web.read_text() + "const   z=3\n")
+        result = self.run_pre_commit(env)
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertIn("webviews/src/app.ts has unstaged changes", result.stderr)
+
+    def test_unstaged_rust_files_the_commit_does_not_touch_never_refuse_it(self):
+        """rustfmt ran on file paths and follows `mod` declarations, so any unstaged or untracked .rs
+        file in the package refused the commit. Each staged file is now formatted through stdin."""
+        self.assertEqual(self.install().returncode, 0)
+        source = self.stage_rust_package("Native/OptChat/probe", "2021")
+        tracked = source.parent / "lib.rs"
+        tracked.write_text("pub fn a() {}\n")
+        self.git("add", str(tracked))
+        self.git("-c", "user.name=t", "-c", "user.email=t@t", "-c", "core.hooksPath=/dev/null",
+                 "commit", "-q", "-m", "base")
+        source.write_text("mod other;\nfn   main() {}\n")
+        self.git("add", str(source))
+        tracked.write_text("pub fn   a() {}\n")  # an unstaged edit
+        untracked = source.parent / "other.rs"
+        untracked.write_text("fn   b() {}\n")  # an untracked module the staged file declares
+        result = self.run_pre_commit(self.formatter_env(with_rustfmt=True, CMUX_AGENT="1"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("unstaged Rust edits", result.stderr)
+        self.assertEqual(self.git("show", ":Native/OptChat/probe/src/main.rs").stdout, "mod other;\nfn main() {}\n")
+        self.assertEqual(tracked.read_text(), "pub fn   a() {}\n", "an unstaged file is never rewritten")
+        self.assertEqual(untracked.read_text(), "fn   b() {}\n", "an untracked file is never rewritten")
+
     def fake_rustup(self, bin_dir, installed, pinned):
         rustup = bin_dir / "rustup"
         rustup.write_text(
@@ -786,7 +978,8 @@ mkdir -p node_modules/.bin
         (self.repo / "cmux-tui/rust-toolchain.toml").write_text('[toolchain]\nchannel = "1.95.0"\n')
         env = self.formatter_env(with_rustfmt=True)
         pinned = self.root / "pinned-rustfmt"
-        pinned.write_text(f'#!/bin/sh\nprintf "pinned %s\\n" "$*" >> {shlex.quote(str(self.rustfmt_log))}\n')
+        pinned.write_text(f'#!/bin/sh\nprintf "pinned %s\\n" "$*" >> {shlex.quote(str(self.rustfmt_log))}\n'
+                          f"exec {shlex.quote(shutil.which('sed'))} 's/  */ /g'\n")
         pinned.chmod(0o755)
         self.fake_rustup(self.root / "bin-rustfmt", "1.95.0", pinned)
         result = self.run_pre_commit(env)
@@ -794,7 +987,7 @@ mkdir -p node_modules/.bin
         calls = self.rustfmt_log.read_text().splitlines()
         self.assertEqual(len(calls), 1, calls)
         self.assertTrue(calls[0].startswith("pinned --edition 2021 "), calls)
-        self.assertTrue(calls[0].endswith(str(source.resolve())), calls)
+        self.assertEqual(self.git("show", ":cmux-tui/src/main.rs").stdout, source.read_text())
 
     def test_a_missing_pinned_toolchain_falls_back_to_path_rustfmt_with_a_warning(self):
         # rustfmt keeps a stable style across versions, so formatting with the
@@ -1058,7 +1251,10 @@ mkdir -p node_modules/.bin
         self.git("config", "user.email", "t@example.com")
         result = self.install()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.git("config", "--get", "merge.cmux-generated-v1.driver").stdout.strip(), "true")
+        driver = shlex.split(self.git("config", "--get", "merge.cmux-generated-v1.driver").stdout.strip())
+        self.assertEqual([Path(driver[2]).name, *driver[3:]], ["merge-insertions.py", "--generated", "%O", "%A", "%B",
+                                                               "%P", "%L"])
+        self.assertNotEqual(Path(driver[2]).resolve(), (self.repo / "scripts/merge-insertions.py").resolve())
 
         pane = self.repo / "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html"
         chunk = self.repo / "Resources/markdown-viewer/webviews-app/chunks/vendor.mjs"
@@ -1111,15 +1307,8 @@ mkdir -p node_modules/.bin
             "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/highlight-worker.js",
             "webviews/src/agent-session/acpmux/generated/strings.json",
             "webviews/src/pages/settings/generated/strings.json",
-            # Other checked exports: lanes committed "regenerate after the tip
-            # merge" for these every day.
-            "plans/cmux-next/actions.md",
-            "plans/cmux-next/action-surfaces.json",
-            "schemas/settings/settings-schema.json",
             # The docs reference that follows the schema: 13 conflicts in a week.
             "web/data/next-docs/settings-reference.generated.json",
-            "docs/mdm/com.manaflow.cmux.plist",
-            "Packages/macOS/CmuxNext/ci-target-graph.json",
             "cmux-tui/bindings/go/raw/generated_types.go",
             "cmux-tui/bindings/rust/src/generated/types.rs",
         )]
@@ -1142,6 +1331,95 @@ mkdir -p node_modules/.bin
         for path in outputs:
             self.assertEqual(path.read_text(encoding="utf-8"), "lane build\n", path)
 
+    def test_mac_only_exports_never_keep_one_side(self):
+        """The exports only a Mac rebuilds (settings schema, docs/mdm, the action exports, the CI target graph)
+        kept this branch's copy until 2026-11-22, which dropped base's settings rows on cmux#45928 and cmux#47525
+        with no conflict. Now both sides' rows merge, and two rebuilds of one line stop the merge on that file."""
+        shutil.copyfile(SOURCE / ".gitattributes", self.repo / ".gitattributes")
+        self.git("config", "user.name", "t")
+        self.git("config", "user.email", "t@example.com")
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        exports = [self.repo / path for path in (
+            "plans/cmux-next/actions.md",
+            "schemas/settings/settings-schema.json",
+            "docs/mdm/com.manaflow.cmux.json",
+            "docs/mdm/com.manaflow.cmux.plist",
+            "docs/mdm/managed-preferences.md",
+            "Packages/macOS/CmuxNext/ci-target-graph.json",
+        )]
+        for path in exports:
+            self.assertEqual(self.git("check-attr", "merge", "--", str(path.relative_to(self.repo))).stdout.split()[-1],
+                             "cmux-export-v1", path)
+
+        def rows(*keys):
+            for path in exports:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                if path.suffix == ".json":
+                    body = ",\n".join(f'  "{key}" : 1' for key in keys)
+                    path.write_text("{\n" + body + "\n}\n", encoding="utf-8")
+                elif path.suffix == ".plist":
+                    path.write_text("<dict>\n" + "".join(f"<key>{key}</key><true/>\n" for key in keys) + "</dict>\n",
+                                    encoding="utf-8")
+                else:
+                    path.write_text("# rows\n\n" + "".join(f"- {key}\n" for key in keys) + "\nend\n",
+                                    encoding="utf-8")
+
+        rows("a", "z")
+        self.commit_all("base")
+        self.git("checkout", "--quiet", "-b", "lane")
+        rows("a", "lane", "z")
+        self.commit_all("lane")
+        self.git("checkout", "--quiet", "main")
+        rows("a", "base", "z")
+        self.commit_all("main")
+        self.git("checkout", "--quiet", "lane")
+        merged = self.git("merge", "--no-edit", "main", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        for path in exports:
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("lane", text, path)
+            self.assertIn("base", text, path)  # base's row, which the old driver dropped
+
+        # A real disagreement (both sides rewrote one line) is a conflict on that file, never one side.
+        target = exports[0]
+        target.write_text("lane rewrite\n", encoding="utf-8")
+        self.commit_all("lane rewrite")
+        self.git("checkout", "--quiet", "main")
+        target.write_text("main rewrite\n", encoding="utf-8")
+        self.commit_all("main rewrite")
+        self.git("checkout", "--quiet", "lane")
+        conflicted = self.git("merge", "--no-edit", "main", check=False)
+        self.assertNotEqual(conflicted.returncode, 0)
+        self.assertEqual(self.git("diff", "--name-only", "--diff-filter=U").stdout.split(), ["plans/cmux-next/actions.md"])
+
+    def test_generated_files_keep_both_sides_rows_when_they_merge(self):
+        """A file regenerate rebuilds still merges three-way when that is clean: a merge that stops on a
+        hand-written file never runs the post-merge rebuild, and cmux#47525 committed the kept copies of the
+        settings Swift without base's rows that way (AgentPolicy, PageLayoutCategories)."""
+        shutil.copyfile(SOURCE / ".gitattributes", self.repo / ".gitattributes")
+        self.git("config", "user.name", "t")
+        self.git("config", "user.email", "t@example.com")
+        self.assertEqual(self.install().returncode, 0)
+        swift = self.repo / "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+AgentPolicy.generated.swift"
+        swift.parent.mkdir(parents=True, exist_ok=True)
+
+        def rows(*keys):
+            swift.write_text("let keys = [\n" + "".join(f'    "{key}",\n' for key in keys) + "]\n", encoding="utf-8")
+
+        rows("a", "z")
+        self.commit_all("base")
+        self.git("checkout", "--quiet", "-b", "lane")
+        rows("a", "lane", "z")
+        self.commit_all("lane")
+        self.git("checkout", "--quiet", "main")
+        rows("a", "base", "z")
+        self.commit_all("main")
+        self.git("checkout", "--quiet", "lane")
+        merged = self.git("merge", "--no-edit", "main", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        self.assertEqual(swift.read_text(encoding="utf-8"), 'let keys = [\n    "a",\n    "lane",\n    "base",\n    "z",\n]\n')
+
     def test_kept_generated_files_are_ones_the_ci_merger_rebuilds(self):
         """A kept copy is only safe where a rebuild replaces it: next_batch.py's
         merger rebuilds the web, Swift and SDK classes and blocks any other path
@@ -1161,14 +1439,45 @@ mkdir -p node_modules/.bin
         kept = [path for path, _, value in zip(attributes[0::3], attributes[1::3], attributes[2::3])
                 if value == "cmux-generated-v1"]
         self.assertTrue(kept)
-        self.assertEqual([path for path in kept if next_batch.classify(path) not in {"web", "swift", "sdk"}], [])
+        self.assertEqual([path for path in kept
+                          if next_batch.classify(path) not in {"web", "swift", "sdk", "generated"}], [])
 
     def test_hand_written_sdk_files_still_merge_normally(self):
         shutil.copyfile(SOURCE / ".gitattributes", self.repo / ".gitattributes")
         self.assertEqual(self.install().returncode, 0)
-        for path in ("cmux-tui/bindings/go/raw/client.go", "cmux-tui/bindings/java/src/com/cmux/raw/Client.java"):
+        for path in ("cmux-tui/bindings/go/raw/client.go", "cmux-tui/bindings/java/src/com/cmux/raw/CmuxClient.java"):
             attribute = self.git("check-attr", "merge", "--", path).stdout.strip()
             self.assertTrue(attribute.endswith(": unspecified"), attribute)
+
+    def test_the_merge_driver_section_runs_alone(self):
+        """leo-workspace's wt installs merge drivers into every worktree mirror by running only this
+        section, from its MERGE_DRIVER_DIR= line through its last `git config merge.` or "merge driver
+        installed" line, with GIT_COMMON_DIR and PYTHON3_BIN set and nothing else of the installer. It
+        stopped at an unset TRUSTED_HOOK_DIR (2026-11-16), so those clones merged generated files by line."""
+        lines = (SOURCE / INSTALLER).read_text(encoding="utf-8").splitlines()
+        start = next(i for i, line in enumerate(lines) if line.startswith("MERGE_DRIVER_DIR="))
+        end = max(i for i, line in enumerate(lines) if i >= start and re.match(
+            r'^\s*(git config merge\.|echo "==> .*merge driver installed)', line))
+        section = "\n".join(lines[start:end + 1])
+        mirror = self.root / "mirror.git"
+        git_fixture_env.init_repo(mirror, "--bare", env=self.env)
+        python3 = os.path.realpath(sys.executable)
+        script = f"set -euo pipefail\nGIT_COMMON_DIR={shlex.quote(str(mirror))}\nPYTHON3_BIN={shlex.quote(python3)}\n{section}"
+        env = {key: value for key, value in self.env.items() if key not in ("TRUSTED_HOOK_DIR",)}
+        ran = subprocess.run(["bash", "-c", script], cwd=SOURCE, env={**env, "GIT_DIR": str(mirror)},
+                             text=True, capture_output=True)
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        configured = subprocess.run(["git", "--git-dir", str(mirror), "config", "--get-regexp", r"^merge\..*\.driver$"],
+                                    env=self.env, text=True, capture_output=True, check=True).stdout
+        drivers = dict(line.split(" ", 1) for line in configured.splitlines())
+        attributes = (SOURCE / ".gitattributes").read_text(encoding="utf-8")
+        names = set(re.findall(r"(?:^|\s)merge=([A-Za-z0-9._-]+)", "\n".join(
+            line for line in attributes.splitlines() if not line.lstrip().startswith("#"))))
+        for name in names:
+            self.assertIn(f"merge.{name}.driver", drivers, name)
+            for word in shlex.split(drivers[f"merge.{name}.driver"]):
+                if word.startswith(str(mirror)):
+                    self.assertTrue(Path(word).is_file(), f"merge.{name}.driver runs {word}, which the section did not install")
 
     def test_ratchet_baselines_merge_entry_by_entry(self):
         """Two lanes that each change different baseline entries merge cleanly,
@@ -1747,7 +2056,8 @@ mkdir -p node_modules/.bin
         head = self.commit_all("a commit to push")
         queue = self.root / "queue"
         queue.mkdir()
-        env = dict(self.env, CMUX_PREPUSH_QUEUE_DIR=str(queue), **settings)
+        # Every hook pushes the same head: the pass cache would answer all but the first, and this is about the queue.
+        env = dict(self.env, CMUX_PREPUSH_QUEUE_DIR=str(queue), CMUX_PREPUSH_PASS_CACHE="0", **settings)
         logs = [open(self.root / f"hook-{index}.log", "w+") for index in range(count)]
         for handle in logs:
             self.addCleanup(handle.close)
@@ -1780,6 +2090,85 @@ mkdir -p node_modules/.bin
         times, output = self.queued_hooks(2, CMUX_PREPUSH_SLOTS="1", CMUX_PREPUSH_QUEUE_WAIT_SECONDS="0")
         self.assertEqual(len(times), 2)
         self.assertTrue(all("pre-push: passed" in text for text in output), output)
+
+    # 2026-11-22: 181 of 511 pushes on cosmic-gray in six hours repeated a sha already tried, each judged from scratch.
+    def stub_checks(self, gate_exit=0):
+        """Install, then replace the web lint and the gate with stubs that log their argv; returns (hook, log, head)."""
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        hook_dir = self.common_dir() / "cmux-git-hooks"
+        log = self.root / "checks-run"
+        for name, code in (("web_lint_prepush.py", 0), ("cmux_next_prepush_gate.py", gate_exit)):
+            (hook_dir / name).write_text(
+                "import sys\n"
+                f"open({str(log)!r}, 'a').write({name!r} + ' ' + ' '.join(sys.argv[1:]) + '\\n')\n"
+                f"sys.exit({code})\n")
+        (self.repo / "file").write_text("x\n")
+        return hook_dir / "pre-push", log, self.commit_all("a commit to push")
+
+    def push_hook(self, hook, head, **settings):
+        env = dict(self.env, CMUX_PREPUSH_QUEUE_DIR=str(self.root), **settings)
+        return subprocess.run([str(hook), "origin", "https://example.invalid/x.git"], cwd=self.repo, env=env, text=True,
+                              input=f"refs/heads/topic {head} refs/heads/topic {'0' * 40}\n", capture_output=True,
+                              timeout=120)
+
+    def runs(self, log):
+        return log.read_text().splitlines() if log.exists() else []
+
+    def test_pre_push_judges_the_same_push_once(self):
+        hook, log, head = self.stub_checks()
+        first = self.push_hook(hook, head)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertEqual(len(self.runs(log)), 2, first.stderr)
+        again = self.push_hook(hook, head)
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertEqual(len(self.runs(log)), 2, "a retry of a judged push ran the checks again")
+        self.assertIn("not judged again", again.stderr)
+        self.assertIn("pass-cache", again.stderr)
+        self.assertNotIn("waiting for a turn", again.stderr)
+        # Another head, a changed skip setting, or the cache off: judged.
+        (self.repo / "file").write_text("y\n")
+        other = self.commit_all("another commit")
+        self.assertEqual(self.push_hook(hook, other).returncode, 0)
+        self.assertEqual(len(self.runs(log)), 4)
+        self.assertEqual(self.push_hook(hook, head, CMUX_NEXT_CHECKS_SKIP_REASON="x fails on base").returncode, 0)
+        self.assertEqual(len(self.runs(log)), 6)
+        self.assertEqual(self.push_hook(hook, head, CMUX_PREPUSH_PASS_CACHE="0").returncode, 0)
+        self.assertEqual(len(self.runs(log)), 8)
+
+    def test_pre_push_records_no_refused_push(self):
+        hook, log, head = self.stub_checks(gate_exit=1)
+        self.assertEqual(self.push_hook(hook, head).returncode, 1)
+        self.assertEqual(self.push_hook(hook, head).returncode, 1)
+        self.assertEqual(len(self.runs(log)), 4, "a refused push must be judged again")
+        self.assertFalse(list((self.common_dir() / "cmux-prepush-pass").glob("*")) if
+                         (self.common_dir() / "cmux-prepush-pass").exists() else [])
+
+    def test_pre_push_judges_again_after_the_checks_copy_changes(self):
+        hook, log, head = self.stub_checks()
+        self.assertEqual(self.push_hook(hook, head).returncode, 0)
+        (hook.parent / "cmux_next_prepush_gate.py").write_text(
+            (hook.parent / "cmux_next_prepush_gate.py").read_text() + "# a new gate\n")
+        self.assertEqual(self.push_hook(hook, head).returncode, 0)
+        self.assertEqual(len(self.runs(log)), 4, "a new gate must judge the push again")
+
+    def test_a_loaded_host_leaves_the_ci_layers_to_ci_and_its_pass_answers_only_a_loaded_run(self):
+        hook, log, head = self.stub_checks()
+        loaded = self.push_hook(hook, head, CMUX_PREPUSH_LOAD_FOR_TEST="100000")
+        self.assertEqual(loaded.returncode, 0, loaded.stderr)
+        gate_runs = [line for line in self.runs(log) if line.startswith("cmux_next_prepush_gate.py")]
+        self.assertEqual(len(gate_runs), 1)
+        self.assertIn("--defer-ci-layers", gate_runs[0])
+        self.assertEqual(self.push_hook(hook, head, CMUX_PREPUSH_LOAD_FOR_TEST="100000").returncode, 0)
+        self.assertEqual(len(self.runs(log)), 2, "a loaded retry of a loaded pass ran the checks again")
+        idle = self.push_hook(hook, head, CMUX_PREPUSH_LOAD_FOR_TEST="0")
+        self.assertEqual(idle.returncode, 0, idle.stderr)
+        gate_runs = [line for line in self.runs(log) if line.startswith("cmux_next_prepush_gate.py")]
+        self.assertEqual(len(gate_runs), 2, "an idle run must run the layers the loaded pass left to CI")
+        self.assertNotIn("--defer-ci-layers", gate_runs[1])
+        # The idle run's full pass answers a loaded run too.
+        self.assertEqual(self.push_hook(hook, head, CMUX_PREPUSH_LOAD_FOR_TEST="100000").returncode, 0)
+        self.assertEqual(len(self.runs(log)), 4)
 
     def test_pre_push_refreshes_a_stale_checks_copy_from_the_fetched_feat_cmux_next(self):
         _old, new = self.stale_install()
@@ -2505,9 +2894,16 @@ ASSIGNMENT = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)(\[[^]]*\])?\+?=(.*)", re.S)
 RESOLVED = re.compile(r'"\$\(resolve_tool [^()`|;&]+?(?: \|\| true)?\)"')
 COPY = re.compile(r'"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?"')
 VARIABLE_WORD = re.compile(r'"?\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?"?')
-# The resolver's own interpreter: the absolute path the installer wrote beside the
-# hook, read once, then checked by the resolver's boot step.
+# The resolver's own interpreter: the one hook_python_pick (scripts/git-hooks/hook_python.sh, the reviewed copy
+# beside the hook) picked on this host, then checked by the resolver's boot step. The picker never runs a candidate
+# that resolves into the checkout or the git dir (tests/test_hook_python.py).
 RESOLVER_INTERPRETER = "PYTHON3_BIN"
+PICKED_INTERPRETER = '"$HOOK_PYTHON"'
+# The one file the hook may source: the installed picker beside it. Its own commands are held to PICKER_COMMANDS.
+PICKER_SOURCE = '"$HOOK_DIR/hook_python.sh"'
+PICKER = SOURCE / "scripts/git-hooks/hook_python.sh"
+# What the picker runs besides builtins: two system tools by absolute path, and the candidate it probes.
+PICKER_COMMANDS = frozenset(("/bin/realpath", "/usr/bin/xcode-select", '"$real"'))
 # Commands that run their argument as a program; env's comes after its options.
 EXEC_WRAPPERS = {"TOOL_ENV"}
 # Unresolved commands the detector lets through. Keep it empty.
@@ -2765,8 +3161,11 @@ class BashCommands:
     def violations(self):
         """Every command that is neither a builtin, a function here, nor a resolved tool."""
         resolved = self.resolved_variables()
-        if self.assignments.get(RESOLVER_INTERPRETER) == ["<read>"]:
-            resolved.add(RESOLVER_INTERPRETER)
+        functions = set(self.functions)
+        if self.sources_picker():
+            functions |= BashCommands(PICKER.read_text(encoding="utf-8")).functions
+            if self.assignments.get(RESOLVER_INTERPRETER) == [PICKED_INTERPRETER] and "hook_python_pick" in functions:
+                resolved.add(RESOLVER_INTERPRETER)
 
         def is_resolved(variable):
             # TOOL_* variables are written only by the resolver's boot loader:
@@ -2780,8 +3179,10 @@ class BashCommands:
             if not any(c in word for c in "$\"'`\\"):
                 if word in ("command", "builtin") and len(words) > 1 and words[1] not in ("-v", "-V"):
                     check(line, words[1:])
-                elif word in SHELL_BUILTINS or word in self.functions:
+                elif word in SHELL_BUILTINS or word in functions:
                     pass
+                elif words == ["source", PICKER_SOURCE]:
+                    pass  # the reviewed picker beside the hook; its commands: test_the_picker_runs_only_...
                 elif word not in UNRESOLVED_ALLOWLIST:
                     found.append((line, word))
                 return
@@ -2800,6 +3201,9 @@ class BashCommands:
             check(line, words)
         return found
 
+    def sources_picker(self):
+        return any(words == ["source", PICKER_SOURCE] for _, words in self.commands)
+
 
 class PreCommitToolResolutionDetectorTests(unittest.TestCase):
     HOOK = SOURCE / "scripts/git-hooks/pre-commit"
@@ -2815,8 +3219,33 @@ class PreCommitToolResolutionDetectorTests(unittest.TestCase):
         hook = BashCommands(source)
         self.assertEqual(hook.dynamic_assignments, [["printf", "-v", '"$name"', "'%s'", '"$value"']])
         self.assertIn("tool) [[ \"$name\" =~ ^TOOL_[A-Z0-9_]+$ ]] && printf -v", source)
-        self.assertEqual(hook.assignments.get(RESOLVER_INTERPRETER), ["<read>"])
-        self.assertIn('IFS= read -r PYTHON3_BIN < "$PYTHON_PATH_FILE"', source)
+        # The interpreter is the picker's choice, assigned once, never read from the recorded path directly.
+        self.assertEqual(hook.assignments.get(RESOLVER_INTERPRETER), [PICKED_INTERPRETER])
+        self.assertTrue(hook.sources_picker())
+        self.assertIn('hook_python_pick 0 "$RECORDED_PYTHON" "$(pwd -P)" "${HOOK_DIR%/*}"', source)
+        self.assertNotIn("read -r PYTHON3_BIN", source)
+
+    def test_the_picker_runs_only_builtins_two_system_tools_and_the_candidate_it_probes(self):
+        # The hook sources it before any tool is resolved, so it may look nothing up on PATH.
+        picker = BashCommands(PICKER.read_text(encoding="utf-8"))
+        unlisted = [(line, words[0]) for line, words in picker.commands
+                    if words[0] not in SHELL_BUILTINS and words[0] not in picker.functions
+                    and words[0] not in PICKER_COMMANDS]
+        self.assertEqual(unlisted, [])
+        self.assertEqual(picker.functions, {"hook_python_pick"})
+
+    def test_the_detector_refuses_an_interpreter_that_is_not_the_picks(self):
+        # Without the picker sourced, or with PYTHON3_BIN from anywhere else, the interpreter is unresolved.
+        cases = (
+            'PYTHON3_BIN="$HOOK_PYTHON"\n"$PYTHON3_BIN" -I x.py\n',
+            f'source {PICKER_SOURCE}\nhook_python_pick 0 ""\nPYTHON3_BIN=/tmp/python3\n"$PYTHON3_BIN" -I x.py\n',
+            'source ./hook_python.sh\nPYTHON3_BIN="$HOOK_PYTHON"\n"$PYTHON3_BIN" -I x.py\n',
+        )
+        for script in cases:
+            with self.subTest(script=script):
+                self.assertIn('"$PYTHON3_BIN"', self.violations(script))
+        self.assertEqual(self.violations(f'source {PICKER_SOURCE}\nhook_python_pick 0 ""\n'
+                                         'PYTHON3_BIN="$HOOK_PYTHON"\n"$PYTHON3_BIN" -I x.py\n'), [])
 
     # The hook defines resolve_tool; a fixture script gets a stand-in.
     def violations(self, script):

@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesignTokens
 public import QuartzCore
 
 /// The window's one + button: the tab bar's New Tab + is the standard every add control draws (Lawrence 2026-11-15:
@@ -64,6 +65,12 @@ public final class PlusButtonLook {
         didSet { if oldValue != segment { host?.needsLayout = true; refresh(animated: false) } }
     }
     /// A ⌄ after the + in the same control (the tab bar's + when a press opens its menu).
+    /// A + in a tab bar (the New Tab +, beside the tabs and the pane's ⋮): its fill rounds as a tab pill
+    /// (``Metrics/tabBarControlCornerRadius(fitting:)``, Lawrence 2026-11-20). Off (the sidebar's and Home's +), it
+    /// keeps the proportional corner on its own side, so a small + never rounds into a circle at a large density.
+    public var roundsAsTabBarControl = false {
+        didSet { if oldValue != roundsAsTabBarControl { host?.needsLayout = true } }
+    }
     public var showsChevron = false {
         didSet { if oldValue != showsChevron { host?.needsLayout = true } }
     }
@@ -97,7 +104,8 @@ public final class PlusButtonLook {
     public func layout(in bounds: CGRect, scale: CGFloat) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        let geometry = Self.geometry(in: bounds, segment: segment, hoverStyle: hoverStyle, showsChevron: showsChevron, scale: scale)
+        let geometry = Self.geometry(in: bounds, segment: segment, hoverStyle: hoverStyle, showsChevron: showsChevron,
+                                     roundsAsTabBarControl: roundsAsTabBarControl, scale: scale)
         fillLayer.frame = geometry.fill
         fillLayer.cornerRadius = geometry.cornerRadius
         fillLayer.cornerCurve = Metrics.tabCornerCurve
@@ -133,7 +141,11 @@ public final class PlusButtonLook {
             fillLayer.backgroundColor = Self.fill(state, hoverStyle: hoverStyle, segment: segment)?.cgColor
             // A held + keeps its hover ink; only the fill changes (design/pressed-state.md, Lawrence 2026-11-15). An open
             // menu is an "on" state and lights the ink.
-            glyphLayer.strokeColor = (inkOverride ?? Self.ink(state)).cgColor
+            // On a popover's glass the secondary and primary inks are fit to the glass over any page.
+            let onGlass = state.menuOpen ? nil
+                : host?.glassInk(state.hovering || state.pressed ? \.textPrimary : \.textSecondary,
+                                 minimum: CmuxDialogButtonLook.minimumContrast)
+            glyphLayer.strokeColor = (inkOverride ?? onGlass ?? Self.ink(state)).cgColor
             glyphLayer.lineWidth = Metrics.addGlyphLineWidth
         }
         motion.transaction(token) {
@@ -152,16 +164,22 @@ public final class PlusButtonLook {
     }
 
     /// The fill's frame, its corner and the glyph's center for a host of `bounds`. A lone + fills a square centered
-    /// in its frame (a circle in the circle look); the split's leading segment fills its whole frame (a tab's band);
-    /// a + with its own ⌄ fills its frame less a `space1` margin each side.
+    /// in its frame (a circle in the circle look); the split's leading segment fills its whole frame (the pane ⋮'s
+    /// square, ``Metrics/tabBarControlSide``); a + with its own ⌄ fills its frame less a `space1` margin each side.
+    /// With `roundsAsTabBarControl` (a tab bar's +) every fill rounds as a tab pill; else by the tabs' ratio on its side.
     public static func geometry(in bounds: CGRect, segment: Segment, hoverStyle: ChromeHoverStyle,
-                                showsChevron: Bool, scale: CGFloat) -> Geometry {
+                                showsChevron: Bool, roundsAsTabBarControl: Bool = false, scale: CGFloat) -> Geometry {
         let side = min(bounds.width, bounds.height)
         let square = CGRect(x: bounds.minX + (bounds.width - side) / 2, y: bounds.minY + (bounds.height - side) / 2, width: side, height: side)
         let split = segment == .leading && !showsChevron
         let fill = split ? bounds : showsChevron ? bounds.insetBy(dx: Metrics.space1, dy: (bounds.height - side) / 2) : square
-        let corner = split ? Metrics.tabCornerRadius
-            : hoverStyle == .circle && !showsChevron ? side / 2 : Metrics.tabCornerRadius // radius-allow: the opt-in circle hover look
+        // A tab bar's + rounds as a tab pill, at most half its short side (Lawrence 2026-11-20: "roundness of this
+        // button needs to always be same as roundness of tabs"), its ⌄ too (`splitCornerRadius`). Any other + rounds
+        // by its own short side at the tabs' ratio (Lucas 2026-11-15: one shape at every density).
+        let corner = hoverStyle == .circle && !showsChevron && !split ? side / 2 // radius-allow: the opt-in circle hover look
+            : roundsAsTabBarControl ? Metrics.tabBarControlCornerRadius(fitting: fill.size)
+            : split ? Metrics.buttonCornerRadius(proportionalTo: Metrics.tabBarControlSide)
+            : Metrics.buttonCornerRadius(proportionalTo: min(fill.width, fill.height))
         let corners: CACornerMask = split ? [.layerMinXMinYCorner, .layerMinXMaxYCorner] : allCorners
         // In the split look the + leans half a step toward its ⌄, which leans back, so the pair reads as one control.
         let lean = split ? Metrics.space1 / 2 : 0
@@ -170,6 +188,10 @@ public final class PlusButtonLook {
                              y: (square.midY * scale).rounded() / scale)
         return Geometry(fill: fill, cornerRadius: corner, corners: corners, glyphCenter: center)
     }
+
+    /// A tab bar's split control's corner, on the + and on its ⌄ alike: a tab pill's, on the control's square
+    /// (``Metrics/tabBarControlCornerRadius(fitting:)``), so the `+ ⌄` rounds as the tabs and the ⋮ beside it.
+    public static var splitCornerRadius: CGFloat { Metrics.tabBarControlCornerRadius() }
 
     /// The fill for `state`: the hover fill under the pointer, the pressed fill while held, half the hover fill on a
     /// split segment while its sibling is hovered, else none. The glyph look never fills. Call inside a theme scope.

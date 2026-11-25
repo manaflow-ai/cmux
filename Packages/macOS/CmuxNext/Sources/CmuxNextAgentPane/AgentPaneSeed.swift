@@ -32,6 +32,8 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
     /// The permission mode a new Cloud chat starts in (the person's pick in the composer before its
     /// first send); nil: the machine's own start mode. Only the caller's own Cloud VM applies it.
     public var mode: String?
+    /// The effort a new chat starts on with ``model`` (a Cloud start's picker); nil keeps the default.
+    public var effort: String?
     /// The requested destination for a new chat. The native handler consumes this before the
     /// page opens; retaining it in the seed keeps a destination-bearing seed from being treated
     /// as a folder-only New Tab replacement.
@@ -51,6 +53,8 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
     /// `/cd --on cloud`; webviews commandPlace.ts), for the new page to find what it handed over.
     /// Handed out once, with ``picksCloud``.
     public var cloudStartHandoff: String?
+    /// The Auto Cloud start whose arrival line belongs to this seeded chat.
+    public var autoCloudStartKey: String?
     /// A Sandboxed send that already ended, shown by this new page as its own (a Run notification's
     /// click, ``AgentPaneSandboxRuns``).
     public var sandboxResult: SandboxResult?
@@ -123,11 +127,14 @@ public final class AgentPaneSeedSource {
     public var workspaceContext = false
     /// A Sandboxed send that already ended, shown by this new page (``AgentPaneSeed/sandboxResult``).
     public var sandboxResult: AgentPaneSeed.SandboxResult?
+    /// This new page is a Mac tab's own again after the Cloud chat it showed in place went: it says so
+    /// (``AgentPaneView/showCloudChatEnded(machine:promptBack:)``, cmux#55066), naming the machine.
+    public var cloudChatEnded: (machine: String?, promptBack: Bool)?
     /// Runs once, when ``take()`` hands the page the seed's draft (not when the source is made: a host
     /// that fails before its handshake never takes it).
     public var onDraftTaken: (() -> Void)?
 
-    /// The draft a hand-off gives later (``handingOffDraft(_:now:)``): ``take()`` waits for it.
+    /// The draft a hand-off gives later (``handingOffDraft(_:now:queued:)``): ``take()`` waits for it.
     private var lateDraft: AgentPaneLateDraft?
 
     /// A seed whose draft is known only at a hand-off still to come: a Cloud start's chat, whose sending
@@ -138,11 +145,23 @@ public final class AgentPaneSeedSource {
     /// the start hands off on every way out (``CloudStartChat`` `openUploaded` gives in a `defer`).
     /// ``peek()`` never waits. `give(true)` hands off the sending tab's text as `now` reads it then;
     /// `give(false)` (the start failed) hands off none. The first call counts.
-    public static func handingOffDraft(_ seed: AgentPaneSeed, now: @escaping @MainActor () -> String?)
+    ///
+    /// `queued`: what the person sent with Return while the start was out (``AgentUnsentDrafts/queued(forTab:machine:)``,
+    /// Leo 2026-11-25 "or just go"). It joins the seed's own prompt, after it, so it goes as the chat's first
+    /// message under the prompt's one gesture ticket, with no second wait.
+    public static func handingOffDraft(_ seed: AgentPaneSeed, now: @escaping @MainActor () -> String?,
+                                       queued: @escaping @MainActor () -> String? = { nil })
         -> (source: AgentPaneSeedSource, give: @MainActor (_ handedOff: Bool) -> Void) {
         let source = AgentPaneSeedSource(seed), handOff = AgentPaneLateDraft()
         source.lateDraft = handOff
-        return (source, { handOff.give($0 ? now() : nil) })
+        return (source, { handOff.give($0 ? AgentPaneLateDraft.Given(draft: now(), queued: queued()) : nil) })
+    }
+
+    /// The seed's prompt with what was queued after it: one blank line between, as two paragraphs.
+    static func prompt(_ prompt: String?, queued: String?) -> String? {
+        guard let queued = queued?.trimmingCharacters(in: .whitespacesAndNewlines), !queued.isEmpty else { return prompt }
+        guard let prompt, !prompt.isEmpty else { return queued }
+        return prompt + "\n\n" + queued
     }
 
     public init(limit: Duration = .seconds(1), _ read: @escaping @MainActor @Sendable () async -> AgentPaneSeed?) {
@@ -157,7 +176,7 @@ public final class AgentPaneSeedSource {
         guard let value else { return true }
         return value.draft == nil && value.prompt == nil && (value.promptAttachments?.isEmpty ?? true)
             && value.adopt == nil && value.surface == nil
-            && value.harness == nil && value.model == nil && value.mode == nil && value.host == nil && value.folderNeeded == nil && value.pastChat == nil && !value.showsHarnesses
+            && value.harness == nil && value.model == nil && value.mode == nil && value.effort == nil && value.host == nil && value.folderNeeded == nil && value.pastChat == nil && !value.showsHarnesses
             && !value.picksCloud && value.cloudStartHandoff == nil
     }
 
@@ -204,7 +223,12 @@ public final class AgentPaneSeedSource {
         }
         if let late = lateDraft {
             lateDraft = nil
-            if let draft = await late.value(), !draft.isEmpty { value?.draft = draft }
+            let given = await late.value()
+            if let draft = given?.draft, !draft.isEmpty { value?.draft = draft }
+            if value?.prompt?.isEmpty == false || value?.promptAttachments?.isEmpty == false {
+                let prompt = value?.prompt
+                value?.prompt = Self.prompt(prompt, queued: given?.queued)
+            }
         }
         let seed = value
         if seed?.draft != nil, let taken = onDraftTaken {
@@ -217,6 +241,7 @@ public final class AgentPaneSeedSource {
         value?.showsHarnesses = false
         value?.picksCloud = false
         value?.cloudStartHandoff = nil
+        value?.autoCloudStartKey = nil
         // A missing folder is taken once; Choose Folder changes or clears it (cx-nn3e.1).
         if let needed = value?.folderNeeded {
             folderNeeded = needed
@@ -270,13 +295,15 @@ extension AgentPaneSeedSource {
     }
 }
 
-/// A value given once, later, to whoever waits for it (``AgentPaneSeedSource/handingOffDraft(_:now:)``).
+/// A value given once, later, to whoever waits for it (``AgentPaneSeedSource/handingOffDraft(_:now:queued:)``).
 @MainActor
 final class AgentPaneLateDraft {
-    private var given: String??
-    private var waiting: [CheckedContinuation<String?, Never>] = []
+    /// The sending tab's text at the hand-off, and what Return queued there.
+    struct Given { var draft: String?; var queued: String? }
+    private var given: Given??
+    private var waiting: [CheckedContinuation<Given?, Never>] = []
 
-    func give(_ value: String?) {
+    func give(_ value: Given?) {
         guard given == nil else { return }
         given = .some(value)
         let resumed = waiting
@@ -284,7 +311,7 @@ final class AgentPaneLateDraft {
         for continuation in resumed { continuation.resume(returning: value) }
     }
 
-    func value() async -> String? {
+    func value() async -> Given? {
         if let given { return given }
         return await withCheckedContinuation { waiting.append($0) }
     }

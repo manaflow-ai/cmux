@@ -65,6 +65,26 @@ struct RelayState {
     circuits: HashMap<CircuitId, Circuit>,
     attachments: HashMap<ConnectionId, Attachment>,
     slot_usage: HashMap<String, SlotUsage>,
+    /// Slots whose daemon's registration ended because its ticket ran out while the daemon was
+    /// still answering (it kept pinging, and no renewal came): the daemon's relay credential is
+    /// unavailable, usually its ticket mint is down. Kept, with when it lapsed, until the slot
+    /// registers again or [`LAPSE_REMEMBERED`] passes, so a Connect to the slot says why it is
+    /// offline instead of a bare `slot-offline` (design `remote-cloud-durability.md`, F2).
+    lapsed: HashMap<String, Instant>,
+}
+
+/// How long a slot's lapsed registration is remembered (see [`RelayState::lapsed`]).
+const LAPSE_REMEMBERED: Duration = Duration::from_secs(60 * 60);
+
+/// The Connect refusal for a slot whose daemon's ticket ran out with no renewal. Retryable: the
+/// daemon registers again on its own once its mint answers. The code is the offline reason a
+/// client's link reports (`credential-unavailable`, with the action Reconnect).
+fn credential_unavailable() -> RelayError {
+    RelayError::policy(
+        "credential-unavailable",
+        "the machine's relay ticket expired and was not renewed",
+        true,
+    )
 }
 
 #[derive(Default)]
@@ -81,6 +101,14 @@ struct ControlRegistration {
     deadline: Instant,
     provider_expiry: Option<Instant>,
     provider_expires_at_unix: Option<u64>,
+}
+
+impl ControlRegistration {
+    /// Whether this registration ends (at `deadline`) because its ticket runs out, not because
+    /// the daemon went silent: the ticket's expiry came before the lease its last ping renewed.
+    fn ends_with_its_ticket(&self) -> bool {
+        self.provider_expiry.is_some_and(|expiry| expiry <= self.deadline)
+    }
 }
 
 struct Circuit {
@@ -706,6 +734,7 @@ impl Relay {
                 }
                 usage.control_sockets += 1;
             }
+            state.lapsed.remove(&slot);
             state.controls.insert(
                 slot.clone(),
                 ControlRegistration {
@@ -786,11 +815,19 @@ impl Relay {
 
         let (circuit, daemon, client_join_ticket, daemon_join_ticket) = {
             let mut state = self.inner.state.lock().await;
-            let Some((daemon, control_deadline, daemon_expires_at_unix)) =
+            let Some((daemon, control_deadline, daemon_expires_at_unix, ticket_ran_out)) =
                 state.controls.get(&slot).map(|control| {
-                    (control.peer.clone(), control.deadline, control.provider_expires_at_unix)
+                    (
+                        control.peer.clone(),
+                        control.deadline,
+                        control.provider_expires_at_unix,
+                        control.ends_with_its_ticket(),
+                    )
                 })
             else {
+                if state.lapsed.contains_key(&slot) {
+                    return Err(credential_unavailable());
+                }
                 return Err(RelayError::policy(
                     "slot-offline",
                     "no daemon is registered for the requested slot",
@@ -799,6 +836,9 @@ impl Relay {
             };
             let now = Instant::now();
             if control_deadline <= now {
+                if ticket_ran_out {
+                    return Err(credential_unavailable());
+                }
                 return Err(RelayError::policy(
                     "slot-offline",
                     "daemon registration lease has expired",
@@ -1119,8 +1159,16 @@ impl Relay {
             match attachment {
                 Attachment::Control { slot } => {
                     if state.controls.get(&slot).is_some_and(|control| control.peer.id == peer_id) {
-                        state.controls.remove(&slot);
+                        // A daemon that closes its socket once its ticket ran out, before the
+                        // sweep saw it, lapsed all the same.
+                        let lapsed = state.controls.remove(&slot).is_some_and(|control| {
+                            control.ends_with_its_ticket() && control.deadline <= Instant::now()
+                        });
                         release_control_socket(&mut state, &slot);
+                        if lapsed {
+                            let max_slots = self.inner.config.max_slots;
+                            remember_lapse(&mut state, slot.clone(), Instant::now(), max_slots);
+                        }
                     }
                     let pending = state
                         .circuits
@@ -1174,9 +1222,13 @@ impl Relay {
                 if let Some(control) = state.controls.remove(&slot) {
                     state.attachments.remove(&control.peer.id);
                     release_control_socket(&mut state, &slot);
+                    if control.ends_with_its_ticket() {
+                        remember_lapse(&mut state, slot, now, self.inner.config.max_slots);
+                    }
                     expired_controls.push(control.peer);
                 }
             }
+            state.lapsed.retain(|_, at| now.saturating_duration_since(*at) < LAPSE_REMEMBERED);
 
             let circuit_ids = state
                 .circuits
@@ -1354,6 +1406,7 @@ fn join_claims(
         generation: Some(generation),
         issued_at_unix: validity.0,
         expires_at_unix: validity.1,
+        grant: None,
     }
 }
 
@@ -1434,6 +1487,19 @@ fn admit_slot_allocation(
         ));
     }
     Ok(())
+}
+
+/// Records that `slot`'s registration lapsed at `now` ([`RelayState::lapsed`]), holding at most
+/// `max_slots` such records: the oldest goes first.
+fn remember_lapse(state: &mut RelayState, slot: String, now: Instant, max_slots: usize) {
+    if !state.lapsed.contains_key(&slot)
+        && state.lapsed.len() >= max_slots.max(1)
+        && let Some(oldest) =
+            state.lapsed.iter().min_by_key(|(_, at)| **at).map(|(slot, _)| slot.clone())
+    {
+        state.lapsed.remove(&oldest);
+    }
+    state.lapsed.insert(slot, now);
 }
 
 fn release_control_socket(state: &mut RelayState, slot: &str) {
@@ -1673,6 +1739,8 @@ mod tests {
                 lane: LaneToken(lane.into()),
                 generation,
                 accepts_parked: false,
+                grant: None,
+                inline: false,
             },
         )
         .await;
@@ -1721,6 +1789,7 @@ mod tests {
                 generation,
                 issued_at_unix,
                 expires_at_unix,
+                grant: None,
             })
             .unwrap()
     }
@@ -1754,6 +1823,8 @@ mod tests {
                 lane: LaneToken("interactive".into()),
                 generation: 7,
                 accepts_parked: false,
+                grant: None,
+                inline: false,
             },
         )
         .await;
@@ -2017,6 +2088,8 @@ mod tests {
                 lane: lane.clone(),
                 generation,
                 accepts_parked: false,
+                grant: None,
+                inline: false,
             },
         )
         .await;
@@ -2217,6 +2290,8 @@ mod tests {
                 lane: LaneToken("bulk".into()),
                 generation: 1,
                 accepts_parked: false,
+                grant: None,
+                inline: false,
             },
         )
         .await;
@@ -2247,6 +2322,8 @@ mod tests {
                 lane: LaneToken("bulk".into()),
                 generation: 1,
                 accepts_parked: false,
+                grant: None,
+                inline: false,
             },
         )
         .await;
@@ -2278,6 +2355,8 @@ mod tests {
                 lane: LaneToken("bulk".into()),
                 generation: 1,
                 accepts_parked: false,
+                grant: None,
+                inline: false,
             },
         )
         .await;
@@ -2302,5 +2381,107 @@ mod tests {
             receive_control(&mut daemon).await,
             RelayControl::Error { code, retryable: true, .. } if code == "control-idle-timeout"
         ));
+    }
+
+    /// A Connect to `slot-a` with a fresh Connect ticket: what the relay answers first.
+    async fn connect_answer(server: &TestServer, config: &RelayConfig) -> RelayControl {
+        let lane = LaneToken("interactive".into());
+        let ticket = provider_ticket(config, RelayPermission::Connect, Some(lane.clone()), Some(1));
+        let mut client = server.connect().await;
+        send_control(
+            &mut client,
+            RelayControl::Connect {
+                protocol: REMOTE_PROTOCOL_VERSION,
+                slot: "slot-a".into(),
+                ticket,
+                lane,
+                generation: 1,
+                accepts_parked: false,
+                grant: None,
+                inline: false,
+            },
+        )
+        .await;
+        receive_control(&mut client).await
+    }
+
+    async fn register(server: &TestServer, ticket: String) -> TestSocket {
+        let mut daemon = server.connect().await;
+        send_control(
+            &mut daemon,
+            RelayControl::Register {
+                protocol: REMOTE_PROTOCOL_VERSION,
+                slot: "slot-a".into(),
+                ticket,
+            },
+        )
+        .await;
+        assert!(matches!(receive_control(&mut daemon).await, RelayControl::Registered { .. }));
+        daemon
+    }
+
+    fn code_of(answer: &RelayControl) -> (&str, bool) {
+        match answer {
+            RelayControl::Error { code, retryable, .. } => (code.as_str(), *retryable),
+            other => panic!("expected a relay error, got {other:?}"),
+        }
+    }
+
+    /// F2 (cmuxterm-hq `docs/design/remote-cloud-durability.md`): a daemon whose Register ticket
+    /// runs out while it still answers (no renewal came: its ticket mint is down) leaves its slot
+    /// saying why. A Connect reads `credential-unavailable`, retryable, not a bare `slot-offline`
+    /// that a client shows as still connecting; the slot's next Register clears it.
+    #[tokio::test]
+    async fn a_ticket_that_ran_out_unrenewed_answers_connect_with_credential_unavailable() {
+        let config = RelayConfig {
+            ticket_secret: Some(vec![9; 32]),
+            ticket_issuer: "relay.test".into(),
+            ..RelayConfig::default()
+        };
+        let server = TestServer::start(config.clone()).await;
+        assert_eq!(code_of(&connect_answer(&server, &config).await), ("slot-offline", true));
+
+        let expires = unix_timestamp(SystemTime::now()).unwrap() + 1;
+        let _daemon = register(
+            &server,
+            provider_ticket_expiring_at(&config, RelayPermission::Register, None, None, expires),
+        )
+        .await;
+        tokio::time::sleep(Duration::from_millis(2_100)).await;
+        // Before the sweep, the expired registration already says why.
+        assert_eq!(
+            code_of(&connect_answer(&server, &config).await),
+            ("credential-unavailable", true)
+        );
+        server.relay.cleanup_expired(Instant::now()).await;
+        assert_eq!(
+            code_of(&connect_answer(&server, &config).await),
+            ("credential-unavailable", true)
+        );
+
+        let _renewed =
+            register(&server, provider_ticket(&config, RelayPermission::Register, None, None))
+                .await;
+        assert!(matches!(connect_answer(&server, &config).await, RelayControl::Allocated { .. }));
+    }
+
+    /// A daemon that went silent (its lease ran out before its ticket) is plainly offline: the
+    /// relay cannot tell a dead machine from a dead link, so it names no credential.
+    #[tokio::test]
+    async fn a_silent_daemon_whose_lease_ran_out_is_slot_offline() {
+        let config = RelayConfig {
+            ticket_secret: Some(vec![9; 32]),
+            ticket_issuer: "relay.test".into(),
+            lease_duration: Duration::from_secs(1),
+            ..RelayConfig::default()
+        };
+        let server = TestServer::start(config.clone()).await;
+        let _daemon =
+            register(&server, provider_ticket(&config, RelayPermission::Register, None, None))
+                .await;
+        tokio::time::sleep(Duration::from_millis(1_200)).await;
+        assert_eq!(code_of(&connect_answer(&server, &config).await), ("slot-offline", true));
+        server.relay.cleanup_expired(Instant::now()).await;
+        assert_eq!(code_of(&connect_answer(&server, &config).await), ("slot-offline", true));
     }
 }

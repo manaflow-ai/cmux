@@ -3,7 +3,7 @@ import Foundation
 /// Strings of the page menu's link, image and selection rows (BrowserHits.xcstrings).
 enum BrowserHitStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "BrowserHits", bundle: .module)
+        String(localized: key, defaultValue: value, table: "BrowserHits", bundle: .module.inAppLanguage)
     }
 
     /// Search Google for “…” (the omnibar's engine).
@@ -46,6 +46,10 @@ enum BrowserHitStrings {
     static var downloadFailedShort: String { t("browserHits.downloads.failed", "Failed") }
     static var downloadCancelled: String { t("browserHits.downloads.cancelled", "Cancelled") }
     static var downloadBlockedShort: String { t("browserHits.downloads.blocked", "Blocked") }
+    /// A `browser.download.*` row run on a download that offers no such row now (a running file has nothing to open).
+    static var downloadUnavailable: String { t("browserHits.downloads.unavailable", "This download can't do that now.") }
+    /// `browser.goToHistoryEntry` with an offset the tab's back/forward list does not have.
+    static var historyNoEntry: String { t("browserHits.history.noEntry", "This tab has no such page in its back or forward list.") }
 
     /// The blocked-download notice's button: the site's Site settings.
     static var siteSettings: String { t("browserHits.download.siteSettings", "Site Settings…") }

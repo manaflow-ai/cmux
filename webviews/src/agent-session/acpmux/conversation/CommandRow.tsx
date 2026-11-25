@@ -1,16 +1,7 @@
-// One command in a "Ran N commands" group: the terminal glyph and what the command did, "Searched
-// memory for “x”" (commandActions.ts; Leo, 2026-11-07: "you ran a specific thing"), read off the
-// command itself. A command the table does not know reads as Claude Code's Bash description when it
-// has one, else "Ran <command>" with the command in mono (Lucas, 2026-11-06: the command, as Codex
-// draws it), cut to the row without the setup it starts with (`export PATH=…;`, a leading
-// `cd <folder> &&`, which its Shell block names) and the plumbing after it (`2>/dev/null | head`),
-// then its exit status and run time (the check and time on hover only),
-// opening to its Shell block. A command that went on in the background shows how it stands there
-// instead (BackgroundMark.tsx), and its time once it ends; while it serves a page, the page's chip
-// (PreviewChip.tsx).
+// A command row names the work and opens to the full shell input, output and exit status.
 import { useToolRowCount } from "./toolRowCount";
 import { useFindReveal } from "./chatFind";
-import { memo, useId, useMemo, useState } from "react";
+import { memo, useId, useMemo, useState, useContext } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { commandFolder } from "./commandFolder";
@@ -18,12 +9,16 @@ import { menuPartRef } from "./menuParts";
 import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
 import { PreviewChip } from "./PreviewChip";
+import { RunningTime } from "./RunningTime";
 import { RunElsewhereBelow, RunElsewhereChip } from "./RunElsewhere";
 import { inBackground } from "./runElsewhereModel";
 import { ReactionMark } from "./ReactionMark";
 import { ApprovedMark } from "./ApprovedMark";
 import { RowShimmer } from "./ShimmerText";
-import { ChevronRight, TerminalSquare } from "./icons";
+import { TerminalSquare, OpenBook } from "./icons";
+import { ReadLabel } from "./ReadLabel";
+import { readFullPath, readPath } from "./readPath";
+import { SessionCwdContext } from "../turnChanges/sessionRows";
 import { isRunning, toolDuration } from "./toolGroups";
 import { useRowDisclosure } from "./transcriptDisclosureModel";
 import { commandLine, commandLook, commandSaid } from "./commandActions";
@@ -33,6 +28,7 @@ import { ToolLabel } from "./ToolVerb";
 import { leadingVerb } from "./toolVerbModel";
 import { InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 import { failureWord, useInStep } from "./toolFailureCauseModel";
+import { DisclosureChevron } from "./DisclosureChevron";
 
 // direct.ts replaces only the changed item. Keep every expanded sibling out of that stream's
 // render/output work; the row's own disclosure, Find and language subscriptions still update it.
@@ -65,7 +61,8 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
   const failure = useMemo(() => (failed ? toolFailure(tool) : undefined), [failed, tool]);
   // Claude Code says its exit code only in the output ("Exit code 1"): the Shell block says it once.
   const output = (failure?.output ?? tool.output)?.replace(/\n$/, "");
-  const duration = toolDuration(t, tool);
+  // How long it took, said in its opened Shell card once it ended (RunningTime.tsx says it while it runs).
+  const took = running ? undefined : toolDuration(t, tool);
   // Codex marks no command as passed or failed (Lawrence and Lucas, 2026-11-11 standup): the row
   // draws no check and no time once it ends. A failed call's word ("failed", "Exit 1") stays for
   // screen readers only (conversation.css clips it away); the opened Shell block says "Exit code N".
@@ -81,12 +78,14 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
   const whole = short === commandFolder(tool.command ?? "").rest.trim();
   // What the command did, when the table or its description names it (commandActions.ts); the
   // opened Shell block shows the whole line.
-  const said = commandSaid(t, tool, look);
-  // "Ran {command}" in the reader's language, the command drawn as code where the string puts it;
-  // "Running {command}" until it is done. Its ⌃B hint is the live line's (WorkingFor.tsx, Thinking.tsx).
-  const [before = "", after = ""] = t(foreground ? "tools.runningCommand" : "tools.ranCommand", {
-    command: "\u0000",
-  }).split("\u0000");
+  // A shell read of one file (`sed -n …p a.swift`, `cat a.swift`) draws as every harness's read:
+  // the book, "Read <file name>", its full path on hover (ReadLabel.tsx).
+  const read = tool.description?.trim() || tool.background ? undefined : readPath(tool);
+  const said = read ? undefined : commandSaid(t, tool);
+  const cwd = useContext(SessionCwdContext);
+  // A live command is its own shimmered line, so it needs no "Running" word (Leo, 2026-11-23:
+  // "running" doesn't need text). Finished commands keep the reader's localized "Ran" lead.
+  const [before = "", after = ""] = running ? [] : t("tools.ranCommand", { command: "\u0000" }).split("\u0000");
   const line = (
     <code className="cv-command__line" data-find-skip={open || !whole || undefined}>
       {short}
@@ -94,15 +93,13 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
   );
   // "Ran" in the run's verb column (ToolVerb.tsx), the command after it. A named action's words are
   // not the command, so Find skips them and opens the row to its Shell block instead.
-  const called = said ? (
+  const called = read ? (
     <span data-find-skip>
-      <ToolLabel text={said} />
-      {look === "verbs-command" && (
-        <>
-          {" "}
-          <code className="cv-command__line cv-command__dim">{short}</code>
-        </>
-      )}
+      <ReadLabel path={read} full={readFullPath(read, tool, cwd)} t={t} />
+    </span>
+  ) : said ? (
+    <span data-find-skip>
+      <ToolLabel text={said} whole={Boolean(tool.description?.trim())} />
     </span>
   ) : (
     <ToolLabel verb={after ? undefined : leadingVerb(before)} subject={line} skip>
@@ -111,19 +108,17 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
       {after && <span data-find-skip>{after}</span>}
     </ToolLabel>
   );
-  // A command that finished in the background reads as Claude Code desktop notes it, "Background
-  // command completed" in the rows' muted tone, then what it did in their ink.
-  const words =
-    tool.background?.state === "completed" ? (
-      <>
+  const words = (
+    <>
+      {called}
+      {tool.background && tool.background.state !== "running" && (
         <span className="cv-command__lead" data-find-skip>
-          {t("bgTask.completedLead")}
-        </span>{" "}
-        <span className="cv-command__title">{line}</span>
-      </>
-    ) : (
-      called
-    );
+          {" · "}
+          {t(`bgTask.state.${tool.background.state}`)}
+        </span>
+      )}
+    </>
+  );
   return (
     <>
       <button
@@ -138,9 +133,7 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
         }}
         onClick={fold.toggle}
       >
-        <span className="cv-tool__icon">
-          <TerminalSquare />
-        </span>
+        <span className="cv-tool__icon">{read ? <OpenBook /> : <TerminalSquare />}</span>
         <span className="cv-command__text">
           {words}
           {/* While it runs, a light band crosses these words (ShimmerText.tsx RowShimmer). */}
@@ -167,9 +160,10 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
           <ReactionMark reaction={tool.reaction} />
           {tool.approved && <ApprovedMark />}
           {!foreground && !tag && tool.background && <BackgroundMark background={tool.background} />}
-          {running && duration && <span className="cv-command__time">{duration}</span>}
+          {/* How long it has run, counting each second (RunningTime.tsx). */}
+          {running && <RunningTime startedAt={tool.startedAt} background={!foreground} />}
         </span>
-        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
+        <DisclosureChevron open={open} />
       </button>
       {/* A call that went on in the background says how it stands there, not why it failed. */}
       {!tool.background && <ToolFailureCause failure={failure} />}
@@ -180,9 +174,11 @@ export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActiv
             id={detailsId}
             command={tool.command}
             output={output}
+            cut={tool.earlierOutput}
             exitCode={failure?.exitCode ?? tool.exitCode ?? tool.background?.exitCode}
             reveal={reveal}
             live={running}
+            took={took}
           />
         </div>
       )}

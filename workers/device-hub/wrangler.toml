@@ -10,12 +10,20 @@
 #   SESSION_KEY        private P-256 JWK (JSON) that signs account session JWTs
 #   TICKET_KEY         private P-256 JWK (JSON) that signs session tickets
 #   TURN_KEY_ID        optional, Cloudflare Realtime TURN key id
-#   TURN_KEY_API_TOKEN optional, its API token. Without both, the cmux relay ICE is [].
+#   TURN_KEY_API_TOKEN optional, its API token. The hub's own mint, the fallback
+#                      until it is removed; without both it mints nothing.
+#   DEVICE_HUB_TURN_TOKEN optional, bearer for cmux-platform's one TURN minter
+#                      (POST /v1/relay/ice-servers); put by a cmux-platform
+#                      workflow. Without it the hub mints locally.
 # `npm run dev-secrets` writes a fresh .dev.vars with both keys.
 
 name = "cmux-device-hub"
 main = "src/index.ts"
 compatibility_date = "2026-09-01"
+# Outbound fetch goes over the public internet: cmux-platform (machine.ts) is a
+# workers.dev Worker on this same account, which a plain same-account fetch is
+# refused with (Cloudflare error 1042). Every other fetch here is already public.
+compatibility_flags = ["global_fetch_strictly_public"]
 workers_dev = true
 preview_urls = false
 
@@ -28,6 +36,10 @@ enabled = true
 invocation_logs = false
 
 [vars]
+# Which deployment this is (src/buildSpace.ts): production serves no dev build
+# space. A dev build's X-Cmux-Build-Space is refused here (403), never served
+# as NIGHTLY's space; only env.dev (and a tag's stack, which runs env.dev) serves them.
+ENVIRONMENT = "production"
 # Stack Auth projects accepted by /v1/auth/stack (comma list; STACK_PROJECT_ID
 # is the fallback when this is empty). Production: cmux prod only.
 STACK_PROJECT_IDS = "9790718f-14cd-4f7e-824d-eaf527a82b82"
@@ -38,6 +50,16 @@ BILLING_ORIGINS = "9790718f-14cd-4f7e-824d-eaf527a82b82=https://cmux.com"
 # Optional public origin used in signalURL (e.g. https://hub.example). Empty:
 # derived from the request URL.
 PUBLIC_BASE_URL = ""
+# cmux-platform per Stack project, asked whose a joined machine's credential is
+# (POST /v1/auth/machine, src/machine.ts). The production platform, which the
+# join enrolls with by default (cmux-cloud-environment PRODUCTION_PLATFORM) and
+# whose STACK_PROJECT_ID is cmux prod.
+MACHINE_ORIGINS = "9790718f-14cd-4f7e-824d-eaf527a82b82=https://cmux-platform-production.debussy.workers.dev"
+# Where the cmux relay ICE comes from (src/turn.ts): cmux-platform's one TURN
+# minter first, the hub's own mint (TURN_KEY_*) when the platform fails. Also
+# `local` or `platform`.
+TURN_SOURCE = "platform-first"
+PLATFORM_TURN_ORIGIN = "https://cmux-platform-production.debussy.workers.dev"
 
 [[durable_objects.bindings]]
 name = "USER_DO"
@@ -67,12 +89,21 @@ enabled = true
 invocation_logs = false
 
 [env.dev.vars]
+# Serves dev build spaces: each tagged build's devices and sessions are its own
+# User DO (src/buildSpace.ts).
+ENVIRONMENT = "dev"
 # cmux prod and the Stack development project used by DEBUG/tagged builds.
 STACK_PROJECT_IDS = "9790718f-14cd-4f7e-824d-eaf527a82b82,454ecd03-1db2-4050-845e-4ce5b0cd9895"
 # Prod-project users ask cmux.com; development-project users ask the staging
 # web deployment (its Stack project is the development one).
 BILLING_ORIGINS = "9790718f-14cd-4f7e-824d-eaf527a82b82=https://cmux.com,454ecd03-1db2-4050-845e-4ce5b0cd9895=https://cmux-staging.vercel.app"
 PUBLIC_BASE_URL = ""
+# The production platform for prod-project users; the development and staging
+# platforms (both on the Stack development project) for development-project users.
+MACHINE_ORIGINS = "9790718f-14cd-4f7e-824d-eaf527a82b82=https://cmux-platform-production.debussy.workers.dev,454ecd03-1db2-4050-845e-4ce5b0cd9895=https://cmux-platform-development.debussy.workers.dev,454ecd03-1db2-4050-845e-4ce5b0cd9895=https://cmux-platform-staging.debussy.workers.dev"
+# The development platform's TURN minter, then the hub's own mint.
+TURN_SOURCE = "platform-first"
+PLATFORM_TURN_ORIGIN = "https://cmux-platform-development.debussy.workers.dev"
 
 [[env.dev.durable_objects.bindings]]
 name = "USER_DO"

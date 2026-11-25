@@ -1,5 +1,6 @@
 public import CmuxNextAgentPane
 public import CmuxNextCloud
+public import CmuxNextCompat
 import CmuxNextDaemon
 public import CmuxNextDaemonService
 public import CmuxNextMobile
@@ -56,11 +57,11 @@ extension IPhoneHostService {
         let serviceOverride: URL? = nil
         let nameOverride: String? = nil
         #endif
+        let instanceLabel = BuildIdentity(bundle: .main).instanceLabel
         let executable = [override, bundled].compactMap { $0 }.first { FileManager.default.isExecutableFile(atPath: $0.path) }
         // Each Worker accepts only its own sign-in project's tokens.
         guard let base = auth.configuration.runtimeSelection?.mobileOrigin ?? serviceOverride ?? (auth.configuration.isProductionAuth ? Self.productionAPI : Self.developmentAPI) else { return }
-        let stateRoot = DaemonLauncher.applicationSupportDirectory()
-            .appendingPathComponent(bundleID ?? "com.cmuxterm.app.next", isDirectory: true)
+        let stateRoot = Self.stateRoot(applicationSupport: DaemonLauncher.applicationSupportDirectory(), bundleID: bundleID)
         let state = MobileHostStateDirectory(parent: auth.configuration.runtimeSelection?.storageNamespace.map {
             stateRoot.appendingPathComponent($0, isDirectory: true)
         } ?? stateRoot).resolve()
@@ -69,8 +70,16 @@ extension IPhoneHostService {
         let browserHosts: (any MobileHostBrowserHosting)? = IPhoneBrowserHosts.available()
             ? IPhoneBrowserHosts(workRoot: state.appendingPathComponent("browser", isDirectory: true)) : nil
         follow { settings()?.snapshot.mobile.allowIPhoneConnections ?? false }
+        followingAutoApprove?.cancel()
+        // task-owner: lives as long as the app (stop() cancels it); one pass each time the setting turns on
+        followingAutoApprove = Task { [weak self] in
+            for await on in ObservationStream({ settings()?.snapshot.mobile.autoApprovePhones ?? false }) where on {
+                self?.autoApproveWaiting()
+            }
+        }
         defer {
             followWorkspaceFolders()
+            followBrowserWorkspaceSource()
             followNewChatPicks()
         }
         followAccount { Self.account(of: auth, signedIn: auth.isSignedIn) }
@@ -80,7 +89,13 @@ extension IPhoneHostService {
             executable: executable,
             baseURL: base,
             stackProjectID: auth.configuration.stackProjectID,
+            buildSpace: auth.configuration.buildSpace,
             stateDirectory: state,
+            keychainName: MobileHostPairedStore.sealName(bundleID: bundleID ?? "com.cmuxterm.app.next",
+                                                         storageNamespace: auth.configuration.runtimeSelection?.storageNamespace),
+            pairingSealName: MobileHostPairedStore.sealName(bundleID: bundleID ?? "com.cmuxterm.app.next",
+                                                            storageNamespace: auth.configuration.runtimeSelection?.storageNamespace,
+                                                            adHocCode: MobileHostPairedStore.adHocCodeIdentity()),
             accessToken: { force in
                 if force { return try await auth.coordinator.forceRefreshAccessToken() }
                 return try await auth.tokens().access
@@ -107,12 +122,21 @@ extension IPhoneHostService {
             workspaces: { [weak daemon] in daemon?.store.workspaces ?? [] },
             agentTabHost: agentTabHost,
             newChatPicks: newChatPicks,
-            computerName: { if let nameOverride { return nameOverride } else { return await computerName() } },
+            // Each build is its own device on the phone: the Stable lane by the computer's name
+            // alone, every other build with its lane (`MacBook Pro (NIGHTLY)`), so two builds on one
+            // Mac read apart. The rig's override is used as given.
+            computerName: {
+                if let nameOverride { return nameOverride }
+                return MobileHostDeviceName(computer: await computerName(), label: instanceLabel).value
+            },
             acpmuxEnvironment: acpmuxEnvironment,
             browserHosts: browserHosts,
             surfaceHosts: surfaceHosts,
             cloudLinks: cloudLinks ?? { MobileHostCloudLinks() },
             pairingSeed: IPhonePairingSeed.fromEnvironment(processEnvironment),
+            devAutoApprove: IPhoneDevAutoApprove.fromLaunch(environment: processEnvironment),
+            autoApprovePhones: { settings()?.snapshot.mobile.autoApprovePhones ?? false },
+            macDevTag: IPhoneDevAutoApprove.macDevTag(),
             chief: chief
         )
     }
@@ -125,5 +149,13 @@ extension IPhoneHostService {
             userID: user.id, teamID: MobileHostLaunch.teamID(selected: team, userID: user.id),
             teamName: team.flatMap { id in auth.teams.first { $0.id == id }?.displayName },
             email: user.primaryEmail)
+    }
+
+    /// hostd's state folder before the Cloud namespace: `<Application Support>/<folder>`, the bundle id's folder
+    /// (``BuildIdentity/stateFolderName(for:)`` of `build`, this process's by default), so two DEV copies never
+    /// share a phone pairing.
+    public nonisolated static func stateRoot(applicationSupport: URL, bundleID: String?,
+                                             build: BuildIdentity = BuildStatePaths.current.build) -> URL {
+        applicationSupport.appendingPathComponent(build.stateFolderName(for: bundleID) ?? "com.cmuxterm.app.next", isDirectory: true)
     }
 }

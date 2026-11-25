@@ -7,6 +7,8 @@
                            [--previous-dmg-bytes N] [--json OUT]
     bundle-size.py tree   APP [--dmg DMG] [--json OUT] [--top N]
     bundle-size.py breakdown APP [--dmg DMG] [--json OUT]
+    bundle-size.py files  APP [--json OUT]
+    bundle-size.py diff   OLD NEW [--top 20] [--json OUT] [--annotation]
 
 `breakdown` is the installed app by what it is made of (CEF, cmux-tui, the
 Swift app, other executables and frameworks, webviews, assets; every file in
@@ -14,6 +16,14 @@ one row, so they add up), then the symbols, unwind tables and identical copies
 inside them. It hashes and reads load commands only, so it takes seconds; the
 nightly's size step prints it and emits it as a `Bundle size breakdown`
 annotation (one line of JSON) that cmuxterm-hq's NOW reads.
+
+`files` writes every file's size, sorted by path (about 100 KB gzipped for a
+nightly's 8,000 files; stable to diff). `diff` compares two of them, each a
+`files` JSON (plain or .gz) or an app directory, and prints the top N growers
+and shrinkers by bytes, per file and per component; a file that is added or
+removed counts with its whole size. It is a report: it always exits 0. The
+nightly's size step runs it against the previous nightly's DMG and emits the
+top rows as a `Bundle size growers` annotation (--annotation, one line of JSON).
 
 `report` prints the bundle by component: bytes on disk (file sizes, symlinks
 not followed, so the CEF framework's top-level links count once) and, with
@@ -23,7 +33,7 @@ not followed, so the CEF framework's top-level links count once) and, with
 each component, each Mach-O binary split into code, unwind tables, symbols and
 signature, the bytes by kind (binaries, JS, CSS, HTML, fonts, images, wasm,
 localizations, licenses), identical files shipped more than once, and the
-largest files, and the app executable's code by language (Swift, Rust, C++,
+largest files, and the app's code by language (Swift, Rust, C++,
 Zig, C), read from the function map the app ships for in-app symbolication
 (Contents/Resources/cmux-symbols.bin, written by scripts/write-app-symbol-map.py).
 Its DMG column compresses every file on its own in 1 MiB LZMA
@@ -51,6 +61,7 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import gzip
 import hashlib
 import json
 import lzma
@@ -406,6 +417,16 @@ def symbol_language(name: str) -> str:
     return "C and other"
 
 
+def expand_names(block: bytes, count: int) -> list[bytes]:
+    """The names of a CMXSYM2 block; a legacy Rust hash reads back as 16 zeros."""
+    shared, rests = block[:count], block[count:].split(b"\0")
+    names, previous = [], b""
+    for n, rest in zip(shared, rests):
+        previous = previous[:n] + rest
+        names.append(previous[:-1] + b"17h0000000000000000E" if previous[-1:] == b"\x01" else previous)
+    return names
+
+
 def code_by_language(data: bytes) -> dict[str, int] | None:
     """__TEXT,__text bytes by language from a cmux-symbols.bin (its first slice), or None.
 
@@ -413,7 +434,7 @@ def code_by_language(data: bytes) -> dict[str, int] | None:
     Zig or C function) counts toward the named one before it, so the Zig and C rows are close,
     not exact; Swift and Rust keep their names.
     """
-    if data[:8] != b"CMXSYM1\0" or len(data) < 32:
+    if data[:8] not in (b"CMXSYM1\0", b"CMXSYM2\0") or len(data) < 32:
         return None
     try:
         size, = struct.unpack_from("<I", data, 28)
@@ -433,7 +454,7 @@ def code_by_language(data: bytes) -> dict[str, int] | None:
             offsets.append(current)
     except (struct.error, zlib.error, IndexError):
         return None
-    names = payload[at:].split(b"\0")
+    names = expand_names(payload[at:], count) if data[:8] == b"CMXSYM2\0" else payload[at:].split(b"\0")
     if len(names) < count:
         return None
     out: dict[str, int] = {}
@@ -441,6 +462,19 @@ def code_by_language(data: bytes) -> dict[str, int] | None:
         language = symbol_language(names[i].decode("latin-1"))
         out[language] = out.get(language, 0) + offsets[i + 1] - offsets[i]
     return dict(sorted(out.items(), key=lambda kv: -kv[1]))
+
+
+# cmux NEXT's code is this framework behind a stub executable (Packages/macOS/CmuxNext/Package.swift,
+# CMUX-629); a live code build links it into the executable instead.
+APP_CODE_FRAMEWORK = "Contents/Frameworks/CmuxNextApp.framework"
+APP_CODE_BINARY = f"{APP_CODE_FRAMEWORK}/Versions/A/CmuxNextApp"
+
+
+def app_code_binary(app: Path) -> str:
+    """The binary that holds the app's code, which cmux-symbols.bin maps: the CmuxNextApp
+    framework's, or the executable when the framework is absent (a static build)."""
+    p = app / APP_CODE_BINARY
+    return APP_CODE_BINARY if p.is_file() and not p.is_symlink() else app_executable(app)
 
 
 def app_executable(app: Path) -> str:
@@ -520,7 +554,7 @@ def tree(app: Path, dmg: Path | None, top: int, jobs: int | None = None) -> dict
     symbol_map = app / SYMBOL_MAP
     languages = code_by_language(symbol_map.read_bytes()) if symbol_map.is_file() else None
     if languages:
-        out["code_by_language"] = {"binary": app_executable(app), "source": SYMBOL_MAP, "bytes": languages}
+        out["code_by_language"] = {"binary": app_code_binary(app), "source": SYMBOL_MAP, "bytes": languages}
     if dmg is not None:
         out["dmg"] = dmg.name
         out["dmg_bytes"] = dmg.stat().st_size
@@ -564,11 +598,12 @@ def print_tree(t: dict, top: int) -> None:
 # lands in exactly one category, so the rows add up to the app; the cross-cutting rows (symbols, unwind
 # tables, identical copies) are parts of those files, shown again on their own.
 CEF_FRAMEWORK = "Contents/Frameworks/Chromium Embedded Framework.framework"
-WEBVIEW_ROOTS = ("Contents/Resources/markdown-viewer", "Contents/Resources/code-mode")
+WEBVIEW_ROOTS = ("Contents/Resources/markdown-viewer", "Contents/Resources/code-mode",
+                 "Contents/Resources/code-mode.tar.xz")
 CATEGORIES = (
     ("cef", "CEF (Chromium framework and its helper apps)"),
     ("cmux_tui", "cmux-tui (Resources/bin/cmux: cmux, acpmux, cmux-tui)"),
-    ("swift_app", "Swift app (Contents/MacOS, Rust FFI linked in)"),
+    ("swift_app", "Swift app (Contents/MacOS and CmuxNextApp.framework, Rust FFI linked in)"),
     ("other_executables", "Other executables (Rust helpers, Computer Use, remote browser host, ghostty)"),
     ("other_frameworks", "Other frameworks (WebRTC, Sentry, ...)"),
     ("webviews", "Webviews (React pages, agent pane, markdown viewer)"),
@@ -580,9 +615,10 @@ def category_of(rel: str, is_macho: bool) -> str:
     if rel.startswith(CEF_FRAMEWORK + "/") or (rel.startswith("Contents/Frameworks/")
                                               and (" Helper" in rel.split("/")[2] or "cef" in rel.split("/")[2].lower())):
         return "cef"
-    if rel == "Contents/Resources/bin/cmux":
+    # Its function names, which the release strip moves out of it (strip-release-bundle.sh).
+    if rel in ("Contents/Resources/bin/cmux", "Contents/Resources/cmux-tui-symbols.bin"):
         return "cmux_tui"
-    if rel.startswith("Contents/MacOS/"):
+    if rel.startswith(("Contents/MacOS/", APP_CODE_FRAMEWORK + "/")):
         return "swift_app"
     if is_macho and rel.startswith(("Contents/Resources/", "Contents/Helpers/", "Contents/Library/",
                                     "Contents/PlugIns/", "Contents/XPCServices/")):
@@ -684,6 +720,120 @@ def breakdown_lines(b: dict) -> list[str]:
     return lines
 
 
+FILES_SCHEMA = 1
+
+
+def files_manifest(app: Path) -> dict:
+    """Every file's size by relative path: small, sorted, stable to diff."""
+    m = measure(app)
+    return {"schema": FILES_SCHEMA, "kind": "bundle-files", "app": app.name, "app_bytes": m["app_bytes"],
+            "files": dict(sorted(m["files"].items()))}
+
+
+def load_manifest(path: Path) -> dict:
+    """A `files` JSON (plain or gzipped) or an app directory, as a files manifest."""
+    if path.is_dir():
+        return files_manifest(path)
+    raw = path.read_bytes()
+    if raw[:2] == b"\x1f\x8b":
+        raw = gzip.decompress(raw)
+    m = json.loads(raw)
+    if not isinstance(m, dict) or not isinstance(m.get("files"), dict):
+        raise SystemExit(f"bundle-size: {path} is not a `files` JSON (no \"files\" table); make one with `files APP --json OUT`")
+    return m
+
+
+# The web bundles' content hash (esbuild: `chunk-T4FL3HZ4.js`) renames a file on every change, so a
+# chunk that moved would be a removed row and an added row. Files that differ only in it are one row.
+CONTENT_HASH = re.compile(r"-[A-Z0-9]{8}(?=\.[A-Za-z0-9.]+$)")
+
+
+def diff_key(rel: str) -> str:
+    return CONTENT_HASH.sub("-*", rel)
+
+
+def diff_manifests(old: dict, new: dict, top: int = 20) -> dict:
+    """Growers and shrinkers by bytes, per file and per component. Added and removed files count
+    whole; an unchanged file is not a row. Files that differ only in a content hash are one row."""
+    of, nf = old["files"], new["files"]
+    groups: dict[str, list] = {}
+    for i, table in enumerate((of, nf)):
+        for rel, size in table.items():
+            g = groups.setdefault(diff_key(rel), [None, None, 0, 0])
+            g[i] = (g[i] or 0) + size
+            g[2 + i] += 1
+    rows = []
+    for key in sorted(groups):
+        a, b, na, nb = groups[key]
+        if a == b:
+            continue
+        row = {"path": key, "old": a or 0, "new": b or 0, "delta": (b or 0) - (a or 0),
+               "status": "added" if a is None else "removed" if b is None else "changed"}
+        if max(na, nb) > 1:
+            row["files"] = f"{na} to {nb} files"
+        rows.append(row)
+    comps: dict[str, list[int]] = {}
+    for table, i in ((of, 0), (nf, 1)):
+        for rel, size in table.items():
+            comps.setdefault(component_of(rel), [0, 0])[i] += size
+    crows = [{"component": c, "old": v[0], "new": v[1], "delta": v[1] - v[0]}
+             for c, v in sorted(comps.items()) if v[0] != v[1]]
+
+    def grow(rs):
+        return sorted((r for r in rs if r["delta"] > 0), key=lambda r: (-r["delta"], r.get("path") or r["component"]))[:top]
+
+    def shrink(rs):
+        return sorted((r for r in rs if r["delta"] < 0), key=lambda r: (r["delta"], r.get("path") or r["component"]))[:top]
+
+    old_total = sum(of.values())
+    new_total = sum(nf.values())
+    return {"old_app": old.get("app"), "new_app": new.get("app"), "old_bytes": old_total, "new_bytes": new_total,
+            "delta": new_total - old_total, "files_changed": len(rows),
+            "grew_bytes": sum(r["delta"] for r in rows if r["delta"] > 0),
+            "shrank_bytes": -sum(r["delta"] for r in rows if r["delta"] < 0),
+            "growers": grow(rows), "shrinkers": shrink(rows),
+            "component_growers": grow(crows), "component_shrinkers": shrink(crows)}
+
+
+def diff_lines(d: dict, top: int = 20) -> list[str]:
+    def mb(n: int) -> str:
+        return f"{n / 1e6:+.2f} MB" if n else "0"
+
+    def table(title: str, rows: list[dict], key: str) -> list[str]:
+        if not rows:
+            return []
+        out = ["", f"**{title}**", "", f"| {key.capitalize()} | Old MB | New MB | Change |", "| --- | ---: | ---: | ---: |"]
+        for r in rows[:top]:
+            tag = " (" + ", ".join(x for x in (r["status"] if r.get("status") in ("added", "removed") else "", r.get("files", "")) if x) + ")"
+            tag = "" if tag == " ()" else tag
+            out.append(f"| `{r[key]}`{tag} | {r['old'] / 1e6:.2f} | {r['new'] / 1e6:.2f} | {mb(r['delta'])} |")
+        return out
+
+    lines = [f"App {d['old_bytes'] / 1e6:.1f} MB to {d['new_bytes'] / 1e6:.1f} MB ({mb(d['delta'])}); "
+             f"{d['files_changed']} files changed, {d['grew_bytes'] / 1e6:.2f} MB grew, {d['shrank_bytes'] / 1e6:.2f} MB shrank."]
+    lines += table(f"Top {top} growers, per file", d["growers"], "path")
+    lines += table(f"Top {top} shrinkers, per file", d["shrinkers"], "path")
+    lines += table("Growers, per component", d["component_growers"], "component")
+    lines += table("Shrinkers, per component", d["component_shrinkers"], "component")
+    if not d["growers"] and not d["shrinkers"]:
+        lines.append("No file changed size.")
+    return lines
+
+
+def diff_annotation(d: dict, top: int = 20) -> str:
+    """One line of JSON for a check-run annotation (GitHub keeps ~64 KB; this stays near 4 KB):
+    [path, delta bytes] pairs. NOW reads `growers` and `shrinkers`."""
+    def pairs(rows, key):
+        return [[r[key][-120:], r["delta"]] for r in rows[:top]]
+
+    keep = {"schema": 1, "old_bytes": d["old_bytes"], "new_bytes": d["new_bytes"], "delta": d["delta"],
+            "files_changed": d["files_changed"], "growers": pairs(d["growers"], "path"),
+            "shrinkers": pairs(d["shrinkers"], "path"),
+            "component_growers": pairs(d["component_growers"], "component")[:5],
+            "component_shrinkers": pairs(d["component_shrinkers"], "component")[:5]}
+    return json.dumps(keep, separators=(",", ":")).replace("%", "%25")
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -715,7 +865,30 @@ def main(argv: list[str]) -> int:
     b.add_argument("--dmg", type=Path)
     b.add_argument("--json", type=Path)
     b.add_argument("--jobs", type=int)
+    f = sub.add_parser("files")
+    f.add_argument("app", type=Path)
+    f.add_argument("--json", type=Path, help="write the manifest here (gzipped when it ends in .gz)")
+    d = sub.add_parser("diff")
+    d.add_argument("old", type=Path)
+    d.add_argument("new", type=Path)
+    d.add_argument("--top", type=int, default=20)
+    d.add_argument("--json", type=Path)
+    d.add_argument("--annotation", action="store_true", help="print the one-line annotation JSON instead of tables")
     a = ap.parse_args(argv)
+    if a.cmd == "files":
+        out = files_manifest(a.app)
+        text = json.dumps(out, separators=(",", ":")) + "\n"
+        if a.json:
+            # mtime=0: the same files give the same bytes.
+            a.json.write_bytes(gzip.compress(text.encode(), 9, mtime=0) if a.json.suffix == ".gz" else text.encode())
+        print(f"{out['app']}: {len(out['files'])} files, {out['app_bytes']} bytes")
+        return 0
+    if a.cmd == "diff":
+        out = diff_manifests(load_manifest(a.old), load_manifest(a.new), a.top)
+        print(diff_annotation(out, a.top) if a.annotation else "\n".join(diff_lines(out, a.top)))
+        if a.json:
+            a.json.write_text(json.dumps(out, indent=2) + "\n")
+        return 0
     if a.cmd == "breakdown":
         out = breakdown(a.app, a.dmg, a.jobs)
         print("\n".join(breakdown_lines(out)))
