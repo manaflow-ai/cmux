@@ -200,6 +200,8 @@ elif [[ "$before" == ref:* ]]; then
         --counts "$counts" --days "$days" ${extra[@]+"${extra[@]}"} 2>&1 | sed -u "s/^/$tag /" || status=$?
       if [[ "$dhat" == 1 ]]; then
         python3 scripts/measure/dhat-top.py "$profile_dir/heap.3" 40 | tee "$profile_dir/sites.txt"
+        gzip -1 "$profile_dir"/heap.{1,2,3}
+        if [[ -f "$profile_dir/heap.json" ]]; then gzip -1 "$profile_dir/heap.json"; fi
       fi
     done
   done

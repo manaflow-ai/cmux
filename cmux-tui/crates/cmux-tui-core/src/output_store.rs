@@ -42,7 +42,11 @@
 //! so an idle session wakes nothing (tails written since their last sync
 //! wake it once more, for that sync).
 
+#[cfg(test)]
+#[path = "output_store/ended_tests.rs"]
+mod ended_tests;
 mod memory_budget;
+mod parked_tail;
 mod parked_trim;
 mod recovery;
 pub(crate) mod segments;
@@ -280,6 +284,7 @@ struct LogState {
     /// Stream offset of `tail[0]`.
     tail_start: u64,
     tail: VecDeque<u8>,
+    parked_tail: Option<Box<parked_tail::ParkedTail>>,
     /// Output arrived since the snapshot writer last looked.
     dirty: bool,
     /// Content digest of the last snapshot written (or found unchanged).
@@ -304,10 +309,6 @@ struct LogState {
     /// The log left the store (`OutputStore::forget`): no measurement may
     /// add to the total for it any more.
     forgotten: bool,
-    /// The terminal ended after its final output was durably covered by an
-    /// exit snapshot. Late reader callbacks for this generation are ignored,
-    /// and the in-memory tail can stay released while the tab remains parked.
-    ended: bool,
     /// The stored snapshot's stream offset, generation and size (written
     /// by this daemon; `None` before its first one).
     snapshot_end: Option<u64>,
@@ -361,6 +362,7 @@ impl LogState {
             generation,
             tail_start: start,
             tail: VecDeque::new(),
+            parked_tail: None,
             dirty: false,
             snapshot_digest: None,
             snapshot_at: None,
@@ -372,7 +374,6 @@ impl LogState {
             measured_rows: None,
             measure_due: false,
             forgotten: false,
-            ended: false,
             snapshot_end: None,
             snapshot_generation: None,
             snapshot_size: None,
@@ -499,7 +500,8 @@ impl LogState {
     }
 
     fn next_offset(&self) -> u64 {
-        self.tail_start + self.tail.len() as u64
+        self.tail_start
+            + self.parked_tail.as_ref().map_or(self.tail.len(), |tail| tail.bytes().len()) as u64
     }
 
     /// The first byte not yet in a segment file (full mode), else the end.
@@ -539,6 +541,8 @@ impl LogState {
         let take = available.min(budget);
         let bytes = if from_pending {
             self.pending.get(skip..skip.saturating_add(take)).unwrap_or_default().to_vec()
+        } else if let Some(tail) = &self.parked_tail {
+            tail.bytes()[skip..skip + take].to_vec()
         } else {
             self.tail.iter().skip(skip).take(take).copied().collect()
         };
@@ -623,6 +627,8 @@ pub(crate) struct OutputStore {
     /// The policy the writer read last (the quit pass has no settings owner
     /// handle).
     policy: Mutex<Option<PersistencePolicy>>,
+    parked_tail_bytes: Arc<std::sync::atomic::AtomicU64>,
+    snapshot_file_bytes: std::sync::atomic::AtomicU64,
     recovery_bytes: Arc<std::sync::atomic::AtomicU64>,
     /// Held by each write pass: the writer thread, a checkpoint and the quit
     /// pass never write the same file at once.
@@ -681,6 +687,8 @@ impl OutputStore {
             last_enforce: Mutex::new(None),
             snapshot_interval,
             policy: Mutex::new(None),
+            parked_tail_bytes: Arc::default(),
+            snapshot_file_bytes: std::sync::atomic::AtomicU64::new(u64::MAX),
             recovery_bytes: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             pass: Mutex::new(()),
             prune_pending: std::sync::atomic::AtomicBool::new(false),
@@ -800,19 +808,6 @@ impl OutputStore {
         bytes: &[u8],
         history: Option<HistoryRows>,
     ) {
-        if state.generation != *generation {
-            // A new incarnation starts a new stream at offset 0.
-            state.generation = generation.clone();
-            state.tail_start = 0;
-            state.tail.clear();
-            state.pending.clear();
-            state.pending_start = 0;
-            state.ended = false;
-            state.invalidate_recovery();
-        }
-        if state.ended {
-            return;
-        }
         if let Some(history) = history
             && !state.measure_due
             && history.moved_past_step(state.measured_rows)
@@ -820,6 +815,17 @@ impl OutputStore {
             state.measure_due = true;
             self.writer.request_memory_pass();
         }
+        if state.generation != *generation {
+            // A new incarnation starts a new stream at offset 0.
+            state.generation = generation.clone();
+            state.tail_start = 0;
+            state.parked_tail = None;
+            state.tail.clear();
+            state.pending.clear();
+            state.pending_start = 0;
+            state.invalidate_recovery();
+        }
+        state.thaw_tail();
         let keep = bytes.len().min(OUTPUT_TAIL_BYTES);
         let skipped = (bytes.len() - keep) as u64;
         let overflow = (state.tail.len() + keep).saturating_sub(OUTPUT_TAIL_BYTES);
@@ -1000,12 +1006,10 @@ impl OutputStore {
         if state.generation != *generation {
             state.generation = generation.clone();
             state.tail_start = 0;
+            state.parked_tail = None;
             state.tail.clear();
             state.pending.clear();
             state.pending_start = 0;
-            state.ended = false;
-        } else if state.ended {
-            return;
         }
         if self.tail_enabled() {
             state.fall_back_to_snapshot();
@@ -1053,6 +1057,7 @@ impl OutputStore {
         {
             let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
             let end = state.next_offset();
+            state.parked_tail = None;
             state.tail.clear();
             state.tail_start = end;
             state.invalidate_recovery();
@@ -1081,48 +1086,6 @@ impl OutputStore {
     /// configured scrollback: its budget limit is measured afresh.
     pub(crate) fn forget_scrollback_budget(&self, terminal_id: &TerminalPublicId) {
         self.memory_budget.forget(terminal_id);
-    }
-
-    /// Release a terminal's in-memory output after an exit snapshot durably
-    /// covers its final stream. The caller must provide the generation and
-    /// exact covered offset from that snapshot. A mismatch leaves the log
-    /// untouched because output may still have raced the snapshot capture.
-    ///
-    /// The log remains in the store so its final cursor is still observable
-    /// while a parked tab keeps the dead runtime. A later generation starts a
-    /// fresh stream and may append normally.
-    pub(crate) fn release_terminal_output(
-        &self,
-        terminal_id: &TerminalPublicId,
-        generation: &str,
-        covered_through: u64,
-    ) -> bool {
-        let _pass = self.lock_pass();
-        let Some(log) =
-            self.logs.lock().unwrap_or_else(PoisonError::into_inner).get(terminal_id).cloned()
-        else {
-            return false;
-        };
-        let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if state.generation.as_ref() != generation || state.next_offset() != covered_through {
-            return false;
-        }
-        state.tail = VecDeque::new();
-        state.tail_start = covered_through;
-        state.pending = Vec::new();
-        state.pending_start = covered_through;
-        state.dirty = false;
-        state.measure_due = false;
-        state.tail_end = None;
-        state.tail_bytes = 0;
-        state.tail_digest = None;
-        state.tail_unsynced = false;
-        state.force_snapshot = false;
-        state.flooded = false;
-        state.retry_at = None;
-        state.retry_delay = Duration::ZERO;
-        state.ended = true;
-        true
     }
 
     /// Forget a terminal runtime that left this daemon: its memory. Its
@@ -1458,6 +1421,11 @@ impl OutputStore {
     fn remove_files(&self, terminal_id: &TerminalPublicId) {
         if let Some(directory) = self.directory.as_deref() {
             let _pass = self.lock_pass();
+            if let Some(log) =
+                self.logs.lock().unwrap_or_else(PoisonError::into_inner).get(terminal_id)
+            {
+                log.state.lock().unwrap_or_else(PoisonError::into_inner).thaw_tail();
+            }
             snapshot::remove(directory, terminal_id);
             segments::remove(directory, terminal_id);
             self.full.forget(directory, terminal_id);
@@ -1600,10 +1568,6 @@ thread_local! {
     pub(crate) static BETWEEN_SCREEN_READS_FOR_TEST: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
         const { std::cell::RefCell::new(None) };
 }
-
-#[cfg(test)]
-#[path = "output_store/ended_tests.rs"]
-mod ended_tests;
 
 #[cfg(test)]
 fn run_between_screen_reads_for_test() {

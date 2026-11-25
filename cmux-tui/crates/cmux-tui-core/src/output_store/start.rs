@@ -52,7 +52,13 @@ impl OutputStore {
         let pruning = Instant::now();
         let reads = {
             let _pass = self.lock_pass();
-            prune_at_start(mux, self, policy)
+            let reads = prune_at_start(mux, self, policy);
+            // An empty store has no snapshots competing for the disk budget. When it
+            // already has entries, the next writer cap scan supplies the byte count.
+            if reads.scan.entries == 0 {
+                self.snapshot_file_bytes.store(0, std::sync::atomic::Ordering::Relaxed);
+            }
+            reads
         };
         let (scan, trim) = (reads.scan, reads.trim);
         let count = |of: usize| u64::try_from(of).unwrap_or(u64::MAX);

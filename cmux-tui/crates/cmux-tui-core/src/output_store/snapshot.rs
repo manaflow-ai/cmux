@@ -91,6 +91,7 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
     let _pass = store.lock_pass();
     let full = policy.mode == PersistenceMode::Full;
     let tail = policy.mode == PersistenceMode::Snapshot;
+    store.fit_parked_tails(policy);
     store.full.set_enabled(full);
     store.set_tail_enabled(tail);
     if !full {
@@ -309,7 +310,9 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
         }
     }
     if wrote {
-        enforce_total(directory, SUFFIX, snapshot_total_cap(policy));
+        let bytes = enforce_total(directory, SUFFIX, snapshot_total_cap(policy));
+        store.snapshot_file_bytes.store(bytes, std::sync::atomic::Ordering::Relaxed);
+        store.fit_parked_tails(policy);
     }
     if tail {
         sync_due_tails(store, directory);
@@ -1017,8 +1020,8 @@ pub(super) fn remove_unowned(
 }
 
 /// Delete the oldest files with `suffix` until their total is at most `cap`.
-pub(super) fn enforce_total(directory: &Path, suffix: &str, cap: u64) {
-    let Ok(entries) = fs::read_dir(directory) else { return };
+fn enforce_total(directory: &Path, suffix: &str, cap: u64) -> u64 {
+    let Ok(entries) = fs::read_dir(directory) else { return u64::MAX };
     let mut files = entries
         .flatten()
         .filter(|entry| entry.path().extension().is_some_and(|extension| extension == suffix))
@@ -1029,7 +1032,7 @@ pub(super) fn enforce_total(directory: &Path, suffix: &str, cap: u64) {
         .collect::<Vec<_>>();
     let mut total = files.iter().map(|(_, len, _)| len).sum::<u64>();
     if total <= cap {
-        return;
+        return total;
     }
     files.sort();
     for (_, len, path) in files {
@@ -1040,6 +1043,7 @@ pub(super) fn enforce_total(directory: &Path, suffix: &str, cap: u64) {
             total -= len;
         }
     }
+    total
 }
 
 #[cfg(test)]
