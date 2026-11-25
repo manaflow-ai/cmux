@@ -21,5 +21,6 @@ pub mod machine_repo;
 pub mod machine_route;
 pub mod moves;
 pub mod sequence;
+pub mod spare_shapes;
 pub mod start;
 pub mod vm_kind;
