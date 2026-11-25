@@ -155,9 +155,10 @@ jobs:
             c="$(gh run view "$id" --json jobs --jq '[.jobs[] | select(.name | test("real")) | .steps[]
               | select(.name == "Cloud journey (prod, real model)") | .conclusion][0] // ""')" || break
             case "$c" in success|failure|cancelled|timed_out) ;; *) continue ;; esac
-            # Did it read a reply? The journey's probe.json (artifact cloud-journey-prod-real) carries first_text.
+            # Did it read a reply? The journey's probe.json carries first_text. Its artifact is cloud-journey-prod-claude-real
+            # since the Codex rows (#56076); runs before that named it cloud-journey-prod-real.
             art="$(gh api "repos/$GH_REPO/actions/runs/$id/artifacts" \
-              --jq '[.artifacts[] | select(.name == "cloud-journey-prod-real") | .id][0] // ""')" || break
+              --jq '[.artifacts[] | select(.name == "cloud-journey-prod-claude-real" or .name == "cloud-journey-prod-real") | .id][0] // ""')" || break
             replied=no
             if [ -n "$art" ] && gh api "repos/$GH_REPO/actions/artifacts/$art/zip" > "$RUNNER_TEMP/real-probe.zip" \
                 && unzip -p "$RUNNER_TEMP/real-probe.zip" probe.json | grep -q '"first_text"'; then replied=yes; fi
