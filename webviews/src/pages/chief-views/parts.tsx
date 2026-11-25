@@ -196,6 +196,9 @@ const PATHS: Record<ChiefViewManifest["glyph"], string> = {
     "M4 2a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3Zm0 9a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3Zm8-6a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3ZM3.4 5h1.2v6H3.4Zm1 5.2C6 8.6 8.6 7.4 10.6 7l.3 1.1c-1.8.4-4.1 1.4-5.6 2.9Z",
   // A line of events.
   timeline: "M3 2h1.2v12H3Zm3 1h8v2H6Zm0 4h6v2H6Zm0 4h7v2H6ZM2 3.2h3.2v1H2Zm0 4h3.2v1H2Zm0 4h3.2v1H2Z",
+  // A checklist: two ticked boxes and an open one.
+  plans:
+    "M2 2h4v4H2Zm1 1v2h2V3Zm5 .5h6v1.2H8ZM2 7h4v4H2Zm1 1v2h2V8Zm5 .5h6v1.2H8ZM2 12h4v2.5H2Zm1 .8v.9h2v-.9Zm5 .2h6v1.2H8Z",
 };
 
 export function ViewGlyph({ glyph, size = 16 }: { glyph: ChiefViewManifest["glyph"]; size?: number }) {

@@ -28,6 +28,7 @@ import {
   fleetTotals,
   folderName,
   landingLanes,
+  plansBoard,
   startOfDay,
   stateCounts,
   timeline,
@@ -73,13 +74,14 @@ const agent = (over: Partial<ChiefAgent>): ChiefAgent => ({
 
 const today = startOfDay(FIXTURE_NOW);
 
-test("the registry has five views, only the first on by default, each with a placement", () => {
+test("the registry has six views, only the first on by default, each with a placement", () => {
   expect(CHIEF_VIEWS.map((view) => view.id)).toEqual([
     "where-is-everybody",
     "agent-board",
     "fleet",
     "landing",
     "timeline",
+    "plans",
   ]);
   expect(CHIEF_VIEWS.filter((view) => view.defaultOn).map((view) => view.id)).toEqual(["where-is-everybody"]);
   for (const view of CHIEF_VIEWS) expect(["pane", "split", "sidebar"]).toContain(view.defaultPlacement);
@@ -156,6 +158,27 @@ test("the timeline holds today's events only, newest first", () => {
   // A working agent has no state event, only its start.
   const working = events.filter((event) => event.agent?.state === "working");
   expect(working.every((event) => event.kind === "spawned")).toBe(true);
+});
+
+test("plans: agents with a plan first in the Lanes order, then what runs without one", () => {
+  const board = plansBoard(mockAgents());
+  expect(board.planned.map((agent) => agent.id)).toEqual([
+    "s-pickers",
+    "s-needsyou",
+    "s-glaeda",
+    "s-inspector",
+    "s-chief-views",
+  ]);
+  // Idle agents with no plan run nothing, so they are left out.
+  expect(board.unplanned.every((agent) => agent.state !== "idle" && !agent.plan)).toBe(true);
+  expect(board.unplanned.map((agent) => agent.id)).toContain("s-ci-wall");
+  const plan = board.planned.find((agent) => agent.id === "s-chief-views")!.plan!;
+  expect([plan.done, plan.total, plan.current, plan.next]).toEqual([
+    3,
+    6,
+    "Write the Fleet view's machine table",
+    "Add three gallery variants",
+  ]);
 });
 
 test("fleet totals and agents per host", () => {
@@ -282,7 +305,7 @@ test("the page renders each view, the dots and the gallery over the mock host", 
   expect(host.textContent).toContain("#22630");
 
   await render({ enabled: all, main: "agent-board" });
-  expect(host.querySelectorAll(".cv-dot").length).toBe(5);
+  expect(host.querySelectorAll(".cv-dot").length).toBe(6);
   expect([...host.querySelectorAll(".cv-column-head")].map((h) => h.firstChild?.textContent)).toEqual([
     "Working",
     "Needs you",
@@ -300,10 +323,18 @@ test("the page renders each view, the dots and the gallery over the mock host", 
   await render({ enabled: all, main: "timeline" });
   expect(host.querySelectorAll("ol li").length).toBeGreaterThan(5);
 
+  await render({ enabled: all, main: "plans" });
+  expect(host.querySelectorAll(".cv-plan-card").length).toBe(5);
+  const current = host.querySelectorAll('.cv-plan-step[data-status="in_progress"]');
+  expect(current.length).toBe(4);
+  expect(current[0]?.textContent).toContain("Wire the track to the model picker");
+  expect(host.textContent).toContain("Set by the Chief");
+  expect(host.textContent).toContain("Running without a plan");
+
   const store = await render({ enabled: ["where-is-everybody"], main: "where-is-everybody" }, true);
-  expect(host.querySelectorAll('[role="switch"]').length).toBe(5);
+  expect(host.querySelectorAll('[role="switch"]').length).toBe(6);
   const off = [...host.querySelectorAll('[role="switch"]')].map((el) => el.getAttribute("aria-checked"));
-  expect(off).toEqual(["true", "false", "false", "false", "false"]);
+  expect(off).toEqual(["true", "false", "false", "false", "false", "false"]);
   act(() => (host.querySelectorAll('[role="switch"]')[2] as HTMLElement).click());
   expect(store.getSnapshot().layout.enabled).toEqual(["where-is-everybody", "fleet"]);
 });

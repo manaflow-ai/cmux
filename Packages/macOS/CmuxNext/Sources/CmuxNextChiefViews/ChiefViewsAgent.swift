@@ -29,6 +29,8 @@ struct ChiefViewsAgent: Hashable, Sendable {
     var harness: String?
     var branch: String?
     var parent: String?
+    /// The chat's plan as acpmux keeps it (the summary's `taskList`, task_list.rs); terminals have none.
+    var plan: AgentTaskList?
 
     static let localMachine = "local"
 
@@ -56,6 +58,7 @@ struct ChiefViewsAgent: Hashable, Sendable {
         harness = lane.harness
         branch = nil
         parent = lane.parent
+        plan = lane.taskList
     }
 
     /// A terminal whose agent reports through a hook. Its last prompt stays out: it is the
@@ -82,6 +85,7 @@ struct ChiefViewsAgent: Hashable, Sendable {
         harness = status.agent
         self.branch = branch
         parent = nil
+        plan = nil
     }
 }
 

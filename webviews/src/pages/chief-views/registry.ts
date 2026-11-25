@@ -14,6 +14,7 @@ import type { ChiefAgent, Placement } from "./types";
 import { AgentBoardView } from "./views/AgentBoard";
 import { FleetView } from "./views/Fleet";
 import { LandingView } from "./views/Landing";
+import { PlansView } from "./views/Plans";
 import { TimelineView } from "./views/Timeline";
 import { WhereIsEverybodyView } from "./views/WhereIsEverybody";
 
@@ -38,7 +39,7 @@ export type ChiefViewManifest = {
   title: string;
   description: string;
   /** The glyph on its card and switcher dot. */
-  glyph: "people" | "board" | "fleet" | "landing" | "timeline";
+  glyph: "people" | "board" | "fleet" | "landing" | "timeline" | "plans";
   component: ComponentType<ChiefViewProps>;
   /** Where "Open" puts it. */
   defaultPlacement: Placement;
@@ -98,6 +99,16 @@ export const CHIEF_VIEWS: readonly ChiefViewManifest[] = [
     defaultPlacement: "sidebar",
     defaultOn: false,
     needs: ["agents", "landing"],
+  },
+  {
+    id: "plans",
+    title: "chiefViews.view.plans.title",
+    description: "chiefViews.view.plans.description",
+    glyph: "plans",
+    component: PlansView,
+    defaultPlacement: "pane",
+    defaultOn: false,
+    needs: ["agents"],
   },
 ];
 

@@ -1,4 +1,5 @@
 import CmuxEgress
+import CmuxNextAgentActivity
 import CmuxNextCompat
 import CmuxNextDaemonService
 import CmuxNextPages
@@ -204,6 +205,19 @@ final class ChiefViewsPageProvider: PageProvider {
             "harness": text(agent.harness),
             "branch": text(agent.branch),
             "parent": text(agent.parent),
+            "plan": agent.plan.map { plan in
+                .object([
+                    "source": .string(plan.source.rawValue),
+                    "done": .number(Double(plan.done)),
+                    "total": .number(Double(plan.total)),
+                    "current": text(plan.current),
+                    "next": text(plan.next),
+                    "updatedAt": ms(plan.updatedAt),
+                    "steps": .array(plan.steps.map { step in
+                        .object(["content": .string(step.content), "status": .string(step.status.rawValue)])
+                    }),
+                ])
+            } ?? .null,
         ])
     }
 

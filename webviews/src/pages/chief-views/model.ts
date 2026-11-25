@@ -356,3 +356,22 @@ export function startOfDay(now: number): number {
   const day = new Date(now);
   return new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime();
 }
+
+export type PlansBoard = {
+  /** Agents with a plan: what needs a person first, then the Lanes order. */
+  planned: ChiefAgent[];
+  /** What runs (working, waiting or failed) with no plan to show. */
+  unplanned: ChiefAgent[];
+};
+
+/** The Plans view: every agent's plan, and what is running without one. Idle agents with no plan
+ * are left out: nothing is running there to trust or doubt. */
+export function plansBoard(agents: readonly ChiefAgent[]): PlansBoard {
+  const planned: ChiefAgent[] = [];
+  const unplanned: ChiefAgent[] = [];
+  for (const agent of agents) {
+    if (agent.plan && agent.plan.total > 0) planned.push(agent);
+    else if (agent.state !== "idle") unplanned.push(agent);
+  }
+  return { planned: planned.sort(agentOrder), unplanned: unplanned.sort(agentOrder) };
+}

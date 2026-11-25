@@ -60,6 +60,27 @@ export type ChiefAgent = {
   branch?: string | null;
   /** The coordinator that started it (`mux.parent`). */
   parent?: string | null;
+  /** Its plan as acpmux keeps it (the summary's `taskList`, task_list.rs); terminals have none. */
+  plan?: ChiefPlan | null;
+};
+
+/** Where one step of a plan stands (acpmux `TaskStatus`). */
+export type ChiefPlanStatus = "pending" | "in_progress" | "completed";
+
+/** A chat's plan: the harness's own (TodoWrite, update_plan) or one its agent or Chief set. The
+ * counts and lines are acpmux's, so the page counts nothing again. */
+export type ChiefPlan = {
+  source: "harness" | "agent" | "chief";
+  done: number;
+  total: number;
+  /** The first step in progress, masked. */
+  current?: string | null;
+  /** The first pending step after it. */
+  next?: string | null;
+  /** Unix ms it last changed. */
+  updatedAt?: number | null;
+  /** Every step in order; empty from an app that predates them. */
+  steps: { content: string; status: ChiefPlanStatus }[];
 };
 
 export type ChiefAgentsReply = { agents: ChiefAgent[] };

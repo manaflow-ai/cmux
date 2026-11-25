@@ -8,6 +8,7 @@ import {
   ChiefViewsOps,
   type ChiefAgent,
   type ChiefAgentsReply,
+  type ChiefPlan,
   type FleetReply,
   type LandingReply,
 } from "./types";
@@ -21,7 +22,64 @@ export const FIXTURE_NOW = new Date(2026, 9, 20, 16, 40).getTime();
 /** `busy`: a working day; `empty`: nothing running; `fleet-unset`: no dashboard named yet. */
 export type MockChiefViewsKind = "busy" | "empty" | "fleet-unset" | "fleet-down" | "landing-down";
 
+/** A plan in the fixtures: its steps by status letter (x done, > in progress, . pending). */
+function mockPlan(source: ChiefPlan["source"], updatedAt: number, steps: [string, string][]): ChiefPlan {
+  const status = { x: "completed", ">": "in_progress", ".": "pending" } as const;
+  const items = steps.map(([mark, content]) => ({ content, status: status[mark as keyof typeof status] }));
+  const at = items.findIndex((step) => step.status === "in_progress");
+  return {
+    source,
+    done: items.filter((step) => step.status === "completed").length,
+    total: items.length,
+    current: at >= 0 ? items[at]!.content : null,
+    next: items.slice(at + 1).find((step) => step.status === "pending")?.content ?? null,
+    updatedAt,
+    steps: items,
+  };
+}
+
+/** The plans some fixture chats keep, by id. */
+function mockPlans(now: number): Record<string, ChiefPlan> {
+  return {
+    "s-chief-views": mockPlan("harness", now - 2 * MIN, [
+      ["x", "Read the Chief view registry and store"],
+      ["x", "Write the Where is everybody view"],
+      ["x", "Write the Agent board"],
+      [">", "Write the Fleet view's machine table"],
+      [".", "Add three gallery variants"],
+      [".", "Open the PR and land it on green"],
+    ]),
+    "s-needsyou": mockPlan("chief", now - 14 * MIN, [
+      ["x", "Group the inbox by decision"],
+      [">", "Ask whether the old inbox stays behind a toggle"],
+      [".", "Move the asks into the new groups"],
+      [".", "Screenshot both layouts"],
+    ]),
+    "s-inspector": mockPlan("harness", now - 4 * MIN, [
+      ["x", "Pin a section from its header menu"],
+      ["x", "Keep pins per workspace"],
+      [">", "Run the webview tests for the pinned section list"],
+      [".", "Push and open the PR"],
+    ]),
+    "s-pickers": mockPlan("agent", now - 51 * MIN, [
+      ["x", "Draw the effort track"],
+      [">", "Wire the track to the model picker"],
+      [".", "Gallery variants for each harness"],
+    ]),
+    "s-glaeda": mockPlan("harness", now - 3 * HOUR, [
+      ["x", "Cut v0.48.2"],
+      ["x", "Smoke the release on two Macs"],
+      ["x", "Promote it to stable"],
+    ]),
+  };
+}
+
 export function mockAgents(now: number = FIXTURE_NOW): ChiefAgent[] {
+  const plans = mockPlans(now);
+  return mockRows(now).map((agent) => (plans[agent.id] ? { ...agent, plan: plans[agent.id] } : agent));
+}
+
+function mockRows(now: number): ChiefAgent[] {
   const ago = (ms: number) => now - ms;
   return [
     {

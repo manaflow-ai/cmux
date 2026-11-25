@@ -883,3 +883,130 @@
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
 }
+
+/* Plans: one card per agent with a plan, its steps one per line. */
+.cv-plans {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cv-gap);
+}
+
+.cv-plan-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cv-plan-card {
+  border-radius: var(--cv-radius);
+  background: var(--cv-card);
+  padding: var(--ds-space-2) var(--ds-space-3);
+}
+
+.cv-plan-card[data-state="waiting"],
+.cv-plan-card[data-state="failed"] {
+  background: var(--cv-card-strong);
+}
+
+.cv-plan-head {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  inline-size: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.cv-plan-head > .cv-row-title {
+  flex: 1 1 auto;
+}
+
+.cv-plan-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  flex-shrink: 0;
+}
+
+.cv-plan-count {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--text-caption);
+  color: var(--page-text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.cv-plan-bar {
+  display: block;
+  inline-size: 48px;
+  block-size: 4px;
+  border-radius: 2px;
+  background: var(--cv-card-strong);
+  overflow: hidden;
+}
+
+.cv-plan-fill {
+  display: block;
+  block-size: 100%;
+  background: var(--cv-accent);
+}
+
+.cv-plan-card[data-finished] .cv-plan-fill {
+  background: var(--cv-success);
+}
+
+.cv-plan-steps {
+  margin: var(--ds-space-1) 0 0;
+  padding: 0 0 0 calc(var(--ds-icon-12, 12px) + var(--ds-space-2));
+  list-style: none;
+}
+
+.cv-plan-step {
+  display: grid;
+  grid-template-columns: 1.2em minmax(0, 1fr);
+  gap: var(--ds-space-1);
+  color: var(--page-text-3);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+
+.cv-plan-step[data-status="pending"] {
+  color: var(--page-text-2);
+}
+
+.cv-plan-step[data-status="in_progress"] {
+  color: var(--page-text);
+  font-weight: var(--weight-medium, 500);
+  background: color-mix(in srgb, var(--cv-accent) 12%, transparent);
+  border-radius: var(--ds-radius-sm, 4px);
+}
+
+.cv-plan-step[data-status="completed"] .cv-plan-text {
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--page-text-3) 60%, transparent);
+}
+
+.cv-plan-mark {
+  text-align: center;
+}
+
+.cv-plan-step[data-status="completed"] .cv-plan-mark {
+  color: var(--cv-success);
+}
+
+.cv-plan-step[data-status="in_progress"] .cv-plan-mark {
+  color: var(--cv-accent);
+}
+
+.cv-plan-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

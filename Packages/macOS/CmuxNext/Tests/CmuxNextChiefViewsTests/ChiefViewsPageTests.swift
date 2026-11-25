@@ -47,6 +47,36 @@ struct ChiefViewsPageTests {
         #expect(ChiefViewsAgent(lane: bare).machine == ChiefViewsAgent.localMachine)
     }
 
+    @Test func aLanesPlanReachesThePlansViewWithEveryStep() throws {
+        let summary: [String: Any] = [
+            "sessionId": "s1", "name": "plans",
+            "lane": ["state": "working", "since": NSNumber(value: 1_792_534_000_000)],
+            "taskList": [
+                "source": "harness", "done": 1, "total": 3, "current": "Write the view", "next": "Open the PR",
+                "updatedAt": NSNumber(value: 1_792_535_000_000),
+                "items": [
+                    ["content": "Read the store", "status": "completed"],
+                    ["content": "Write the view", "status": "in_progress"],
+                    ["content": "Open the PR", "status": "pending"],
+                    ["content": "", "status": "pending"],
+                    ["content": "Unknown", "status": "skipped"],
+                ],
+            ],
+        ]
+        let row = ChiefViewsAgent(lane: try #require(AgentActivityLane.of(summary: summary)))
+        let plan = try #require(ChiefViewsPageProvider.reply([row])["agents"]?.arrayValue?.first?["plan"])
+        #expect(plan["done"] == .number(1))
+        #expect(plan["total"] == .number(3))
+        #expect(plan["current"] == "Write the view")
+        #expect(plan["updatedAt"] == .number(1_792_535_000_000))
+        let steps = plan["steps"]?.arrayValue ?? []
+        #expect(steps.compactMap { $0["status"] } == ["completed", "in_progress", "pending"])
+        #expect(steps.compactMap { $0["content"] } == ["Read the store", "Write the view", "Open the PR"])
+        // A lane without a list, and a terminal, send null.
+        let bare = ChiefViewsAgent(lane: try #require(AgentActivityLane.of(summary: ["sessionId": "y", "lane": ["state": "idle"]])))
+        #expect(ChiefViewsPageProvider.reply([bare])["agents"]?.arrayValue?.first?["plan"] == .null)
+    }
+
     @Test func agentsReplyCarriesEveryFieldThePageReads() {
         var row = ChiefViewsAgent(lane: AgentActivityLane(id: "s", name: "n", title: "T", peer: nil, parent: "chief",
                                                          state: .input, since: Date(timeIntervalSince1970: 2), error: nil))

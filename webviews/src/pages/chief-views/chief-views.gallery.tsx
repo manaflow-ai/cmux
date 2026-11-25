@@ -49,8 +49,9 @@ export default componentEntry<Props>({
     "pages/chief-views/views/Fleet.tsx",
     "pages/chief-views/views/Landing.tsx",
     "pages/chief-views/views/Timeline.tsx",
+    "pages/chief-views/views/Plans.tsx",
   ],
-  keywords: ["chief", "home", "agents", "fleet", "landing", "timeline", "board", "views", "gallery"],
+  keywords: ["chief", "home", "agents", "fleet", "landing", "timeline", "board", "plans", "views", "gallery"],
   load: async () => ChiefViewsGallery,
   styles: async () => {
     await import("../shared/pageBase.css");
@@ -77,6 +78,22 @@ export default componentEntry<Props>({
     timeline: {
       note: "Timeline: today's events across agents and PRs, newest first.",
       props: { layout: pane("timeline") },
+    },
+    plans: {
+      note: "Plans: every chat's plan with the step in progress marked, then what runs without one.",
+      props: { layout: pane("plans") },
+    },
+    "plans-split": {
+      note: "Where is everybody in the pane, Plans as a split beside it.",
+      props: {
+        layout: { enabled: ALL, main: "where-is-everybody", side: { id: "plans", placement: "split" } },
+      },
+    },
+    "plans-sidebar": {
+      note: "Agent board in the pane, Plans as a sidebar: done steps fold into the count.",
+      props: {
+        layout: { enabled: ALL, main: "agent-board", side: { id: "plans", placement: "sidebar" } },
+      },
     },
     gallery: {
       note: "The gallery open: every view with its description, its switch and where to open it.",
