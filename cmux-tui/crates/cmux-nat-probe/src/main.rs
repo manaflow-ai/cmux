@@ -90,6 +90,18 @@ fn run(args: &[String]) -> Result<(), (u8, String)> {
                 );
             }
         }
+        Some("tailscale") => {
+            let rv = flag("--rendezvous")
+                .ok_or((2, "tailscale: --rendezvous HOST:PORT is required".to_string()))?;
+            let peer = flag("--peer")
+                .or_else(|| rv.rsplit_once(':').map(|(host, _)| host.to_string()))
+                .unwrap_or_default();
+            let count = flag("--count").unwrap_or_else(|| "20".into());
+            let bin = flag("--tailscale-bin").unwrap_or_else(|| "tailscale".into());
+            let result = tailscale_compare(&bin, &peer, &count);
+            note(&rv, flag("--label").unwrap_or_default(), &result).map_err(|why| (1, why))?;
+            println!("RESULT {result}");
+        }
         Some("rendezvous") => {
             rendezvous(
                 &flag("--listen").unwrap_or_else(|| "0.0.0.0:47391".into()),
@@ -102,7 +114,8 @@ fn run(args: &[String]) -> Result<(), (u8, String)> {
             return Err((
                 2,
                 "usage: cmux-nat-probe stun | pair --role a|b --token HEX [--duration-ms N] \
-                 [--pings N] [--rendezvous HOST:PORT] [--label L] | rendezvous [--listen ADDR] [--answer] [--ledger FILE]"
+                 [--pings N] [--rendezvous HOST:PORT] [--label L] | tailscale --rendezvous HOST:PORT [--peer IP] [--count N] [--tailscale-bin PATH] \
+                 [--label L] | rendezvous [--listen ADDR] [--answer] [--ledger FILE]"
                     .into(),
             ));
         }
@@ -692,4 +705,38 @@ fn relay(
     if let Some(to) = to {
         let _ = to.shutdown(std::net::Shutdown::Write);
     }
+}
+
+/// The same pair over Tailscale: `tailscale ping` to the peer, every reply counted (not stopping once direct).
+fn tailscale_compare(bin: &str, peer: &str, count: &str) -> Value {
+    let started = Instant::now();
+    let output = cmux_process::Command::new(bin)
+        .args(["ping", "--until-direct=false", "-c", count, "--timeout", "3s", peer])
+        .stdin(cmux_process::Stdio::null())
+        .output();
+    let text = match output {
+        Ok(out) => String::from_utf8_lossy(&out.stdout).into_owned(),
+        Err(err) => return json!({"tailscale": {"error": format!("{bin}: {err}")}}),
+    };
+    let got = cmux_nat_probe::parse_tailscale_ping(&text);
+    let direct = got.direct.iter().filter(|d| **d).count();
+    json!({"tailscale": {
+        "peer": peer, "pings": count.parse::<u32>().ok(), "pongs": got.rtt_ms.len(),
+        "direct": direct > 0 && direct * 2 >= got.direct.len(), "direct_pongs": direct,
+        "via": got.last_via, "rtt_ms_p50": quantile(&got.rtt_ms, 0.5),
+        "rtt_ms_p95": quantile(&got.rtt_ms, 0.95),
+        "elapsed_ms": started.elapsed().as_secs_f64() * 1000.0,
+    }})
+}
+
+/// Sends one note row (role n) to the rendezvous, which records it in its ledger.
+fn note(rv: &str, label: String, result: &Value) -> Result<(), String> {
+    let mut stream = TcpStream::connect(rv).map_err(|err| format!("rendezvous {rv}: {err}"))?;
+    let label: String = label.chars().map(|c| if c.is_whitespace() { '_' } else { c }).collect();
+    let token: u64 = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_nanos() as u64);
+    writeln!(stream, "HELLO {token:x} n {label}\nRESULT {result}")
+        .and_then(|()| stream.shutdown(std::net::Shutdown::Write))
+        .map_err(|err| format!("rendezvous {rv}: {err}"))
 }

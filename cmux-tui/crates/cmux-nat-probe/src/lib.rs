@@ -173,5 +173,32 @@ pub fn usable_candidate(addr: &SocketAddr) -> bool {
     }
 }
 
+/// One `tailscale ping` run's replies: each pong's round trip, and whether it came on a direct path (an `IP:port`)
+/// rather than through a DERP relay or a peer relay.
+#[derive(Debug, Default, PartialEq)]
+pub struct TailscalePings {
+    pub rtt_ms: Vec<f64>,
+    pub direct: Vec<bool>,
+    pub last_via: Option<String>,
+}
+
+/// Parses `tailscale ping` output: lines like `pong from host (100.x) via DERP(sfo) in 45ms` or
+/// `... via 203.0.113.9:41641 in 3ms`. Other lines (timeouts, notes) are skipped.
+#[must_use]
+pub fn parse_tailscale_ping(text: &str) -> TailscalePings {
+    let mut out = TailscalePings::default();
+    for line in text.lines() {
+        let Some(rest) = line.trim().strip_prefix("pong from ") else { continue };
+        let Some((_, after)) = rest.split_once(" via ") else { continue };
+        let Some((via, rtt)) = after.rsplit_once(" in ") else { continue };
+        let ms = rtt.trim().strip_suffix("ms").and_then(|v| v.trim().parse::<f64>().ok());
+        let Some(ms) = ms else { continue };
+        out.direct.push(via.parse::<SocketAddr>().is_ok());
+        out.rtt_ms.push(ms);
+        out.last_via = Some(via.to_string());
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests;

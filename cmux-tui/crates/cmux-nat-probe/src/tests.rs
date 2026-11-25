@@ -87,3 +87,16 @@ fn loopback_and_link_local_are_not_candidates() {
     assert!(usable_candidate(&"10.0.0.2:5".parse().unwrap()));
     assert!(usable_candidate(&"[2602:f470::1]:5".parse().unwrap()));
 }
+
+#[test]
+fn tailscale_ping_lines_parse_direct_and_relayed() {
+    let text = "pong from fs-27 (100.97.205.18) via DERP(sfo) in 45ms\n\
+                ping \"100.97.205.18\" timed out\n\
+                pong from fs-27 (100.97.205.18) via 208.72.218.135:41641 in 3.5ms\n\
+                pong from fs-27 (100.97.205.18) via [2602:f470::1]:41641 in 4ms\n";
+    let got = parse_tailscale_ping(text);
+    assert_eq!(got.rtt_ms, vec![45.0, 3.5, 4.0]);
+    assert_eq!(got.direct, vec![false, true, true]);
+    assert_eq!(got.last_via.as_deref(), Some("[2602:f470::1]:41641"));
+    assert_eq!(parse_tailscale_ping("no pongs"), TailscalePings::default());
+}
