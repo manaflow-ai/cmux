@@ -38,7 +38,7 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
     /// The web UI updates that apply: none under Automatic Updates Off (Off means cmux fetches nothing by
     /// itself), else `updates.web` (a hot swap needs no relaunch, so no idle gate).
     public var webInEffect: UpdatesWebSetting { automatic == .off ? .off : web }
-    /// Pages and agent panes load from the server or overlay `~/.config/cmux/web-dev.json` names
+    /// Pages and agent panes load from the server or overlay `~/.config/cmux-next/web-dev.json` names
     /// (the live web loop, docs/cmux-next/hot-reload.md); every build, on by default.
     public var liveWebReload = UpdatesSettings.liveWebReloadDefault
     /// The bottom-left "cmux Updated!" card after an update
