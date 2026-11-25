@@ -733,13 +733,18 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Both meters are 4 px bars with half-height ends. */
+.cv-meter,
+.cv-plan-bar {
+  border-radius: 2px;
+}
+
 .cv-meter {
   display: inline-block;
   vertical-align: middle;
   inline-size: 48px;
   block-size: 4px;
   margin-inline-end: var(--ds-space-2);
-  border-radius: 2px;
   background: var(--page-hover);
   overflow: hidden;
 }
@@ -901,7 +906,7 @@
 }
 
 .cv-plan-card {
-  border-radius: var(--cv-radius);
+  border-radius: var(--cv-radius); /* concentric-allow: the head is a borderless, unpadded text row, not a drawn button; the card keeps every Chief view card's corner */
   background: var(--cv-card);
   padding: var(--ds-space-2) var(--ds-space-3);
 }
@@ -934,7 +939,7 @@
    and the machine, source, count and age wrap under it, so nothing clips at the edge. */
 .cv-plans[data-placement="sidebar"] .cv-plan-head {
   flex-wrap: wrap;
-  row-gap: 2px;
+  row-gap: var(--grid-half-step);
 }
 
 .cv-plans[data-placement="sidebar"] .cv-plan-head > .cv-row-title {
@@ -959,7 +964,6 @@
   display: block;
   inline-size: 48px;
   block-size: 4px;
-  border-radius: 2px;
   background: var(--cv-card-strong);
   overflow: hidden;
 }
