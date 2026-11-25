@@ -30,8 +30,8 @@ final class TerminalComposerBarUITests: XCTestCase {
     /// (`KeyBarKey.identifier`), every one of the default layout.
     private static let scrollerKeys = [
         "control", "alt", "command", "shift", "paste", "tab", "escape", "return", "ctrl-c", "ctrl-d",
-        "up", "down", "left", "right", "launcher-claude", "launcher-codex", "launcher-ollama", "ctrl-l",
-        "ctrl-z", "home", "end", "page-up", "page-down", "wide", "zoom-out", "zoom-in", "hide-chrome",
+        "up", "down", "left", "right", "ctrl-l", "ctrl-z", "home", "end", "page-up", "page-down",
+        "launcher-claude", "launcher-codex", "launcher-ollama", "wide", "zoom-out", "zoom-in", "hide-chrome",
     ]
 
     @MainActor
