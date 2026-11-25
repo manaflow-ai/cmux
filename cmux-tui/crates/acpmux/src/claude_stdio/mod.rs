@@ -355,6 +355,10 @@ pub mod resume_cut;
 mod resume_cut_tests;
 #[cfg(test)]
 mod steer_now_tests;
+// A "success" result after Claude Code's own API error line is the turn's failure.
+mod api_error;
+#[cfg(test)]
+mod api_error_tests;
 // Claude's background shells, a workflow agent's under its agent (`background_shells.rs`).
 mod background_shells;
 // Other sessions' messages steered into one step go in as one line (`steer_batch.rs`).
@@ -648,6 +652,12 @@ pub struct Translator {
     /// Claude Code wrote something for the prompt (an assistant line, a
     /// conversation reset): its result ends the turn, never startup noise.
     turn_output: AtomicBool,
+    /// The text of the turn's last assistant line when that line is Claude Code's own API
+    /// error (`is_api_error_message`, or a `<synthetic>` line saying "API Error: ..."), else
+    /// None. A result that follows it is the turn's failure even when Claude Code calls it a
+    /// success (`api_error.rs`): "API Error: Repeated 529 Overloaded errors" left chats idle
+    /// with no retry (Leo, 2026-11-24: "do they get stranded!?").
+    api_error: Mutex<Option<String>>,
     /// The `uuid` of the turn's prompt line until Claude Code echoes it
     /// (`isReplay` carries the line's `uuid`).
     prompt_echo: Mutex<Option<String>>,
@@ -849,6 +859,7 @@ impl Translator {
             recap: Mutex::new("default"),
             in_turn: AtomicBool::new(false),
             turn_output: AtomicBool::new(false),
+            api_error: Mutex::new(None),
             prompt_echo: Mutex::new(None),
             prompt_queued: AtomicBool::new(false),
             renaming: Mutex::new(std::collections::VecDeque::new()),
@@ -1089,8 +1100,25 @@ impl Translator {
 /// its id and status): kind, title, input, and an edit's diffs and file. A live turn
 /// (`inbound.rs`) and an adopted chat's past turns (`adopt_tools.rs`) both draw calls from it.
 pub(crate) fn tool_call_fields(name: &str, input: &Value) -> Value {
+    // The transcript can describe a command in prose; permission requests still identify
+    // the command itself. Other tools keep the title identifying them (e.g. an MCP name)
+    // and carry any authored description alongside it in rawInput.
+    let title = match name {
+        "Bash" => input
+            .get("description")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|description| !description.is_empty())
+            .map(str::to_owned),
+        "Grep" => input
+            .get("pattern")
+            .and_then(Value::as_str)
+            .filter(|pattern| !pattern.is_empty())
+            .map(|pattern| format!("Search for {pattern}")),
+        _ => None,
+    };
     let mut call = json!({
-        "title": tool_title(name, input),
+        "title": title.unwrap_or_else(|| tool_title(name, input)),
         "kind": tool_kind(name),
         "rawInput": input,
         "_meta": {"claude": {"tool": name}}
