@@ -656,7 +656,7 @@ pub fn evacuate_toward(
     let mut rest = Vec::new();
     let mut skipped = Vec::new();
     for chat in chats {
-        if selected.is_some_and(|picked| !picked.iter().any(|s| *s == chat.session)) {
+        if selected.is_some_and(|picked| !picked.contains(&chat.session)) {
             continue;
         }
         let reason = if chat.moving {

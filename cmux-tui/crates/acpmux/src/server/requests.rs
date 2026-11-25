@@ -1406,7 +1406,18 @@ async fn rename(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
         .with_data(json!({"reason": "rename.registered"})));
     }
     hub.rename(&s, name.to_owned()).await?;
+    // The name the rename settled on, as one edit in the synced replica (`hub/synced.rs`).
+    hub.synced_record(crate::hub::synced::title_key(&s.id), json!(s.meta().name));
     Ok(hub.session_summary(&s))
+}
+
+/// A read or unread mark a person set here, as one edit in the synced replica (`hub/synced.rs`).
+fn synced_mark(hub: &Hub, params: &Value, read: bool) {
+    if let Ok(key) = session_key(params)
+        && let Ok(s) = hub.resolve(key)
+    {
+        hub.synced_record(crate::hub::synced::read_key(&s.id), json!(read));
+    }
 }
 
 /// A fixed identity is a typed internal argument, never a session/new field.
@@ -1573,15 +1584,19 @@ async fn dispatch_request_with_identity(
                 super::peer_forward::TRUST_PEER_EXTENSION,
                 method::MUX_V2, method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_USAGE, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
                 method::MUX_DETACH, method::MUX_WATCH, method::MUX_HARNESS_INVENTORY_WATCH, method::MUX_HARNESS_INVENTORY_REFRESH, method::MUX_HARNESS_UPDATE_PLAN, method::MUX_HARNESS_UPDATE_PREPARE, method::MUX_RENAME, method::MUX_SUCCEED, method::MUX_ROLE, method::MUX_REGISTER, method::MUX_INBOX_RELAY, method::MUX_DETACH_PARENT, method::MUX_KEEP, method::MUX_KILL, method::MUX_PAUSE, method::MUX_WAKE, method::MUX_SESSION_HOLD, method::MUX_FLEET_HOLD, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT, method::MUX_QUEUE_APPROVE, method::MUX_QUEUE_DECLINE, method::MUX_QUEUE_TEXT, method::MUX_ROWS,
-                method::MUX_INFO, method::MUX_MACHINE_INFO, method::MUX_SESSION_FILES, method::MUX_EVENTS, method::MUX_GITHUB_ACTION, method::MUX_GITHUB_APP_LEASE, method::MUX_GITHUB_REST, method::MUX_ATTACHMENT, method::MUX_TURN_SHOTS, method::MUX_CUSTOMIZE_RUN, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_TEAM_SEND, method::MUX_TEAM_INBOX, method::MUX_TEAM_READ, method::MUX_TEAM_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL, method::MUX_PROCESS_BACKGROUND, method::MUX_PROCESS_CENSUS, method::MUX_WORKTREE_REPORT, method::MUX_WORKTREE_CLEAN, method::MUX_WORKTREE_RESTORE, method::MUX_RETENTION, method::MUX_COLD_ARCHIVE, method::MUX_AUTO_SESSION_SET, method::MUX_AUTO_SESSION_LEFTOVER, method::MUX_AUTO_SESSION_WAKE, method::MUX_AUTO_SESSION_TRANSCRIPT,
-                method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_COMPOSER_SET, method::MUX_COMPOSERS, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_PROMPTS_LIST, method::MUX_PROMPTS_SAVE, method::MUX_PROMPTS_DELETE, method::MUX_STASH_LIST, method::MUX_STASH_PUSH, method::MUX_STASH_GET, method::MUX_STASH_DROP, method::MUX_STASH_MOVE, method::MUX_MEMORY_RESOLVE, method::MUX_AGENT_HOME, method::MUX_AGENT_HOME_RESOLVE, method::MUX_PROMPT_COACH, method::MUX_ASK, method::MUX_BTW, method::MUX_VIEW, method::MUX_TYPING, method::MUX_HERE_BEAT, method::MUX_HERE, method::MUX_MARK_UNREAD, method::MUX_MARK_READ, method::MUX_SEEN, method::MUX_ARCHIVE, method::MUX_SIDE,
+                method::MUX_INFO, method::MUX_MACHINE_INFO, method::MUX_SESSION_FILES, method::MUX_EVENTS, method::MUX_GITHUB_ACTION, method::MUX_GITHUB_APP_LEASE, method::MUX_GITHUB_REST, method::MUX_ATTACHMENT, method::MUX_TURN_SHOTS, method::MUX_CUSTOMIZE_RUN, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_TEAM_SEND, method::MUX_TEAM_INBOX, method::MUX_TEAM_READ, method::MUX_TEAM_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL, method::MUX_PROCESS_BACKGROUND, method::MUX_PROCESS_CENSUS, method::MUX_WORKTREE_REPORT, method::MUX_WORKTREE_CLEAN, method::MUX_WORKTREE_RESTORE, method::MUX_RETENTION, method::MUX_COLD_ARCHIVE, method::MUX_AUTO_SESSION_SET, method::MUX_CHAT_MOVE, method::MUX_AUTO_SESSION_LEFTOVER, method::MUX_AUTO_SESSION_WAKE, method::MUX_AUTO_SESSION_TRANSCRIPT,
+                method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_COMPOSER_SET, method::MUX_COMPOSERS, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_PROMPTS_LIST, method::MUX_PROMPTS_SAVE, method::MUX_PROMPTS_DELETE, method::MUX_STASH_LIST, method::MUX_STASH_PUSH, method::MUX_STASH_GET, method::MUX_STASH_DROP, method::MUX_STASH_MOVE, method::MUX_MEMORY_RESOLVE, method::MUX_AGENT_HOME, method::MUX_AGENT_HOME_RESOLVE, method::MUX_PROMPT_COACH, method::MUX_ASK, method::MUX_BTW, method::MUX_VIEW, method::MUX_TYPING, method::MUX_HERE_BEAT, method::MUX_HERE, method::MUX_SYNC_PULL, method::MUX_SYNC_PUSH, method::MUX_MARK_UNREAD, method::MUX_MARK_READ, method::MUX_SEEN, method::MUX_ARCHIVE, method::MUX_SIDE,
                 method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_SET_DIRECTORIES, method::MUX_MCP_RECONNECT, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_FILE_PUT, method::MUX_FILE_PUT_BEGIN, method::MUX_FILE_PUT_CHUNK, method::MUX_FILE_PUT_FINISH, method::MUX_FILE_PUT_CANCEL, method::MUX_FILE_PUT_STATUS, method::MUX_UPLOADS_KEEP, method::MUX_MEDIA_OPEN, method::MUX_MEDIA_RANGE, method::MUX_SUBAGENT_TRANSCRIPT, method::MUX_SUBAGENT_LIST, method::MUX_NATIVE_HISTORY, method::MUX_WORKFLOWS, method::MUX_DISPATCH, method::MUX_STEER, method::MUX_BRIEFS, method::MUX_REPORT, method::MUX_TASK_NEW, method::MUX_TASKS, method::MUX_RESOLVE, method::MUX_WHO_ELSE, method::MUX_SEND_FANOUT, method::MUX_SHUTDOWN, method::MUX_SESSION_AUTH, method::MUX_MESH_CONTROL,
                 method::CHAT_FIX_FROM_LINK,
                 method::CHAT_FIX_FROM_LINK_PREPARE,
                 method::MUX_PROJECT_NEW,
                 method::MUX_PLACE_CHAT,
+                method::MUX_TURN_FRAMES,
                 method::MUX_PERF,
                 method::MUX_CALLERS,
+                method::MUX_CHAT_SECRETS_SET,
+                method::MUX_CHAT_SECRETS_CLEAR,
+                method::MUX_CHAT_SECRETS_LIST,
                 method::MUX_FELT_SNAPSHOT,
             ];
             let capabilities = crate::capabilities::ids_for_connection(matches!(
@@ -2406,6 +2421,10 @@ async fn dispatch_request_with_identity(
                 }
                 _ => p,
             });
+            // The sender's own delivery deadline (`acpmux send --within`, `hub/inbox.rs`
+            // "Deadlines"), kept on the provenance so the inbox record keeps it.
+            let within = crate::prompt_class::within(&params);
+            let provenance = provenance.map(|p| crate::prompt_provenance::mark_within(p, within));
             // Another agent's message with no provenance (`hub/digest.rs`): one that names its
             // sender, or one from a connection that proved it runs in an acpmux session.
             let agent = notice_sender
@@ -3019,7 +3038,9 @@ async fn dispatch_request_with_identity(
                     ));
                 }
                 let wait = params.get("wait").and_then(Value::as_bool) == Some(true);
-                return heap(|| hub.reserve_home_warm(wait)).await;
+                // The harnesses and models the person set up (personal spares, ask-30d56720f6).
+                let shapes = crate::hub::parse_home_shapes(params.get("shapes"))?;
+                return heap(|| hub.reserve_home_warm(wait, shapes)).await;
             }
             let s = |k: &str| params.get(k).and_then(Value::as_str).map(str::to_owned);
             // A Cloud chat's coming start (cmux#45953): its owner credential, from this machine's
@@ -3512,6 +3533,7 @@ async fn dispatch_request_with_identity(
         // Auto mode (`auto_session/surface.rs`): the chat's own machine switches it and settles
         // its kept changes, and only for the person (`auto_gate.rs`).
         method::MUX_AUTO_SESSION_SET
+        | method::MUX_CHAT_MOVE
         | method::MUX_AUTO_SESSION_LEFTOVER
         | method::MUX_AUTO_SESSION_WAKE
         | method::MUX_AUTO_SESSION_TRANSCRIPT => {
@@ -3821,6 +3843,13 @@ async fn dispatch_request_with_identity(
         }
         method::MUX_ATTACH => {
             let s = hub.resolve(session_key(&params)?)?;
+            // The machine's fill, to a client that asked for it (`fill.rs`, RFD 0139).
+            super::fill::follow(
+                conn,
+                params.get("fill") == Some(&Value::Bool(true)),
+                &s.id,
+                &s.meta().cwd,
+            );
             let hidden = params.get("visible") == Some(&Value::Bool(false));
             // The app's pane draws nothing of a chat it does not show: no stream while hidden.
             // Never a peer daemon's link, which attaches hidden for the people it carries.
@@ -4034,8 +4063,26 @@ async fn dispatch_request_with_identity(
             }
             Ok(serde_json::to_value(hub.here_now(&params)?).unwrap_or_default())
         }
-        method::MUX_MARK_UNREAD => view::mark_unread(hub, &params),
-        method::MUX_MARK_READ => view::mark_read(hub, &params),
+        method::MUX_SYNC_PULL => {
+            Ok(serde_json::to_value(hub.sync_pull(&params)?).unwrap_or_default())
+        }
+        method::MUX_SYNC_PUSH => {
+            // A mesh link renames only through `mesh_read.rs`'s checked path, not a merge.
+            if view::a_link(conn) {
+                return Err(crate::hub::presence::peer_unsupported());
+            }
+            Ok(serde_json::to_value(hub.sync_push(&params).await?).unwrap_or_default())
+        }
+        method::MUX_MARK_UNREAD => {
+            let done = view::mark_unread(hub, &params)?;
+            synced_mark(hub, &params, false);
+            Ok(done)
+        }
+        method::MUX_MARK_READ => {
+            let done = view::mark_read(hub, &params)?;
+            synced_mark(hub, &params, true);
+            Ok(done)
+        }
         method::MUX_SEEN => view::seen(hub, &params),
         method::MUX_APP_REPLY => super::app_reply::check(hub, conn, &params),
         method::MUX_HARNESS_INVENTORY_WATCH => super::inventory_watch::handle(hub, conn, &params),
@@ -4061,6 +4108,14 @@ async fn dispatch_request_with_identity(
             let turn = str_param(&params, "turnId")
                 .ok_or_else(|| RpcError::invalid_params("turnId is required"))?;
             Ok(crate::hub::turn_shots::turn_shots(&s.id, turn).await)
+        }
+        // A read, for whoever may read the log; `look` captures the page now (the `look` tool).
+        method::MUX_TURN_FRAMES => {
+            let s = hub.resolve(session_key(&params)?)?;
+            if params.get("look").and_then(Value::as_bool) == Some(true) {
+                return Ok(crate::hub::turn_frames::look(&s.id).await);
+            }
+            Ok(crate::hub::turn_frames::turn_frames(&s.id, &params).await)
         }
         // The person's own click on a wrap-up card (`customize_run.rs`): an allowlisted
         // `cmux customize` argv, no shell. Never offered to a read-only connection. Only the

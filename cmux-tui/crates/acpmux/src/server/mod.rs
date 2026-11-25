@@ -257,6 +257,11 @@ pub struct Conn {
     /// (`_meta.acpmux.omitTimeBreakdown`), for none in any row: its attaches and the
     /// `session_changed` of the chats it attached (`requests/time_breakdown_gate.rs`).
     omit_time_breakdown: AtomicBool,
+    /// Other chats' `session_changed` rows left out while every chat this connection attached was
+    /// hidden from a client that draws nothing then (`SubOpts::quiet_hidden`, `leaves_out_row`).
+    /// Changed under `subs`' lock, so the show that ends it (`view.rs`) sends one `_acpmux/lagged`
+    /// with `watch: true` that covers every row left out, and the page reads the list again.
+    rows_left_out: AtomicU64,
     watch_inventory: StdMutex<bool>,
     /// The unix socket peer's audit token, read at accept (macOS); what
     /// `_acpmux/person_enroll` checks. None for WebSocket connections.
@@ -957,6 +962,30 @@ impl Conn {
             }
             _ => false,
         }
+    }
+    /// Whether another chat's `session_changed` row is left out here: every chat this connection
+    /// attached is hidden from a client that draws nothing then (`SubOpts::quiet_hidden`, the
+    /// app's pane). The app already holds every list notice from a page out of sight
+    /// (`AcpmuxPaneShedding.listNotices`, `setAsleep`), so these rows crossed the socket for
+    /// nothing: 205 kB/s with 8 chats streaming and 6 panes hidden (app-stream-bytes, stream
+    /// duress). Counted under the lock `_acpmux/view` shows a chat under (`rows_left_out`).
+    // perf-hot: 1us acpmux-row-fanout (every row change, per watching connection)
+    fn leaves_out_row(&self) -> bool {
+        let subs = self.subs.lock_or_recover();
+        let mut local = subs.values().filter(|sub| !sub.remote).peekable();
+        if local.peek().is_none() || !local.all(|sub| sub.quiet_hidden && sub.hidden) {
+            // Out of hiding by a detach or a new attach, not a show (`view.rs` covers a show):
+            // the rows left out are owed before this one.
+            let rows = self.rows_left_out.swap(0, Ordering::SeqCst);
+            if rows > 0 {
+                let notice =
+                    json!({"dropped": rows, "reason": "hidden", "watch": true, "sessionIds": []});
+                self.send(&Message::notification("_acpmux/lagged", notice));
+            }
+            return false;
+        }
+        self.rows_left_out.fetch_add(1, Ordering::SeqCst);
+        true
     }
     /// This daemon's own chats this connection is attached to.
     fn local_attached_ids(&self) -> Vec<String> {
@@ -2121,6 +2150,7 @@ async fn serve_connection_from(
         session_delta: AtomicBool::new(false),
         sent_rows: StdMutex::default(),
         omit_time_breakdown: AtomicBool::new(false),
+        rows_left_out: AtomicU64::new(0),
         watch_inventory: StdMutex::new(false),
         peer,
         socket_peer,
@@ -2875,6 +2905,11 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                     requests::without_time_breakdown(&mut session);
                 }
                 let qualified = remote.qualified_id(&ev.session_id);
+                if !attached && conn.leaves_out_row() {
+                    // Read again with the list once a chat here shows (`leaves_out_row`).
+                    session_patch::forget(conn, &qualified);
+                    return;
+                }
                 if rec.kind == "purged" {
                     session_patch::forget(conn, &qualified);
                 } else if session.is_object() {
@@ -2898,6 +2933,9 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         if rec.dir == "mux" && rec.kind == "purged" {
             held_rows::flush(hub, conn);
             session_patch::forget(conn, &ev.session_id);
+            if !attached && conn.leaves_out_row() {
+                return;
+            }
             // `replaced`: the same chat came back under this id (`Session::replaced`).
             let mut params = json!({"sessionId": ev.session_id, "session": {"sessionId": ev.session_id}, "kind": "purged", "recordKind": "purged", "seq": rec.seq, "listSeq": ev.list_seq});
             if rec.msg.get("replaced") == Some(&Value::Bool(true)) {
@@ -2916,6 +2954,27 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             return;
         }
         let Some(kind) = change_kind::session_change_kind(&rec.kind) else { return };
+        // A chat's command list still wakes its read (above); its asks still go (below).
+        let row_left_out =
+            !attached && rec.kind != "available_commands_update" && conn.leaves_out_row();
+        // A watcher that is not attached still learns a permission is waiting, after the row
+        // that recorded it.
+        let ask_pending = || {
+            if is_permission_ask(&rec.kind) && !attached {
+                conn.send_row(
+                    &Message::notification(
+                        method::MUX_PERMISSION_PENDING,
+                        permission_pending(&ev.session_id, rec, "watch", ev.remote.is_none()),
+                    ),
+                    outbound::Row::After(row_key()),
+                );
+            }
+        };
+        if row_left_out {
+            session_patch::forget(conn, &ev.session_id);
+            ask_pending();
+            return;
+        }
         // The row of a record that opens a turn waits behind the turn's first output
         // (`held_rows.rs`); any other row goes after the ones held, in row order.
         if attached && held_rows::opens_a_turn(&rec.kind) {
@@ -2965,17 +3024,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                 );
             }
         }
-        // A watcher that is not attached still learns a permission is waiting, after the row
-        // that recorded it.
-        if is_permission_ask(&rec.kind) && !attached {
-            conn.send_row(
-                &Message::notification(
-                    method::MUX_PERMISSION_PENDING,
-                    permission_pending(&ev.session_id, rec, "watch", ev.remote.is_none()),
-                ),
-                outbound::Row::After(row_key()),
-            );
-        }
+        ask_pending();
     }
 }
 
@@ -3070,6 +3119,7 @@ mod team;
 mod trigger_authority;
 mod trigger_chat;
 pub use conn_auth::ConnAuth;
+mod fill;
 mod fork_through;
 mod harness_admin;
 mod harness_enable;
