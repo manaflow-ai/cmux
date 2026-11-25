@@ -143,6 +143,14 @@ class LaunchTests(unittest.TestCase):
         self.assertIn("CMUX_DEV_AUTH_REPLACE_SESSION=1", argv)
         self.assertFalse(any(word.startswith("CMUX_SOCKET_PATH=") for word in argv))
 
+    def test_the_launcher_environment_carries_no_cmux_marker(self):
+        # `open` hands the app the launcher's environment too; CMUX_SOCKET_PATH there made the app take itself for
+        # another cmux's child and drop CMUX_NEXT_SOCKET_PATH (the daily proof's app.unreachable from 11-17).
+        from app_launch_env import launch_env
+        env = launch_env({"CMUX_SOCKET_PATH": "/tmp/s.sock", "CMUX_NEXT_SOCKET_PATH": "/tmp/s.sock",
+                          "CMUX_BUNDLE_ID": "x", "CMUX_TAG": "t", "MUX_AGENT_TOKEN_FILE": "/f", "PATH": "/usr/bin"})
+        self.assertEqual(env, {"CMUX_NEXT_SOCKET_PATH": "/tmp/s.sock", "PATH": "/usr/bin"})
+
 
 class GrantTests(unittest.TestCase):
     APP = ["--app", "/Applications/cmux.app", "--cloud-backend", "staging",
