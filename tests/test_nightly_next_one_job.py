@@ -190,6 +190,10 @@ class NightlyNextOneJobTests(unittest.TestCase):
         self.assertLess(join, release, "nightly-next-one must join acpmux before the Release build")
         self.assertEqual(steps[join].get("run"), "bash scripts/ci/nightly-steps/app-build-in-tree-acpmux.sh join")
         self.assertIn("steps.nightly-product.outputs.hit != 'true'", one_line(steps[join].get("if")))
+        split_steps = self.jobs["build-nightly-app"].get("steps") or []
+        split_join = next(step for step in split_steps
+                          if step.get("name") == "Finish building in-tree acpmux for the compilation cache")
+        self.assertEqual(split_join.get("run"), steps[join].get("run"))
 
     def test_the_split_pipeline_skips_in_one_job_mode(self) -> None:
         for name in PIPELINE_ROOTS:
