@@ -77,12 +77,13 @@ pub(crate) struct WriteGuard<'a> {
     table: &'a RemoteTable,
     /// The copy being changed; taken (an O(1) swap with empty maps) when published.
     rows: RemoteRows,
+    /// Ends before the writer unlocks and the replaced table is freed: cleanup after the
+    /// unlock is not time spent holding the writer lock.
+    held: Option<super::held_lock::HeldTimer>,
     _writer: MutexGuard<'a, ()>,
     /// The table this one replaced, freed after the writer lock is released (fields drop in
     /// order), so the next writer never waits on the nodes no reader shares any more.
     replaced: Option<Arc<RemoteRows>>,
-    /// How long the writer lock is held (`held_lock.rs`, a log line only).
-    held: Option<super::held_lock::HeldTimer>,
 }
 
 impl<'a> WriteGuard<'a> {
