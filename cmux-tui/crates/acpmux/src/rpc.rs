@@ -643,6 +643,9 @@ pub mod method {
     pub const MUX_TAILNET_LOGIN: &str = "_acpmux/tailnet/login";
     pub const MUX_TAILNET_STATE: &str = "_acpmux/tailnet/state";
     pub const MUX_TAILNET_LOGOUT: &str = "_acpmux/tailnet/logout";
+    /// One placement update (`cmux_tailnet_front::PlacementMessage`: set, moved, removed) for
+    /// the stable tailnet node's front; answers a `PlacementReply`. Local clients only.
+    pub const MUX_TAILNET_PLACEMENT: &str = "_acpmux/tailnet/placement";
     /// Join the embedded node to the person's own tailnet with a one-time key
     /// (`tailnet/embedded_join.rs`, `JoinParams` v1).
     pub const MUX_TAILNET_JOIN: &str = "_acpmux/tailnet/join";

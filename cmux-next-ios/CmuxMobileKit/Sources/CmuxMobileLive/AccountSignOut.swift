@@ -56,6 +56,7 @@ public struct AccountSignOut {
                 discardKeptChats: @escaping @MainActor () -> Void = {
                     MacHomeFeed.shared.discardForSignOut()
                     AgentChatsMemory.shared.removeAll()
+                    AgentCatalogCache.shared.removeAll()
                     AgentTranscriptCache.standard.removeAll()
                 }) {
         self.lastKnownLists = lastKnownLists

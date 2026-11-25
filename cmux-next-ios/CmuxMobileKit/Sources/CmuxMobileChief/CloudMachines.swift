@@ -1,3 +1,4 @@
+import CmuxMobileDesign
 import Foundation
 import CmuxMobileModel
 import Observation
@@ -239,6 +240,15 @@ public final class CloudMachinesModel {
     public var showsDetail = false
     /// The last action's refusal, for an alert.
     public var failure: String?
+    /// A refresh that could not reach cmux Cloud while the page keeps its rows: said only once the
+    /// outage has lasted ``QuietStatusGate/threshold`` (Leo, 2026-11-16: "obviously if it isn't
+    /// interactive im not connected"). A refusal the person must act on stays in ``failure``, at once.
+    @ObservationIgnored let unreachedQuiet = QuietStatusGate()
+    private var unreached: String?
+    /// The alert's text: an action's refusal at once, a refresh that could not reach the service
+    /// only past the hold.
+    public var shownFailure: String? { failure ?? (unreachedQuiet.isShown ? unreached : nil) }
+    public func dismissFailure() { failure = nil; unreached = nil }
     /// Actions held for the person's approval in the Feed, by the machine or snapshot they act on
     /// (`newMachineID` for a machine being made). Its row says "Waiting for approval" in place of
     /// its status (no alert) until a read shows the change, another action on it starts, or
@@ -362,13 +372,22 @@ public final class CloudMachinesModel {
             settleHeldActions()
             phase = .loaded
             cache?.save(Cached(machines: machines, snapshots: snapshots, plan: plan))
+            unreached = nil
+            unreachedQuiet.update(down: false)
         } catch is CancellationError {
             guard current == refreshID, self.account() != nil else { return }
             phase = before
         } catch {
             guard current == refreshID, self.account() != nil else { return }
             let message = Self.message(error)
-            if phase != .loaded { phase = .failed(message) } else if reportFailure { failure = message }
+            if phase != .loaded {
+                phase = .failed(message)
+            } else if AccountCloud.isUnreachable(error), CmuxMobilePreferences.quietCloudConnect() {
+                unreached = message
+                unreachedQuiet.update(down: true)
+            } else if reportFailure {
+                failure = message
+            }
         }
     }
 

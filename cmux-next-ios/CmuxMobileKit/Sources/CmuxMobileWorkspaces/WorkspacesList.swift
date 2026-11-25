@@ -356,6 +356,9 @@ public struct WorkspacesList: View {
     /// (`AppStore.openingTab`). Clears its "Done".
     func openWorkspace(_ ws: Workspace, status: WorkspaceStatus, tab: WorkspaceTab? = nil) {
         LaunchMarks.shared.mark("workspace_row_tap")
+        #if DEBUG
+        OpenMarks.shared?.begin("workspace_row_tap")
+        #endif
         if status == .offline {
             theme.haptics.warning()
             unavailable = ws
@@ -1211,6 +1214,8 @@ struct WorkspaceListRow: View, Equatable {
         // Not the List's cell highlight: it stuck on as a gray pill while a
         // swipe was under way. A press fill that ends when the touch moves.
         .buttonStyle(RowPressStyle())
+        // The layout-shift count (ios-placeholder-bounds suite): this row must not move once drawn.
+        .layoutShiftTracked("workspace.\(ws.id)")
         // Last-known rows (live mode) draw at full strength and open while the Mac answers on this link:
         // no dim while the phone reattaches (Leo, 2026-11-24: "the entire thing is somehow grayed out").
         .accessibilityAddTraits(model.isRemembered ? .isSelected : [])
@@ -1661,7 +1666,7 @@ struct WorkspaceRow: View {
                 .frame(width: gutter)
                 .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + needsYouDisc / 2 }
                 .animation(theme.motion.snap.animation.unlessReduceMotion, value: status)
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: CmuxMobileListRowMetrics.lineSpacing) {
                 // The time stays trailing on line 1, beside a name that wraps
                 // to two lines at accessibility sizes (no line of its own).
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -1675,7 +1680,7 @@ struct WorkspaceRow: View {
                 }
             }
         }
-        .frame(minHeight: showsStatusLine ? 40 : 32, alignment: .center)
+        .frame(minHeight: showsStatusLine ? CmuxMobileListRowMetrics.minHeight : CmuxMobileListRowMetrics.compactMinHeight, alignment: .center)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background { needsYouGlow }
         .contentShape(.rect)

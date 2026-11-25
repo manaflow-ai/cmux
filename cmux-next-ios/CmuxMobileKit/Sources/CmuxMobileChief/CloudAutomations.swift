@@ -1,3 +1,4 @@
+import CmuxMobileDesign
 import Foundation
 import CmuxMobileModel
 import Observation
@@ -133,6 +134,15 @@ public final class CloudAutomationsModel {
     public var showsDetail = false
     /// The last action's refusal, for an alert.
     public var failure: String?
+    /// A refresh that could not reach cmux Cloud while the page keeps its rows: said only once the
+    /// outage has lasted ``QuietStatusGate/threshold`` (Leo, 2026-11-16: "obviously if it isn't
+    /// interactive im not connected"). A refusal the person must act on stays in ``failure``, at once.
+    @ObservationIgnored let unreachedQuiet = QuietStatusGate()
+    private var unreached: String?
+    /// The alert's text: an action's refusal at once, a refresh that could not reach the service
+    /// only past the hold.
+    public var shownFailure: String? { failure ?? (unreachedQuiet.isShown ? unreached : nil) }
+    public func dismissFailure() { failure = nil; unreached = nil }
     /// The automation the last Run now started (its page says so).
     public private(set) var startedID: String?
 
@@ -193,6 +203,8 @@ public final class CloudAutomationsModel {
                 }
                 return summary
             })
+            unreached = nil
+            unreachedQuiet.update(down: false)
         } catch is CancellationError {
             guard current == refreshID, self.account() != nil else { return }
             // A cancelled reload puts back what the page showed (never a spinner left behind).
@@ -201,7 +213,14 @@ public final class CloudAutomationsModel {
         } catch {
             guard current == refreshID, self.account() != nil else { return }
             let message = Self.message(error)
-            if phase != .loaded { phase = .failed(message) } else if reportFailure { failure = message }
+            if phase != .loaded {
+                phase = .failed(message)
+            } else if AccountCloud.isUnreachable(error), CmuxMobilePreferences.quietCloudConnect() {
+                unreached = message
+                unreachedQuiet.update(down: true)
+            } else if reportFailure {
+                failure = message
+            }
         }
     }
 

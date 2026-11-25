@@ -25,6 +25,14 @@ public struct AccountCloud: Sendable {
         }
     }
 
+    /// The call never reached cmux Cloud (no answer, no network): a state that ends on its own, so a
+    /// page that keeps its cached rows says nothing about it until it has lasted
+    /// ``QuietStatusGate/threshold`` (hq docs/handbook/connection-state-with-no-action-or-bound.md).
+    public static func isUnreachable(_ error: any Error) -> Bool {
+        guard let failure = error as? Failure else { return true }
+        return failure == .unreachable
+    }
+
     let http: ChiefCloudHTTP
 
     /// `/v1/read {op, params}`: the reply's `value` as JSON bytes. `team` is the Cloud team id the
