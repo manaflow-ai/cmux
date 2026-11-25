@@ -876,7 +876,7 @@ impl HubCarrier {
         if self.acpmux_streams.load(Ordering::SeqCst) {
             let slot = self.kept.slot(daemon, lane);
             let refused_until = slot.lock().await.no_acpmux_until;
-            if !refused_until.is_some_and(|until| Instant::now() < until) {
+            if refused_until.is_none_or(|until| Instant::now() >= until) {
                 let hello = hello_record(CircuitService::Acpmux);
                 let mut report = DialReport::default();
                 if let Some(KeptOpen::Stream(stream)) =
@@ -1300,6 +1300,7 @@ impl HubCarrier {
             connection_attempt: ConnectionAttemptId(random_16()?),
             resume: BTreeMap::new(),
             daemon_takes_ik: false,
+            early: Vec::new(),
             handshake_timeout,
         })
     }
