@@ -5320,7 +5320,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             const r = await exec(`${GUEST}sh ${shq(file)} --stub 2>&1`, 180_000);
             if (r.code !== 0) throw new Error(`exit ${r.code} ${r.stdout.slice(-400)}`);
             return { value: null, detail: e2eLines(r.stdout) };
-          });
+            // Its FAIL stays on the record, as the live cell's does, but no longer ends the machine's later steps
+            // (connect, the carrier dial, the cmux-autocloud chat).
+          }).catch(() => undefined);
         }
         // The live cells need only the script on the machine: an image with no github-mcp fails the mcp_call cell alone.
         if (!sandbox) J.skip("GitHub on the machine (live)", process.env.CMUX_JOURNEY_GITHUB_REPO?.trim() ? "CMUX_JOURNEY_GITHUB_REPO must be OWNER/REPO" : "CMUX_JOURNEY_GITHUB_REPO is not set");
