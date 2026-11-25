@@ -229,11 +229,17 @@ fn chain(changes: &[(u32, u32)], from: u32, to: u32) -> Vec<Step> {
     if from < to {
         let lo = changes.partition_point(|&(rev, _)| rev <= from);
         let hi = changes.partition_point(|&(rev, _)| rev <= to);
-        changes[lo..hi].iter().map(|&(_, index)| (index, true)).collect()
+        changes.get(lo..hi).unwrap_or_default().iter().map(|&(_, index)| (index, true)).collect()
     } else {
         let lo = changes.partition_point(|&(rev, _)| rev <= to);
         let hi = changes.partition_point(|&(rev, _)| rev <= from);
-        changes[lo..hi].iter().rev().map(|&(_, index)| (index, false)).collect()
+        changes
+            .get(lo..hi)
+            .unwrap_or_default()
+            .iter()
+            .rev()
+            .map(|&(_, index)| (index, false))
+            .collect()
     }
 }
 
