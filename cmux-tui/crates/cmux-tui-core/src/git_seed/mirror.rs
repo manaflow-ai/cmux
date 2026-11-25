@@ -42,8 +42,24 @@ use super::{Failure, Seed, clean_folder};
 const MIRRORS: &str = "Projects/auto/.cmux-git-mirrors";
 
 /// How long an add waits for another add of the same remote to finish with the mirror
-/// before it clones directly.
-const LOCK_WAIT: Duration = Duration::from_secs(120);
+/// before it clones directly. The holder may be making the mirror (a whole blobless clone of a
+/// large remote: minutes), and waiting for it is cheaper than a crowd of direct clones, so this
+/// bounds only a holder that never finishes.
+const LOCK_WAIT: Duration = Duration::from_secs(30 * 60);
+
+/// The file beside a mirror whose mtime says when an add last fetched into it.
+fn stamp_of(mirror: &Path) -> PathBuf {
+    mirror.with_extension("fetched")
+}
+
+/// Whether the mirror was fetched into at or after `since` (by another add this one waited for).
+fn fetched_since(mirror: &Path, since: std::time::SystemTime) -> bool {
+    std::fs::metadata(stamp_of(mirror)).and_then(|meta| meta.modified()).is_ok_and(|at| at >= since)
+}
+
+fn stamp(mirror: &Path) {
+    let _ = std::fs::write(stamp_of(mirror), b"");
+}
 
 /// The machine's mirrors folder, unless `CMUX_SEED_MIRROR=off` or there is no home.
 #[must_use]
@@ -111,13 +127,22 @@ impl Seed {
         let Ok(root) = root.canonicalize() else { return Borrow::Failed("root") };
         let url = self.params.url.clone();
         let key = key(&url);
-        let Some(_lock) = lock(&root.join(format!("{key}.lock"))) else {
+        // Before the wait: a fetch another add makes after this moment brings what this add
+        // would have fetched itself.
+        let asked = std::time::SystemTime::now();
+        let Some(lock) = lock(&root.join(format!("{key}.lock"))) else {
             return Borrow::Failed("lock");
         };
         let mirror = root.join(format!("{key}.git"));
         let warm = mirror.join("HEAD").is_file();
-        // The proof of access: this caller's own fetch into the mirror, now.
-        let proven = if warm { self.refresh(&mirror, &url) } else { self.make(&root, &mirror) };
+        // The proof of access is this caller's own reach of the remote, now: a fetch into the
+        // mirror, or, when an add it waited for fetched since it asked, `ls-remote` (one round
+        // trip). A crowd of adds of one remote makes one fetch, not one each in turn.
+        let proven = match (warm, warm && fetched_since(&mirror, asked)) {
+            (true, true) => self.reach(&mirror),
+            (true, false) => self.refresh(&mirror, &url),
+            (false, _) => self.make(&root, &mirror),
+        };
         match proven {
             Ok(()) => {}
             Err(None) => return Borrow::Unproven,
@@ -128,6 +153,9 @@ impl Seed {
         {
             return Borrow::Failed("fill");
         }
+        // The mirror only gains objects from here on (it never prunes): the folder is made
+        // while the next add has the mirror.
+        drop(lock);
         match self.borrow_into(&mirror) {
             Ok(()) => Borrow::Done(warm),
             Err(_) => Borrow::Failed("folder"),
@@ -143,6 +171,20 @@ impl Seed {
             return Err(Some("origin"));
         }
         let args = ["fetch", "--progress", "--prune", "--tags", "--filter=blob:none", "origin"];
+        self.net_origin(Some(mirror), &args, &mut || {}).map_err(|_| None)?;
+        stamp(mirror);
+        Ok(())
+    }
+
+    /// This caller reaches the remote with its own paths (`ls-remote origin HEAD`), the mirror
+    /// fresh from another add's fetch. `Err(None)`: refused (access not proven).
+    fn reach(&mut self, mirror: &Path) -> Result<(), Option<&'static str>> {
+        let origin = self.git.quiet(Some(mirror), &self.chosen, &["config", "remote.origin.url"]);
+        let origin = origin.map(|out| String::from_utf8_lossy(&out).trim().to_owned()).ok();
+        if origin.as_deref() != Some(self.params.url.as_str()) {
+            return Err(Some("origin"));
+        }
+        let args = ["ls-remote", "--quiet", "origin", "HEAD"];
         self.net_origin(Some(mirror), &args, &mut || {}).map_err(|_| None)
     }
 
@@ -178,7 +220,10 @@ impl Seed {
             return Err(Some("config"));
         }
         match std::fs::rename(&tmp, mirror) {
-            Ok(()) => Ok(()),
+            Ok(()) => {
+                stamp(mirror);
+                Ok(())
+            }
             // Another machine process (AutoCloud start) made it meanwhile; this caller's
             // clone proved its access all the same.
             Err(_) if mirror.join("HEAD").is_file() => {
@@ -353,7 +398,7 @@ impl Seed {
 }
 
 /// The mirror's lock for this add, waited for at most [`LOCK_WAIT`]: adds of one remote take
-/// turns at it (the second add's fetch is a few KB once the first made it). An advisory lock
+/// turns making, fetching into and filling it; an add that waited for a fetch skips its own. An advisory lock
 /// on its own open file, so threads of this daemon take turns too.
 fn lock(path: &Path) -> Option<FileLock> {
     let file =

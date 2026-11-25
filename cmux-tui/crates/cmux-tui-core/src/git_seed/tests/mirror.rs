@@ -226,9 +226,63 @@ fn eight_adds_at_once_share_one_mirror() {
         .unwrap()
         .flatten()
         .map(|entry| entry.file_name().to_string_lossy().into_owned())
-        .filter(|name| !name.ends_with(".lock"))
+        .filter(|name| !name.ends_with(".lock") && !name.ends_with(".fetched"))
         .collect();
     assert_eq!(mirrors, vec![format!("{}.git", mirror::key(URL))], "one mirror, no leftovers");
+}
+
+/// An add that waited for the mirror while another add fetched into it makes no fetch of its
+/// own: it proves its access with one `ls-remote` and borrows what that fetch brought. (A crowd
+/// of 8 adds used to fetch in turn, each past the lock's wait, and 7 of them cloned directly.)
+/// An add the remote refuses still never borrows.
+#[test]
+fn an_add_that_waited_for_a_fetch_reaches_the_remote_and_skips_its_own() {
+    use cmux_file_lock::{FileLock, Kind};
+    let world = World::new("mirror-crowd");
+    let status = seed(&world, &clone_params(&world.home.join("first"), None));
+    assert_eq!(status["state"], "done", "{status}");
+    let mirror = mirror_of(&world);
+    let lock_path = mirror.with_extension("lock");
+    let take = || {
+        let file = std::fs::OpenOptions::new().read(true).write(true).open(&lock_path).unwrap();
+        FileLock::take_within(
+            file,
+            Kind::Exclusive,
+            Duration::from_secs(5),
+            Duration::from_millis(10),
+        )
+        .unwrap()
+    };
+
+    // A new commit on the remote the waiting add would fetch, were it to fetch.
+    write(&world.mac.join("a"), "a\nlater\n");
+    git(&world.mac, &["commit", "-q", "-a", "-m", "later"]);
+    git(&world.mac, &["push", "-q", "origin", "main"]);
+
+    let held = take();
+    let service = world.service();
+    let waiting = world.home.join("waiting");
+    let job = start(&service, &clone_params(&waiting, None)).unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    // The holder's fetch lands after the waiting add asked.
+    std::fs::write(mirror.with_extension("fetched"), b"").unwrap();
+    drop(held);
+    let status = wait(&service, &job);
+    assert_eq!(status["state"], "done", "{status}");
+    assert_eq!(status["mirror"], "hit", "{status}");
+    assert_eq!(status["head"], world.base.as_str(), "no fetch of its own: {status}");
+
+    let held = take();
+    let refused = service_at(&world, &world.home.join("no-access.git"));
+    let folder = world.home.join("refused");
+    let job = start(&refused, &clone_params(&folder, None)).unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    std::fs::write(mirror.with_extension("fetched"), b"").unwrap();
+    drop(held);
+    let status = wait(&refused, &job);
+    assert_eq!(status["state"], "failed", "{status}");
+    assert!(notes(&status).contains(&"seed.mirror.fallback".to_owned()), "{status}");
+    assert!(!folder.exists(), "nothing of the mirror reached the folder");
 }
 
 /// The numbers for the PR (`scripts/measure/cloud-add-repo-mirror.sh`): Cloud "Add repository"
