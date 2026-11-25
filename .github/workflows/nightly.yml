@@ -392,8 +392,12 @@ jobs:
                 for (const status of ['in_progress', 'queued', 'requested', 'waiting', 'pending']) {
                   const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
                     owner, repo, workflow_id: 'nightly.yml', branch: 'main', status, per_page: 100,
+                  }, (response) => {
+                    // Mark the read after a page arrives, before paginate requests
+                    // the next page. A later-page failure must fail closed too.
+                    inFlightReadStarted = true;
+                    return response.data;
                   });
-                  inFlightReadStarted = true;
                   for (const run of runs) {
                     if (seen.has(run.id) || run.id === context.runId || run.head_branch !== 'main' ||
                         !['push', 'schedule'].includes(run.event)) continue;

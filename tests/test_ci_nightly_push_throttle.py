@@ -78,7 +78,14 @@ const actions = scenario.runs ? {
   },
   listJobsForWorkflowRun: async ({ run_id }) => ({ data: scenario.jobs[String(run_id)] || [] }),
 } : undefined;
-const github = { paginate: async (fn, params) => (await fn(params)).data, rest: {
+const github = { paginate: async (fn, params, mapFn) => {
+  const page = await fn(params);
+  const mapped = mapFn ? mapFn(page, 0) : page.data;
+  if (scenario.failAfterFirstPageStatus === params.status) {
+    throw new Error(`failed listing the next ${params.status} page`);
+  }
+  return mapped;
+}, rest: {
   actions,
   git: {
     getRef: async () => {
@@ -163,6 +170,7 @@ def run_decide(
     jobs=None,
     max_in_flight: str = "3",
     fail_status=None,
+    fail_after_first_page_status=None,
 ):
     env = {
         "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin",
@@ -191,6 +199,7 @@ def run_decide(
                 "runs": runs,
                 "jobs": jobs or {},
                 "failStatus": fail_status,
+                "failAfterFirstPageStatus": fail_after_first_page_status,
             }
         ),
     }
@@ -417,6 +426,18 @@ def test_a_failing_classifier_builds() -> None:
                             classifier=command)
         assert should_build(result), f"{command} must rebuild the app"
         assert result["warnings"]
+
+
+def test_a_partial_in_flight_read_skips_the_tick() -> None:
+    result = run_decide(
+        event="schedule",
+        schedule="2,17,32,47 * * * *",
+        runs=[],
+        comparison=APP_CHANGE,
+        fail_after_first_page_status="in_progress",
+    )
+    assert not should_build(result)
+    assert "finish enumerating main nightly runs" in result["warnings"][0]
 
 
 def test_an_unproven_comparison_builds() -> None:
