@@ -3,7 +3,7 @@ public import Foundation
 extension PullRequestProbeService {
     /// Indexes pull requests by normalized head-branch name, keeping the
     /// preferred PR per branch and dropping non-candidates (unparseable state,
-    /// invalid URL, stale merged).
+    /// invalid URL, stale merged or closed).
     nonisolated static func pullRequestMapByNormalizedBranch(
         from pullRequests: [GitHubPullRequestProbeItem],
         now: Date = Date()
@@ -88,7 +88,7 @@ extension PullRequestProbeService {
     }
 
     /// Whether a PR can back a badge at all: parseable state, valid URL, and
-    /// not a stale merged PR.
+    /// not a stale merged or closed PR.
     nonisolated static func isBadgeCandidate(
         _ pullRequest: GitHubPullRequestProbeItem,
         now: Date
@@ -97,7 +97,7 @@ extension PullRequestProbeService {
               URL(string: pullRequest.url) != nil else {
             return false
         }
-        return !isStaleMerged(pullRequest, now: now)
+        return !isStaleMerged(pullRequest, now: now) && !isStaleClosed(pullRequest, now: now)
     }
 
     /// Whether a merged PR is older than ``mergedBadgeStaleAfter``.
@@ -110,6 +110,19 @@ extension PullRequestProbeService {
             return false
         }
         return now.timeIntervalSince(mergedAt) > Self.mergedBadgeStaleAfter
+    }
+
+    /// Whether a PR closed without merging has been closed for longer than
+    /// ``closedBadgeStaleAfter``. A closed PR with no usable `closedAt` is kept.
+    nonisolated static func isStaleClosed(
+        _ pullRequest: GitHubPullRequestProbeItem,
+        now: Date
+    ) -> Bool {
+        guard PullRequestStatus(githubState: pullRequest.state) == .closed,
+              let closedAt = githubTimestampDate(from: pullRequest.closedAt) else {
+            return false
+        }
+        return now.timeIntervalSince(closedAt) > Self.closedBadgeStaleAfter
     }
 
     /// Parses a GitHub ISO-8601 timestamp (with or without fractional seconds).

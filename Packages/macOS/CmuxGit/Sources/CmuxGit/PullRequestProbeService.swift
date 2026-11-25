@@ -67,6 +67,8 @@ public struct PullRequestProbeService: Sendable {
     static let probeTimeout: TimeInterval = 5.0
     /// Merged PRs older than this no longer earn a badge.
     static let mergedBadgeStaleAfter: TimeInterval = 14 * 24 * 60 * 60
+    /// PRs closed without merging longer ago than this no longer earn a badge.
+    static let closedBadgeStaleAfter: TimeInterval = mergedBadgeStaleAfter
     /// How often a panel showing a terminal (merged/closed) PR is re-checked.
     /// Public because the app's poll scheduling uses the same interval.
     public static let terminalStateSweepInterval: TimeInterval = 15 * 60
