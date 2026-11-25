@@ -104,6 +104,8 @@ public final class CloudSpareReadiness {
     }
 
     private let dependencies: Dependencies
+    /// The account's one spare-warm gate: a Cmd-Tab burst spawns one CLI process (hq#8747).
+    public let warmGate = CloudSpareWarmGate()
     private var keyed: [String: Keyed] = [:]
     private var routes: [String: Routed] = [:]
     /// When a route read ahead of `machine` last gave no report: not read again for ``keyRetry``.
@@ -373,6 +375,17 @@ public final class CloudSpareReadiness {
     private func end(_ link: SpareLink) {
         // task-owner: none; one stop line to the serve's supervisor, which ends its child
         Task { await link.end() }
+    }
+
+    /// Whether the account scope `now` (the App's `"user\0team"`, nil signed out) is a sign-in after `previous` (the scope
+    /// before it, `.none` before the first): the person's spare is warmed then, as an activation signed in warms it, so
+    /// it is keyed and linked from the sign-in on. An activation that came while signed out (a launch whose sign-in
+    /// lands a few seconds later) warmed nothing, and the first start's own warm was the first: its key ahead (a status
+    /// read, the keyed restart and its proof, 3 to 4.5 s from the warm's answer) then ended 1 to 2 s after the claim
+    /// connected, and the start's approvals step waited it out.
+    public nonisolated static func warmsAtSignIn(previous: String??, now: String?) -> Bool {
+        guard let now else { return false }
+        return (previous ?? nil) != now
     }
 
     /// A scope with a user: signed in (the team may be unset).

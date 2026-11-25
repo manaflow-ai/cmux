@@ -75,8 +75,8 @@ tests. Nothing in this matrix was tried in the running app.
 
 ## Open after this change
 
-- A member pinned in its group shows its pin only on hover (the expanded row's pin button). There is
-  no always-visible pin mark on a grouped row.
+- A member pinned in its group draws a small filled pin in its row's trailing cluster at rest, beside its own
+  icon and status (https://github.com/manaflow-ai/cmux/issues/56146: without it the row read as unpinned).
 - The TUI and iOS read the legacy `pinned` flag. The app now sets it on the workspace's own daemon with
   every pin (`WorkspacePinFlags`), so they show a pin made in the app; they do not know a pin inside a
   group from one in the Pinned band. A legacy pin of a grouped workspace now pins inside the group.
