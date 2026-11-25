@@ -152,3 +152,50 @@ test("an inbox notice that names no thread this page can read keeps its own row,
   expect(rows).toEqual([row]);
   expect(rows[0]!.incoming?.kind === "message" && rows[0]!.incoming.message.raw).toBe(odd);
 });
+
+test("a tool's notice relayed three times draws one line: its detector, severity, title and repeats", () => {
+  // Leo, 2026-11-25, on a row per relayed `[notice from now on HOST · FIRE] …`: "how can we improve this?"
+  const head = (n: number) =>
+    `[notice from now on cmux-cp-1 · FIRE] Runner label stalled: trusted xcode-26.6, ${n} queued\nThe label has had no runner for 40 min.`;
+  const messages = [9, 11, 12].map((n) => ({ from: "cmux-cp-1", text: head(n) }));
+  const text = `[inbox] New messages from other agents in 1 thread.\n- 3 new in runner from cmux-cp-1 (thread t-now):`;
+  const provenance = {
+    kind: "inbox_notice",
+    noticeId: "n-1",
+    threads: [
+      {
+        threadId: "t-now",
+        label: "runner",
+        new: 3,
+        from: ["cmux-cp-1"],
+        promptIds: ["p-1", "p-2", "p-3"],
+        preview: head(12).split("\n")[0],
+        messages,
+        notice: {
+          sender: "now",
+          severity: "fire",
+          title: "Runner label stalled: trusted xcode-26.6, 12 queued",
+          host: "cmux-cp-1",
+          repeats: 3,
+          lastAt: Date.UTC(2026, 10, 25, 9, 40),
+        },
+      },
+    ],
+  };
+  const incoming = incomingPrompt(text, { client: "acpmux", _meta: { provenance } } as never)!;
+  expect(incoming.kind).toBe("inbox");
+  const row = { id: "r", version: 1, at: 1, kind: "user", text, untyped: true, incoming } as AcpmuxRow;
+  const rows = projectInboxRows([row]);
+  const lines = rows.flatMap((r) => r.laneNoticeBatch?.rows ?? [r]);
+  expect(lines.length).toBe(1);
+  const message = lines[0]!.incoming?.kind === "message" ? lines[0]!.incoming.message : undefined;
+  expect(message?.name).toBe("now");
+  expect(message?.notice).toMatchObject({
+    sender: "now",
+    severity: "fire",
+    repeats: 3,
+    title: expect.stringContaining("Runner label stalled"),
+  });
+  expect(message?.notice?.host).toBeUndefined();
+  expect(message?.text).toContain("12 queued");
+});

@@ -386,12 +386,13 @@
   --glass-material-depth:
     0 12px 32px -12px light-dark(color-mix(in srgb, black 22%, transparent), color-mix(in srgb, black 55%, transparent)),
     0 2px 6px -2px light-dark(color-mix(in srgb, black 12%, transparent), color-mix(in srgb, black 35%, transparent));
-  /* The agent composer's depth (composerStates.css) and its twins' (composerMaterial.css): the same
-     two steps at about half the reach and half the dark (Leo 2026-11-06, the composer: "Is there a
-     way to make this less glass, or maybe less shadow? ... Probably just a little bit more subtle."). */
-  --glass-material-depth-composer:
-    0 6px 18px -8px light-dark(color-mix(in srgb, black 10%, transparent), color-mix(in srgb, black 28%, transparent)),
-    0 1px 3px -1px light-dark(color-mix(in srgb, black 7%, transparent), color-mix(in srgb, black 20%, transparent));
+  /* The agent composer's depth (composerStates.css) and its twins' (composerMaterial.css): the popups'
+     one drop, --elevation-2 (popupSurface.css --ui-popup-drop), so the composer and the pickers it
+     opens are one material (Leo 2026-11-21: "our shitty multi layer glass + web view. we need to
+     properly do that once and for all."). It stays subtle (Leo 2026-11-06, the composer: "maybe less
+     shadow? ... Probably just a little bit more subtle."): 0 2px 6px at 11% black, 16% in dark.
+     Before, a two-step shadow of its own (0 6px 18px -8px at 10%/28% and 0 1px 3px -1px at 7%/20%). */
+  --glass-material-depth-composer: var(--elevation-2, 0 2px 6px color-mix(in srgb, black 11%, transparent));
 }
 /* Under the system's Reduce Transparency as under the host's: none of the material, the solid card. */
 @media not (prefers-reduced-transparency: reduce) {
@@ -934,28 +935,31 @@
     .acpmux-since-jump {
     --glass-backdrop: var(--ds-glass-chrome-blur);
   }
-  :root[data-glass-levels="previous"]:not([data-reduce-transparency]) .acpmux-chief-dock {
-    --chief-glass-fill: color-mix(in srgb, var(--acpmux-base, var(--agent-page-bg)) 64%, transparent);
-    --chief-glass-backdrop: var(--ds-glass-chrome-blur);
-    --chief-glass-wash: 8%;
-    --chief-glass-edge: color-mix(in srgb, var(--agent-text) 26%, transparent);
-    --chief-glass-rim:
+  /* The Chief dock's rail and cards are .ui-glass at the popover level; the old look is tokens on them. */
+  :root[data-glass-levels="previous"]:not([data-reduce-transparency]) .acpmux-chief-dock :is(.acpmux-chief-dock-rail, .acpmux-chief-card).ui-glass {
+    --glass-tint: color-mix(
+      in srgb,
+      var(--agent-text) 8%,
+      color-mix(in srgb, var(--acpmux-base, var(--agent-page-bg)) 64%, transparent)
+    );
+    --glass-backdrop: var(--ds-glass-chrome-blur);
+    --glass-rim-shadow:
       inset 0 1px 0 color-mix(in srgb, var(--agent-text) 30%, transparent),
       inset 0 -1px 0 color-mix(in srgb, var(--acpmux-base, var(--agent-page-bg)) 20%, transparent);
   }
-  :root[data-glass-levels="previous"]:not([data-reduce-transparency]) .acpmux-chief-dock-rail {
+  :root[data-glass-levels="previous"]:not([data-reduce-transparency]) .acpmux-chief-dock {
+    --chief-glass-edge: color-mix(in srgb, var(--agent-text) 26%, transparent);
+  }
+  :root[data-glass-levels="previous"]:not([data-reduce-transparency]) .acpmux-chief-dock .acpmux-chief-dock-rail.ui-glass {
     --chief-glass-edge: color-mix(in srgb, var(--agent-text) 28%, transparent);
-    --chief-glass-rim:
+    --glass-rim-shadow:
       inset 0 1px 0 color-mix(in srgb, var(--agent-text) 30%, transparent),
       inset 0 -1px 0 color-mix(in srgb, var(--acpmux-base, var(--agent-page-bg)) 22%, transparent);
   }
-  :root[data-glass-levels="previous"]:not([data-reduce-transparency]) .onb-import {
-    --onb-card-glass: color-mix(in srgb, var(--ds-color-surface) 62%, transparent);
-  }
   :root[data-glass-levels="previous"]:not([data-reduce-transparency])
     .onb-import
-    :is(.onb-import-list, .onb-import-options, .onb-express-ask) {
-    -webkit-backdrop-filter: var(--ds-glass-popover-blur);
-    backdrop-filter: var(--ds-glass-popover-blur);
+    :is(.onb-import-list, .onb-import-options, .onb-express-ask).ui-glass {
+    --glass-tint: color-mix(in srgb, var(--ds-color-surface) 62%, transparent);
+    --glass-backdrop: var(--ds-glass-popover-blur);
   }
 }
