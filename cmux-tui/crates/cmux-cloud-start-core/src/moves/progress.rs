@@ -268,7 +268,8 @@ mod tests {
 
     #[test]
     fn every_step_names_itself_and_counts_its_seconds() {
-        let texts: Vec<String> = STAGES.iter().map(|stage| line(&facts(*stage, 12_400)).text).collect();
+        let texts: Vec<String> =
+            STAGES.iter().map(|stage| line(&facts(*stage, 12_400)).text).collect();
         assert_eq!(
             texts,
             [
@@ -302,7 +303,10 @@ mod tests {
             [0, 999, 1_000, 59_999, 60_000, 65_000, 609_000, 3_599_999, 3_723_000].map(clock),
             ["0s", "0s", "1s", "59s", "1:00", "1:05", "10:09", "59:59", "1:02:03"]
         );
-        assert_eq!(line(&facts(Stage::Agent, 185_000)).text, "4 of 5 · Handing the agent to dev · 3:05");
+        assert_eq!(
+            line(&facts(Stage::Agent, 185_000)).text,
+            "4 of 5 · Handing the agent to dev · 3:05"
+        );
     }
 
     #[test]
