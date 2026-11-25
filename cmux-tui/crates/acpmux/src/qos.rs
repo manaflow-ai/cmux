@@ -12,7 +12,7 @@
 //! | Tier | Who | macOS | Linux |
 //! |---|---|---|---|
 //! | [`Tier::Serving`] | the daemon | unchanged: acknowledged replies wait on the event journal's sync, so its disk I/O stays at the default tier ([`enter_daemon`]) | unchanged |
-//! | [`Tier::AgentStart`] | agent hosts and their harnesses | disk I/O at `IOPOL_UTILITY`; CPU while the harness starts: the daemon's (unchanged); once its session's start is over: the harness and what it started at nice +11 (priority 20, as the utility clamp), or background class (`cpu_class.rs`) | while it starts: unchanged; then the harness at nice +5 and its host's session (autogroup) at nice 5 |
+//! | [`Tier::AgentStart`] | agent hosts and their harnesses | the host's disk I/O at `IOPOL_UTILITY`; its harness back at the default disk tier ([`default_disk_io`]) and the daemon's CPU priority, as a shell in a terminal runs: a `normal` harness (the default) stays there, a `background` one (opt-in) goes to nice +11 and background class once its session's start is over (`cpu_class.rs`) | while it starts: unchanged; then the harness at nice +5 and its host's session (autogroup) at nice 5 |
 //! | [`Tier::Agent`] | background-task runners, and everything they start | CPU clamped to utility (priority 20) and disk I/O at `IOPOL_UTILITY` | nice +5 |
 //! | [`Tier::Background`] | housekeeping inside the daemon that holds no lock other work waits on (probe cleanup at start) | the thread at `QOS_CLASS_BACKGROUND` for the pass (CPU throttled; its disk I/O at the background class's tier), then back | unchanged |
 //! | [`Tier::OnScreen`] | the daemon's reads for a chat being opened on screen (a visible `_acpmux/attach`: its log load and its first page) | the thread at `QOS_CLASS_USER_INITIATED` for the read (its CPU; its disk I/O stays at the daemon's default tier), then back | unchanged |
@@ -32,9 +32,13 @@
 //! Leo's Mac at load average 125 to 256, waking an agent took 10 to 82 s, and one start ran out
 //! its 90 s with 1.8 s of CPU used, its host and harness under the utility clamp and below every
 //! default-priority process on the machine. An agent host therefore starts at the daemon's CPU
-//! priority (its disk I/O still at utility) and spawns its harness there; once the session's start is over (its `initialize` and
-//! `session/new` or `session/load` answered), the daemon lowers the running harness
-//! ([`AGENT_NICE`], `cpu_class::CpuClass::enter`): its builds and tests still run below the app.
+//! priority (its disk I/O still at utility) and spawns its harness there, at the default disk tier.
+//! An agent's turns are work a person waits on too (2026-11-24: over 130 sessions on one Mac, a
+//! NEXT agent's tests took 37 s at the median against 11 s in a terminal, and its slowest builds
+//! 220 s against 52 s; one 1-commit rebase took 87 minutes at 0% CPU, waiting on a throttled
+//! disk), so by default the harness stays there for good, as a terminal's shell does. Only a
+//! `background` session's harness is lowered once its start is over ([`AGENT_NICE`] and
+//! background class, `cpu_class::CpuClass::enter`).
 //!
 //! macOS gives no call that clamps a running process, and a thread's QoS does
 //! not survive exec into another program (a probe on a fleet mini: a child's
@@ -72,8 +76,9 @@ pub enum Tier {
     Serving,
     /// Agent work: background-task runners and every tool they run.
     Agent,
-    /// Agent hosts: the daemon's tier while their harness starts (a person waits on a start),
-    /// [`Tier::Agent`]'s once its session's start is over (`cpu_class::CpuClass::enter`).
+    /// Agent hosts: the daemon's CPU tier, disk I/O at utility. Their harnesses run at the
+    /// daemon's tier and the default disk tier; a `background` session's harness goes below once
+    /// its start is over (`cpu_class::CpuClass::enter`).
     AgentStart,
     /// Work nobody waits for: sweeps, retention, cleanup.
     Background,
@@ -140,6 +145,15 @@ pub fn at_least_default_nice() {
             libc::setpriority(libc::PRIO_PROCESS, 0, 0);
         }
     }
+}
+
+/// This process's disk I/O back at the default tier (macOS; elsewhere nothing), as a shell in a
+/// terminal has it: a harness takes it between fork and exec (`cpu_class::start_at_normal`), so
+/// it and every tool its turns run do not inherit its agent host's `IOPOL_UTILITY`, which the
+/// kernel throttles behind any default-tier disk work on the machine. Async-signal-safe: one
+/// syscall on the calling process.
+pub fn default_disk_io() {
+    imp::disk_default();
 }
 
 /// The daemon's tier: acknowledged replies wait on the event journal's sync, so the daemon keeps
@@ -253,6 +267,7 @@ mod imp {
     const IOPOL_TYPE_DISK: libc::c_int = 0;
     const IOPOL_SCOPE_PROCESS: libc::c_int = 0;
     const IOPOL_SCOPE_THREAD: libc::c_int = 1;
+    const IOPOL_IMPORTANT: libc::c_int = 1;
     const IOPOL_UTILITY: libc::c_int = 4;
     const PRIO_DARWIN_BG: libc::c_int = 0x1000;
     const POSIX_SPAWN_SETEXEC: libc::c_short = 0x0040;
@@ -278,6 +293,13 @@ mod imp {
         if unsafe { setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_PROCESS, IOPOL_UTILITY) } != 0 {
             tracing::debug!("setiopolicy_np: {}", std::io::Error::last_os_error());
         }
+    }
+
+    /// The process's disk I/O at `IOPOL_IMPORTANT`, the tier a process starts at
+    /// ([`super::default_disk_io`]). No logging: it runs between fork and exec.
+    pub(super) fn disk_default() {
+        // SAFETY: plain syscall wrapper with constant arguments, async-signal-safe.
+        unsafe { setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_PROCESS, IOPOL_IMPORTANT) };
     }
 
     /// This process's scheduler base priority (`proc_pidinfo` `PROC_PIDTASKINFO`): 31 at the
@@ -482,6 +504,7 @@ mod imp {
 #[cfg(target_os = "linux")]
 mod imp {
     pub(super) fn disk_utility() {}
+    pub(super) fn disk_default() {}
     pub(super) fn thread_disk_utility() {}
 
     /// nice +5: inherited by everything the process starts. Not undone (an
@@ -518,6 +541,7 @@ mod imp {
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 mod imp {
     pub(super) fn disk_utility() {}
+    pub(super) fn disk_default() {}
     pub(super) fn thread_disk_utility() {}
     pub(super) fn clamp_cpu_utility() {}
     pub(super) fn process_background() {
@@ -545,5 +569,99 @@ mod imp {
 mod journal_tests;
 
 #[cfg(test)]
-#[path = "qos_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_daemon_keeps_its_cpu_and_agents_yield() {
+        assert_eq!(tier(Role::Daemon), Tier::Serving);
+        assert_eq!(tier(Role::AgentHost), Tier::AgentStart);
+        assert_eq!(tier(Role::BackgroundTaskRunner), Tier::Agent);
+        assert_eq!(tier(Role::Housekeeping), Tier::Background);
+        assert_eq!(tier(Role::VisibleOpen), Tier::OnScreen);
+    }
+
+    #[test]
+    fn an_on_screen_read_returns_its_value() {
+        assert_eq!(on_screen(|| 7), 7);
+    }
+
+    /// The read runs at user-initiated QoS, and the thread goes back to what it had: tokio
+    /// reuses it for other work, and the next on-screen read on it is raised again.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn an_on_screen_read_raises_the_thread_and_puts_it_back() {
+        if !enabled() {
+            return;
+        }
+        // `qos_class_t` has no `PartialEq` in libc, so the classes compare as their numbers.
+        let class = |qos: libc::qos_class_t| qos as u32;
+        let (qos, io) = (imp::thread_qos(), imp::thread_io());
+        // The thread's own I/O policy is left alone: a thread-scope `setiopolicy_np` drops the
+        // thread out of QoS (it read 0, unspecified, on macOS 26 and 27) and makes every later
+        // `pthread_set_qos_class_self_np` on it fail with EPERM.
+        let inside = on_screen(|| (class(imp::thread_qos()), imp::thread_io()));
+        assert_eq!(inside, (class(libc::qos_class_t::QOS_CLASS_USER_INITIATED), io));
+        let after = (class(imp::thread_qos()), imp::thread_io());
+        let expected_qos = match qos {
+            libc::qos_class_t::QOS_CLASS_UNSPECIFIED => libc::qos_class_t::QOS_CLASS_DEFAULT,
+            qos => qos,
+        };
+        assert_eq!(after, (class(expected_qos), io));
+        // A pool thread is reused: the next on-screen read on it is raised again.
+        let again = on_screen(|| class(imp::thread_qos()));
+        assert_eq!(again, class(libc::qos_class_t::QOS_CLASS_USER_INITIATED), "the second raise");
+    }
+
+    /// A background pass (`background`) puts the pool thread back as it found it, so a later
+    /// on-screen read on that thread is still raised.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_background_pass_leaves_the_thread_raisable() {
+        if !enabled() {
+            return;
+        }
+        let class = |qos: libc::qos_class_t| qos as u32;
+        let before = class(imp::thread_qos());
+        background(|| ());
+        assert_eq!(class(imp::thread_qos()), before, "the class after a background pass");
+        let raised = on_screen(|| class(imp::thread_qos()));
+        assert_eq!(raised, class(libc::qos_class_t::QOS_CLASS_USER_INITIATED), "raised after it");
+    }
+
+    /// The clamp takes effect: a child spawned under it, and the shell it
+    /// starts, run at priority 20 (utility), not 31 (cmux#27587's first cut
+    /// passed `QOS_CLASS_UTILITY`, which the setter takes and ignores).
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_clamped_child_and_what_it_starts_run_at_utility() {
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("pri");
+        let script = format!(
+            "/bin/sh -c 'ps -o pri= -p $$' > '{}'; ps -o pri= -p $$ >> '{}'",
+            out.display(),
+            out.display()
+        );
+        let argv: Vec<OsString> = vec!["sh".into(), "-c".into(), script.into()];
+        let pid = imp::spawn_clamped(std::path::Path::new("/bin/sh"), &argv, &[], false)
+            .expect("spawn under the clamp");
+        let mut status = 0;
+        // SAFETY: waits for the child this test started.
+        unsafe { libc::waitpid(pid, &mut status, 0) };
+        let text = std::fs::read_to_string(&out).unwrap();
+        let pris: Vec<&str> = text.split_whitespace().collect();
+        assert_eq!(pris.len(), 2, "{text:?}");
+        for pri in pris {
+            assert!(pri.starts_with("20"), "expected priority 20, got {text:?}");
+        }
+    }
+
+    #[test]
+    fn the_reexec_marks_itself_once() {
+        let vars = vec![("PATH".into(), "/bin".into()), (CLAMPED_ENV.into(), "stale".into())];
+        let out = reexec_env(vars);
+        assert_eq!(out.iter().filter(|(k, _)| k == CLAMPED_ENV).count(), 1);
+        assert!(out.contains(&(CLAMPED_ENV.into(), "utility".into())));
+        assert!(out.contains(&("PATH".into(), "/bin".into())));
+    }
+}

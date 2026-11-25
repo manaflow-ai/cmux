@@ -362,6 +362,40 @@ pub struct TeamPage {
     pub next: Option<u64>,
 }
 
+/// A listen: the right to read what another member's agent address receives, until `expires_at`
+/// (ms). The hub opens one only for an address whose owner granted the listener's user.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Listen {
+    pub id: String,
+    pub team_address: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub listener: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opened_by: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opened_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<u64>,
+}
+
+/// The open listens the hub names for this caller: its own, and others' on its addresses.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Listens {
+    #[serde(default)]
+    pub listening: Vec<Listen>,
+    #[serde(default)]
+    pub listeners: Vec<Listen>,
+}
+
+/// Whether `id` has the hub's listen id shape, `lsn_` and 32 lowercase hex digits, so it is safe
+/// in a path.
+pub fn is_listen_id(id: &str) -> bool {
+    id.strip_prefix("lsn_").is_some_and(|hex| {
+        hex.len() == 32 && hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    })
+}
+
 /// A message to post.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -590,6 +624,22 @@ pub trait MeshHub: Send + Sync {
     fn acknowledge<'a>(&'a self, _message_id: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
         Box::pin(async { Err(HubError::unavailable("team acknowledgement is unavailable")) })
     }
+    /// Open a listen on another member's agent address, for `ttl_seconds` or the hub's default.
+    fn listen_open<'a>(
+        &'a self,
+        _team_address: &'a str,
+        _ttl_seconds: Option<u64>,
+    ) -> BoxFuture<'a, Result<Listen, HubError>> {
+        Box::pin(async { Err(HubError::unavailable("team listens are unavailable")) })
+    }
+    /// The open listens: this caller's, and others' on its addresses.
+    fn listens(&self) -> BoxFuture<'_, Result<Listens, HubError>> {
+        Box::pin(async { Err(HubError::unavailable("team listens are unavailable")) })
+    }
+    /// Close one of this caller's listens; the open listens after it.
+    fn listen_close<'a>(&'a self, _id: &'a str) -> BoxFuture<'a, Result<Listens, HubError>> {
+        Box::pin(async { Err(HubError::unavailable("team listens are unavailable")) })
+    }
     fn ack<'a>(&'a self, message_id: &'a str, ack: &'a Ack) -> BoxFuture<'a, Result<(), HubError>>;
     /// Replace this daemon's sessions in the address book.
     fn heartbeat<'a>(
@@ -716,5 +766,71 @@ pub(crate) fn valid_team_suffix(value: &str) -> bool {
 }
 
 #[cfg(test)]
-#[path = "mesh_tests.rs"]
-mod tests;
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn only_a_plain_message_id_is_taken() {
+        assert!(is_message_id("msg_01HZY:3.a-b"));
+        for bad in ["", "Bearer eyJhbGci", "../ack", "a/b", "m?x=1", &"m".repeat(129)] {
+            assert!(!is_message_id(bad), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn records_read_and_write_the_hubs_field_names() {
+        // An inbox message as the hub sends it (cmux-platform openapi.json 1.3.0 MeshInboxMessage).
+        let message: InMessage = serde_json::from_value(json!({
+            "messageId": "msg_0123", "kind": "prompt", "op": null, "mode": "now",
+            "to": {"sessionId": null, "name": "dep-land"},
+            "from": {"daemonId": "inst_1", "user": "u_1", "host": "gcp-codex-lane-3",
+                     "name": "lane-a", "sessionId": null},
+            "body": "hi", "attempt": 2, "createdAt": 1, "leasedUntil": 2,
+        }))
+        .unwrap();
+        assert_eq!((message.kind, message.mode), (Kind::Prompt, Mode::Now));
+        assert_eq!(message.to.name.as_deref(), Some("dep-land"));
+        assert_eq!(message.from.session_id, None);
+        let kindless = json!({"messageId": "m", "body": "hi"});
+        assert!(serde_json::from_value::<InMessage>(kindless).is_err(), "no kind is no prompt");
+        let kind = |k: &str| serde_json::from_value::<Kind>(json!(k)).unwrap();
+        assert_eq!((kind("control"), kind("later")), (Kind::Control, Kind::Unknown));
+        let ack = serde_json::to_value(Ack::delivered("m-1", None)).unwrap();
+        assert_eq!(ack, json!({"state": "delivered", "promptId": "m-1"}));
+        let ack = serde_json::to_value(Ack::refused("no")).unwrap();
+        assert_eq!(ack, json!({"state": "refused", "detail": "no"}));
+        let mode = serde_json::to_value(Mode::TurnEnd).unwrap();
+        assert_eq!(mode, json!("turn-end"));
+        let allowed: InMessage = serde_json::from_value(json!({
+            "messageId": "m", "kind": "prompt", "startWork": "allowed"
+        }))
+        .unwrap();
+        assert_eq!(allowed.start_work, Some(StartWork::Allowed));
+        assert!(
+            serde_json::from_value::<InMessage>(json!({
+                "messageId": "m", "kind": "prompt", "startWork": true
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn backoff_doubles_to_its_cap_and_starts_over_after_a_success() {
+        let mut b = Backoff::new(Duration::from_secs(1), Duration::from_secs(8));
+        let waits: Vec<_> = (0..6).map(|_| b.next_wait()).collect();
+        let bounds = [1, 2, 4, 8, 8, 8];
+        for (wait, top) in waits.iter().zip(bounds) {
+            let top = Duration::from_secs(top);
+            assert!(*wait <= top && *wait >= top * 4 / 5, "{wait:?} for {top:?}");
+        }
+        b.reset();
+        assert!(b.next_wait() <= Duration::from_secs(1));
+        // The cap bounds the first wait too, and a huge one never overflows.
+        let mut b = Backoff::new(Duration::from_secs(10), Duration::from_secs(1));
+        assert!(b.next_wait() <= Duration::from_secs(1));
+        let mut b = Backoff::new(Duration::MAX, Duration::MAX);
+        b.next_wait();
+        assert!(b.next_wait() <= Duration::MAX);
+    }
+}
