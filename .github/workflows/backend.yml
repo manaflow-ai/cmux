@@ -163,6 +163,8 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Restore the Bun package cache (the test job saves it)
+        timeout-minutes: 5
+        continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -171,6 +173,7 @@ jobs:
             bun-backend-${{ runner.os }}-${{ runner.arch }}-
       # vitest-pool-workers and node:sqlite need a current Node.
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        timeout-minutes: 5
         with:
           node-version: "24"
       - run: bun install --frozen-lockfile
@@ -231,6 +234,8 @@ jobs:
       # The Bun package cache for backend/ and the release rails. Only this job saves it (it holds
       # no secrets); the secret-bearing jobs below only restore it.
       - name: Cache Bun package cache
+        timeout-minutes: 3
+        continue-on-error: true
         if: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -249,6 +254,7 @@ jobs:
             bun-backend-${{ runner.os }}-${{ runner.arch }}-
       # vitest-pool-workers and node:sqlite need a current Node.
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        timeout-minutes: 5
         with:
           node-version: "24"
       - run: bun install --frozen-lockfile
@@ -361,6 +367,8 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Restore the Bun package cache (the test job saves it)
+        timeout-minutes: 5
+        continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -395,6 +403,8 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Restore the Bun package cache (the test job saves it)
+        timeout-minutes: 5
+        continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -432,6 +442,8 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Restore the Bun package cache (the test job saves it)
+        timeout-minutes: 5
+        continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -439,6 +451,7 @@ jobs:
           restore-keys: |
             bun-backend-${{ runner.os }}-${{ runner.arch }}-
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        timeout-minutes: 5
         with:
           node-version: "24"
       - run: bun install --frozen-lockfile
@@ -547,6 +560,8 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Restore the Bun package cache (the test job saves it)
+        timeout-minutes: 5
+        continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -635,6 +650,8 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Restore the Bun package cache (the test job saves it)
+        timeout-minutes: 5
+        continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -642,6 +659,7 @@ jobs:
           restore-keys: |
             bun-backend-${{ runner.os }}-${{ runner.arch }}-
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        timeout-minutes: 5
         with:
           node-version: "24"
       - run: bun install --frozen-lockfile
@@ -840,6 +858,8 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Restore the Bun package cache (the test job saves it)
+        timeout-minutes: 5
+        continue-on-error: true
         if: steps.changed.outputs.deploy == 'true'
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -848,6 +868,7 @@ jobs:
           restore-keys: |
             bun-backend-${{ runner.os }}-${{ runner.arch }}-
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        timeout-minutes: 5
         if: steps.changed.outputs.deploy == 'true'
         with:
           node-version: "24"
@@ -994,6 +1015,8 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Restore the Bun package cache (the test job saves it)
+        timeout-minutes: 5
+        continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -1001,6 +1024,7 @@ jobs:
           restore-keys: |
             bun-backend-${{ runner.os }}-${{ runner.arch }}-
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        timeout-minutes: 5
         with:
           node-version: "24"
       - run: bun install --frozen-lockfile
@@ -1137,6 +1161,8 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Restore the Bun package cache (the test job saves it)
+        timeout-minutes: 5
+        continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -1239,6 +1265,8 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Restore the Bun package cache (the test job saves it)
+        timeout-minutes: 5
+        continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -1246,6 +1274,7 @@ jobs:
           restore-keys: |
             bun-backend-${{ runner.os }}-${{ runner.arch }}-
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        timeout-minutes: 5
         with:
           node-version: "24"
       - run: bun install --frozen-lockfile
@@ -1335,6 +1364,8 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Restore the Bun package cache (the test job saves it)
+        timeout-minutes: 5
+        continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -1342,6 +1373,7 @@ jobs:
           restore-keys: |
             bun-backend-${{ runner.os }}-${{ runner.arch }}-
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        timeout-minutes: 5
         with:
           node-version: "24"
       - run: bun install --frozen-lockfile
@@ -1389,6 +1421,8 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
       - name: Restore the Bun package cache (the test job saves it)
+        timeout-minutes: 5
+        continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -1414,6 +1448,7 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: scripts/ci/fetch_branch_history.sh feat-cmux-next
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        timeout-minutes: 5
         with:
           node-version: "24"
       - run: bun install --frozen-lockfile
