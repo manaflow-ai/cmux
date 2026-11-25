@@ -83,6 +83,10 @@
       "kind": "publish",
       "why": "rebakes the Cloud devbox image after its inputs land"
     },
+    "cloud-journey-teammate.yml": {
+      "kind": "publish",
+      "why": "a probe of a live system: a brand-new account's first Cloud agent end to end on staging, run on its own push and by dispatch, not a verdict on a change"
+    },
     "cloud-machine-count-probe.yml": {
       "kind": "publish",
       "why": "a probe of live staging machines, not of the change"
@@ -226,6 +230,10 @@
     "pair-machine-join-check.yml": {
       "kind": "publish",
       "why": "a probe of the live production Workers' secrets and logs with Cloudflare credentials, started by an edit of its own file or a dispatch; no verdict about a change"
+    },
+    "platform-fleet-inventory.yml": {
+      "kind": "publish",
+      "why": "a bot: writes the platform fleet inventory from NOW's provider lists with a production token; runs on its own push so GitHub registers it (#56642) and by dispatch"
     },
     "platform-billing-test-secrets.yml": {
       "kind": "publish",
