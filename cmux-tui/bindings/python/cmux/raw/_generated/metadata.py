@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'b78fea3142c415dfd279b2371c233d5c3927cf9113fe109686884610a4fed8f2'
+IR_SHA256 = '47540d4e48fcb71cd9d3cb688218d9d69953c811b7b33e69d4b25ec26442b591'
 
 
 @dataclass(frozen=True)
@@ -743,6 +743,7 @@ COMMANDS = {
             'expires_at': CommandFieldMetadata(None, None),
             'host_name': CommandFieldMetadata(None, None),
             'install_token': CommandFieldMetadata(None, None),
+            'seal': CommandFieldMetadata(12, 'cloud-host-replica-seal-v1'),
         },
     ),
     'cloud-host-replica-status': CommandMetadata(

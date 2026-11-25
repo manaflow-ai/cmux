@@ -17,6 +17,7 @@ public final class CloudHostReplicaSetRequest implements WireValue {
     private final UInt64 expiresAt;
     private final String hostName;
     private final String installToken;
+    private final Field<HostReplicaSeal> seal;
 
     private CloudHostReplicaSetRequest(Builder builder) {
         if (!builder.apiBaseUrlSet) throw new IllegalArgumentException("api_base_url is required");
@@ -28,6 +29,7 @@ public final class CloudHostReplicaSetRequest implements WireValue {
         this.hostName = Wire.nonNull(builder.hostName, "host_name");
         if (!builder.installTokenSet) throw new IllegalArgumentException("install_token is required");
         this.installToken = Wire.nonNull(builder.installToken, "install_token");
+        this.seal = builder.seal;
     }
 
     public static Builder builder() { return new Builder(); }
@@ -37,6 +39,7 @@ public final class CloudHostReplicaSetRequest implements WireValue {
     public UInt64 expiresAt() { return expiresAt; }
     public String hostName() { return hostName; }
     public String installToken() { return installToken; }
+    public Field<HostReplicaSeal> seal() { return seal; }
 
     public static CloudHostReplicaSetRequest fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "CloudHostReplicaSetRequest");
@@ -53,6 +56,10 @@ public final class CloudHostReplicaSetRequest implements WireValue {
         builder.hostName(Wire.string(rawHostName, "CloudHostReplicaSetRequest.host_name"));
         Object rawInstallToken = Wire.required(object, "install_token");
         builder.installToken(Wire.string(rawInstallToken, "CloudHostReplicaSetRequest.install_token"));
+        Object rawSeal = Wire.optional(object, "seal");
+        if (!Wire.isMissing(rawSeal)) {
+            builder.seal(rawSeal == null ? null : HostReplicaSeal.fromWire(rawSeal));
+        }
         return builder.build();
     }
 
@@ -64,17 +71,18 @@ public final class CloudHostReplicaSetRequest implements WireValue {
         Wire.put(object, "expires_at", expiresAt);
         Wire.put(object, "host_name", hostName);
         Wire.put(object, "install_token", installToken);
+        Wire.put(object, "seal", seal);
         return Collections.unmodifiableMap(object);
     }
 
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof CloudHostReplicaSetRequest that)) return false;
-        return Objects.equals(apiBaseUrl, that.apiBaseUrl) && Objects.equals(clientVersion, that.clientVersion) && Objects.equals(expiresAt, that.expiresAt) && Objects.equals(hostName, that.hostName) && Objects.equals(installToken, that.installToken);
+        return Objects.equals(apiBaseUrl, that.apiBaseUrl) && Objects.equals(clientVersion, that.clientVersion) && Objects.equals(expiresAt, that.expiresAt) && Objects.equals(hostName, that.hostName) && Objects.equals(installToken, that.installToken) && Objects.equals(seal, that.seal);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(apiBaseUrl, clientVersion, expiresAt, hostName, installToken); }
+    public int hashCode() { return Objects.hash(apiBaseUrl, clientVersion, expiresAt, hostName, installToken, seal); }
 
     @Override
     public String toString() { return "CloudHostReplicaSetRequest" + toWire(); }
@@ -89,6 +97,7 @@ public final class CloudHostReplicaSetRequest implements WireValue {
         private boolean hostNameSet;
         private String installToken;
         private boolean installTokenSet;
+        private Field<HostReplicaSeal> seal = Field.omitted();
 
         public Builder apiBaseUrl(String value) {
             this.apiBaseUrl = value;
@@ -112,6 +121,10 @@ public final class CloudHostReplicaSetRequest implements WireValue {
         public Builder installToken(String value) {
             this.installToken = value;
             this.installTokenSet = true;
+            return this;
+        }
+        public Builder seal(HostReplicaSeal value) {
+            this.seal = Field.ofNullable(value);
             return this;
         }
         public CloudHostReplicaSetRequest build() { return new CloudHostReplicaSetRequest(this); }

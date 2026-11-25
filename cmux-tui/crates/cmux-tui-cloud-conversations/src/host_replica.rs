@@ -53,6 +53,10 @@ use seal::Sealer;
 
 /// The capability `identify` advertises when the publisher is installed.
 pub const CLOUD_HOST_REPLICA_CAPABILITY: &str = "cloud-host-replica-v1";
+/// Advertised with [`CLOUD_HOST_REPLICA_CAPABILITY`]: `cloud-host-replica-set`
+/// takes a `seal` (RFD 0163 row 7). A client sends a seal only to a daemon that
+/// advertises it, so an older daemon never drops one and publishes in the clear.
+pub const CLOUD_HOST_REPLICA_SEAL_CAPABILITY: &str = "cloud-host-replica-seal-v1";
 
 /// The workspace list stream.
 pub const SESSION_STREAM_SUFFIX: &str = "session";

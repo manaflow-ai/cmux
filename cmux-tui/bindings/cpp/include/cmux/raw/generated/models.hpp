@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "b78fea3142c415dfd279b2371c233d5c3927cf9113fe109686884610a4fed8f2";
+inline constexpr std::string_view kProtocolIrSha256 = "47540d4e48fcb71cd9d3cb688218d9d69953c811b7b33e69d4b25ec26442b591";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -96,6 +96,7 @@ struct HistorySearchRange;
 enum class HomeChiefState;
 enum class HomeInboxKind;
 struct HomeInboxRow;
+struct HostReplicaSeal;
 enum class HostSizeMode;
 struct HostSizePolicy;
 struct HostSizePolicyRequest;
@@ -1972,12 +1973,19 @@ struct CloudHostReplicaNeededEvent {
     friend bool operator==(const CloudHostReplicaNeededEvent&, const CloudHostReplicaNeededEvent&) = default;
 };
 
+struct HostReplicaSeal {
+    std::string source_key{};
+    std::vector<std::string> viewers{};
+    friend bool operator==(const HostReplicaSeal&, const HostReplicaSeal&) = default;
+};
+
 struct CloudHostReplicaSetRequest {
     std::string api_base_url{};
     Field<std::string> client_version{};
     std::uint64_t expires_at{};
     std::string host_name{};
     std::string install_token{};
+    Field<HostReplicaSeal> seal{};
     friend bool operator==(const CloudHostReplicaSetRequest&, const CloudHostReplicaSetRequest&) = default;
 };
 
@@ -7316,6 +7324,12 @@ template <>
 struct Codec<HomeInboxRow> {
     static Result<Json> encode(const HomeInboxRow& value);
     static Result<HomeInboxRow> decode(const Json& value);
+};
+
+template <>
+struct Codec<HostReplicaSeal> {
+    static Result<Json> encode(const HostReplicaSeal& value);
+    static Result<HostReplicaSeal> decode(const Json& value);
 };
 
 template <>

@@ -8790,7 +8790,7 @@ connection with the static or file token gets no `cloud-*` command or event.
 | --- | --- |
 | name | `cloud-host-replica-set`, `cloud-host-replica-clear`, `cloud-host-replica-status` |
 | status | implemented |
-| since | protocol 12 additive extension; capability `cloud-host-replica-v1` |
+| since | protocol 12 additive extension; capability `cloud-host-replica-v1`; `seal` with `cloud-host-replica-seal-v1` |
 
 The host's read replica publisher (plans/cmux-next/object-sync/DESIGN.md
 phase 3). `cloud-host-replica-v1` is advertised when the daemon has a cloud
@@ -8820,6 +8820,18 @@ own command path, and only for the token's own user; any other op, field or
 user is refused, and nothing runs. A decided key answers again and never runs
 twice. Every forwarded op is answered with `result` or `reject`, then
 `request-settled`; a change is published before its answer.
+
+With `cloud-host-replica-seal-v1` (advertised beside `cloud-host-replica-v1`),
+`cloud-host-replica-set` also takes `seal?: {source_key, viewers}` (RFD 0163
+row 7, off unless the app sends it): `source_key` is the host's P-256
+identity key (its 32-byte private scalar, base64), `viewers` the paired
+devices' P-256 key agreement keys (SEC1, base64; 1 to 16). Every published
+`state` (snapshots, event `effects.state` and `snapshot.request` answers) is
+then one `cmux-relay-snapshot-v1` envelope per viewer (cmux-next-ios
+PROTOCOL.md "Host replica sealed state"). The seal is never logged or
+returned; a seal that does not parse refuses the lease. A client sends a seal
+only to a daemon that advertises the capability, since an older one would
+ignore the field.
 
 `cloud-host-replica-clear {purge?}` drops the lease. With `purge: true` (the
 host's off switch), the cloud copy is deleted first (`replica.purge`), and the

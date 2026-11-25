@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR b78fea3142c415dfd279b2371c233d5c3927cf9113fe109686884610a4fed8f2. */
+/* cmux-tui mux protocol 12, IR 47540d4e48fcb71cd9d3cb688218d9d69953c811b7b33e69d4b25ec26442b591. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -582,6 +582,11 @@ export type HomeInboxRow = {
   "pinned": boolean;
   "preview"?: string;
   "unread": bigint;
+};
+
+export type HostReplicaSeal = {
+  "source_key": string;
+  "viewers": Array<string>;
 };
 
 export type HostSizeMode = "smallest" | "mac" | "latest" | "priority";

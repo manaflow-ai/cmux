@@ -29,8 +29,8 @@ pub use contract::{
 };
 pub use error::CloudError;
 pub use host_replica::{
-    CLOUD_HOST_REPLICA_CAPABILITY, HostOpRefusal, HostReplica, HostReplicaOptions,
-    HostReplicaParams, HostSource, ReplicaSeal, valid_host_id,
+    CLOUD_HOST_REPLICA_CAPABILITY, CLOUD_HOST_REPLICA_SEAL_CAPABILITY, HostOpRefusal, HostReplica,
+    HostReplicaOptions, HostReplicaParams, HostSource, ReplicaSeal, valid_host_id,
 };
 pub use service::{
     CloudBackend, CloudConversations, CloudWire, ConnectError, EventSink, HttpReply,

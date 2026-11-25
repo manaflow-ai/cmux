@@ -59,6 +59,7 @@
     "cloud-conversation-runs-v1",
     "cloud-conversation-typing-v1",
     "cloud-conversations-v1",
+    "cloud-host-replica-seal-v1",
     "cloud-host-replica-v1",
     "cloud-selfhost-v1",
     "cloud_chat_relay.v1",

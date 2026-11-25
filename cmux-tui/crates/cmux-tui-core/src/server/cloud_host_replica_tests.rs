@@ -667,3 +667,63 @@ fn the_daemon_publishes_the_chief_chat_and_takes_the_phones_messages_once() {
         f["stream"] == chief_stream() && f.to_string().contains("answer for the phone")
     });
 }
+
+/// The P-256 generator point (the public key of private key 1), X9.63, base64.
+const VIEWER_KEY: &str =
+    "BGsX0fLhLEJH+Lzm5WOkQPJ3A32BLeszoPShOUXYmMKWT+NC4v4af5uO5+tKfA+eFivOM1drMV7Oy7ZAaDe/UfU=";
+
+fn sealed_lease(mux: &Arc<Mux>, client: u64, viewers: Value) -> anyhow::Result<Value> {
+    use base64::Engine as _;
+    let mut scalar = [0u8; 32];
+    scalar[31] = 2;
+    let source_key = base64::engine::general_purpose::STANDARD.encode(scalar);
+    run(
+        mux,
+        client,
+        json!({"cmd":"cloud-host-replica-set","api_base_url":"https://api.cmux.test",
+               "install_token":INSTALL_TOKEN,"expires_at":4_102_444_800_000_u64,"host_name":"studio",
+               "seal":{"source_key":source_key,"viewers":viewers}}),
+    )
+}
+
+#[test]
+fn a_lease_with_a_seal_publishes_only_sealed_state() {
+    let (mux, client, backend) = replica_mux();
+    set_role_for_test(&mux, client, "main");
+    set_verified_app_for_test(&mux, client, true);
+    create_workspace(&mux, "secret-workspace-name");
+    let identity = run(&mux, client, json!({"cmd":"identify"})).unwrap();
+    assert!(
+        identity["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c == "cloud-host-replica-seal-v1"),
+        "a client sends a seal only to a daemon that takes one"
+    );
+
+    // A seal that does not parse refuses the lease: nothing enrolls in the clear.
+    assert!(sealed_lease(&mux, client, json!(["not a key"])).is_err());
+    assert!(sealed_lease(&mux, client, json!([])).is_err());
+    assert!(backend.posted().is_empty());
+
+    backend.reply("/v1/ops", 200, json!({"ok":true,"value":{"id":HOST,"name":"studio"}}));
+    let wire = backend.wire();
+    wire.push_text(json!({"t":"welcome","role":"publisher","host":HOST,"heads":{}}).to_string());
+    let status = sealed_lease(&mux, client, json!([VIEWER_KEY])).unwrap();
+    assert!(!status.to_string().contains("source_key"), "the seal is never echoed");
+    let snapshot =
+        wait_frame(&wire, "the snapshot", |f| f["t"] == "publish" && f["snapshot"].is_object());
+    let state = &snapshot["snapshot"]["state"];
+    assert_eq!(state["sealed"], "cmux-relay-snapshot-v1");
+    assert_eq!(state["source"].as_str().unwrap().len(), 64);
+    let to = state["to"].as_object().unwrap();
+    assert_eq!(to.len(), 1, "one envelope per paired viewer");
+    assert!(to.values().all(Value::is_string));
+    for frame in frames(&wire) {
+        assert!(
+            !frame.to_string().contains("secret-workspace-name"),
+            "no plaintext leaves the Mac"
+        );
+    }
+}
