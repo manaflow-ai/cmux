@@ -284,6 +284,54 @@ class WebShapes(unittest.TestCase):
         code, out = tree.check()
         self.assertEqual(code, 0, out)
 
+    def test_a_view_drawing_its_own_button_component_carries_the_action(self):
+        tree = Tree(self)
+        tree.write(f"{WEB}/retryState.ts", RETRY_LABEL)
+        tree.write(f"{WEB}/AutoResumeNotice.tsx", """\
+    import { retryLabel } from "./retryState";
+    function RetryButton({ onRetry }: { onRetry: () => void }) {
+      return <button type="button" onClick={onRetry}>Retry</button>;
+    }
+    export function AutoResumeNotice({ retry, t, onRetry }: Props) {
+      return <output className="notice">{retry ? retryLabel(t, retry.attempt, retry.of) : null}<RetryButton onRetry={onRetry} /></output>;
+    }
+""")
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+
+    def test_a_view_drawing_an_imported_button_component_carries_the_action(self):
+        tree = Tree(self)
+        tree.write(f"{WEB}/retryState.ts", RETRY_LABEL)
+        tree.write(f"{WEB}/RetryButton.tsx", """\
+    export function RetryButton({ onRetry }: { onRetry: () => void }) {
+      return <button type="button" onClick={onRetry}>Retry</button>;
+    }
+""")
+        tree.write(f"{WEB}/AutoResumeNotice.tsx", """\
+    import { retryLabel } from "./retryState";
+    import { RetryButton } from "./RetryButton";
+    export function AutoResumeNotice({ retry, t, onRetry }: Props) {
+      return <output className="notice">{retry ? retryLabel(t, retry.attempt, retry.of) : null}<RetryButton onRetry={onRetry} /></output>;
+    }
+""")
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+
+    def test_a_drawn_component_without_an_action_is_no_action(self):
+        tree = Tree(self)
+        tree.write(f"{WEB}/retryState.ts", RETRY_LABEL)
+        tree.write(f"{WEB}/AutoResumeNotice.tsx", """\
+    import { retryLabel } from "./retryState";
+    function MarkButton() {
+      return <span className="mark" />;
+    }
+    export function AutoResumeNotice({ retry, t }: Props) {
+      return <output className="notice"><MarkButton />{retry ? retryLabel(t, retry.attempt, retry.of) : null}</output>;
+    }
+""")
+        code, out = tree.check()
+        self.assertEqual(code, 1, out)
+
     def test_a_literal_grace_under_the_bound_is_no_bound(self):
         tree = Tree(self)
         tree.write("schemas/notice-timing/notice-timing.json", json.dumps({"connectionQuietMs": 10000}))
