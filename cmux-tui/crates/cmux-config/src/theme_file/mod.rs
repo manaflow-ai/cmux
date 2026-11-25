@@ -20,10 +20,9 @@
 mod colors;
 pub mod contrast;
 pub mod render;
-pub mod slots;
 pub mod two_tone;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -210,7 +209,7 @@ pub fn readable_path(config_dir: &Path, name: &str, bundled: Option<&Path>) -> O
 /// The theme files cmux ships (`Resources/theme-files`, the app's
 /// `Contents/Resources/theme-files`), so the daemon and the CLI read them
 /// with no app bundle. A user's file of the same name wins.
-const SHIPPED: [(&str, &str); 11] = [
+const SHIPPED: [(&str, &str); 10] = [
     ("charcoal", include_str!("../../../../../Resources/theme-files/charcoal.json")),
     ("classic-desktop", include_str!("../../../../../Resources/theme-files/classic-desktop.json")),
     ("claude-desktop", include_str!("../../../../../Resources/theme-files/claude-desktop.json")),
@@ -221,7 +220,6 @@ const SHIPPED: [(&str, &str); 11] = [
     ),
     ("lily-pond", include_str!("../../../../../Resources/theme-files/lily-pond.json")),
     ("meadow", include_str!("../../../../../Resources/theme-files/meadow.json")),
-    ("miku", include_str!("../../../../../Resources/theme-files/miku.json")),
     ("moss", include_str!("../../../../../Resources/theme-files/moss.json")),
     ("phosphor", include_str!("../../../../../Resources/theme-files/phosphor.json")),
     ("teal", include_str!("../../../../../Resources/theme-files/teal.json")),
@@ -338,9 +336,6 @@ pub struct ThemeFile {
     pub diagnostics: Vec<ThemeDiagnostic>,
     /// The color tokens the contrast guard raised (`foreground`).
     pub corrected: Vec<String>,
-    /// The variant each theme slot draws (`slots`), checked against
-    /// schemas/theme/slots.json: unknown slots and variants are left out.
-    pub slots: BTreeMap<String, String>,
     /// Keys the file names by an older name, rewritten through the
     /// retired-keys table ([`crate::migrations`]): the look applies a renamed
     /// key under its new name and leaves out a removed one.
@@ -369,7 +364,6 @@ impl ThemeFile {
             diagnostics: Vec::new(),
             corrected: Vec::new(),
             is_unparsable: false,
-            slots: BTreeMap::new(),
             notices: Vec::new(),
         };
         let is_loaded = reader.read(source, base);
@@ -382,7 +376,6 @@ impl ThemeFile {
             values,
             diagnostics: reader.diagnostics,
             corrected: reader.corrected,
-            slots: reader.slots,
             notices: reader.notices,
         }
     }
@@ -463,7 +456,6 @@ struct Reader<'a> {
     diagnostics: Vec<ThemeDiagnostic>,
     corrected: Vec<String>,
     is_unparsable: bool,
-    slots: BTreeMap<String, String>,
     notices: Vec<Notice>,
 }
 
@@ -508,7 +500,6 @@ impl<'a> Reader<'a> {
             self.walk(value, key_path(key));
         }
         colors::read(self, &members, base);
-        self.slots = slots::read(self, &members);
         true
     }
 
@@ -684,10 +675,6 @@ fn line_of_key(text: &str, dotted: &str) -> Option<usize> {
     let mut candidates = vec![dotted.to_string()];
     if let Some((_, last)) = dotted.rsplit_once('.') {
         candidates.push(last.to_string());
-    }
-    // A key that holds dots itself (`slots.chat.jumpToBottom`'s `chat.jumpToBottom`).
-    if let Some((_, rest)) = dotted.split_once('.') {
-        candidates.push(rest.to_string());
     }
     candidates.iter().find_map(|key| {
         let needle = format!("\"{key}\"");

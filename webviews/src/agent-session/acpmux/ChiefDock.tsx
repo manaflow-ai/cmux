@@ -209,8 +209,7 @@ export function ChiefDock({
                   targets="own"
                 >
                   <article
-                    className="acpmux-chief-card ui-glass"
-                    data-glass-level="popover"
+                    className="acpmux-chief-card"
                     data-selected={selected}
                     data-status={cardStatus}
                     data-steering={steering ? "true" : undefined}
@@ -289,7 +288,7 @@ export function ChiefDock({
               </span>
             )}
           </button>
-          <div className="acpmux-chief-dock-rail ui-glass" data-glass-level="popover">
+          <div className="acpmux-chief-dock-rail">
             <button
               type="button"
               className="acpmux-chief-dock-tool"

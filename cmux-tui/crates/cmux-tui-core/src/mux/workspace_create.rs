@@ -13,19 +13,9 @@ impl Mux {
         expected_revision: Option<u64>,
     ) -> anyhow::Result<WorkspacePlacement> {
         let mutation = WorkspaceMutation::daemon_local("cmux-tui");
-        self.create_empty_workspace_with_mutation(
-            name,
-            key,
-            None,
-            expected_revision,
-            &mutation,
-            false,
-        )
+        self.create_empty_workspace_with_mutation(name, key, None, expected_revision, &mutation)
     }
 
-    /// `explicit_name`: `name` is exactly what the caller asked for
-    /// (`create-workspace {name_source: "user"}`), so it is pinned
-    /// ([`crate::resource_name::NameSource::for_created_workspace`]).
     pub fn create_empty_workspace_with_mutation(
         &self,
         name: Option<String>,
@@ -33,7 +23,6 @@ impl Mux {
         expected_generation: Option<&str>,
         expected_revision: Option<u64>,
         mutation: &WorkspaceMutation,
-        explicit_name: bool,
     ) -> anyhow::Result<WorkspacePlacement> {
         self.create_empty_workspace_with_mutation_inner(
             name,
@@ -45,7 +34,6 @@ impl Mux {
             true,
             crate::state::home_store::EmptyWorkspaceMark::None,
             true,
-            explicit_name,
         )
     }
 
@@ -68,16 +56,13 @@ impl Mux {
             mutation,
             mark,
             true,
-            false,
         )
     }
 
     /// [`Self::create_empty_workspace_for_resource_effect`]; with `focus`
     /// false the focused workspace stays the one it was (a programmatic
     /// `workspace.create` without `focus: true`). The first workspace of a
-    /// session is focused either way. `explicit_name`: `name` is the
-    /// caller's own (`workspace.create {name}`), pinned.
-    #[allow(clippy::too_many_arguments)]
+    /// session is focused either way.
     pub(super) fn create_empty_workspace_for_resource_effect_focus(
         &self,
         name: Option<String>,
@@ -86,7 +71,6 @@ impl Mux {
         mutation: &WorkspaceMutation,
         mark: crate::state::home_store::EmptyWorkspaceMark,
         focus: bool,
-        explicit_name: bool,
     ) -> anyhow::Result<WorkspacePlacement> {
         self.create_empty_workspace_with_mutation_inner(
             name,
@@ -98,7 +82,6 @@ impl Mux {
             false,
             mark,
             focus,
-            explicit_name,
         )
     }
 
@@ -114,7 +97,6 @@ impl Mux {
         project_resource: bool,
         mark: crate::state::home_store::EmptyWorkspaceMark,
         focus: bool,
-        explicit_name: bool,
     ) -> anyhow::Result<WorkspacePlacement> {
         if let Some(name) = name.as_deref() {
             Self::validate_workspace_name(name)?;
@@ -169,11 +151,8 @@ impl Mux {
             if state.workspace_by_key(&key).is_some() {
                 anyhow::bail!("workspace key already exists: {key}");
             }
-            let (name_source, name_revision) =
-                crate::resource_name::NameSource::for_created_workspace(
-                    name.as_deref(),
-                    explicit_name,
-                );
+            let name_source =
+                crate::resource_name::NameSource::for_requested_workspace_name(name.as_deref());
             let name = name.unwrap_or_else(|| self.default_workspace_name(&state));
             let index = state.workspaces.len();
             let selection_resync = !state.workspaces.is_empty();
@@ -194,7 +173,7 @@ impl Mux {
                 key: key.clone(),
                 name: name.clone(),
                 name_source,
-                name_revision,
+                name_revision: 0,
                 group_key: self.session.clone(),
             };
             let insert =
@@ -308,7 +287,7 @@ impl Mux {
                 key: key.clone(),
                 name,
                 name_source,
-                name_revision,
+                name_revision: 0,
                 screens: Vec::new(),
                 active_screen: 0,
             });

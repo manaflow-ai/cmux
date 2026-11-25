@@ -1,5 +1,4 @@
 import { DurableObject } from "cloudflare:workers";
-import { userObjectName } from "./buildSpace";
 import { checkDeviceSignature, readDeviceHeaders } from "./deviceAuth";
 import type { Env } from "./env";
 import { ApiError, errorResponse, json } from "./errors";
@@ -9,8 +8,6 @@ import { type Role, readTicket } from "./tickets";
 interface Meta {
   sid: string;
   userId: string;
-  /** The User DO's build space ("" or absent: the default space, as every session from before spaces). */
-  space?: string;
   scope: string;
   viewer: { id: string; key: string };
   host: { id: string; key: string };
@@ -67,7 +64,7 @@ export class SessionDO extends DurableObject<Env> {
   }
 
   private userStub(m: Meta) {
-    return this.env.USER_DO.get(this.env.USER_DO.idFromName(userObjectName(m.space ?? "", m.userId)));
+    return this.env.USER_DO.get(this.env.USER_DO.idFromName(m.userId));
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -77,7 +74,7 @@ export class SessionDO extends DurableObject<Env> {
         const body = (await request.json()) as Meta;
         if (this.meta() || this.closed()) return json({ ok: false }, 409);
         this.sql.exec(SCHEMA);
-        this.saveMeta({ sid: body.sid, userId: body.userId, space: body.space ?? "", scope: body.scope, viewer: body.viewer, host: body.host });
+        this.saveMeta({ sid: body.sid, userId: body.userId, scope: body.scope, viewer: body.viewer, host: body.host });
         return json({ ok: true });
       }
       if (url.pathname === "/internal/close" && request.method === "POST") {

@@ -153,10 +153,9 @@ def route(event: dict, callees: dict, files: list[str] | None,
     pr = event.get("pull_request") or {}
     labels = {str(label.get("name") or "") for label in pr.get("labels") or []}
     added = str((event.get("label") or {}).get("name") or "") if action == "labeled" else ""
-    if added in (head_tier.LAND_LABEL, FULL_CI):
+    if added == head_tier.LAND_LABEL:
         # The land handoff (head_tier's land rule): the same head now runs the full tier, as when a draft is marked
-        # ready, so every callee that skips a cheap head starts on it (each listens to ready_for_review). full-ci is
-        # the same handoff from a lane VM, whose broker never sets ready-to-land (land-judge's land_tier asks it).
+        # ready, so every callee that skips a cheap head starts on it (each listens to ready_for_review).
         action, added = "ready_for_review", ""
     start, why = [], {}
     for name, config in sorted(callees.items()):

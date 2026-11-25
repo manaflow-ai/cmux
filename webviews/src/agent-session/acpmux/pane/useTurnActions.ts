@@ -535,14 +535,11 @@ export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
     // its reason, for the card.
     ...(restartChat && {
       githubConnect: ((owner: string): GitHubConnectOffer => ({
-        connect: (repo, org) => {
+        connect: (repo) => {
           const returnTo = sessionLink(owner);
           return callNative("action.run", {
             id: GITHUB_CONNECT_ACTION,
             ...(repo && { repo }),
-            // An agent's ask for an org (settings_ask `connection:github:ORG`): the Mac connects
-            // another account even when one is connected (GitHubConnections.swift `connect`).
-            ...(org && !repo && { org }),
             ...(returnTo && { returnTo }),
           }).then(() => undefined);
         },

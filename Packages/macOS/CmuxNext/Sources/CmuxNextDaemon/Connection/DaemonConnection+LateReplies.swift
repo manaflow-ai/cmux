@@ -163,12 +163,11 @@ extension DaemonConnection {
     }
 
     /// `create-workspace` for workspace `key`, sent again on a late reply under one mutation
-    /// identity (the daemon replays a create that committed after the deadline). `nameSource` `.user`: `name` is the
-    /// caller's own, pinned (``CreateWorkspaceRequest/nameSource``).
+    /// identity (the daemon replays a create that committed after the deadline).
     @discardableResult
-    public func createWorkspaceRetryingLateReplies(name: String? = nil, nameSource: WorkspaceNameSource? = nil, key: WorkspaceKey,
+    public func createWorkspaceRetryingLateReplies(name: String? = nil, key: WorkspaceKey,
                                                    until giveUp: ContinuousClock.Instant? = nil) async throws -> WorkspaceMutationResult {
-        let request = CreateWorkspaceRequest(name: name, key: key, nameSource: nameSource, mutation: mutation())
+        let request = CreateWorkspaceRequest(name: name, key: key, mutation: mutation())
         return try await Self.retryingLateReplies(CreateWorkspaceRequest.command, until: giveUp) { try await self.request(request) }
     }
 }

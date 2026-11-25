@@ -91,8 +91,7 @@ pub struct StartParams {
     /// repository or a checkout, such as `wt`'s blobless mirror). A fresh folder borrows its
     /// objects through `objects/info/alternates` instead of a carry or a clone when the mirror's
     /// `origin` is this repository and the base with its whole tree is in it (`run/borrow.rs`);
-    /// otherwise the seed carries or clones as before. A clone-only start borrows it and fetches
-    /// the rest from `origin` (`Seed::borrow_clone`). Only for a whole seed (no `since`).
+    /// otherwise the seed carries or clones as before. Only for a whole seed (no `since`).
     pub mirror: Option<String>,
     /// Where a borrowed or carried folder lazily fetches what it lacks (history, old blobs), in
     /// the order git tries them: each `url` itself (the forge) or an absolute path on this machine
@@ -244,11 +243,8 @@ impl StartParams {
         if wire.carry.is_some() {
             return Err(SeedRefusal::bad_request("carry needs a seed bundle"));
         }
-        if !wire.promisors.is_empty() {
-            return Err(SeedRefusal::bad_request("promisors need a seed bundle"));
-        }
-        if let Some(mirror) = &wire.mirror {
-            check_local_path("mirror", mirror)?;
+        if wire.mirror.is_some() || !wire.promisors.is_empty() {
+            return Err(SeedRefusal::bad_request("mirror and promisors need a seed bundle"));
         }
         Ok(Self {
             folder: wire.folder,
@@ -266,7 +262,7 @@ impl StartParams {
             clone_only: Some(wire.git_ref),
             head_first: None,
             carry: None,
-            mirror: wire.mirror,
+            mirror: None,
             promisors: Vec::new(),
         })
     }

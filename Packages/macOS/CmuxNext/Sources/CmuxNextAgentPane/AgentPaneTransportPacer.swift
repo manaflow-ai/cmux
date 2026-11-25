@@ -5,14 +5,9 @@ public import Foundation
 public nonisolated struct AgentPaneFlush: Equatable, Sendable {
     public var delivered: Bool
     public var more: Bool
-    /// Among the frames still waiting is one the page waits on (``AcpmuxPaneSocket/pageWaits``),
-    /// so a pane nobody can see gets them too. A hidden pane's stream backlog does not count: it
-    /// waits for the pane to show.
-    public var moreWaits: Bool
-    public init(delivered: Bool, more: Bool, moreWaits: Bool? = nil) {
+    public init(delivered: Bool, more: Bool) {
         self.delivered = delivered
         self.more = more
-        self.moreWaits = moreWaits ?? more
     }
 }
 

@@ -11,7 +11,6 @@ import { OnboardingStore } from "./store";
 import "../../ui/ui.css";
 import "../shared/pageBase.css";
 import "./styles.css";
-import "./walkArms.css";
 
 export function mountOnboarding(root: HTMLElement, client: PageClient | null = defaultClient()): OnboardingStore {
   const store = new OnboardingStore(client);

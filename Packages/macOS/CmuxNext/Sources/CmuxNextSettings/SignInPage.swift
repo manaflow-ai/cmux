@@ -12,11 +12,7 @@ public import Foundation
 /// - its last segment is `device` with a `code` query item, or in a path of at most two segments
 ///   (`github.com/login/device`, `auth.openai.com/codex/device`, `google.com/device`);
 /// - its last segment is `auth` after an `oauth` or `oauth2` segment (Google's `/o/oauth2/v2/auth`);
-/// - its host serves only sign-ins (`signin.*`, `device.sso.*`);
-/// - or it is a GitHub App's install or configure page on github.com
-///   (`/apps/<app>/installations/new`, `…/select_target`, `/settings/installations/<id>`,
-///   `/organizations/<org>/settings/installations/<id>`): connecting GitHub in cmux takes the same
-///   route as GitHub's OAuth authorize page, so its return to the app comes back to cmux.
+/// - or its host serves only sign-ins (`signin.*`, `device.sso.*`).
 ///
 /// Whole segments in those places only, so a repository or docs path (`golang/oauth2`,
 /// `src/auth`, `studio/run/device`, `auth.rs`) is not a sign-in page.
@@ -43,24 +39,8 @@ public nonisolated struct SignInPage: Sendable, Hashable {
             || (last == "device" && (query.contains("code") || segments.count <= 2))
             || (last == "auth" && segments.dropLast().contains { $0 == "oauth" || $0 == "oauth2" })
             || Self.hostPrefixes.contains { host.hasPrefix($0) }
-            || Self.isGitHubAppInstall(host: host, segments: segments)
         guard signIn else { return nil }
         self.url = url
-    }
-
-    /// Whether a tab whose first page was `first` was opened for a sign-in or install flow, so it
-    /// closes once that flow hands back to the app (`BrowserExternalApps.closesHandoffTab`).
-    public static func startedFlow(_ first: URL?) -> Bool { first.map { SignInPage(url: $0) != nil } ?? false }
-
-    /// A GitHub App's install or configure page: where a person grants the app an account and repositories.
-    private static func isGitHubAppInstall(host: String, segments: [String]) -> Bool {
-        guard host == "github.com" || host == "www.github.com" else { return false }
-        switch segments.count {
-        case 4: return segments[0] == "apps" && segments[2] == "installations" && ["new", "select_target"].contains(segments[3])
-        case 3: return segments[0] == "settings" && segments[1] == "installations" && segments[2].allSatisfy(\.isNumber)
-        case 5: return segments[0] == "organizations" && segments[2] == "settings" && segments[3] == "installations" && segments[4].allSatisfy(\.isNumber)
-        default: return false
-        }
     }
 
     /// Last path segments that name a sign-in step.

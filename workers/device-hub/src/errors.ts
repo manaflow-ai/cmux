@@ -26,8 +26,6 @@ export type ErrorCode =
   | "account_not_on_hub"
   | "not_asker"
   | "other_account"
-  | "build_space.invalid"
-  | "build_space.not_allowed"
   | "internal";
 
 export class ApiError extends Error {

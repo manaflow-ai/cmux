@@ -152,8 +152,6 @@ extension UpdaterService {
         switch effect {
         case .install:
             stagedRefresh.installStarted()
-            installClickedAt = ContinuousClock.now
-            picturesAtClick?()
             automaticInstallInFlight = false
             automaticInstallFrontmost = nil
             // The staged build's pre-warm, if it still runs, goes at the click's priority from now on.

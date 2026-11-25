@@ -1559,16 +1559,10 @@ public final class DaemonTerminalSession: TerminalSession {
                 draining = false
                 if handler != nil, !ended { handler?(.connection(connectionState)) }
             }
-            if Self.waitsForTheLink(error) {
-                // An attach found no link: the link is down, and its return
-                // reattaches every session (`LiveCoordinator` calls `reconnect()`).
-                // Wait for it, "Reattaching…" with keys held, never into the
-                // retries' "Can't reach" with Send refused. Any attach, not only a
-                // self-reattach: back from minutes away, a tab's attach ran while
-                // the link still redialed, spent its 16 s of retries on "no link"
-                // and gave up (Send refused, keys dropped) before the link was back.
-                // A link that stays down is the Mac's offline bound
-                // (`setMacOffline`, `inputHoldLimit`), not this attach's to call.
+            if autoReattaching, (error as? LinkError)?.code == "no-link" {
+                // A self-reattach found no link: the link is down, and its
+                // return reattaches every session. Wait for it as before,
+                // "Reattaching…", never into the retries' "Can't reach".
                 autoReattaching = false
                 attachRetries = 0
                 if let client = self.client { self.client = nil; Task { await client.close() } }
@@ -2429,11 +2423,6 @@ public final class DaemonTerminalSession: TerminalSession {
     /// Delays before retrying a failed reattach (seconds); then the error shows.
     static let defaultReattachBackoff: [Double] = [0.25, 0.5, 1, 2, 4, 8]
     var reattachBackoff = DaemonTerminalSession.defaultReattachBackoff
-    /// An attach that failed for want of a link (`no-link`): it waits for the link's return,
-    /// which reattaches it, and spends no retry (so never gives up on it).
-    nonisolated static func waitsForTheLink(_ error: any Error) -> Bool {
-        (error as? LinkError)?.code == "no-link"
-    }
 
     // MARK: Self-recovery
 

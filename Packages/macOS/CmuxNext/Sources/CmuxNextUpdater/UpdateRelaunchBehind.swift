@@ -19,9 +19,7 @@ public import Foundation
     /// (the installed build, or the previous one Sparkle put back when the install failed) with
     /// ``reopenArgument``, so either build starts behind. Any arguments after the reopen argument
     /// are `open` options (``RelaunchHome/openArguments(environment:accountHome:)``, so an app in a
-    /// custom home comes back in it); a launch in the account's own home has none. An empty reopen
-    /// argument is a reopen in front (a click's install in a custom home): a plain `open`, which
-    /// activates the new build as Sparkle's relaunch does.
+    /// custom home comes back in it); a launch in the account's own home has none.
     public nonisolated static let script = #"""
     installer=$(/bin/launchctl list "$1" 2>/dev/null | /usr/bin/sed -n 's/^[[:space:]]*"PID" = \([0-9][0-9]*\);$/\1/p')
     [ -n "$installer" ] || installer=$(/bin/launchctl print "system/$1" 2>/dev/null | /usr/bin/sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\)$/\1/p')
@@ -32,7 +30,6 @@ public import Foundation
     /usr/bin/caffeinate -w "$installer" || exit 1
     reopen=$2
     shift 2
-    [ -n "$reopen" ] || exec /usr/bin/open "$@" "$0"
     exec /usr/bin/open -g "$@" "$0" --args "$reopen"
     """#
 
@@ -54,11 +51,10 @@ public import Foundation
     }
 
     /// The helper's argv: `sh -c SCRIPT APP JOB REOPEN_ARGUMENT [OPEN_OPTION...]`, the options
-    /// being the running app's home (``RelaunchHome``), none for the account's own home. In front
-    /// (`inBackground` false) the reopen argument is empty: `open` without `-g`.
-    public nonisolated static func arguments(app: URL, installerJob: String, inBackground: Bool = true,
+    /// being the running app's home (``RelaunchHome``), none for the account's own home.
+    public nonisolated static func arguments(app: URL, installerJob: String,
                                              openOptions: [String] = RelaunchHome.openArguments()) -> [String] {
-        ["/bin/sh", "-c", script, app.path, installerJob, inBackground ? UpdateRelaunchFocus.reopenArgument : ""] + openOptions
+        ["/bin/sh", "-c", script, app.path, installerJob, UpdateRelaunchFocus.reopenArgument] + openOptions
     }
 
     private let arguments: [String]
@@ -66,11 +62,8 @@ public import Foundation
     private var helper: (pid: pid_t, writeEnd: Int32)?
     private var declined: (@MainActor () -> Void)?
 
-    /// `inBackground` false reopens in front (a click's install in a custom home, where Sparkle's
-    /// LaunchServices relaunch would drop HOME and CFFIXED_USER_HOME).
-    public init(app: URL, bundleIdentifier: String, inBackground: Bool = true) {
-        arguments = Self.arguments(app: app, installerJob: Self.installerJobLabel(bundleIdentifier: bundleIdentifier),
-                                   inBackground: inBackground)
+    public init(app: URL, bundleIdentifier: String) {
+        arguments = Self.arguments(app: app, installerJob: Self.installerJobLabel(bundleIdentifier: bundleIdentifier))
     }
 
     /// Starts the helper and, once it found Sparkle's installer, asks `willQuit` (which rechecks

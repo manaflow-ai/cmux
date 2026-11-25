@@ -5,6 +5,7 @@
 //! (owner-only); numbers and keys only, never a path or a credential.
 
 use std::collections::BTreeMap;
+use std::io::Write;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -104,9 +105,15 @@ impl Stats {
         let path = path();
         let Some(dir) = path.parent() else { return Ok(()) };
         crate::home_fs::create_dirs(dir)?;
-        // Owner-only, whole, under one copy name per process (`home_fs::write`), not a random
-        // one per save: each new name is one more path fseventsd keeps (`dead_temps`).
-        crate::home_fs::write(&path, serde_json::to_vec(self).map_err(std::io::Error::other)?)
+        let mut tmp = tempfile::Builder::new().prefix(".deps-stats-").tempfile_in(dir)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            tmp.as_file().set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        }
+        tmp.write_all(&serde_json::to_vec(self).map_err(std::io::Error::other)?)?;
+        tmp.persist(&path).map_err(|e| e.error)?;
+        Ok(())
     }
 
     /// Applies `f` to the record on disk now (another process may have

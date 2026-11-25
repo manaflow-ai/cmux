@@ -130,26 +130,16 @@ extension AgentPaneView {
                 if event.connection == self.model.transport.current {
                     pageEvents.transportDidOpen(event.connection)
                 }
-                // The page host's events carry no completion: the page acks the push once it applied
-                // it (`transport.ack`), and the next push waits for that or the ack deadline. A slow
-                // page makes the host hold and merge frames, never queue pushes behind it.
+                // The page host's events carry no completion: the next push may follow next turn.
                 if !pageEvents.publish(.transport(event)) {
                     // Said in the log: this close reaches the page as a clean one with no reason.
                     AgentPaneTransport.logger.notice("agent pane transport closed: the page host fell a full buffer behind connection=\(event.connection, privacy: .public)")
                     self.model.transport.close(connection: event.connection)
                 }
-                if let seq = event.seq, event.closed == nil {
-                    self.model.transport.awaitAck(seq: seq, done)
-                } else {
-                    // task-owner: one completion for the pacer, on the main actor
-                    Task { @MainActor in done() }
-                }
+                // task-owner: one completion for the pacer, on the main actor
+                Task { @MainActor in done() }
             } else {
-                // The completion runs once the page has run the push: WebKit calls it only after the
-                // script ran in the page (or the web process ended), so it is this host's ack. A page
-                // whose main thread is stuck never completes it, and the pacer holds its one push in
-                // flight (AgentPaneFramePacer `inFlight`): no second push, tighter than the unacked
-                // bounds the page host needs (``AgentPaneTransport/Limits/maximumUnackedBytes``).
+                // The completion runs once the page has run the push.
                 self.webView.evaluateJavaScript(event.script) { _, _ in done() }
             }
         }

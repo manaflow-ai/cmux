@@ -1,4 +1,0 @@
-{
-  "agent": "settable",
-  "why": "cmux-browser mutes a workspace through settings.set as `script` (cmux-browser #614)."
-}

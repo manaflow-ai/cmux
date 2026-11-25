@@ -422,12 +422,9 @@ impl DaemonServices {
                     let scope = scope.clone();
                     let request_slots = request_slots.clone();
                     let grant = service_authority.grant().cloned();
-                    let mux_role = service_authority.mux_role();
                     handlers.spawn_local(async move {
                         let _permit = permit;
-                        services
-                            .serve_stream(scope, request_slots, grant, mux_role, incoming)
-                            .await
+                        services.serve_stream(scope, request_slots, grant, incoming).await
                     });
                 }
                 completed = handlers.join_next(), if !handlers.is_empty() => {
@@ -493,7 +490,6 @@ impl DaemonServices {
         scope: ClientScope,
         request_slots: Arc<RequestAdmission>,
         grant: Option<Arc<CarrierGrant>>,
-        mux_role: Option<Option<cmux_link::token::VmKind>>,
         incoming: IncomingStream,
     ) -> Result<(), ServicesError> {
         let workspace = self.workspace.clone();
@@ -531,7 +527,7 @@ impl DaemonServices {
             Service::MuxControl => {
                 Self::serve_mux_control_with_budget(
                     mux_socket,
-                    mux_role,
+                    grant.as_deref(),
                     incoming.stream,
                     mux_upload_budget,
                     mux_line_zlib_requested(&incoming.metadata),
@@ -999,15 +995,13 @@ impl DaemonServices {
 
     /// One `mux-control` stream, spliced to the session daemon's unix socket. A
     /// grant-admitted session's stream first carries the grant's signed role
-    /// (`mux_carrier_role.rs`), before any of the person's bytes, and a session this
-    /// machine's own user opened (`cmux ssh`: kernel or SSH evidence) the owner's role
-    /// (`ServiceAuthority::mux_role`). `line_zlib`:
+    /// (`mux_carrier_role.rs`), before any of the person's bytes. `line_zlib`:
     /// the client listed zlib in its open metadata, so large lines to it go
     /// compressed and `opened` says so.
     #[cfg(unix)]
     async fn serve_mux_control_with_budget(
         mux_socket: Option<PathBuf>,
-        mux_role: Option<Option<cmux_link::token::VmKind>>,
+        grant: Option<&CarrierGrant>,
         stream: ServiceStream,
         upload_budget: MuxUploadBudget,
         line_zlib: bool,
@@ -1016,8 +1010,8 @@ impl DaemonServices {
             ServicesError::Unavailable("mux control socket is not configured".into())
         })?;
         let mut socket = connect_owned_unix_socket(path).await?;
-        if let Some(role) = mux_role
-            && let Err(refused) = crate::mux_carrier_role::stamp(&mut socket, role).await
+        if let Some(grant) = grant
+            && let Err(refused) = crate::mux_carrier_role::stamp(&mut socket, grant.vm_kind).await
         {
             let (code, message) = match refused {
                 crate::mux_carrier_role::StampRefused::NotTaken => (
@@ -1041,7 +1035,7 @@ impl DaemonServices {
     #[cfg(not(unix))]
     async fn serve_mux_control_with_budget(
         _mux_socket: Option<PathBuf>,
-        _mux_role: Option<Option<cmux_link::token::VmKind>>,
+        _grant: Option<&CarrierGrant>,
         stream: ServiceStream,
         _upload_budget: MuxUploadBudget,
         _line_zlib: bool,

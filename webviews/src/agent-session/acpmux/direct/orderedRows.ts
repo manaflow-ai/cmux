@@ -19,8 +19,8 @@ const MANY_SLOTS = Symbol("many");
 /// ending whole (a repair read back chunks before or after it, or split a reply a lost call had
 /// joined), 40 characters of it, and the shorter is at least half as long, so a short reply is never
 /// taken for part of a long one, nor two replies for one by a common opening line. Linear in the longer; under 8 characters, only itself.
-/// Takes texts already trimmed: ``adoptFrames`` trims each once, not once per pair.
-function sameTrimmed(x: string, y: string): boolean {
+function sameWords(a: string | undefined, b: string | undefined): boolean {
+  const [x, y] = [a?.trim() ?? "", b?.trim() ?? ""];
   if (!x || !y) return false;
   if (x === y) return true;
   const [short, long] = x.length <= y.length ? [x, y] : [y, x];
@@ -287,32 +287,21 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     // a frame a row since took: a frame in use is never given again, so no two rows share one.
     const inUse = new Set<string>();
     for (const row of this.values()) inUse.add(rowFrameKey(row));
-    // Each fresh text trimmed once; a pair whose lengths ``sameTrimmed`` refuses is passed over unread.
-    const texts = fresh.map((row) => row.text?.trim() ?? "");
     for (const old of gone) {
       const frame = rowFrameKey(old);
       if (inUse.has(frame)) continue;
-      const text = old.text?.trim() ?? "";
-      const length = text.length;
-      if (length === 0) continue;
+      const length = old.text?.trim().length ?? 0;
       let best: AcpmuxRow | undefined;
-      let bestLength = 0;
       // A tie goes to the newer row: the one a rebuild named anew is the newest of its copies.
-      for (let at = 0; at < fresh.length; at += 1) {
-        const row = fresh[at]!;
-        const other = texts[at]!;
-        const shorter = Math.min(length, other.length);
+      for (const row of fresh)
         if (
-          row.kind !== old.kind ||
-          (other.length !== length && (shorter < 8 || shorter * 2 < Math.max(length, other.length))) ||
-          this.frames.has(row.id) ||
-          !sameTrimmed(text, other) ||
-          (best && Math.abs(other.length - length) > Math.abs(bestLength - length))
+          row.kind === old.kind &&
+          !this.frames.has(row.id) &&
+          sameWords(old.text, row.text) &&
+          (!best ||
+            Math.abs((row.text?.trim().length ?? 0) - length) <= Math.abs((best.text?.trim().length ?? 0) - length))
         )
-          continue;
-        best = row;
-        bestLength = other.length;
-      }
+          best = row;
       if (!best) continue;
       inUse.add(frame);
       this.frames.set(best.id, frame);

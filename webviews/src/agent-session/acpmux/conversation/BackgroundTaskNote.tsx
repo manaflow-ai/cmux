@@ -1,7 +1,9 @@
 // A background shell's end in the transcript (cx-ncc.84, Claude parity), when the call that started
 // it is not in the transcript (a page not loaded): a shell whose call is there ends on that call's
-// own row instead (BackgroundMark.tsx, direct.ts markBackgroundCall). The collapsed note names
-// the work and how it ended. Its details contain the command as typed.
+// own "Ran" row instead (BackgroundMark.tsx, direct.ts `markBackgroundCall`). Noted where it ended
+// as Claude desktop notes it, "Background task stopped · <reason>: <command>". Its raw command is
+// visible in a monospace line, and a no-output task stays a quiet details row,
+// with nothing on hover (Leo 2026-10-13).
 //
 // A click opens it in place, as a command row opens (CommandRow.tsx): the turn's fold motion and
 // rotating chevron, the clicked line held where it is (foldAnchor.ts), and under it the Shell card
@@ -21,15 +23,16 @@ import type { AcpmuxBackgroundTask } from "../model";
 import { openProcessTerminal } from "../processTerminal";
 import { useBackgroundTaskOutput } from "./backgroundTaskOutput";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
-import { TerminalSquare } from "./icons";
+import { ChevronRight, TerminalSquare } from "./icons";
 import { ShellBlock } from "./ShellBlock";
+import { shortCommand } from "./shortCommand";
 import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { useTranscriptReadOnly } from "./readOnly";
 import { SubagentNavContext } from "../subagents/subagentGroupModel";
-import { commandSummary } from "./commandActions";
+import { commandRead } from "../session-info/commandRules";
 import { currentCommandRules } from "../session-info/commandLabelSettings";
 import { spanDuration } from "./turns";
-import { DisclosureChevron } from "./DisclosureChevron";
+import { WithFacts } from "../chips/FactsHoverCard";
 
 /// The longest a click waits for the registry before the note opens with what it has.
 export const OPEN_HOLD_MS = 1500;
@@ -73,7 +76,22 @@ export function BackgroundTaskNote({ task }: { task: AcpmuxBackgroundTask }) {
     timer = setTimeout(go, OPEN_HOLD_MS);
     void reading.then(go);
   };
-  const named = task.description?.trim() || commandSummary(t, task.command, currentCommandRules());
+  const command = shortCommand(task.command);
+  // A call the agent named reads as the tray names it, what it does and then its name ("Waiting 14m ·
+  // hold", commandRules.ts), never the bare name: Leo, 2026-11-05, on a note reading "Background
+  // command completed hold": "what are you even holding for?". The command as typed stays in the card.
+  const named = task.description ? commandRead(t, task, "terminal", currentCommandRules()).label : undefined;
+  // A shell that finished or failed reads as Claude Code desktop notes it, "Background command
+  // completed" in the rows' muted tone, then the command in the transcript's ink (Leo, 2026-11-03:
+  // "claude code desktop's summarization of tool calls/parsing of them seem kinda good?").
+  const lead =
+    state === "completed"
+      ? t("bgTask.completedLead")
+      : state === "failed"
+        ? t("bgTask.failedLead")
+        : state === "stopped"
+          ? t("bgTask.state.stopped")
+          : undefined;
   // The event's exit code (Codex sends one), else the registry's.
   const exitCode = task.exitCode ?? read.exitCode;
   // What the harness said of its end beyond the row's words: Claude Code's summary, else a reason the
@@ -129,17 +147,24 @@ export function BackgroundTaskNote({ task }: { task: AcpmuxBackgroundTask }) {
               </span>{" "}
             </>
           )}
-          {named ? (
-            <span className="cv-bgtask__title">{named}</span>
-          ) : (
-            task.command && <code className="cv-bgtask__command">{task.command}</code>
+          {lead && (
+            <>
+              <span className="cv-bgtask__state">{lead}</span>{" "}
+            </>
           )}
-          <span className="cv-bgtask__state">
-            {(named || task.command) && " · "}
-            {t(`bgTask.state.${state}`)}
-          </span>
+          {named ? (
+            <WithFacts facts={[{ value: task.command, code: true }]}>
+              {(facts) => (
+                <span {...facts} className="cv-bgtask__title">
+                  {named}
+                </span>
+              )}
+            </WithFacts>
+          ) : (
+            <code className="cv-bgtask__command">{task.command || command}</code>
+          )}
         </span>
-        <DisclosureChevron open={open} />
+        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
       </button>
       {fold.present && (
         <div {...fold.bodyProps}>
@@ -168,7 +193,7 @@ export function BackgroundTaskNote({ task }: { task: AcpmuxBackgroundTask }) {
             />
           ) : (
             <div id={detailsId} className="cv-bgtask__details">
-              {task.command && <code className="cv-bgtask__raw-command">{task.command}</code>}
+              <code className="cv-bgtask__raw-command">{task.command || command}</code>
               {owner && (
                 <span className="cv-bgtask__detail">{ownerLink ? <span {...ownerProps}>{owner}</span> : owner}</span>
               )}

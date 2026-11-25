@@ -8,7 +8,7 @@
 #    `uv tool install` and pip fail).
 # 2. Checks its ACP server (`hermes acp --check`).
 # 3. Makes sure acpmux lists the `hermes` harness: a new acpmux finds `hermes`
-#    on PATH; an older one gets ~/.config/cmux/harnesses/hermes.toml (cmux-next on macOS), then
+#    on PATH; an older one gets ~/.config/cmux/harnesses/hermes.toml, then
 #    `acpmux harness reload`.
 # 4. With --switch: sends Hermes one prompt (proof its provider and model
 #    work), then runs `optchat-chief engine set --harness hermes`.
@@ -44,9 +44,7 @@ echo "Hermes: $(hermes --version 2>&1 | head -1)"
 hermes acp --check
 
 if ! "$acpmux" harness list 2>/dev/null | grep -qE '^hermes[[:space:]]'; then
-  # cmux NEXT's config folder is `cmux-next` on macOS (cmux-config NEXT_DIR, location.rs; #53567).
-  next_dir=cmux; [[ "$(uname -s)" == Darwin ]] && next_dir=cmux-next
-  dir="${XDG_CONFIG_HOME:-$HOME/.config}/$next_dir/harnesses"
+  dir="${XDG_CONFIG_HOME:-$HOME/.config}/cmux/harnesses"
   mkdir -p "$dir"
   if [[ ! -e "$dir/hermes.toml" ]]; then
     cat > "$dir/hermes.toml" <<'EOF'

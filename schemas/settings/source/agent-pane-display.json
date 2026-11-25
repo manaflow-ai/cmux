@@ -177,31 +177,6 @@
           ]
         },
         {
-          "key": "agentPane.display.subagentOf",
-          "note": "A subagent's own pane says whose it is, \"Subagent of <chat>\" muted beside its name on the header's one line (webviews subagents/subagentPanes.ts paneHeading; Leo, 2026-11-22). Off by default; off, the header names the subagent alone, as before.",
-          "title": {
-            "key": "settings.agentPane.display.subagentOf",
-            "text": "Subagent Of in Header"
-          },
-          "help": {
-            "key": "settings.agentPane.display.subagentOf.help",
-            "text": "In a subagent's own pane, show which chat it belongs to beside its name in the header."
-          },
-          "kind": "toggle",
-          "default": false,
-          "keywords": [
-            "agent",
-            "chat",
-            "display",
-            "header",
-            "subagent",
-            "parent",
-            "of",
-            "provenance",
-            "toggle"
-          ]
-        },
-        {
           "key": "agentPane.display.pinnedPlan",
           "note": "The running turn's task list pinned under its latest message (webviews conversation/turns.ts). Off by default: the composer's hat shows it (subagents/SubagentTray.tsx plan; Leo, 2026-11-03).",
           "title": {

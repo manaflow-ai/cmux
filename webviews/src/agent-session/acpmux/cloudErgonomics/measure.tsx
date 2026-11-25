@@ -2,7 +2,7 @@
 //
 // Renders every state of states.tsx in jsdom as App.tsx draws it, clicks each of its controls on a fresh render
 // and reads where the click went, then counts: errors that say what to do next in the pane, errors that only
-// point out of it, dead ends; waits that say what they wait on and how long (an ETA or a live clock). scripts/cloud-ergonomics.ts
+// point out of it, dead ends; waits that say what they wait on and about how long. scripts/cloud-ergonomics.ts
 // prints it for cmuxterm-hq's `cloud-ergonomics-linux` synthetic probe; cloudErgonomics.test.tsx runs it too.
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -11,7 +11,6 @@ import { Thinking } from "../conversation/Thinking";
 import { THINKING_VERBS } from "../conversation/thinkingVerbs";
 import {
   classifyError,
-  clockIn,
   controlsIn,
   controlWay,
   etaIn,
@@ -26,7 +25,7 @@ import {
 } from "./classify";
 import { cloudErgonomicsStates, UNCOVERED, type ErgoState } from "./states";
 
-export const SCHEMA = "cloud-ergonomics/v2";
+export const SCHEMA = "cloud-ergonomics/v1";
 
 export type ControlReading = { label: string; way: ControlWay; what: string[] };
 export type StateReading = {
@@ -46,8 +45,6 @@ export type StateReading = {
   // A wait's reading.
   reason?: string;
   eta?: string;
-  /// Its live clock ("12s"): how long it has run, which tells the person how long as an ETA does.
-  clock?: string;
 };
 
 export type CloudErgonomicsReport = {
@@ -61,9 +58,8 @@ export type CloudErgonomicsReport = {
   errors_next_step_share: number | null;
   waits_total: number;
   waits_with_reason: number;
-  /// Waits with a reason and a time: an ETA or a live clock.
-  waits_with_reason_and_time: number;
-  waits_without_reason_time: number;
+  waits_with_reason_and_eta: number;
+  waits_without_reason_eta: number;
   /// States whose element did not render: a measurement that would undercount.
   missing: string[];
   offenders: { id: string; type: "error" | "wait"; class: string; text: string }[];
@@ -250,7 +246,6 @@ async function readWait(state: ErgoState, generic: ReadonlySet<string>): Promise
       : (() => {
           const reason = waitReason(regions, generic);
           const eta = etaIn(regions);
-          const clock = clockIn(regions);
           return {
             ...base,
             text: regions
@@ -259,15 +254,11 @@ async function readWait(state: ErgoState, generic: ReadonlySet<string>): Promise
               .trim(),
             ...(reason ? { reason } : {}),
             ...(eta ? { eta } : {}),
-            ...(clock ? { clock } : {}),
           };
         })();
   await view.unmount();
   return reading;
 }
-
-/// A wait says how long: an ETA, or a live clock of how long it has run.
-const timed = (reading: StateReading) => Boolean(reading.eta || reading.clock);
 
 export async function measureCloudErgonomics(
   states: ErgoState[] = cloudErgonomicsStates(),
@@ -285,15 +276,15 @@ export async function measureCloudErgonomics(
       .filter((reading) => reading.class !== "next-step")
       .map((reading) => ({ id: reading.id, type: "error" as const, class: reading.class!, text: reading.text })),
     ...waits
-      .filter((reading) => !reading.reason || !timed(reading))
+      .filter((reading) => !reading.reason || !reading.eta)
       .map((reading) => ({
         id: reading.id,
         type: "wait" as const,
-        class: !reading.reason && !timed(reading) ? "no-reason-no-time" : !reading.reason ? "no-reason" : "no-time",
+        class: !reading.reason && !reading.eta ? "no-reason-no-eta" : !reading.reason ? "no-reason" : "no-eta",
         text: reading.text,
       })),
   ];
-  const withReasonAndTime = waits.filter((reading) => reading.reason && timed(reading)).length;
+  const withReasonAndEta = waits.filter((reading) => reading.reason && reading.eta).length;
   return {
     schema: SCHEMA,
     errors_total: errors.length,
@@ -304,8 +295,8 @@ export async function measureCloudErgonomics(
     errors_next_step_share: errors.length ? Math.round((withNext / errors.length) * 1000) / 1000 : null,
     waits_total: waits.length,
     waits_with_reason: waits.filter((reading) => reading.reason).length,
-    waits_with_reason_and_time: withReasonAndTime,
-    waits_without_reason_time: waits.length - withReasonAndTime,
+    waits_with_reason_and_eta: withReasonAndEta,
+    waits_without_reason_eta: waits.length - withReasonAndEta,
     missing: readings.filter((reading) => reading.missing).map((reading) => reading.id),
     offenders,
     states: readings,

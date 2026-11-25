@@ -94,7 +94,6 @@ impl Schema {
                 "additionalProperties": false,
             }),
         );
-        root.insert(crate::theme_file::slots::KEY.into(), crate::theme_file::slots::json_schema());
         root.insert(
             "fonts".into(),
             json!({

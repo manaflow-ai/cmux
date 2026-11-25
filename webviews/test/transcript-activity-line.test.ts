@@ -6,7 +6,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import type { AcpmuxPlanEntry, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { ACTIVITY_LINE, turnView } from "../src/agent-session/acpmux/conversation/turns";
-import { mergeToolItem } from "../src/agent-session/acpmux/direct/toolItems";
 
 // This file covers the `runs` arm of liveTurnWork.experiment.ts: a running turn keeps each finished
 // run in sight as its folded summary line. The `line` arm (one live line, as chatgpt.com draws a running
@@ -67,7 +66,7 @@ test("the activity line names the running call, else the todo in progress, timed
   expect(between.version).not.toBe(running.version);
 });
 
-test("a running command uses its input-derived summary", () => {
+test("a running command reads as itself", () => {
   const command = row("run", "activity", {
     items: [
       {
@@ -77,31 +76,7 @@ test("a running command uses its input-derived summary", () => {
       },
     ],
   });
-  expect(live([row("u", "user"), steps, command], true).at(-1)!.text).toBe("Testing grid");
-});
-
-test("a Codex MCP send keeps its nested description on the live line through a sparse update", () => {
-  const first = mergeToolItem(
-    undefined,
-    {
-      kind: "other",
-      title: "acpmux.send call",
-      rawInput: {
-        server: "acpmux",
-        tool: "send",
-        arguments: {
-          description: "Tell the reviewer what changed",
-          messages: [{ to: "reviewer", text: "The fix is ready" }],
-        },
-      },
-    },
-    "send",
-    "",
-  );
-  const item = mergeToolItem(first, { status: "in_progress" }, "send", "");
-  const line = live([row("u", "user"), steps, row("send", "activity", { items: [item] })], true).at(-1)!;
-  expect(line.text).toBe("Tell the reviewer what changed");
-  expect(line.doingSendTo).toBeUndefined();
+  expect(live([row("u", "user"), steps, command], true).at(-1)!.text).toBe("bun test grid");
 });
 
 test("the activity line names an edited file by its name, not its path", () => {

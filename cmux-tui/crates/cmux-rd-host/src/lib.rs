@@ -87,12 +87,8 @@ mod observe;
 mod permissions;
 #[cfg(feature = "bench")]
 mod process_cpu;
-// Wayland sharing: mutter's own screen cast on GNOME, else the portal handshakes and grant
-// (`portal-dbus`), and the PipeWire capture (`portal`), chosen by the capture-backend seam in
-// desktop.rs.
-#[cfg(all(feature = "portal-dbus", target_os = "linux"))]
-#[allow(dead_code)]
-mod mutter;
+// Wayland sharing: the portal handshakes and grant (`portal-dbus`) and the PipeWire capture
+// (`portal`), chosen by the capture-backend seam in desktop.rs.
 #[cfg(all(feature = "portal", target_os = "linux"))]
 #[allow(dead_code)]
 mod pipewire_capture;

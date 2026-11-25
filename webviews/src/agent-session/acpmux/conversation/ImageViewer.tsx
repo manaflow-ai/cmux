@@ -200,7 +200,7 @@ export function ImageViewer({
         if (!open) onClose();
       }}
       label={image.alt || t("image.viewer")}
-      className="acpmux-image-viewer ui-glass"
+      className="acpmux-image-viewer"
       backdropClassName="acpmux-image-viewer-backdrop"
       style={below}
       initialFocus={close}

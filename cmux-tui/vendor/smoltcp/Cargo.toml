@@ -289,8 +289,6 @@ socket-mdns = ["socket-dns"]
 socket-raw = ["socket"]
 socket-tcp = ["socket"]
 socket-tcp-cubic = []
-# cmux patch: the BBR-style controller (RFD 0142 O1).
-socket-tcp-bbr = []
 socket-tcp-pause-synack = ["socket-tcp"]
 socket-tcp-reno = []
 socket-udp = ["socket"]

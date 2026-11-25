@@ -8,10 +8,9 @@ final class TooltipGalleryTooltip: NSView {
     let content = TooltipContentView()
     private let sample: TooltipGallerySample
 
-    /// `look`: the shared hover surface to draw (``HoverSurfaceLook``); nil takes the setting's.
-    init(_ sample: TooltipGallerySample, look: HoverSurfaceLook? = nil) {
+    init(_ sample: TooltipGallerySample) {
         self.sample = sample
-        surface = Glass.makeTooltipGlass(cornerRadius: TooltipPanel.radius, look: look)
+        surface = Glass.makeTooltipGlass(cornerRadius: TooltipPanel.radius)
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         if sample.opaque { surface.materialOverride = .opaque }

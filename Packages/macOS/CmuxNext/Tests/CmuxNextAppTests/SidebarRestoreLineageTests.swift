@@ -29,8 +29,8 @@ struct SidebarRestoreLineageTests {
         let (parent, child, adopter) = (id(0), id(1), id(2))
         let defaults = UserDefaults(suiteName: "restore-lineage-\(UUID().uuidString)")!
         // The last run drew the child under its parent while its lanes were live.
-        SidebarSessionTree(defaults: defaults, showsStarted: true).savedParents = [child: parent]
-        let tree = SidebarSessionTree(defaults: defaults, showsStarted: true)
+        SidebarSessionTree(defaults: defaults).savedParents = [child: parent]
+        let tree = SidebarSessionTree(defaults: defaults)
         #expect(tree.state?.parents == [child: parent], "the first frame drew the rows loose: \(String(describing: tree.state?.parents))")
 
         let lanes = AgentLaneStore()
@@ -50,22 +50,22 @@ struct SidebarRestoreLineageTests {
         lanes.live = true
         await LargeSessionFixture.until { tree.savedParents == [child: adopter] }
         #expect(tree.state?.parents == [child: adopter])
-        #expect(SidebarSessionTree(defaults: defaults, showsStarted: true).savedParents == [child: adopter], "the live lineage was not kept for the next launch")
+        #expect(SidebarSessionTree(defaults: defaults).savedParents == [child: adopter], "the live lineage was not kept for the next launch")
 
         // The child's lane ends its lineage: the live tree has none, and the saved lineage follows it.
         lanes.set(session, nil)
-        await LargeSessionFixture.until { SidebarSessionTree(defaults: defaults, showsStarted: true).savedParents.isEmpty }
+        await LargeSessionFixture.until { SidebarSessionTree(defaults: defaults).savedParents.isEmpty }
         #expect(tree.state == nil || tree.state?.parents.isEmpty == true)
     }
 
     /// With no acpmux here, no lanes come to replace the saved lineage: it is not drawn.
     @Test func noAcpmuxDropsTheSavedLineage() {
         let defaults = UserDefaults(suiteName: "restore-lineage-\(UUID().uuidString)")!
-        SidebarSessionTree(defaults: defaults, showsStarted: true).savedParents = [WorkspaceID("b"): WorkspaceID("a")]
-        let tree = SidebarSessionTree(defaults: defaults, showsStarted: true)
+        SidebarSessionTree(defaults: defaults).savedParents = [WorkspaceID("b"): WorkspaceID("a")]
+        let tree = SidebarSessionTree(defaults: defaults)
         SidebarSessionTreeFeed.shared.dropSavedLineage(tree: tree)
         #expect(tree.state == nil)
-        #expect(SidebarSessionTree(defaults: defaults, showsStarted: true).savedParents.isEmpty)
+        #expect(SidebarSessionTree(defaults: defaults).savedParents.isEmpty)
     }
 
     /// The lineage arriving right after a click or key (inside the user-intent window) still shows in one step.
@@ -77,8 +77,7 @@ struct SidebarRestoreLineageTests {
         let model = SidebarModel(sections: start)
         let shared = SidebarSessionTree.shared
         let before = shared.state
-        shared.showsStartedOverride = true // the lineage nests (`sidebar.showAgentSessions` on)
-        defer { shared.state = before; shared.showsStartedOverride = nil }
+        defer { shared.state = before }
         shared.state = nil
         let (sidebar, window) = Self.sidebar(model, onScreen: true)
         defer { window.close() }

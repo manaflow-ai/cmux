@@ -58,31 +58,13 @@ nonisolated public struct UpdateTransfer: Equatable, Sendable {
         let unit = Self.unit(for: expected)
         let total = Self.bytes(expected, unit: unit)
         let got = Self.padded(Self.bytes(min(received, expected), unit: unit), toWidthOf: total)
+        let percentStyle = FloatingPointFormatStyle<Double>.Percent().precision(.fractionLength(0))
         // Whole percent from the byte counts, floored, so it reads 100% only once every byte is in. Integers:
         // a Double fraction floored under-reads an exact one (29 of 50 is 57.999…%).
         // The product is 128-bit (`multipliedFullWidth`), so the floor is exact at any size.
         let percentage = expected.dividingFullWidth(min(received, expected).multipliedFullWidth(by: 100)).quotient
-        return UpdaterStrings.downloadedOf(got, total, Self.percentText(Int(percentage)))
-    }
-
-    /// `whole` percent (0...100) as "42%", padded with figure spaces to "100%"'s width, so a percent that counts
-    /// in a tabular-digit font never moves what sits beside it: the download's bytes line, going back's
-    /// "Downloading 42%" and the Channels switch's "Downloading… 42%" (Leo 2026-11-05: "why is it that as the
-    /// left number grows, it just keeps shifting?").
-    public static func percentText(_ whole: Int) -> String {
-        let style = FloatingPointFormatStyle<Double>.Percent().precision(.fractionLength(0))
-        return padded((Double(min(100, max(0, whole))) / 100).formatted(style), toWidthOf: 1.0.formatted(style))
-    }
-
-    /// `fraction` (0...1) floored to whole percent, as ``percentText(_:)`` reads it.
-    public static func percentText(fraction: Double) -> String {
-        percentText(Int((min(1, max(0, fraction)) * 100).rounded(.down)))
-    }
-
-    /// `whole` (0...100) as a bare number padded with figure spaces to "100"'s width, for a string whose format
-    /// adds the percent sign itself.
-    public static func paddedWholePercent(_ whole: Int) -> String {
-        padded(String(min(100, max(0, whole))), toWidthOf: "100")
+        let percent = Self.padded((Double(percentage) / 100).formatted(percentStyle), toWidthOf: 1.0.formatted(percentStyle))
+        return UpdaterStrings.downloadedOf(got, total, percent)
     }
 
     /// The decimal unit `bytes` reads in (as Finder's file sizes): kB under a megabyte, MB under a gigabyte, else GB.

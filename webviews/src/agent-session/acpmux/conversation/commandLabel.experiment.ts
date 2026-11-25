@@ -8,27 +8,28 @@ export const commandLabelLook = defineExperiment({
   id: "command-label-look",
   title: "Command row labels",
   description:
-    "Every row prefers its description, then an action inferred from its input. Choose how unnamed commands and groups read.",
+    "Whether a command row names what the command did (a verb table, the model's description) or shows the line.",
   arms: {
     verbs: {
-      label: "Name grouped actions",
-      description: "Name repeated actions as a group and clean up unnamed commands.",
+      label: "Verb table first",
+      description:
+        "A known program reads as a past-tense verb and its argument; a description names the rest; else the cleaned line.",
     },
     description: {
       label: "Description first",
-      description: "Show the supplied description and name grouped actions.",
+      description: "Claude's Bash description when it has one, else the verb table, else the cleaned line.",
     },
     "verbs-command": {
-      label: "Named command rows",
-      description: "Show the action on the row and its command in the expanded detail.",
+      label: "Verb + dimmed command",
+      description: "As Verb table first, with the cleaned command line after it in the dim tone.",
     },
     cleaned: {
-      label: "Cleaned fallback",
-      description: "Shorten plumbing on unnamed commands and use a command count for groups.",
+      label: "Command, cleaned",
+      description: "Ran <line> without redirects and the head/cut/wc filters piped after it.",
     },
     command: {
-      label: "As-typed fallback",
-      description: "Keep plumbing on unnamed commands and use a command count for groups.",
+      label: "Command as typed (before)",
+      description: "Ran <line> as it was typed, plumbing included: the look before this change.",
     },
   },
   defaultArm: "verbs",

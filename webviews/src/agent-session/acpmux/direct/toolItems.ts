@@ -213,11 +213,11 @@ export function mergeToolItem(
   };
 }
 
-/// The caller's description is a direct argument or, for Codex MCP calls, inside its named envelope.
+/// What a call says it does, in a few words: Claude Code's Bash `description` ("Run the web
+/// tests"), which a command row reads instead of its raw command line.
 export function callDescription(rawInput: any): string | undefined {
-  const description = stringValue(rawInput?.description);
-  if (description || typeof rawInput?.server !== "string" || typeof rawInput.tool !== "string") return description;
-  return stringValue(rawInput.arguments?.description);
+  const description = rawInput?.description;
+  return typeof description === "string" && description.trim() ? description.trim() : undefined;
 }
 
 /// The command line a shell call ran, from `rawInput.command`: a string, or an argv array. An

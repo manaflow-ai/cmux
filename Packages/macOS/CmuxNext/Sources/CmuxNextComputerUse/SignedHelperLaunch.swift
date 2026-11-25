@@ -21,7 +21,7 @@ public nonisolated struct SignedHelperLaunch: Sendable {
     private let staging: SignedHelperStaging
 
     /// The Screen Sharing helper's copy, at one fixed path per helper bundle id for every build.
-    public static func screenSharing(bundleID: String = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app.next",
+    public static func screenSharing(bundleID: String = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
                                      helperBundleID: String? = nil) -> SignedHelperLaunch {
         SignedHelperLaunch(staging: .screenSharing(bundleID: bundleID, helperBundleID: helperBundleID))
     }

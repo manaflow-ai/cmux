@@ -49,23 +49,14 @@ struct SidebarThinScrollerTests {
         }
     }
 
-    @Test func sidebarScrollersStayScrollOnlyWhenTheAutoHideSwitchIsOff() throws {
-        let previous = SystemScrollers.thinScrollersAutoHide
-        defer { SystemScrollers.thinScrollersAutoHide = previous }
-        SystemScrollers.thinScrollersAutoHide = false
+    @Test func theListScrollerFollowsTheAutoHideSwitch() throws {
+        defer { SystemScrollers.thinScrollersAutoHide = true }
         let sidebar = Self.sidebar()
-        for view in Self.sidebarScrollViews(sidebar) {
-            let scroller = try #require(view.verticalScroller as? ThinScroller)
-            #expect(scroller.autoHides)
-            #expect(!scroller.isKnobShown, "the global persistent-thumb setting leaked into the sidebar")
-        }
-
-        // Changing the global setting after construction must not make a sidebar thumb appear at rest.
+        let scroller = try #require(sidebar.scrollView.verticalScroller as? ThinScroller)
+        // Hidden at rest, shown while scrolling or with the pointer near (Lawrence 2026-10-23).
+        #expect(scroller.autoHides)
+        #expect(scroller.restingKnobFrame == nil)
         SystemScrollers.thinScrollersAutoHide = false
-        for view in Self.sidebarScrollViews(sidebar) {
-            let scroller = try #require(view.verticalScroller as? ThinScroller)
-            #expect(scroller.autoHides)
-            #expect(!scroller.isKnobShown, "the global persistent-thumb setting revealed the sidebar")
-        }
+        #expect(!scroller.autoHides) // the opt-out: shown while the list overflows
     }
 }

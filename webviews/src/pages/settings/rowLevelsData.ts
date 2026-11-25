@@ -311,7 +311,6 @@ export const ROW_LEVELS: {
     "agentPane.display.vscodeMinimap": "hidden",
     "agentPane.display.chatListStatusPills": "hidden",
     "agentPane.display.headerBreadcrumb": "hidden",
-    "agentPane.display.subagentOf": "hidden",
     "agentPane.display.trayHandle": "hidden",
     "agentPane.display.senderIcon.lead": "hidden",
     "agentPane.display.senderIcon.badge": "hidden",

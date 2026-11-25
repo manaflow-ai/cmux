@@ -8,7 +8,6 @@
 
 import { withoutRelayHead, withoutRelayLabel } from "./relayEnvelope";
 import { bareSender } from "./senderIdentity";
-import type { ThreadNotice } from "./inboxNotice";
 
 export type LaneNoticeKind = "report" | "inbox";
 export type LaneNoticeVerdict = "SHIP" | "BLOCK" | "FIX" | "HOLD";
@@ -48,8 +47,6 @@ export type LaneNoticeThread = {
   readonly count?: number;
   /// acpmux could not verify the newest sender (senderIdentity.ts).
   readonly unverified?: true;
-  /// The tool's notice the thread is (inboxNotice.ts `ThreadNotice`): one line for its messages.
-  readonly notice?: ThreadNotice;
 };
 
 export type LaneNotice = {

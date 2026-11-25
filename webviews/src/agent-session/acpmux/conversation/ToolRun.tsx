@@ -5,7 +5,7 @@ import { useFindReveal } from "./chatFind";
 import { useId, useMemo, type ReactNode } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
-import { Globe, Magnifier, MultiTool, Pencil, TerminalSquare, ToolGroup } from "./icons";
+import { ChevronRight, Globe, Magnifier, MultiTool, Pencil, TerminalSquare, ToolGroup } from "./icons";
 import { countsFailed, isRunning } from "./toolGroups";
 import { isMixedToolRun, mainToolRunCategory, toolRunSummary, type ToolRunCategory } from "./toolRunSummary";
 import { useToolRunLook } from "../toolRunLook";
@@ -23,7 +23,6 @@ import { useEditTotals } from "./editCountsModel";
 import { FailedCount } from "./FailedCount";
 import { ToolLabel } from "./ToolVerb";
 import { RunScroll } from "./RunScroll";
-import { DisclosureChevron } from "./DisclosureChevron";
 
 /// The summary's glyph: its one kind of work's, with searches and reads both as the magnifier, or the
 /// several-tools mark when it did more than one kind.
@@ -126,7 +125,7 @@ export function ToolRun({
           {totals && <EditCounts totals={totals} />}
           <FailedCount n={failures} />
         </span>
-        <DisclosureChevron open={open} />
+        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
       </button>
       {fold.present && (
         <FoldPin.Provider value={pin}>

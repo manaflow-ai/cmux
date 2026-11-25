@@ -11,8 +11,6 @@ description = "Build cmux extensions from Rust: the app API's versions, event st
 workspace = true
 
 [dependencies]
-# Only the wire-side modules (the workspace entry turns the VM off): `motion`.
-cmux-app-host.workspace = true
 cmux-app-manifest.workspace = true
 serde_json.workspace = true
 

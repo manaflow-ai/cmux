@@ -33,11 +33,6 @@ import Testing
         "https://app.example.com/login?next=/",
         "https://example.com/sign-in",
         "https://x.awsapps.com/start/#/device?user_code=ABCD-EFGH",
-        // GitHub App install and configure pages: the same route as the OAuth authorize page.
-        "https://github.com/apps/cmux-dev/installations/new?state=x",
-        "https://github.com/apps/cmux/installations/select_target",
-        "https://github.com/settings/installations/12345",
-        "https://github.com/organizations/manaflow-ai/settings/installations/12345",
     ])
     func signInPagesAreRecognized(text: String) throws {
         #expect(SignInPage(url: try Self.url(text)) != nil, "\(text)")
@@ -55,23 +50,11 @@ import Testing
         "https://supabase.com/docs/guides/auth",
         "https://developer.android.com/studio/run/device",
         "https://login.gov/help/",
-        "https://github.com/apps/cmux",
-        "https://github.com/settings/installations",
-        "https://github.com/manaflow-ai/settings/installations/12345",
-        "https://example.com/apps/cmux/installations/new",
         "file:///tmp/login",
         "mailto:login@example.com",
     ])
     func otherPagesAreNot(text: String) throws {
         #expect(SignInPage(url: try Self.url(text)) == nil, "\(text)")
-    }
-
-    /// Connect GitHub from the composer opens the app's install page: in cmux, like the authorize page, with links off too.
-    @Test func gitHubAppInstallPagesOpenInCmux() throws {
-        let routing = try Self.routing(#"{"browser": {"openLinksInCmuxBrowser": false}}"#)
-        #expect(routing.target(for: try Self.url("https://github.com/apps/cmux/installations/new?state=x")) == .cmuxBrowser)
-        #expect(routing.target(for: try Self.url("https://github.com/settings/installations/12345")) == .cmuxBrowser)
-        #expect(routing.target(for: try Self.url("https://github.com/apps/cmux")) == .system)
     }
 
     @Test func onByDefault() throws {

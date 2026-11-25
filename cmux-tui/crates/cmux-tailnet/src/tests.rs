@@ -60,23 +60,3 @@ fn certificate_is_requested_as_an_in_memory_pair() {
             .starts_with("GET /localapi/v0/cert/example.test.ts.net?type=pair HTTP/1.1")
     );
 }
-
-#[test]
-fn status_reads_peers_and_their_path_and_tolerates_an_old_reply() {
-    // An older reply: no Peer map, no path fields.
-    let old: crate::Status =
-        serde_json::from_str(r#"{"BackendState":"Running","Self":{"HostName":"mac"}}"#).unwrap();
-    assert!(old.peer.is_none());
-    assert!(!old.self_status.unwrap().is_direct());
-
-    let new: crate::Status = serde_json::from_str(
-        r#"{"BackendState":"Running","SomeFutureField":1,"Peer":{
-            "nodekey:a":{"HostName":"mac","TailscaleIPs":["100.64.0.2"],"Online":true,"CurAddr":"10.0.0.2:41641","Relay":"fra"},
-            "nodekey:b":{"HostName":"vm","TailscaleIPs":["100.64.0.3"],"Online":true,"CurAddr":"","Relay":"fra"}}}"#,
-    )
-    .unwrap();
-    let peers = new.peer.unwrap();
-    assert!(peers["nodekey:a"].online && peers["nodekey:a"].is_direct());
-    assert!(!peers["nodekey:b"].is_direct());
-    assert_eq!(peers["nodekey:b"].relay, "fra");
-}

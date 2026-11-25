@@ -62,8 +62,7 @@ public nonisolated struct KeyFacts: Equatable, Sendable {
     /// Workspaces as tabs is on (`SidebarTunables.workspacesAsTabs`): context key `sidebar.workspacesAsTabs`.
     public var workspacesAsTabs = false
     /// The focused browser page reports the keys it did not handle (a Chromium tab, through
-    /// `CefKeyboardHandler::OnKeyEvent`; a WebKit tab, by sending the key back to `NSApp.sendEvent`):
-    /// Find and content shortcuts go to it first
+    /// `CefKeyboardHandler::OnKeyEvent`): Find and content shortcuts go to it first
     /// (``KeyRouter/offersToPage(_:event:focus:facts:)``).
     public var pageReportsUnhandledKeys = false
     /// The focus model names a terminal, but the key goes elsewhere: the key window is a page

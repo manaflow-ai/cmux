@@ -66,7 +66,6 @@ export type Motion = CmuxMotion
 export type Loop = CmuxLoop
 export type LoopEffect = CmuxLoopEffect
 export type Transition = CmuxTransition
-export type TimedTransition = CmuxTimedTransition
 export type Offset = CmuxOffset
 export type Glow = CmuxGlow
 export type LinearGradient = CmuxLinearGradient

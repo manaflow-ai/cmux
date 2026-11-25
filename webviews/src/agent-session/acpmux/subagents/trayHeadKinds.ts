@@ -77,9 +77,7 @@ export function trayHead(
       const kind = commandKind(item.command.command);
       byKind.set(kind, (byKind.get(kind) ?? 0) + 1);
     } else if (
-      item.kind === "agent"
-        ? subagentStatus(item.agent, waiting) === "waiting"
-        : item.kind === "session" && item.session.state === "waiting"
+      item.kind === "agent" ? subagentStatus(item.agent, waiting) === "waiting" : item.session.state === "waiting"
     )
       waitingOnYou += 1;
     else if (item.kind === "session" && sessionsApart) sessions += 1;
@@ -116,16 +114,13 @@ export function trayHead(
             : item.session.state === "idle"
               ? "done"
               : undefined
-          : // A finished command that stays a while (trayLinger.ts); a silent turn is done.
-            item.kind === "command"
-            ? commandStatus(item.command)
-            : "done";
+          : // A finished command that stays a while (trayLinger.ts).
+            commandStatus(item.command);
     if (status === "failed") failed += 1;
     else if (status === "stopped") stopped += 1;
     else if (status === "done") {
       done += 1;
-      if (item.kind === "command" || item.kind === "turn" || (item.kind === "session" && sessionsApart))
-        doneOthers += 1;
+      if (item.kind === "command" || (item.kind === "session" && sessionsApart)) doneOthers += 1;
     }
   }
   // All of what ended were subagents (or count as them): "1 subagent done"; a mix says "2 done".
@@ -218,9 +213,7 @@ export function trayHeadParts(
       if (list) list.push(item);
       else byKind.set(kind, [item]);
     } else if (
-      item.kind === "agent"
-        ? subagentStatus(item.agent, waiting) === "waiting"
-        : item.kind === "session" && item.session.state === "waiting"
+      item.kind === "agent" ? subagentStatus(item.agent, waiting) === "waiting" : item.session.state === "waiting"
     )
       waits.push(item);
     else if (item.kind === "session") sessions.push(item);
@@ -240,9 +233,7 @@ export function trayHeadParts(
             : item.session.state === "idle"
               ? "done"
               : undefined
-          : item.kind === "command"
-            ? commandStatus(item.command)
-            : "done";
+          : commandStatus(item.command);
     if (status === "failed") failed.push(item);
     else if (status === "stopped") stopped.push(item);
     else if (status === "done") {
@@ -333,7 +324,7 @@ export function trayHeadGroups(
   const background: TrayItem[] = [];
   const waits: TrayItem[] = [];
   for (const item of items) {
-    if (item.kind === "command" || item.kind === "turn") background.push(item);
+    if (item.kind === "command") background.push(item);
     else if (
       item.kind === "agent" ? subagentStatus(item.agent, waiting) === "waiting" : item.session.state === "waiting"
     )
@@ -348,9 +339,7 @@ export function trayHeadGroups(
           ? item.session.state === "failed"
             ? "failed"
             : undefined
-          : item.kind === "command"
-            ? commandStatus(item.command)
-            : undefined) === "failed",
+          : commandStatus(item.command)) === "failed",
   );
   const parts: TrayHeadPart[] = [];
   if (agents.length > 0) {

@@ -436,20 +436,8 @@ def app_commits(repo: str, rev_range: list[str], prefixes: tuple[str, ...], limi
 
 # ---- GitHub ----
 
-# One GitHub read is bounded: a hung `gh` turns into a CalledProcessError, which every caller already falls back
-# from (commit subjects for PR lines), so the note step never runs into its job's timeout (a cancelled run).
-GH_TIMEOUT_S = 60
-
-
-def _run_gh(argv: list[str], stdin: str | None, check: bool) -> subprocess.CompletedProcess:
-    try:
-        return subprocess.run(argv, input=stdin, capture_output=True, text=True, check=check, timeout=GH_TIMEOUT_S)
-    except subprocess.TimeoutExpired as error:
-        raise subprocess.CalledProcessError(124, " ".join(argv[:3]), "", f"timed out after {GH_TIMEOUT_S} s") from error
-
-
 def _gh(args: list[str], stdin: str | None = None) -> dict:
-    out = _run_gh(["gh", "api", *args], stdin, check=True).stdout
+    out = subprocess.run(["gh", "api", *args], input=stdin, capture_output=True, text=True, check=True).stdout
     return json.loads(out)
 
 
@@ -462,7 +450,8 @@ def _graphql(fields: list[str]) -> dict:
     query = f'query {{ repository(owner: "{owner}", name: "{name}") {{ {" ".join(fields)} }} }}'
     # `gh api graphql` exits 1 when any field errors (a "(#N)" that names an issue, not a PR),
     # but the other fields' data still comes back: keep it, and fail only with no data.
-    proc = _run_gh(["gh", "api", "graphql", "--input", "-"], json.dumps({"query": query}), check=False)
+    proc = subprocess.run(["gh", "api", "graphql", "--input", "-"], input=json.dumps({"query": query}),
+                          capture_output=True, text=True)
     try:
         data = json.loads(proc.stdout) if proc.stdout.strip() else {}
     except json.JSONDecodeError:

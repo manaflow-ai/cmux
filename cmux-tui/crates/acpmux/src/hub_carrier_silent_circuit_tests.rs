@@ -90,7 +90,6 @@ async fn a_redial_after_a_silent_link_drop_does_not_wait_on_the_dead_kept_circui
             daemon,
             CircuitLane::Cheap,
             hello_record(CircuitService::Acpmux),
-            &[],
             &mut report,
             Path::Relay,
         )

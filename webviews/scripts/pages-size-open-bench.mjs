@@ -79,10 +79,10 @@ const hostStates = {
   "site-data": siteData,
   certificate: certificateChain,
   "cookie-import": {
-    title: "Import sign-ins from Google Chrome",
+    title: "Import Cookies",
     importTitle: "Import…",
-    notNowTitle: "Not now",
-    neverTitle: "Never for Chrome",
+    notNowTitle: "Not Now",
+    neverTitle: "Don't Show Again",
   },
   "setup-card": {
     agents: [{ id: "codex", name: "Codex", state: "missing" }],

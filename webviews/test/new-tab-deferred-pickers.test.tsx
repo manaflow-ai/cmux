@@ -377,8 +377,7 @@ async function mountNewTab({
   };
   const pickInline = async () => {
     await clickChip();
-    // Every composer opens the one shared picker, rail and all, forkable or not (cmux#55750).
-    expect(Boolean(doc.querySelector(".acpmux-cols-rail"))).toBe(true);
+    expect(Boolean(doc.querySelector(".acpmux-cols-rail"))).toBe(!startedChat || rail);
     await pickLevel("Sonnet 5.5", "High");
   };
   return {

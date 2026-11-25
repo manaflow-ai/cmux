@@ -11,4 +11,5 @@ enum EmptyWorkspaceStrings {
         String(format: String(localized: "emptyWorkspace.failed",
                               defaultValue: "The terminal did not start: %@\nPress Return to try again.", bundle: .module.inAppLanguage), reason)
     }
+
 }

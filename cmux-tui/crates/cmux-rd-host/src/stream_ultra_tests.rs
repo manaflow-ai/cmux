@@ -23,7 +23,6 @@ fn session(profile: EncodeProfile) -> MediaSession {
         encode_profile: profile,
         start_kbps: (START_BPS / 1000) as u32,
         max_kbps: 150_000,
-        pin_kbps: None,
         preset: String::new(),
         profile: String::new(),
         codec: String::new(),

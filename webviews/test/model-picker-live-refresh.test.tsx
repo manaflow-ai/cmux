@@ -89,8 +89,7 @@ test("Refresh models re-probes the agents and the open picker lists the new mode
   const { createRoot } = await import("react-dom/client");
   const { useState } = await import("react");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
-  const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
-  const { composerPickerEntries } = await import("../src/agent-session/acpmux/composerPickerEntries");
+  const { ComposerPickers } = await import("../src/agent-session/acpmux/ComposerPickers");
   const { usePickerCatalog, resetModelCatalogForTests } = await import("../src/agent-session/acpmux/modelCatalogHost");
   const { BUNDLED_MODEL_CATALOG } = await import("../src/agent-session/acpmux/modelCatalogData");
   type Snapshot = import("../src/agent-session/acpmux/model").AcpmuxSnapshot;
@@ -151,18 +150,16 @@ test("Refresh models re-probes the agents and the open picker lists the new mode
     } as unknown as Snapshot;
     const picker = usePickerCatalog(snapshot.catalog, { harness });
     pickerCatalog = JSON.stringify(picker.catalog);
-    // The full picker, where Refresh models lives. Every composer's chip opens the shared columns
-    // menu (cmux#55750), so the picker is drawn on its own here, on the composer's catalog.
     return (
-      <ModelPicker
-        catalog={composerPickerEntries(snapshot, picker.catalog)}
-        harness={harness}
-        label="Codex"
-        efforts={[]}
-        recents={[]}
-        onLand={() => undefined}
-        onEffort={() => undefined}
+      <ComposerPickers
+        snapshot={snapshot}
+        pickerCatalog={picker.catalog}
         catalogRefresh={{ status: "idle", date: picker.date, refresh: picker.refresh }}
+        onModel={() => undefined}
+        onMode={() => undefined}
+        onEffort={() => undefined}
+        onHarness={() => undefined}
+        showPlan={false}
       />
     );
   }
@@ -180,8 +177,17 @@ test("Refresh models re-probes the agents and the open picker lists the new mode
   const byLabel = (label: string) =>
     dom.window.document.querySelector<HTMLElement>(`button[aria-label="${label}"]`) ??
     [...dom.window.document.querySelectorAll<HTMLElement>("button")].find((item) => item.textContent === label);
-  // The chip opens the full list and its Refresh action.
-  await act(async () => host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click());
+  // The shortcut opens the compact menu, then More models opens the full list and its Refresh action.
+  await act(async () => {
+    dom.window.dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true, bubbles: true }),
+    );
+  });
+  const more = [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-quick-menu [role=menuitem]")].find(
+    (item) => item.textContent?.startsWith("More models"),
+  );
+  expect(more).toBeDefined();
+  await act(async () => more!.click());
   const refresh = byLabel("Refresh models")!;
   expect(refresh).toBeDefined();
   await act(async () => refresh.click());

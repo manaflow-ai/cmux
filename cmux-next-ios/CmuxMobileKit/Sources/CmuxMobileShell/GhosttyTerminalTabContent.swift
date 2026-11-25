@@ -917,18 +917,10 @@ struct TerminalTabSlotCard: View {
     let insets: EdgeInsets
 
     var body: some View {
-        // The tab's last-known picture (its Mac's thumbnail, or one this phone drew) stands in for the
-        // labeled placeholder, and is asked of the disk again if the cache let it go.
-        let known = slot.host.model.hostMacID.flatMap { TabCardSnapshots.shared.key(macID: $0, tabID: tabID) }.map { key -> UIImage? in
-            let entry = TabCardSnapshots.shared.entry(key)
-            if entry.image == nil { TabCardSnapshots.shared.warm([key]) }
-            return entry.image
-        } ?? nil
-        let card = TerminalTabCard(model: slot.host.model, insets: insets, fallback: known)
-        let content = card.content
+        let card = TerminalTabCard(model: slot.host.model, insets: insets)
         card
             .id(ObjectIdentifier(slot.host))
-            .modifier(TabCardFaceRecord(tabID: tabID, face: content == .nothing && known != nil ? "lastKnown" : "\(content)"))
+            .modifier(TabCardFaceRecord(tabID: tabID, face: "\(card.content)"))
     }
 }
 #endif

@@ -26,7 +26,7 @@
 //! `origin.forbidden` with reason `agents_read_only` on a v2 line, the error
 //! `agents_read_only: ...` on a legacy one.
 //!
-//! The setting itself is userOnly (schemas/settings/source/agent-policy/):
+//! The setting itself is userOnly (schemas/settings/source/agent-policy.json):
 //! an agent cannot turn it back to `change`, and on `read` its settings writes
 //! are refused here before the store sees them.
 

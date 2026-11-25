@@ -24,10 +24,10 @@ use super::{OutputMode, UsageError};
 #[path = "cloud_connect/capture.rs"]
 pub(super) mod capture;
 
-/// What `claude setup-token` prints (`claudeTokenPrefix` in the app).
-pub(super) use acpmux::claude_token::pty::TOKEN_PREFIX;
 /// The Keychain service of every model key and token (`SettingsModelsLive.service` in the app).
-pub(super) use acpmux::claude_token::store::SERVICE;
+pub(super) const SERVICE: &str = "cmux-model-key";
+/// What `claude setup-token` prints (`claudeTokenPrefix` in the app).
+pub(super) const TOKEN_PREFIX: &str = "sk-ant-oat";
 /// The longest key or token (`keyLimit` in the app).
 const KEY_LIMIT: usize = 16_384;
 /// The providers `api-key` adds.
@@ -346,7 +346,11 @@ pub(super) fn check_secret(secret: &str) -> Result<(), String> {
     Ok(())
 }
 
-use acpmux::claude_token::store::new_account;
+/// The Keychain account for a new item: `<store>-<8 hex>`, as the app names it.
+fn new_account(store: &str) -> String {
+    let id = uuid::Uuid::new_v4().simple().to_string();
+    format!("{store}-{}", id.get(..8).unwrap_or(&id))
+}
 
 /// `value` into the Keychain as a new `<store>-…` item, then `add_method` with its reference only;
 /// a refused add deletes the item again.
@@ -609,13 +613,31 @@ impl Daemon for LiveDaemon {
 /// The login Keychain (`security -i`, the value on its stdin only); `secret-tool` off macOS.
 struct LiveKeychain;
 
+fn os() -> &'static str {
+    if cfg!(target_os = "macos") { "macos" } else { "linux" }
+}
+
 impl Keychain for LiveKeychain {
     fn store(&self, account: &str, label: &str, value: &str) -> Result<(), String> {
-        acpmux::claude_token::store::keychain_store(account, label, value)
+        use acpmux::cli::harness_secret::{run_store, store_item};
+        let command =
+            store_item(os(), SERVICE, account, label, value).map_err(|e| e.to_string())?;
+        run_store(&command).map_err(|error| format!("cannot store it in the Keychain: {error}"))
     }
 
     fn delete(&self, account: &str) {
-        acpmux::claude_token::store::keychain_delete(account);
+        let argv: &[&str] = if os() == "macos" {
+            &["/usr/bin/security", "delete-generic-password", "-s", SERVICE, "-a", account]
+        } else {
+            &["secret-tool", "clear", "service", SERVICE, "account", account]
+        };
+        let Some((program, rest)) = argv.split_first() else { return };
+        let _ = cmux_process::Command::new(program)
+            .args(rest)
+            .stdin(cmux_process::Stdio::null())
+            .stdout(cmux_process::Stdio::null())
+            .stderr(cmux_process::Stdio::null())
+            .status();
     }
 }
 

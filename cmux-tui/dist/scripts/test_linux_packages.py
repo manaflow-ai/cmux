@@ -99,7 +99,6 @@ cleanup() {{
 }}
 trap cleanup EXIT HUP INT TERM
 {command} --version
-{command} autocloud --help | grep -q "An agent chat on any machine"
 {command} --headless --socket "$socket" >/tmp/cmux-server.log 2>&1 &
 server_pid=$!
 attempt=0
@@ -183,10 +182,7 @@ def test_native_binary(
                 image,
                 platform=platform,
                 mounts=((binary, "/cmux-tui"),),
-                script=(
-                    "/cmux-tui --version && /cmux-tui autocloud --help"
-                    " | grep -q 'An agent chat on any machine'"
-                ),
+                script="/cmux-tui --version",
             ),
         )
 

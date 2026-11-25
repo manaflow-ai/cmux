@@ -83,8 +83,7 @@ def load_source(source: dict) -> TTFont:
         cache = CACHE / hashlib.sha256(url.encode()).hexdigest()[:16] / url.rsplit("/", 1)[1]
         if not cache.exists():
             cache.parent.mkdir(parents=True, exist_ok=True)
-            request = urllib.request.Request(url, headers={"User-Agent": "cmux-fonts-build"})
-            with urllib.request.urlopen(request) as response:
+            with urllib.request.urlopen(url) as response:
                 cache.write_bytes(response.read())
         data = cache.read_bytes()
     want = source.get("sha256")
