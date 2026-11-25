@@ -4,6 +4,42 @@
 #[allow(unused_imports)]
 use super::*;
 
+/// A styled range of a text part, in UTF-16 code units.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeTextRun {
+    pub start: i64,
+    pub length: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mention: Option<ParticipantId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<String>,
+}
+
+/// title, owner and resolution of a thread root. The thread reads as resolved only while no live reply has a seq above resolved.seq: a new reply reopens it.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeThreadState {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<ParticipantId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved: Option<HomeThreadStateResolved>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeThreadStateResolved {
+    pub by: ParticipantId,
+    pub at: Timestamp,
+    pub seq: i64,
+}
+
+wire_enum! {
+    HomeThreadStatus {
+        Open = "open",
+        Resolved = "resolved",
+    }
+}
+
 /// status is derived (resolved while the root's resolution is newer than every live reply); title and owner come from the root's thread object; resolved_by and resolved_at only while resolved.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HomeThreadSummary {
@@ -862,41 +898,4 @@ pub struct TeamIntegrationPolicyGithub {
     pub repo_allowlist: Option<Vec<RepoPattern>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allow_workflows: Option<bool>,
-}
-
-wire_enum! {
-    TeamIntegrationPolicySource {
-        Default = "default",
-        Admin = "admin",
-        Sso = "sso",
-        Mdm = "mdm",
-        TeamPolicy = "team_policy",
-    }
-}
-
-wire_enum! {
-    TeamJournalStream {
-        Tasks = "tasks",
-        Mail = "mail",
-        Memory = "memory",
-        Files = "files",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamMember {
-    pub user: UserId,
-    pub role: TeamRole,
-    pub display_name: String,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamModelsPolicyState {
-    pub team: TeamId,
-    pub can_edit: bool,
-    pub own_connections: bool,
-    pub choose_runout: bool,
-    pub revision: i64,
-    pub updated_at: Option<i64>,
-    pub updated_by: Option<UserId>,
 }

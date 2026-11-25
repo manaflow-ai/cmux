@@ -338,7 +338,7 @@ export const zipSettled = (motions: Map<number, ZipMotion>, now: number) =>
 /// down to the stack's top, as the Codex app's do (Lucas, 2026-11-17), Jump to latest or not.
 /// The rail is inside the scroller, so the mask fades it too: its rows stay clear of both bands, at
 /// the widest they get, so the rail never moves as the bands come and go. A test reads the CSS.
-export const TRANSCRIPT_FADE_TOP = 18;
+export const TRANSCRIPT_FADE_TOP = 24;
 export const TRANSCRIPT_FADE_BOTTOM = 0;
 /// Where the rail's rows may sit, in px down the transcript's viewport: clear of the mask's bands by
 /// EDGE_MARGIN's half. `foot` is where the mask's view ends (the bottom stack's top), when it is
@@ -450,9 +450,10 @@ export const RAIL_FADE = 40;
 export const railFade = (height: number) => Math.max(0, Math.min(RAIL_FADE, Math.floor(height / 4)));
 
 /// Which of the list's edge fades draw at offset `top`: an edge with more rows past it fades, unless
-/// the fade would lie over the band (the prompts on screen), which always draws in full ink.
+/// following the transcript would put its highlighted prompts under that fade. A reader browsing
+/// the rail independently can scroll those prompts out of view in either direction.
 export function railFades(
-  band: { first: number; last: number },
+  band: { first: number; last: number } | undefined,
   count: number,
   height: number,
   top: number,
@@ -460,8 +461,8 @@ export function railFades(
 ): { top: boolean; bottom: boolean } {
   const fade = railFade(height);
   return {
-    top: top > 0 && band.first * pitch - top >= fade,
-    bottom: count * pitch - top - height > 1 && (band.last + 1) * pitch - top <= height - fade,
+    top: top > 0 && (!band || band.first * pitch - top >= fade),
+    bottom: count * pitch - top - height > 0 && (!band || (band.last + 1) * pitch - top <= height - fade),
   };
 }
 

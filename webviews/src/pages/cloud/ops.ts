@@ -44,6 +44,12 @@ export const CloudOps = {
   snapshotRestore: "cmux.cloud.snapshot.restore",
   snapshotDelete: "cmux.cloud.snapshot.delete",
   planGet: "cmux.cloud.plan.get",
+  /**
+   * The team's Cloud usage this month and its price (cmux-platform metering, through the Cloud app server):
+   * awake vCPU and memory seconds, disk held while paused, `usd` per meter and in total, uncounted `gaps`,
+   * whether a card is on file and whether payments run in test mode. The page shows `usd`; it prices nothing.
+   */
+  usageCurrent: "cmux.cloud.usage.current",
   billingCheckout: "cmux.cloud.billing.checkout",
   /**
    * The host's read of the account's billing (`billing.status`, cmux.com's `GET /api/billing/plan`):
@@ -341,6 +347,28 @@ export interface CloudDiskHealth {
   readonly floor_mb: number;
   readonly top_users: ReadonlyArray<{ readonly path: string; readonly used_mb: number }>;
   readonly observed_at: number;
+  /** The disk bar the Cloud app server computes from this report (cmux-cloud-disk); older servers omit it. */
+  readonly bar?: CloudDiskBar;
+}
+
+/**
+ * The disk bar as cmux-cloud-disk's `DiskView` serializes it: GB to one place, the segments left to
+ * right with their widths in parts of 1000. The page draws it as it is; it computes nothing.
+ */
+export interface CloudDiskBar {
+  readonly state: "allocated" | "ok" | "almost_full";
+  readonly total_gb: number;
+  readonly used_gb?: number;
+  readonly free_gb?: number;
+  readonly segments: ReadonlyArray<{
+    readonly kind: "system" | "project" | "caches" | "used" | "free";
+    readonly bytes: number;
+    readonly gb: number;
+    readonly width: number;
+  }>;
+  /** English, for the CLI and tests; the page writes its own words from the numbers. */
+  readonly label: string;
+  readonly text: string;
 }
 
 /**
@@ -431,6 +459,9 @@ export type DeleteReason = Wire.CloudDeleteReason;
 
 /** `cloud.billing.checkout {plan}`: the host opens the https URL in the browser. */
 export type CheckoutResult = Result<"cloud.billing.checkout">;
+
+/** `cloud.usage.current`: this month's usage, its price and the payment method on file. */
+export type CloudUsage = Result<"cloud.usage.current">;
 
 /** `cloud.migration.status` (contract 4). */
 export type MigrationStatus = Result<"cloud.migration.status">;

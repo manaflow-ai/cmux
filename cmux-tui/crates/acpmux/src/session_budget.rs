@@ -20,12 +20,36 @@
 //! - CPU: `ACPMUX_SESSION_CPU_WEIGHT` (default 50, systemd's is 100) and a ceiling
 //!   `ACPMUX_SESSION_CPU_QUOTA_PCT`, a percent of the whole machine (default 75: one session
 //!   never takes every core).
-//! - IO: `ACPMUX_SESSION_IO_WEIGHT` (default 50). Where the user manager has no `io`
-//!   controller delegated (the lane VMs as of 2026-11-24) systemd keeps it and the kernel
-//!   ignores it until it is delegated.
+//! - IO: `ACPMUX_SESSION_IO_WEIGHT` (default 50). It takes effect only where the user manager
+//!   has the `io` controller delegated (`Delegate=` on `user@.service`) and a block device runs a
+//!   weight policy (iocost `enable=1` in the root `io.cost.qos`, or the `bfq` scheduler); else
+//!   systemd keeps the property and the kernel ignores it. [`IoState`] says which, in
+//!   `sessionBudgets.io` (version 2), so an inert weight shows instead of passing for a limit.
+//!   The lane VMs delegate no `io` and run `none` with iocost off, and stay that way: with both
+//!   turned on (2026-11-24, scripts/measure/session-budget-runaway/io.sh, a 4 GB writer) the
+//!   weight reached the scope (`io.weight default 10`) but a neighbor's 4 KB fsync was no better,
+//!   median p50/p99 25/271 ms with it against 35/213 ms without: the ext4 journal, not the
+//!   device share, is what the neighbor waits on. No bandwidth cap (`IOWriteBandwidthMax`)
+//!   either: a capped writer's dirty pages sit in the journal commit every neighbor's fsync waits
+//!   on, and a 100 MB/s cap took the neighbor's fsync p99 from 231-336 ms to 779-859 ms. The disk
+//!   watcher (`hub/session_budget_watch.rs`) is the session's disk limit.
 //! - disk: `ACPMUX_SESSION_DISK_MB` / `session.diskMb`, default this host's registry
-//!   `lanes.disk_per_lane_gb`, else a tenth of the home filesystem between 2 and 64 GiB. The
+//!   `lanes.disk_per_lane_gb`, else a tenth of the home filesystem on a host with a lane cap or half
+//!   on one without (one person's machine: a Cloud VM, a Mac), between 2 and 64 GiB. The
 //!   kernel has no per-scope disk limit here, so `hub/session_budget_watch.rs` measures it.
+//! - store: what a chat keeps in acpmux's own store (its event log and background output),
+//!   `ACPMUX_SESSION_STORE_MB`, default an eighth of the disk budget (`session_store.rs`).
+//!
+//! - totals ([`Total`]): one session across all its scopes (its harness scope and every
+//!   background task scope it started share the slice `acpmuxsessions-<id>.slice`,
+//!   `session_total.rs`): `ACPMUX_SESSION_TOTAL_MEMORY_MB` (default the scope's memory ceiling,
+//!   so N scopes of one session never hold N ceilings), `ACPMUX_SESSION_TOTAL_TASKS_MAX` (default
+//!   twice the scope's) and `ACPMUX_SESSION_TOTAL_CPU_QUOTA_PCT` (default the scope's); all three 0:
+//!   no per-session slice, as before. Every agent host scope together (`acpmuxhosts.slice`):
+//!   `ACPMUX_HOSTS_MEMORY_MAX_MB` (default [`HOSTS_MEMORY_PCT`] of the RAM),
+//!   `ACPMUX_HOSTS_TASKS_MAX` (default the sessions slice's) and `ACPMUX_HOSTS_CPU_QUOTA_PCT`
+//!   (default [`HOSTS_CPU_QUOTA_PCT`]). Neither total sets `MemoryHigh`: on a host without swap
+//!   it throttles without end instead of killing ([`task_budget`]).
 //!
 //! [`status`] is the `sessionBudgets` object of `daemon status` ([`VERSION`]).
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
@@ -34,7 +58,11 @@ use serde_json::{Value, json};
 
 /// The `sessionBudgets` shape's version in `daemon status`. A reader takes the fields it knows
 /// from any version (`budget_line`), so a newer daemon's additions never break an older CLI.
-pub(crate) const VERSION: u64 = 1;
+///
+/// 2 (2026-11-24): `io`, whether the IO weight takes effect.
+/// 3: `store`, the per-session store budget (`session_store.rs`).
+/// 4: `perSession` and `hostsSlice`, the totals ([`Total`]).
+pub(crate) const VERSION: u64 = 4;
 
 /// How many lanes' worth of RAM one session may use: a lane is a coordinator and its helpers,
 /// and one of them bursts (a link) while the others idle.
@@ -46,6 +74,12 @@ pub(crate) const CPU_QUOTA_PCT: u64 = 75;
 /// The default CPU and IO weights (systemd's own are 100).
 pub(crate) const CPU_WEIGHT: u64 = 50;
 pub(crate) const IO_WEIGHT: u64 = 50;
+/// The default ceiling of every agent host scope together, a percent of the RAM (the sessions
+/// slice's own default is 85%).
+pub(crate) const HOSTS_MEMORY_PCT: u64 = 85;
+/// The default CPU ceiling of every agent host scope together, a percent of the machine: the
+/// daemon, ssh and the user manager keep the rest.
+pub(crate) const HOSTS_CPU_QUOTA_PCT: u64 = 90;
 const MIB: u64 = 1 << 20;
 const GIB: u64 = 1 << 30;
 
@@ -64,6 +98,104 @@ pub(crate) struct Host {
     pub disk_total: u64,
     /// The registry's per-lane disk, bytes.
     pub disk_per_lane: Option<u64>,
+    /// Whether an `IOWeight` takes effect here.
+    pub io: IoState,
+}
+
+/// Whether the kernel honors a scope's `IOWeight` on this host.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct IoState {
+    /// The user manager's cgroup (`user@UID.service`) has the `io` controller: systemd's
+    /// `Delegate=` for `user@.service` names it. None: not under a user manager (unknown).
+    pub delegated: Option<bool>,
+    /// A block device's weight policy: iocost on, else bfq. None: no device has one, so
+    /// `io.weight` is accepted and ignored.
+    pub policy: Option<IoPolicy>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum IoPolicy {
+    Iocost,
+    Bfq,
+}
+
+impl IoPolicy {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Iocost => "iocost",
+            Self::Bfq => "bfq",
+        }
+    }
+}
+
+impl IoState {
+    /// From `/proc/self/cgroup` (`cgroup`), a reader of a cgroup file under `/sys/fs/cgroup`
+    /// (`cg`), the root `io.cost.qos` and each non-loop device's scheduler line.
+    pub(crate) fn from(
+        cgroup: &str,
+        cg: &dyn Fn(&str) -> Option<String>,
+        cost_qos: &str,
+        schedulers: &[String],
+    ) -> Self {
+        let path = cgroup.lines().find_map(|l| l.strip_prefix("0::")).unwrap_or("");
+        let manager = path
+            .split('/')
+            .position(|part| part.starts_with("user@") && part.ends_with(".service"))
+            .map(|i| path.split('/').take(i + 1).collect::<Vec<_>>().join("/"));
+        let delegated = manager.map(|dir| {
+            cg(&format!("{dir}/cgroup.controllers"))
+                .is_some_and(|c| c.split_whitespace().any(|name| name == "io"))
+        });
+        let iocost = cost_qos.lines().any(|l| l.split_whitespace().any(|w| w == "enable=1"));
+        let bfq = schedulers.iter().any(|s| s.contains("[bfq]"));
+        let policy = if iocost {
+            Some(IoPolicy::Iocost)
+        } else if bfq {
+            Some(IoPolicy::Bfq)
+        } else {
+            None
+        };
+        Self { delegated, policy }
+    }
+
+    /// This process's state: a few small sysfs reads, no cache (a `daemon-reexec` can delegate
+    /// `io` while the daemon runs).
+    pub(crate) fn here() -> Self {
+        #[cfg(target_os = "linux")]
+        {
+            let read = |p: &str| std::fs::read_to_string(p).ok();
+            let cg = |rel: &str| read(&format!("/sys/fs/cgroup{rel}"));
+            let schedulers: Vec<String> = std::fs::read_dir("/sys/block")
+                .into_iter()
+                .flatten()
+                .flatten()
+                .filter(|e| !e.file_name().to_string_lossy().starts_with("loop"))
+                .take(64)
+                .filter_map(|e| read(&format!("{}/queue/scheduler", e.path().display())))
+                .collect();
+            Self::from(
+                &read("/proc/self/cgroup").unwrap_or_default(),
+                &cg,
+                &read("/sys/fs/cgroup/io.cost.qos").unwrap_or_default(),
+                &schedulers,
+            )
+        }
+        #[cfg(not(target_os = "linux"))]
+        Self::default()
+    }
+
+    /// Whether a scope's `IOWeight` takes effect (None: unknown).
+    pub(crate) fn effective(&self) -> Option<bool> {
+        self.delegated.map(|d| d && self.policy.is_some())
+    }
+
+    pub(crate) fn json(&self) -> Value {
+        json!({
+            "delegated": self.delegated,
+            "policy": self.policy.map(IoPolicy::name),
+            "weightEffective": self.effective(),
+        })
+    }
 }
 
 /// One scope's limits; 0 (or None for tasks) is off.
@@ -92,10 +224,17 @@ pub(crate) fn memory_default(host: &Host) -> u64 {
 }
 
 /// A session's default disk budget on `host` (0: unknown).
+///
+/// A host with a lane cap shares its disk, so a session gets the registry's per-lane share,
+/// else a tenth. A host with none is one person's machine (a Cloud VM, a Mac): half its disk.
+/// A tenth of a 20 GiB Cloud VM was the 2 GiB floor, under one blobless cmux clone (1.3 GiB)
+/// plus its build.
 pub(crate) fn disk_default(host: &Host) -> u64 {
+    let share =
+        if host.lanes.is_some_and(|n| n > 0) { host.disk_total / 10 } else { host.disk_total / 2 };
     host.disk_per_lane
         .filter(|n| *n > 0)
-        .unwrap_or_else(|| (host.disk_total / 10).clamp(2 * GIB, 64 * GIB))
+        .unwrap_or_else(|| share.clamp(2 * GIB, 64 * GIB))
         .min(if host.disk_total > 0 { host.disk_total } else { u64::MAX })
 }
 
@@ -192,6 +331,115 @@ impl Budget {
     }
 }
 
+/// A ceiling for several scopes together (a slice's); 0 (None for tasks) is off.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct Total {
+    pub memory_max: u64,
+    pub tasks_max: Option<u64>,
+    /// Percent of one CPU (`CPUQuota=`).
+    pub cpu_quota: u64,
+}
+
+impl Total {
+    /// Whether any limit is on.
+    pub(crate) fn on(&self) -> bool {
+        self.memory_max > 0 || self.tasks_max.is_some() || self.cpu_quota > 0
+    }
+
+    /// The slice properties in `systemctl set-property` spelling. A limit that is off is
+    /// `infinity`, so one set earlier goes.
+    pub(crate) fn properties(&self) -> Vec<(&'static str, String)> {
+        let inf = |v: Option<u64>| v.map_or("infinity".to_owned(), |n| n.to_string());
+        vec![
+            ("MemoryMax", inf(Some(self.memory_max).filter(|n| *n > 0))),
+            ("TasksMax", inf(self.tasks_max)),
+            (
+                "CPUQuota",
+                if self.cpu_quota > 0 { format!("{}%", self.cpu_quota) } else { String::new() },
+            ),
+        ]
+    }
+
+    /// The limits that are on as `StartTransientUnit` `(name, signature, value)` triples.
+    pub(crate) fn bus_properties(&self) -> Vec<[String; 3]> {
+        let mut out = Vec::new();
+        if self.memory_max > 0 {
+            out.push(["MemoryMax".into(), "t".into(), self.memory_max.to_string()]);
+        }
+        if let Some(n) = self.tasks_max {
+            out.push(["TasksMax".into(), "t".into(), n.to_string()]);
+        }
+        if self.cpu_quota > 0 {
+            let usec = self.cpu_quota.saturating_mul(10_000).to_string();
+            out.push(["CPUQuotaPerSecUSec".into(), "t".into(), usec]);
+        }
+        out
+    }
+
+    pub(crate) fn json(&self) -> Value {
+        json!({
+            "memoryMaxBytes": self.memory_max,
+            "tasksMax": self.tasks_max,
+            "cpuQuotaPercent": self.cpu_quota,
+        })
+    }
+}
+
+/// One session's total across its scopes on `host`, from `get` and the session's scope `budget`.
+pub(crate) fn session_total_from(
+    get: &dyn Fn(&str) -> Option<String>,
+    host: &Host,
+    budget: &Budget,
+) -> Total {
+    let knob = |key: &str| get(key).and_then(|v| v.trim().parse::<u64>().ok());
+    Total {
+        memory_max: knob("ACPMUX_SESSION_TOTAL_MEMORY_MB")
+            .map_or(budget.memory_max, |n| n.saturating_mul(MIB)),
+        tasks_max: match knob("ACPMUX_SESSION_TOTAL_TASKS_MAX") {
+            Some(0) => None,
+            Some(n) => Some(n),
+            None => budget.tasks_max.map(|n| n.saturating_mul(2)),
+        },
+        cpu_quota: knob("ACPMUX_SESSION_TOTAL_CPU_QUOTA_PCT")
+            .map_or(budget.cpu_quota, |pct| host.cores.saturating_mul(pct.min(100))),
+    }
+}
+
+/// Every agent host scope's total (`acpmuxhosts.slice`) on `host`, from `get`; `tasks_default`
+/// is the sessions slice's default `TasksMax` (`session_scope::sessions_tasks_default`).
+pub(crate) fn hosts_total_from(
+    get: &dyn Fn(&str) -> Option<String>,
+    host: &Host,
+    tasks_default: u64,
+) -> Total {
+    let knob = |key: &str| get(key).and_then(|v| v.trim().parse::<u64>().ok());
+    Total {
+        memory_max: knob("ACPMUX_HOSTS_MEMORY_MAX_MB").map_or_else(
+            || (u128::from(host.memory) * u128::from(HOSTS_MEMORY_PCT) / 100) as u64,
+            |n| n.saturating_mul(MIB),
+        ),
+        tasks_max: match knob("ACPMUX_HOSTS_TASKS_MAX") {
+            Some(0) => None,
+            Some(n) => Some(n),
+            None => Some(tasks_default),
+        },
+        cpu_quota: host.cores.saturating_mul(
+            knob("ACPMUX_HOSTS_CPU_QUOTA_PCT").unwrap_or(HOSTS_CPU_QUOTA_PCT).min(100),
+        ),
+    }
+}
+
+/// The daemon's totals: a session's (no profile env) and the hosts slice's.
+pub(crate) fn daemon_totals() -> (Total, Total) {
+    let host = this_host();
+    let empty = std::collections::BTreeMap::new();
+    let limits = crate::session_scope::daemon_limits();
+    let get = crate::session_scope::knob_reader(&empty, limits);
+    let budget = Budget::read(&get, &host);
+    let tasks = crate::session_scope::sessions_tasks_default(crate::session_scope::threads_max());
+    (session_total_from(&get, &host, &budget), hosts_total_from(&get, &host, tasks))
+}
+
 /// The daemon's budget, as a host or task scope gets it: no profile env (a host is placed
 /// before its session's profile reaches it), the daemon config, then the daemon's env.
 pub(crate) fn daemon_budget() -> (Budget, Host) {
@@ -243,6 +491,7 @@ pub(crate) fn this_host() -> Host {
             lanes,
             disk_total: home_disk().map_or(0, |(total, _)| total),
             disk_per_lane: limits.disk_mb.map(|mb| mb * MIB).or(registry_lanes().1),
+            io: IoState::here(),
         }
     }
     #[cfg(not(target_os = "linux"))]
@@ -296,20 +545,33 @@ pub(crate) fn home_disk() -> Option<(u64, u64)> {
 
 /// `daemon status`'s `sessionBudgets`: the version, the per-scope budget (a session's harness
 /// scope; `perTaskScope` for agent host and background task scopes), what it was sized
-/// from, whether the disk watcher runs, and each measured scope's use (`use`, from
-/// `hub/session_budget_watch.rs`).
-pub(crate) fn status(budget: &Budget, task: &Budget, host: &Host, watch: Value) -> Value {
+/// from, whether the IO weight takes effect (`io`, version 2), whether the disk watcher runs,
+/// and each measured scope's use (`use`, from `hub/session_budget_watch.rs`); `store` is the
+/// per-session store budget and its readings (`session_store::Watch::json`, version 3); the
+/// totals (`perSession`, `hostsSlice`, version 4).
+pub(crate) fn status(
+    budget: &Budget,
+    task: &Budget,
+    totals: (&Total, &Total),
+    host: &Host,
+    watch: Value,
+    store: Value,
+) -> Value {
     json!({
         "version": VERSION,
         "perScope": budget.json(),
         "perTaskScope": task.json(),
+        "perSession": totals.0.json(),
+        "hostsSlice": totals.1.json(),
         "sizedFrom": {
             "memoryBytes": host.memory,
             "cores": host.cores,
             "lanes": host.lanes,
             "diskBytes": host.disk_total,
         },
+        "io": host.io.json(),
         "watch": watch,
+        "store": store,
     })
 }
 
@@ -337,11 +599,46 @@ pub(crate) fn budget_line(v: &Value) -> Option<String> {
         per.get("cpuWeight").and_then(Value::as_u64).unwrap_or(0),
         gib("diskBytes"),
     );
+    // Version 2: the totals; an older daemon has none.
+    let total = |key: &str| {
+        v.get(key)?.get("memoryMaxBytes").and_then(Value::as_u64).map(|b| {
+            if b == 0 { "off".to_owned() } else { format!("{:.1}G", b as f64 / GIB as f64) }
+        })
+    };
+    if let Some(session) = total("perSession") {
+        line.push_str(&format!(", session total {session}"));
+    }
+    if let Some(hosts) = total("hostsSlice") {
+        line.push_str(&format!(", hosts total {hosts}"));
+    }
+    // Version 2's `io`: the weight, and why it does nothing when it does nothing. An older
+    // daemon has no `io`, and its line stays as it was.
+    let weight = per.get("ioWeight").and_then(Value::as_u64).filter(|w| *w > 0);
+    if let (Some(io), Some(weight)) = (v.get("io"), weight) {
+        line.push_str(&format!(", io weight {weight}"));
+        let inert = match (io.get("delegated").and_then(Value::as_bool), io.get("policy")) {
+            (Some(false), _) => Some("io not delegated"),
+            (Some(true), Some(Value::Null)) => Some("no iocost or bfq"),
+            _ => None,
+        };
+        if let Some(why) = inert {
+            line.push_str(&format!(" (inert: {why})"));
+        }
+    }
     if let Some(lanes) = lanes {
         line.push_str(&format!(", sized for {lanes} lanes"));
     }
     if over > 0 {
         line.push_str(&format!(", {over} scope(s) over"));
+    }
+    // Version 3: the store budget, when it is on (an older daemon has no `store`).
+    let store = v.get("store").filter(|s| s.get("on") == Some(&Value::Bool(true)));
+    if let Some(bytes) = store.and_then(|s| s.get("budgetBytes")).and_then(Value::as_u64) {
+        line.push_str(&format!(", store {:.1}G a chat", bytes as f64 / GIB as f64));
+        let over = store.and_then(|s| s.get("over")).and_then(Value::as_u64).unwrap_or(0);
+        if over > 0 {
+            line.push_str(&format!(" ({over} chat(s) over)"));
+        }
     }
     Some(line)
 }

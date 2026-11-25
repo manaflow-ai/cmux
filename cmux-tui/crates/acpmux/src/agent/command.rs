@@ -393,6 +393,8 @@ fn build_harness_command(
     crate::cwd_pin::CwdPin::pin(crate::cwd_pin::CwdPin::current(), &mut cmd);
     // Only its own session's credential: never acpmux's, a preset's or a Chief's.
     crate::launch_credential::apply(&mut cmd, session.map(|(id, _)| id));
+    // And its own chat secrets, never another chat's (`chat_secrets.rs`).
+    crate::chat_secrets::apply(&mut cmd, session.map(|(id, _)| id));
     crate::harness_limits::lift_claude(&mut cmd, profile, session.is_some(), !remote_environment);
     // A Chief turn or compactor (fresh process per turn): one sticky
     // subrouter account, so its prompt cache stays readable (subrouter_session.rs).
@@ -465,6 +467,13 @@ fn build_harness_command(
         ),
         (false, Some((id, _))) => crate::claude_auth::forget(id),
         _ => {}
+    }
+    // The compiler cache on a Cloud VM (`sccache_env.rs`): last, so a value the profile, the
+    // login shell or this daemon's env gives wins, and a RUSTC_WRAPPER of theirs turns it off.
+    #[cfg(unix)]
+    {
+        let env = command_env_with(&cmd, !remote_environment);
+        crate::sccache_env::apply(&mut cmd, &env);
     }
     #[cfg(target_os = "linux")]
     if remote_environment {
@@ -684,7 +693,6 @@ mod tests {
 
     use super::*;
 
-    /// A Claude session is launched under its acpmux name (`--name`), so Claude
     /// A daemon started by a bounded command holds its `CMUX_DEADLINE`: an agent it starts
     /// must not, or the fleet's orphan reaper ends the agent once the bound passes.
     #[test]
@@ -703,6 +711,7 @@ mod tests {
         }
     }
 
+    /// A Claude session is launched under its acpmux name (`--name`), so Claude
     /// Code's peer list says what `acpmux ls` says; with cmux's tools off too.
     #[test]
     fn a_claude_session_is_launched_under_its_acpmux_name() {
