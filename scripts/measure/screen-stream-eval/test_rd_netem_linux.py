@@ -14,11 +14,24 @@ LEDGER = {'schema': 'cmux.rd-stage-ledger/1', 'stages': []}
 class ParseTests(unittest.TestCase):
     def test_profiles(self):
         self.assertEqual(list(rdnl.PROFILES), ['clean', 'jitter-5', 'jitter-15-burst', 'jitter-30-loss2', 'stall',
-                                               'wifi-away', 'wifi-away-short', 'wifi-away-long', 'wifi-away-loss'])
+                                               'wifi-away', 'wifi-away-short', 'wifi-away-long', 'wifi-away-loss',
+                                               'loss-0.5', 'loss-1', 'loss-2', 'loss-5'])
         self.assertEqual(set(rdnl.PROFILES), set(rdnl.PROFILE_LABELS))
         self.assertEqual(rdnl.netem_args('jitter-5'), ['netem', 'delay', '5ms', '5ms', 'limit', '100000'])
         self.assertIn('gemodel', rdnl.netem_args('jitter-15-burst'))
         self.assertEqual(rdnl.netem_args('jitter-30-loss2')[1:7], ['delay', '30ms', '30ms', 'loss', 'random', '2%'])
+
+    def test_loss_sweep_reads_reassembly_over_rtt(self):
+        self.assertEqual(rdnl.netem_args('loss-0.5')[1:6], ['delay', '10ms', 'loss', 'random', '0.5%'])
+        self.assertEqual(rdnl.nominal_rtt_ms('loss-2'), 20.0)
+        self.assertIsNone(rdnl.nominal_rtt_ms('wifi-away'))
+        ledger = {'schema': 'cmux.rd-stage-ledger/1',
+                  'stages': [{'stage': 'Decode', 'p95_ms': 4.0}, {'stage': 'Reassembly', 'p50_ms': 0.2, 'p95_ms': 27.5}]}
+        r = rdnl.reassembly_row('loss-1', {'stage_ledger': ledger, 'repair_rtt_ms': 21.3})
+        self.assertEqual(r, {'p95_ms': 27.5, 'rtt_ms': 20.0, 'repair_rtt_ms': 21.3, 'over_rtt_ms': 7.5})
+        self.assertIsNone(rdnl.reassembly_row('loss-1', {})['over_rtt_ms'])
+        row = {'commit': 'a' * 40, 'profile': 'loss-1', 'openh264': 'cisco', 'key': {}, 'passive': {}, 'reassembly': r}
+        self.assertIn('| 7.50 (27.50, 20.0) |', rdnl.markdown_table([row]))
 
     def test_last_json_line_skips_log_noise(self):
         text = 'passive: first frame\n{"a": 1}\nnot json\n{"b": 2}\n'
