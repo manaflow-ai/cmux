@@ -205,6 +205,6 @@ struct CloudChatNamesTests {
 
 }
 
-/// At file scope, not nested in the main-actor suite: a nested class takes the suite's `@MainActor`, and the
-/// observation's Sendable `onChange` could not set `fired` (a compile error in the whole test build).
-private final class Changed: @unchecked Sendable { var fired = false }
+/// `nonisolated`: the target's default isolation is the main actor, and the observation's Sendable `onChange` could
+/// not set a main-actor `fired` (a compile error in the whole test build).
+nonisolated private final class Changed: @unchecked Sendable { var fired = false }
