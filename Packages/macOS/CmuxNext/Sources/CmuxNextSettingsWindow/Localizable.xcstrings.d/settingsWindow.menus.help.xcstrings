@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.menus.help" : {
+      "comment" : "Settings > Menus: hint under a menu's rows; says rows can be dragged anywhere, including into submenus, or moved with their buttons. At most 60 characters.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Drag a row anywhere, into any submenu, or use its buttons."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "اسحب الصف إلى أي مكان أو قائمة فرعية، أو استخدم أزراره."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prevucite red bilo gdje, i u podmeni, ili koristite dugmad."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Træk rækker overalt, også i undermenuer, eller brug knapper."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ziehe Zeilen frei, auch in Untermenüs, oder nutze Tasten."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Arrastra filas a cualquier sitio o submenú, o usa botones."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Glissez une ligne partout, même en sous-menu, ou cliquez."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trascina righe ovunque, anche nei sottomenu, o usa pulsanti."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "行を任意の場所やサブメニューにドラッグするか、各行のボタンを使います。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "អូសជួរដេកទៅកន្លែងណាក៏បាន រួមទាំងម៉ឺនុយរង ឬប្រើប៊ូតុងរបស់វា។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "행을 원하는 위치나 하위 메뉴로 드래그하거나 행의 버튼을 사용하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dra rader overalt, også i undermenyer, eller bruk knappene."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Przeciągaj wiersze, też do podmenu, lub użyj ich przycisków."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Arraste linhas a qualquer lugar ou submenu, ou use botões."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перетащите строку куда угодно, даже в подменю, или кнопками."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ลากแถวไปที่ใดก็ได้ รวมถึงในเมนูย่อย หรือใช้ปุ่มของแถว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Satırı her yere ve alt menüye sürükleyin veya düğmeye basın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Перетягуйте рядки будь-куди, навіть у підменю, або кнопками."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kéo hàng tới bất kỳ đâu, kể cả menu con, hoặc dùng các nút."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将行拖到任意位置或任意子菜单中，或使用行上的按钮。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "將列拖到任意位置或任意子選單中，或使用列上的按鈕。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
