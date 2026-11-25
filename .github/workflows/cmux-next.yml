@@ -2457,7 +2457,7 @@ jobs:
         id: web-bundle-key
         run: echo "key=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
 
-      # Why: docs/ci/cmux-next-workflow-notes.md#note-web-bundles-r2-first
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-25-web-bundles-r2-first.md
       - name: Look up the web bundles in R2
         id: web-bundle-r2
         timeout-minutes: 5
@@ -2482,7 +2482,7 @@ jobs:
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
           enableCrossOsArchive: true
 
-      # Why: docs/ci/cmux-next-workflow-notes.md#note-web-bundles-r2-first
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-25-web-bundles-r2-first.md
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         if: steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
         shell: bash
