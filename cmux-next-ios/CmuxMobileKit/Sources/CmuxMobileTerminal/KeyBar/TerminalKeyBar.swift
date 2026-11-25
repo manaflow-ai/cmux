@@ -7,56 +7,39 @@ import SwiftUI
 /// edge the keyboard key, the joystick and the compose key; then a scroller
 /// of keys that hug their labels, in `KeyBarLayout`'s order (classic's, with
 /// the arrows before the agent launchers), ending in Hide Toolbar.
-/// It shows whether or not the keyboard is up. Each key is its own Liquid
-/// Glass cap (classic: `.glass()` / `.prominentGlass()`), in cmux NEXT's
-/// small-radius shape; there is no bar behind them.
+/// It shows only over the soft keyboard (`TerminalDockVisibility.showsKeyRow`).
+/// Every key is classic's 28 pt cap, and its cap is its whole hit area. How the keys are drawn is `KeyBarStyle`:
+/// separate Liquid Glass caps (classic: `.glass()` / `.prominentGlass()`), in
+/// cmux NEXT's small-radius shape, by default.
 struct TerminalKeyBar: View {
     let model: TerminalModel
     var layout: KeyBarLayout = .current
+    @Environment(\.keyBarStyle) private var style
     /// Scroller keys clipped at its edges (`KeyBarClipping`): hidden from
     /// accessibility, offered as row actions.
     @State private var clipped = KeyBarClippedKeys()
-    /// The pinned keys' width: nothing is drawn under them.
-    @State private var pinnedWidth: CGFloat = 0
-    /// How far the row is scrolled past its start (points).
-    @State private var scrolled: CGFloat = 0
 
     var body: some View {
         ScrollView(.horizontal) {
-            // Its own view, fed only reference types: the per-frame
-            // `scrolled` updates below re-evaluate this bar's body, but
-            // SwiftUI skips the ~30 glass keys' bodies when their inputs are
-            // unchanged (they were rebuilt every scroll frame: the lag). The
-            // layout is a plain enum, so it keeps that.
+            // Its own view, fed only reference types and a plain enum, so
+            // SwiftUI skips the ~30 glass keys' bodies when the bar's body
+            // runs again with the same inputs.
             KeyBarScrollerKeys(model: model, layout: layout, clipped: clipped)
         }
         .scrollIndicators(.hidden)
-        .onScrollGeometryChange(for: CGFloat.self) { geometry in
-            geometry.contentOffset.x + geometry.contentInsets.leading
-        } action: { _, new in
-            // The fade only depends on the first `KeyRowFade.width` points:
-            // past them the value stops changing, so the bar stops updating.
-            let clamped = min(KeyRowFade.width, max(0, new.rounded()))
-            if clamped != scrolled { scrolled = clamped }
+        // At rest a key an edge cuts is not drawn (`KeyBarClipping.isWhole`):
+        // the row ended in a sliver of a key at the trailing edge (iOS release
+        // bar read-back: "no clipped keys"). While the finger scrolls, every
+        // key is drawn.
+        .onScrollPhaseChange { _, phase in
+            if clipped.resting != (phase == .idle) { clipped.resting = phase == .idle }
         }
-        // Keys dissolve over 24 pt as they reach the pinned keys, more the
-        // farther the row is scrolled, as under an iOS toolbar (classic's
-        // `AccessoryEdgeFadeScrollView`); nothing is drawn under the pinned
-        // glass keys themselves. iOS's own soft edge effect is hidden on this
-        // edge: over these glass keys it drew a uniform dim band with a hard
-        // seam where it ended.
-        .mask(alignment: .leading) {
-            let edge = KeyRowFade().leadingEdgeAlpha(scrolled: scrolled)
-            HStack(spacing: 0) {
-                Color.clear.frame(width: pinnedWidth)
-                LinearGradient(colors: [.black.opacity(edge), .black], startPoint: .leading, endPoint: .trailing)
-                    .frame(width: KeyRowFade.width)
-                Rectangle()
-            }
-            // Measured from the scroller's own edge, not its safe area (the bar's inset).
-            .ignoresSafeArea()
-        }
-        .scrollEdgeEffectHidden(true, for: .leading)
+        // Apple's scroll edge effect, not a hand-made mask: keys soften as
+        // they slide under the pinned keys (the scroller's leading bar, so
+        // the system draws the effect behind them) and off the trailing
+        // edge. Soft, the style iOS gives a toolbar over scrolling content
+        // (HIG, Scroll views: "scroll edge effect").
+        .scrollEdgeEffectStyle(.soft, for: .horizontal)
         // The pinned keys are the scroller's leading bar, as a toolbar is a
         // scroll view's: the keys scroll under them.
         .safeAreaBar(edge: .leading, spacing: TerminalDockMetrics.keySpacing) {
@@ -72,7 +55,6 @@ struct TerminalKeyBar: View {
             // The gaps between the pinned keys take their taps too, so none
             // falls through to a hidden key scrolled under them.
             .contentShape(.rect)
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { pinnedWidth = $0 }
         }
         // Room above and below the 28 pt row for the glass's touch lift,
         // which the scroller would otherwise clip; the row's layout height
@@ -80,6 +62,21 @@ struct TerminalKeyBar: View {
         .contentMargins(.vertical, KeyRowGlass.liftRoom, for: .scrollContent)
         .frame(height: TerminalDockMetrics.keyRowHeight + 2 * KeyRowGlass.liftRoom)
         .padding(.vertical, -KeyRowGlass.liftRoom)
+        // The glass lift is visual only. Keep the row's hit region inside its
+        // 28 pt layout so taps in the composer gap belong to the composer.
+        .frame(height: TerminalDockMetrics.keyRowHeight)
+        .contentShape(Rectangle())
+        // The strip style: one glass bar behind every key, like the system
+        // keyboard's own suggestion bar, instead of a cap per key.
+        .background {
+            if style == .strip {
+                RoundedRectangle(cornerRadius: KeyRowGlass.stripCornerRadius, style: .continuous)
+                    .fill(.clear)
+                    .glassEffect(.regular, in: RoundedRectangle(cornerRadius: KeyRowGlass.stripCornerRadius, style: .continuous))
+                    .padding(.horizontal, TerminalDockMetrics.horizontalInset - 4)
+                    .allowsHitTesting(false)
+            }
+        }
         .tint(.primary)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("More keys")
@@ -96,11 +93,25 @@ struct TerminalKeyBar: View {
 @Observable @MainActor
 final class KeyBarClippedKeys {
     private(set) var keys: Set<KeyBarKey> = []
+    /// Keys an edge cuts (not wholly inside the visible bounds).
+    private(set) var cut: Set<KeyBarKey> = []
+    /// The row isn't being scrolled: cut keys are not drawn.
+    var resting = true
 
     func set(_ key: KeyBarKey, clipped: Bool) {
         // Write only on a real change: every write invalidates readers.
         if clipped, !keys.contains(key) { keys.insert(key) }
         if !clipped, keys.contains(key) { keys.remove(key) }
+    }
+
+    func set(_ key: KeyBarKey, cut isCut: Bool) {
+        if isCut, !cut.contains(key) { cut.insert(key) }
+        if !isCut, cut.contains(key) { cut.remove(key) }
+    }
+
+    /// Whether `key` is drawn: always while scrolling, at rest only whole.
+    func draws(_ key: KeyBarKey) -> Bool {
+        !(resting && cut.contains(key))
     }
 }
 
@@ -122,6 +133,12 @@ struct KeyBarScrollerKeys: View {
     }
 }
 
+/// Where a scroller key sits against the row's visible bounds.
+struct KeyBarKeyVisibility: Equatable {
+    var activatable: Bool
+    var whole: Bool
+}
+
 /// One scroller key; it reads only its own clipped flag.
 struct KeyBarScrollerKey: View {
     let key: KeyBarKey
@@ -130,6 +147,7 @@ struct KeyBarScrollerKey: View {
 
     var body: some View {
         let isClipped = clipped.keys.contains(key)
+        let drawn = clipped.draws(key)
         Group {
             if key == .paste {
                 // The system paste control: no "Allow Paste" prompt (Codex QA F14).
@@ -141,17 +159,23 @@ struct KeyBarScrollerKey: View {
                 KeyCap(key: key, model: model)
             }
         }
-        .onGeometryChange(for: Bool.self) { proxy in
+        .onGeometryChange(for: KeyBarKeyVisibility.self) { proxy in
             // Measured on iOS 26.5: the scroll view's visible bounds already
             // start after its leading bar (the pinned keys), so a key under
             // them reads as clipped with no offset here.
-            KeyBarClipping().isActivatable(CGRect(origin: .zero, size: proxy.size), in: proxy.bounds(of: .scrollView))
-        } action: { visible in
-            clipped.set(key, clipped: !visible)
+            let frame = CGRect(origin: .zero, size: proxy.size)
+            let visible = proxy.bounds(of: .scrollView)
+            return KeyBarKeyVisibility(activatable: KeyBarClipping().isActivatable(frame, in: visible),
+                                       whole: KeyBarClipping().isWhole(frame, in: visible))
+        } action: { visibility in
+            clipped.set(key, clipped: !visibility.activatable)
+            clipped.set(key, cut: !visibility.whole)
         }
+        .opacity(drawn ? 1 : 0)
+        .animation(.easeOut(duration: 0.15), value: drawn)
         // A key under the pinned keys is neither seen, read nor tapped.
         .accessibilityHidden(isClipped)
-        .allowsHitTesting(!isClipped)
+        .allowsHitTesting(!isClipped && drawn)
     }
 }
 
@@ -167,25 +191,26 @@ struct KeyboardToggleKey: View {
             model.toggleKeyboard()
         } label: {
             Image(systemName: shown ? "keyboard.chevron.compact.down" : "keyboard")
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: KeyCapStyle.glyphSize, weight: .medium))
                 .foregroundStyle(Color.primary.opacity(0.78))
                 .contentTransition(.opacity)
                 .animation(.easeInOut(duration: 0.2).unlessReduceMotion, value: shown)
         }
-        .buttonStyle(KeyCapStyle(width: TerminalDockMetrics.keyRowHeight + 12))
-        .keyGlass(armed: false)
+        .buttonStyle(KeyCapStyle(width: TerminalDockMetrics.minKeyWidth + 8))
         .accessibilityLabel(shown ? "Hide Keyboard" : "Show Keyboard")
         .accessibilityIdentifier("terminal.key.keyboard")
     }
 }
 
-/// One key cap: Liquid Glass, 28 pt tall, hugging its label (a glyph key is
-/// 32 pt wide), radius 8. A Button keeps the scroller scrollable; arrows
-/// repeat while held.
+/// One key cap: 28 pt tall, hugging its label (a glyph key is 32 pt wide),
+/// radius 8. A Button keeps the scroller scrollable; arrows repeat
+/// while held. No haptic: these are keys, and whether keys tick is the system
+/// keyboard's own Keyboard Feedback setting, which no app can read (Leo,
+/// 2026-11-23: "dont inject haptic noise when i havent asked for it. ever.").
+/// The click plays only when the person turned Key clicks on (off by default).
 struct KeyCap: View {
     let key: KeyBarKey
     let model: TerminalModel
-    @State private var taps = 0
     @AppStorage(CmuxMobilePreferences.Key.keyClicks) private var keyClicks = CmuxMobilePreferences.defaultKeyClicks
 
     private var stickyState: TerminalStickyModifiers.State? {
@@ -194,20 +219,20 @@ struct KeyCap: View {
 
     var body: some View {
         let state = stickyState
-        let locked = state == .locked
+        // Wide shows as a locked key while it is on.
+        let locked = state == .locked || (key == .wide && model.wideOutput)
         let armed = if case .armed = state { true } else { false }
         Button {
-            taps += 1
             if keyClicks { KeyClick.play() }
             model.keyBar(key)
         } label: {
             Group {
                 if let symbol = key.symbolName {
                     Image(systemName: symbol)
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.system(size: KeyCapStyle.glyphSize, weight: .medium))
                 } else {
                     Text(key.label)
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.system(size: KeyCapStyle.labelSize, weight: .medium))
                         .lineLimit(1)
                 }
             }
@@ -215,19 +240,18 @@ struct KeyCap: View {
         }
         .buttonStyle(KeyCapStyle(locked: locked, armed: armed,
                                  width: key.isGlyph ? TerminalDockMetrics.minKeyWidth : nil))
-        .keyGlass(armed: locked || armed)
         .buttonRepeatBehavior(key.repeats ? .enabled : .disabled)
-        .sensoryFeedback(.impact(weight: .light, intensity: 0.6), trigger: taps)
         .accessibilityLabel(key.accessibilityLabel)
-        .accessibilityValue(locked ? "locked" : armed ? "armed" : "")
+        .accessibilityValue(key == .wide ? (model.wideOutput ? "on" : "off") : locked ? "locked" : armed ? "armed" : "")
         .accessibilityIdentifier("terminal.key.\(key.identifier)")
     }
 }
 
-/// The system keyboard's click (Settings → Terminal → Key clicks). The key
-/// row is not the keyboard's input view, so `UIDevice.playInputClick` stays
-/// silent for it; this plays the same system sound, which follows the
-/// ring/silent switch.
+/// The system keyboard's click, only when the person turned Settings →
+/// Terminal → Key clicks on (off by default: no sound they did not ask for).
+/// The key row is not the keyboard's input view, so `UIDevice.playInputClick`
+/// stays silent for it; this plays the same system sound, which follows the
+/// ring/silent switch. The app's one raw sound call, behind that opt-in.
 enum KeyClick {
     /// `Tock`, the keyboard key click.
     private static let sound: SystemSoundID = 1104
@@ -236,29 +260,82 @@ enum KeyClick {
 }
 
 /// A key cap's shape and size: 28 pt tall, hugging its label (a glyph key is
-/// 32 pt wide), radius 8 (cmux NEXT draws no capsules). The glass is
-/// `keyGlass`; pressed, the label dims a little under the glass's own lift.
+/// 32 pt wide), radius 8 (cmux NEXT draws no capsules). Its look follows
+/// `KeyBarStyle`; pressed, the label dims a little under the glass's own lift.
 struct KeyCapStyle: ButtonStyle {
+    /// SF Symbol keys, and text keys (Esc, Tab, ^C): classic's 13 and 14 pt
+    /// (#53325 had 17 and 16 for its 44 pt caps).
+    static let glyphSize: CGFloat = 13
+    static let labelSize: CGFloat = 14
+
     var locked = false
     var armed = false
     /// A fixed width; nil hugs the label with a 6 pt inset.
     var width: CGFloat?
 
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
+        KeyCapBody(label: configuration.label, pressed: configuration.isPressed,
+                   locked: locked, armed: armed, width: width)
+    }
+}
+
+/// `KeyCapStyle`'s drawing, a view so it reads the row's `KeyBarStyle`.
+private struct KeyCapBody<Label: View>: View {
+    let label: Label
+    let pressed: Bool
+    let locked: Bool
+    let armed: Bool
+    let width: CGFloat?
+    @Environment(\.keyBarStyle) private var style
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: KeyRowGlass.cornerRadius, style: .continuous)
+        let inset = style.capInset
+        label
             .padding(.horizontal, width == nil ? 6 : 0)
-            .frame(minWidth: width ?? TerminalDockMetrics.minKeyWidth, maxWidth: width,
-                   minHeight: TerminalDockMetrics.keyRowHeight, maxHeight: TerminalDockMetrics.keyRowHeight)
+            .frame(minWidth: (width ?? TerminalDockMetrics.minKeyWidth) - 2 * inset, maxWidth: width.map { $0 - 2 * inset },
+                   minHeight: TerminalDockMetrics.keyRowHeight - 2 * inset,
+                   maxHeight: TerminalDockMetrics.keyRowHeight - 2 * inset)
             .overlay(alignment: .bottom) {
                 // Locked: a 2 pt underline under the armed tint (SPEC M1).
                 if locked {
                     Capsule().fill(Color.cmuxMobileOnAccent).frame(height: 2).padding(.horizontal, 7).padding(.bottom, 2)
                 }
             }
-            .cmuxMobilePressFill(configuration.isPressed,
-                                 in: RoundedRectangle(cornerRadius: KeyRowGlass.cornerRadius, style: .continuous))
+            .cmuxMobilePressFill(pressed, in: shape)
+            .keyGlass(style: style, armed: locked || armed)
+            // The drawn cap may be smaller than its slot (`KeyBarStyle.inset`):
+            // the whole slot takes the tap, and no more.
+            .padding(inset)
             .contentShape(.rect(cornerRadius: KeyRowGlass.cornerRadius, style: .continuous))
     }
+}
+
+/// How the key row draws its keys. Every style keeps the same targets; the
+/// gallery (`-cmux-mobile-recovery-gallery keybar`) shows them side by side.
+enum KeyBarStyle: String, CaseIterable, Sendable {
+    /// A Liquid Glass cap per key (the shipped look).
+    case caps
+    /// One glass bar behind plain keys, like the system keyboard's suggestion
+    /// bar; only an armed modifier gets its own (accent) cap.
+    case strip
+    /// Smaller glass caps centered in the same targets: a lighter look.
+    case inset
+
+    var title: String {
+        switch self {
+        case .caps: "Caps (a glass cap per key)"
+        case .strip: "Strip (one glass bar)"
+        case .inset: "Inset (smaller caps, same targets)"
+        }
+    }
+
+    /// How far the drawn cap sits inside its target, each side.
+    var capInset: CGFloat { self == .inset ? 2 : 0 }
+}
+
+extension EnvironmentValues {
+    @Entry var keyBarStyle: KeyBarStyle = .caps
 }
 
 /// The key row's Liquid Glass (classic: `UIButton.Configuration.glass()`,
@@ -266,6 +343,8 @@ struct KeyCapStyle: ButtonStyle {
 /// the monochrome accent, never blue: design/ios.md).
 enum KeyRowGlass {
     static let cornerRadius: CGFloat = 8
+    /// The strip style's bar (`KeyBarStyle.strip`).
+    static let stripCornerRadius: CGFloat = 12
     /// Space the scroller leaves above and below its keys for the glass's lift on touch.
     static let liftRoom: CGFloat = 8
     /// Paste's own cap (`PasteKeyCap`): opaque, the tone of a glass key over
@@ -274,9 +353,16 @@ enum KeyRowGlass {
 }
 
 extension View {
-    func keyGlass(armed: Bool) -> some View {
+    /// A key's glass: its own cap, or (the strip style) none but an armed
+    /// modifier's accent cap.
+    @ViewBuilder
+    func keyGlass(style: KeyBarStyle = .caps, armed: Bool) -> some View {
         let shape = RoundedRectangle(cornerRadius: KeyRowGlass.cornerRadius, style: .continuous)
-        return glassEffect(armed ? .regular.tint(Color.cmuxMobileAccent).interactive() : .regular.interactive(), in: shape)
+        if style == .strip, !armed {
+            self
+        } else {
+            glassEffect(armed ? .regular.tint(Color.cmuxMobileAccent).interactive() : .regular.interactive(), in: shape)
+        }
     }
 }
 

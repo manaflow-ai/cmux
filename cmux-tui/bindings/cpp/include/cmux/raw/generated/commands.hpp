@@ -163,6 +163,7 @@ public:
     [[nodiscard]] Result<JsonValue> feed_local_list(const FeedLocalListRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> feed_local_read(const FeedLocalReadRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> float_pane(const FloatPaneRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<FlushLaunchSnapshotResult> flush_launch_snapshot(const FlushLaunchSnapshotRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<FocusDirectionResult> focus_direction(const FocusDirectionRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> focus_pane(const FocusPaneRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> forget_session(const ForgetSessionRequest& request, RequestOptions options = {});
@@ -236,6 +237,7 @@ public:
     [[nodiscard]] Result<PasteImageResult> paste_image(const PasteImageRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> pin_workspace(const PinWorkspaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<PingResult> ping(const PingRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> process_census(const ProcessCensusRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<ProcessInfoResult> process_info(const ProcessInfoRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> put_blob(const PutBlobRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<FrontendProjection> put_frontend_projection(const PutFrontendProjectionRequest& request, RequestOptions options = {});
@@ -247,6 +249,7 @@ public:
     [[nodiscard]] Result<BrowserProviderSnapshot> register_browser_provider(const RegisterBrowserProviderRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<AttachedViewOutcomeResult> release_attached_view_size(const ReleaseAttachedViewSizeRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> release_surface_size(const ReleaseSurfaceSizeRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<ReleaseWorkspaceNamesResult> release_workspace_names(const ReleaseWorkspaceNamesRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<ReloadConfigResult> reload_config(const ReloadConfigRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<RemoteHostAppResult> remote_host_app(const RemoteHostAppRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> remote_host_call(const RemoteHostCallRequest& request, RequestOptions options = {});
@@ -280,7 +283,7 @@ public:
     [[nodiscard]] Result<ServerStatsResult> server_stats(const ServerStatsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<SetAttachVisibilityResult> set_attach_visibility(const SetAttachVisibilityRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SetCellPixelsResult> set_cell_pixels(const SetCellPixelsRequest& request, RequestOptions options = {});
-    [[nodiscard]] Result<EmptyResult> set_client_info(const SetClientInfoRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<SetClientInfoResult> set_client_info(const SetClientInfoRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> set_client_sizing(const SetClientSizingRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> set_column_dock(const SetColumnDockRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> set_default_colors(const SetDefaultColorsRequest& request = {}, RequestOptions options = {});
@@ -321,6 +324,7 @@ public:
     [[nodiscard]] Result<EventStream> terminal_clipboard_subscribe(const TerminalClipboardSubscribeRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TerminalCommandContextResult> terminal_command_context(const TerminalCommandContextRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TerminalEventsResult> terminal_events(const TerminalEventsRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> terminal_find(const TerminalFindRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TerminalHistoryPagesResult> terminal_history(const TerminalHistoryRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TerminalLastCommandResult> terminal_last_command(const TerminalLastCommandRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<TerminalPortsResult> terminal_ports(const TerminalPortsRequest& request, RequestOptions options = {});

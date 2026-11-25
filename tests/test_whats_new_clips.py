@@ -229,6 +229,46 @@ class NightlyTourTests(unittest.TestCase):
                 with mock.patch("sys.stdout"):  # its "more wait" notice
                     self.assertEqual(len(clips.plan(base, head, tours, limit=1, exists=lambda url: False, root=repo)), 1)
 
+    def test_the_plan_reads_published_clips_from_the_pr_media_tree_not_a_rate_limited_head(self):
+        # 2026-11-25 (cmux run 45636169467): raw.githubusercontent.com answered HTTP 429 to the published
+        # HEADs, two published clips planned again, and iphone-pairs-without-qr waited past PLAN_LIMIT.
+        tree = {"truncated": False, "tree": [
+            {"path": "better", "type": "tree"},
+            {"path": "better/clip-auto-after.webp", "type": "blob"},
+            {"path": "archive/clip-auto-after.failed.json", "type": "blob"}]}
+        asked = []
+        root = [{"name": "README.md", "type": "file", "sha": "f" * 40}, {"name": "whats-new", "type": "dir", "sha": "a" * 40}]
+        files = clips.pr_media_files(get=lambda path: asked.append(path) or (root if "contents" in path else tree))
+        self.assertEqual(asked, ["repos/manaflow-ai/cmux/contents?ref=pr-media",
+                                 f"repos/manaflow-ai/cmux/git/trees/{'a' * 40}?recursive=1"])
+        self.assertEqual(files, {"whats-new/better/clip-auto-after.webp", "whats-new/archive/clip-auto-after.failed.json"})
+        def limited(url):
+            raise AssertionError(f"asked raw for {url}")
+        with mock.patch.object(clips, "published", limited):
+            exists = clips.listed(files, clips.published)
+            self.assertTrue(exists(clips.auto_url("better", "after")))
+            self.assertFalse(exists(clips.auto_url("better", "before")))
+        markers = []
+        marker = clips.listed(files, lambda url: markers.append(url) or {"spec": "x"})
+        self.assertIsNone(marker(clips.failed_url("better", "after")))
+        self.assertEqual(marker(clips.failed_url("archive", "after")), {"spec": "x"})
+        self.assertEqual(markers, [clips.failed_url("archive", "after")])
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, base, head = self.repo(tmp)
+            with mock.patch.object(clips, "SPECS", repo / "release-notes/next/clips"), \
+                 mock.patch.object(clips, "published", limited):
+                rows = clips.plan(base, head, Path(tmp, "tours"), exists=clips.listed(files, clips.published),
+                                  root=repo)
+            self.assertEqual([(r["id"], r["roles"]) for r in rows],
+                             [("archive", ["after"]), ("better", ["before"]), ("uncategorized", ["after"])])
+        # A tree that cannot be read whole leaves each clip to its own HEAD, as before.
+        with mock.patch("sys.stderr", io.StringIO()):
+            self.assertIsNone(clips.pr_media_files(get=lambda path: (_ for _ in ()).throw(OSError("down"))))
+        self.assertIsNone(clips.pr_media_files(get=lambda path: root if "contents" in path else {"truncated": True, "tree": []}))
+        with mock.patch("sys.stderr", io.StringIO()):  # no whats-new/ on the branch
+            self.assertIsNone(clips.pr_media_files(get=lambda path: root[:1]))
+        self.assertIs(clips.listed(None, clips.failure_marker), clips.failure_marker)
+
     def commit(self, repo, message, when, files):
         """Commits FILES ({relative path: text}) at WHEN (seconds since the epoch); returns the commit."""
         import os
@@ -1014,7 +1054,8 @@ class WorkflowTests(unittest.TestCase):
         run = self.step("tour", "clips")["run"]
         self.assertTrue(run.startswith("set +e\n"), "GitHub's bash -e ends the step at the first failed tour")
         self.assertLess(run.index("count="), run.index("record after"))
-        self.assertIn("|| echo", run.split("tour.py", 1)[1].split("}", 1)[0])
+        # The tour's own call (bounded() and the comments before it name tour.py too, cmux#56365).
+        self.assertIn("|| echo", run.split("media/tour.py --app", 1)[1].split("}", 1)[0])
 
     def test_iphone_clips_have_their_own_nightly_workflow_with_no_pull_request_job(self):
         import yaml
@@ -1051,3 +1092,38 @@ class WorkflowTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PublishedProbeTests(unittest.TestCase):
+    """A failed HEAD probe never ends the plan (nightly plan 45160205493 died on one)."""
+
+    def probe(self, *outcomes):
+        import urllib.error
+        calls = []
+
+        def urlopen(request, timeout):
+            calls.append(request.full_url)
+            outcome = outcomes[min(len(calls), len(outcomes)) - 1]
+            if isinstance(outcome, BaseException):
+                raise outcome
+            response = mock.MagicMock()
+            response.__enter__.return_value.status = outcome
+            return response
+        with mock.patch("urllib.request.urlopen", urlopen), mock.patch("time.sleep"), \
+                mock.patch("sys.stderr", io.StringIO()):
+            return clips.published("https://x/clip.webp"), len(calls)
+
+    def test_200_and_404(self):
+        import urllib.error
+        self.assertEqual(self.probe(200), (True, 1))
+        self.assertEqual(self.probe(urllib.error.HTTPError("u", 404, "nf", {}, None)), (False, 1))
+
+    def test_transient_error_is_retried(self):
+        import urllib.error
+        self.assertEqual(self.probe(urllib.error.HTTPError("u", 503, "x", {}, None), 200), (True, 2))
+        self.assertEqual(self.probe(TimeoutError("timed out"), 200), (True, 2))
+
+    def test_persistent_error_is_unpublished_not_a_crash(self):
+        import urllib.error
+        self.assertEqual(self.probe(urllib.error.URLError("reset")), (False, 3))
+        self.assertEqual(self.probe(urllib.error.HTTPError("u", 500, "x", {}, None)), (False, 3))

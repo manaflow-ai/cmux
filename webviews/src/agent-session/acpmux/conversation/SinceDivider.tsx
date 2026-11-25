@@ -12,7 +12,11 @@
 //   - its row takes no height: the mark lies over the gap between the rows it splits (its look,
 //     sinceLook.experiment.ts), so it never moves a row when it comes, fades or goes;
 //   - it fades in, and dissipates (fades and narrows) once a reader at the pane, in a focused
-//     window, has had it on screen for SINCE_DWELL_MS; unfocused, it holds.
+//     window, has had it on screen for SINCE_DWELL_MS; unfocused, it holds;
+//   - it says how much came: "157 new messages", centered on the thin line's rule and at the end
+//     of the Worked for rule (Leo, 2026-11-15, of the terminal chat's rule: "we needto properly do
+//     somthing like this in the gui somehow"). The count is the news under it (sinceNews.ts
+//     `sinceCount`), follows new rows while unread and freezes once read; only its words change.
 //   The recap the daemon made for the same return (`hub/away_recap.rs`) draws under it, as content.
 // - The moving view, `UnreadBanner`: "3 new turns since 3:42 · Mark read" in the transcript's
 //   top-start zone (overlayLayout.ts) while the line is off screen, as chat apps' unread bars.
@@ -39,10 +43,12 @@ import {
   readUnread,
   sinceDone,
   subscribeUnread,
+  type UnreadView,
   unreadShows,
   type UnreadBannerMode,
 } from "./unreadState";
 import { sinceLook } from "./sinceLook.experiment";
+import { SINCE_COUNT_CAP } from "./sinceNews";
 import "./unread.css";
 import { intl } from "../../../ui/intl";
 
@@ -127,6 +133,19 @@ function useDissipate(mark: string, onScreen: boolean, dwellMs: number): void {
 /// How the line is drawn (sinceLook.experiment.ts); the gallery compares them.
 export type SinceLook = "line" | "worked" | "pill";
 
+/// The count as the label shows it: "999+" past the cap.
+const shownCount = (count: number): number | string => (count > SINCE_COUNT_CAP ? `${SINCE_COUNT_CAP}+` : count);
+
+/// "157 new messages", "999+ new messages" past the count's cap.
+export function newMessagesLabel(t: ReturnType<typeof useT>, count: number): string {
+  return t("since.messages", { n: shownCount(count) });
+}
+
+/// The line's count for `mark`: the gallery's, else the transcript's (unreadState.ts `count`).
+/// Undefined (the label reads "New") before the rows are counted or past the count's reach.
+const countOf = (mark: string, unread: UnreadView | undefined, forced?: number): number | undefined =>
+  forced ?? (unread?.mark === mark && unread.count ? unread.count : undefined);
+
 /// The banner and the line share one menu shape: what the reader can do with the unread marker.
 function unreadMenu(
   t: ReturnType<typeof useT>,
@@ -163,6 +182,7 @@ export function SinceDivider({
   look,
   read,
   dwellMs = SINCE_DWELL_MS,
+  count: forcedCount,
 }: {
   since: AcpmuxSince;
   /// The recap's ×. Without it (a read-only transcript) the recap draws no ×.
@@ -173,6 +193,8 @@ export function SinceDivider({
   read?: boolean;
   /// The gallery's dwell (a long one holds a still capture).
   dwellMs?: number;
+  /// The gallery's count of new messages; the transcript's comes from its rows (unreadState.ts).
+  count?: number;
 }) {
   const t = useT();
   const unread = useUnreadView();
@@ -184,6 +206,9 @@ export function SinceDivider({
   useDissipate(since.key, read === undefined && shows && mine?.side === "in", dwellMs);
   const label = t("since.label");
   const drawn = look ?? experimentArm(sinceLook);
+  const count = countOf(since.key, unread, forcedCount);
+  // The words on a look with a rule; the pill keeps its one word.
+  const words = count !== undefined && drawn !== "pill" ? newMessagesLabel(t, count) : undefined;
   return (
     <div
       className="cv-since"
@@ -195,13 +220,25 @@ export function SinceDivider({
       <ContextMenu items={unreadMenu(t, since.key, mode)} className="cv-since__menu">
         <p
           className="cv-since__line"
-          aria-label={`${label}, ${t("since.turns", { n: since.turns })}`}
+          aria-label={words ?? `${label}, ${t("since.turns", { n: since.turns })}`}
           aria-hidden={shows ? undefined : true}
         >
           {drawn !== "pill" && <span className="cv-since__rule" aria-hidden="true" />}
+          {drawn === "line" && words !== undefined && (
+            <>
+              <span className="cv-since__words" aria-hidden="true">
+                {words}
+              </span>
+              <span className="cv-since__rule cv-since__rule--end" aria-hidden="true" />
+            </>
+          )}
           {drawn !== "line" && (
-            <span className="cv-since__tag" aria-hidden="true">
-              {t("since.new")}
+            // Both forms stack in one cell at the line's end (unread.css): the words where the row
+            // has room, "New" where it is tight, so a resize cross-fades between them in place and
+            // never wraps the tag to a second row or moves the rule.
+            <span className="cv-since__tag" aria-hidden="true" data-words={words !== undefined ? "" : undefined}>
+              {words !== undefined && <span className="cv-since__tag-words">{words}</span>}
+              <span className="cv-since__tag-new">{t("since.new")}</span>
             </span>
           )}
         </p>
@@ -233,6 +270,7 @@ export function UnreadBanner({
   onJump,
   mode: forcedMode,
   forceShown,
+  count: forcedCount,
 }: {
   mark: string;
   turns: number;
@@ -242,6 +280,8 @@ export function UnreadBanner({
   /// The gallery's mode and shown state; the transcript reads the setting and the line's place.
   mode?: UnreadBannerMode;
   forceShown?: boolean;
+  /// The gallery's count of new messages; the transcript's is the line's (unreadState.ts).
+  count?: number;
 }) {
   const t = useT();
   const unread = useUnreadView();
@@ -251,7 +291,10 @@ export function UnreadBanner({
   const mine = unread?.mark === mark ? unread : undefined;
   const shown = forceShown ?? bannerShown(mark, unread, mode);
   const collapsed = mode === "collapsed";
-  const count = t("since.bannerCount", { n: turns });
+  // The line's count when it has one ("157 new messages"), else the turns acpmux counted.
+  const messages = countOf(mark, unread, forcedCount);
+  const count = messages !== undefined ? newMessagesLabel(t, messages) : t("since.bannerCount", { n: turns });
+  const short = messages !== undefined ? shownCount(messages) : turns;
   const when = firstNewAt !== undefined ? t("since.bannerSince", { time: clockLabel(firstNewAt) }) : undefined;
   const jump = () => {
     // Pressed, it has done its job, also when the line's row is not drawn in view after the move.
@@ -282,7 +325,7 @@ export function UnreadBanner({
           <span className="acpmux-since-jump__arrow" aria-hidden="true">
             <ArrowDown size={12} />
           </span>
-          <span className="acpmux-since-jump__count">{collapsed ? turns : count}</span>
+          <span className="acpmux-since-jump__count">{collapsed ? short : count}</span>
           <span className="acpmux-since-jump__more" aria-hidden={collapsed || undefined}>
             <span className="acpmux-since-jump__more-inner">
               {when && <span className="acpmux-since-jump__when">{when}</span>}

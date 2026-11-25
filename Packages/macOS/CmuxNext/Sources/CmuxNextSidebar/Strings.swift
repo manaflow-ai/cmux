@@ -25,7 +25,6 @@ enum Strings {
     }
     /// The footer's Search button: its VoiceOver label and tooltip.
     static var searchButton: String { String(localized: "sidebar.search", defaultValue: "Search", bundle: .localizedModule) }
-    static var restoringDetails: String { String(localized: "sidebar.restoring.details", defaultValue: "Details", bundle: .localizedModule) }
     /// The thin rail's VoiceOver label (`sidebar.style` = rail).
     static var railLabel: String { String(localized: "sidebar.rail.label", defaultValue: "Workspaces", bundle: .localizedModule) }
     static var rename: String { String(localized: "sidebar.rename", defaultValue: "Rename", bundle: .localizedModule) }
@@ -96,14 +95,6 @@ enum Strings {
     }
     static func unreadCount(_ value: Int) -> String { String(localized: "sidebar.a11y.unread", defaultValue: "\(value) unread", bundle: .localizedModule) }
     static func progressPercent(_ value: Int) -> String { String(localized: "sidebar.a11y.progress", defaultValue: "\(value)% done", bundle: .localizedModule) }
-    /// The agent chat's task list: steps done of all (the row's "3/7" in words, and the hover card's line).
-    static func taskProgress(done: Int, total: Int) -> String {
-        String(localized: "sidebar.tasks.progress", defaultValue: "\(done) of \(total) tasks done", bundle: .localizedModule)
-    }
-    /// The hover card's line for the step the agent works on.
-    static func taskNow(_ step: String) -> String { String(localized: "sidebar.tasks.now", defaultValue: "Now: \(step)", bundle: .localizedModule) }
-    /// The hover card's line for the step after it.
-    static func taskNext(_ step: String) -> String { String(localized: "sidebar.tasks.next", defaultValue: "Next: \(step)", bundle: .localizedModule) }
     /// The hover card's line for a workspace whose idle terminals were freed (`workspaces.freeing.*`).
     static func freedTerminals(_ value: Int) -> String { String(localized: "sidebar.hoverCard.freedTerminals", defaultValue: "Freed terminals: \(value). They start again when you open this workspace.", bundle: .localizedModule) }
     /// The hover card's split miniature, for VoiceOver.
@@ -113,6 +104,10 @@ enum Strings {
     /// Status entries a row folds past its limit.
     static func statusMore(_ value: Int) -> String { String(localized: "sidebar.status.more", defaultValue: "\(value) more", bundle: .localizedModule) }
     static var unreadDot: String { String(localized: "sidebar.a11y.unreadDot", defaultValue: "Unread", bundle: .localizedModule) }
+    /// An agent's given name with the one it had before (the hover card's agent line): "Mango — fka claude-sr2-coord".
+    static func formerlyKnownAs(_ name: String, former: String) -> String {
+        String(localized: "sidebar.workspace.formerlyKnownAs", defaultValue: "\(name) — fka \(former)", bundle: .localizedModule)
+    }
     /// The bell-slash mark's tooltip on a muted workspace's row.
     static var notificationsMuted: String {
         String(localized: "sidebar.workspace.notificationsMuted", defaultValue: "Notifications muted", bundle: .localizedModule)

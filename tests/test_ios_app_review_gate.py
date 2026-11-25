@@ -139,6 +139,66 @@ class AppReviewGateTests(unittest.TestCase):
         write(self.root, "cmux-next-ios/App/Buy.swift", 'let u = URL(string: "https://checkout.stripe.com/x")\n')
         self.assertIn("iap.external-purchase", self.rules(self.run_lint()))
 
+    # Classes mapped from the public rejection lists (hq docs/handbook/app-review-rejections.md).
+
+    def write_chief(self, consent: str, report: str = "ChiefReport.open(conversationID: id)") -> None:
+        write(self.root, "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileChief/Chief.swift",
+              f"final class ChiefSession {{}}\n{consent}\n{report}\n")
+
+    def test_ai_chat_without_consent_blocks(self) -> None:
+        self.write_chief(consent="")
+        self.assertIn("ai.consent", self.rules(self.run_lint()))
+
+    def test_ai_consent_must_name_the_providers(self) -> None:
+        self.write_chief(consent='let k = "cmuxMobile.chief.aiSharingConsent"; let p = String(localized: "p", defaultValue: "our AI")')
+        self.assertIn("ai.consent", self.rules(self.run_lint()))
+
+    NAMED = ('let k = "cmuxMobile.chief.aiSharingConsent"; '
+             'let p = String(localized: "p", defaultValue: "Anthropic (Claude) and OpenAI")')
+    GATED = "conversation.sendGate = { retry in guard !ChiefAIConsent.isGranted else { return true }; return false }"
+
+    def test_ai_consent_naming_the_providers_passes(self) -> None:
+        self.write_chief(consent=f"{self.NAMED}\n{self.GATED}")
+        self.assertEqual(self.rules(self.run_lint()), set())
+
+    def test_ai_consent_only_on_the_send_button_blocks(self) -> None:
+        # Asked in the Send button's handler alone: Return and the effect picker skip it.
+        self.write_chief(consent=f"{self.NAMED}\nfunc sendTapped() {{ if !ChiefAIConsent.isGranted {{ return }} }}")
+        self.assertIn("ai.consent", self.rules(self.run_lint()))
+
+    def test_ai_chat_without_a_report_control_blocks(self) -> None:
+        self.write_chief(consent='let k = "aiSharingConsent"; let p = String(localized: "p", defaultValue: "Anthropic and OpenAI")',
+                         report="")
+        self.assertIn("ugc.report", self.rules(self.run_lint()))
+
+    def test_unfinished_copy_blocks(self) -> None:
+        write(self.root, "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileSettings/Labs.swift",
+              'Text("Adds a toggle. Still in progress.")\n// Text("coming soon") in a comment is fine\n')
+        lint = self.run_lint()
+        self.assertEqual([f.where for f in lint.findings if f.rule == "copy.unfinished"],
+                         ["cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileSettings/Labs.swift:1"])
+
+    def test_an_ipv4_only_lookup_and_an_allow_pre_prompt_warn(self) -> None:
+        write(self.root, "cmux-next-ios/App/Net.swift",
+              'let h = gethostbyname(name)\nlet u = "http://10.0.0.1:8080/x"\nButton("Allow Camera") {}\n')
+        found = {(f.rule, f.severity) for f in self.run_lint().findings}
+        self.assertIn(("net.ipv4-only", "warning"), found)
+        self.assertIn(("privacy.pre-prompt", "warning"), found)
+
+    def test_a_decorated_name_or_a_competitor_keyword_blocks(self) -> None:
+        write(self.root, "cmux-next-ios/AppStoreReview/metadata/app-info/en-US.json",
+              json.dumps({"name": "cmux: Best Agent App", "subtitle": "x", "privacyPolicyUrl": "https://cmux.com/privacy-policy"}))
+        write(self.root, "cmux-next-ios/AppStoreReview/metadata/version/1.0.0/en-US.json",
+              json.dumps({"description": "cmux", "keywords": "agent,ChatGPT,terminal", "supportUrl": "https://cmux.com/support"}))
+        rules = self.rules(self.run_lint())
+        self.assertIn("metadata.decoration", rules)
+        self.assertIn("metadata.competitor-terms", rules)
+
+    def test_the_real_app_asks_before_sharing_with_ai_and_can_report(self) -> None:
+        lint = gate.Lint(ROOT, "appstore")
+        lint.check_sources()
+        self.assertEqual({f.rule for f in lint.findings} & {"ai.consent", "ugc.report", "copy.unfinished"}, set())
+
     def test_a_source_without_the_next_app_is_never_a_pass(self) -> None:
         # main ships the classic ios/ app today; the gate judges NEXT only.
         (self.root / "cmux-next-ios/project.yml").unlink()
@@ -816,6 +876,84 @@ class AppReviewGateTests(unittest.TestCase):
         self.assertEqual(findings[0]["severity"], "blocker")
         self.assertEqual(findings[0]["guideline"], "2.3")
 
+    # INTERNAL build run 45090966438's asc validate --strict on cmux INTERNAL's 1.2.0,
+    # the app's first App Store version: What's New empty, listed twice by asc.
+    ASC_FIRST_VERSION_VALIDATE = {
+        "appId": "6791408425", "versionString": "1.2.0", "strict": True,
+        "remediation": {"steps": [{"order": 1, "blocking": True, "severity": "warning",
+                                   "checkId": "metadata.required.whats_new", "message": "what's new is empty",
+                                   "field": "whatsNew", "resourceId": "1fb582be"}]},
+        "checks": [{"id": "metadata.required.whats_new", "severity": "warning", "message": "what's new is empty",
+                    "field": "whatsNew", "resourceId": "1fb582be"}],
+    }
+
+    def asc_report(self, versions: object | None) -> tuple[int, str]:
+        asc = self.root / "asc-validate.json"
+        asc.write_text(json.dumps(self.ASC_FIRST_VERSION_VALIDATE))
+        args = ["report", "--asc-validate", str(asc), "--out", str(self.root / "report.md")]
+        if versions is not None:
+            path = self.root / "app-store-versions.json"
+            path.write_text(versions if isinstance(versions, str) else json.dumps(versions))
+            args += ["--asc-versions", str(path)]
+        code = gate.main(args)
+        return code, (self.root / "report.md").read_text()
+
+    def test_a_first_app_store_version_is_not_asked_for_whats_new(self) -> None:
+        # Apple refuses What's New on an app's first App Store version: run
+        # 45102744374 failed "STATE_ERROR: Attribute 'whatsNew' cannot be
+        # edited at this time" on cmux INTERNAL 1.2.0, so the gate must not
+        # block on a field nobody can fill.
+        code, text = self.asc_report({"data": [
+            {"id": "v1", "attributes": {"versionString": "1.2.0", "appStoreState": "PREPARE_FOR_SUBMISSION"}}]})
+        self.assertEqual(code, 0, text)
+        self.assertIn("**YES**", text)
+        self.assertIn("first App Store version", text)
+        self.assertIn("45102744374", text)
+
+    def test_whats_new_still_blocks_once_a_version_has_been_on_sale(self) -> None:
+        code, text = self.asc_report({"data": [
+            {"id": "v1", "attributes": {"versionString": "1.2.0", "appStoreState": "PREPARE_FOR_SUBMISSION"}},
+            {"id": "v0", "attributes": {"versionString": "1.1.0", "appStoreState": "READY_FOR_SALE"}}]})
+        self.assertEqual(code, 1)
+        self.assertIn("**NO**: 1 blocking", text)
+        self.assertIn("what's new is empty", text)
+
+    def test_whats_new_blocks_when_the_version_history_is_unknown(self) -> None:
+        # No version list, or one that did not parse: fail closed.
+        for versions in (None, "not json", {"errors": [{"status": "401"}]}):
+            code, text = self.asc_report(versions)
+            self.assertEqual(code, 1, versions)
+            self.assertIn("**NO**: 1 blocking", text)
+
+    def test_asc_lists_each_check_once(self) -> None:
+        # asc prints a check under both remediation.steps and checks; run
+        # 45090966438's report showed "what's new is empty" twice (2.1 and 2.3).
+        asc = self.root / "asc-validate.json"
+        asc.write_text(json.dumps(self.ASC_FIRST_VERSION_VALIDATE))
+        findings = gate.asc_findings(asc)
+        self.assertEqual(len(findings), 1, findings)
+        self.assertEqual(findings[0]["rule"], "asc.metadata.required.whats_new")
+        self.assertEqual(findings[0]["guideline"], "2.3")
+
+    def test_a_version_apple_already_has_is_not_blocked_on_its_state(self) -> None:
+        # Readiness run 45615832158 (2026-11-25): asc validate on 1.0.0 in
+        # WAITING_FOR_REVIEW gave "version is in non-editable state", and the
+        # gate made it a blocker for the whole review.
+        asc = self.root / "asc-validate.json"
+        for state, severity in (("WAITING_FOR_REVIEW", "info"), ("IN_REVIEW", "info"),
+                                ("PENDING_DEVELOPER_RELEASE", "info"), ("DEVELOPER_REJECTED", "blocker")):
+            asc.write_text(json.dumps({"remediation": {"steps": [
+                {"order": 1, "blocking": True, "severity": "error", "checkId": "version.state.editable",
+                 "message": f'version is in non-editable state "{state}"', "field": "appVersionState"}]}}))
+            findings = gate.asc_findings(asc)
+            self.assertEqual([f["severity"] for f in findings], [severity], state)
+
+    def test_the_asc_job_saves_the_app_store_version_history(self) -> None:
+        workflow = (ROOT / ".github/workflows/ios-review-gate.yml").read_text()
+        self.assertIn('asc versions list --app "$ASC_APP_ID" --platform IOS --paginate --output json > app-store-versions.json',
+                      workflow)
+        self.assertIn("--asc-versions", workflow)
+
     def test_report_fails_closed_when_inputs_never_arrive(self) -> None:
         # Run 42799920852 said YES with no lint and no suite result in hand.
         out = self.root / "report.md"
@@ -1168,6 +1306,7 @@ class GateWorkflowTests(unittest.TestCase):
             patterns = on[event]["paths"]
             with self.subTest(event=event):
                 for path in ("cmux-next-ios/SECURITY.md", "cmux-next-ios/verify/parity-mac.md",
+                             "cmux-next-ios/verify/parity-mac/2026-11-25-find-in-terminal.md",
                              "cmux-next-ios/verify/alignment/alignscan.swift", "Packages/Shared/README.md"):
                     self.assertFalse(github_paths_match(patterns, path), path)
                 for path in ("cmux-next-ios/CmuxMobileApp/App.swift", "cmux-next-ios/project.yml",
@@ -1181,22 +1320,29 @@ class GateWorkflowTests(unittest.TestCase):
         # app and still ran CmuxMobileKit's tests, then went red on kit tests it never touched.
         import yaml  # noqa: PLC0415
 
+        sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+        import ci_steps  # noqa: PLC0415
+
         doc = yaml.safe_load((ROOT / ".github/workflows/cmux-next-ios-kit.yml").read_text())
         on = doc.get("on", doc.get(True))
-        for event in ("push", "pull_request"):
-            patterns = on[event]["paths"]
+        # A push runs the workflow; a feat-cmux-next pull request runs its tests as the ios-kit table step.
+        kit = ci_steps.load().steps["ios-kit"]
+        matchers = {"push": lambda path: github_paths_match(on["push"]["paths"], path),
+                    "pull_request": lambda path: ci_steps.routed(kit, [path])}
+        for event, matches in matchers.items():
             with self.subTest(event=event):
                 for path in ("cmux-next-ios/SECURITY.md", "cmux-next-ios/verify/parity-mac.md",
+                             "cmux-next-ios/verify/parity-mac/2026-11-25-find-in-terminal.md",
                              "cmux-next-ios/verify/alignment/alignscan.swift",
                              "cmux-next-ios/CmuxMobileKit/README.md", "Packages/Shared/CmuxSpinner/README.md"):
-                    self.assertFalse(github_paths_match(patterns, path), path)
+                    self.assertFalse(matches(path), path)
                 for path in ("cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/X.swift",
                              "cmux-next-ios/CmuxMobileKit/Package.swift", "cmux-next-ios/rust/Cargo.toml",
                              "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileModel/Resources/notes.md",
                              "Packages/Shared/CmuxSpinner/Sources/CmuxSpinner/Resources/x.md",
-                             "Packages/iOS/CmuxConversation/Sources/X.swift",
-                             ".github/workflows/cmux-next-ios-kit.yml"):
-                    self.assertTrue(github_paths_match(patterns, path), path)
+                             "Packages/iOS/CmuxConversation/Sources/X.swift"):
+                    self.assertTrue(matches(path), path)
+        self.assertTrue(matchers["push"](".github/workflows/cmux-next-ios-kit.yml"))
 
 
 def github_paths_match(patterns: list[str], path: str) -> bool:
