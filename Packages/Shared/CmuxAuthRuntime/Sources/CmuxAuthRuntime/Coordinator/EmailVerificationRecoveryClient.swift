@@ -1,5 +1,8 @@
 import CmuxEgress
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Requests Stack contact-channel verification through the cmux backend.
 struct EmailVerificationRecoveryClient: Sendable {
