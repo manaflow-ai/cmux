@@ -37,7 +37,15 @@ Leo, 2026-11-25: "When I tap the composer at certain points it treats it as if I
 one of the combo buttons which needs to be fixed". A key's hit area is its own cap, inside the row's 28 pt:
 nothing of the row takes a touch below its bottom edge, and the 8 pt gap and the composer card below it are
 never a key's. `TerminalComposerTapBleedUITests` taps the card's top edge and the gap under every key and
-the joystick, with the draft empty, one line, nine lines and with attachments, and fails if any key fires.
+the joystick, with the draft empty, one line, nine lines and with attachments, and fails if any key fires;
+a tap in the middle of Esc must fire it (the positive control).
+
+What it found (2026-11-25, fleet simulator, iPhone 17 Pro): no simulator tap on the card's edge or in the gap
+fires a key, at 44 pt or at 28 pt: the views do not overlap, and the 8 pt gap between the row and the card
+takes no control. A simulator tap is an exact point; a finger's is not (unverified on a phone: the likely
+cause is the touch point a finger reports landing in the row just above the card). If the phone still shows
+it at 28 pt, the next step is to give the gap to the composer (`TerminalBottomStack.hitTest`), so a touch
+between the row and the card focuses the field instead of nothing.
 
 ## Every key kept, and why
 
