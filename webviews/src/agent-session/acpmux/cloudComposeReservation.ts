@@ -38,6 +38,10 @@ type Attempt = {
   /// pane takes without a gesture once per shown New Tab page (Swift AgentPaneModel `takeCloudOpenLease`).
   /// The first intent (`selected`) makes it an ordinary compose.
   atOpen?: boolean;
+  /// Reserved for Auto (AutoCloud) on the New Tab page, not for a Cloud pick: Auto may still run the chat on this
+  /// Mac at Send, which gives the machine back (`abandon`). Its reserves say `auto`, for the host's log line
+  /// (Leo, 2026-11-25: "the new tab page. so when you select cloud/autocloud. that's when it can start.").
+  auto?: boolean;
 };
 
 /// While the person still means to send (Cloud picked, typing), the same compose key is reserved
@@ -87,19 +91,21 @@ export class CloudComposeReservation {
   /// too"). The idle release (RESERVATION_IDLE_RELEASE_MS) gives it back if nobody types. A compose that
   /// already reserved keeps its key; one whose open lease was refused (a hidden spare page) asks again
   /// when this page opens again.
-  opened(replacesChat?: string): void {
+  /// `auto`: the page opened with Auto picked (remembered), not Cloud.
+  opened(replacesChat?: string, auto = false): void {
     const live = this.attempt;
     if (live && !live.abandoned && !live.released && !live.ended) {
       if (live.atOpen && live.failures && live.replacesChat === replacesChat) this.reserve(live, live.ready);
       if (live.replacesChat === replacesChat) return;
     }
-    this.selected(replacesChat, true);
+    this.selected(replacesChat, true, auto);
   }
 
   /// `replacesChat`: the empty local chat the Send would replace (the host reserves for a pane with a chat only
   /// while it shows that chat); none: a compose with no chat. A compose for another chat gives its machine back.
-  /// `atOpen`: called by `opened`, not by an intent.
-  selected(replacesChat?: string, atOpen = false): void {
+  /// `atOpen`: called by `opened`, not by an intent. `auto`: Auto (AutoCloud) is the pick, not Cloud; a later
+  /// intent on the same compose (a key, Auto deciding Cloud) keeps its key.
+  selected(replacesChat?: string, atOpen = false, auto = false): void {
     this.stopRelease();
     const now = this.clock.now();
     const before = this.attempt;
@@ -140,6 +146,7 @@ export class CloudComposeReservation {
       failures,
       ...(replacesChat ? { replacesChat } : {}),
       ...(atOpen ? { atOpen } : {}),
+      ...(auto ? { auto } : {}),
     };
     this.attempt = attempt;
     this.reserve(attempt, after);
@@ -157,6 +164,7 @@ export class CloudComposeReservation {
           composeKey: attempt.key,
           ...(attempt.replacesChat ? { replacesChat: attempt.replacesChat } : {}),
           ...(attempt.atOpen ? { atOpen: true } : {}),
+          ...(attempt.auto ? { auto: true } : {}),
         }),
       )
       .then(

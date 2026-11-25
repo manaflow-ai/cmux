@@ -257,6 +257,10 @@ const DATAGRAM_PING_ATTEMPTS: u8 = 5;
 /// A liveness datagram: kind, the ping's nonce (8 bytes, big-endian), the
 /// attempt number. A pong echoes the ping's nonce and attempt.
 const DATAGRAM_PING: u8 = 1;
+/// How long a link stays quiet (nothing heard, no datagram ping sent)
+/// before [`Link::prewake`] sends: a radio that heard or sent this recently
+/// is still awake.
+const PREWAKE_QUIET: Duration = Duration::from_secs(1);
 const DATAGRAM_PONG: u8 = 2;
 const DATAGRAM_LEN: usize = 10;
 
@@ -889,6 +893,10 @@ pub(crate) struct Inner {
     /// When a round trip (the app's heartbeat, the keepalive) last sent its
     /// first ping as a datagram: the foreground probe takes it for its own.
     last_datagram_ping: Mutex<Option<Instant>>,
+    /// When any datagram ping (first send, resend, probe, pre-wake) last
+    /// left. Held across [`Link::prewake`]'s check and send, so a pre-wake
+    /// never follows another ping by milliseconds.
+    ping_sent: Mutex<Option<Instant>>,
     /// Ping counts and round trips for the link's path report ([`Link::take_ping_stats`]).
     ping_stats: Mutex<PingStats>,
     closed: watch::Sender<Option<String>>,
@@ -1234,6 +1242,18 @@ impl Inner {
     /// Send one liveness datagram; `false` when there is no datagram lane
     /// or its queue is full.
     fn send_datagram(&self, kind: u8, nonce: u64, attempt: u8) -> bool {
+        if kind != DATAGRAM_PING {
+            return self.enqueue_datagram(kind, nonce, attempt);
+        }
+        let mut sent_at = self.ping_sent.lock().unwrap_or_else(PoisonError::into_inner);
+        let sent = self.enqueue_datagram(kind, nonce, attempt);
+        if sent {
+            *sent_at = Some(Instant::now());
+        }
+        sent
+    }
+
+    fn enqueue_datagram(&self, kind: u8, nonce: u64, attempt: u8) -> bool {
         let sender = self.datagrams.lock().unwrap_or_else(PoisonError::into_inner).clone();
         sender.is_some_and(|sender| sender.try_send(liveness_datagram(kind, nonce, attempt)).is_ok())
     }
@@ -1573,6 +1593,7 @@ impl Link {
             rtt: watch::channel(None).0,
             srtt: Mutex::new(None),
             last_datagram_ping: Mutex::new(None),
+            ping_sent: Mutex::new(None),
             ping_stats: Mutex::new(PingStats::default()),
             closed: watch::channel(None).0,
             incoming: tokio::sync::Mutex::new(incoming_rx),
@@ -1940,6 +1961,45 @@ impl Link {
     /// (`LinkConfig::suspect_after`); without it this does nothing.
     pub fn set_foreground_probe(&self, on: bool) {
         self.inner.foreground.send_if_modified(|state| std::mem::replace(state, on) != on);
+    }
+
+    /// Wake the radio before a keystroke: one datagram ping, unanswered by
+    /// any waiter, when the link has heard nothing for [`PREWAKE_QUIET`] and
+    /// sent no datagram ping as long. A cellular radio sleeps (DRX, then RRC
+    /// idle) after a short silence and a wake costs 50-300 ms (RFD 0142
+    /// hypothesis 2); a ping sent as the keyboard takes focus or a finger
+    /// touches down pays that while the person is still reaching for the key.
+    /// The peer's pong wakes the downlink too. `true` when sent; `false` on a
+    /// link with no datagram pings, parked, closed or not quiet (no cost).
+    pub fn prewake(&self) -> bool {
+        let inner = &self.inner;
+        if !inner.datagram_pings() || inner.closed_reason().is_some() {
+            return false;
+        }
+        // Held through the enqueue: a park (or its resume) that starts
+        // meanwhile waits for this send rather than following it.
+        let park = inner.park.borrow();
+        if !matches!(*park, Park::Off) {
+            return false;
+        }
+        let now = Instant::now();
+        if now.saturating_duration_since(inner.last_received()) < PREWAKE_QUIET {
+            return false;
+        }
+        let mut sent_at = inner.ping_sent.lock().unwrap_or_else(PoisonError::into_inner);
+        if sent_at.is_some_and(|at| now.saturating_duration_since(at) < PREWAKE_QUIET) {
+            return false;
+        }
+        let nonce = inner.next_nonce.fetch_add(1, Ordering::Relaxed);
+        if !inner.enqueue_datagram(DATAGRAM_PING, nonce, 0) {
+            return false;
+        }
+        *sent_at = Some(now);
+        drop((sent_at, park));
+        // The foreground probe takes it for its own round trip.
+        *inner.last_datagram_ping.lock().unwrap_or_else(PoisonError::into_inner) = Some(now);
+        inner.ping_stats.lock().unwrap_or_else(PoisonError::into_inner).sent += 1;
+        true
     }
 
     /// Whether the foreground probe is on ([`Link::set_foreground_probe`]).
@@ -5473,6 +5533,56 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(2), mac.ping()).await.expect("datagram pong").unwrap();
         let stats = phone.take_ping_stats();
         assert_eq!((stats.sent, stats.answered, stats.waiting), (1, 1, 0));
+        phone.close("done");
+        mac.close("done");
+    }
+
+    /// A pre-wake sends one datagram ping on a quiet link, its pong is
+    /// counted, and a second call inside the quiet bound sends nothing.
+    #[tokio::test]
+    async fn prewake_sends_one_ping_on_a_quiet_link() {
+        let (phone, mac) = stalled_pair();
+        let (phone_lane, mac_lane) = datagram_pair(true, true, 0);
+        phone.attach_liveness_datagrams(phone_lane);
+        mac.attach_liveness_datagrams(mac_lane);
+        // Fresh link: heard just now, so not quiet.
+        assert!(!phone.prewake(), "a link that just heard its peer is awake");
+        tokio::time::sleep(PREWAKE_QUIET + Duration::from_millis(50)).await;
+        assert!(phone.prewake());
+        assert!(!phone.prewake(), "a second pre-wake inside the bound is dropped");
+        let started = Instant::now();
+        loop {
+            let stats = phone.take_ping_stats();
+            if stats.answered == 1 {
+                assert_eq!(stats.sent, 1);
+                break;
+            }
+            assert!(started.elapsed() < Duration::from_secs(2), "pre-wake pong never came");
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        phone.close("done");
+        assert!(!phone.prewake(), "a closed link sends nothing");
+        mac.close("done");
+    }
+
+    /// Any datagram ping keeps the radio awake: a resend or probe ping that
+    /// just left holds a pre-wake back, and a resuming link sends none.
+    #[tokio::test]
+    async fn prewake_counts_every_datagram_ping_and_waits_out_a_resume() {
+        let (phone, mac) = stalled_pair();
+        let (phone_lane, mac_lane) = datagram_pair(true, true, 0);
+        phone.attach_liveness_datagrams(phone_lane);
+        mac.attach_liveness_datagrams(mac_lane);
+        tokio::time::sleep(PREWAKE_QUIET + Duration::from_millis(50)).await;
+        // A resend (attempt 1) of another round trip just left.
+        let nonce = phone.inner.next_nonce.fetch_add(1, Ordering::Relaxed);
+        assert!(phone.inner.send_datagram(DATAGRAM_PING, nonce, 1));
+        assert!(!phone.prewake(), "a ping that just left already woke the radio");
+        tokio::time::sleep(PREWAKE_QUIET + Duration::from_millis(50)).await;
+        phone.inner.park.send_replace(Park::Resuming);
+        assert!(!phone.prewake(), "a resuming link sends no pre-wake");
+        phone.inner.park.send_replace(Park::Off);
+        assert!(phone.prewake());
         phone.close("done");
         mac.close("done");
     }
