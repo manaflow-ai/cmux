@@ -181,13 +181,8 @@ fn uncommitted_worktree_rides_along() {
     let wt = f.checkout(".t3/worktrees/app/t3-fix", "https://github.com/acme/app.git");
     f.project("p1", "app", &root, "[]");
     f.thread("t1", "p1", "t3/fix", &wt, None);
-    let dirty_wt = wt.clone();
-    let git = move |p: &Path| {
-        if p == dirty_wt {
-            Work { dirty_files: 3, unpushed_commits: 1 }
-        } else {
-            Work::default()
-        }
+    let git = |p: &Path| {
+        if p == wt { Work { dirty_files: 3, unpushed_commits: 1 } } else { Work::default() }
     };
     let plan = f.plan(&git);
     assert_eq!(plan.projects.len(), 2);
@@ -216,10 +211,17 @@ fn native_history_is_linked_by_session_id() {
     fs::write(folder.join("078eef12-cdc9-4bff-801d-fb2a04b0cb61.jsonl"), "{}\n").unwrap();
     let plan = f.plan(&clean);
     let thread = plan.projects.iter().find(|p| p.name == "app-t3-a").unwrap();
+    // The thread's session file rides in the worktree's Claude session folder.
+    let slug = laptop::claude_slug(&wt);
     assert!(
-        thread.chats.iter().any(|c| c.agent == Agent::Claude
-            && c.path.ends_with("078eef12-cdc9-4bff-801d-fb2a04b0cb61.jsonl")),
+        thread.chats.iter().any(|c| c.agent == Agent::Claude && c.path.ends_with(&slug)),
         "{:?}",
+        thread.chats
+    );
+    assert_eq!(
+        thread.chats.iter().filter(|c| c.path.contains(&slug)).count(),
+        1,
+        "the session folder and its file are one carry: {:?}",
         thread.chats
     );
     assert!(thread.notes.iter().any(|n| n.contains("4 messages")));

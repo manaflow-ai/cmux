@@ -30,9 +30,7 @@ use rusqlite::{Connection, OpenFlags};
 use serde_json::Value;
 
 use super::laptop::{self, GitFacts, History};
-use crate::plan::{
-    Agent, ChatRef, Plan, Project, Source, SourceKind, Unsupported, machine_name,
-};
+use crate::plan::{Agent, ChatRef, Plan, Project, Source, SourceKind, Unsupported, machine_name};
 
 /// The database under a T3 home.
 pub const DATABASE: &str = "userdata/statev2.sqlite";
@@ -103,7 +101,9 @@ impl fmt::Display for ReadError {
         match self {
             Self::Missing(p) => write!(f, "no T3 Code database at {}", p.display()),
             Self::Open(e) => write!(f, "T3 Code's database could not be opened read-only: {e}"),
-            Self::Schema(e) => write!(f, "T3 Code's database is a shape this reader does not know: {e}"),
+            Self::Schema(e) => {
+                write!(f, "T3 Code's database is a shape this reader does not know: {e}")
+            }
         }
     }
 }
@@ -141,7 +141,8 @@ fn rows(
     wanted: &[&str],
 ) -> Result<Vec<BTreeMap<String, Option<String>>>, ReadError> {
     let have = columns(conn, table)?;
-    let present: Vec<&str> = wanted.iter().copied().filter(|w| have.iter().any(|h| h == w)).collect();
+    let present: Vec<&str> =
+        wanted.iter().copied().filter(|w| have.iter().any(|h| h == w)).collect();
     if present.is_empty() {
         return Ok(Vec::new());
     }
@@ -158,7 +159,9 @@ fn rows(
                     rusqlite::types::ValueRef::Null => None,
                     rusqlite::types::ValueRef::Integer(n) => Some(n.to_string()),
                     rusqlite::types::ValueRef::Real(n) => Some(n.to_string()),
-                    rusqlite::types::ValueRef::Text(t) => Some(String::from_utf8_lossy(t).into_owned()),
+                    rusqlite::types::ValueRef::Text(t) => {
+                        Some(String::from_utf8_lossy(t).into_owned())
+                    }
                     rusqlite::types::ValueRef::Blob(_) => None,
                 };
                 row.insert((*name).to_owned(), value);
@@ -204,7 +207,8 @@ pub fn read(database: &Path) -> Result<Catalog, ReadError> {
         return Err(ReadError::Missing(database.to_path_buf()));
     }
     let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-    let conn = Connection::open_with_flags(database, flags).map_err(|e| ReadError::Open(e.to_string()))?;
+    let conn =
+        Connection::open_with_flags(database, flags).map_err(|e| ReadError::Open(e.to_string()))?;
     conn.busy_timeout(std::time::Duration::from_millis(500))
         .map_err(|e| ReadError::Open(e.to_string()))?;
     let present = tables(&conn)?;
@@ -419,10 +423,8 @@ pub fn plan(home: &Path, t3_home: &Path, catalog: &Catalog, git: &dyn GitFacts) 
     let mut names = BTreeSet::new();
     let mut push = |plan: &mut Plan, mut project: Project| {
         if !keys.insert(project.key.clone()) {
-            plan.warnings.push(format!(
-                "{}: listed by T3 Code more than once; moved once",
-                project.key
-            ));
+            plan.warnings
+                .push(format!("{}: listed by T3 Code more than once; moved once", project.key));
             return;
         }
         let base = project.name.clone();
@@ -480,23 +482,22 @@ pub fn plan(home: &Path, t3_home: &Path, catalog: &Catalog, git: &dyn GitFacts) 
             if let Some(chat) = chat {
                 let root = catalog.projects.iter().find(|p| p.id == t.project_id).map(|p| &p.root);
                 let key = root.map(|r| laptop::tilde(home, r));
-                if let Some(project) = plan.projects.iter_mut().find(|p| Some(&p.key) == key.as_ref()) {
-                    if !project.chats.contains(&chat) {
-                        project.chats.push(chat);
-                    }
+                if let Some(project) =
+                    plan.projects.iter_mut().find(|p| Some(&p.key) == key.as_ref())
+                    && !carried(&project.chats, &chat)
+                {
+                    project.chats.push(chat);
                 }
             }
             continue;
         };
         let mut project = laptop::project(home, worktree, &history, git, &mut plan.warnings);
-        project.name = machine_name(&format!(
-            "{project_title}-{}",
-            t.branch.as_deref().unwrap_or(&t.title)
-        ));
-        if let Some(chat) = chat {
-            if !project.chats.contains(&chat) {
-                project.chats.push(chat);
-            }
+        project.name =
+            machine_name(&format!("{project_title}-{}", t.branch.as_deref().unwrap_or(&t.title)));
+        if let Some(chat) = chat
+            && !carried(&project.chats, &chat)
+        {
+            project.chats.push(chat);
         }
         project.checked = !t.archived;
         project.notes.push(format!(
@@ -528,16 +529,26 @@ pub fn plan(home: &Path, t3_home: &Path, catalog: &Catalog, git: &dyn GitFacts) 
     }
 
     for (what, why) in [
-        ("T3 Code sign-ins and pairing (auth tables, userdata/secrets)", "credentials stay on this computer; sign in on the new machine"),
-        ("T3 script commands", "imported as names only; a command is never run on the new machine unreviewed"),
-        ("T3's own copy of thread messages", "the native Claude Code / Codex transcript is carried instead"),
+        (
+            "T3 Code sign-ins and pairing (auth tables, userdata/secrets)",
+            "credentials stay on this computer; sign in on the new machine",
+        ),
+        (
+            "T3 script commands",
+            "imported as names only; a command is never run on the new machine unreviewed",
+        ),
+        (
+            "T3's own copy of thread messages",
+            "the native Claude Code / Codex transcript is carried instead",
+        ),
         ("peer environments", "other T3 servers are not this person's to move"),
         ("attachments and keybindings", "not read"),
     ] {
         plan.unsupported.push(Unsupported { what: what.into(), why: why.into() });
     }
     for table in &catalog.skipped_tables {
-        plan.unsupported.push(Unsupported { what: format!("table {table}"), why: "never read".into() });
+        plan.unsupported
+            .push(Unsupported { what: format!("table {table}"), why: "never read".into() });
     }
     plan
 }
@@ -545,3 +556,17 @@ pub fn plan(home: &Path, t3_home: &Path, catalog: &Catalog, git: &dyn GitFacts) 
 #[cfg(test)]
 #[path = "t3code_tests.rs"]
 mod tests;
+
+/// Whether `chats` already carries `chat`: the same entry, or a folder of the
+/// same agent's sessions that holds it (the laptop reader links a worktree's
+/// whole Claude session folder; the thread names one file inside it).
+fn carried(chats: &[ChatRef], chat: &ChatRef) -> bool {
+    chats.iter().any(|c| {
+        c == chat
+            || (c.agent == chat.agent
+                && chat
+                    .path
+                    .strip_prefix(c.path.as_str())
+                    .is_some_and(|rest| rest.starts_with('/')))
+    })
+}
