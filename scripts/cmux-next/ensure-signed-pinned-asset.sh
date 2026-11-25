@@ -61,9 +61,28 @@ out="$tmp/$asset"
 # Set when the store gave a URL for the asset and the download of its bytes failed: the store is a
 # source then, so this is a failed download and not "no source".
 store_failed=""
+# The controller artifact store's address. No address is built in: CMUX_CEF_STORE_URL, else the
+# fleet's CMUX_CI_CONTROLLER, else the fleet client's configured controller
+# (CMUX_FLEET_CLIENT_CONFIG, default ~/.local/share/cmux-fleet-client/client.json), else a
+# CMUX_CEF_STORE_URL line in CMUX_CEF_R2_ENV_FILE (default ~/.secrets/cmux-cef.env). With none the
+# store is skipped, as on any machine off the tailnet.
+store_url() {
+  local url="${CMUX_CEF_STORE_URL:-${CMUX_CI_CONTROLLER:-}}" file
+  if [[ -z "$url" ]]; then
+    file="${CMUX_FLEET_CLIENT_CONFIG:-$HOME/.local/share/cmux-fleet-client/client.json}"
+    [[ -r "$file" ]] && url="$(/usr/bin/python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1])).get("controller") or "")' "$file" 2>/dev/null || true)"
+  fi
+  if [[ -z "$url" ]]; then
+    file="${CMUX_CEF_R2_ENV_FILE:-$HOME/.secrets/cmux-cef.env}"
+    [[ -r "$file" ]] && url="$(sed -n -E "s/^(export )?CMUX_CEF_STORE_URL=[\"']?([^\"' ]*).*/\2/p" "$file" 2>/dev/null | tail -n 1)"
+  fi
+  printf '%s' "$url"
+}
 from_store() {
   [[ "${CMUX_CUA_ASSET_NO_STORE:-0}" == "1" ]] && return 1
-  local controller="${CMUX_CEF_STORE_URL:-http://100.89.225.106:18765}" signed traced=0
+  local controller signed traced=0
+  controller="$(store_url)"
+  [[ -n "$controller" ]] || return 1
   if [[ $- == *x* ]]; then traced=1; set +x; fi  # the signed URL is a read capability
   signed="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 30 \
       -A cmux-ensure-cua "${controller%/}/v1/artifacts/sha256:$sha/url" 2>/dev/null |

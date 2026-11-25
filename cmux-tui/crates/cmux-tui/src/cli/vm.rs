@@ -110,7 +110,7 @@ pub(super) fn split(command_args: &[String]) -> Option<(Scope, &[String])> {
     scope.owns(rest.first().map(String::as_str)).then_some((scope, rest))
 }
 
-const VERBS: &str = "run, new, show, pause, resume, start, stop, rm, exec, fork, snapshot, access, key, creation, file";
+const VERBS: &str = "run, new, show, pause, resume, start, stop, rm, exec, fork, snapshot, access, key, creation, file, tailnet";
 
 /// `cmux vm`'s usage for the VM API verbs; `cmux vm --help` adds the Cloud verbs.
 fn help() -> String {
@@ -166,6 +166,41 @@ fn sub_verb(tail: &[String], map: &[(&str, &str)]) -> Vec<String> {
         break;
     }
     words
+}
+
+/// What `cmux vm <verb> --help` prints of its own.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum HelpNote {
+    /// All of it: a verb that only redirects (`resize` is `resize-machine`).
+    Whole(String),
+    /// A line naming the verb `verb` spells, before the VM API's help of that verb (`ls` is `list`).
+    Before(String),
+}
+
+/// `-h` or `--help` among a verb's words.
+fn verb_asks_help(tail: &[String]) -> bool {
+    tail.iter().take_while(|w| *w != "--").any(|w| matches!(w.as_str(), "-h" | "--help"))
+}
+
+/// The help of a `cmux vm` verb that is another verb's spelling. Before, `vm resize --help`
+/// exited 2 with its redirect, and `vm ls --help` printed `list`'s help without naming `ls`.
+pub(super) fn verb_help_note(verb: &str, japanese: bool) -> Option<HelpNote> {
+    if verb == "resize" {
+        return super::cloud_help::verb_help(verb, japanese).map(HelpNote::Whole);
+    }
+    let long = match verb {
+        "ls" => "list",
+        "show" => "get",
+        "rm" => "delete",
+        "access" => "client-session",
+        "key" => "token",
+        _ => return None,
+    };
+    Some(HelpNote::Before(if japanese {
+        format!("`cmux vm {verb}` は `cmux vm {long}` と同じです。\n\n")
+    } else {
+        format!("`cmux vm {verb}` is `cmux vm {long}`.\n\n")
+    }))
 }
 
 /// The `cmux-vm` argument list for `cmux machine <rest>` (or `cmux vm <rest>`).
@@ -539,8 +574,19 @@ pub(super) fn vm_runs_cloud_verb(verb: &str) -> bool {
 
 /// Words `vm` answers itself that are not [`MACHINE_VERBS`]: the VM API's list, help, and the
 /// pointers of [`plan`].
-const VM_OWN_WORDS: &[&str] =
-    &["ls", "list", "help", "resize", "workspace", "start-chat", "chat", "pool", "runner", "file"];
+const VM_OWN_WORDS: &[&str] = &[
+    "ls",
+    "list",
+    "help",
+    "resize",
+    "workspace",
+    "start-chat",
+    "chat",
+    "pool",
+    "runner",
+    "file",
+    "tailnet",
+];
 
 /// `cmux cloud …` typed at a terminal: one line on stderr with its new name. A script (no
 /// terminal on stderr) and this binary's own steps read nothing new.
@@ -658,13 +704,14 @@ pub(super) enum NewRoute {
     VmApi,
 }
 
-/// Flags only the app's Cloud create takes (`cmux action describe cloud new-machine`).
-const APP_CREATE_FLAGS: [&str; 6] =
-    ["--size", "--persistent", "--repo", "--machine-config", "--bootstrap", "--bootstrap-script"];
+/// Flags only the app's Cloud create takes (`cmux action describe cloud new-machine`). `--size`,
+/// `--persistent`, `--machine-config`, `--bootstrap` and `--bootstrap-script` both routes take
+/// (headless: vm_bootstrap.rs), so they pick no side; `--repo` needs the app's GitHub link.
+const APP_CREATE_FLAGS: [&str; 1] = ["--repo"];
 
 /// Flags only the VM API's create takes (cmux-vm's `CreateArgs`).
-const VM_API_CREATE_FLAGS: [&str; 5] =
-    ["--snapshot", "--image", "--image-revision", "--public-egress", "--idle-timeout"];
+const VM_API_CREATE_FLAGS: [&str; 6] =
+    ["--snapshot", "--image", "--image-revision", "--public-egress", "--idle-timeout", "--label"];
 
 /// Where `vm new <tail>` (or its old spelling `machine new`) goes. A flag only one side takes
 /// picks that side; otherwise the app makes it when there is one (`app_present`), with its own
@@ -738,7 +785,14 @@ table on stderr.
 Headless (CI, no app) or with a VM API key of your own (CMUX_VM_API_KEY, a
 config file or `cmux vm key new`), it makes a VM API VM instead, which also
 takes --snapshot SNAPSHOT_ID, --image IMAGE_ID --image-revision REV,
---public-egress, --idle-timeout SECONDS and --idempotency-key KEY.
+--public-egress, --idle-timeout SECONDS, --label KEY=VALUE and --idempotency-key KEY.
+There --size, --persistent (--idle-timeout -1), --bootstrap lane --bootstrap-script
+FILE, --machine-config FILE and --wait [--timeout SECONDS] work as well, with
+no app: the script and the file go to the VM over the VM API, and --wait
+answers once the bootstrap and the machine config ended. --repo needs the app.
+
+  CMUX_VM_API_KEY=... cmux vm new --name lane-7 --size large --persistent \
+      --bootstrap lane --bootstrap-script lane-vm-bootstrap.sh --wait
 
 --provider freestyle (the default) is all of the above. --provider gcp makes a
 fleet VM on our own Compute Engine capacity (the CI builder pool, lanes),
@@ -850,6 +904,27 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         print!("{}", vm_help(crate::localization::catalog().is_japanese()));
         return Some(0);
     }
+    // `cmux vm resize --help` and `cmux vm ls --help`: the verb's own help, exit 0 (the Cloud and
+    // remote command matrix).
+    if scope == Scope::Vm
+        && let [verb, tail @ ..] = rest
+        && verb_asks_help(tail)
+    {
+        let japanese = crate::localization::catalog().is_japanese();
+        match verb_help_note(verb, japanese) {
+            Some(HelpNote::Whole(text)) => {
+                print!("{text}");
+                return Some(0);
+            }
+            // The VM API's own help follows, from the verb it runs.
+            Some(HelpNote::Before(note)) => {
+                use std::io::Write as _;
+                print!("{note}");
+                let _ = std::io::stdout().flush();
+            }
+            None => {}
+        }
+    }
     if let Some(words) = cloud_access(rest) {
         return Some(super::cloud_client_session::run_words(&global, &words));
     }
@@ -859,6 +934,24 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         && verb == "pool"
     {
         return Some(run_pool(tail, global.output, &env));
+    }
+    if scope == Scope::Vm
+        && let [verb, tail @ ..] = rest
+        && verb == "tailnet"
+    {
+        return Some(super::vm_tailnet::run(tail, global.output == OutputMode::Json, &env));
+    }
+    if let Some(vm_id) = super::vm_tailnet::cloned_vm(rest)
+        && let Some(refusal) = super::vm_tailnet::refuse_clone_of_joined(vm_id, &env)
+    {
+        eprintln!("{refusal}");
+        return Some(2);
+    }
+    if let [verb, vm_id, ..] = rest
+        && matches!(verb.as_str(), "rm" | "delete")
+        && !vm_id.starts_with('-')
+    {
+        super::vm_tailnet::leave_before_delete(vm_id, &env);
     }
     if scope == Scope::Vm
         && let [verb, tail @ ..] = rest
@@ -924,6 +1017,31 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             return Some(code);
         }
     }
+    // The VM API's create: `--size` and `--persistent` become its words, and a bootstrap,
+    // machine config or `--wait` runs after it here (vm_bootstrap.rs).
+    let headless_rest;
+    let mut rest = rest;
+    if let [verb, tail @ ..] = rest
+        && matches!(verb.as_str(), "new" | "create")
+    {
+        let home = env("HOME").unwrap_or_default();
+        let headless = match super::vm_bootstrap::parse(tail, &home) {
+            Ok(headless) => headless,
+            Err(message) => {
+                return Some(super::app::failure(
+                    "usage.invalid",
+                    &format!("cmux: {message}"),
+                    global.output,
+                    2,
+                ));
+            }
+        };
+        if headless.runs_after_create() {
+            return Some(run_headless_new(&global, verb, &headless, &env));
+        }
+        headless_rest = std::iter::once(verb.clone()).chain(headless.create).collect::<Vec<_>>();
+        rest = headless_rest.as_slice();
+    }
     let plan = match plan_with_globals(rest, &global) {
         Ok(plan) => plan,
         Err(error) => {
@@ -956,6 +1074,33 @@ fn run_pool(tail: &[String], output: OutputMode, env: &dyn Fn(&str) -> Option<St
         words.push("--json".to_owned());
     }
     runtime.block_on(cmux_vm_pool::cli::run(&words, env, &mut std::io::stdout().lock()))
+}
+
+/// Headless `vm new` with a bootstrap, a machine config or `--wait`: the create's plan with
+/// `--json` (its answer is read here), then vm_bootstrap.rs's setup.
+fn run_headless_new(
+    global: &GlobalArgs,
+    verb: &str,
+    headless: &super::vm_bootstrap::Headless,
+    env: &dyn Fn(&str) -> Option<String>,
+) -> i32 {
+    let fail = |message: String, code| {
+        super::app::failure("usage.invalid", &format!("cmux: {message}"), global.output, code)
+    };
+    let setup = match super::vm_bootstrap::Setup::read(headless) {
+        Ok(setup) => setup,
+        Err(message) => return fail(message, 2),
+    };
+    let rest: Vec<String> =
+        std::iter::once(verb.to_owned()).chain(headless.create.clone()).collect();
+    let mut plan = match plan_with_globals(&rest, global) {
+        Ok(plan) => plan,
+        Err(error) => return fail(error.0, 2),
+    };
+    if plan.first().map(String::as_str) != Some("--json") {
+        plan.insert(0, "--json".to_owned());
+    }
+    super::vm_bootstrap::run(plan, &setup, global.output == OutputMode::Json, env)
 }
 
 /// Runs the cmux-vm CLI on its own runtime, with this process's stdio.

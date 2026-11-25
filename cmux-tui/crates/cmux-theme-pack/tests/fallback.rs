@@ -265,6 +265,67 @@ fn assets_stay_inside_the_pack() {
     }
 }
 
+#[test]
+fn a_pack_ships_its_own_fonts_and_bad_ones_drop_alone() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("pack");
+    std::fs::create_dir_all(dir.join("assets/fonts")).unwrap();
+    std::fs::write(dir.join("assets/fonts/Sakura-Mono.otf"), b"OTTO\0\0rest").unwrap();
+    std::fs::write(dir.join("assets/fonts/Sakura-Sans.ttf"), b"\x00\x01\x00\x00rest").unwrap();
+    std::fs::write(dir.join("assets/fonts/Web.woff2"), b"wOF2rest").unwrap();
+    std::fs::write(dir.join("assets/fonts/fake.ttf"), b"#!/bin/sh\nrm -rf ~").unwrap();
+    std::fs::write(dir.join("assets/fonts/short.otf"), b"OT").unwrap();
+    std::fs::write(dir.join("assets/fonts/picture.png"), b"\x89PNG").unwrap();
+    std::fs::write(root.path().join("Outside.otf"), b"OTTOrest").unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(
+        root.path().join("Outside.otf"),
+        dir.join("assets/fonts/escape.otf"),
+    )
+    .unwrap();
+    let manifest = json!({
+        "cmuxPack": 1, "id": "cmux/fonts", "capabilities": ["fonts"],
+        "look": { "terminal.fontFamily": "Sakura Mono" },
+        "fonts": [
+            "assets/fonts/Sakura-Mono.otf", "assets/fonts/Sakura-Sans.ttf", "assets/fonts/Web.woff2",
+            "assets/fonts/Sakura-Mono.otf", "assets/fonts/fake.ttf", "assets/fonts/short.otf",
+            "assets/fonts/picture.png", "assets/fonts/missing.otf", "../Outside.otf",
+            "/etc/passwd", "assets/fonts/escape.otf", 7
+        ]
+    });
+    write_pack(&dir, &manifest.to_string());
+    let pack = read(&dir).unwrap();
+    let fonts: Vec<&str> =
+        pack.theme["fonts"].as_array().unwrap().iter().map(|font| font.as_str().unwrap()).collect();
+    // The three real faces, once each, as absolute paths inside the pack.
+    assert_eq!(fonts.len(), 3, "{fonts:?}");
+    for (font, name) in fonts.iter().zip(["Sakura-Mono.otf", "Sakura-Sans.ttf", "Web.woff2"]) {
+        let path = font.strip_prefix("file:").unwrap();
+        assert!(Path::new(path).is_absolute() && path.ends_with(&format!("/assets/fonts/{name}")));
+    }
+    let dropped: Vec<&str> = pack
+        .diagnostics
+        .iter()
+        .filter(|d| d.section == "fonts")
+        .map(|d| d.message.as_str())
+        .collect();
+    assert_eq!(dropped.len(), 8, "{:?}", pack.diagnostics);
+    assert_eq!(pack.theme["terminal.fontFamily"], "Sakura Mono");
+    // `fonts` is the file's own key, not a setting: the app's reader takes it as is.
+    assert!(!pack.keys().contains(&"fonts".to_string()));
+    assert_app_clean(&pack);
+
+    // Without the fonts capability the files change nothing.
+    let manifest = json!({ "cmuxPack": 1, "id": "cmux/fonts", "capabilities": ["tokens"],
+        "fonts": ["assets/fonts/Sakura-Mono.otf"] });
+    write_pack(&dir, &manifest.to_string());
+    let pack = read(&dir).unwrap();
+    assert!(!pack.theme.contains_key("fonts"));
+    assert!(
+        pack.diagnostics.iter().any(|d| d.section == "fonts" && d.message.contains("capability"))
+    );
+}
+
 /// A small deterministic generator, so a failure reproduces from its seed.
 struct Lcg(u64);
 
@@ -331,7 +392,8 @@ fn mangled_packs_never_crash_and_never_leak_a_bad_value() {
                 }
                 1 => {
                     let section =
-                        ["look", "colors", "slots", "capabilities", "id", "name"][rng.below(6)];
+                        ["look", "colors", "slots", "fonts", "capabilities", "id", "name"]
+                            [rng.below(7)];
                     object.insert(section.to_string(), junk(&mut rng));
                 }
                 2 => {

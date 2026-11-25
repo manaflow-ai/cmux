@@ -28,7 +28,7 @@ class CacheRestoreReceiptTests(unittest.TestCase):
         inspected = [
             ".github/actions/cache-restore/action.yml", ".github/actions/cache-save/action.yml",
             ".github/workflows/ci.yml", ".github/workflows/ci-macos.yml", ".github/workflows/nightly.yml",
-            ".github/workflows/seed-derived-data.yml", "scripts/check-test-determinism.py",
+            "scripts/check-test-determinism.py",
             "scripts/ci/cache_restore_receipt.py", "tests/test_ci_cache_restore_receipt.py",
             "tests/test_ci_pull_request_caches_are_read_only.py",
             # The table and its runner: a change to the step itself runs it.

@@ -52,7 +52,9 @@ final class RowBadgeView: NSView {
     /// The room around a glyph in its cell: 2 pt for a corner badge (its 1.5 pt ring and half a
     /// point of air) and a plain glyph (the same cell, so the glyph keeps its place), 4 pt for a
     /// stack chip (2.5 pt of chip, then the ring).
-    var cellPad: CGFloat { look == .stack ? 4 : 2 }
+    var cellPad: CGFloat { look == .stack ? Self.stackCellPad : 2 }
+    /// A stack chip's room around its glyph (`cellPad`), for the callers that size a line to hold the stack.
+    static let stackCellPad: CGFloat = 4
     /// Whether any disc (a cutout ring or a stack chip) draws behind a glyph.
     var drawsBackdrop: Bool {
         zip(rings, chips).prefix(states.count).contains { !$0.isHidden || !$1.isHidden }

@@ -14,6 +14,10 @@ import { edgeOf, pointerOn, type Box, type Edge, type FeelFrame, type FeelTrace 
 export type Verdict = { check: string; pass: boolean; measured: string; limit: string };
 
 const round = (value: number) => Math.round(value * 10) / 10;
+/** A measured number at the precision its limit needs: a layout shift of 0.013 against 0.01 reads 0.013,
+ *  never "0". */
+const shown = (value: number, limit: number) =>
+  Math.abs(limit) > 0 && Math.abs(limit) < 1 ? Number(value.toPrecision(2)) : round(value);
 
 function percentile(values: number[], p: number): number {
   if (values.length === 0) return 0;
@@ -322,7 +326,7 @@ export class Verdicts {
     this.list.push({
       check,
       pass: measured <= limit,
-      measured: `${round(measured)}${unit}`,
+      measured: `${shown(measured, limit)}${unit}`,
       limit: `≤ ${limit}${unit}`,
     });
   }
@@ -331,7 +335,7 @@ export class Verdicts {
     this.list.push({
       check,
       pass: measured >= limit,
-      measured: `${round(measured)}${unit}`,
+      measured: `${shown(measured, limit)}${unit}`,
       limit: `≥ ${limit}${unit}`,
     });
   }

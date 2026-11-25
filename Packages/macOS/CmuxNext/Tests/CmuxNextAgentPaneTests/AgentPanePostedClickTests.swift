@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextPages
 import CmuxNextPagesTestSupport
 import CmuxNextTestSupport
 import Foundation
@@ -55,6 +56,48 @@ struct AgentPanePostedClickTests {
         // The person's own click (the HID system's events carry source pid 0).
         view.judge(try Self.click(in: window, source: 0), eventWindow: window)
         #expect(gestures.consume(), "the person's click did not count as a gesture")
+    }
+
+    /// A tab the pane stopped showing stays in it, pane-sized (PaneContentView+Parking): hidden, or under
+    /// the tab shown. A click in the shown tab is its gesture only: the parked view records none, so a
+    /// delayed request from its page (Set Up Computer Use's `action.run`) cannot spend that click.
+    @Test func aClickInTheShownTabGrantsNoGestureToAParkedViewInThePane() throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "parked-click-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: "index.html")
+        try Data("<html><body><button>Ask</button></body></html>".utf8).write(to: file)
+        let frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+        let shown = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file)))
+        let parked = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file)))
+        let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { shown.close(); parked.close(); window.close() }
+        let pane = NSView(frame: frame)
+        window.contentView = pane
+        for view in [shown, parked] {
+            view.frame = frame
+            pane.addSubview(view)
+            view.layoutSubtreeIfNeeded()
+        }
+        let click = { try Self.click(in: window, source: 0) }
+        try #require(parked.webView.bounds.contains(parked.webView.convert(try click().locationInWindow, from: nil)),
+                     "setup: the click misses the parked page; the checks below would prove nothing")
+
+        // Hidden, and above the shown tab in the pane's subviews (a switch moves no view).
+        parked.isHidden = true
+        parked.judge(try click(), eventWindow: window)
+        #expect(!parked.model.transport.gestures.isAvailable, "a hidden parked view recorded the shown tab's click")
+        shown.judge(try click(), eventWindow: window)
+        #expect(shown.model.transport.gestures.consume(), "the shown tab's own click did not count")
+
+        // Not hidden but under the tab shown: the click lands in the shown tab, not in it.
+        parked.isHidden = false
+        pane.addSubview(shown, positioned: .above, relativeTo: parked)
+        parked.judge(try click(), eventWindow: window)
+        #expect(!parked.model.transport.gestures.isAvailable, "a covered view recorded the click on the view over it")
+        shown.judge(try click(), eventWindow: window)
+        #expect(shown.model.transport.gestures.consume(), "the shown tab's own click did not count")
     }
 
     /// A screenshot/file interaction can leave Chromium's child window temporarily not key while
@@ -129,6 +172,65 @@ struct AgentPanePostedClickTests {
         event.setIntegerValueField(.eventSourceUnixProcessID, value: Int64(getpid()) + 1)
         view.judge(try #require(NSEvent(cgEvent: event)), eventWindow: childWindow)
         #expect(!gestures.consumeQuestionReturn(keypad), "new posted page input left the keypad proof usable")
+    }
+
+    /// Review round 2 of #48024: in a paint hold a new view lies at alpha 0 over the view that still shows, and both
+    /// Chromium pages sit at the same rect. A click or key in the shown page's window is that pane's gesture only: the
+    /// new view records none, so a deferred request from its page cannot spend the outgoing page's input.
+    @Test func overlappingChromiumPagesCreditOnlyThePaneWhosePageShows() async throws {
+        let file = try #require(AgentPageTestRoot.page)
+        let frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+        let paneWindow = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        paneWindow.isReleasedWhenClosed = false
+        let root = NSView(frame: frame)
+        paneWindow.contentView = root
+        let make = { try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file), pageHost: true, testRoot: true,
+                                                chromium: FakeChromiumHosting())) }
+        let outgoing = try make(), incoming = try make()
+        let hold = NSView(frame: frame)
+        hold.alphaValue = 0
+        outgoing.frame = frame
+        incoming.frame = hold.bounds
+        root.addSubview(outgoing)
+        root.addSubview(hold, positioned: .above, relativeTo: outgoing)
+        hold.addSubview(incoming)
+        var pageWindows: [NSWindow] = []
+        defer {
+            outgoing.close(); incoming.close()
+            for window in pageWindows { window.close() }
+            paneWindow.close()
+        }
+        root.layoutSubtreeIfNeeded()
+        let deadline = Date().addingTimeInterval(5)
+        while !(outgoing.debugShowsChromium && incoming.debugShowsChromium), Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        try #require(outgoing.debugShowsChromium && incoming.debugShowsChromium, "setup: a page never showed in Chromium")
+        // Each Chromium page draws in its own child window of the pane's window, both at the same rect.
+        for view in [outgoing, incoming] {
+            let content = try #require(view.chromiumPage?.contentView)
+            let page = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            page.isReleasedWhenClosed = false
+            paneWindow.addChildWindow(page, ordered: .above)
+            content.removeFromSuperview()
+            page.contentView = content
+            pageWindows.append(page)
+        }
+        PageWebView.syncChromiumVisibility(in: root)
+        try #require(outgoing.page?.chromiumShows == true, "setup: the outgoing page does not show")
+        try #require(incoming.page?.chromiumShows != true, "setup: the held page shows")
+        let shown = pageWindows[0]
+
+        incoming.judge(try Self.click(in: shown, source: 0), eventWindow: shown)
+        #expect(!incoming.model.transport.gestures.isAvailable, "the held view recorded the shown page's click")
+        outgoing.judge(try Self.click(in: shown, source: 0), eventWindow: shown)
+        #expect(outgoing.model.transport.gestures.consume(), "the shown page's own click did not count")
+
+        let key = try #require(CGEvent(keyboardEventSource: nil, virtualKey: 36, keyDown: true))
+        key.setIntegerValueField(.eventSourceUnixProcessID, value: 0)
+        let returnKey = try #require(NSEvent(cgEvent: key))
+        incoming.judge(returnKey, eventWindow: shown)
+        #expect(!incoming.model.transport.gestures.isAvailable, "the held view recorded the shown page's Return")
+        outgoing.judge(returnKey, eventWindow: shown)
+        #expect(outgoing.model.transport.gestures.consume(), "the shown page's own Return did not count")
     }
 
     /// While the person types, a click another process posts on Allow must not spend the typing's
