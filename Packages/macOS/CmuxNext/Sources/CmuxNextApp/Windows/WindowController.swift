@@ -38,7 +38,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     var parkSerial: UInt64 = 0
     /// The next Cmd-N's view, built before the key in idle steps on the daemon's reserved workspace (its own slot).
     private(set) lazy var reservedContent = WorkspaceSpareSlot<WorkspaceContentController>(owner: "WorkspaceSpare", on: services.mainWork, wanted: { [weak self] in
-        self.map { $0.services.windows.active === $0 && $0.content != nil && $0.services.daemon.reservesWorkspace } ?? false
+        self.map { $0.services.windows.active === $0 && $0.content != nil && $0.services.daemon.reservesWorkspace && $0.services.windows.deferredWindows.isEmpty } ?? false
     }, reserve: { [weak self] in
         self.flatMap { $0.services.agentTabs.reserveWorkspace(on: $0.services.daemon, cwd: WorkspaceSpawn().startFolder(roomFolder: $0.services.machines.local.store.profile($0.state.profileID)?.defaults?.cwd, local: true, daemonDefault: NewTerminalStart.defaultFolder(on: $0.services.daemon))) }
     }, build: { [weak self] model in
@@ -114,7 +114,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         let registry = services.registry
         root.toolbarBand.followToggleDescription(title: { registry.descriptor(for: "toggleSidebar")?.title ?? "" },
                                                  shortcut: { registry.shortcutDisplay(for: "toggleSidebar") })
-        root.toolbarBand.appButtons = services.apps.client.toolbarButtons(in: root.toolbarBand, reveal: root.titlebarReveal)
+        root.toolbarBand.appButtons = services.apps.client.toolbarButtons(in: root.toolbarBand, reveal: root.titlebarReveal, registry: services.registry)
         let window = ShellWindow(
             contentRect: frame ?? NSRect(origin: .zero, size: Self.defaultSize),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -410,7 +410,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         BackdropImageStore.shared.desktop.windowDidChange()
     }
     /// Shown, unhidden or uncovered: the desktop picture behind it may be another one now, and tabs an agent drove off screen come back.
-    func windowDidChangeOcclusionState(_ notification: Notification) { BackdropImageStore.shared.desktop.windowDidChange(); if let window { services.browserHost?.tabs.windowDidChangeOcclusion(window) } }
+    func windowDidChangeOcclusionState(_ notification: Notification) { BackdropImageStore.shared.desktop.windowDidChange(); if let window { services.browserHost?.tabs.windowDidChangeOcclusion(window) }; services.windows.recordSaver.launchImages.windowsChanged() }
 
     var sidebarObservation: Task<Void, Never>?
 

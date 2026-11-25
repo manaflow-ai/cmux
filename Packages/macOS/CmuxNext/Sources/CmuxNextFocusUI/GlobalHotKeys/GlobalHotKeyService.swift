@@ -84,10 +84,10 @@ package final class GlobalHotKeyService {
         tasks.append(Task { [weak self] in
             // Suspension reads the whole focus context, so skip the changes
             // that move neither the keys nor the suspension.
-            var last: (keys: [ActionID: [Shortcut]], suspended: Bool, enabled: Bool, startAgent: Bool, capture: Bool)?
+            var last: (keys: [ActionID: [Shortcut]], suspended: Bool, enabled: Bool, startAgent: Bool, capture: Bool, qwerty: Bool)?
             for await next in ObservationStream({
                 (keys: registry.globalHotKeys(), suspended: registry.globalHotKeysSuspended, enabled: showHideEnabled(),
-                 startAgent: startAgentEnabled(), capture: captureEnabled())
+                 startAgent: startAgentEnabled(), capture: captureEnabled(), qwerty: registry.matchesQwertyPositions)
             }) {
                 if let last, last == next { continue }
                 last = next
@@ -114,7 +114,7 @@ package final class GlobalHotKeyService {
             registered.removeAll()
             return
         }
-        let layout = layout()
+        let layout = registry.matchesQwertyPositions ? KeyCodeLayout.ansi : layout()
         var wanted: Set<GlobalHotKeyBinding> = []
         for (id, shortcuts) in allowedHotKeys() {
             for shortcut in shortcuts {

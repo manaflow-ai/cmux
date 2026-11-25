@@ -7,17 +7,17 @@ import { chatPlace } from "./chatMachine";
 import React, {
   useCallback,
   useEffect,
+  useId,
   useImperativeHandle,
+  useInsertionEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
-  useInsertionEffect,
-  useId,
 } from "react";
 import type { ExtraFolderControl } from "./extraFolders";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 // Send's iMessage colors (--cmux-messages-blue); build-agent-pane-web.sh inlines the sheet.
 import "../../theme/messages.css";
 import type { ConnectKind, OffloadKind, OffloadReasons } from "./environments";
@@ -29,10 +29,10 @@ import {
   MAX_IMAGE_BYTES,
   placeInline,
   withoutInlineTokens,
+  inlineTokenSpans,
   type ComposerAttachment,
   type DroppedKind,
   type KnownPaths,
-  inlineTokenSpans,
 } from "./attachments";
 import { useReleasedPicks } from "./designSelection";
 import type { SendGesture } from "./heldPrompt";
@@ -63,6 +63,7 @@ import { DictationStrip } from "./DictationListening";
 import { FileSearch } from "./FileSearch";
 import { PromptFocusProvider } from "./promptFocus";
 import { ComposerBox, type ComposerBoxHandle } from "./ComposerBox";
+import { handleVimKey, VIM_INITIAL, type VimMode, type VimState } from "./composer/vimKeys";
 import { MentionMenu } from "./MentionMenu";
 import { mentionAsk, useExtensionMentionPrefixes, useExtensionMentions } from "./composer/extensionMentions";
 import { markdownOffset, mentionResults, useMentionSearch } from "./mentionMenuModel";
@@ -171,6 +172,7 @@ import { loadRecentCommandNames, recentCommands, rememberRecentCommand } from ".
 import { openPicker } from "./pickerOpeners";
 import type { RepickMachine } from "./cloudRepick";
 import { compactingUsage } from "./usageStats";
+import { useExperimentSwitch } from "../../experiments/switches";
 import { experimentArm } from "../../experiments/experiment";
 import { promptSuggestionLook } from "./promptSuggestionLook.experiment";
 import { cloudStartComposerLook } from "./cloudStartComposer.experiment";
@@ -205,6 +207,7 @@ import { focusRoute } from "../../ui/focusRoute";
 import { outcomeAsk } from "./outcomeAsk.experiment";
 import { withOutcomeAsk } from "./outcomeAsk";
 import type { ComposerEditCommand } from "./composerEditCommand";
+import { ComposerCustomizer } from "./ComposerCustomizer";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -341,6 +344,11 @@ type Props = {
   /// `late`: the send resumed after a wait (files read or uploaded, dictation ended), whose key press
   /// is long gone: hold and say why, never open setup (it would spend a key pressed since).
   holdsSend?(text: string, late?: boolean): boolean;
+  /// Binds the person's key press or click to a prompt that goes now, ahead of files still
+  /// attaching (composer/sendBehind.ts): only where the send goes straight to the chat open now,
+  /// whose client draws it as sent and sends it once the files are chips. Undefined: the send
+  /// waits for its files, as before.
+  onBindSendAhead?(): SendGesture | undefined;
   /// Binds the person's key press or click to `/side`'s prompt, held for its files, bound to no chat:
   /// the side chat it goes to does not exist yet (#40066). The prompt redeems it by its prompt id.
   onBindSideGesture?(): SendGesture | undefined;
@@ -487,6 +495,8 @@ type Props = {
   noProject?: boolean;
   sourceRepository?: { cwd: string; name: string };
   cloningRepository?: string;
+  /// A GitHub repository picked with This Mac picked, checked out when Return sends (cmux#53226).
+  pendingRepository?: string;
   /// A started chat's Choose folder…: the host's folder panel (see ComposerContext).
   onBrowseFolder?(): Promise<string | undefined>;
   /// The location row's SSH… and New Cloud Machine rows open the host's connect flows.
@@ -700,8 +710,13 @@ function useRelayProps(props: Props): Props {
 /// identity across the pane's renders (stableHandlers.ts), and the pane hands it a snapshot that keeps
 /// its identity while nothing the composer shows changed (composer/composerView.ts), so a transcript
 /// change (a tool call, a row added) leaves it be. A relayed one (`relay`) is the same composer.
+/// Function props the composer calls only from a send, never while drawing: held like its `on*` handlers. The
+/// pane passes `holdsSend` inline, so each pane render (every streamed tool-output chunk under a running tool
+/// call) handed the composer a new one and drew the composer and its box again, in the frames a typed key waits on.
+const CALL_TIME_PROPS = ["holdsSend"] as const;
+
 export function Composer(props: Props) {
-  return <MemoComposer {...useStableHandlers(useRelayProps(props))} />;
+  return <MemoComposer {...useStableHandlers(useRelayProps(props), CALL_TIME_PROPS)} />;
 }
 
 /// The prompt box with the agent's `/` command menu:
@@ -720,6 +735,7 @@ function ComposerFrame({
   onSend,
   onBindSendGesture,
   holdsSend,
+  onBindSendAhead,
   onBindSideGesture,
   transcriptFollowing,
   onStop,
@@ -774,6 +790,7 @@ function ComposerFrame({
   noProject,
   sourceRepository,
   cloningRepository,
+  pendingRepository,
   onBrowseFolder,
   onConnect,
   onOffload,
@@ -876,10 +893,10 @@ function ComposerFrame({
   const promptRef = useRef(promptText);
   /// Each write from here (not the field's own typing) renders the frame once, so the caret it
   /// asked for (`pendingCaret`) is applied after the field takes the text.
-  const [, setWrites] = useState(0);
   const writeText = (value: string, at: number) => {
+    if (field.current && field.current.value() !== value) field.current.reset(value);
     promptRef.current.set(value, at);
-    setWrites((count) => count + 1);
+    promptRef.current.draw();
   };
   /// Runs a text change's draft writes (the text effects of before) once per change, after the
   /// handler that made it, as React's flush of the change ran them.
@@ -1019,15 +1036,26 @@ function ComposerFrame({
     showContextUsage,
     composerRing,
     spellChecking,
+    composerVimKeys: vimKeys,
     scrollToBottomOnSend,
     plainFooter,
     attachmentView,
     followUpMode,
   } = useComposerSettings();
+  // Modal vim in the prompt (composer/vimKeys.ts), when `agentPane.composerVimKeys` is on. The state
+  // lives in a ref so a key reads the latest; the mode alone renders (the indicator).
+  const vimState = useRef<VimState>(VIM_INITIAL);
+  const [vimMode, setVimMode] = useState<VimMode>(VIM_INITIAL.mode);
+  useEffect(() => {
+    if (vimKeys) return;
+    vimState.current = VIM_INITIAL;
+    setVimMode(VIM_INITIAL.mode);
+  }, [vimKeys]);
   // Claude's look draws Claude desktop's draft-sensitive ↵ slot before the mic; Codex's draws
   // Codex's ↑ after the mic, always there, so the mic never steps (composerLook.ts; Leo
   // 2026-11-04: "our codex style composer should look like codex's/chatgpt's").
   const look = useComposerLookWithV2();
+  const buttonsVisible = useExperimentSwitch("composerButtonsVisible");
   const quietActions = plainFooter && !lookRowInBox(look);
   const usage = compactingUsage(
     snapshot.summary?.usage,
@@ -1070,6 +1098,7 @@ function ComposerFrame({
     loading,
     unsettled,
     cancel,
+    goAhead,
     retry,
     revive,
     originalFailures,
@@ -1887,7 +1916,7 @@ function ComposerFrame({
     // the same text (Backspace and the letter again, or the prompt cleared and typed again), so the @
     // and emoji lists come back as the / list does.
     promptRef.current.set(value, at, true);
-    if (!typed) setWrites((count) => count + 1);
+    if (!typed) promptRef.current.draw();
     // Emptied (a command run, a prompt sent, the text deleted): this pane no longer types, and the
     // next draft picks its own skills.
     if (!value.trim()) pickedSkills.current.clear();
@@ -2052,10 +2081,10 @@ function ComposerFrame({
       slash !== undefined &&
       (composerCommand(words, snapshot.summary?.harness) !== undefined ||
         (commands ?? []).some((command) => command.name === slash));
-    const placed = isCommand
+    let placed = isCommand
       ? { text: words, attachments: attachments.map(({ inline: _, ...attachment }) => attachment) }
       : inText;
-    const prompt = placed.text;
+    let prompt = placed.text;
     const command = composerCommand(prompt, snapshot.summary?.harness, attachments.length);
     // Send in side chat: the draft as written is `/side`'s prompt, through the command's own path.
     const side = route === "side" ? SIDE_COMMAND : undefined;
@@ -2199,8 +2228,29 @@ function ComposerFrame({
       sentAt.current = Date.now();
       return true;
     }
-    // A file pasted or dropped is still being read or uploaded: the prompt waits for its chip.
-    if (holdForAttachments((gesture) => resumeSend(() => submitNow.current(force, steer, gesture)), kept)) return false;
+    // A file dropped, pasted or picked that is still attaching (its path asked of the host, its bytes
+    // streaming to the chat's machine) never holds the send: the prompt goes now with it as a
+    // stand-in, shows as sent, and reaches the agent once the file is its chip (composer/sendBehind.ts;
+    // Leo, 2026-11-17: "I CAN'T EVEN FUCKING SEND A MESSAGE WHILE THE FUCKING THING LOADS").
+    let wentAhead = false;
+    if (pending.length > 0 && !isCommand && onBindSendAhead) {
+      const gesture = kept ?? onBindSendAhead();
+      const ahead = gesture ? goAhead() : undefined;
+      // The gesture bound for this send stays its own, held or not.
+      if (gesture) kept = gesture;
+      if (ahead) {
+        const went = new Set(ahead.map((chip) => chip.id));
+        placed = placeInline(typedText.trim(), [...attachments, ...ahead], {
+          dropped: (id) => !went.has(id) && pending.some((chip) => chip.id === id),
+        });
+        prompt = placed.text;
+        holdForAttachments.cancel();
+        wentAhead = true;
+      }
+    }
+    // A file still being read for what goes in the prompt (an image's preview): the prompt waits for its chip.
+    if (!wentAhead && holdForAttachments((gesture) => resumeSend(() => submitNow.current(force, steer, gesture)), kept))
+      return false;
     // Too large for one message until the originals still uploading are saved: it waits for them.
     if (
       holdForOriginals(
@@ -2261,6 +2311,17 @@ function ComposerFrame({
     };
     if (!(taken instanceof Promise)) {
       clear();
+      return true;
+    }
+    // Sent ahead of its files: it already shows as sent in the chat, so the composer is free now
+    // for the next message while the file still goes; a refusal fails its row there, kept
+    // (direct.ts `sendAheadOfFiles`). Only one refused before the chat's client drew it comes back.
+    if (wentAhead) {
+      clear();
+      taken.catch(() => {
+        if (!(field.current?.value() ?? "")) edit(written, written.length);
+        setAttachError(t("composer.stillSending"));
+      });
       return true;
     }
     // The prompt stays in the composer until the host takes it; a refusal keeps it there.
@@ -2325,12 +2386,21 @@ function ComposerFrame({
     setShellText(typed);
     shellCaret.current = typed.length;
   };
+  /// Shows the prompt again (shell mode's end) and puts the caret in it in the same task: the prompt is
+  /// `display: none` until the render that ends shell mode commits, and a focus before that does
+  /// nothing, so the shell field unmounted and the keyboard went to the page, with no caret until a
+  /// click (Leo, 2026-11-22: "we can't have that"). Only from an event handler, never a render.
+  const showPrompt = () => {
+    flushSync(() => {
+      setShell(false);
+      setShellText("");
+    });
+    field.current?.focus();
+  };
   /// Leaves shell mode; what was typed moves to the prompt, never lost.
   const exitShell = () => {
     const typed = shellText;
-    setShell(false);
-    setShellText("");
-    field.current?.focus();
+    showPrompt();
     if (typed) field.current?.writeText(typed, typed.length, typed.length);
   };
   const runShell = () => {
@@ -2339,9 +2409,7 @@ function ComposerFrame({
     const run = onShell(command);
     if (!run) return;
     setAttachments((current) => cappedShellChips([...current, shellAttachment(run)]));
-    setShell(false);
-    setShellText("");
-    field.current?.focus();
+    showPrompt();
   };
   const interrupt = (event: KeyboardEvent | React.KeyboardEvent) => {
     if (event.key !== "c" || !event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return false;
@@ -2751,6 +2819,7 @@ function ComposerFrame({
       noProject={noProject}
       sourceRepository={sourceRepository}
       cloningRepository={cloningRepository}
+      {...(pendingRepository ? { pendingRepository } : {})}
       onBrowseFolder={onBrowseFolder}
       onConnect={onConnect}
       {...(onOffload ? { onOffload } : {})}
@@ -2908,6 +2977,21 @@ function ComposerFrame({
     const text = promptRef.current.text;
     // Every key belongs to the input method while it composes, not only Enter.
     if (event.isComposing || event.keyCode === 229) return;
+    // Vim keys (opt-in): normal mode takes the plain keys, Esc in insert mode leaves it. A menu that
+    // is open keeps Esc, and the shell line is its own field. Off, nothing here runs.
+    if (vimKeys && !shell && !listShown && field.current) {
+      const { value, selectionEnd } = field.current.text();
+      const result = handleVimKey(vimState.current, event, value, selectionEnd);
+      vimState.current = result.state;
+      if (result.state.mode !== vimMode) setVimMode(result.state.mode);
+      if (result.handled) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (result.undo) field.current.undo();
+        else if (result.caret !== undefined) field.current.writeText(result.value ?? value, result.caret, result.caret);
+        return;
+      }
+    }
     if (interrupt(event)) return;
     const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
     // ⌃S stashes the draft; on an empty prompt it brings the newest stashed one back.
@@ -3178,6 +3262,7 @@ function ComposerFrame({
       composing.current = value;
     };
   });
+  const emptyQuietSlot = quietActions && !shell && !hasDraft && !listening;
   const sendOrStop =
     stop && !hasDraft && !listening ? (
       stopButton
@@ -3195,11 +3280,11 @@ function ComposerFrame({
       >
         <SendSlotGlyph glyph="play" state="queued" memory={morphMemory} scope={sessionId} />
       </button>
-    ) : remote.canSend && (!quietActions || shell || hasDraft || listening) ? (
+    ) : remote.canSend && (!emptyQuietSlot || buttonsVisible) ? (
       // One send control in both looks (Leo 2026-10-31: "THE F***ING TWO SEND
       // BUTTONS"): mid-turn the empty prompt's slot is Stop, and the first letter turns it
       // into Send, which does what Return does: it steers an agent that steers, else queues.
-      // Claude's look draws no Send at rest until there is a draft, the mic alone on the right;
+      // The quiet footer hides Send at rest unless Always Show Composer Buttons is on;
       // its one slot sits before the mic with Claude desktop's ↵, so the mic keeps the right edge
       // through a turn. Codex's look always draws its ↑ disc after the mic (quietActions off).
       // A right-click or long press on it opens its menu (composer/SendMenu.tsx).
@@ -3207,7 +3292,10 @@ function ComposerFrame({
         <button
           ref={sendButton}
           type="submit"
-          disabled={Boolean(authBlock || authBlocked || blockSend || blocked?.reason || startHoldsSend) && !shell}
+          disabled={
+            emptyQuietSlot ||
+            (Boolean(authBlock || authBlocked || blockSend || blocked?.reason || startHoldsSend) && !shell)
+          }
           className={`acpmux-send${(shell ? shellText.trim() : !blockSend && !blocked?.reason && !startHoldsSend && hasDraft) ? " acpmux-send-ready" : ""}`}
           aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
           title={
@@ -3332,6 +3420,7 @@ function ComposerFrame({
       data-composer-variant={look === "studio" ? "studio" : undefined}
       // The box inside draws the compact grid in both looks (ComposerBox.tsx, composerLocation.css).
       data-composer-grid=""
+      data-composer-buttons-visible={buttonsVisible || undefined}
       data-shell-look={shellLook}
       data-footer-controls={controlsLook}
       data-empty-height={emptyHeight}
@@ -3415,7 +3504,6 @@ function ComposerFrame({
       )}
       <ComposerBox
         handle={box}
-        prompt={promptText}
         onPersonEdit={() => {
           typedAt.current = performance.now();
         }}
@@ -3426,8 +3514,9 @@ function ComposerFrame({
           className: shell
             ? "acpmux-composer-prompt is-hidden"
             : `acpmux-composer-prompt${dictating ? " is-dictating" : ""}${agentSuggested && suggestionLook === "italic" ? " is-suggestion-italic" : ""}${cloudStarting && startLook === "dimmed" ? " is-cloud-starting" : ""}`,
-          // ComposerBox reads the text itself (`prompt`), so a key renders the box, not this frame.
-          value: "",
+          // The editor updates its own content for each key. This value is the frame's last drawn
+          // snapshot, so the box only renders when the prompt's visible facts change.
+          value: facts.text,
           selectionKey: sessionId,
           placeholder: dictating ? t("dictation.listening") : (startingPlaceholder ?? suggested ?? placeholderText),
           placeholderKey:
@@ -3501,6 +3590,7 @@ function ComposerFrame({
         pasteKeepsText={cloudStarting}
         onPasteRefused={() => setAttachError(t("composer.cloudStartingAttach"))}
         fieldMenu={fieldMenu}
+        {...(vimKeys ? { vimMode } : {})}
         onFieldMenuOpen={noteSelection}
         fieldOverlay={
           shell && (
@@ -3669,6 +3759,8 @@ function ComposerFrame({
           </PromptFocusProvider>
         }
         // The context ring sits left of the model chip (composerLocation.css; Lucas 2026-11-11).
+        // The Customize button under the chat box, when its experiment is on (ComposerCustomizer.tsx).
+        footCenter={<ComposerCustomizer />}
         // A new chat has no ring: it shows from the first send (chatHasFirstSend, locationRow.ts),
         // when the location strip goes. After that it keeps its place before the chat reports
         // usage (inert, ContextRing), so the first report moves nothing in the row (hq#1957: the

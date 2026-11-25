@@ -44,6 +44,13 @@ pub struct MeshControlFrom {
     /// Omitted means all three lifecycle operations; an explicit empty list grants nothing.
     #[serde(default = "lifecycle_ops")]
     pub ops: Vec<String>,
+    /// The widest permission policy a control through this entry runs under here. Omitted means
+    /// `ask`: a start settles into asking mode as a remote start does, and one asking for more is
+    /// held to this. `approve-all` makes the sender this machine's owner for the control, as the
+    /// owner's own daemon over the peer token is (cmux#50026): its start runs in the policy it
+    /// names. `host join` writes it on the person's own `sameUser` entry ([`Self::same_user`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_policy: Option<crate::config::PermissionPolicy>,
 }
 
 impl Default for MeshRelayConfig {
@@ -69,6 +76,10 @@ fn is_on(on: &bool) -> bool {
 /// The control op that moves a chat here from another of the person's machines
 /// (`hub/transfer_pull.rs`). Off unless an entry's `ops` lists it.
 pub const MOVE_OP: &str = "move";
+/// The control op that asks the source machine to move one of its chats elsewhere. It has the
+/// same owner-only grant as [`MOVE_OP`], but is distinct so a caller cannot smuggle a source-side
+/// move through the target-side transfer handler.
+pub const MOVE_OUT_OP: &str = "move_out";
 /// The control op that gives up a move a source's watch ended (`transfer_forget` here).
 pub const MOVE_FORGET_OP: &str = "move_forget";
 
@@ -79,7 +90,28 @@ fn lifecycle_ops() -> Vec<String> {
 impl MeshControlFrom {
     /// The entry `host join` writes: the person's own other machines, for every lifecycle op.
     pub fn same_user() -> Self {
-        Self { daemon_id: String::new(), same_user: true, ops: lifecycle_ops() }
+        Self {
+            daemon_id: String::new(),
+            same_user: true,
+            ops: lifecycle_ops(),
+            max_policy: Some(crate::config::PermissionPolicy::ApproveAll),
+        }
+    }
+
+    /// The `sameUser` entry a join wrote before `maxPolicy` existed, untouched by its owner. A
+    /// join or `host join --status` upgrades it to [`Self::same_user`]; any other entry stays as
+    /// the owner left it.
+    pub fn is_unmarked_join_entry(&self) -> bool {
+        self.same_user
+            && self.daemon_id.is_empty()
+            && self.ops == lifecycle_ops()
+            && self.max_policy.is_none()
+    }
+
+    /// The widest policy a control through this entry runs under: [`Self::max_policy`], else
+    /// `ask`.
+    pub fn policy_cap(&self) -> crate::config::PermissionPolicy {
+        self.max_policy.unwrap_or(crate::config::PermissionPolicy::Ask)
     }
 
     /// Whether this entry lets `from` run `op` here. `from` is the hub-stamped sender (its
@@ -88,9 +120,9 @@ impl MeshControlFrom {
     /// changed) is granted to a sender this entry trusts with any lifecycle op, or one that lists
     /// `read`; an explicit empty list grants nothing.
     ///
-    /// A move (`move`, and `move_forget`, which ends one) is granted only by an entry that lists
-    /// `move` itself, never by the lifecycle default or `read`, and only through `sameUser`: a
-    /// chat moves between the person's own machines alone (`hub/transfer_pull.rs`). It also
+    /// A move (`move`, `move_out`, and `move_forget`, which ends one) is granted only by an entry
+    /// that lists `move` itself, never by the lifecycle default or `read`, and only through
+    /// `sameUser`: a chat moves between the person's own machines alone (`hub/transfer_pull.rs`). It also
     /// needs the sender's hub-stamped daemon id, which the target dials back for the pages.
     pub fn allows(&self, from: &crate::mesh::Sender, own_user: Option<&str>, op: &str) -> bool {
         let granted = match op {
@@ -99,7 +131,9 @@ impl MeshControlFrom {
                 .ops
                 .iter()
                 .any(|allowed| matches!(allowed.as_str(), "start" | "resume" | "stop" | "read")),
-            MOVE_OP | MOVE_FORGET_OP => self.ops.iter().any(|allowed| allowed == MOVE_OP),
+            MOVE_OP | MOVE_OUT_OP | MOVE_FORGET_OP => {
+                self.ops.iter().any(|allowed| allowed == MOVE_OP)
+            }
             _ => false,
         };
         if !granted {
@@ -112,11 +146,38 @@ impl MeshControlFrom {
             .is_some_and(|id| present(from.daemon_id.as_deref()) == Some(id));
         let by_user = self.same_user
             && present(own_user).is_some_and(|own| present(from.user.as_deref()) == Some(own));
-        if matches!(op, MOVE_OP | MOVE_FORGET_OP) {
+        if matches!(op, MOVE_OP | MOVE_OUT_OP | MOVE_FORGET_OP) {
             return by_user && present(from.daemon_id.as_deref()).is_some();
         }
         by_daemon || by_user
     }
+}
+
+/// How much a policy runs without asking: nothing (`ask`, `deny-all`), reads (`approve-reads`,
+/// `review`), reads and edits (`approve-edits`), everything (`approve-all`).
+pub fn policy_reach(policy: crate::config::PermissionPolicy) -> u8 {
+    use crate::config::PermissionPolicy as P;
+    match policy {
+        P::Ask | P::DenyAll => 0,
+        P::ApproveReads | P::Review => 1,
+        P::ApproveEdits => 2,
+        P::ApproveAll => 3,
+    }
+}
+
+/// The widest cap among `entries` that grant `op` to `from` here (each entry's
+/// [`MeshControlFrom::policy_cap`]), or None when none grants it.
+pub fn control_cap(
+    entries: &[MeshControlFrom],
+    from: &crate::mesh::Sender,
+    own_user: Option<&str>,
+    op: &str,
+) -> Option<crate::config::PermissionPolicy> {
+    entries
+        .iter()
+        .filter(|entry| entry.allows(from, own_user, op))
+        .map(MeshControlFrom::policy_cap)
+        .max_by_key(|cap| policy_reach(*cap))
 }
 
 impl MeshRelayConfig {
@@ -149,5 +210,50 @@ impl MeshRelayConfig {
         reqwest::Url::parse(self.url.trim())
             .map(|u| u.origin().ascii_serialization())
             .unwrap_or_default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mesh::Sender;
+
+    fn sender(user: Option<&str>, daemon: Option<&str>) -> Sender {
+        Sender {
+            user: user.map(str::to_owned),
+            daemon_id: daemon.map(str::to_owned),
+            ..Sender::default()
+        }
+    }
+
+    #[test]
+    fn move_out_has_the_same_owner_only_grant_as_move() {
+        let entry = MeshControlFrom {
+            same_user: true,
+            ops: vec![MOVE_OP.to_owned()],
+            ..Default::default()
+        };
+        let own = sender(Some("person"), Some("daemon"));
+        assert!(entry.allows(&own, Some("person"), MOVE_OP));
+        assert!(entry.allows(&own, Some("person"), MOVE_OUT_OP));
+        assert!(!entry.allows(&own, Some("other"), MOVE_OUT_OP));
+        assert!(!entry.allows(&sender(None, Some("daemon")), Some("person"), MOVE_OUT_OP));
+        assert!(!entry.allows(&sender(Some("person"), None), Some("person"), MOVE_OUT_OP));
+        assert!(!entry.allows(&own, None, MOVE_OUT_OP));
+    }
+
+    #[test]
+    fn move_out_cannot_be_granted_by_daemon_id_or_lifecycle_defaults() {
+        let by_daemon = MeshControlFrom {
+            daemon_id: "daemon".into(),
+            ops: vec![MOVE_OP.into()],
+            ..Default::default()
+        };
+        let from = sender(Some("person"), Some("daemon"));
+        assert!(!by_daemon.allows(&from, Some("person"), MOVE_OUT_OP));
+        let default = MeshControlFrom::same_user();
+        assert!(!default.allows(&from, Some("person"), MOVE_OUT_OP));
+        let only_move_out = MeshControlFrom { ops: vec![MOVE_OUT_OP.into()], ..default };
+        assert!(!only_move_out.allows(&from, Some("person"), MOVE_OUT_OP));
     }
 }
