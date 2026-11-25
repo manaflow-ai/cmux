@@ -208,6 +208,10 @@ fn panes_terminal_tables_answer_over_the_channel() {
     assert_eq!(body, json!({"kind": "timed out"}));
     let (_, body) = call_json(c"window_panes_shell_quote", &json!({"text": "it's"}));
     assert_eq!(body, json!({"text": "'it'\\''s'"}));
+    let (_, body) = call_json(c"window_panes_go_to_directory", &json!({"text": "~/a b"}));
+    assert_eq!(body, json!({"text": "\u{15}cd -- ~/'a b'\r"}));
+    let (_, body) = call_json(c"window_panes_go_to_directory", &json!({"text": " "}));
+    assert_eq!(body, json!({"text": null}));
     assert_eq!(call(c"window_tabs_nope", b"{}").0, ERR_INVALID);
     assert_eq!(call(c"window_panes_split", b"[").0, ERR_INVALID);
 }
