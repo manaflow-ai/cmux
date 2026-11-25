@@ -68,7 +68,8 @@ mod tests {
         test_dial::refuse_all();
         hub.start_saved_peers().await;
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-        assert_eq!(test_dial::attempts().len(), 1, "only the working chat's peer dials");
+        // Its dial fails at once here and it redials while wanted, so count peers, not dials.
+        assert!(!test_dial::attempts().is_empty(), "the working chat's peer dials");
         let dialed: Vec<String> = (0..130)
             .map(|i| format!("m{i}"))
             .filter(|name| hub.peer_by_name(name).is_some_and(|p| !p.idle_parked()))
