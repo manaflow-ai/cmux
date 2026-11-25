@@ -259,6 +259,7 @@ function DoneLine({
                 size={16}
                 fallback={SUBAGENT_FALLBACK}
               />
+              <FailedMark />
             </span>
             {/* tooltip-allow: the line cuts the harness's reason; its whole text */}
             <span className="cv-tool__text cv-subagent-failed__text" title={error ? `${name} · ${error}` : name}>
@@ -362,6 +363,7 @@ function DoneLine({
               size={16}
               fallback={SUBAGENT_FALLBACK}
             />
+            {failed && quiet && <FailedMark />}
           </span>
           {quiet ? (
             // What it was asked to do and why it failed, in the line itself: no chip, no ring and
@@ -518,5 +520,16 @@ function LineControl({
     </button>
   ) : (
     <div {...attributes}>{children}</div>
+  );
+}
+
+/// The failure's own glyph on the corner of a failed subagent's mark, as a status badge: the mark is
+/// its harness's glyph, which takes no text color. A bare red dot stood there before (cmux#55191) and
+/// read as a stray dot left of the line (Leo, 2026-11-25: "dot on left weird").
+function FailedMark() {
+  return (
+    <span className="cv-subagent-done__failed-mark" aria-hidden="true">
+      <Icon name="status.error" size={10} />
+    </span>
   );
 }
