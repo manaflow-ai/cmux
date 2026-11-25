@@ -4732,6 +4732,17 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     probeExtra.failure_facts = facts;
     J.record({ step: "failure facts", status: "skip", ms: Date.now() - t0, detail: `read before any delete: ${JSON.stringify(facts)}` });
   };
+  // The send's Chrome trace (Perfetto): printed and saved on a green or red run, once, never a step, so tracing can
+  // never fail the journey. CMUX_JOURNEY_SEND_TRACE_SETTLE_MS=0 (the fake's runs, cloud-journey-fake.ts) skips the
+  // settle: no platform spans land there.
+  let sendTraceSaved = false;
+  const saveSendTraceOnce = async () => {
+    if (reuse || sendTraceSaved) return;
+    sendTraceSaved = true;
+    const settle = process.env.CMUX_JOURNEY_SEND_TRACE_SETTLE_MS === "0" ? async () => {} : sleep;
+    await saveSendTrace(api, sendTrace.id, firstTextEpoch(J.firstText, createSentAt), outDir, Date.now, settle)
+      .catch((e) => console.log(`send trace ${sendTrace.id}: ${String((e as Error)?.message ?? e).slice(0, 200)}`));
+  };
   // This run's install (install token step), revoked at cleanup.
   let journeyInstall: string | null = null;
   // Delete what this run made, pass, fail or cancel. A create whose reply was lost leaves `machine`
@@ -6368,10 +6379,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const hops = Object.entries(hopDurations(got.trace)).map(([h, ms]) => `${h} ${ms}`).join(", ");
       return { value: null, detail: `${got.trace.trace} ${got.trace.path ?? "?"} ${got.trace.total_ms} ms: ${hops}${slow ? `; slowest 24 h p50 ${slow.hop} ${slow.p50_ms} ms (p95 ${slow.p95_ms ?? "-"})` : ""}` };
     }).catch(() => undefined);
-    // The send's Chrome trace (Perfetto): printed and saved, never a step, so tracing can never fail the journey.
-    // CMUX_JOURNEY_SEND_TRACE_SETTLE_MS=0 (the fake's runs, cloud-journey-fake.ts) skips the settle: no platform spans land there.
-    const settle = process.env.CMUX_JOURNEY_SEND_TRACE_SETTLE_MS === "0" ? async () => {} : sleep;
-    if (!reuse) await saveSendTrace(api, sendTrace.id, firstTextEpoch(J.firstText, createSentAt), outDir, Date.now, settle).catch((e) => console.log(`send trace ${sendTrace.id}: ${String((e as Error)?.message ?? e).slice(0, 200)}`));
+    await saveSendTraceOnce();
     // A step that failed without ending the run (the key probe, a chaos fault, the handoff record): its facts first.
     await readGuestDiagnostics("before-cleanup");
     await readFailureFacts();
@@ -6386,6 +6394,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   } catch {
     // The failed step is recorded. What the machine says, then the journey-only checks the failure cut off; cleanup below.
     await readFailureFacts();
+    // A red run is the one whose trace matters most: save it before cleanup deletes the machine.
+    await saveSendTraceOnce();
     await runJourneyOnly?.().catch(() => undefined);
   } finally {
     await finishJourney(cleanup, firstTextObserver, onSignal);

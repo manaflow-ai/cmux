@@ -316,6 +316,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextCloudPlace",
             // The chat place flow store and Auto's signals: Swift carries facts, Rust decides (cloud_move_place_*).
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextActions",
                 "CmuxNextCloud",
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
