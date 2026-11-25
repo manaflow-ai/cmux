@@ -276,6 +276,31 @@ describe("auto-roll keeps cmux-platform's pinned image", () => {
       expect({ env, auto: locate(text, env).images.filter((i) => i.id.startsWith(AUTO_PREFIX)).length }).toEqual({ env, auto: KEEP_AUTO + 1 });
     }
   });
+  // Production, 2026-11-25 (roll 45625813906): with a pin plus KEEP_AUTO keyed rolls, the next roll's list came to
+  // 5,150 bytes and approve threw, so no roll could promote. A list keeps fewer rolls until it fits.
+  test("approve keeps fewer unpinned rolls when the pin and KEEP_AUTO rolls would pass MAX_BYTES", () => {
+    const pinned = keyed("700");
+    let text = approve(wrangler, pinned).text;
+    for (let run = 1; run <= KEEP_AUTO + 8; run++) text = approve(text, keyed(String(700 + run)), [pinned.id]).text;
+    const newest = keyed(String(700 + KEEP_AUTO + 8)).id;
+    for (const env of ["staging", "production"] as const) {
+      const images = locate(text, env).images;
+      expect(Buffer.byteLength(JSON.stringify(images))).toBeLessThanOrEqual(MAX_BYTES);
+      expect({ env, pinned: images.some((i) => i.id === pinned.id), newest: images.some((i) => i.id === newest) }).toEqual({ env, pinned: true, newest: true });
+      expect(images.filter((i) => !i.id.startsWith(AUTO_PREFIX))).toEqual(locate(wrangler, env).images);
+    }
+    expect(bootedImage(text, "production")).toBe(newest);
+  });
+  test("approve on the 2026-11-25 production list (pin 45ed727f, six rolls) fits instead of throwing", () => {
+    const pin = "cloud-native-auto-45ed727f-45133798615-1";
+    if (!locate(checkedIn, "production").images.some((i) => i.id === pin)) return;
+    const { text } = approve(checkedIn, keyed("45629291168"), [pin]);
+    for (const env of ["staging", "production"] as const) {
+      const images = locate(text, env).images;
+      expect(Buffer.byteLength(JSON.stringify(images))).toBeLessThanOrEqual(MAX_BYTES);
+      expect(images.some((i) => i.id === pin)).toBe(true);
+    }
+  });
   test("rollback refuses to take out a pinned image", () => {
     const pinned = entry("550");
     const text = approve(approve(wrangler, pinned).text, entry("551")).text;
@@ -879,12 +904,22 @@ describe("auto-roll scripts", () => {
     }
   });
 
-  test("the plan job checks out full history and fails on a pin it cannot fetch", () => {
+  // Rolls 45180251986 and 45200355313 (2026-11-23): plan's checkout with fetch-depth 0 fetched every branch and
+  // tag, which stalled under 1000 B/s three times ("bad pack header"), so no roll got past plan. Like promote,
+  // plan checks out the tip shallow and fetches only feat-cmux-next's history without blobs, with retries.
+  test("the plan job fetches feat-cmux-next's full history alone, with retries, and fails on a pin it cannot fetch", () => {
     const { YAML } = (globalThis as unknown as { Bun: { YAML: { parse(text: string): unknown } } }).Bun;
-    type Step = { id?: string; run?: string; with?: Record<string, unknown> };
+    type Step = { id?: string; name?: string; run?: string; with?: Record<string, unknown> };
     const roll = YAML.parse(readFileSync(new URL("../../.github/workflows/cloud-vm-image-roll.yml", import.meta.url), "utf8")) as { jobs: Record<string, { steps: Step[] }> };
     const steps = roll.jobs["plan"]!.steps as Array<Step & { uses?: string }>;
-    expect(steps.find((s) => s.uses?.startsWith("actions/checkout@"))!.with).toMatchObject({ "fetch-depth": 0, filter: "blob:none" });
+    const own = steps.findIndex((s) => s.uses?.startsWith("actions/checkout@"));
+    expect(steps[own]!.with?.["fetch-depth"]).toBeUndefined();
+    const fetch = steps.findIndex((s) => s.run?.includes("--filter=blob:none") && s.run.includes("+refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next"));
+    expect(fetch).toBeGreaterThan(own);
+    expect(fetch).toBeLessThan(steps.findIndex((s) => s.id === "plan"));
+    expect(steps[fetch]!.run).toContain("--no-tags");
+    expect(steps[fetch]!.run).toContain("for try in 1 2 3");
+    expect(steps[fetch]!.run).not.toContain("refs/heads/*");
     const run = steps.find((s) => s.id === "plan")!.run!;
     expect(run).toContain('git fetch -q --filter=blob:none origin "$pinned"; fi');
     expect(run).not.toMatch(/--depth 1/);

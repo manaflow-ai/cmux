@@ -1,4 +1,4 @@
-//! `diff.comments.list|save|delete|send`: the diff page's review comments,
+//! `diff.comments.list|save|delete|send|thread`: the diff page's review comments,
 //! kept by the session host until they are sent to the agent.
 //!
 //! Comments are keyed by a worktree root, an absolute path used only as a
@@ -15,6 +15,8 @@
 //! A send (`send`) hands the caller's prompt to an acpmux session of this
 //! machine as one queued prompt; once acpmux takes it, the sent comments
 //! still at the caller's versions are removed, as a delete removes them.
+//! A threaded send (`threads: true`) keeps them as review threads instead,
+//! and `diff.comments.thread` adds replies and resolves (`thread.rs`).
 
 use std::collections::HashMap;
 use std::io;
@@ -36,11 +38,15 @@ mod send;
 #[cfg(test)]
 #[path = "diff_comments/send_tests.rs"]
 mod send_tests;
+mod thread;
 
 /// Advertised in identify: the session host owns `diff.comments.*`.
 pub(crate) const CAPABILITY: &str = "diff-comments-v1";
 /// Advertised in identify: the session host answers `diff.comments.send`.
 pub(crate) const SEND_CAPABILITY: &str = "diff-comments-send-v1";
+/// Advertised in identify: the session host keeps review threads
+/// (`diff.comments.thread`, and `diff.comments.send` with `threads: true`).
+pub(crate) const THREADS_CAPABILITY: &str = "diff-comments-threads-v1";
 
 const DIRECTORY: &str = "diff-comments";
 /// The longest root, in bytes.
@@ -48,6 +54,8 @@ pub(super) const MAX_ROOT_BYTES: usize = 4096;
 /// The largest stored comment, serialized.
 pub(super) const MAX_COMMENT_BYTES: usize = 64 * 1024;
 /// The most comments one root keeps.
+/// Measured: the bytes of one save; a root's comments are one JSON file rewritten whole on each
+/// change, so 500 × MAX_COMMENT_BYTES (64 KiB) bounds that write at 32 MiB.
 pub(super) const MAX_COMMENTS: usize = 500;
 /// The most ids one delete names.
 pub(super) const MAX_DELETE_IDS: usize = 500;
@@ -65,6 +73,7 @@ pub(super) fn handles(operation: ResourceOperation) -> bool {
             | ResourceOperation::DiffCommentsSave
             | ResourceOperation::DiffCommentsDelete
             | ResourceOperation::DiffCommentsSend
+            | ResourceOperation::DiffCommentsThread
     )
 }
 
@@ -97,6 +106,12 @@ pub(super) fn dispatch(
             mutate(mux, &store, request, root, |file, _| Ok(delete(file, &ids, &versions)))
         }
         ResourceOperation::DiffCommentsSend => send::send(mux, &store, request, root),
+        ResourceOperation::DiffCommentsThread => {
+            let change = thread::change(&request.fields)?;
+            mutate(mux, &store, request, root, |file, key| {
+                thread::apply(file, root, key, change, &rfc3339(now_ms()))
+            })
+        }
         // Dispatched only for the operations `handles` names; any other is refused, never a panic.
         _ => Err(ResourceError::operation_failed(
             operation,
@@ -174,6 +189,8 @@ pub(super) fn save(
         _ => new_id(root, key),
     };
     let existing = existing.or_else(|| file.position(&id));
+    // The thread (replies, resolved, what the agent read) is the daemon's.
+    thread::keep_thread(existing.and_then(|index| file.comments.get(index)), &mut comment);
     let created = existing
         .and_then(|index| file.comments.get(index)?.get("createdAt").cloned())
         .filter(Value::is_string)
