@@ -198,6 +198,15 @@ for _ in $(seq 1 40); do
 done
 curl -fsS -m 5 "$CONTROL/health" >/dev/null || { cat "$WORK/bore/log"; result FAIL setup "headscale not reachable through $CONTROL"; exit 1; }
 hs users create cmux >/dev/null
+# This runner's docker daemon does not see the job's files (a bind mount of a key file arrived as an empty
+# directory: "read /run/cmux-tailnet/authkey: is a directory", run 45594358383), so every file goes in with
+# `docker cp` into a created container before it starts: KEY (0600, dir 0700) to /run/cmux-tailnet/authkey.
+put_key() { # put_key CONTAINER NAME
+  local dir="$WORK/keydir-$2"
+  mkdir -m 700 "$dir" && install -m 600 "$WORK/keys/$2" "$dir/authkey"
+  d cp "$dir/." "$1:/run/cmux-tailnet/"
+  rm -rf "$dir"
+}
 USER_ID=$(hs users list -o json | jq -r '.[] | select(.name=="cmux") | .id')
 mint() { # mint NAME [--ephemeral]: one single-use key, 1 h, in keys/NAME (0600), masked
   local name=$1; shift
@@ -227,14 +236,18 @@ IP_B=$(jq -r .b.ip "$WORK/vms.json")
 result PASS vms "staging machines $(jq -r '.a.machine + " (A " + .a.ip + ") and " + .b.machine + " (B " + .b.ip + ")"' "$WORK/vms.json") joined in $(awk -v a="$T0" -v b="$(date +%s.%N)" 'BEGIN{printf "%.0f", b-a}')s"
 
 # ---------------------------------------------------------------- uplink: the front's route to the VMs
-d run -d --name "$UPLINK" --label "$LABEL" --network "$NET" --hostname cmux \
+d create --name "$UPLINK" --label "$LABEL" --network "$NET" --hostname cmux \
   --cap-add NET_ADMIN --cap-add NET_RAW --device /dev/net/tun \
-  -v "$WORK/keys/uplink:/run/cmux-tailnet/authkey:ro" \
   --entrypoint /bin/sh "$TAILSCALE_IMAGE" -c \
   "exec tailscaled --state=mem: --socket=/var/run/tailscale/tailscaled.sock >/var/log/tailscaled.log 2>&1" >/dev/null
+put_key "$UPLINK" uplink
+d start "$UPLINK" >/dev/null
 for _ in $(seq 1 40); do d exec "$UPLINK" test -S /var/run/tailscale/tailscaled.sock && break; sleep 0.25; done
-d exec "$UPLINK" tailscale up --login-server="$CONTROL" --auth-key=file:/run/cmux-tailnet/authkey \
-  --hostname=cmux-uplink --accept-dns=false --timeout=120s 2>&1 | redact || true
+if ! d exec "$UPLINK" tailscale up --login-server="$CONTROL" --auth-key=file:/run/cmux-tailnet/authkey \
+  --hostname=cmux-uplink --accept-dns=false --timeout=120s 2>&1 | redact; then
+  d exec "$UPLINK" tail -20 /var/log/tailscaled.log 2>&1 | redact
+  result FAIL uplink "tailscale up failed in the uplink container"; exit 1
+fi
 UPA=""
 for _ in $(seq 1 120); do
   UPA=$(d exec "$UPLINK" sh -c "printf hi | nc -w 3 $IP_A 7000" 2>/dev/null || true)
@@ -261,16 +274,17 @@ d run --rm --label "$LABEL" -v "$VOL:/state" "$RUNTIME_IMAGE" sh -c \
 printf '{"tailnet.stableNode.enabled": true}\n' >"$WORK/cmux-next.json"
 chmod 644 "$WORK/cmux-next.json"
 T0=$(date +%s.%N)
-d run -d --name "$FRONT" --label "$LABEL" --network "container:$UPLINK" \
+d create --name "$FRONT" --label "$LABEL" --network "container:$UPLINK" \
   -e ACPMUX_HOME=/state/home -e HOME=/state/user \
   -e CMUX_NEXT_CONFIG_FILE=/etc/cmux-next.json \
   -e CMUX_TAILNET_CONTROL_URL="$CONTROL" \
   -e CMUX_TAILNET_AUTHKEY_FILE=/run/cmux-tailnet/authkey \
-  -v "$ACPMUX:/usr/local/bin/acpmux:ro" \
-  -v "$WORK/cmux-next.json:/etc/cmux-next.json:ro" \
-  -v "$WORK/keys/front:/run/cmux-tailnet/authkey:ro" \
   -v "$VOL:/state" \
   "$RUNTIME_IMAGE" /usr/local/bin/acpmux daemon run --log info >/dev/null
+d cp "$ACPMUX" "$FRONT:/usr/local/bin/acpmux"
+d cp "$WORK/cmux-next.json" "$FRONT:/etc/cmux-next.json"
+put_key "$FRONT" front
+d start "$FRONT" >/dev/null
 front_log() {
   d logs "$FRONT" 2>&1 || true
   d exec "$FRONT" cat /state/home/daemon.log 2>/dev/null || true
@@ -305,12 +319,13 @@ SET=$(place "{\"kind\":\"set\",\"v\":1,\"workspace\":\"default\",\"placement\":{
 log "placement set default -> backend-a $IP_A:7000: $SET"
 
 # ---------------------------------------------------------------- client
-d run -d --name "$CLIENT" --label "$LABEL" --network "$NET" --hostname client \
-  -v "$WORK/keys/client:/run/cmux-tailnet/authkey:ro" \
+d create --name "$CLIENT" --label "$LABEL" --network "$NET" --hostname client \
   --entrypoint /bin/sh "$TAILSCALE_IMAGE" -c \
   "exec tailscaled --tun=userspace-networking --state=mem: \
      --socket=/var/run/tailscale/tailscaled.sock \
      --socks5-server=localhost:1055 >/var/log/tailscaled.log 2>&1" >/dev/null
+put_key "$CLIENT" client
+d start "$CLIENT" >/dev/null
 d exec "$CLIENT" apk add -q python3 >/dev/null
 d cp "$HERE/move_probe.py" "$CLIENT:/root/move_probe.py"
 d exec "$CLIENT" tailscale up --login-server="$CONTROL" \
