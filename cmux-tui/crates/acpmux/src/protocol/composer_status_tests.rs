@@ -61,27 +61,19 @@ fn levels_are_ordered_problem_worst() {
     assert_eq!(sorted, StatusLevel::ALL);
 }
 
-/// Connected and paused say nothing; a transient state is info and waits the quiet bound.
+/// Connected and paused say nothing, and neither does a link on its way back on its own:
+/// reconnects are silent (Leo, 2026-11-24: "let's just keep optimistically connecting").
 #[test]
-fn transient_link_states_are_info_and_wait_ten_seconds() {
+fn self_healing_link_states_say_nothing() {
     assert_eq!(link(MachineLink::Connected), None);
     assert_eq!(link(MachineLink::Paused), None);
-    for (state, word) in [
-        (MachineLink::Connecting, "connecting"),
-        (MachineLink::Reconnecting, "reconnecting"),
-        (MachineLink::Degraded, "degraded"),
-        (MachineLink::Restarting, "restarting"),
+    for state in [
+        MachineLink::Connecting,
+        MachineLink::Reconnecting,
+        MachineLink::Degraded,
+        MachineLink::Restarting,
     ] {
-        let item = link(state).unwrap();
-        words_of_kind(&item);
-        assert_eq!(item.kind, StatusKind::MachineLink);
-        assert_eq!(item.level, StatusLevel::Info, "{state:?}");
-        assert_eq!(item.words, format!("status.machineLink.{word}"));
-        assert_eq!(item.subject.as_deref(), Some("mini-3"));
-        assert_eq!(item.since, Some(1_000));
-        assert_eq!(item.show_at, Some(1_000 + LINK_QUIET_MS));
-        assert_eq!(LINK_QUIET_MS, 10_000);
-        assert_eq!(item.action, None);
+        assert_eq!(link(state), None, "{state:?}");
     }
 }
 

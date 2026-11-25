@@ -557,6 +557,44 @@ fn source_verbs_take_the_chat_from_the_surface_tab() {
     assert_eq!(fake.frame()["params"], json!({"sessionId":SESSION,"transferId":"xfer_1"}));
 }
 
+/// A restart restores every tab in a new slot, so `surface` is this run's only: the source
+/// answers the tab's public id, which a pump names it by to end a move after a restart.
+#[test]
+fn source_verbs_take_the_tab_by_its_public_id() {
+    let fake = FakeAcpmux::start("xtabid");
+    let home = Home::new("tabid");
+    let mux = transfer_mux(&fake, "atx-tabid", &home, false);
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "xtabid");
+    let by_surface = client.request(json!({"cmd":"agent-transfer-source","surface":surface}));
+    let tab = ok_data(&by_surface)["tab"].as_str().expect("the tab's public id").to_owned();
+    assert!(tab.starts_with("tab_"), "{by_surface}");
+    let by_tab = client.request(json!({"cmd":"agent-transfer-source","tab":tab}));
+    assert_eq!(ok_data(&by_tab), &json!({"session":SESSION,"tab":tab}));
+    let begun = client.request(json!({"cmd":"agent-transfer-begin","tab":tab}));
+    assert_eq!(ok_data(&begun)["tab"], json!(tab));
+    assert_eq!(ok_data(&begun)["source_session"], json!(SESSION));
+    skip_begin(&fake);
+    let abort =
+        client.request(json!({"cmd":"agent-transfer-abort","tab":tab,"transfer_id":"xfer_1"}));
+    ok_data(&abort);
+    let sent = fake.frame();
+    assert_eq!(sent["method"], json!("_acpmux/transfer_abort"), "{sent}");
+    assert_eq!(sent["params"]["sessionId"], json!(SESSION), "{sent}");
+    // Exactly one of the two; a tab id no tab here has is an unknown tab.
+    let both = json!({"cmd":"agent-transfer-source","surface":surface,"tab":tab});
+    assert_code(&client.request(both), "agent_transfer.bad_request");
+    assert_code(
+        &client.request(json!({"cmd":"agent-transfer-source"})),
+        "agent_transfer.bad_request",
+    );
+    let stranger = format!("tab_{:032x}", 7);
+    let unknown = json!({"cmd":"agent-transfer-commit","tab":stranger,"transfer_id":"xfer_1",
+                         "to":"vm"});
+    assert_code(&client.request(unknown), "agent_transfer.unknown_tab");
+    fake.no_frame();
+}
+
 #[test]
 fn begin_strips_absolute_source_paths_from_the_bundle_manifest() {
     let fake = FakeAcpmux::start("xstrip");
@@ -1138,7 +1176,10 @@ fn source_names_the_session_a_tab_is_bound_to_without_reaching_acpmux() {
     let surface = agent_tab(&mux, Some(SESSION));
     let mut client = Client::connect(&mux, "xsource");
     let read = client.request(json!({"cmd":"agent-transfer-source","surface":surface}));
-    assert_eq!(ok_data(&read), &json!({"session": SESSION}));
+    let read = ok_data(&read);
+    assert_eq!(read["session"], json!(SESSION));
+    // The tab's public id, which a daemon restart keeps, so a pump can name the tab by it.
+    assert!(read["tab"].as_str().is_some_and(|t| t.starts_with("tab_")), "{read}");
     // Begin answers the same session it froze, so a pump can pin it.
     let begun = client.request(json!({"cmd":"agent-transfer-begin","surface":surface}));
     assert_eq!(ok_data(&begun)["source_session"], json!(SESSION));
@@ -1157,7 +1198,7 @@ fn verbs_ignore_a_field_a_newer_client_adds() {
     let mut client = Client::connect(&mux, "xnewer");
     let read = client
         .request(json!({"cmd":"agent-transfer-source","surface":surface,"future_field":{"v":2}}));
-    assert_eq!(ok_data(&read), &json!({"session": SESSION}));
+    assert_eq!(ok_data(&read)["session"], json!(SESSION));
     // Every verb answers as it would without the field, never a bad request.
     for frame in every_verb(surface, &home.text("work/project")) {
         let mut frame = frame;
