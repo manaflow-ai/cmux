@@ -82,6 +82,15 @@ import Testing
         #expect(node(["transition": "move"]).transition == .move)
         #expect(node(["transition": "fade"]).transition == nil, "the base's names: opacity, not fade")
         #expect(node(["transition": "warp"]).transition == nil)
+        // `{ kind, motion }` times the transition; a bare kind keeps its springs.
+        let timed = node(["transition": ["kind": "slide", "motion": ["duration": 0.3, "curve": "linear"]]])
+        #expect(timed.transition == .slide)
+        #expect(timed.transitionMotion == .timed(0.3, .linear))
+        #expect(node(["transition": ["kind": "pop", "motion": "bouncy"]]).transitionMotion == .bouncy)
+        #expect(node(["transition": ["kind": "move"]]).transition == .move)
+        #expect(node(["transition": ["kind": "move"]]).transitionMotion == nil)
+        #expect(node(["transition": "slide"]).transitionMotion == nil)
+        #expect(node(["transition": ["motion": "bouncy"]]).transition == nil, "no kind, no transition")
 
         #expect(node(["gradient": ["colors": ["#FF0000"]]]).gradient == nil, "one color is no gradient")
         #expect(node(["gradient": ["colors": ["primary", "#0000FF"]]]).gradient?.angle == 90)
