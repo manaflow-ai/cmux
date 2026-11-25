@@ -315,7 +315,7 @@ fn with_tui(mut files: Files, cli: &str) -> Files {
     files
 }
 
-/// huge-blue, 2026-11-24: the self-update replaced acpmux only, and the October cmux-tui beside
+/// A Linux host, 2026-11-24: the self-update replaced acpmux only, and the October cmux-tui beside
 /// it had no `chief` verb, so the Chief failed every wake for days. The cmux-tui beside acpmux
 /// now follows the same tree, checked against the tree's sha256 and renamed into place.
 #[tokio::test]
@@ -349,7 +349,7 @@ async fn the_cmux_tui_beside_acpmux_follows_acpmuxs_update() {
     assert!(!files.asked().contains(&tui_url()), "{:?}", files.asked());
 }
 
-/// The huge-blue case itself: acpmux is already the channel's, cmux-tui is stale. A channel file
+/// The case that host hit: acpmux is already the channel's, cmux-tui is stale. A channel file
 /// that lists cmux-tui's sha256 is used over the tree's `.sha256`.
 #[tokio::test]
 async fn a_stale_cmux_tui_beside_a_current_acpmux_is_refreshed() {

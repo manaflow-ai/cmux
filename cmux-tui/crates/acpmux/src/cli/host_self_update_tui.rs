@@ -1,7 +1,7 @@
 //! The cmux-tui CLI beside acpmux, kept on the channel's build by `host self-update` (the module
 //! doc there). The built-in `chief` harness runs `<acpmux's folder>/cmux-tui chief acp`
 //! (`config::discover::add_chief`), so that file has to know the verbs the daemon asks of it. The
-//! self-update replaced only `~/.local/bin/acpmux`: on huge-blue (2026-11-24) acpmux was a
+//! self-update replaced only `~/.local/bin/acpmux`: on a Linux host (2026-11-24) acpmux was a
 //! November build while `~/.local/bin/cmux-tui` was from October and had no `chief` verb, and
 //! every wake of the Chief failed (`cmux: unknown resource scope "chief"`) every 30 s for days.
 //! Leo, 2026-11-24: "we need to be able to refresh chief like right now".

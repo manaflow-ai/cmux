@@ -1,5 +1,5 @@
 //! A chat whose harness exits while it starts, with the same error each time, is not started
-//! again on every wake. huge-blue, 2026-11-24: the cmux-tui the `chief` harness runs had no
+//! again on every wake. A Linux host, 2026-11-24: the cmux-tui the `chief` harness runs had no
 //! `chief` verb, and every wake (every 30 s) spawned it again and logged `wake failed: agent
 //! process closed (chief): cmux: unknown resource scope "chief"`, for days. The first failure is
 //! retried as before (most are passing); from the second identical one on, a start fails with
