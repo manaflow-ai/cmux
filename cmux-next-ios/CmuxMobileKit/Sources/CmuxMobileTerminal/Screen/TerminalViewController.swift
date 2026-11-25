@@ -3816,7 +3816,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     @objc private func tuiTapped(_ tap: UITapGestureRecognizer) {
         // A tap on the reader stops its scroll, as on any scroll view; it
         // never clicks the app, whose rows are not the ones under it.
-        if tuiReader.isOpen { return }
+        // A tap that ends the reader's selection only ends it.
+        if tuiReader.isOpen {
+            _ = tuiReader.tapped()
+            return
+        }
         // A tap makes this phone the active device (Prefer the active device).
         model.session.noteInteraction()
         // A tap shows the app's live screen, never the held rows as live.
@@ -4351,7 +4355,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         tuiSelection.isEnabled = { [weak self] in
             guard let self else { return false }
-            return model.isTUI && cell.height > 0 && surface.superview === tuiHost
+            // The reader over the app's area selects its own rows.
+            return model.isTUI && cell.height > 0 && surface.superview === tuiHost && !tuiReader.isOpen
         }
         // The app redraws its screen: the selection follows its text (`followRows`).
         tuiSelection.followsRows = true

@@ -84,6 +84,54 @@ import UIKit
         #expect(!reader.isOpen)
     }
 
+    /// Leo: "we can still highlight text and whatnot". The reader's rows
+    /// select as on the shell's page: the text is the phone's copy of the
+    /// rows, a selection keeps the reader open at the bottom, and a tap ends it.
+    @Test func textSelectsInTheReaderAndATapEndsIt() async throws {
+        let projection = Self.scrolledApp()
+        let paint = try #require(projection.transcriptPaint())
+        let transcript = TerminalTUITranscript(bytes: paint.bytes, rows: Int(paint.rows), screenTop: Int(paint.screenTop))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.isHidden = false
+        let host = UIView(frame: window.bounds)
+        window.addSubview(host)
+        let app = TerminalSurfaceView(frame: CGRect(x: 0, y: 0, width: 360, height: 600))
+        host.addSubview(app)
+        let cell = app.cellSize
+        try #require(cell.height > 0)
+        let reader = TerminalTUIReader()
+        let area = CGRect(x: 0, y: 0, width: 360, height: 10 * cell.height)
+        reader.open(transcript, in: host, frame: area, surfaceX: 0, width: 360, cellHeight: cell.height, themeMacID: nil, background: nil)
+        #expect(await Self.waitUntil { reader.isShowing })
+        #expect(reader.selection.isEnabled())
+
+        // Scrolled to the top, the oldest kept row reads as the phone drew it.
+        reader.scrollView.setContentOffset(.zero, animated: false)
+        #expect(await Self.waitUntil { reader.selection.rowText(0)?.hasPrefix("line 000") == true })
+        // The cell under a point in the content is the document's row there.
+        let rect = reader.selection.rectFor(TerminalCellPoint(row: 1, column: 2))
+        #expect(rect.height == cell.height)
+        #expect(reader.selection.cellAt(CGPoint(x: rect.midX, y: rect.midY)) == TerminalCellPoint(row: 1, column: 2))
+
+        // A selection of the first row copies its text.
+        let start = TerminalCellPoint(row: 0, column: 0), end = TerminalCellPoint(row: 0, column: 7)
+        reader.selection.show(TerminalTextSelection(anchor: start, head: end), handles: true)
+        #expect(reader.selection.text(start, end) == "line 000")
+
+        // While it shows, settling at the bottom keeps the reader open.
+        let bottom = CGPoint(x: 0, y: reader.scrollView.contentSize.height - area.height)
+        reader.scrollView.setContentOffset(bottom, animated: false)
+        reader.scrollViewDidEndDecelerating(reader.scrollView)
+        #expect(reader.isOpen)
+
+        // A tap ends it; the next settle at the bottom closes the reader.
+        #expect(reader.tapped())
+        #expect(reader.selection.selection == nil)
+        #expect(!reader.tapped())
+        reader.scrollViewDidEndDecelerating(reader.scrollView)
+        #expect(!reader.isOpen)
+    }
+
     @Test func aRubberBandPastTheTopShowsLessThanTheFingerMoved() {
         #expect(TerminalTUIReader.rubberBand(0, dimension: 600) == 0)
         let shown = TerminalTUIReader.rubberBand(200, dimension: 600)

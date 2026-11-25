@@ -24,11 +24,19 @@ import UIKit
 ///
 /// It opens at the bottom, looking exactly like the live screen, and closes
 /// when a scroll settles back at the bottom: the app's own screen shows again.
+///
+/// Text selects in it as on the shell's page ("we can still highlight text
+/// and whatnot"): a long press selects a word, the handles move either end
+/// (scrolling the reader at its edges), Copy reads the rows from the reader's
+/// own surface, and a tap ends it. The rows are the document's, so the
+/// highlight scrolls with them; while one shows, the reader stays open.
 @MainActor
 final class TerminalTUIReader: NSObject, UIScrollViewDelegate {
     let scrollView = UIScrollView()
     private let surface = TerminalSurfaceView(frame: .zero)
     private let content = UIView()
+    /// Text selection over the document's rows (row 0: the oldest kept row).
+    let selection = TerminalSelectionController()
 
     /// The reader is shown (between `open` and `close`).
     private(set) var isOpen = false
@@ -73,6 +81,72 @@ final class TerminalTUIReader: NSObject, UIScrollViewDelegate {
             self?.reportedTop = offset
         }
         surface.onPresent = { [weak self] in self?.presented() }
+        installSelection()
+    }
+
+    // MARK: Selection
+
+    /// The cell's size and where cell (0, 0) of document row 0 sits in the content.
+    private var cellWidth: CGFloat { surface.cellSize.width }
+    private var gridOrigin: CGPoint {
+        let padding = surface.gridPadding
+        return CGPoint(x: surface.frame.minX + padding.x, y: padding.y)
+    }
+
+    /// The document rows the surface holds now (its placed viewport).
+    private var heldRows: ClosedRange<Int>? {
+        guard placedTop >= 0, surfaceRows > 0 else { return nil }
+        return placedTop...min(documentRows, placedTop + surfaceRows) - 1
+    }
+
+    private func installSelection() {
+        selection.isEnabled = { [weak self] in
+            guard let self else { return false }
+            return isOpen && placedTop >= 0 && cellHeight > 0 && cellWidth > 0
+        }
+        selection.columns = { [weak self] in max(1, self?.surface.grid.columns ?? 1) }
+        selection.documentRows = { [weak self] in 0..<(self?.documentRows ?? 0) }
+        selection.cellAt = { [weak self] point in
+            guard let self, cellHeight > 0, cellWidth > 0, let held = heldRows else { return nil }
+            let origin = gridOrigin
+            // A handle stops at the edge of the rows the surface holds.
+            let row = min(max(held.lowerBound, Int(floor((point.y - origin.y) / cellHeight))), held.upperBound)
+            let column = Int(floor((point.x - origin.x) / cellWidth))
+            return TerminalCellPoint(row: row, column: min(max(0, column), max(0, surface.grid.columns - 1)))
+        }
+        selection.rectFor = { [weak self] point in
+            guard let self else { return .zero }
+            let origin = gridOrigin
+            return CGRect(x: origin.x + CGFloat(point.column) * cellWidth, y: origin.y + CGFloat(point.row) * cellHeight,
+                          width: cellWidth, height: cellHeight)
+        }
+        selection.rowText = { [weak self] row in
+            guard let self, let held = heldRows, held.contains(row) else { return nil }
+            let last = max(0, surface.grid.columns - 1)
+            return surface.viewportText(from: TerminalCellPoint(row: row - held.lowerBound, column: 0),
+                                        to: TerminalCellPoint(row: row - held.lowerBound, column: last))
+        }
+        selection.text = { [weak self] start, end in
+            guard let self, let held = heldRows else { return nil }
+            // Rows the surface does not hold now (the edge autoscroll carried
+            // the selection past them): the whole document, read once.
+            guard held.contains(start.row), held.contains(end.row) else {
+                return surface.screenRows()?.text(from: start, to: end)
+            }
+            return surface.viewportText(from: TerminalCellPoint(row: start.row - held.lowerBound, column: start.column),
+                                        to: TerminalCellPoint(row: end.row - held.lowerBound, column: end.column))
+        }
+        selection.visibleBand = { [weak self] in 0...max(0, self?.scrollView.bounds.height ?? 0) }
+        selection.offsetRange = { [weak self] in 0...max(0, self?.maxOffset ?? 0) }
+        selection.autoscrollBegan = { [weak self] in self?.stopFling() }
+        selection.install(in: scrollView)
+    }
+
+    /// A tap on the reader: it ends a selection (true), as on the shell's page.
+    func tapped() -> Bool {
+        guard selection.selection != nil else { return false }
+        selection.clear()
+        return true
     }
 
     /// Opens over `frame` (in `host`): the transcript's rows at `cellHeight`
@@ -111,6 +185,7 @@ final class TerminalTUIReader: NSObject, UIScrollViewDelegate {
     func close() {
         guard isOpen else { return }
         isOpen = false
+        selection.clear()
         stopFling()
         stopPacing()
         scrollView.removeFromSuperview()
@@ -207,7 +282,8 @@ final class TerminalTUIReader: NSObject, UIScrollViewDelegate {
 
     /// A scroll ended: at the bottom the app's own screen shows again.
     private func settled() {
-        guard isOpen, !scrollView.isTracking, scrollView.contentOffset.y >= maxOffset - 1 else { return }
+        guard isOpen, !scrollView.isTracking, selection.selection == nil,
+              scrollView.contentOffset.y >= maxOffset - 1 else { return }
         close()
     }
 
@@ -241,6 +317,7 @@ final class TerminalTUIReader: NSObject, UIScrollViewDelegate {
             surface.frame.origin.y = CGFloat(reportedTop) * cellHeight
             CATransaction.commit()
             placedTop = reportedTop
+            selection.redraw()
         }
         if scrollView.alpha == 0 { scrollView.alpha = 1 }
         updateViewport()
