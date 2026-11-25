@@ -156,8 +156,15 @@ class ChannelOnlyThinTest(unittest.TestCase):
         jobs = workflow(ROOT / ".github/workflows/cmux-machine-channel.yml")["jobs"]
         early = jobs["point-x86_64"]
         # LINUX_X86_64_FIRST: the x86_64 point waits for the x86_64 leg alone.
-        self.assertEqual(early["needs"], ["build-x86_64"])
+        self.assertEqual(early["needs"], ["plan", "build-x86_64"])
         self.assertIn("needs.build-x86_64.result == 'success'", early["if"])
+        # PR_HEAD_FAST_LANE: or the merged PR head's run, which the plan found; a pull request run points nothing.
+        for job in (early, jobs["point-linux"]):
+            self.assertIn("needs.plan.outputs.from_run != ''", job["if"])
+            self.assertIn("github.event_name == 'push'", job["if"])
+            run_ids = [step["with"].get("run-id") for step in job["steps"]
+                       if "download-artifact" in str(step.get("uses", ""))]
+            self.assertEqual(run_ids, ["${{ needs.plan.outputs.from_run || github.run_id }}"])
         both = jobs["point-linux"]
         self.assertIn("build-x86_64", both["needs"])
         self.assertIn("build-aarch64", both["needs"])
