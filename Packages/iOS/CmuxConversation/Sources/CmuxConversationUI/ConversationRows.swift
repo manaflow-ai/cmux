@@ -500,7 +500,11 @@ enum ConversationRowBuilder {
         let nextBreaksGroup = entry.isLastInRun
         let isOutgoing = message.senderID == meID
         let sender = info.participant(message.senderID)
-        let footer = footer(for: entry.status, isGroup: isGroup)
+        var footer = footer(for: entry.status, isGroup: isGroup)
+        // A sending attachment says how far its upload got under its bubble.
+        if isOutgoing, message.delivery == .sending, let progress = message.uploadProgress {
+            footer = uploadingFooter(progress)
+        }
         // Only a block's first reply quotes the thread's root (Messages): a
         // reply right under the message it answers, or one joining the block
         // above it, shows none.
@@ -572,6 +576,12 @@ enum ConversationRowBuilder {
 
     private static func firstName(_ participantID: String, info: ConversationInfo) -> String {
         info.participant(participantID)?.name.split(separator: " ").first.map(String.init) ?? ""
+    }
+
+    /// "Uploading 42%" under a sending message whose attachments are uploading.
+    static func uploadingFooter(_ progress: Double) -> MessageFooter {
+        let percent = progress.formatted(.percent.precision(.fractionLength(0)))
+        return .status(String(format: String(localized: "conversation.status.uploading", defaultValue: "Uploading %@", bundle: .module), percent))
     }
 
     static func footer(for status: ConversationRunPlan.Status, isGroup: Bool) -> MessageFooter {

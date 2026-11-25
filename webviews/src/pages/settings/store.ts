@@ -41,6 +41,7 @@ import { rowsByKey } from "./schema";
 import { HARNESS_PLACEMENT_KEY, harnessPlacement, resolveHarnessPlacement } from "../../ui/harnessPlacement";
 import { isBackdropRefusal, linkRefusal } from "./backdropRefusal";
 import { t, text as localized } from "./strings";
+import { readLooksAnswer, type LooksOutcome } from "./looksGallery";
 import { pageTransport, TransportError, type SettingsTransport } from "./transport";
 import { readRecipe, readSetupReply, type ResolvedWorktreeRecipe, type WorktreeRecipe } from "../../worktreeRecipe";
 import { readExtensionSettings, type ExtensionSettings } from "./extensionSettings";
@@ -49,7 +50,8 @@ import {
   newIdempotencyKey,
   wireError,
   type AccountsRun,
-  type AccountsRunReply,
+  type AllotmentSet,
+  type AllotmentView,
   type AccountsState,
   type AgentsRun,
   type AgentsState,
@@ -59,6 +61,8 @@ import {
   type CloudEnvironmentsState,
   type LibraryListing,
   type LibraryRun,
+  type LooksRun,
+  type Standup,
   type SharesState,
   type TailnetState,
   type DevicesRun,
@@ -91,6 +95,8 @@ import {
   type AgentToolsCardState,
   type McpServersRun,
   type McpServersState,
+  type HubRun,
+  type HubState,
   type RowNoteData,
   type AgentSkillsRun,
   type AgentSkillsState,
@@ -100,14 +106,11 @@ import {
   type AgentHooksState,
   type AgentConfigAnswer,
   type AgentConfigRun,
-  type AllotmentSet,
-  type AllotmentView,
-  type ArchivedRun,
-  type ArchivedState,
+  type AccountsRunReply,
   type DoctorReport,
   type DoctorRun,
-  type HubRun,
-  type HubState,
+  type ArchivedRun,
+  type ArchivedState,
   type ConnectionsRun,
   type ConnectionsState,
   type TailnetVMReply,
@@ -116,6 +119,7 @@ import {
   type AutocloudState,
   type Checklist,
   type ChecklistFact,
+  type PreviousBuild,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -750,6 +754,18 @@ export class SettingsStore {
     return reply.ok;
   }
 
+  /** Updates > App Update's Go Back to Previous Build row; null when nothing is kept or the host has no updater. */
+  async previousBuild(): Promise<PreviousBuild | null> {
+    const reply = await this.request("cmux.settings.app_update.previous", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** That row's Go Back: the app restarts into the kept build; else the host's reason. */
+  async goBackToPreviousBuild(build: string): Promise<string | null> {
+    const reply = await this.request("cmux.settings.app_update.rollback", { build });
+    return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
+  }
+
   /** Updates > Web UI: Check Now or Roll Back, then re-read the host lists; false when the host refused. */
   async runWebUpdates(action: "check" | "rollback"): Promise<boolean> {
     const reply = await this.request(`cmux.settings.web_updates.${action}` as const, {});
@@ -1128,6 +1144,25 @@ export class SettingsStore {
       ? null
       : (answer.message ?? (answer.code ? t("settingsPage.customizeLibrary.notChanged") : null));
     return { library: answer.library ?? null, refusal };
+  }
+
+  /** Settings > Appearance > Looks: one `cmux setup` verb. Answers its JSON, the consent card an
+   * install without `yes` answers, or the CLI's refusal in its own words; null when the host has no
+   * Looks part or no CLI (a call it could not run), so the card draws nothing. */
+  async looks(run: LooksRun): Promise<LooksOutcome | null> {
+    const reply = await this.request("cmux.settings.looks", run);
+    if (!reply.ok) {
+      if (run.verb === "gallery" || run.verb === "preview") return null;
+      return { kind: "refusal", code: reply.error.code, message: userMessage(reply.error, SETTINGS_SENTENCES) };
+    }
+    return readLooksAnswer(reply.value);
+  }
+
+  /** Settings > Customize's Standup: every library entry as one line (`cmux customize library
+   * standup`); null when the host cannot run it (an older build, no CLI). */
+  async customizeStandup(): Promise<Standup | null> {
+    const reply = await this.request("cmux.settings.customize.library", { verb: "standup" });
+    return reply.ok ? (reply.value?.standup ?? null) : null;
   }
 
   /** Settings > General > Customize cmux: the checklist and progress, with `has` the connections the

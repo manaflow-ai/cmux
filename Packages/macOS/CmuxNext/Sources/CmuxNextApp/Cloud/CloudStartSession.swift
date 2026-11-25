@@ -248,36 +248,32 @@ struct CloudStartSession {
         services.cloud.startGate.enter(id)
         defer { services.cloud.startGate.leave(id) }
         // Remote approvals run beside the copy, as the composer's (awaited on every exit, cancelled on an error one); a machine this run made runs nobody's agent, so its status is not read. Their Cloud API execs need the machine running, which a new one is once connected. On a claimed spare already connecting they start beside the connect (Leo: "<30 seconds from starting a thing to having a response on cloud"), keeping no busy answer: a false one is asked again after the connect.
-        let copy: (chat: String, trusted: Bool)? = try await RemoteApprovalPreparations.owned(early: !made && session.daemon.connection != nil, connect: { try await connected(session, request, account: account, byPerson: byPerson); steps.done("connect"); try still(name) }, prepare: { [services] early in await services.cloud.restartWithApprovalsIfIdle(session, made ? .daemonSaidSafe : .checkStatus, proceed: { account == services.cloud.account }, cacheBusy: !early) }) {
-            let folder = try await copiedIfAsked(request, to: session, account: account); steps.done("copy"); return folder // before the session starts in it
-        }, cwd = copy?.chat ?? request.cwd
-        try still(name); steps.done("approvals"); let credential = await services.cloud.setup.choose(harness: agent, model: request.model, account: nil).connectionID; if credential != nil { await CloudOutdatedMachine.updateBeforeUsingCapability(holds: { session.daemon.supports(AgentSessionAttachClient.credentialsCapability(harness: agent)) }, update: { [services] in await CloudMachineUpdates.updateNow(id, services: services) }) } // remote approvals on (an idle daemon only), awaited on every exit: the gate is never released under them; then, as the composer's start, an older daemon that would drop the owner's model credential is updated first
+        let chatKey = "cloud-start-session-" + UUID().uuidString.lowercased(), daemon = session.daemon, credential = await services.cloud.setup.choose(harness: agent, model: request.model, account: nil).connectionID // one key per run, so a relink finds the chat again
+        // The chat's workspace and tab live in the machine's cmux-tui, which the keyed restart leaves running (it restarts acpmux alone), and an unbound agent tab is no
+        // live agent to its rule (`keyed_restart_reason`): so the tab opens beside the restart, not after it (ask-e543f8f962, Leo: "we can assist in the startup locally too").
+        // A daemon this start updates first (one that would drop the owner's model credential) opens it after the update, as before.
+        let opensBeside = { credential == nil || session.daemon.supports(AgentSessionAttachClient.credentialsCapability(harness: agent)) }
+        let (copy, early): ((chat: String, trusted: Bool)?, OpenedChat?) = try await RemoteApprovalPreparations.owned(early: !made && session.daemon.connection != nil, connect: { try await connected(session, request, account: account, byPerson: byPerson); steps.done("connect"); try still(name) }, prepare: { [services] early in await services.cloud.restartWithApprovalsIfIdle(session, made ? .daemonSaidSafe : .checkStatus, proceed: { account == services.cloud.account }, cacheBusy: !early) }) {
+            let folder = try await copiedIfAsked(request, to: session, account: account); steps.done("copy") // before the session starts in it
+            guard opensBeside() else { return (folder, nil) }
+            let chat = try await openChat(on: session, request, account: account, byPerson: byPerson, cwd: folder?.chat ?? request.cwd, chatKey: chatKey); steps.done("anchor"); return (folder, chat)
+        }
+        let cwd = copy?.chat ?? request.cwd
+        try still(name); steps.done("approvals"); if credential != nil { await CloudOutdatedMachine.updateBeforeUsingCapability(holds: { session.daemon.supports(AgentSessionAttachClient.credentialsCapability(harness: agent)) }, update: { [services] in await CloudMachineUpdates.updateNow(id, services: services) }) } // remote approvals on (an idle daemon only), awaited on every exit: the gate is never released under them (0 ms when they finished beside the copy and the tab's open); then, as the composer's start, an older daemon that would drop the owner's model credential is updated first
         guard let host = AgentTabStore.registryHost(of: session.daemon) else {
             throw ActionFailure(message: CloudStartSessionStrings.notConnected(name, id: id, agent: agent))
         }
-        let anchor: (id: String, key: WorkspaceKey, pane: PaneModel), opened: (key: String, surface: SurfaceID), chatKey = "cloud-start-session-" + UUID().uuidString.lowercased(), daemon = session.daemon // the chat's own workspace, the chat its only tab (CloudMachineWorkspace.chatTab): no terminal; one key per run, so a relink finds it again
-        do {
-            let made = try await CloudWait.relinkedOnce(epoch: { session.daemon.store.connectionEpoch }, held: session.linkHeld, relink: { guard (try? await connected(session, request, account: account, byPerson: byPerson)) != nil else { return false }; return await CloudMachineWorkspace.live(session.daemon.store, within: Self.connectWait) }) { [services] in
-                try Self.check(account, now: services.cloud.account, request.asked(machine: name)); let open = { (workspace: WorkspaceHandle) in try await services.agentTabs.openFirstPage(workspace: workspace, cwd: cwd, on: daemon, source: AgentPaneSeedSource(AgentPaneSeed(cwd: cwd)), mutationID: chatKey) }
-                return try await CloudMachineWorkspace.chatTab(tabKey: chatKey, in: daemon.store, notConnected: ActionFailure(message: CloudStartSessionStrings.notConnected(name, id: id, agent: agent)), anchor: { await CloudHandlers.mirroredAnchor(id: $0, on: session) }, open: open) { key in
-                    _ = try await services.machines.local.connection?.pinWorkspaceBeforeCreate(session: daemon.store.registryID, key: key, to: services.machines.local.store.profile(services.windows.active?.state.profileID ?? .defaultProfile)?.id) // listed in the active window's profile
-                    guard let connection = daemon.connection else { throw ActionFailure(message: CloudStrings.notConnected) }; return try await WorkspaceCreation.createWithFirstTab(key, name: nil, on: connection, repair: services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)) { try await open($0.workspace) }
-                }
-            }
-            (anchor, opened) = (made.anchor, made.tab)
-        } catch let changed as AccountChanged {
-            throw changed.failure
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch {
-            try Self.failed(account, now: services.cloud.account, request.asked(machine: name), CloudStartSessionStrings.notConnected(name, id: id, agent: agent))
-        }
-        steps.done("anchor")
+        let chat: OpenedChat
+        if let early { chat = early } else { chat = try await openChat(on: session, request, account: account, byPerson: byPerson, cwd: cwd, chatKey: chatKey); steps.done("anchor") }
+        let anchor = chat.anchor, opened = chat.tab
         try still(name)
         let started: AgentTabRemoteStart.Started, tabKey = opened.key
         do {
             let tabs = services.agentTabs
             await Self.trust(copy, surface: opened.surface.rawValue, on: session) // before the start, as the composer's: it refuses an untrusted folder
+            let credentials = tabs.cloudCredentials, logger = services.cloud.logger, model = request.model // the start's agent warms now (its own `~/chats/<id>` with no folder), beside the tab's listing and the start's connect, after the approvals' keyed restart that would end it; the start's own values (AgentTabs.runRemoteStart), so it takes it (cmux#45953)
+            CloudAgentPrewarm.begin(cwd: cwd, harness: agent, model: model, mode: nil, supports: { daemon.supports($0) }, surface: opened.surface.rawValue, endpoint: AgentTabRemoteHost.endpoint(on: daemon), ownerLink: CloudMachineLinks(appLink: session.appLink).ownerLink,
+                                    permissionMode: tabs.startPermissionMode(), credentials: { (try? await credentials?.launchCredential(chat: opened.key, machine: id, harness: agent, model: model))?.env }) { logger.info("cloud start-session prewarm: \($0, privacy: .public)") }
             // The start reads the tab as the machine's tree lists it (`tabKey` is the store's id); a slow link lists it late, so 60 s, not 10 (a working start failed "not connected").
             let listed = await CloudWait.holds(within: .seconds(60)) { [services] in services.locateTab(tabKey, onMachine: id) != nil }
             try Self.check(account, now: services.cloud.account, request.asked(machine: name))
@@ -316,6 +312,31 @@ struct CloudStartSession {
             // Where the start's time went (cmuxterm-hq#8658): `cmux cloud start-chat` lists it under its step.
             "stages_ms": .array(steps.recorded.map { .object(["step": .string($0.step), "ms": .int(Int($0.ms))]) }),
         ]
+    }
+
+    /// The start's chat on its machine: its workspace and tab (opened, or with `chatKey` found again on a relink).
+    typealias OpenedChat = (anchor: (id: String, key: WorkspaceKey, pane: PaneModel), tab: (key: String, surface: SurfaceID))
+
+    /// Opens the start's own chat on `session` in `cwd`: its own workspace, the chat its only tab (CloudMachineWorkspace.chatTab), no terminal.
+    /// It runs beside the keyed restart of the machine's acpmux (``started(on:made:_:_:_:account:byPerson:revealing:steps:gateway:)``): it touches cmux-tui alone.
+    private func openChat(on session: CloudMachineSession, _ request: Request, account: [String?], byPerson: Bool, cwd: String?, chatKey: String) async throws -> OpenedChat {
+        let name = session.machine.title, id = session.machineID, agent = request.agent, daemon = session.daemon
+        do {
+            let made = try await CloudWait.relinkedOnce(epoch: { session.daemon.store.connectionEpoch }, held: session.linkHeld, relink: { guard (try? await connected(session, request, account: account, byPerson: byPerson)) != nil else { return false }; return await CloudMachineWorkspace.live(session.daemon.store, within: Self.connectWait) }) { [services] in
+                try Self.check(account, now: services.cloud.account, request.asked(machine: name)); let open = { (workspace: WorkspaceHandle) in try await services.agentTabs.openFirstPage(workspace: workspace, cwd: cwd, on: daemon, source: AgentPaneSeedSource(AgentPaneSeed(cwd: cwd)), mutationID: chatKey) }
+                return try await CloudMachineWorkspace.chatTab(tabKey: chatKey, in: daemon.store, notConnected: ActionFailure(message: CloudStartSessionStrings.notConnected(name, id: id, agent: agent)), anchor: { await CloudHandlers.mirroredAnchor(id: $0, on: session) }, open: open) { key in
+                    _ = try await services.machines.local.connection?.pinWorkspaceBeforeCreate(session: daemon.store.registryID, key: key, to: services.machines.local.store.profile(services.windows.active?.state.profileID ?? .defaultProfile)?.id) // listed in the active window's profile
+                    guard let connection = daemon.connection else { throw ActionFailure(message: CloudStrings.notConnected) }; return try await WorkspaceCreation.createWithFirstTab(key, name: nil, on: connection, repair: services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)) { try await open($0.workspace) }
+                }
+            }
+            return (made.anchor, made.tab)
+        } catch let changed as AccountChanged {
+            throw changed.failure
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            try Self.failed(account, now: services.cloud.account, request.asked(machine: name), CloudStartSessionStrings.notConnected(name, id: id, agent: agent))
+        }
     }
 
     /// The store's tab of the chat this run opened. The person closing it before the store

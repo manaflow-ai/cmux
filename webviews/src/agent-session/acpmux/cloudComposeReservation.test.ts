@@ -590,3 +590,32 @@ test("an open lease the host refused (a hidden spare) asks again when the page o
   ]);
   expect(await h.reservation.ready(h.reservation.handoff()!)).toBe(true);
 });
+
+// Leo, 2026-11-25: "the new tab page. so when you select cloud/autocloud. that's when it can start."
+test("picking Auto (AutoCloud) on the New Tab page leases one machine at the pick, and Auto deciding Cloud keeps that key for the Send", async () => {
+  const h = harness();
+  h.reservation.selected(undefined, false, true);
+  await settle();
+  expect(h.calls).toEqual([["cloud.reserve", { composeKey: "compose-1", auto: true }]]);
+  // Auto decided Cloud (App.tsx applyRunMode("cloud")): the same compose, no second machine, and the Send takes it.
+  h.reservation.selected(undefined);
+  await settle();
+  expect(h.calls).toHaveLength(1);
+  const key = h.reservation.handoff();
+  expect(key).toBe("compose-1");
+  expect(await h.reservation.ready(key!)).toBe(true);
+});
+
+test("a New Tab page that opens with Auto remembered leases at open, and Auto deciding this Mac gives it back", async () => {
+  const h = harness();
+  h.reservation.opened(undefined, true);
+  h.reservation.opened(undefined, true);
+  await settle();
+  expect(h.calls).toEqual([["cloud.reserve", { composeKey: "compose-1", atOpen: true, auto: true }]]);
+  h.reservation.abandon();
+  await settle();
+  expect(h.calls).toEqual([
+    ["cloud.reserve", { composeKey: "compose-1", atOpen: true, auto: true }],
+    ["cloud.releaseReservation", { composeKey: "compose-1" }],
+  ]);
+});
