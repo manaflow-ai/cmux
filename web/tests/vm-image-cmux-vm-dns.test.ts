@@ -2,7 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { DNS_SMOKE_COMMAND, dnsCheckProblems, MACHINE_HEALTH_DIR, resolverBakeCommand } from "../scripts/cmux-vm-image/dns";
+import { DNS_SMOKE_COMMAND, dnsCheckProblems, EDGE_RESOLVER_ARM_COMMAND, EDGE_RESOLVER_DROP_IN, edgeResolverFiles, edgeResolverPathUnit, edgeResolverScript, FREESTYLE_TLS_DROP_IN, MACHINE_HEALTH_DIR, resolverBakeCommand } from "../scripts/cmux-vm-image/dns";
 import { runChild } from "./helpers/run-child";
 
 // cmux-dns-check runs against stubs of systemctl, journalctl, getent and tailscale on PATH and a
@@ -201,5 +201,90 @@ describe("cmux-dns-check", () => {
   test("bad usage exits 2", async () => {
     expect((await runChild("bash", [SCRIPT, "--bogus"])).status).toBe(2);
     expect((await runChild("bash", [SCRIPT, "--timeout", "x"])).status).toBe(2);
+  });
+});
+
+// cmux-edge-resolver runs with /bin/sh against a scratch resolv.conf and drop-in dir; the reload is a stub
+// that records each call. The edge-rule smoke clone proves it on a real Freestyle clone with a TLS rule.
+const AGENT_RESOLV = "# freestyle-tls forwarding resolver\noptions timeout:1 attempts:2\nnameserver 10.32.0.28\n";
+const AGENT_DROP_IN = "[Resolve]\nDNS=\nDNS=10.32.0.28\nDomains=~.\n";
+
+async function edgeRun(setup: { resolv?: string; link?: boolean; agentDropIn?: string; ours?: string; reloadFails?: boolean }) {
+  const dir = mkdtempSync(path.join(tmpdir(), "cmux-edge-resolver-"));
+  dirs.push(dir);
+  const script = path.join(dir, "cmux-edge-resolver");
+  writeFileSync(script, edgeResolverScript());
+  chmodSync(script, 0o755);
+  const resolv = path.join(dir, "resolv.conf");
+  const dropIns = path.join(dir, "resolved.conf.d");
+  mkdirSync(dropIns);
+  if (setup.link) {
+    writeFileSync(path.join(dir, "stub-resolv.conf"), "nameserver 127.0.0.53\n");
+    symlinkSync(path.join(dir, "stub-resolv.conf"), resolv);
+  } else if (setup.resolv !== undefined) writeFileSync(resolv, setup.resolv);
+  if (setup.agentDropIn !== undefined) writeFileSync(path.join(dropIns, FREESTYLE_TLS_DROP_IN), setup.agentDropIn);
+  if (setup.ours !== undefined) writeFileSync(path.join(dropIns, EDGE_RESOLVER_DROP_IN), setup.ours);
+  const reloads = path.join(dir, "reloads");
+  const result = await runChild("/bin/sh", [script], {
+    env: {
+      PATH: "/usr/bin:/bin",
+      CMUX_RESOLV_CONF: resolv,
+      CMUX_RESOLVED_DROP_IN_DIR: dropIns,
+      CMUX_RESOLVED_RELOAD: setup.reloadFails ? "false" : `sh -c 'echo reload >> ${reloads}'`,
+      CMUX_RESOLVED_RELOAD_PENDING: path.join(dir, "pending"),
+    },
+    timeout: 30_000,
+  });
+  const read = (f: string) => {
+    try {
+      return readFileSync(f, "utf8");
+    } catch {
+      return undefined;
+    }
+  };
+  return { code: result.status, stderr: result.stderr, resolv: read(resolv), ours: read(path.join(dropIns, EDGE_RESOLVER_DROP_IN)), reloads: (read(reloads) ?? "").trim().split("\n").filter(Boolean).length, pending: read(path.join(dir, "pending")) !== undefined };
+}
+
+describe("cmux-edge-resolver", () => {
+  test("parses, and the bake writes it with both units", async () => {
+    expect((await runChild("sh", ["-n"], { input: edgeResolverScript() })).status).toBe(0);
+    expect((await runChild("bash", ["-n"], { input: EDGE_RESOLVER_ARM_COMMAND })).status).toBe(0);
+    expect(edgeResolverFiles().map(([f]) => f)).toEqual(["/usr/local/sbin/cmux-edge-resolver", "/etc/systemd/system/cmux-edge-resolver.service", "/etc/systemd/system/cmux-edge-resolver.path"]);
+    expect(edgeResolverPathUnit()).toContain("PathChanged=/etc/resolv.conf\nPathChanged=/etc/systemd/resolved.conf.d/61-freestyle-tls.conf");
+  });
+
+  test("the agent's files get the IPv6 listener first, with a 2 s try, and resolved is reloaded once", async () => {
+    const r = await edgeRun({ resolv: AGENT_RESOLV, agentDropIn: AGENT_DROP_IN });
+    expect(r.code).toBe(0);
+    expect(r.resolv).toBe("# freestyle-tls forwarding resolver\noptions timeout:2 attempts:2\nnameserver 2602:f470:1::28\nnameserver 10.32.0.28\n");
+    expect(r.ours).toBe("# Written by cmux-edge-resolver.\n[Resolve]\nDNS=\nDNS=2602:f470:1::28 10.32.0.28\n");
+    expect(r.reloads).toBe(1);
+    expect(r.pending).toBe(false);
+  });
+
+  test("a second run changes nothing and does not reload", async () => {
+    const first = await edgeRun({ resolv: AGENT_RESOLV, agentDropIn: AGENT_DROP_IN });
+    const again = await edgeRun({ resolv: first.resolv, agentDropIn: AGENT_DROP_IN, ours: first.ours });
+    expect(again.code).toBe(0);
+    expect(again.resolv).toBe(first.resolv);
+    expect(again.reloads).toBe(0);
+  });
+
+  test("the image's stub link and a resolv.conf without the edge resolver are left alone", async () => {
+    const linked = await edgeRun({ link: true });
+    expect(linked.code).toBe(0);
+    expect(linked.resolv).toBe("nameserver 127.0.0.53\n");
+    expect(linked.ours).toBeUndefined();
+    const own = "options timeout:1\nnameserver 1.1.1.1\n";
+    expect((await edgeRun({ resolv: own })).resolv).toBe(own);
+  });
+
+  test("its drop-in goes when the agent's does, and a failed reload stays pending and fails the run", async () => {
+    const gone = await edgeRun({ link: true, ours: "stale" });
+    expect(gone.ours).toBeUndefined();
+    expect(gone.reloads).toBe(1);
+    const failed = await edgeRun({ resolv: AGENT_RESOLV, agentDropIn: AGENT_DROP_IN, reloadFails: true });
+    expect(failed.code).toBe(1);
+    expect(failed.pending).toBe(true);
   });
 });
