@@ -533,9 +533,7 @@ impl Hub {
         let Some(unanswered) = unanswered else {
             return setup.await;
         };
-        if matches!(unanswered, Unanswered::Defer(_)) {
-            admission.listen();
-        }
+        admission.listen();
         tokio::select! {
             biased;
             answer = &mut setup => return answer,
@@ -839,8 +837,9 @@ impl Hub {
             }
             let turn_id = running.map(|t| t.turn_id).unwrap_or_default();
             let steer_id = prompt_id.clone();
+            // Steer setup can still wait on the child or family gate. Its first write and
+            // acceptance happen together, and the acceptance callback commits the admission.
             admission.enter("steer");
-            admission.commit();
             let opts = PromptOptions { prompt_id: Some(prompt_id), on_accepted: None, ..opts };
             // Boxed: the steer's future stays out of this one, which every prompt's caller holds
             // on its stack (a debug build's test thread has little room).
