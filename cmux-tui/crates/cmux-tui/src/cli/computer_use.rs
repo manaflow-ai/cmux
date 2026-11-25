@@ -448,6 +448,12 @@ fn run(global: &GlobalArgs, args: &[String]) -> i32 {
             }
         }
         Request::Record(request) => record::run(global, request),
+        // The upgrade swaps this Mac's own helper: a named machine would silently get none.
+        Request::Upgrade(_) if global.machine.is_some() => super::wire::print_local_error(
+            &json!({"code": "usage.invalid", "message": cu_upgrade::NOT_REMOTE}),
+            global.output,
+            2,
+        ),
         Request::Upgrade(request) => cu_upgrade::run(global, &request, &CliHost { global }),
     }
 }

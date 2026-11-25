@@ -36,7 +36,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use super::helper::{self, Prepared, Signing, WantedHelper};
 use super::live::{self, Store};
@@ -46,6 +46,8 @@ use super::{GlobalArgs, Live, OutputMode};
 /// The receipt of the last upgrade, in the app's try store; renamed to [`UNDONE`] by `--undo`.
 pub(super) const RECEIPT: &str = "computer-use-upgrade.json";
 pub(super) const UNDONE: &str = "computer-use-upgrade.undone.json";
+/// The refusal for `--machine`: the upgrade changes the helper of the app on this Mac only.
+pub(in crate::cli) const NOT_REMOTE: &str = "cmux computer-use upgrade changes only this Mac's Computer Use engine; run it on that machine itself (it takes no --machine)";
 
 /// Which build's engine to take.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,6 +76,8 @@ pub(in crate::cli) fn parse(rest: &[&str]) -> Result<Request, String> {
             "--undo" => request.undo = true,
             "--dry-run" => request.dry_run = true,
             "--from" => from = Some(*words.next().ok_or("--from needs nightly, a PR or a SHA")?),
+            "--machine" => return Err(NOT_REMOTE.into()),
+            other if other.starts_with("--machine=") => return Err(NOT_REMOTE.into()),
             other if other.starts_with("--from=") => from = other.strip_prefix("--from="),
             other => return Err(format!("unknown argument {other:?}")),
         }
@@ -180,36 +184,54 @@ pub(super) fn upgrade_with(
     build: Value,
 ) -> Result<Value, String> {
     let _lock = store.lock()?;
-    let mut receipt = json!({ "action": "computer-use-upgrade", "app": app.to_string_lossy() });
-    for (key, value) in build.as_object().into_iter().flatten() {
-        receipt[key] = value.clone();
+    let mut receipt = Map::new();
+    receipt.insert("action".into(), json!("computer-use-upgrade"));
+    receipt.insert("app".into(), json!(app.to_string_lossy()));
+    if let Value::Object(build) = build {
+        receipt.extend(build);
     }
     let swap = match helper::prepare(app, Some(wanted), store, signing)? {
         Prepared::Untouched(why) => {
-            receipt["did"] = json!("untouched");
-            receipt["why"] = json!(why);
-            return Ok(receipt);
+            receipt.insert("did".into(), json!("untouched"));
+            receipt.insert("why".into(), json!(why));
+            return Ok(Value::Object(receipt));
         }
         Prepared::Swap(swap) => swap,
     };
-    receipt["bundle"] = json!(swap.installed.to_string_lossy());
-    receipt["from_digest"] = json!(swap.from);
-    receipt["to_digest"] = json!(swap.to);
+    receipt.insert("bundle".into(), json!(swap.installed.to_string_lossy()));
+    receipt.insert("from_digest".into(), json!(swap.from));
+    receipt.insert("to_digest".into(), json!(swap.to));
     if dry_run {
-        receipt["did"] = json!("checked");
-        return Ok(receipt);
+        receipt.insert("did".into(), json!("checked"));
+        return Ok(Value::Object(receipt));
     }
     let before = host.worker().ok();
     swap.keep(store)?;
     let staged = swap_and_restage(&swap, host)?;
     let (step, undo) = swap.finish(store);
-    receipt["did"] = json!("swapped");
-    receipt["step"] = step;
-    receipt["staged"] = json!(staged.to_string_lossy());
-    receipt["undo"] = json!({ (helper::KEY): undo });
-    receipt["at"] = json!(super::now());
-    receipt["worker"] = worker_field(before.as_ref(), host.worker());
-    write_json(&store.root.join(RECEIPT), &receipt)?;
+    receipt.insert("did".into(), json!("swapped"));
+    receipt.insert("step".into(), step);
+    receipt.insert("staged".into(), json!(staged.to_string_lossy()));
+    receipt.insert("undo".into(), json!({ (helper::KEY): undo }));
+    receipt.insert("at".into(), json!(super::now()));
+    receipt.insert("worker".into(), worker_field(before.as_ref(), host.worker()));
+    let receipt = Value::Object(receipt);
+    // `--undo` reads only the receipt: an upgrade whose receipt was not saved could never be
+    // undone, so it is rolled back instead.
+    if let Err(error) = write_json(&store.root.join(RECEIPT), &receipt) {
+        return Err(match swap.put_back() {
+            Ok(()) => {
+                let _ = host.restage(&swap.installed);
+                let _ = host.worker();
+                format!(
+                    "the upgrade's receipt was not saved ({error}); the helper is back as it was"
+                )
+            }
+            Err(back) => format!(
+                "the upgrade's receipt was not saved ({error}); putting the helper back failed too: {back}"
+            ),
+        });
+    }
     let _ = fs::remove_file(store.root.join(UNDONE));
     store.append_history(&receipt)?;
     Ok(receipt)
@@ -233,21 +255,24 @@ pub(super) fn undo_with(store: &Store, host: &dyn Host, dry_run: bool) -> Result
         Err(error) => return Err(format!("{}: {error}", path.display())),
     };
     let swap = helper::undo(&last)?.ok_or("the last upgrade changed no helper")?;
-    let mut receipt = json!({
-        "action": "computer-use-upgrade-undo", "app": last.get("app"),
-        "undoes": last.get("commit"), "bundle": swap.installed.to_string_lossy(),
-        "from_digest": swap.from, "to_digest": swap.to,
-    });
+    let mut receipt = Map::new();
+    receipt.insert("action".into(), json!("computer-use-upgrade-undo"));
+    receipt.insert("app".into(), json!(last.get("app")));
+    receipt.insert("undoes".into(), json!(last.get("commit")));
+    receipt.insert("bundle".into(), json!(swap.installed.to_string_lossy()));
+    receipt.insert("from_digest".into(), json!(swap.from));
+    receipt.insert("to_digest".into(), json!(swap.to));
     if dry_run {
-        receipt["did"] = json!("checked");
-        return Ok(receipt);
+        receipt.insert("did".into(), json!("checked"));
+        return Ok(Value::Object(receipt));
     }
     let before = host.worker().ok();
     let staged = swap_and_restage(&swap, host)?;
-    receipt["did"] = json!("restored");
-    receipt["staged"] = json!(staged.to_string_lossy());
-    receipt["at"] = json!(super::now());
-    receipt["worker"] = worker_field(before.as_ref(), host.worker());
+    receipt.insert("did".into(), json!("restored"));
+    receipt.insert("staged".into(), json!(staged.to_string_lossy()));
+    receipt.insert("at".into(), json!(super::now()));
+    receipt.insert("worker".into(), worker_field(before.as_ref(), host.worker()));
+    let receipt = Value::Object(receipt);
     fs::rename(&path, store.root.join(UNDONE)).map_err(|e| format!("{}: {e}", path.display()))?;
     store.append_history(&receipt)?;
     Ok(receipt)
@@ -268,11 +293,15 @@ fn commit_of(source: &Source) -> Result<(String, Value), String> {
             let spec = resolve::classify(target)
                 .ok_or_else(|| format!("{target} is not a PR, a branch or a SHA"))?;
             let commit = resolve::resolve(&spec).map_err(|why| match why {
-                Unresolved::RateLimited => {
-                    "GitHub's rate limit: try again later, or name the full SHA".to_owned()
+                Unresolved::RateLimited => format!(
+                    "cmux can't look up {target} right now: try again in a few minutes, or pass the full commit SHA"
+                ),
+                Unresolved::NotFound => {
+                    format!("{target} is not a cmux PR, branch or commit: check the name, or pass the full commit SHA")
                 }
-                Unresolved::NotFound => format!("{target} was not found on GitHub"),
-                Unresolved::Other(error) => error,
+                Unresolved::Other(_) => format!(
+                    "cmux couldn't look up {target}: check the network and try again, or pass the full commit SHA"
+                ),
             })?;
             Ok((commit.clone(), json!({ "from": target, "commit": commit })))
         }
@@ -289,7 +318,11 @@ fn wanted_of(commit: &str) -> Result<WantedHelper, String> {
                 "{commit} has no signed mac-live.json (CI publishes one per built commit); pick another build"
             ));
         }
-        Live::Refused(error) => return Err(format!("{commit}'s mac-live.json: {error}")),
+        Live::Refused(_) => {
+            return Err(format!(
+                "{commit}'s build record failed cmux's signature check; nothing changed: pick another build"
+            ));
+        }
     };
     helper::wanted(payload.screen_sharing_helper.as_ref(), commit, &base)?
         .ok_or_else(|| format!("{commit}'s build publishes no signed Computer Use helper"))
@@ -298,13 +331,13 @@ fn wanted_of(commit: &str) -> Result<WantedHelper, String> {
 fn human(receipt: &Value) -> String {
     let text = |key: &str| receipt.get(key).and_then(Value::as_str).unwrap_or_default();
     let short = |digest: &str| digest.get(..12).unwrap_or(digest).to_owned();
-    let worker = &receipt["worker"];
+    let worker = receipt.get("worker").unwrap_or(&Value::Null);
     let restart = match (
         worker.get("error").and_then(Value::as_str),
         pid(worker.get("after").and_then(|a| (!a.is_null()).then_some(a))),
     ) {
         (Some(error), _) => format!("; the worker did not answer yet ({error})"),
-        (None, Some(after)) if worker["restarted"] == true => {
+        (None, Some(after)) if worker.get("restarted") == Some(&Value::Bool(true)) => {
             format!("; the worker restarted as pid {after}")
         }
         (None, Some(after)) => format!("; pid {after} still answers: it restarts at its next call"),
@@ -349,7 +382,11 @@ pub(in crate::cli) fn run(global: &GlobalArgs, request: &Request, host: &dyn Hos
         return print(global, Err("no cmux app found: run this from the app's own cmux".into()));
     };
     let Some(store) = super::store_for(Some(app.as_path())) else {
-        return print(global, Err("HOME is not set".into()));
+        return print(
+            global,
+            Err("cmux can't find your home folder (HOME is empty): run this from a login shell"
+                .into()),
+        );
     };
     if request.undo {
         return print(global, undo_with(&store, host, request.dry_run));

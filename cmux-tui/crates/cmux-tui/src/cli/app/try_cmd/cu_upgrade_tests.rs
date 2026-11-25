@@ -66,6 +66,40 @@ fn computer_use_upgrade_parses_from_undo_and_dry_run() {
     assert!(parse(&["--undo", "--from", "nightly"]).is_err(), "--undo takes no build");
     assert!(parse(&["--from"]).is_err());
     assert!(parse(&["--force"]).is_err());
+    for words in [&["--machine", "studio"][..], &["--machine=studio"][..]] {
+        assert_eq!(parse(words).unwrap_err(), cu_upgrade::NOT_REMOTE, "{words:?}");
+    }
+}
+
+/// A receipt that can't be saved would leave an upgrade `--undo` can't find: the helper goes
+/// back and is staged again instead.
+#[test]
+fn computer_use_upgrade_unsaved_receipt_puts_the_helper_back() {
+    let (fixture, unpacked) = helper_fixture();
+    let signing = signing(unpacked, true);
+    let host = host(&[100, 200, 300]);
+    // A folder where the receipt goes: the save's rename fails.
+    let blocker = fixture.store.root.join(RECEIPT);
+    fs::create_dir_all(blocker.join("in-the-way")).unwrap();
+    let error = cu_upgrade::upgrade_with(
+        &fixture.app,
+        &wanted(&fixture),
+        &fixture.store,
+        &signing,
+        &host,
+        false,
+        build(),
+    )
+    .unwrap_err();
+    assert!(error.contains("receipt was not saved"), "{error}");
+    assert!(error.contains("the helper is back as it was"), "{error}");
+    assert_eq!(helper_bytes(&fixture.app).as_deref(), Some(OLD_HELPER));
+    assert_eq!(
+        *host.restaged.borrow(),
+        vec![Some(NEW_HELPER.to_vec()), Some(OLD_HELPER.to_vec())],
+        "the old helper is staged again"
+    );
+    assert!(blocker.is_dir(), "nothing claims an upgrade happened");
 }
 
 /// The checked bundle replaces the app's helper, the worker's copy is restaged from it, the
@@ -266,7 +300,7 @@ fn computer_use_upgrade_to_the_running_build_is_untouched() {
 fn computer_use_upgrade_takes_a_renamed_helper() {
     let (fixture, unpacked) = helper_fixture();
     let library = fixture.app.join(helper::LIBRARY);
-    let renamed = library.join("cmux NIGHTLY Helper.app");
+    let renamed = library.join("cmux NIGHTLY Screen Sharing.app");
     fs::rename(library.join(HELPER_NAME), &renamed).unwrap();
     struct AnyName(FakeSigning);
     impl Signing for AnyName {
@@ -274,7 +308,7 @@ fn computer_use_upgrade_takes_a_renamed_helper() {
             self.0.unpack(zip, into)
         }
         fn requirement(&self, bundle: &Path) -> Result<String, String> {
-            assert!(bundle.ends_with("cmux NIGHTLY Helper.app"), "{bundle:?}");
+            assert!(bundle.ends_with("cmux NIGHTLY Screen Sharing.app"), "{bundle:?}");
             Ok(REQUIREMENT.to_owned())
         }
         fn verify(&self, bundle: &Path, requirement: &str) -> Result<(), String> {

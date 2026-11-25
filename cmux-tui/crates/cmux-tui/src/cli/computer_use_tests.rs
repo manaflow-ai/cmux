@@ -347,3 +347,17 @@ fn machine_before_the_command_is_the_fallback() {
     );
     assert!(split(&words("workspace list --machine m")).is_none());
 }
+
+/// `cmux --machine studio computer-use upgrade` swapped this Mac's helper and left studio's:
+/// the upgrade is local only, so a named machine is refused before anything changes.
+#[test]
+fn upgrade_on_a_named_machine_is_refused_before_anything_changes() {
+    for text in
+        ["--machine studio computer-use upgrade", "--machine studio computer-use upgrade --undo"]
+    {
+        let (global, rest) = split(&words(text)).expect("a computer-use command");
+        assert_eq!(global.machine.as_deref(), Some("studio"), "{text}");
+        assert_eq!(run(&global, &rest), 2, "{text}");
+    }
+    assert!(parse(&words("upgrade --machine studio")[..]).is_err());
+}
