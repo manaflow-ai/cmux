@@ -9,7 +9,7 @@
   "workflows": {
     ".github/workflows/cmux-next-fast-gates.yml": {
       "fast-gates": {
-        "why": "web lint, crash ratchet, prepush gate, crash-class rules and the webviews checks: each judges only what the change adds in these trees",
+        "why": "web lint, crash ratchet, prepush gate, crash-class rules, the webviews checks and entry logs: each judges only what the change adds in these trees",
         "inputs": [
           "Packages/",
           "cmux-tui/",
@@ -31,6 +31,8 @@
           "scripts/git-hooks/pre-push",
           "tests/workflow_jobs.py",
           "docs/mdm/",
+          "docs/ci/cmux-next-workflow-notes.md",
+          "docs/ci/nightly-workflow-notes.md",
           "**/*.xcstrings",
           "scripts/web_lint_prepush.py",
           "scripts/ci/cmux_next_fast_gates.py",
@@ -39,6 +41,7 @@
           "scripts/ci/crash-class-gate.sh",
           "scripts/ci/pr_owned_findings.py",
           "scripts/ci/fast_gate_webviews_checks.py",
+          "scripts/ci/entry_logs.py",
           "backend/apps/api/"
         ],
         "push_cover": [

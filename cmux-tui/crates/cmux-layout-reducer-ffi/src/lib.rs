@@ -361,6 +361,13 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 cmux_cloud_start_core::capability::forget();
                 b"{}".to_vec()
             }
+            b"cloud_one_pane" => {
+                use cmux_cloud_start_core::one_pane;
+                let request: one_pane::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&serde_json::json!({ "shown": one_pane::shown(&request) }))
+                    .map_err(|_| ERR_INVALID)?
+            }
             b"cloud_start_refusal" => {
                 #[derive(serde::Deserialize)]
                 #[serde(rename_all = "camelCase")]
@@ -482,6 +489,37 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let verdict = request.stdout.as_deref().map(machine_route::verdict);
                 serde_json::to_vec(&serde_json::json!({
                     "command": machine_route::GUEST, "verdict": verdict,
+                }))
+                .map_err(|_| ERR_INVALID)?
+            }
+            // A spare machine's warm-home command, with the person's recent shapes read off this
+            // Mac's acpmux home (`acpmuxHome`), so the spare warms the harnesses and models they
+            // set up beside the default (ask-30d56720f6; off with `ACPMUX_SPARE_PERSONAL=0`).
+            b"cloud_warm_home" => {
+                #[derive(serde::Deserialize)]
+                #[serde(rename_all = "camelCase")]
+                struct Request {
+                    #[serde(default)]
+                    acpmux_home: Option<String>,
+                    /// A number, as Swift's `JSONValue` sends one (tests; the clock when absent).
+                    #[serde(default)]
+                    now_ms: Option<f64>,
+                }
+                use cmux_cloud_start_core::spare_shapes;
+                let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let now_ms = request.now_ms.map(|ms| ms.max(0.0) as u64).unwrap_or_else(|| {
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+                        .unwrap_or(0)
+                });
+                let switch = std::env::var(spare_shapes::SWITCH).ok();
+                let shapes = request.acpmux_home.as_deref().map_or_else(Vec::new, |home| {
+                    spare_shapes::read(std::path::Path::new(home), now_ms, switch.as_deref())
+                });
+                serde_json::to_vec(&serde_json::json!({
+                    "command": spare_shapes::warm_home_command(&shapes), "shapes": shapes,
                 }))
                 .map_err(|_| ERR_INVALID)?
             }
