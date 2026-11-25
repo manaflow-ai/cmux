@@ -85,7 +85,9 @@ def gh(method: str, path: str, body: dict | None = None) -> dict:
 
 
 def channel_commit(url: str) -> str:
-    with urllib.request.urlopen(f"{url}?heal={int(time.time())}", timeout=20) as resp:
+    # files.cmux.com (Cloudflare) answers urllib's default User-Agent with 403, error code 1010.
+    req = urllib.request.Request(f"{url}?heal={int(time.time())}", headers={"User-Agent": "cmux-ci/cmux-tui-channel-heal"})
+    with urllib.request.urlopen(req, timeout=20) as resp:
         return str(json.load(resp).get("commit") or "")
 
 

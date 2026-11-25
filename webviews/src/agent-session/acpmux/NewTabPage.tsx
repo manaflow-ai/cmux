@@ -645,27 +645,13 @@ export function NewTabPage({
     <div className="acpmux-newtab" data-kind={kind}>
       {/* The suggestions float under the field (cx-6k6cg): opening them moves nothing below. */}
       <div className="acpmux-newtab-anchor">
-        <form className="acpmux-newtab-box" onSubmit={submit}>
-          {/* Attachments sit inside the top of the card (Leo 2026-11-23, ask-525a5e502a: within the top
-              part of the composer, no shift); the prompt gives up their band (composerAttachments.css),
-              so a capped card keeps its height when they land. */}
-          <AttachmentStrip
-            attachments={attachments}
-            pending={pending}
-            {...(command.error || attachError ? { error: command.error ?? attachError } : {})}
-            codex={false}
-            onRemove={(id) => {
-              setAttachments((current) => current.filter((item) => item.id !== id));
-              field.current?.focus();
-            }}
-            onCancel={(id) => {
-              cancel(id);
-              field.current?.focus();
-            }}
-            onRetry={retry}
-            originalFailures={originalFailures}
-            onReorder={(id, index) => setAttachments((current) => reordered(current, id, index))}
-          />
+        <form
+          className="ui-glass ui-glass-floats acpmux-newtab-box"
+          // The composer family's one material: the App's popover glass, as the suggestions under it. In
+          // the page's flow, so no cover: nothing scrolls under it.
+          data-host-glass="popover"
+          onSubmit={submit}
+        >
           <div
             className="acpmux-newtab-row"
             data-kind-switch={kindSwitch}
@@ -746,6 +732,26 @@ export function NewTabPage({
             </fieldset>
           </div>
           {command.input}
+          {/* Attachments sit inside the top of the card (Leo 2026-11-23, ask-525a5e502a: within the top
+              part of the composer, no shift); the prompt gives up their band (composerAttachments.css),
+              so a capped card keeps its height when they land. */}
+          <AttachmentStrip
+            attachments={attachments}
+            pending={pending}
+            {...(command.error || attachError ? { error: command.error ?? attachError } : {})}
+            codex={false}
+            onRemove={(id) => {
+              setAttachments((current) => current.filter((item) => item.id !== id));
+              field.current?.focus();
+            }}
+            onCancel={(id) => {
+              cancel(id);
+              field.current?.focus();
+            }}
+            onRetry={retry}
+            originalFailures={originalFailures}
+            onReorder={(id, index) => setAttachments((current) => reordered(current, id, index))}
+          />
           {dropHost && (
             <DropOverlay state={drop} onLanded={dropLanded} container={dropHost} landingTarget={dropLandingTarget} />
           )}
@@ -795,6 +801,9 @@ export function NewTabPage({
           <div
             ref={attachList}
             className="acpmux-omni ui-popup ui-glass ui-popup-scroll-shell"
+            // The App's popover glass, as every Popover: the list floats over the page, which blurs in place under it.
+            data-host-glass="popover"
+            data-host-glass-cover=""
             // The omnibar's rows are the live answer to the field above (ui/popupSettle.ts).
             data-popup-settle="results"
             id="acpmux-omni"
