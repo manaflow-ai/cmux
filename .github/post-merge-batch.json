@@ -169,7 +169,7 @@
         "scripts/ci/tip-test-compile.sh",
         ".github/workflows/cmux-next-tip-test-compile.yml"
       ],
-      "jobs": {"compile": "tip test-compile (fleet, background)"}
+      "jobs": {"compile-fleet": "tip test-compile (fleet, background)"}
     },
     "gallery-health": {
       "workflow": "gallery-health.yml",

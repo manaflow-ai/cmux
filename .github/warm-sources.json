@@ -121,7 +121,7 @@
     "cmux-next-terminal.yml:rust-terminal": {"class": "mac-build", "warm": ["actions-cache"]},
     "cmux-next-terminal.yml:rust-terminal-linux": {"class": "linux-rust", "warm": ["actions-cache"]},
     "cmux-next-terminal.yml:swift-terminal-linux": {"class": "linux-swift", "warm": [], "exempt": "cold: swift build or test into a fresh .build; no warm source wired yet"},
-    "cmux-next-tip-test-compile.yml:compile": {"class": "linux-build", "warm": ["deriveddata-reuse"]},
+    "cmux-next-tip-test-compile.yml:compile-fleet": {"class": "linux-build", "warm": ["deriveddata-reuse"]},
     "cmux-web-layer-fork.yml:layer": {"class": "linux-build", "warm": [], "exempt": "cold: runs only in forks, on GitHub-hosted runners with none of our warm state; a web build from a clean tree"},
     "cmux-next-web-bundle-publish.yml:build": {"class": "webview", "warm": [], "exempt": "cold: a build script from a clean tree; no warm source wired yet"},
     "cmux-next-web-bundles.yml:bundles": {"class": "webview", "warm": [], "exempt": "cold: a build script from a clean tree; no warm source wired yet"},
