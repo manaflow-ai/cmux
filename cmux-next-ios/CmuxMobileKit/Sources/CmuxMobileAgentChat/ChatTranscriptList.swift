@@ -1340,7 +1340,8 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
 
     /// A row's part in its turn, for the send trace (`LoadFrameProbe`, `CMUX_MOBILE_SEND_TRACE`).
     private func probeRole(_ id: String) -> String {
-        switch rows[id]?.kind {
+        guard let kind = rows[id]?.kind else { return "other" }
+        switch kind {
         case .prompt, .steer, .incoming: "user"
         case .working: "work"
         case .block: "answer"
