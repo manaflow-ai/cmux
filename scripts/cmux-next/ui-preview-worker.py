@@ -727,11 +727,11 @@ FOLLOW_WAIT_S = 20  # the broker's long-poll bound (UI_PREVIEW_WAIT_MAX_S)
 FOLLOW_RETRY_S = 10  # after a failed call
 
 
-def lane_gh_call(tool: str, args: dict, timeout: float) -> dict:
-    """One `lane-gh call TOOL JSON` through the broker: its JSON answer, or LookError."""
+def lane_gh_call(tool: str, args: dict, timeout: float, repo: str | None = None) -> dict:
+    """One `lane-gh call TOOL [REPO] JSON` through the broker: the answer's data (status 200), or LookError."""
     try:
-        done = subprocess.run(["lane-gh", "call", tool, json.dumps(args)], capture_output=True, text=True,
-                              timeout=timeout)
+        done = subprocess.run(["lane-gh", "call", tool, *([repo] if repo else []), json.dumps(args)],
+                              capture_output=True, text=True, timeout=timeout)
     except (subprocess.TimeoutExpired, OSError) as err:
         raise LookError(f"lane-gh call {tool}: {err}") from None
     if done.returncode != 0:
@@ -740,9 +740,10 @@ def lane_gh_call(tool: str, args: dict, timeout: float) -> dict:
         answer = json.loads(done.stdout)
     except ValueError:
         raise LookError(f"lane-gh call {tool}: not JSON: {tail(done.stdout)}") from None
-    if not isinstance(answer, dict):
-        raise LookError(f"lane-gh call {tool}: not an object")
-    return answer
+    if not isinstance(answer, dict) or answer.get("status") != 200:
+        raise LookError(f"lane-gh call {tool}: not answered 200: {tail(json.dumps(answer))}")
+    data = answer.get("data")
+    return data if isinstance(data, dict) else {}
 
 
 def follow_once(worker: "Worker", jobs: "queue.Queue", after: int | None, call=lane_gh_call) -> int:
@@ -867,8 +868,8 @@ def command_publish(args) -> int:
     try:
         text = Path(args.file).read_text()
         json.loads(text)
-        lane_gh_call("state_put", {"repo": "manaflow-ai/cmuxterm-hq", "name": "now-census",
-                                   "files": {f"ui-preview/{args.host}.json": text}}, SEND_SECONDS)
+        lane_gh_call("state_put", {"name": "now-census", "files": {f"ui-preview/{args.host}.json": text}},
+                     SEND_SECONDS, repo="manaflow-ai/cmuxterm-hq")
     except (OSError, ValueError, LookError) as err:
         print(f"ui-preview-worker: publish: {err}", file=sys.stderr)
         return 1

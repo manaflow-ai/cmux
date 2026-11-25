@@ -186,6 +186,23 @@ class FollowTests(unittest.TestCase):
             self.assertEqual(w.follow_once(worker, jobs, 41, call), 42)
             self.assertTrue(jobs.empty())
 
+    def test_lane_gh_call_reads_the_answers_data_and_names_a_refusal(self):
+        from unittest import mock
+        ran = []
+
+        def fake(argv, **kw):
+            ran.append(argv)
+            body = {"ok": True, "status": 200, "data": {"seq": 7}} if argv[2] == "ui_preview_requests" else \
+                {"ok": False, "status": 403, "error": "not this VM's file"}
+            return mock.Mock(returncode=0 if body["status"] == 200 else 1, stdout=json.dumps(body), stderr="")
+
+        with mock.patch.object(w.subprocess, "run", fake):
+            self.assertEqual(w.lane_gh_call("ui_preview_requests", {"after": 0}, 5), {"seq": 7})
+            with self.assertRaises(w.LookError):
+                w.lane_gh_call("state_put", {"name": "now-census"}, 5, repo="manaflow-ai/cmuxterm-hq")
+        self.assertEqual(ran[0][:3], ["lane-gh", "call", "ui_preview_requests"])
+        self.assertEqual(ran[1][3], "manaflow-ai/cmuxterm-hq")
+
     def test_a_reset_broker_queue_restarts_at_its_newest(self):
         with tempfile.TemporaryDirectory() as tmp:
             _, call = self.broker({"seq": 3, "requests": [], "reset": True})
