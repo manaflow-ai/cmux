@@ -749,6 +749,30 @@ class PushClassTest(unittest.TestCase):
             self.assertIn(path, why)
         self.assertLessEqual(len(ps.FULL), 6)  # the list stays short
 
+    def test_full_paths_into_the_batched_base_are_sampled(self) -> None:
+        import webviews_pr_shards as ps  # noqa: PLC0415
+        saved = {k: os.environ.get(k) for k in ("CI_WEBVIEWS_PR_BASE", "CI_WEBVIEWS_FULL_TO_BATCH")}
+        try:
+            os.environ["CI_WEBVIEWS_PR_BASE"] = "feat-cmux-next"
+            for i, path in enumerate(("scripts/ci/run-webviews-tests.sh", "webviews/bun.lock", "webviews/test/preload.ts")):
+                cls, shards, why, _ = self.classify({path: f"changed {path} {i}\n"})
+                self.assertEqual(cls, "sampled", path)
+                self.assertEqual(shards[0], 1)
+                self.assertEqual(len(shards), 1 + ps.SAMPLE_COUNT, (path, shards))
+                self.assertIn(path, why)
+                self.assertIn(ps.BATCHED_WHY, why)
+            os.environ["CI_WEBVIEWS_FULL_TO_BATCH"] = "0"
+            self.assertEqual(self.classify({"webviews/bun.lock": "switched off\n"})[0], "full")
+            os.environ["CI_WEBVIEWS_FULL_TO_BATCH"] = "1"
+            os.environ["CI_WEBVIEWS_PR_BASE"] = "main"
+            self.assertEqual(self.classify({"webviews/bun.lock": "another base\n"})[0], "full")
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
     def run_cli(self, *args: str, classes: str = "1") -> tuple[list, str, str]:
         import json  # noqa: PLC0415
         summary, class_out = self.root / "summary.md", self.root / "class.txt"

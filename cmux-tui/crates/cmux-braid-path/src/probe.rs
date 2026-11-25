@@ -151,12 +151,9 @@ impl PathWatch {
     }
 
     /// The round trip of probe `id`'s answer, if it is the one outstanding.
-    ///
-    /// The answer is the path's own probe coming back, not other traffic: it
-    /// does not stand in for the next routine ping (`skip_proven_ping`), or an
-    /// idle current path whose only traffic is its pings would be pinged once
-    /// a refresh, not once an interval, and a cut there would wait for it.
-    /// The datagram that carried it may already have called `heard`.
+    /// The answer also says the path is not silent. It is the path's own
+    /// probe coming back, not other traffic, so it does not stand in for the
+    /// next routine ping (`skip_proven_ping`).
     pub fn answer(&mut self, config: &ProbeConfig, id: u64, now: Instant) -> Option<u64> {
         let rtt_us = config.answer(&mut self.probe, id, now)?;
         self.unanswered_since = None;
@@ -374,8 +371,7 @@ mod tests {
         let mut watch = PathWatch::default();
         let mut id = 0;
         let ping = step(&mut watch, &mut id, start).expect("the first ping");
-        // The pong's datagram is heard before it is matched as the answer.
-        watch.heard();
+        watch.heard(); // the pong's datagram is heard before it is matched
         watch.answer(&ProbeConfig::default(), ping, start).expect("answered");
         assert!(step(&mut watch, &mut id, start + Duration::from_secs(5)).is_some());
     }

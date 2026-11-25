@@ -339,6 +339,10 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_WORKTREE_RESTORE, Request),
         untyped(method::MUX_RETENTION, Request),
         untyped(method::MUX_COLD_ARCHIVE, Request),
+        untyped(method::MUX_AUTO_SESSION_SET, Request),
+        untyped(method::MUX_AUTO_SESSION_LEFTOVER, Request),
+        untyped(method::MUX_AUTO_SESSION_WAKE, Request),
+        untyped(method::MUX_AUTO_SESSION_TRANSCRIPT, Request),
         untyped(method::MUX_PROCESS_UPDATE, Notification),
         keyed::<params::KillParams>(method::MUX_KILL, Request),
         untyped(method::MUX_PAUSE, Request),
@@ -650,6 +654,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_UNSENT, Notification),
         untyped("_acpmux/lagged", Notification),
         untyped(method::MUX_MACHINE_JOIN_PROGRESS, Notification),
+        untyped(method::MUX_ADMISSION_WAITING, Notification),
         untyped(method::MUX_DISCONNECTED, ClientLocal),
     ]
 }
