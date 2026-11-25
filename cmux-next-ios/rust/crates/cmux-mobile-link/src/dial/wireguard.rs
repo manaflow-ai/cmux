@@ -415,7 +415,7 @@ fn parse_key(text: &str) -> Result<[u8; 32], DialError> {
 const UDP_BUFFER: usize = 2 * 1024 * 1024;
 
 /// A UDP socket for the tunnel, on any port, with [`UDP_BUFFER`] buffers.
-pub(super) fn bind_udp() -> io::Result<UdpSocket> {
+pub(crate) fn bind_udp() -> io::Result<UdpSocket> {
     let socket =
         socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, Some(socket2::Protocol::UDP))?;
     let _ = socket.set_recv_buffer_size(UDP_BUFFER);
@@ -533,7 +533,7 @@ const MAX_HOST_IPS: usize = 8;
 
 /// The IPv4 addresses of this machine's interfaces (the tunnel's socket is
 /// IPv4), as WebRTC gathers its host candidates.
-fn interface_ips() -> Vec<IpAddr> {
+pub(crate) fn interface_ips() -> Vec<IpAddr> {
     webrtc::util::ifaces::ifaces()
         .unwrap_or_default()
         .into_iter()
