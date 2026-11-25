@@ -36,44 +36,15 @@ public nonisolated struct NotificationSoundRule: Hashable, Sendable {
 
     /// The rule in `value`. A plain string is shorthand for `{"sound": value}`. Nil, with a
     /// message, when `value` is neither; a bad member is dropped with a message and the rest apply.
+    /// Asked of cmux-window-rules (`window_notifications_sound_rule_parse`); nil when it does not answer.
     public static func parse(_ value: JSONValue, problems: inout [String]) -> NotificationSoundRule? {
-        if let text = value.stringValue { return NotificationSoundRule(sound: text) }
-        guard case .object(let members) = value else {
-            problems.append("expected a sound name or {\"sound\", \"volume\", \"events\"}")
-            return nil
-        }
-        var rule = NotificationSoundRule()
-        for (key, member) in members {
-            switch key {
-            case "sound":
-                if let text = member.stringValue { rule.sound = text } else { problems.append("sound: expected a string") }
-            case "volume":
-                if let number = member.doubleValue, number.isFinite {
-                    rule.volume = min(max(number, 0), 1)
-                    if !(0...1).contains(number) { problems.append("volume: clamped to 0...1") }
-                } else {
-                    problems.append("volume: expected a number from 0 to 1")
-                }
-            case "events":
-                guard case .object(let events) = member else { problems.append("events: expected an object"); continue }
-                for (name, sound) in events {
-                    guard let event = NotificationSoundEvent(rawValue: name) else {
-                        problems.append("events.\(name): unknown event; expected one of \(NotificationSoundEvent.allCases.map(\.rawValue).joined(separator: ", "))")
-                        continue
-                    }
-                    guard let text = sound.stringValue else { problems.append("events.\(name): expected a string"); continue }
-                    rule.events[event] = text
-                }
-            default:
-                problems.append("\(key): unknown key")
-            }
-        }
-        return rule
+        guard let reply = ask(value) else { return nil }
+        problems += reply.problems
+        return reply.rule?.rule
     }
 
     /// Whether `value` is a rule cmux.json can hold (the schema's check before a write).
     public static func accepts(_ value: JSONValue) -> Bool {
-        var problems: [String] = []
-        return parse(value, problems: &problems) != nil && problems.isEmpty
+        ask(value)?.accepts ?? false
     }
 }
