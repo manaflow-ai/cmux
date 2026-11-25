@@ -198,7 +198,7 @@
   white-space: nowrap;
   text-overflow: ellipsis;
   color: var(--agent-muted);
-  font-size: var(--agent-font-small, 11px);
+  font-size: var(--text-caption);
   opacity: 0.7;
 }
 /* The machine name at rest (composer-machine-at-rest): a chat on another machine names it beside the
