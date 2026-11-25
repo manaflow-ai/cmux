@@ -2468,7 +2468,7 @@ impl Hub {
             steer_now: Default::default(),
             steer_end: tokio::sync::watch::channel(None).0,
             fork_from: StdMutex::new(fork_from),
-            applied: StdMutex::new(session::Applied::default()),
+            applied: Default::default(),
             purged: Arc::new(AtomicBool::new(false)),
             replaced: AtomicBool::new(false),
             purging: AtomicBool::new(false),
