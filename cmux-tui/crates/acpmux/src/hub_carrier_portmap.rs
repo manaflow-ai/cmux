@@ -191,36 +191,18 @@ fn local_toward(gateway: Ipv4Addr) -> Option<Ipv4Addr> {
     }
 }
 
-/// The default IPv4 gateway (macOS: `sysctl` `NET_RT_FLAGS`; Linux: `/proc/net/route`).
+/// The default IPv4 gateway: macOS reads it with `sysctl` `NET_RT_FLAGS`. Elsewhere none
+/// (no port mapping): Linux hosts are mostly servers and cloud machines, which still punch
+/// over IPv6 and toward a far side's mapping, and cmux-next never reads `/proc/net`.
 pub fn default_gateway() -> Option<Ipv4Addr> {
     #[cfg(target_os = "macos")]
     {
         macos_gateway()
     }
-    #[cfg(target_os = "linux")]
-    {
-        linux_gateway(&std::fs::read_to_string("/proc/net/route").ok()?)
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(not(target_os = "macos"))]
     {
         None
     }
-}
-
-/// The default route's gateway in `/proc/net/route` (hex, little-endian).
-pub fn linux_gateway(table: &str) -> Option<Ipv4Addr> {
-    const RTF_GATEWAY: u32 = 0x2;
-    table.lines().skip(1).find_map(|line| {
-        let fields: Vec<&str> = line.split_whitespace().collect();
-        let (destination, gateway, flags, mask) =
-            (fields.get(1)?, fields.get(2)?, fields.get(3)?, fields.get(7)?);
-        let flags = u32::from_str_radix(flags, 16).ok()?;
-        if *destination != "00000000" || *mask != "00000000" || flags & RTF_GATEWAY == 0 {
-            return None;
-        }
-        let gateway = u32::from_str_radix(gateway, 16).ok()?;
-        Some(Ipv4Addr::from(gateway.to_le_bytes()))
-    })
 }
 
 /// The default route's gateway in a `NET_RT_FLAGS` dump: routing messages (`rt_msghdr`,
@@ -364,12 +346,5 @@ mod tests {
         assert_eq!(natpmp_map_answer(&answer, 40123), Some((41000, 60)));
         answer[1] = 129; // a UDP answer is not this mapping's
         assert_eq!(natpmp_map_answer(&answer, 40123), None);
-    }
-
-    #[test]
-    fn the_linux_route_table_names_the_gateway() {
-        let table = "Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\n\
-                     eth0\t00000000\t0101A8C0\t0003\t0\t0\t0\t00000000\n";
-        assert_eq!(linux_gateway(table), Some(Ipv4Addr::new(192, 168, 1, 1)));
     }
 }
