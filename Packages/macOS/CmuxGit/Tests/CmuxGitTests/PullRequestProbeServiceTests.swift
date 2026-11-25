@@ -132,6 +132,19 @@ import Testing
         #expect(PullRequestProbeService.preferredPullRequest(from: [staleMerged], now: now) == nil)
     }
 
+    @Test func githubTimestampDateParsesWholeAndFractionalSecondsAndRejectsTheRest() throws {
+        let whole = try #require(PullRequestProbeService.githubTimestampDate(from: "2026-04-06T12:00:00Z"))
+        #expect(whole.timeIntervalSince1970 == 1_775_476_800)
+        #expect(PullRequestProbeService.githubTimestampDate(from: " 2026-04-06T12:00:00Z\n") == whole)
+        #expect(PullRequestProbeService.githubTimestampDate(from: "2026-04-06T14:00:00+02:00") == whole)
+        let fractional = try #require(PullRequestProbeService.githubTimestampDate(from: "2026-04-06T12:00:00.500Z"))
+        #expect(fractional.timeIntervalSince(whole) == 0.5)
+
+        for unusable in [nil, "", "   ", "last year", "2026-04-06", "2026-04-06 12:00:00"] {
+            #expect(PullRequestProbeService.githubTimestampDate(from: unusable) == nil, "\(unusable ?? "nil")")
+        }
+    }
+
     // MARK: refresh policy
 
     @Test func shouldSkipLookupOnlyForExactMainAndMaster() {
