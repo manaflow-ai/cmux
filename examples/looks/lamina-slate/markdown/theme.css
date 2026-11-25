@@ -1,0 +1,13 @@
+/* Lamina Slate's Markdown viewer: the chat's layers and strokes. Code on a faint layer with 8 px
+   corners, headings over a one-point line, quotes on a one-point rule, nothing raised.
+   Only --cmux-md-* custom properties on :root; every color is mixed from the page's own, so
+   this one file reads over the light and the dark theme file alike. */
+:root {
+  --cmux-md-border-color: color-mix(in srgb, var(--page-text) 12%, transparent);
+  --cmux-md-code-background: color-mix(in srgb, var(--page-text) 5%, transparent);
+  --cmux-md-code-radius: 8px;
+  --cmux-md-heading-weight: 600;
+  --cmux-md-heading-rule: 1px solid var(--cmux-md-border-color);
+  --cmux-md-quote-border: 1px solid var(--cmux-md-border-color);
+  --cmux-md-table-header-background: color-mix(in srgb, var(--page-text) 5%, transparent);
+}
