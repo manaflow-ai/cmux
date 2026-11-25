@@ -49,6 +49,12 @@ fn every_component_has_props_and_an_example() {
         "Icon",
         "StatusGlyph",
         "Spinner",
+        "Tooltip",
+        "Menu",
+        "MenuItem",
+        "Surface",
+        "Panel",
+        "Card",
         "MinimalSessions",
         "SessionList",
     ] {
@@ -56,8 +62,8 @@ fn every_component_has_props_and_an_example() {
     }
     assert_eq!(all["count"], list.len());
     for c in list {
-        let props = c["props"].as_array().map_or(0, Vec::len);
-        assert!(props > 0 || c.get("extends").is_some(), "{} has no props: {c:#}", c["name"]);
+        // A prop-less component (MenuSeparator) lists an empty array.
+        assert!(c["props"].is_array(), "{} has no props list: {c:#}", c["name"]);
         let example = c["example"].as_str().unwrap_or_default();
         assert!(
             example.starts_with(&format!("<{}", c["name"].as_str().unwrap_or_default())),
@@ -89,6 +95,11 @@ fn union_props_list_their_values_and_defaults() {
 
     let glyph = component("StatusGlyph");
     assert!(strings(&prop(&glyph, "name")["values"]).contains(&"idle"), "{glyph:#}");
+
+    let panel = component("Panel");
+    assert_eq!(panel["aliasOf"], "Surface", "{panel:#}");
+    assert!(strings(&prop(&panel, "role")["values"]).contains(&"card"), "{panel:#}");
+    assert!(panel["example"].as_str().unwrap_or_default().starts_with("<Panel"), "{panel:#}");
 
     let spinner = component("Spinner");
     assert!(spinner["file"].as_str().unwrap_or_default().ends_with("Spinner.tsx"), "{spinner:#}");

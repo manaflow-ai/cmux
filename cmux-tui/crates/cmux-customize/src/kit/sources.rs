@@ -28,6 +28,18 @@ pub static SOURCES: &[(&str, &str)] = &[
     ("ui/Button.tsx", include_str!("../../../../../webviews/src/ui/Button.tsx")),
     ("ui/Popover.tsx", include_str!("../../../../../webviews/src/ui/Popover.tsx")),
     ("ui/Input.tsx", include_str!("../../../../../webviews/src/ui/Input.tsx")),
+    ("kit/version.ts", include_str!("../../../../../webviews/src/kit/version.ts")),
+    ("ui/Tooltip.tsx", include_str!("../../../../../webviews/src/ui/Tooltip.tsx")),
+    ("ui/Menu.tsx", include_str!("../../../../../webviews/src/ui/Menu.tsx")),
+    ("ui/surface/Surface.tsx", include_str!("../../../../../webviews/src/ui/surface/Surface.tsx")),
+    (
+        "ui/motion/motionTokens.ts",
+        include_str!("../../../../../webviews/src/ui/motion/motionTokens.ts"),
+    ),
+    (
+        "ui/motion/motionMode.ts",
+        include_str!("../../../../../webviews/src/ui/motion/motionMode.ts"),
+    ),
     ("ui/StatusGlyph.tsx", include_str!("../../../../../webviews/src/ui/StatusGlyph.tsx")),
     (
         "ui/statusGlyphs.generated.ts",
@@ -72,6 +84,48 @@ pub static GALLERIES: &[(&str, &str)] = &[
         include_str!(
             "../../../../../webviews/src/agent-session/acpmux/conversation/BackgroundSpinner.gallery.tsx"
         ),
+    ),
+    (
+        "agent-session/acpmux/conversation/HighlightContrast.gallery.tsx",
+        include_str!(
+            "../../../../../webviews/src/agent-session/acpmux/conversation/HighlightContrast.gallery.tsx"
+        ),
+    ),
+    (
+        "agent-session/acpmux/offer/SuggestedTasks.gallery.tsx",
+        include_str!(
+            "../../../../../webviews/src/agent-session/acpmux/offer/SuggestedTasks.gallery.tsx"
+        ),
+    ),
+    (
+        "ui/HoverSurface.gallery.tsx",
+        include_str!("../../../../../webviews/src/ui/HoverSurface.gallery.tsx"),
+    ),
+    ("ui/Menu.gallery.tsx", include_str!("../../../../../webviews/src/ui/Menu.gallery.tsx")),
+    (
+        "ui/MenuLookKeys.gallery.tsx",
+        include_str!("../../../../../webviews/src/ui/MenuLookKeys.gallery.tsx"),
+    ),
+    (
+        "ui/MenuLooks.gallery.tsx",
+        include_str!("../../../../../webviews/src/ui/MenuLooks.gallery.tsx"),
+    ),
+    (
+        "ui/MenuRowStates.gallery.tsx",
+        include_str!("../../../../../webviews/src/ui/MenuRowStates.gallery.tsx"),
+    ),
+    (
+        "ui/MenuStyleV2.gallery.tsx",
+        include_str!("../../../../../webviews/src/ui/MenuStyleV2.gallery.tsx"),
+    ),
+    ("ui/Tooltip.gallery.tsx", include_str!("../../../../../webviews/src/ui/Tooltip.gallery.tsx")),
+    (
+        "ui/glass/MenuMaterial.gallery.tsx",
+        include_str!("../../../../../webviews/src/ui/glass/MenuMaterial.gallery.tsx"),
+    ),
+    (
+        "ui/surface/Surface.gallery.tsx",
+        include_str!("../../../../../webviews/src/ui/surface/Surface.gallery.tsx"),
     ),
 ];
 
