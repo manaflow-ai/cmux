@@ -24,10 +24,19 @@ What a field binding may change on the Swift side, never on the wire (the app's 
 - `optional` (true or false) and `encode` (`always` or `if_present`): the Swift Optional-ness and whether an
   unset value is still sent, where the app has always sent a field the schema lets it leave out (or the
   reverse); the JSON an existing caller sends stays the same;
-- `update`: an optional nullable field becomes a `FieldUpdate<T>` (absent keeps, `.clear` sends null).
+- `update`: an optional nullable field becomes a `FieldUpdate<T>` (absent keeps, `.clear` sends null);
+- `encode: when_true` (an optional boolean only): a plain `Bool`, false by default and sent only as `true`, so
+  an unset flag leaves the daemon's default in force, as the hand-written `if flag { encode(true) }` did.
 A request binding's `mutation: true` folds the schema's exactly-once fields (`origin`, `mutation_id` and the
 `expected_generation` / `expected_revision` guards, whichever it has) into one `mutation: MutationIdentity?`
 that MutationFields encodes flat, as every hand-written mutating request did; `order` may name it `mutation`.
+
+A request binding's `flatten` folds schema fields into one Swift value the app already models, encoded flat into
+the request's own object (`"options": {"type": "SpawnOptions"}`). The top-level `flatten` registry names, per
+Swift type, the wire names it writes and the Swift statement that writes them (`{value}` is the property; an
+Optional property is written only when set). The flatten takes every schema field among those wire names, which
+must be optional ones; the type's own encoder writes the rest of its wire names only when they are set, as the
+hand-written request did. `order` may name a flattened property.
 """
 
 from __future__ import annotations
@@ -74,14 +83,18 @@ _KEYWORDS = frozenset({
     "fallthrough", "for", "guard", "if", "in", "repeat", "return", "switch", "where", "while", "as", "catch",
     "false", "is", "nil", "self", "Self", "super", "throw", "throws", "true", "try", "Any", "Type",
 })
-_TOP_KEYS = frozenset({"$comment", "sources_root", "ids", "types", "families"})
+_TOP_KEYS = frozenset({"$comment", "sources_root", "ids", "types", "flatten", "families"})
 _FAMILY_KEYS = frozenset({"$comment", "enums", "requests"})
 _ENUM_KEYS = frozenset({"doc"})
 _REQUEST_KEYS = frozenset({
     "name", "doc", "order", "fields", "response", "response_order", "response_fields", "protocol", "mutation",
+    "flatten",
 })
 _FIELD_KEYS = frozenset({"name", "type", "doc", "default", "optional", "encode", "update"})
 _ENCODE_MODES = {"always": True, "if_present": False}
+WHEN_TRUE = "when_true"
+_FLATTEN_TYPE_KEYS = frozenset({"$comment", "wire", "encode"})
+_FLATTEN_KEYS = frozenset({"type", "doc", "default", "optional"})
 MUTATION = "mutation"
 _MUTATION_WIRE = ("origin", "mutation_id", "expected_generation", "expected_revision")
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -198,6 +211,9 @@ class _Field:
     default: str | None = None
     update: bool = False
     mutation: bool = False
+    when_true: bool = False
+    # A flattened value: the Swift statement that writes it into the request's own object.
+    flat: str | None = None
 
     @property
     def declared_type(self) -> str:
@@ -211,9 +227,18 @@ class _Field:
             default = ".unchanged" if self.update else "nil" if self.optional else None
         return f"{self.name}: {self.declared_type}" + ("" if default is None else f" = {default}")
 
+    @property
+    def keyed(self) -> bool:
+        return not self.mutation and self.flat is None
+
     def encode_line(self) -> str:
         if self.mutation:
             return f"        try MutationFields(identity: {self.name}).encode(to: encoder)"
+        if self.flat is not None:
+            statement = self.flat.replace("{value}", self.name)
+            return f"        if let {self.name} {{ {statement} }}" if self.optional else f"        {statement}"
+        if self.when_true:
+            return f"        if {self.name} {{ try container.encode(true, forKey: .{_bare(self.name)}) }}"
         method = "encode" if self.always_encoded or self.update else "encodeIfPresent"
         return f"        try container.{method}({self.name}, forKey: .{_bare(self.name)})"
 
@@ -228,6 +253,18 @@ class _Renderer:
         self.ids: Mapping[str, str] = bindings.get("ids", {})
         self.bound: Mapping[str, str] = bindings.get("types", {})
         self.families: Mapping[str, Any] = bindings.get("families", {})
+        self.flatten: dict[str, tuple[list[str], str]] = {}
+        for name, spec in bindings.get("flatten", {}).items():
+            if name == "$comment":
+                continue
+            spec = _check_keys(f"flatten.{name}", spec, _FLATTEN_TYPE_KEYS)
+            wire, statement = spec.get("wire"), spec.get("encode")
+            if (not isinstance(wire, list) or not wire or not all(isinstance(item, str) and item for item in wire)
+                    or len(set(wire)) != len(wire)):
+                raise BindingError(f"flatten.{name}: wire lists the distinct wire names the type writes")
+            if not isinstance(statement, str) or "{value}" not in statement:
+                raise BindingError(f"flatten.{name}: encode is a Swift statement that writes {{value}}")
+            self.flatten[name] = (list(wire), statement)
         self.enums: dict[str, tuple[str, Mapping[str, Any]]] = {}
         for family, spec in sorted(self.families.items()):
             if not _IDENTIFIER.fullmatch(family):
@@ -323,13 +360,21 @@ class _Renderer:
                     raise BindingError(f"{where}.{wire}: optional is true or false, and not with update")
                 optional = override["optional"]
             always = required
-            if "encode" in override:
+            when_true = override.get("encode") == WHEN_TRUE
+            if when_true:
+                if (required or spec["type"] != {"kind": "scalar", "name": "boolean"} or update
+                        or "optional" in override or override.get("type", "Bool") != "Bool"):
+                    raise BindingError(f"{where}.{wire}: encode when_true is only for an optional boolean")
+                swift_type, optional, always = "Bool", False, True
+            elif "encode" in override:
                 if override["encode"] not in _ENCODE_MODES or update:
-                    raise BindingError(f"{where}.{wire}: encode is always or if_present, and not with update")
+                    raise BindingError(
+                        f"{where}.{wire}: encode is always, if_present or when_true, and not with update"
+                    )
                 always = _ENCODE_MODES[override["encode"]]
             if not optional and not always:
                 raise BindingError(f"{where}.{wire}: a field that is not Optional is always encoded")
-            default = override.get("default")
+            default = override.get("default", "false" if when_true else None)
             if default is not None and (not isinstance(default, str) or not default):
                 raise BindingError(f"{where}.{wire}: default is a Swift expression")
             doc = list(override.get("doc") or ([spec["description"]] if spec.get("description") else []))
@@ -352,6 +397,7 @@ class _Renderer:
                 doc=doc,
                 default=default,
                 update=update,
+                when_true=when_true,
             ))
         names = [_bare(item.name) for item in result]
         if len(set(names)) != len(names):
@@ -403,23 +449,53 @@ class _Renderer:
         mutation = binding.get("mutation", False)
         if mutation not in (True, False):
             raise BindingError(f"{command}: mutation is true or false")
+        synthetic: dict[str, _Field] = {}
         if mutation:
             if not {"origin", "mutation_id"} <= set(schema_fields):
                 raise BindingError(f"{command}: mutation needs the schema's origin and mutation_id fields")
             schema_fields = {wire: spec for wire, spec in schema_fields.items() if wire not in _MUTATION_WIRE}
-        at = order.index(MUTATION) if mutation and MUTATION in order else None
-        if at is not None:
-            order.pop(at)
-        fields = self.fields(command, schema_fields, binding.get("fields", {}), order, nested)
+        flatten = binding.get("flatten", {})
+        if not isinstance(flatten, Mapping):
+            raise BindingError(f"{command}: flatten maps a Swift property name to its binding")
+        if len(set(order)) != len(order):
+            raise BindingError(f"{command}: the order names a field twice")
+        for name, spec in flatten.items():
+            if not _IDENTIFIER.fullmatch(name) or name == MUTATION:
+                raise BindingError(f"{command}.flatten: {name!r} is not a Swift property name")
+            spec = _check_keys(f"{command}.flatten.{name}", spec, _FLATTEN_KEYS)
+            if spec.get("type") not in self.flatten:
+                raise BindingError(f"{command}.flatten.{name}: type must be one the top-level flatten registry names")
+            wires, statement = self.flatten[spec["type"]]
+            taken = [wire for wire in wires if wire in schema_fields]
+            if not taken:
+                raise BindingError(f"{command}.flatten.{name}: the schema has none of {spec['type']}'s wire names")
+            if any(schema_fields[wire]["presence"] == "required" for wire in taken):
+                raise BindingError(f"{command}.flatten.{name}: a flattened field must be optional in the schema")
+            schema_fields = {wire: item for wire, item in schema_fields.items() if wire not in taken}
+            optional = spec.get("optional", False)
+            default = spec.get("default")
+            if optional not in (True, False) or (default is not None and (not isinstance(default, str) or not default)):
+                raise BindingError(f"{command}.flatten.{name}: optional is true or false, default a Swift expression")
+            synthetic[name] = _Field(
+                wire=name, name=_escaped(name), swift_type=spec["type"], optional=optional, always_encoded=False,
+                doc=list(spec.get("doc") or [f"Sent flat: {', '.join(f'`{wire}`' for wire in taken)}."]),
+                default=default, flat=statement,
+            )
         if mutation:
-            if MUTATION in (_bare(item.name) for item in fields):
-                raise BindingError(f"{command}: a field is already named mutation")
-            fields.insert(len(fields) if at is None else at, _Field(
+            synthetic[MUTATION] = _Field(
                 wire=MUTATION, name=MUTATION, swift_type="MutationIdentity", optional=True, always_encoded=False,
                 doc=["The exactly-once key (`origin`, `mutation_id`); reuse it on every retry of this write."],
                 mutation=True,
-            ))
-        keyed = [item for item in fields if not item.mutation]
+            )
+        schema_order = [wire for wire in order if wire not in synthetic]
+        generated = self.fields(command, schema_fields, binding.get("fields", {}), schema_order, nested)
+        if set(synthetic) & {_bare(item.name) for item in generated}:
+            raise BindingError(f"{command}: a field already has the name of a flattened or mutation property")
+        ordered, rest = iter(generated[:len(schema_order)]), generated[len(schema_order):]
+        fields = [synthetic[wire] if wire in synthetic else next(ordered) for wire in order]
+        fields += rest + [item for name, item in synthetic.items() if name not in order and not item.mutation]
+        fields += [item for name, item in synthetic.items() if name not in order and item.mutation]
+        keyed = [item for item in fields if item.keyed]
         response = self.response_binding(command, schema["result"], binding)
 
         name = binding["name"]
@@ -448,7 +524,8 @@ class _Renderer:
             out += ["", "    public func encode(to encoder: any Encoder) throws {"]
             if keyed:
                 out.append("        var container = encoder.container(keyedBy: CodingKeys.self)")
-            out += [item.encode_line() for item in [*keyed, *(item for item in fields if item.mutation)]]
+            flat = [item for item in fields if item.flat is not None]
+            out += [item.encode_line() for item in [*keyed, *flat, *(item for item in fields if item.mutation)]]
             out.append("    }")
         if response == GENERATE:
             out += ["", *self.response(command, schema["result"], binding)]
