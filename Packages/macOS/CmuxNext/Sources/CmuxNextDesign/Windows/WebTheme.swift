@@ -64,11 +64,18 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// The filled personality slots (``ThemeDecorations/payload``): `data-cmux-decoration-<slot>` on
     /// `<html>`, which the page draws. Empty sends no `decorations` key at all.
     public let decorations: [String: String]
+    /// Wallpaper lighting is on and has a light (``WallpaperLight``): `data-wallpaper-light` on `<html>`, under which
+    /// the glass reads the `--wl-*` variables this theme carries.
+    public let wallpaperLight: Bool
     /// The `experiments.*` switches that are on, by name (``DesignSettings/experiments``):
     /// `window.cmuxExperimentSettings`, which webviews/src/experiments/hostSettings.ts maps to
     /// experiment arms, and a `cmux-experiment-settings` event when it changes. Empty sends no
     /// `experiments` key; the page then clears the switches.
     public let experiments: [String: Bool]
+    /// `appearance.appFont` as the CSS stack the page's `--font-ui` takes (``appFontStack(_:)``), or
+    /// empty for the system font. The bootstrap script puts it in its own `:root` rule, under the
+    /// page's inline styles, so a chat Interface Font the person picked still wins in the chat.
+    public let appFont: String
 
     /// The terminal colors a page highlights code with: the scope's opaque background and
     /// readable foreground, and its ANSI palette as the theme names it (the page lifts each
@@ -224,6 +231,12 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             .merging(SidebarRowTokens.current.rowCSSVariables(pageZoom: DesignSettings.shared.uiScale)) { own, _ in own }
             // Every button's corner, the tab's (Metrics.buttonCornerRadius): `--ds-radius-control` reads it.
             .merging(["--cmux-button-radius": SidebarCardMetrics.px(Metrics.buttonCornerRadius / max(DesignSettings.shared.uiScale, 0.01))]) { own, _ in own }
+            // The menu and popover look a theme file sets (`appearance.menu.*`, `appearance.popover.*`) as the
+            // pages' look tokens (`--menu-*`, webviews/src/ui/README.md "Menu tokens a look sets", and
+            // `--popover-*`): only the keys that are set, so an unset one leaves each page's own value.
+            .merging(DesignSettings.shared.menuLook.webVariables) { own, _ in own }
+            // Wallpaper lighting (glass.css WALLPAPER LIGHTING): the key window's light, empty while off.
+            .merging(BackdropImageStore.shared.light.cssVariables) { own, _ in own }
         colorScheme = tokens.isDark ? "dark" : "light"
         let colors = ColorTransition.current
         transition = ["duration": colors.cssDuration, "easing": colors.cssEasing, "space": colors.space.rawValue]
@@ -237,7 +250,21 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         glassLevels = DesignSettings.shared.previousGlass ? Self.glassLevelsPrevious : "current"
         decorations = ThemeDecorations.current.payload
         fontSmoothing = Self.pageSmoothing(DesignSettings.shared.fontSmoothing, native: .chrome)
+        wallpaperLight = BackdropImageStore.shared.light.pageStyle != nil
         experiments = DesignSettings.shared.experiments
+        appFont = Self.appFontStack(DesignSettings.shared.appFont)
+    }
+
+    /// The system UI stack every page's `--font-ui` holds by default (schemas/type-scale/ui-font-pin.json).
+    static let systemUIStack = "-apple-system, BlinkMacSystemFont, system-ui, sans-serif"
+
+    /// `family` first, then the system font for any character it lacks; empty for nil or blank. The
+    /// family is a validated name (no `"`, `#`, `=` or control characters); a backslash is escaped,
+    /// so the name stays one CSS string.
+    public static func appFontStack(_ family: String?) -> String {
+        guard let name = family?.trimmingCharacters(in: .whitespaces), !name.isEmpty,
+              !name.contains(where: { $0 == "\"" || $0.isNewline || $0 == "<" }) else { return "" }
+        return "\"\(name.replacingOccurrences(of: "\\", with: "\\\\"))\", \(systemUIStack)"
     }
 
     /// `data-cmux-font-smoothing` for `setting`: an explicit choice as it is; ``FontSmoothing/auto``
@@ -267,8 +294,10 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     public var payloadJSON: String {
         var object: [String: Any] = ["variables": variables, "colorScheme": colorScheme, "scrollers": scrollers,
                                      "terminal": terminal.json, "transition": transition, "statusIndicators": statusIndicators,
-                                     "workingLook": workingLook, "motion": motion, "glass": glass, "glassLevels": glassLevels, "fontSmoothing": fontSmoothing]
+                                     "workingLook": workingLook, "motion": motion, "glass": glass, "glassLevels": glassLevels, "fontSmoothing": fontSmoothing,
+                                     "appFont": appFont]
         if !decorations.isEmpty { object["decorations"] = decorations }
+        if wallpaperLight { object["wallpaperLight"] = true }
         if !experiments.isEmpty { object["experiments"] = experiments }
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8) else { return "{}" }
@@ -314,6 +343,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
       var registered = {};
       var applied = {};
       var transitionStyle = null;
+      var appFontStyle = null;
       // A theme applied before <html> exists (Chromium new-document scripts), and the watch that
       // applies it, with the page background rule, once the parser inserts the root.
       var pendingPayload = null;
@@ -350,8 +380,13 @@ public nonisolated struct WebTheme: Equatable, Sendable {
           ' / ' + (m[4] === undefined ? 1 : parseInt(m[4], 16) / 255) + ')';
         return value;
       }
+      // The look tokens a theme file sends (--menu-*, --popover-*: MenuLook.webVariables) stay plain:
+      // a registered <color> computes to its initial value once unset, so a page's fallback would never
+      // apply again (unset is today's look).
+      function isLookToken(name) { return name.indexOf('--menu-') === 0 || name.indexOf('--popover-') === 0; }
       function register(name, value) {
         if (registered[name] !== undefined) return registered[name];
+        if (isLookToken(name)) return (registered[name] = false);
         var ok = !!(window.CSS && CSS.registerProperty && CSS.supports && value.indexOf('var(') < 0 && CSS.supports('color', value));
         if (ok) {
           try { CSS.registerProperty({ name: name, syntax: '<color>', inherits: true, initialValue: 'transparent' }); } catch (e) { ok = false; }
@@ -416,6 +451,14 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             applied[name] = value;
             root.style.setProperty(name, value);
           }
+          // The look tokens are sent only while their key is set: one the last theme sent and this one
+          // does not goes back to the page's own value (a look's stylesheet, else today's).
+          for (var old in applied) {
+            if (isLookToken(old) && !(old in payload.variables)) {
+              delete applied[old];
+              root.style.removeProperty(old);
+            }
+          }
           if (first && names.length) getComputedStyle(root).getPropertyValue(names[0]);
           setTransition(payload.transition, names);
           root.style.colorScheme = payload.colorScheme;
@@ -432,6 +475,19 @@ public nonisolated struct WebTheme: Equatable, Sendable {
           if (payload.glassLevels === 'previous') root.setAttribute('data-glass-levels', 'previous');
           else if (payload.glassLevels) root.removeAttribute('data-glass-levels');
           if (payload.fontSmoothing) root.setAttribute('data-cmux-font-smoothing', payload.fontSmoothing);
+          root.toggleAttribute('data-wallpaper-light', !!payload.wallpaperLight);
+          // appearance.appFont: one :root rule over the page's own --font-ui (desktop.css), under its
+          // inline styles (a chat Interface Font the person picked). Empty: the page's own.
+          var appFont = typeof payload.appFont === 'string' ? payload.appFont : '';
+          if (appFont || appFontStyle) {
+            if (!appFontStyle) {
+              appFontStyle = document.createElement('style');
+              appFontStyle.id = 'cmux-app-font';
+              (document.head || document.documentElement).appendChild(appFontStyle);
+            }
+            var appFontRule = appFont ? ':root:root{--font-ui:' + appFont + '}' : '';
+            if (appFontStyle.textContent !== appFontRule) appFontStyle.textContent = appFontRule;
+          }
           // The filled personality slots (ThemeDecorations): one attribute per slot; a slot the
           // last theme filled and this one leaves empty loses its attribute.
           var decorations = payload.decorations || {};
@@ -519,15 +575,15 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         return css(backgrounds.dividerLine(base: base) ?? base)
     }
 
-    /// The inputs of the page theme that no theme change pushes: `appearance.borders`, `appearance.fontSmoothing`,
+    /// The inputs of the page theme that no theme change pushes: `appearance.borders`, `appearance.fontSmoothing`, `appearance.appFont`,
     /// `appearance.liquidGlass`, `appearance.previousGlass`, the divider
-    /// strength (`--cmux-chrome-divider`), the title area's tone and contrast and the chrome shade they
+    /// strength (`--cmux-chrome-divider`), the menu look (`appearance.menu.*`), the title area's tone and contrast and the chrome shade they
     /// make (`--cmux-sidebar-surface`, `--cmux-chrome-tone`, `--cmux-folder-fill`). The app repaints
     /// every page when one changes (`AppServices.observeBorders`).
     @MainActor
     public static var pushInputs: [String] {
         let design = DesignSettings.shared
-        return [Borders.current.mode.rawValue, design.fontSmoothing.rawValue, "\(design.liquidGlass)", "\(design.previousGlass)", "\(ChromeTunables.dividerStrength.value)", design.titleAreaTone.rawValue,
+        return [Borders.current.mode.rawValue, design.fontSmoothing.rawValue, design.appFont ?? "", "\(design.liquidGlass)", "\(design.previousGlass)", "\(design.menuLook)", "\(ChromeTunables.dividerStrength.value)", design.titleAreaTone.rawValue,
                 "\(design.titleAreaContrast)", "\(Metrics.mainPaneChromeShade(isDark: false))", "\(Metrics.mainPaneChromeShade(isDark: true))"]
     }
 

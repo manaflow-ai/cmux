@@ -8,11 +8,12 @@ import Testing
 /// Chromium ("Playback of protected content is not enabled"): `browser.siteEngines` was read only when a tab was
 /// made with a URL. A Chromium tab that arrives at a WebKit site fresh (its first web page, or a typed address)
 /// now reopens in WebKit; one a sign-in redirect took there, or a popup that keeps `window.opener`, stays.
+/// The default list is empty since Chromium plays Widevine; these tests set a person's own `spotify.com` rule.
 @MainActor @Suite(.serialized) struct BrowserSiteEngineFollowerTests {
     final class Host {
         var reopened: [(url: URL, background: Bool)] = []
         var tab: BrowserSiteEngineFollower.Tab? = .init(enginePinned: false, alreadyReopened: false, shown: true)
-        lazy var follower = BrowserSiteEngineFollower(rules: { .fallback }, tab: { [unowned self] _ in tab },
+        lazy var follower = BrowserSiteEngineFollower(rules: { BrowserSiteEngines(rules: ["spotify.com": .webkit]) }, tab: { [unowned self] _ in tab },
                                                       reopen: { [unowned self] _, url, background in reopened.append((url, background)) })
     }
 

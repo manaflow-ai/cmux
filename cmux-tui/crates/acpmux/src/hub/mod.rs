@@ -34,6 +34,7 @@ mod adopted_fences;
 mod adoption;
 pub(crate) mod agent_hold;
 mod agent_pairs;
+pub(crate) mod agent_timer;
 pub(crate) mod agent_vm;
 mod away_recap;
 mod memory_inbox;
@@ -189,6 +190,7 @@ mod launchers;
 pub mod lineage;
 pub(crate) mod list_guard;
 pub(crate) mod list_tee;
+pub(crate) mod op_once;
 mod rows_source;
 // Row 3b's first PR: the source, driven by tests. Its second PR (the tee at v1's append and the
 // chat registry in the daemon's v2 handle) is its first caller in the daemon.
@@ -323,7 +325,9 @@ pub(crate) mod require_asking;
 mod resolve;
 mod route_switch;
 mod stale_host_respawn;
-pub use pool::{PrewarmRequest, PrewarmShape, RssProbe, tree_rss_bytes};
+pub use pool::{
+    PrewarmRequest, PrewarmShape, RssProbe, parse_home_shapes, person_spare_shapes, tree_rss_bytes,
+};
 pub use route_switch::HarnessRestarts;
 pub(crate) use route_switch::route_error;
 pub(crate) use turn_errors::is_limit_error;
@@ -425,6 +429,7 @@ pub use paging::{
 };
 pub use spawn::expand_env_value;
 pub mod approvers;
+pub(crate) mod dead_letters;
 mod former_names;
 mod harness_key;
 pub(crate) mod key_route;
@@ -444,6 +449,7 @@ mod peer_grace_tests;
 mod peer_lease;
 pub(crate) mod peer_snapshot;
 mod spoken_handles;
+mod successors;
 mod task_names;
 pub use peer_lease::PeerLease;
 /// Debug builds only: the next `n` reads of whether a copy of `peer` is ahead fail, as a timed
@@ -473,6 +479,7 @@ mod permission_groups;
 mod permissions;
 pub(crate) use permissions::drop_display_lines;
 pub mod cmux_tools_answer;
+pub mod here;
 mod hunk_summary;
 pub mod person;
 pub mod presence;
@@ -521,6 +528,8 @@ pub mod plan_build;
 #[cfg(test)]
 mod refused_append_tests;
 pub(crate) mod release_to_watch;
+#[cfg(test)]
+mod reply_segment_tests;
 mod restore_point;
 pub mod rules;
 pub(crate) mod session_hold;
@@ -1098,6 +1107,8 @@ pub struct Hub {
     pub(crate) link_v2: Arc<crate::link_v2::Shared>,
     /// A test's hold on list requests (`list_guard.rs`).
     pub(crate) list_guard: list_guard::ListGuard,
+    /// `_acpmux/archive` and `_acpmux/rename` run once per `opId` (`op_once.rs`).
+    pub(crate) op_once: op_once::OpOnce,
     /// This daemon's rows in list order, kept as they change (`list_order.rs`).
     pub(super) list_order: list_order::ListOrder,
     /// Client requests every connection serves now, each holding its work slot
@@ -1489,6 +1500,8 @@ pub struct Hub {
     pub person: person::PersonGate,
     /// Who has each chat open and who types in it, in memory only (`presence.rs`).
     pub presence: presence::Presence,
+    /// Who is on this machine now, across devices, in memory only (`here.rs`).
+    pub here: here::HereTable,
     /// How long a move may go without its client (`transfer_watch.rs`).
     pub(super) transfer_lease: StdMutex<std::time::Duration>,
     /// The moves one watch ends, or whose begin still makes them (`transfer_watch.rs`).
@@ -1723,6 +1736,7 @@ impl Hub {
             events,
             link_v2: Arc::default(),
             list_guard: Default::default(),
+            op_once: Default::default(),
             list_order: Default::default(),
             requests_in_flight: Default::default(),
             usage_stats: Default::default(),
@@ -1910,6 +1924,7 @@ impl Hub {
             web_token: WebToken::new(String::new()),
             person: Default::default(),
             presence: Default::default(),
+            here: Default::default(),
             workflow_index: Default::default(),
             suggestion_gate,
             page_replies: Default::default(),
@@ -2463,6 +2478,7 @@ impl Hub {
             input_since: AtomicU64::new(0),
             wait_reason: StdMutex::new(None),
             work_below_since: StdMutex::new(0),
+            loop_timers: StdMutex::new(None),
             asks_below: StdMutex::new((0, 0)),
             held_messages: StdMutex::new(std::collections::VecDeque::new()),
             unread_after_work: AtomicBool::new(false),
