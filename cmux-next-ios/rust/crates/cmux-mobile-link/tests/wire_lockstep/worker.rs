@@ -55,6 +55,8 @@ pub(super) fn control_names() -> BTreeSet<String> {
     names
 }
 
+// tungstenite's handshake callback returns its own `ErrorResponse`; its size is not ours to change.
+#[allow(clippy::result_large_err)]
 async fn accept_worker(stream: TcpStream, tap: &Tap) -> WebSocketStream<TcpStream> {
     tokio_tungstenite::accept_hdr_async(stream, |request: &Request, response: Response| {
         for key in request.headers().keys() {
