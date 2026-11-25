@@ -729,7 +729,7 @@ def evidence(tag):
     rows = [f"{pid} {ppid} {args[:300]}" for pid, ppid, args in ps_table() if APP.mine(args)]
     snap = {"bundle_processes": rows, "app_alive": APP.alive(), "app_pid": APP.pid,
             "daemon_state": daemon_state(), "app_state": (app_state() or [None])[0]}
-    time.sleep(30)
+    time.sleep(30)  # sleep-ok: the evidence is the state 30 s later (did it recover on its own); the wait is the point
     snap["daemon_state_30s_later"] = daemon_state()
     snap["app_state_30s_later"] = (app_state() or [None])[0]
     snap["daemon_pids"] = APP.daemon_pids()
@@ -1032,7 +1032,7 @@ def iteration(seed, targets, keep=None, label="i"):
             box["answered_at"] = started + box["s"]  # the action's own answer, before the marker write
         th = threading.Thread(target=go, daemon=True)
         th.start()
-        time.sleep(pause)
+        time.sleep(pause)  # sleep-ok: the seeded kill moment inside the action, a fuzz input
         killed_at = time.time()
         pids = kill(target)
         th.join(ACTION_BOUND + 5)
@@ -1044,7 +1044,7 @@ def iteration(seed, targets, keep=None, label="i"):
                                "answered_after_kill_s": round(box["answered_at"] - killed_at, 3) if "answered_at" in box else None,
                                "answer": str(box.get("answer"))[:200]})
     else:
-        time.sleep(pause)
+        time.sleep(pause)  # sleep-ok: the seeded kill moment between actions, a fuzz input
         killed_at = time.time()
         pids = kill(target)
     rec["killed"] = pids
@@ -1526,7 +1526,7 @@ def disk_full_refusal(answer):
             and bool(DISK_FULL.search(json.dumps(answer.get("error")))))
 
 
-PROBE_SETTLE = 5.0  # seconds from the action to the after view (the refusal toast shows)
+PROBE_SETTLE = 15.0  # seconds at most from the action until its outcome (the refusal toast) shows and holds
 PROBE_BOUND = 240  # seconds the probe may take at most: fills, CLI creates, the action, a relaunch and 3 view reads
 
 
@@ -1584,8 +1584,22 @@ def run_app_create_probe(vol):
         return probe_record("not run", [f"the action did not run: {json.dumps(answer)[:200]}"])
     if isinstance(err, dict) and err.get("code") == "not_found":
         return probe_record("not run", [f"the action is unknown: {json.dumps(answer)[:200]}"])
-    time.sleep(PROBE_SETTLE)
-    after = app_view()
+    # Until the create's outcome shows (a new refusal notice, or a new workspace) and the view stopped changing
+    # (three reads alike): a ghost or a second notice that comes after the first still lands in `after`.
+    seen = {"view": None, "key": None, "same": 0}
+
+    def outcome_settled():
+        view = seen["view"] = app_view()
+        key = (view["readable"], sorted(view["app"]), sorted(view["daemon"]), view["notices"], view["texts"])
+        seen["same"] = seen["same"] + 1 if key == seen["key"] else 1
+        seen["key"] = key
+        shown = view["readable"] and bool(new_refusal_texts(before, view) or view["daemon"] - before["daemon"]
+                                          or view["app"] - before["app"])
+        return shown and seen["same"] >= 3
+
+    if not wait(outcome_settled, PROBE_SETTLE, 0.25):
+        say(f"disk-full probe: no settled outcome (refusal notice or new workspace) {PROBE_SETTLE:.0f} s after New Workspace")
+    after = seen["view"] if seen["view"] is not None else app_view()
     if not after["readable"]:
         return probe_record("not run", ["the app or daemon topology could not be read after the create"],
                             before=before, after=after)
@@ -1679,7 +1693,25 @@ def start_chaos():
             ["/usr/bin/python3", hog, "--swap-gb", str(opts.hog_swap_gb), "--deadline", str(int(T0 + opts.max_seconds)),
              "--log", os.path.join(opts.out, "hog.jsonl")], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
         say(f"chaos hog: pid {CHAOS_PROCS[-1].pid}, --swap-gb {opts.hog_swap_gb}")
-        time.sleep(20)  # let it reach pressure before the first iteration
+        # Until the hog has the Mac under pressure before the first iteration: its log shows swap grown 1 GB, the
+        # free-memory level at --resume (20) or below, or its holding stopped growing (its cap or --swap-gb).
+        hog_log = os.path.join(opts.out, "hog.jsonl")
+
+        def hog_pressure():
+            try:
+                with open(hog_log) as f:
+                    rows = [json.loads(line) for line in f if line.strip()]
+            except (OSError, ValueError):
+                return False
+            rows = [r for r in rows if "swap_used_mb" in r]
+            if len(rows) < 2:
+                return False
+            held = [r.get("held_mb", 0) for r in rows[-4:]]
+            return (rows[-1]["swap_used_mb"] - rows[0]["swap_used_mb"] >= 1024 or rows[-1].get("level", 100) <= 20
+                    or (len(held) == 4 and held[0] == held[-1] > 0))
+
+        if not wait(hog_pressure, 120, 1.0):
+            say("chaos hog: no memory pressure in its log after 120 s; iterating anyway")
     elif opts.chaos == "cpu":
         burn = ("import ctypes,time\n"
                 "ctypes.CDLL(None).pthread_set_qos_class_self_np(0x21,0)\n"  # QOS_CLASS_USER_INTERACTIVE

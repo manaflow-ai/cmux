@@ -16,6 +16,8 @@ import { useT, type StringKey } from "../i18n";
 import type { AcpmuxPlanEntry } from "../model";
 import { Check, ChevronRight, Spinner } from "./icons";
 import { planOpen, setPlanOpen } from "./planOpen";
+import { experimentArm } from "../../../experiments/experiment";
+import { earlierPlanHat } from "../subagents/earlierPlanHat.experiment";
 
 const STATUS: Record<AcpmuxPlanEntry["status"], StringKey> = {
   completed: "plan.status.completed",
@@ -41,6 +43,7 @@ export const PlanList = memo(function PlanList({
   id?: string;
 }) {
   const t = useT();
+  const [banner] = useState(() => experimentArm(earlierPlanHat) === "before");
   const [open, setOpen] = useState(() => planOpen(id));
   const toggle = useCallback(() => {
     setOpen((was) => {
@@ -57,10 +60,14 @@ export const PlanList = memo(function PlanList({
       className="cv-plan"
       data-ended={ended ? "" : undefined}
       data-earlier={earlier && !ended ? "" : undefined}
+      // Between turns its step in progress draws a plain ring (conversation.css), never a blank mark
+      // (cmux#51039: a blank mark read as nothing happening).
+      data-still={still && !ended && !earlier ? "" : undefined}
       data-folded={folded ? "" : undefined}
     >
-      {earlier && !ended && (
-        // Drawn and heard: the list is the agent's last plan, not the running turn's.
+      {earlier && !ended && banner && (
+        // Drawn and heard: the list is the agent's last plan, not the running turn's. Only the
+        // `before` arm draws it (earlierPlanHat.experiment.ts): the chip's own head says "Earlier plan".
         <div className="cv-plan__earlier">{t("plan.earlier")}</div>
       )}
       {ended ? (
@@ -110,6 +117,7 @@ const PlanStep = memo(function PlanStep({ content }: { content: string }) {
   const title = (cut < 0 ? content : content.slice(0, cut)).trim();
   const detail = cut < 0 ? "" : content.slice(cut + 1).trim();
   return (
+    // tooltip-allow: the detail is clamped to two lines; the tooltip holds the whole step
     <span className="cv-plan__text" title={content}>
       <span className="cv-plan__title">{renderInline(title)}</span>
       {detail && <span className="cv-plan__detail">{renderInline(detail)}</span>}

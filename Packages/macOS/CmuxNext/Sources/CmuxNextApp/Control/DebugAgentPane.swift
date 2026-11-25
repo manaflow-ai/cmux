@@ -55,8 +55,7 @@ import WebKit
 /// bridge as a native row click (DEBUG capture tours only).
 @MainActor
 enum DebugAgentPane {
-    /// Long enough for a 5000-turn load seed and a waited fling of up to ~25 s.
-    static let deadline: Duration = .seconds(60)
+    static let deadline = AgentPaneView.debugVerbDeadline
 
     private static let functions: [String: String] = [
         "seed_rows": "seedRows", "fling": "startFling", "fling_stats": "flingStats",
@@ -78,20 +77,6 @@ enum DebugAgentPane {
     static func actAsUser(_ action: String, gestures: AgentPaneUserGestures) {
         if userVerbs.contains(action) { gestures.record(click: action == "answer_permission") }
     }
-
-    /// Runs `fn(...args)` on the page and returns its result as JSON text. A page still loading
-    /// gets up to 5 s for its debug hook, on timers: animation frames never come to a page that
-    /// draws nothing yet (a chat restored behind its workspace), and that wait held the call to
-    /// the 60 s deadline.
-    static let script = """
-        let debug = window.cmuxAcpmuxDebug;
-        for (const end = Date.now() + 5000; !debug && Date.now() < end;) {
-            await new Promise((resolve) => setTimeout(resolve, 50));
-            debug = window.cmuxAcpmuxDebug;
-        }
-        if (!debug || typeof debug[fn] !== "function") return JSON.stringify({ error: "the page has no cmuxAcpmuxDebug." + fn });
-        return JSON.stringify((await debug[fn](...args)) ?? null);
-        """
 
     static func handle(_ params: [String: JSONValue], _ services: AppServices?) async -> JSONValue {
         guard let services else { return .object(["error": .string("no app services")]) }
@@ -217,7 +202,9 @@ enum DebugAgentPane {
             return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, tick_watch, typing_stats, reset_typing, close_menus, open_menu, acp_log, acp_log_export, chat_state, send_prompt, new_chat, select_session, pick_folder, compose_send, run_mode, toast, answer_permission, open_changes, set_model, models, stream, layout_watch, idle_probe, readiness, cloud_auth, engine, focus_composer, composer_focused, click, query, open_subagent, resize_probe, pid, full_rate, gesture_state, session_info_action or inspector")])
         }
         do {
-            let result = try await view.callPageScript(script, arguments: ["fn": function, "args": AgentPaneDebugAutomationArguments(action: action, parameters: params).values])
+            let result = try await AgentPaneView.callDebugVerb(function, args: AgentPaneDebugAutomationArguments(action: action, parameters: params).values) {
+                try await view.callPageScript($0, arguments: $1, timeout: $2)
+            }
             guard let text = result as? String,
                   let object = try? JSONSerialization.jsonObject(with: Data(text.utf8), options: [.fragmentsAllowed]),
                   let value = JSONValue(foundation: object) else {

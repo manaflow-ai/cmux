@@ -84,23 +84,18 @@ pub(super) async fn catch_up(
     conn: &Arc<Conn>,
     deliver: impl Fn(&Arc<Hub>, &Arc<Conn>, HubEvent),
 ) {
-    let attached: Vec<(String, EventFilter)> = {
+    // Every record past the cursor goes to `deliver`, which applies the attachment's own live
+    // rules (`matches_live`, process notices, the ACP mapping) as for a ring copy: a catch-up
+    // that read only the stream's kinds would step over a record the live path also sends.
+    let attached: Vec<String> = {
         let subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
-        subs.iter()
-            .filter(|(_, opts)| !opts.remote)
-            .map(|(id, opts)| {
-                // A stream hears its own kinds; the ACP path hears every record it maps.
-                let filter =
-                    if opts.event_stream { opts.filter.clone() } else { EventFilter::default() };
-                (id.clone(), filter)
-            })
-            .collect()
+        subs.iter().filter(|(_, opts)| !opts.remote).map(|(id, _)| id.clone()).collect()
     };
-    for (id, filter) in attached {
+    let filter = EventFilter::default();
+    for id in attached {
         let Ok(session) = hub.resolve(&id) else { continue };
         let through = session.meta().last_seq;
-        loop {
-            let Some(after) = conn.stream_cursors.at(&id) else { break };
+        while let Some(after) = conn.stream_cursors.at(&id) {
             if after >= through {
                 break;
             }
@@ -140,7 +135,7 @@ pub(super) async fn catch_up(
                     },
                 );
             }
-            // Records the filter left out are skipped over too: the stream stands at the end.
+            // The page reached the chat's last seq then: the stream stands there.
             if !page.has_more || last.is_none() {
                 conn.stream_cursors.raise(&id, through);
                 break;

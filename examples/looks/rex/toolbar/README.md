@@ -8,7 +8,7 @@ panes shown in the reference.
 ## Install or preview
 
 ```sh
-cmux setup install github.com/manaflow-ai/cmux/examples/looks/rex/toolbar@lane/rex-feature-looks
+cmux setup install github.com/manaflow-ai/cmux/examples/looks/rex/toolbar@feat-cmux-next
 ```
 
 To remove the installed layer, run `cmux setup remove manaflow-ai/rex-toolbar`.

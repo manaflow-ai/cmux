@@ -2,7 +2,7 @@
 # Build the Screen Sharing helper's executable (plans/cmux-next/screen-sharing-helper.md): the
 # cmux.rd/1 host, `cmux-rd` from cmux-tui/crates/cmux-rd-host (its own Cargo workspace) with
 # only the `link` feature, as the cmux CLI links it. bundle-screen-sharing-helper.sh wraps it
-# in "<app> Screen Sharing.app" (Contents/Library), which the app starts with responsibility
+# in "<app> Helper.app" (Contents/Library), which the app starts with responsibility
 # disclaimed so the Screen Recording and Accessibility grants are the helper's, never cmux's.
 #
 # Same contract as build-mobile-host.sh: CI, fleet and nx-remote builds run Cargo on a miss; a
@@ -59,7 +59,7 @@ inputs=(cmux-tui/crates/cmux-rd-host cmux-tui/crates/cmux-codecs cmux-tui/crates
   cmux-tui/crates/cmux-file-lock
   cmux-tui/crates/cmux-hub-host cmux-tui/crates/cmux-process cmux-tui/crates/cmux-rd-core
   cmux-tui/crates/cmux-rd-engine cmux-tui/crates/cmux-rd-link cmux-tui/crates/cmux-rd-proto
-  cmux-tui/crates/cmux-transport cmux-tui/vendor cmux-tui/Cargo.toml)
+  cmux-tui/crates/cmux-transport cmux-tui/crates/cmux-wg cmux-tui/vendor cmux-tui/Cargo.toml)
 size_profile=(CARGO_PROFILE_RELEASE_LTO=fat CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 CARGO_PROFILE_RELEASE_DEBUG=0)
 features="link computer-use"
 key_material="${size_profile[*]} features=$features"$'\n'

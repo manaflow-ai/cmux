@@ -40,6 +40,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bench_hibernation as bh  # noqa: E402  (the page server, pages, phase, wait_for, evaluate, PLAY)
 import bench_memory as bm  # noqa: E402
 import bench_power as bp  # noqa: E402
+from state_wait import StateWaitTimeout, wait_stable  # noqa: E402
 
 FOCUS_FIELD = "(()=>{const f=document.getElementById('f');f.name.focus();return document.activeElement===f.name})()"
 READ_PLACE = "(()=>JSON.stringify({url:location.href,y:Math.round(scrollY)}))()"
@@ -90,7 +91,8 @@ def run_count(args, bundle: str, count: int, ports: list[int]) -> dict:
         print(f"PERF-TAB-DISCARD-SETUP count={count} plain={len(plain)} audible={audible} typed={json.dumps(typed)} "
               f"pinned={bool(pinned)}", flush=True)
         # Agent grace (30 s after the bench's script calls) passes first, as for the person's own tabs.
-        time.sleep(35)  # test script: let the hidden pages settle past the agent grace
+        # sleep-ok: the app's own 30 s agent-grace timer after the script calls has to run out; no state reports its end
+        time.sleep(35)
         hidden = bh.phase(pid, bundle, "hidden", args.measure, report, sock)
         how = bh.feed_pressure(sock, "critical")
         report["pressure_source"] = how
@@ -109,7 +111,12 @@ def run_count(args, bundle: str, count: int, ports: list[int]) -> dict:
         report["discarded_kept"] = {name: tab in ever for name, tab in kept.items() if tab}
         report["exemptions"] = {name: (status.get("exemptions") or {}).get(tab) for name, tab in kept.items() if tab}
         bh.feed_pressure(sock, "normal")
-        time.sleep(10)  # test script: discarded pages' renderers exit and the app settles
+        # The discarded pages' renderers have exited once the app's process set holds for about 3 s.
+        try:
+            wait_stable(lambda: sorted(bm.owned(pid, bundle)), "the app's processes after the discard", timeout=60,
+                        interval=1.0, reads=4)
+        except StateWaitTimeout as error:
+            print(f"   {error}; measuring anyway", file=sys.stderr)
         after = bh.phase(pid, bundle, "after", args.measure, report, sock)
         gone = bh.exited(hidden, after, "cef-renderer")
         report["renderers"] = {"hidden": hidden["cef_renderers"], "after": after["cef_renderers"], "exited": len(gone)}

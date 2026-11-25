@@ -1,7 +1,7 @@
 // Session replay's clock (ReplayScreen.tsx). Playback runs on replay time: the recorded wall clock
 // with every quiet gap longer than IDLE_GAP_MS shortened to it, so a chat left open overnight
 // still plays through in the time its work took.
-import type { EventRecord } from "../direct";
+import type { EventRecord } from "../eventRecord";
 
 /// The longest pause replay keeps between two recorded events.
 export const IDLE_GAP_MS = 2_000;

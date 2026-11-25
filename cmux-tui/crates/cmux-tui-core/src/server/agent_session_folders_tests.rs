@@ -81,3 +81,75 @@ fn a_cloud_chat_folder_is_private_and_stable() {
     assert!(chat_folder(&home, 43, false).is_none());
     let _ = std::fs::remove_dir_all(home);
 }
+
+/// A machine's acpmux reserves `~/chats/<name>` and writes its ticket.
+fn reserve(home: &Path, name: &str) -> PathBuf {
+    let chats = home.join("chats");
+    let dir = chats.join(name);
+    std::fs::create_dir_all(&dir).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        for d in [&chats, &dir] {
+            std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+    }
+    std::fs::write(chats.join(RESERVED_TICKET), name).unwrap();
+    std::fs::canonicalize(dir).unwrap()
+}
+
+const RESERVED: &str = "r0123456789abcdef0123456789abcdef";
+
+#[test]
+fn the_first_home_chat_takes_the_reserved_folder_and_the_second_gets_its_own() {
+    let home = temp("reserved");
+    let reserved = reserve(&home, RESERVED);
+    assert_eq!(reserved_chat_folder(&home, 7), Some(reserved.clone()));
+    // A retry or a reopen of the same chat finds the same folder.
+    assert_eq!(reserved_chat_folder(&home, 7), Some(reserved));
+    // No one else can take it, and nothing makes the folder for them here.
+    assert_eq!(reserved_chat_folder(&home, 8), None);
+    let second = chat_folder(&home, 8, true).expect("its own folder");
+    assert_eq!(second, std::fs::canonicalize(home.join("chats/8")).unwrap());
+    let _ = std::fs::remove_dir_all(home);
+}
+
+#[test]
+fn a_chat_that_already_has_its_own_folder_keeps_it() {
+    let home = temp("reserved-own");
+    let own = chat_folder(&home, 9, true).unwrap();
+    reserve(&home, RESERVED);
+    assert_eq!(reserved_chat_folder(&home, 9), None);
+    assert_eq!(chat_folder(&home, 9, true), Some(own));
+    let _ = std::fs::remove_dir_all(home);
+}
+
+#[test]
+fn a_ticket_naming_anything_but_a_reserved_folder_is_ignored() {
+    let home = temp("reserved-bad");
+    let chats = home.join("chats");
+    std::fs::create_dir_all(chats.join("5")).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        for d in [chats.clone(), chats.join("5")] {
+            std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+    }
+    for name in ["5", "../work", "r123", "rGGGG456789abcdef0123456789abcdef"] {
+        std::fs::write(chats.join(RESERVED_TICKET), name).unwrap();
+        assert_eq!(reserved_chat_folder(&home, 3), None, "{name}");
+    }
+    // A ticket that is a link is no ticket.
+    #[cfg(unix)]
+    {
+        let _ = std::fs::remove_file(chats.join(RESERVED_TICKET));
+        std::os::unix::fs::symlink(chats.join("5"), chats.join(RESERVED_TICKET)).unwrap();
+        assert_eq!(reserved_chat_folder(&home, 3), None);
+    }
+    // A named folder that is missing is not taken, and the caller falls back.
+    let _ = std::fs::remove_file(chats.join(RESERVED_TICKET));
+    std::fs::write(chats.join(RESERVED_TICKET), RESERVED).unwrap();
+    assert_eq!(reserved_chat_folder(&home, 3), None);
+    let _ = std::fs::remove_dir_all(home);
+}

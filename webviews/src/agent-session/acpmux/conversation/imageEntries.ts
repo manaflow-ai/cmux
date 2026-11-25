@@ -13,13 +13,15 @@
 
 import { useEffect, useReducer, useRef, useState } from "react";
 import type { ComposerAttachment } from "../attachments";
+import { localImagePreview } from "../composer/imagePool";
 import { dataUrlSha256 } from "./sha256";
+import { withAttachmentRetries } from "../../../pages/shared/attachmentRetry";
 
 export type ImageSize = { width: number; height: number };
 /// A sent image ready to draw: its data URL, its natural size when known, and whether the engine
 /// decoded it ahead. The element that decoded it is not held: up to 128 decoded screenshots would
 /// pin gigabytes, and the engine's own image cache serves the same src string again.
-export type ImageEntry = { src: string; size?: ImageSize; decoded?: boolean };
+export type ImageEntry = { src: string; size?: ImageSize; decoded?: boolean; thumbnail?: boolean };
 
 /// Sent images by acpmux id, most recently drawn last, within a count and a total data URL length.
 const MAX_ENTRIES = 128;
@@ -28,6 +30,8 @@ const entries = new Map<string, ImageEntry>();
 let entryChars = 0;
 /// Reads in flight, so two bubbles showing one image ask acpmux once.
 const reading = new Map<string, Promise<ImageEntry | undefined>>();
+// A sent file's existing worker job supplies its thumbnail even if the bubble mounts mid-decode.
+const fileThumbnails = new Map<string, Promise<ImageEntry | undefined>>();
 /// Measured sizes by acpmux id or source fingerprint; a size is a few bytes, so many are kept.
 const MAX_SIZES = 4096;
 const sizes = new Map<string, ImageSize>();
@@ -164,7 +168,9 @@ export async function decodeImage(src: string): Promise<{ size?: ImageSize; deco
 }
 
 /// The sent image `id`, read with `read` (acpmux's `_acpmux/attachment`) and decoded once; every
-/// caller gets the same entry. Undefined when acpmux has none; a failed read is not kept.
+/// caller gets the same entry. Undefined when acpmux has none. A read that throws (the socket
+/// reconnecting, acpmux busy) is tried again on its own a few times (pages/shared/attachmentRetry.ts);
+/// one that still fails rejects and is not kept, so the bubble's Retry reads it again.
 export function loadSentImage(
   id: string,
   read: (id: string) => Promise<string | undefined>,
@@ -175,7 +181,12 @@ export function loadSentImage(
   if (inFlight) return inFlight;
   const load = (async () => {
     try {
-      const src = await read(id);
+      const pendingThumb = fileThumbnails.get(id);
+      if (pendingThumb) {
+        const thumb = await pendingThumb;
+        if (thumb) return thumb;
+      }
+      const src = await withAttachmentRetries(() => read(id));
       if (!src) return undefined;
       const raced = entries.get(id);
       if (raced) return raced;
@@ -198,10 +209,24 @@ const digested = new Map<string, string>();
 /// it at its own shape in the frame acpmux's echo arrives, without reading it back.
 export async function primeSentImages(attachments: readonly ComposerAttachment[]): Promise<void> {
   const digest = globalThis.crypto?.subtle?.digest?.bind(globalThis.crypto.subtle);
-  if (!digest) return;
   await Promise.all(
     attachments.map(async (attachment) => {
-      if (attachment.kind !== "image" || !attachment.data) return;
+      const preview = attachment[localImagePreview];
+      if (preview && attachment.kind === "link" && attachment.path) {
+        const id = `file:${attachment.path}`;
+        const pending: Promise<ImageEntry | undefined> = preview()
+          .then((thumb) =>
+            thumb && fileThumbnails.get(id) === pending
+              ? keep(id, { src: thumb.url, size: { width: thumb.width, height: thumb.height }, thumbnail: true })
+              : undefined,
+          )
+          .catch(() => undefined);
+        fileThumbnails.set(id, pending);
+        await pending;
+        if (fileThumbnails.get(id) === pending) fileThumbnails.delete(id);
+        return;
+      }
+      if (!digest || attachment.kind !== "image" || !attachment.data) return;
       try {
         const text = atob(attachment.data);
         const bytes = new Uint8Array(text.length);
@@ -240,8 +265,9 @@ export async function primeSentImages(attachments: readonly ComposerAttachment[]
 export function withSentShapes<
   Image extends { id: string; mimeType: string; name?: string; width?: number; height?: number; src?: string },
 >(named: readonly Image[], sent: readonly { mimeType: string; name?: string; src?: string }[] | undefined): Image[] {
-  if (!sent?.length) return [...named];
-  return matchSentImages(named, sent).map((match, index) => {
+  // A queued send has no pane row left to pair with (`sent` is undefined or empty), but its bytes
+  // are primed by id at send: the id match still gives the echo its bytes and shape.
+  return matchSentImages(named, sent ?? []).map((match, index) => {
     const image = named[index]!;
     if (!match) return image;
     const size = image.width && image.height ? undefined : knownImageSize(match.src);
@@ -318,8 +344,13 @@ export type StableImage = {
   /// frame from it (`width`/`height` attributes or `aspect-ratio`) before it decodes.
   width?: number;
   height?: number;
-  /// "loading" while a sent image is read, "missing" when acpmux has none to read.
-  status: "loading" | "ready" | "missing";
+  /// "loading" while a sent image is read, "missing" when acpmux has none to read, "failed" when
+  /// its read still failed after its tries again or went unanswered past IMAGE_READ_MS (the bubble
+  /// then shows Retry, `retry`; a late answer still draws).
+  status: "loading" | "ready" | "missing" | "failed";
+  thumbnail?: boolean;
+  /// Reads a "failed" image again.
+  retry(): void;
   /// The first time this image draws in the pane: fade it in then only, never on a remount.
   fresh: boolean;
   /// Decoded ahead or drawn before: draw it with `decoding="sync"` so it paints in its first frame.
@@ -327,6 +358,11 @@ export type StableImage = {
   /// The <img>'s onLoad: keeps its natural size and that it drew.
   onLoad(event: { currentTarget: HTMLImageElement }): void;
 };
+
+/// How long a sent image's slot waits for its read before it says the image failed: no slot waits
+/// forever (Leo, 2026-11-22, on tiles that only spun: "WHAT THE FUCK IS THIS SITUATION MAN WITH THESE
+/// ATTACHMENTS!?").
+export const IMAGE_READ_MS = 15_000;
 
 /// One chat image that never blinks or reshapes on a re-render: the same `src` every render (a sent
 /// image is read and decoded once, shared by every bubble that shows it), its size before it decodes
@@ -340,8 +376,12 @@ export function useStableImage(source: StableImageSource, meta?: { width?: numbe
   const reader = useRef(read);
   reader.current = read;
   const canRead = read !== undefined;
-  const [loaded, setLoaded] = useState<{ id: string; entry?: ImageEntry }>();
+  const [loaded, setLoaded] = useState<{ id: string; entry?: ImageEntry; failed?: boolean }>();
+  /// Bumped by Retry: the read effect runs again.
+  const [attempt, again] = useReducer((count: number) => count + 1, 0);
   const [, measured] = useReducer((count: number) => count + 1, 0);
+  /// The id whose read passed IMAGE_READ_MS unanswered: its slot stops waiting and says so.
+  const [late, setLate] = useState<string>();
   // The entry this image drew from stays with it: the cache may forget the image (other images
   // pushed it out) while the bubble is still on screen, and the effect below reads only on mount
   // or a new id, so the bubble must never depend on the cache still holding what it shows.
@@ -370,14 +410,19 @@ export function useStableImage(source: StableImageSource, meta?: { width?: numbe
     });
     void loadSentImage(id, (key) => reader.current?.(key) ?? Promise.resolve(undefined)).then(
       (found) => live && setLoaded((before) => (before?.id === id && before.entry ? before : { id, entry: found })),
-      // A read can fail after a reconnect or a session switch: the slot goes, never a stale image.
-      () => live && setLoaded((before) => (before?.id === id && before.entry ? before : { id })),
+      // A read that still fails after its tries again (a reconnect that outlasted them): the slot
+      // says so and offers Retry, never a stale image and never nothing.
+      () => live && setLoaded((before) => (before?.id === id && before.entry ? before : { id, failed: true })),
     );
+    // timeout: a read never answered (acpmux gone quiet, a host that dropped the call) ends the wait
+    // once; the watch above stays, so the image still draws if it comes. Cleared with the slot.
+    const timer = setTimeout(() => live && setLate(id), IMAGE_READ_MS);
     return () => {
       live = false;
+      clearTimeout(timer);
       stop();
     };
-  }, [id, canRead]);
+  }, [id, canRead, attempt]);
   const src = direct ?? entry?.src;
   const fade = useRef<{ src: string; fresh: boolean }>(undefined);
   if (src !== undefined && fade.current?.src !== src) fade.current = { src, fresh: !hasDrawn(src) };
@@ -388,11 +433,20 @@ export function useStableImage(source: StableImageSource, meta?: { width?: numbe
     (meta?.width && meta.height ? { width: meta.width, height: meta.height } : undefined) ??
     entry?.size ??
     (src !== undefined ? knownImageSize(src) : undefined);
-  const status = src !== undefined ? "ready" : id !== undefined && canRead && loaded?.id !== id ? "loading" : "missing";
+  const status =
+    src !== undefined
+      ? "ready"
+      : id !== undefined && canRead && loaded?.id !== id
+        ? late === id
+          ? "failed"
+          : "loading"
+        : loaded?.id === id && loaded?.failed
+          ? "failed"
+          : "missing";
   const onLoad = (event: { currentTarget: HTMLImageElement }) => {
     const { naturalWidth: width, naturalHeight: height, currentSrc } = event.currentTarget;
     const drawnSrc = src ?? currentSrc;
-    const natural = width && height ? { width, height } : undefined;
+    const natural = entry?.thumbnail ? entry.size : width && height ? { width, height } : undefined;
     markDrawn(drawnSrc, natural);
     if (id !== undefined && natural) rememberImageSize({ id }, natural);
     // A header that said another size (or none) reserves the frame again at the real one.
@@ -400,11 +454,17 @@ export function useStableImage(source: StableImageSource, meta?: { width?: numbe
   };
   return {
     ...(src !== undefined && { src }),
+    ...(entry?.thumbnail && { thumbnail: true }),
     ...(size && { width: size.width, height: size.height }),
     status,
     fresh: fade.current?.fresh ?? true,
     decoded: entry?.decoded === true || (src !== undefined && hasDrawn(src)),
     onLoad,
+    retry: () => {
+      setLoaded(undefined);
+      setLate(undefined);
+      again();
+    },
   };
 }
 
@@ -413,6 +473,7 @@ export function clearImageEntries(): void {
   entries.clear();
   entryChars = 0;
   reading.clear();
+  fileThumbnails.clear();
   sizes.clear();
   drawn.clear();
   headless.clear();

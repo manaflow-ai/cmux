@@ -50,6 +50,7 @@ export function withNetworkRetry(
 ): string {
   const check = online ?? (probeUrl ? `curl -sS --max-time 5 -o /dev/null ${probeUrl}` : "true");
   for (const part of [script, check])
+    // l10n-allow: a caller's bug (a script with a quote), never drawn
     if (part.includes("'")) throw new Error("an install script must hold no single quote");
   const polls = Math.max(1, Math.ceil(waitSeconds / pollSeconds));
   const wrapper = [
@@ -80,6 +81,7 @@ export function withNetworkRetry(
     "  run=$((run + 1))",
     "done",
   ].join("\n");
+  // l10n-allow: a shell command, not text a person reads
   return `/bin/bash -o pipefail -c '${wrapper}'`;
 }
 

@@ -91,7 +91,8 @@ impl Authority {
         Self::generate_for(CA_DAYS)
     }
 
-    fn generate_for(days: i64) -> Result<Authority, rcgen::Error> {
+    /// A new CA, valid for `days` (a kept CA's renewal is tested with a short one).
+    pub fn generate_for(days: i64) -> Result<Authority, rcgen::Error> {
         let params = ca_params(days)?;
         let key = KeyPair::generate()?;
         let pem = params.self_signed(&key)?.pem();

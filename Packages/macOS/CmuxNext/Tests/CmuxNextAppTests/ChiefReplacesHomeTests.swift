@@ -31,7 +31,7 @@ struct ChiefReplacesHomeTests {
         return SidebarFavicon(try #require(context.makeImage()))
     }
 
-    /// The top row reads as the Chief: its name and picture, its status and the subagents that need the person,
+    /// The top row reads as the Chief: its name beside Home's house (not the Chief's picture), its status and the subagents that need the person,
     /// and the blue dot while another chat is unread.
     @Test func theTopRowIsTheChiefThread() throws {
         let shown = ChiefSidebar.shared.status
@@ -43,7 +43,8 @@ struct ChiefReplacesHomeTests {
         let row = try #require(infos[Self.homeItem.id], "the default layout has no top row for the Chief")
         #expect(row.title == SidebarBuiltIn.home.title && row.title != SidebarBuiltIn.chief.title,
                 "the top row is named \(row.title), not Chief (Chief Activity is the other item, cmux#48416)")
-        #expect(row.favicon == picture, "the top row does not show the Chief's picture")
+        #expect(row.favicon == nil && row.symbol == "house" && row.icon == .home,
+                "the top row draws \(row.symbol), not Home's house (Lucas 2026-11-23)")
         #expect(row.activity == .waiting, "the top row does not show that the Chief needs the person (\(row.activity))")
         #expect(row.badge == 2, "the top row does not count the subagents that need the person (\(String(describing: row.badge)))")
         #expect(row.unreadDot, "another unread chat no longer shows on the top row")

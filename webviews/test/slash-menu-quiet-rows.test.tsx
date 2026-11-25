@@ -1,4 +1,4 @@
-// The `/` menu's rows are names only; the highlighted row says what its command does.
+// Every `/` row says what its command does; the highlighted row also shows its argument.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -133,29 +133,29 @@ async function press(field: HTMLElement, key: string) {
   });
 }
 
-// The `/` list reads as a list of names (a1315, Lawrence 2026-11-21: "drastically simplify all
-// parts of the UI"): one line per command, its name and the one-word tag of where it comes from.
-// The highlighted row also says what it does (its argument and its description); a row the pointer
-// or the arrows have not reached says it to a screen reader only. Two rows of one name keep the
-// tag, the one thing that tells them apart.
-test("only the highlighted row shows what a command does; the others show their name only", async () => {
+// Every row says what its command does, in the quiet second tone (Leo 2026-11-22: "i think we
+// should have short descriptions of the skills/commands in the composer. when you do /, it's ...
+// lonely when you see a field of empty"). The row stays one line (a1315, Lawrence 2026-11-21:
+// "drastically simplify all parts of the UI"): the argument shows on the highlighted row only. Two
+// rows of one name keep the tag, the one thing that tells them apart.
+test("every row shows what its command does", async () => {
   await composer(chat(), "/");
   const all = rows();
   expect(all.length).toBe(4);
-  const at = active();
-  expect(at).toBe(0);
+  expect(active()).toBe(0);
   expect(details(all[0]!)).toEqual(["Clear the history but keep a summary"]);
   const mention = all.find((row) => shown(row, ".acpmux-slash-name") === "/mention")!;
-  expect(details(mention)).toEqual([]);
-  expect(mention.getAttribute("aria-description")).toBe("Mention a file");
+  expect(details(mention)).toEqual(["Mention a file"]);
+  // Shown, so not said twice to a screen reader.
+  expect(mention.hasAttribute("aria-description")).toBe(false);
 });
 
-test("the description follows the highlight", async () => {
+test("the argument follows the highlight", async () => {
   const field = await composer(chat(), "/");
   await press(field, "ArrowDown");
   const all = rows();
   expect(active()).toBe(1);
-  expect(details(all[0]!)).toEqual([]);
+  expect(details(all[0]!)).toEqual(["Clear the history but keep a summary"]);
   expect(details(all[1]!)).toEqual(["<file>", "Mention a file"]);
 });
 
@@ -163,15 +163,11 @@ test("two rows of one name keep where each comes from", async () => {
   await composer(chat(), "/rev");
   const reviews = rows().filter((row) => shown(row, ".acpmux-slash-name") === "/review");
   expect(reviews.length).toBe(2);
-  const quiet = reviews.find((row) => row.getAttribute("aria-selected") !== "true")!;
-  const skill = reviews.find(
-    (row) =>
-      shown(row, ".acpmux-slash-description") === "Review with the team checklist" ||
-      row.getAttribute("aria-description") === "Review with the team checklist",
-  )!;
-  // The skill's row says it is a skill, highlighted or not; the quiet row shows nothing else.
+  const skill = reviews.find((row) => shown(row, ".acpmux-slash-description") === "Review with the team checklist")!;
+  const agent = reviews.find((row) => shown(row, ".acpmux-slash-description") === "Review a pull request")!;
+  // The skill's row says it is a skill, highlighted or not; each says what it does.
   expect(shown(skill, ".acpmux-slash-source")).not.toBe("");
-  expect(details(quiet)).toEqual([shown(quiet, ".acpmux-slash-source")].filter(Boolean));
+  expect(agent).toBeDefined();
 });
 
 // A tag that every row shares tells no row apart (the agent chat's own list: "cmux" on each row).

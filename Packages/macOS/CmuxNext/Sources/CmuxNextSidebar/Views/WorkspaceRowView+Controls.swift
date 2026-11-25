@@ -17,7 +17,7 @@ extension WorkspaceRowView {
     }
 
     func makeMoreButton() -> OverflowButton {
-        let button = OverflowButton(label: Strings.workspaceMenu)
+        let button = OverflowButton.rowControl(label: Strings.workspaceMenu)
         button.onPress = { [weak self] in self?.onMore?() }
         button.showsMenu = showsMenu
         identify(button, as: "more")
@@ -25,7 +25,7 @@ extension WorkspaceRowView {
     }
 
     func makePinButton() -> SidebarIconButton {
-        let button = SidebarIconButton(icon: .actionPin, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.pinWorkspace)
+        let button = SidebarIconButton.rowControl(icon: .actionPin, label: Strings.pinWorkspace)
         button.onPress = { [weak self] in self?.onPin?() }
         identify(button, as: "pin")
         return button
@@ -42,15 +42,14 @@ extension WorkspaceRowView {
     }
 
     func makeTreeFoldButton() -> SidebarIconButton {
-        let button = SidebarIconButton(icon: .disclosureExpanded, pointSize: { Metrics.smallIconSize - Metrics.space2 },
-                                       label: Strings.collapseSessions)
+        let button = SidebarIconButton.rowControl(icon: .disclosureExpanded, label: Strings.collapseSessions)
         button.onPress = { [weak self] in self?.onToggleTree?() }
         applyTreeFold(button)
         return button
     }
 
     func makeAudioButton() -> SidebarIconButton {
-        let button = SidebarIconButton(icon: .browserTabAudio, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.muteTabs)
+        let button = SidebarIconButton.rowControl(icon: .browserTabAudio, label: Strings.muteTabs)
         button.onPress = { [weak self] in self?.onToggleAudio?() }
         applyAudio(button)
         return button

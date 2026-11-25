@@ -257,7 +257,7 @@ import Testing
         }, open: { opened.append($0) })
         await model.connect()
         #expect(model.error)
-        #expect(model.canConnect, "the held key makes the pending flow resumable")
+        #expect(model.canConnect, "a pending flow never blocks Connect; the held key resumes it")
         await model.connect()
         #expect(keys.count == 2)
         #expect(keys[0] != nil && keys[0] == keys[1])
@@ -343,19 +343,27 @@ import Testing
         #expect(GitHubConnections.signedInScope(project: "project", user: "user", team: nil, managedTeam: nil) != nil)
     }
 
-    @Test func restoredPendingConnectionDoesNotCreateADuplicate() async {
+    /// #46018: a pending connection this launch can't resume (another launch's, or one whose return to cmux failed) can't
+    /// be finished, so it never makes Connect a no-op: Connect asks for a new one and opens GitHub, once per click.
+    @Test func aPendingConnectionFromAnotherLaunchStillConnects() async {
         var connects = 0
         var opened = 0
         let model = GitHubConnections(scope: { self.scope }, call: { _, op, _, _ in
-            if op == "integration.connect" { connects += 1 }
-            return ["connections": [["id": "pending", "provider": "github", "created_by": "user", "status": "pending"]], "providers": [["provider": "github", "configured": true]]]
+            if op == "integration.connect" {
+                connects += 1
+                return ["connection": ["id": "fresh"], "authorize_url": "https://github.com/apps/cmux/installations/new?state=a.eyJleHAiOjQxMDI0NDQ4MDB9.b"]
+            }
+            return ["connections": [["id": "stale", "provider": "github", "created_by": "user", "status": "pending"]], "providers": [["provider": "github", "configured": true]]]
         }, open: { _ in opened += 1 })
+        await model.perform("githubRefresh")
+        #expect(model.pageState["canConnect"] == true)
         await model.connect()
-        #expect(model.pageState["canConnect"] == false)
-        #expect(model.pageState["outcome"] == "pending")
+        #expect(connects == 1)
+        #expect(opened == 1)
+        // A second click reopens this launch's own page; it asks no second connection.
         await model.perform("githubConnect")
-        #expect(connects == 0)
-        #expect(opened == 0)
+        #expect(connects == 1)
+        #expect(opened == 2)
     }
 
     @Test func sharedConnectDoesNotCreateAnotherActiveConnection() async {
@@ -420,6 +428,76 @@ import Testing
     @Test(arguments: ["http://github.com/apps/cmux/installations/new", "https://example.test/apps/cmux/installations/new", "https://github.com@evil.test/apps/cmux/installations/new", "https://github.com/login", "https://github.com:443/apps/cmux/installations/new"])
     func onlyGitHubAppInstallationURLsOpen(_ url: String) {
         #expect(GitHubConnections.installationURL(url) == nil)
+    }
+
+    /// integration.connect answers one of three GitHub pages (cmux-api github-connect.ts): the App's
+    /// installation page, its page for one owner, and GitHub's OAuth authorize page for an
+    /// installation that already covers the owner. Each opens; nothing else on or off github.com does.
+    @Test(arguments: [
+        "https://github.com/apps/cmux/installations/new?state=s",
+        "https://github.com/apps/cmux-test/installations/new/permissions?target_id=4242&state=s",
+        "https://github.com/login/oauth/authorize?client_id=Iv1.abc&state=s&redirect_uri=https%3A%2F%2Fcmux.com%2Fintegrations%2Fcallback",
+    ])
+    func theThreeConnectPagesOpen(_ url: String) {
+        #expect(GitHubConnections.installationURL(url)?.absoluteString == url)
+    }
+
+    @Test(arguments: [
+        "http://github.com/login/oauth/authorize", "https://github.com.evil.test/login/oauth/authorize",
+        "https://user@github.com/login/oauth/authorize", "https://github.com:8443/apps/cmux/installations/new/permissions",
+        "https://github.com/apps/cmux/installations/new/permissions/more", "https://github.com/login/oauth/access_token",
+        "https://github.com/login/oauth/authorize/../../evil", "https://github.com/settings/installations/42", "javascript:alert(1)",
+    ])
+    func otherPagesNeverOpen(_ url: String) {
+        #expect(GitHubConnections.installationURL(url) == nil)
+    }
+
+    /// A chat's Connect GitHub card names the failed call's repository and the chat's link. The API
+    /// decides what covers the repository, so an active connection elsewhere does not end it early;
+    /// `connected: true` is done (nothing opens, no error), and the list is read again.
+    @Test func aCardsConnectAsksForItsRepositoryAndAnsweredConnectedOpensNothing() async {
+        var asked: [JSONValue] = []
+        var operations: [String] = []
+        var opened: [URL] = []
+        let active: JSONValue = ["connections": [["id": "c1", "provider": "github", "status": "active", "created_by": "user"]],
+                                 "providers": [["provider": "github", "configured": true]]]
+        let model = GitHubConnections(scope: { self.scope }, call: { _, op, params, _ in
+            operations.append(op)
+            if op == "integration.connect" {
+                asked.append(params)
+                return ["connection": ["id": "c1"], "connected": true]
+            }
+            return active
+        }, open: { opened.append($0) })
+        await model.connect(repo: "acme/web", returnTo: "cmux://session/ses-01")
+        #expect(asked == [["provider": "github", "repo": "acme/web", "return_to": "cmux://session/ses-01"]])
+        #expect(operations == ["integration.list", "integration.connect", "integration.list"])
+        #expect(opened.isEmpty)
+        #expect(!model.error)
+        #expect(model.connected)
+        // Without a repository (Settings, the palette, the CLI) an active connection is done as before.
+        await model.connect()
+        #expect(asked.count == 1)
+    }
+
+    /// A card for a repository GitHub must add opens the page the API answered (here the owner's
+    /// installation page) and keeps that ask's own key: another repository asks again.
+    @Test func eachRepositoryAsksWithItsOwnKey() async {
+        var keys: [String?] = []
+        var opened: [URL] = []
+        let model = GitHubConnections(scope: { self.scope }, call: { _, op, params, key in
+            if op == "integration.connect" {
+                keys.append(key)
+                return ["connection": ["id": .string("p-\(params["repo"]?.stringValue ?? "")")],
+                        "authorize_url": "https://github.com/apps/cmux/installations/new/permissions?target_id=9001&state=a.eyJleHAiOjQxMDI0NDQ4MDB9.b"]
+            }
+            return self.listing
+        }, open: { opened.append($0) })
+        await model.connect(repo: "acme/web")
+        await model.connect(repo: "acme/api")
+        #expect(opened.count == 2)
+        #expect(keys.count == 2)
+        #expect(keys[0] != nil && keys[0] != keys[1])
     }
 
     @Test func backendTeamUsesTheExistingIdentityContract() {

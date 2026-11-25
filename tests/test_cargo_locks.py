@@ -225,7 +225,7 @@ class BusyFixture(unittest.TestCase):
                 self.most_running = max(self.most_running, self.running)
         try:
             if not offline:
-                time.sleep(0.02)
+                time.sleep(0.02)  # sleep-ok: a resolve that takes a moment, the window a parallel resolve would overlap in
             kind = self.behaviour[root]
             if kind == "stale-hang":
                 # Stale under --locked; the rewrite `fix` runs (no --locked) hangs for its whole limit.

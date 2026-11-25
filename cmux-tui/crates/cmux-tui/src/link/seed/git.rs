@@ -66,7 +66,11 @@ pub(super) fn bare(git_dir: &Path) -> Command {
 
 /// stdout of a successful run, else git's stderr (or why it did not run).
 pub(super) fn output(command: &mut Command) -> Result<Vec<u8>, String> {
-    let out = command.output().map_err(|error| format!("cannot run git: {error}"))?;
+    let out = {
+        let name = super::super::spans::git_name(command.get_args());
+        super::super::spans::time(&name, || command.output())
+    }
+    .map_err(|error| format!("cannot run git: {error}"))?;
     if out.status.success() {
         Ok(out.stdout)
     } else {

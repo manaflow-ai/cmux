@@ -126,14 +126,16 @@ import Testing
         #expect(SettingsHarnesses.usageLimits(Data(#"{"id":"x","usageLimits":null,"skipped":"keychain"}"#.utf8)) == .null)
     }
 
-    /// An API-key Codex account has no plan limits (acpmux refuses the read): it is never asked.
+    /// An API-key Codex account has no plan limits (acpmux refuses the read): it is never asked. A
+    /// signed-in Claude login is (acpmux answers from its chats' saved limits); a signed-out one is not.
     @Test func anApiKeyCodexAccountsUsageIsNotRead() throws {
         let rows: [JSONValue] = [
             ["id": "codex-login", "family": "codex", "signedIn": true],
             ["id": "codex-key", "family": "codex", "signedIn": true, "key": true],
             ["id": "claude-login", "family": "claude", "signedIn": true],
+            ["id": "claude-2", "family": "claude", "signedIn": false],
         ]
-        #expect(SettingsHarnesses.usageAccounts(rows.compactMap(SettingsProviderAccount.init)) == ["codex-login"])
+        #expect(SettingsHarnesses.usageAccounts(rows.compactMap(SettingsProviderAccount.init)) == ["codex-login", "claude-login"])
     }
 
     /// A refresh while an account's usage read runs starts no second one (the daemon caches only

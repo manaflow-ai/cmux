@@ -8,7 +8,17 @@
 export type KeyState = { kind: "setting"; key: string; value: unknown; customized: boolean };
 /** One theme level of the active window (`cmux.settings.theme.set`); null spec is the Ghostty config. */
 export type ThemeState = { kind: "theme"; level: string; spec: string | null };
-export type TargetState = KeyState | ThemeState;
+/** One workspace's own background (`field` "value", null follows appearance.background) or its own
+ * glass tint over art (`field` "opacity", null follows All Workspaces), through
+ * `cmux.settings.backdrop.workspace.set`. `title` is the workspace's name, for the step's label. */
+export type WorkspaceState = {
+  kind: "workspace";
+  workspace: string;
+  title: string;
+  field: "value" | "opacity";
+  value: string | number | null;
+};
+export type TargetState = KeyState | ThemeState | WorkspaceState;
 
 /** One target before and after a change. */
 export type Change = { before: TargetState; after: TargetState };
@@ -18,6 +28,7 @@ export type HistoryEntry = { label: string; changes: Change[] };
 
 /** The identity of a target, so two states of one target compare. */
 export function targetId(state: TargetState): string {
+  if (state.kind === "workspace") return `workspace:${state.workspace}:${state.field}`;
   return state.kind === "setting" ? `setting:${state.key}` : `theme:${state.level}`;
 }
 
@@ -28,6 +39,7 @@ export function sameState(a: TargetState, b: TargetState): boolean {
     return a.customized === b.customized && JSON.stringify(a.value) === JSON.stringify(b.value);
   }
   if (a.kind === "theme" && b.kind === "theme") return a.spec === b.spec;
+  if (a.kind === "workspace" && b.kind === "workspace") return a.value === b.value;
   return false;
 }
 

@@ -6,6 +6,26 @@ one feature of one app sit at `looks/APP/FEATURE/`. Small starters, one per part
 in [`../gallery`](../gallery). [`../gallery/gallery.json`](../gallery/gallery.json) indexes
 the whole looks and the starters; add an entry for a new one.
 
+## Looks written only on public surfaces
+
+These six are written the way anyone outside the cmux team could write a look: a theme file, a few
+settings, a stylesheet of public chat tokens (`cmux.agentPane.style/1`) and a sidebar view
+([docs/cmux-next/look-addons.md](../../docs/cmux-next/look-addons.md)).
+
+| Look | What it is |
+| --- | --- |
+| [`gel`](gel) | Soft sea-glass tonal surfaces, glass where layers float, the flush corner with goo fillets |
+| [`grove`](grove) | A forest look: unbleached paper by day, night forest by dark, moss ink, frosted-air glass over a painted grove |
+| [`nature`](nature) | Your wallpaper leads: the clearest glass for all chrome, moss and leaf colors, a readable chat plane; light and dark |
+| [`aurora`](aurora) | Clear glass chrome over your desktop, a solid chat, a teal-to-violet accent used sparingly; light and dark |
+| [`studio`](studio) | A dense workbench in dark, light and ember: quiet chrome, compact rows, a filled prompt with soft corners |
+| [`paper`](paper) | A warm, roomy reading look: serif replies on paper, soft rounded prompts |
+
+[`looks.json`](looks.json) lists them and the built-in preset each recreates, if any. Besides the
+gallery test, CI installs each one (`cmux-customize` `tests/example_looks.rs`), holds its stylesheet
+to the public token list (`bun run check:look-addons`), and draws it in the real chat to check that
+nothing moves (`webviews/test/browser/look-addons.test.ts`).
+
 ## The folder
 
 ```
@@ -73,6 +93,9 @@ theme, stylesheet and view files are the repo's. Change a look in its repo.
 | --- | --- | --- |
 | [`studio`](studio) | [manaflow-ai/cmux-studio-look](https://github.com/manaflow-ai/cmux-studio-look) | A quiet black workbench for agent threads: New thread and Search rows, thread cards by project with their age, settled chats folded away, the Studio composer, filled prompt bubbles, one bright blue; dark, light and ember variants |
 | [`paper`](paper) | [manaflow-ai/cmux-paper-look](https://github.com/manaflow-ai/cmux-paper-look) | A warm, roomy reading look: serif replies on paper, soft rounded prompts |
+| [`workbench`](workbench) | this folder | A dense, code-first workbench: threads by project with their session tree, a mono-leaning chat, flat prompt rows, a square message box; cool neutral dark |
+| [`hearth`](hearth) | this folder | A warm chat assistant desk: serif prose on cream (or warm dark), prompts as soft cards, a quiet header |
+| [`halo`](halo) | this folder | A minimal chat assistant: near-monochrome, airy, bubbles over a pill message box, a sidebar of titles only |
 
 ```sh
 cmux setup install github.com/manaflow-ai/cmux-studio-look   # on, as one layer
@@ -97,7 +120,9 @@ Settings (any key an agent may set; `cmux settings list` prints them all):
 | Hover cards | `sidebar.hoverCards.*` |
 | Chrome | `appearance.chromeStyle`, `appearance.borders`, `appearance.density`, `appearance.metrics.*` (tab and chrome font sizes, column gap, dividers) |
 | The agent chat | `agentPane.display.*` (font, size, line height, code scale, width, minimap), `agentPane.composerRing` |
+| Chat layout | `agentPane.display.layout.messages` (`bubbles`, `flat` rows with an accent rule, `card`s on the leading edge), `agentPane.display.layout.composer` (`rounded`, `pill`, `square`), `agentPane.display.layout.header` (`full`, `quiet`: its tools show on hover); [workbench](workbench), [hearth](hearth) and [halo](halo) use all three |
 | New tab | `tabs.newTabApp` (`local/customize` draws your own page) |
+| Layout and behaviour | `layout.*` (main pane, where links and new terminals open, split sizing, docked columns), `tabs.barPosition`, `tabs.barOrder`, `tabs.toolbarButtons`, `browser.toolbarPosition`, `sidebar.workspacesAsTabs`, `sidebar.sideBySide`, `home.chiefDock.edge`; with `keybindings.json` and `actions`, a keyboard mode or a review layout: [leader](leader), [review-desk](review-desk), [bottom-deck](bottom-deck), [workspace-tabs](workspace-tabs) |
 
 Interfaces a look's `customize/` app can implement (`cmux-tui/crates/cmux-app-host/interfaces/`;
 all are drafts):

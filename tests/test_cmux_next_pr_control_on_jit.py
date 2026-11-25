@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """A same-repo pull request's cmux-next control hops start on cmux-linux, the persistent runner pool, on attempt 1.
 
-The verdict of a PR head waits on five control jobs (push-head-preflight, portable-placement, path_route,
-app-compile-placement, macos-placement), four deep, before its first test. Each took a shared RUNNER_POOLS Linux pool,
+The verdict of a PR head waits on four control jobs (push-head-preflight, path_route, app-compile-placement,
+macos-placement), three deep, before its first test. Each took a shared RUNNER_POOLS Linux pool,
 so each re-entered the PR queue: on 2026-11-20 the slowest open heads sat 4 to 25 h on macOS placement
 (blacksmith-16vcpu-ubuntu-2404, 3,628 queued) or push head preflight (blacksmith-32vcpu-ubuntu-2404)
 (cmuxterm-hq goals/pr-verdict-fast.md). cmux-gcp-pr-control-jit-x64 is served only by cmuxterm-hq's runner pool,
@@ -32,7 +32,14 @@ ARM = ("github.event_name == 'pull_request' && github.event.pull_request.head.re
 FORK = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
 PUSH = ("github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && "
         f"'{LABEL}' || ")
-HOPS = ("push-head-preflight", "portable-placement", "path_route", "app-compile-placement", "macos-placement")
+HOPS = ("push-head-preflight", "path_route", "app-compile-placement", "macos-placement")
+# A hop with no attempt-2 pool left: its fork arms, then cmux-linux on every attempt.
+ONE_LABEL_TAIL = f"|| '{LABEL}' }}}}"
+
+
+def one_label(runs_on: str) -> bool:
+    # The fork arm's own runner variable (scripts/ci/one_linux_label.py) is no pool.
+    return "vars." not in runs_on.replace("vars.CI_FORK_LINUX_RUNNER", "") and runs_on.rstrip().endswith(ONE_LABEL_TAIL)
 
 
 class PrControlOnJit(unittest.TestCase):
@@ -42,6 +49,8 @@ class PrControlOnJit(unittest.TestCase):
     def test_each_hop_takes_the_pool_on_a_same_repo_pr_attempt_1_after_fork_and_push(self) -> None:
         for name in HOPS:
             with self.subTest(job=name):
+                if one_label(self.jobs[name]["runs-on"]):
+                    continue
                 head = self.jobs[name]["runs-on"].removeprefix("${{ ").removeprefix(FORK).removeprefix(PUSH)
                 self.assertTrue(head.startswith(ARM), f"{name}: the PR control arm comes before any pool")
 
@@ -56,7 +65,12 @@ class PrControlOnJit(unittest.TestCase):
     def test_only_the_hops_send_a_pull_request_to_the_label(self) -> None:
         for name, job in self.jobs.items():
             with self.subTest(job=name):
-                self.assertEqual(str(job.get("runs-on", "")).count(ARM), 1 if name in HOPS else 0)
+                runs_on = str(job.get("runs-on", ""))
+                if name in HOPS and one_label(runs_on):
+                    # A one-label hop may keep its PR control arm: it names the same label as its tail.
+                    self.assertLessEqual(runs_on.count(ARM), 1)
+                else:
+                    self.assertEqual(runs_on.count(ARM), 1 if name in HOPS else 0)
 
     def test_no_pull_request_arm_names_the_jit_label(self) -> None:
         jit_arm = ARM.replace(f"'{LABEL}'", f"'{JIT_LABEL}'")

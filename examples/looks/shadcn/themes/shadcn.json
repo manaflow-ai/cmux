@@ -59,7 +59,7 @@
 
   // Sidebar: --sidebar #fafafa with --sidebar-border #e5e5e5, a 1 px border-r.
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#fafafa",
+  "appearance.surfaces.sidebar.color": "#ffffff",
   "appearance.surfaces.sidebar.opacity": 1,
   "sidebar.border": true,
   "sidebar.borderWidth": 1,

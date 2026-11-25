@@ -10,6 +10,7 @@ import {
   guestMessageRecords,
   joinFrames,
   memoryStorage,
+  queuedRecords,
   workingRecords,
 } from "./fixtures/liveChat";
 import type { GuestPageProps } from "./GuestPage";
@@ -61,6 +62,29 @@ export default componentEntry<GuestPageProps>({
     "guest-messages": {
       props: live(joinFrames(guestMessageRecords(), "Uploader retries")),
       note: 'Two signed-in guests\' approved messages as prompts under their 20px picture (else initials) and name (guest); Leo, 2026-11-07: "as if the user sent it, but, like, with their profile avatar picture instead".',
+    },
+    "owner-queued": {
+      props: live(joinFrames(queuedRecords(["Then run the whole suite 20 times to be sure."]))),
+      note: "The owner sent a follow-up while the agent works: the guest sees it at once above the composer, marked Queued, before it becomes a row.",
+    },
+    "owner-queued-several": {
+      props: live(
+        joinFrames(
+          queuedRecords([
+            "Then run the whole suite 20 times to be sure.",
+            "Also check the download retry: it uses the same backoff helper and probably has the same real-clock wait.",
+            "Open a pull request when both pass.",
+          ]),
+        ),
+      ),
+      note: "Three follow-ups waiting, in the order they will run; the list scrolls past its height and the composer stays put.",
+    },
+    "owner-queued-view-only": {
+      props: {
+        ...live(joinFrames(queuedRecords(["Then run the whole suite 20 times to be sure."]))),
+        role: "view",
+      },
+      note: "A guest who may only watch sees the owner's waiting follow-up too.",
     },
     asking: {
       props: live(joinFrames(askingRecords())),
