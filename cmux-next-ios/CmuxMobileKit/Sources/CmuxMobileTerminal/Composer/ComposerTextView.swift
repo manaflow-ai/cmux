@@ -52,11 +52,9 @@ struct ComposerTextView: UIViewRepresentable {
         view.backgroundColor = .clear
         view.textColor = .label
         view.tintColor = .label
-        // The view runs the field's full height (`textVerticalInset`): one
-        // line is 40 pt, as tall as the paperclip and voice circles beside
-        // it (classic), and a scrolled draft is cut at the field's edge.
-        let inset = TerminalDockMetrics.textVerticalInset
-        view.textContainerInset = UIEdgeInsets(top: inset, left: 0, bottom: inset, right: 0)
+        // No inset, as the agent chat's field: the card (`ComposerCard`)
+        // places the text, one line centered on the row of 36 pt circles.
+        view.textContainerInset = .zero
         view.textContainer.lineFragmentPadding = 0
         view.keyboardAppearance = .dark
         Self.applyAutocorrect(autocorrect, to: view)

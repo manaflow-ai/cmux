@@ -97,6 +97,14 @@ public actor DaemonClient {
         try await requestOrdered(cmd, params: params, deadline: deadline, clock: clock).data
     }
 
+    /// `request` with the params as a JSON object's bytes, decoded inside the actor, so a
+    /// caller on another actor sends only `Data` (a `[String: Any]` is not Sendable).
+    public func request(_ cmd: String, json params: Data, deadline: Duration? = nil,
+                        clock: any Clock<Duration> = ContinuousClock()) async throws -> Data {
+        let fields = (try JSONSerialization.jsonObject(with: params)) as? [String: Any] ?? [:]
+        return try await request(cmd, params: fields, deadline: deadline, clock: clock)
+    }
+
     public func requestOrdered(_ cmd: String, params: [String: Any] = [:], deadline: Duration? = nil,
                                clock: any Clock<Duration> = ContinuousClock()) async throws -> ReceivedLine {
         start()

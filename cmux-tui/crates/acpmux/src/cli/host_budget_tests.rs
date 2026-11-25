@@ -1,4 +1,4 @@
-use super::{verdicts_for, warning_due};
+use super::{Done, verdicts_for, warning_due, warning_text};
 
 #[test]
 fn machine_verdict_judges_one_object_or_an_array() {
@@ -48,4 +48,17 @@ fn w5s_a_host_warning_does_not_create_a_missing_acpmux_home() {
     assert!(warning_due(&home.join("host-warnings"), "person", line, 1));
     assert!(!home.exists(), "the warning made the missing home {}", home.display());
     let _ = std::fs::remove_dir_all(&base);
+}
+
+#[test]
+fn an_over_budget_line_after_new_says_the_session_started_and_nothing_was_refused() {
+    // 2026-11-25: the bare line read as a refusal, the coordinator ran `acpmux new` again,
+    // and fs-agent-lane-2 and gcp-agent-lane-6 each got a duplicate lane.
+    let line = "host-budget: fs-agent-lane-2 over its CPU/RAM budget: load1 9.1 >= 2 (2 cores)";
+    let started = warning_text(line, Done::Started);
+    assert!(started.starts_with(line), "{started}");
+    assert!(started.contains("nothing refused"), "{started}");
+    assert!(started.contains("do not start it again"), "{started}");
+    let queued = warning_text(line, Done::Queued);
+    assert!(queued.contains("nothing refused") && queued.contains("queued anyway"), "{queued}");
 }
