@@ -49,7 +49,6 @@ final class MotionFrameTrace {
     /// `at: "commit"`: the values right after the last commit, and the observer that reads them.
     private var committed: [String: Any]?
     private var commitWatch: MainRunLoopObserver?
-
     /// A run samples now.
     var isRunning: Bool { client != nil }
 

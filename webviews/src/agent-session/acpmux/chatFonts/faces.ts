@@ -2,7 +2,7 @@
 // import, so a chat on the default font never parses them. Imported, not `new URL(..., import.meta.url)`:
 // the shipped pane inlines each as a data URL (scripts/agent-pane/bundle.mjs), since its CSP takes
 // fonts only from data:. Each face is an `import()` of its own, so choosing one font loads that face
-// alone (30 to 50 KB of woff2, base64 in its chunk), not all eight.
+// alone (30 to 50 KB of woff2, base64 in its chunk), not all ten.
 import { BUNDLED_FAMILY, type BundledChatFont } from "../chatUiFont";
 
 const inter = () => import("./Inter-latin-wght.woff2");
@@ -14,6 +14,9 @@ const FILES: Record<BundledChatFont, () => Promise<{ default: string }>> = {
   "source-sans": () => import("./SourceSans3-latin-wght.woff2"),
   geist: () => import("./Geist-latin-wght.woff2"),
   "cmux-sans": () => import("./cmuxSans-latin-wght.woff2"),
+  "cmux-sans-squat": () => import("./cmuxSansSquat-latin-wght.woff2"),
+  "cmux-sans-candy": () => import("./cmuxSansCandy-latin-wght.woff2"),
+  "cmux-sans-open": () => import("./cmuxSansOpen-latin-wght.woff2"),
   hanken: () => import("./HankenGrotesk-latin-wght.woff2"),
   atkinson: () => import("./AtkinsonHyperlegibleNext-latin-wght.woff2"),
 };

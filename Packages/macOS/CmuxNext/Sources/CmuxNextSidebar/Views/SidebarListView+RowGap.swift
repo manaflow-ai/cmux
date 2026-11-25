@@ -35,7 +35,8 @@ extension SidebarListViewComponents {
                 let layout = SidebarRegionView.layout(of: content, width: bounds.width)
                 for slot in layout.rows {
                     guard case let .item(id, _) = slot.kind, id == SidebarListBlocks.gapID else { continue }
-                    let y = row.y + slot.frame.minY, end = row.y + base.height
+                    // The block's items end above its bottom padding (the Chief's top section keeps a gap under it).
+                    let y = row.y + slot.frame.minY, end = row.y + base.height - (content.metrics.bottomPadding ?? 0)
                     rows = SidebarRowGap(y: y, height: layout.height - base.height, hold: y >= end ? end - 1 : nil)
                 }
             }
@@ -46,9 +47,10 @@ extension SidebarListViewComponents {
 
     /// The base y a document drag's drop is hit-tested at, from the rest shape's centre `displayY`; nil keeps the
     /// drag's target (a turn back short of its hysteresis).
-    func docDragBaseY(_ drag: SidebarListDrag, geometry: SidebarDragGeometry, rows: [String: SidebarRow], displayY: CGFloat, x: CGFloat) -> CGFloat? {
+    func docDragBaseY(_ drag: SidebarListDrag, geometry: SidebarDragGeometry, rows: [String: SidebarRow], displayY: CGFloat, x: CGFloat, edges: Bool = true) -> CGFloat? {
         guard let gap = rowGap(drag) else { return baseY(displayY: displayY, blockGap: drag.blockTarget, bases: drag.blockBases) } // tiles: the centre
         var y = SidebarDragGeometry.baseY(displayY: displayY, gapY: gap.y, gapHeight: gap.height)
+        if !edges { return gap.held(y, in: geometry, x: x) } // on the stuck header the centre alone decides
         // A row moves by its edges too (Lawrence 2026-10-20): its top past the middle of the row above moves it up,
         // its bottom past the middle of the row below moves it down (`SidebarDragGeometry.edgeY`). The rest shape's
         // edges, as for the centre, so a morph does not move them.

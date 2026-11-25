@@ -134,7 +134,7 @@ public final class AgentPaneStartFolders {
                 return await Self.answerHome(home, confirm: confirm, transport: transport)
             case .aboveHome: return AgentPaneReply.success(["status": "refused", "reason": "root", "cwd": path])
             case .agentHome: return AgentPaneReply.success(["status": "ok", "cwd": answer.agentHome ?? path])
-            case .missing, nil: return AgentPaneModel.transportFailure(.pathInvalid)
+            case .missing, nil: return AgentPaneModel.folderMissing(path)
             }
         }
         // Compatibility only (a daemon without workspace-agent-start-v1). Remove with cx-6bf9.
@@ -175,7 +175,7 @@ public final class AgentPaneStartFolders {
             transport.remoteHomeChosen.insert(home)
             return AgentPaneReply.success(["status": "ok", "cwd": home])
         case .aboveHome: return AgentPaneReply.success(["status": "refused", "reason": "root", "cwd": path])
-        case .missing: return AgentPaneModel.transportFailure(.pathInvalid)
+        case .missing: return AgentPaneModel.folderMissing(path)
         case .agentHome, nil: return AgentPaneReply.success(["status": "ok", "cwd": answer.kind == .seed ? answer.cwd ?? path : path])
         }
     }
