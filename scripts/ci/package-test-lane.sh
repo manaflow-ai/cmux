@@ -3,7 +3,7 @@
 # runs on a GitHub runner and as a fleet ci-step (`cmux-ci run`, hq#794) from a
 # fresh checkout of the commit on a mini.
 #
-# Usage: package-test-lane.sh [run|select|packages|ghostty-sha]
+# Usage: package-test-lane.sh [run|select|packages|ghostty-sha|policy-check]
 #          [--event[=]NAME] [--full-suite[=]true|false]
 #
 #   run       (default) select, then set up what the selection needs (Xcode,
@@ -27,6 +27,8 @@
 #                 --ref SHA --arg probe-host --target-worker HOST --pin-strict
 #   ghostty-sha  print the GhosttyKit revision a download would use (empty
 #             when a ghostty submodule checkout provides it).
+#   policy-check  build and run the narrow CmuxNext tab policy executable,
+#             without compiling the package's app test target.
 #   suite PACKAGE_DIR FILTER[,FILTER...] [FILTER[,FILTER...]...]
 #             a lane's focused gate: select Xcode (CMUX_CI_XCODE_APP), fetch
 #             GhosttyKit when the package names it, build PACKAGE_DIR (a
@@ -109,7 +111,7 @@ fi
 
 phase=run
 case "${1:-}" in
-  run|select|packages|ghostty-sha) phase="$1"; shift ;;
+  run|select|packages|ghostty-sha|policy-check) phase="$1"; shift ;;
   prebuild-one) phase="$1"; prebuild_package="$2"; prebuild_log="$3"; shift 3 ;;
   compile-tests)
     phase="$1"
@@ -1261,6 +1263,11 @@ run_compile_tests() {
   echo "compile-tests: every planned test target compiled (${#rows[@]})"
 }
 
+run_policy_check() {
+  select_xcode
+  swift run --configuration debug --package-path Packages/macOS/CmuxNext CmuxNextTabPolicyCheck
+}
+
 # cmux NEXT's tests start acpmux daemons. A lane given no home of its own (a fleet step, `cmux-ci
 # run`) gets one for this run, never the host's ~/.acpmux, and ends that home's daemons and agents
 # and deletes it on exit (tests/test_ci_acpmux_job_home.py). An empty ACPMUX_SOCKET is unset.
@@ -1271,7 +1278,7 @@ end_own_acpmux_home() {
   rm -rf "$own_acpmux_home"
 }
 case "$phase" in
-  suite|packages|run)
+  suite|packages|run|policy-check)
     if [ -z "${ACPMUX_HOME:-}" ]; then
       own_acpmux_home="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/acpmux-home.XXXXXX")"
       export ACPMUX_HOME="$own_acpmux_home" ACPMUX_SOCKET=
@@ -1293,6 +1300,9 @@ case "$phase" in
   ghostty-sha)
     resolve_ghostty_sha
     echo "${GHOSTTY_SHA:-}"
+    ;;
+  policy-check)
+    run_policy_check
     ;;
   select)
     ensure_parent
