@@ -381,8 +381,9 @@ def spec_problems(pools: Mapping[str, Mapping[str, Any]]) -> list[str]:
             found.append(f"{where}: a hosted pool names why it cannot run on the set (hosted_why)")
         grows = grows_before_shrinking([member for member in listed if not owned_lead(member)])
         if grows:
-            found.append(f"{where}: lists {grows} after a larger failover or out of size order; Blacksmith caps the org on vCPUs at "
-                         "once, so a stalled size moves down first (list smaller sizes, largest first, before larger)")
+            found.append(f"{where}: lists {grows} after a larger failover or out of size order. "
+                         "Blacksmith caps the org's concurrent vCPUs, so jobs move to smaller sizes first "
+                         "(list smaller sizes, largest first, before larger)")
     return found
 
 
@@ -600,7 +601,7 @@ def raw_homes(previous: Mapping[str, Mapping[str, str]], live: Mapping[str, str 
                 continue
             to = raw_substitute(current, dead, pools, RAW_LABEL_MIN_VCPU.get(name, 0))
             if to is None:
-                lines.append(f"{name}={current} is dead and no other size of its image is live; it stays")
+                lines.append(f"{name}={current} is taking a breather and no other size of its image is live; it stays")
                 continue
             homes[name] = {"home": current, "to": to}
             continue
@@ -637,7 +638,7 @@ def raw_writes(value: Mapping[str, Any], live: Mapping[str, str | None], *,
         if current not in (entry["home"], entry["to"]) and current not in dead and not below_floor:
             continue
         if entry["home"] in dead:
-            target, why = entry["to"], f"{entry['home']} is dead"
+            target, why = entry["to"], f"{entry['home']} is taking a breather"
         else:
             target, why = entry["home"], f"{entry['home']} takes jobs again"
         # `to` is `home` when no size at or above the variable's floor is live: it waits there, dead or not.
@@ -799,8 +800,9 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
                 if isinstance(live, list):
                     started |= {str(label) for label in live if isinstance(label, str)}
     if stalls - started:
-        notes.append(f"probe stalled on {', '.join(sorted(stalls - started))} with no fresh janitor snapshot to tell a "
-                     "dead size from a full vCPU cap; no new dead mark")
+        notes.append(f"probe jobs on {', '.join(sorted(stalls - started))} reached the wait limit. "
+                     "There is no fresh janitor snapshot to tell if the size is resting or the vCPU cap is full, "
+                     "so the wait adds no routing marks.")
     # A label both started and stalled in one pass (two probes, or a probe and a stale queue) started. A full owned
     # Linux label is dead though it starts jobs: its starts clear the mark only once its queue no longer waits.
     return (dead - started) | full, started - full, notes
@@ -879,15 +881,15 @@ def reconcile(current: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]
         elif seen is not None and known_now is not None and label not in known_now:
             # No fresh evidence about this label: it stays dead rather than taking jobs again on a guess.
             marks[label] = since
-            lines.append(f"{label}: dead mark past {DEAD_TTL} kept; no fresh evidence about it this pass")
+            lines.append(f"{label}: resting mark past {DEAD_TTL} kept; no fresh evidence about it this pass")
         else:
-            lines.append(f"{label}: dead mark expired; it may take jobs again")
+            lines.append(f"{label}: resting mark expired; it may take jobs again")
     for label in sorted(set(served_now)):
         if marks.pop(label, None):
             lines.append(f"{label}: started a job; it takes jobs again")
     for label in sorted(set(dead_now)):
         if label not in marks:
-            lines.append(f"{label}: dead (no job started there while one waited)")
+            lines.append(f"{label}: resting (no job started there while one waited)")
         marks[label] = iso(now)
     known = {label for spec in pools.values() for label in members(spec)}
     marks = {label: since for label, since in marks.items() if label in known}
@@ -908,7 +910,7 @@ def reconcile(current: Mapping[str, Any], pools: Mapping[str, Mapping[str, Any]]
             # leaving the pool on a label that starts nothing. With none, the first member, as before.
             chosen = next((label for label in valve_labels(spec, pools) if label not in skipped), candidates[0])
             if chosen != candidates[0] and current.get(name) != chosen:
-                lines.append(f"pools.{name}: every member is dead ({', '.join(candidates)}); release valve to {chosen}")
+                lines.append(f"pools.{name}: every member is resting ({', '.join(candidates)}); release valve to {chosen}")
         if current.get(name) != chosen:
             lines.append(f"pools.{name}: {current.get(name) or 'unset'} -> {chosen}")
         value[name] = chosen
