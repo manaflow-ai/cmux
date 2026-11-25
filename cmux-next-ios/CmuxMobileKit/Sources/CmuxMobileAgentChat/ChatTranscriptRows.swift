@@ -272,8 +272,10 @@ final class ChatTranscriptBuilder {
                                     gap: gap))
             }
         }
-        let turnRows = turn.rows
         let running = turn.status == .running
+        // Ended, a steer the agent was finishing when it came draws over its final reply (Leo,
+        // 2026-11-25); running, every row draws as it came.
+        let turnRows = running ? turn.rows : TurnRow.lateSteersLast(turn.rows)
         // The agent's own wrap-up call (WrapUp.swift) is the card, not a row of its work, and goes
         // before a tagged ask in its prose. Where nothing can answer it, it keeps its recap alone.
         let wrote = turn.status == .completed ? NextStepAsk.lastWrapUp(turnRows) : nil
