@@ -26,7 +26,7 @@ use std::time::{Duration, Instant};
 
 use sha1::{Digest as _, Sha1};
 
-use crate::manifest::{Item, Kind, Manifest};
+use crate::manifest::{Case, Item, Kind, Manifest};
 #[cfg(any(target_os = "linux", test))]
 use crate::sparse::Sparse;
 use crate::{Fetch, FetchError};
@@ -56,6 +56,53 @@ pub struct TreeItem {
 
 const LINK: u32 = 0o120_000;
 const GITLINK: u32 = 0o160_000;
+
+/// The object format of a repository and its index checksum.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ObjectFormat {
+    Sha1,
+    Sha256,
+}
+
+impl ObjectFormat {
+    #[must_use]
+    pub fn id_bytes(self) -> usize {
+        match self {
+            Self::Sha1 => 20,
+            Self::Sha256 => 32,
+        }
+    }
+
+    fn digest(self, bytes: &[u8]) -> Vec<u8> {
+        match self {
+            Self::Sha1 => Sha1::digest(bytes).to_vec(),
+            Self::Sha256 => sha2::Sha256::digest(bytes).to_vec(),
+        }
+    }
+}
+
+/// Reads the repository's object format (`sha1` or `sha256`).
+pub fn object_format(git_dir: &Path) -> anyhow::Result<ObjectFormat> {
+    let mut command = git(git_dir);
+    command.args(["rev-parse", "--show-object-format"]);
+    let text = String::from_utf8(output(command)?)?;
+    match text.trim() {
+        "sha1" => Ok(ObjectFormat::Sha1),
+        "sha256" => Ok(ObjectFormat::Sha256),
+        other => Err(Unsupported(format!("object format {other:?}")).into()),
+    }
+}
+
+/// A commit the projection cannot represent as text; callers should use an ordinary checkout.
+#[derive(Debug)]
+pub struct Unsupported(pub String);
+
+impl std::fmt::Display for Unsupported {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}; make an ordinary checkout instead", self.0)
+    }
+}
+impl std::error::Error for Unsupported {}
 
 fn git(git_dir: &Path) -> Command {
     let mut command = Command::new("git");
@@ -173,7 +220,8 @@ fn listing_with_sizes(
     let mut rows = Vec::new();
     let mut unknown = BTreeSet::new();
     for record in bytes.split(|byte| *byte == 0).filter(|record| !record.is_empty()) {
-        let record = std::str::from_utf8(record)?;
+        let record = std::str::from_utf8(record)
+            .map_err(|_| Unsupported("a git path is not UTF-8".into()))?;
         let (head, path) =
             record.split_once('\t').ok_or_else(|| anyhow::anyhow!("bad ls-tree line"))?;
         let mut fields = head.split_whitespace();
@@ -239,7 +287,8 @@ fn object_sizes(git_dir: &Path, oids: &BTreeSet<&str>) -> anyhow::Result<HashMap
 pub fn parse_ls_tree(bytes: &[u8]) -> anyhow::Result<Vec<TreeItem>> {
     let mut items = Vec::new();
     for record in bytes.split(|byte| *byte == 0).filter(|record| !record.is_empty()) {
-        let record = std::str::from_utf8(record)?;
+        let record = std::str::from_utf8(record)
+            .map_err(|_| Unsupported("a git path is not UTF-8".into()))?;
         let (head, path) =
             record.split_once('\t').ok_or_else(|| anyhow::anyhow!("bad ls-tree line"))?;
         let mut fields = head.split_whitespace();
@@ -452,7 +501,7 @@ impl Projection {
                 link: Some(target.to_string_lossy().into_owned()),
             });
         }
-        let manifest = Manifest::build(layout.commit_ns, list)?;
+        let manifest = Manifest::build_with(layout.commit_ns, list, Case::Sensitive)?;
         let mut by_entry = vec![Source::None; manifest.len()];
         let mut index = Vec::with_capacity(items.len());
         for item in items {
@@ -493,8 +542,13 @@ impl Projection {
 /// The index (version 2) of `entries`, with the stat data the mount serves for each: mtime and
 /// ctime from the manifest, inode number entry + 1, owner `uid`/`gid`. git then finds every file
 /// unchanged by stat alone.
-pub fn index_bytes(entries: &[IndexEntry], uid: u32, gid: u32) -> anyhow::Result<Vec<u8>> {
-    index_bytes_sparse(entries, &[], uid, gid)
+pub fn index_bytes(
+    entries: &[IndexEntry],
+    format: ObjectFormat,
+    uid: u32,
+    gid: u32,
+) -> anyhow::Result<Vec<u8>> {
+    index_bytes_sparse(entries, &[], format, uid, gid)
 }
 
 /// [`index_bytes`], plus `skipped`: the commit's paths a sparse checkout leaves out, as git
@@ -503,6 +557,7 @@ pub fn index_bytes(entries: &[IndexEntry], uid: u32, gid: u32) -> anyhow::Result
 pub fn index_bytes_sparse(
     entries: &[IndexEntry],
     skipped: &[TreeItem],
+    format: ObjectFormat,
     uid: u32,
     gid: u32,
 ) -> anyhow::Result<Vec<u8>> {
@@ -557,7 +612,7 @@ pub fn index_bytes_sparse(
         for field in fields {
             out.extend_from_slice(&field.to_be_bytes());
         }
-        out.extend_from_slice(&hex(&entry.oid)?);
+        out.extend_from_slice(&hex(&entry.oid, format)?);
         let name = entry.path.as_bytes();
         let flags = u16::try_from(name.len().min(0xfff))?;
         if *skip_worktree {
@@ -572,14 +627,15 @@ pub fn index_bytes_sparse(
         let padded = (len + 8) & !7;
         out.resize(start + padded, 0);
     }
-    let digest = Sha1::digest(&out);
+    let digest = format.digest(&out);
     out.extend_from_slice(&digest);
     Ok(out)
 }
 
-fn hex(oid: &str) -> anyhow::Result<[u8; 20]> {
-    anyhow::ensure!(oid.len() == 40, "not a sha-1 object id: {oid}");
-    let mut bytes = [0u8; 20];
+fn hex(oid: &str, format: ObjectFormat) -> anyhow::Result<Vec<u8>> {
+    let len = format.id_bytes();
+    anyhow::ensure!(oid.len() == len * 2, "not a {format:?} object id: {oid}");
+    let mut bytes = vec![0u8; len];
     for (byte, pair) in bytes.iter_mut().zip(oid.as_bytes().chunks_exact(2)) {
         let pair = std::str::from_utf8(pair)?;
         *byte = u8::from_str_radix(pair, 16)?;
@@ -723,8 +779,11 @@ pub fn link_texts(git_dir: &Path, items: &[TreeItem]) -> anyhow::Result<HashMap<
     }
     let mut cat = CatFile::spawn(git_dir)?;
     for oid in oids {
-        let bytes = cat.blob(oid).map_err(|_| anyhow::anyhow!("no link blob {oid}"))?;
-        texts.insert(oid.to_owned(), String::from_utf8(bytes)?);
+        let bytes =
+            cat.blob_limited(oid, 4095).map_err(|_| anyhow::anyhow!("no link blob {oid}"))?;
+        let text = String::from_utf8(bytes)
+            .map_err(|_| Unsupported(format!("link blob {oid} is not UTF-8")))?;
+        texts.insert(oid.to_owned(), text);
     }
     Ok(texts)
 }
@@ -751,20 +810,69 @@ impl CatFile {
         Ok(Self { _child: child, stdin, stdout })
     }
 
-    fn blob(&mut self, oid: &str) -> Result<Vec<u8>, FetchError> {
+    fn record(&mut self, oid: &str) -> Result<(String, u64), FetchError> {
         writeln!(self.stdin, "{oid}").map_err(|_| FetchError::Failed)?;
         self.stdin.flush().map_err(|_| FetchError::Failed)?;
         let mut header = String::new();
         self.stdout.read_line(&mut header).map_err(|_| FetchError::Failed)?;
         let mut fields = header.split_whitespace();
-        let (Some(_), Some("blob"), Some(size)) = (fields.next(), fields.next(), fields.next())
+        let (Some(_), Some(kind), Some(size), None) =
+            (fields.next(), fields.next(), fields.next(), fields.next())
         else {
             return Err(FetchError::Failed);
         };
-        let size: usize = size.parse().map_err(|_| FetchError::Failed)?;
-        let mut bytes = vec![0u8; size + 1];
-        self.stdout.read_exact(&mut bytes).map_err(|_| FetchError::Failed)?;
-        bytes.pop();
+        Ok((kind.to_owned(), size.parse().map_err(|_| FetchError::Failed)?))
+    }
+
+    fn drain(&mut self, size: u64) -> Result<(), FetchError> {
+        let mut limited = self.stdout.by_ref().take(size);
+        std::io::copy(&mut limited, &mut std::io::sink()).map_err(|_| FetchError::Failed)?;
+        if limited.limit() != 0 {
+            return Err(FetchError::Failed);
+        }
+        let mut newline = [0_u8; 1];
+        self.stdout.read_exact(&mut newline).map_err(|_| FetchError::Failed)?;
+        if newline != *b"\n" {
+            return Err(FetchError::Failed);
+        }
+        Ok(())
+    }
+
+    fn blob(&mut self, oid: &str) -> Result<Vec<u8>, FetchError> {
+        let (kind, size) = self.record(oid)?;
+        if kind != "blob" {
+            self.drain(size)?;
+            return Err(FetchError::Failed);
+        }
+        let mut bytes = Vec::with_capacity(usize::try_from(size).map_err(|_| FetchError::Failed)?);
+        self.stdout.by_ref().take(size).read_to_end(&mut bytes).map_err(|_| FetchError::Failed)?;
+        if bytes.len() as u64 != size {
+            return Err(FetchError::Failed);
+        }
+        let mut newline = [0_u8; 1];
+        self.stdout.read_exact(&mut newline).map_err(|_| FetchError::Failed)?;
+        if newline != *b"\n" {
+            return Err(FetchError::Failed);
+        }
+        Ok(bytes)
+    }
+
+    fn blob_limited(&mut self, oid: &str, max: u64) -> Result<Vec<u8>, FetchError> {
+        let (kind, size) = self.record(oid)?;
+        if kind != "blob" || size > max {
+            self.drain(size)?;
+            return Err(FetchError::Failed);
+        }
+        let mut bytes = Vec::with_capacity(usize::try_from(size).map_err(|_| FetchError::Failed)?);
+        self.stdout.by_ref().take(size).read_to_end(&mut bytes).map_err(|_| FetchError::Failed)?;
+        if bytes.len() as u64 != size {
+            return Err(FetchError::Failed);
+        }
+        let mut newline = [0_u8; 1];
+        self.stdout.read_exact(&mut newline).map_err(|_| FetchError::Failed)?;
+        if newline != *b"\n" {
+            return Err(FetchError::Failed);
+        }
         Ok(bytes)
     }
 }
@@ -777,9 +885,25 @@ impl ObjectReader {
         Ok(Self(CatFile::spawn(git_dir)?))
     }
 
+    /// A reader that refuses promisor fetches, for a seed serving only local objects.
+    pub fn spawn_local(git_dir: &Path) -> anyhow::Result<Self> {
+        let mut command = git(git_dir);
+        command.env("GIT_NO_LAZY_FETCH", "1");
+        command
+            .args(["cat-file", "--batch"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        let mut child = command.spawn()?;
+        let stdin = child.stdin.take().ok_or_else(|| anyhow::anyhow!("no stdin"))?;
+        let stdout =
+            BufReader::new(child.stdout.take().ok_or_else(|| anyhow::anyhow!("no stdout"))?);
+        Ok(Self(CatFile { _child: child, stdin, stdout }))
+    }
+
     /// The blob's bytes, or `None` when the store has no blob by that id.
     pub fn blob(&mut self, oid: &str) -> Option<Vec<u8>> {
-        self.0.blob(oid).ok()
+        self.0.blob_limited(oid, crate::peers::MAX_HTTP_BODY_BYTES as u64).ok()
     }
 }
 
