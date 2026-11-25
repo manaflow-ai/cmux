@@ -188,9 +188,19 @@ fn parse_url(url: &str, username: &str, credential: &str) -> Option<TurnServer> 
 /// The TURN servers of `servers` to try: the first one over UDP, and the
 /// best one over a stream (TLS on 443, else any TLS, else plain TCP).
 pub fn turn_servers(servers: &[IceServer]) -> (Option<TurnServer>, Option<TurnServer>) {
-    let mut all = servers_in_order(servers);
+    turn_servers_for(servers, None)
+}
+
+/// [`turn_servers`] for the pair with `peer`: within a transport, the relay
+/// with the lowest round trip over both legs goes first
+/// ([`super::relay_rank`]); with no measurement, the listed order.
+pub fn turn_servers_for(
+    servers: &[IceServer],
+    peer: Option<&str>,
+) -> (Option<TurnServer>, Option<TurnServer>) {
+    let mut all = ranked_servers(servers, peer);
     // A server whose last allocation failed goes behind the others (stable:
-    // the listed order otherwise), so the next dial, redial or TURN retry
+    // the ranked order otherwise), so the next dial, redial or TURN retry
     // starts on one that may answer.
     all.sort_by_key(|server| failed_recently(&server.address));
     let endpoints: Vec<Endpoint> = all.iter().map(TurnServer::endpoint).collect();
@@ -230,10 +240,54 @@ fn failed_recently(address: &str) -> bool {
     failed.contains_key(address)
 }
 
-/// The UDP TURN servers of `servers` in the order [`turn_servers`] would
-/// try them.
-fn udp_fallbacks(servers: &[IceServer]) -> Vec<TurnServer> {
-    let mut udp: Vec<TurnServer> = servers_in_order(servers)
+/// Every TURN server of `servers`, its relay (host) ranked for the pair with
+/// `peer` ([`super::relay_rank::ranked_for`]); stable, so a host's own URLs
+/// keep their listed order.
+fn ranked_servers(servers: &[IceServer], peer: Option<&str>) -> Vec<TurnServer> {
+    let mut all = servers_in_order(servers);
+    let mut relays: Vec<String> = Vec::new();
+    for server in &all {
+        if !relays.contains(&server.host) {
+            relays.push(server.host.clone());
+        }
+    }
+    if relays.len() < 2 {
+        return all;
+    }
+    let ranked = super::relay_rank::ranked_for(&relays, peer);
+    all.sort_by_key(|server| ranked.iter().position(|relay| *relay == server.host));
+    all
+}
+
+/// The UDP TURN servers of `servers` (each relay once, by host) to probe
+/// for the relay ranking: `(relay, host:port)`.
+pub(super) fn probe_targets(servers: &[IceServer]) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    for server in servers_in_order(servers) {
+        if server.transport == TurnTransport::Udp && !out.iter().any(|(relay, _)| *relay == server.host) {
+            out.push((server.host, server.address));
+        }
+    }
+    out
+}
+
+/// Probe `options`' relays for the ranking, unless this side sends no UDP
+/// to them (the probes would only mark every relay dead). Never waits.
+pub(super) fn refresh_ranking(options: &DialOptions) {
+    if options.block_udp || options.drop_outbound_udp || options.force_relay {
+        return;
+    }
+    let targets = probe_targets(&options.ice_servers);
+    // One relay: nothing to choose between.
+    if targets.len() >= 2 {
+        super::relay_rank::refresh(targets);
+    }
+}
+
+/// The UDP TURN servers of `servers` in the order [`turn_servers_for`]
+/// would try them.
+fn udp_fallbacks(servers: &[IceServer], peer: Option<&str>) -> Vec<TurnServer> {
+    let mut udp: Vec<TurnServer> = ranked_servers(servers, peer)
         .into_iter()
         .filter(|server| server.transport == TurnTransport::Udp)
         .collect();
@@ -566,7 +620,9 @@ impl TurnCarrier {
         refusal: &std::sync::Mutex<Option<crate::egress::EgressError>>,
     ) -> Option<Self> {
         let silent_now = || udp_silent.as_ref().is_some_and(|silent| *silent.borrow());
-        let (udp, stream) = turn_servers(&options.ice_servers);
+        let peer = options.relay_peer.as_deref();
+        refresh_ranking(options);
+        let (udp, stream) = turn_servers_for(&options.ice_servers, peer);
         let udp = udp.filter(|_| !options.block_udp);
         let tried_udp = udp.is_some();
         // UDP_WAIT hands a slow UDP allocation over to the stream one; with
@@ -583,16 +639,22 @@ impl TurnCarrier {
         // failover: 3/3 failed idle and under duress).
         let udp_servers: Vec<TurnServer> = match udp {
             Some(first) => std::iter::once(first.clone())
-                .chain(udp_fallbacks(&options.ice_servers).into_iter().filter(|server| *server != first))
+                .chain(
+                    udp_fallbacks(&options.ice_servers, peer).into_iter().filter(|server| *server != first),
+                )
                 .collect(),
             None => Vec::new(),
         };
         let udp = async {
             for server in udp_servers {
                 let address = server.address.clone();
+                let relay = server.host.clone();
                 match bounded(udp_wait, Self::spawn_on(server, options), late).await {
                     Ok(carrier) => {
                         note_server(&address, true);
+                        if let Some(peer) = peer {
+                            super::relay_rank::note_carried(peer, &relay);
+                        }
                         return Some(carrier);
                     }
                     Err(_) => note_server(&address, false),
@@ -626,8 +688,14 @@ impl TurnCarrier {
                 let (hops, ()) = tokio::join!(hops, wait);
                 let proxied = hops.first().is_some_and(|hop| *hop != crate::egress::Hop::Direct);
                 let limit = if proxied { PROXIED_STREAM_WAIT } else { STREAM_WAIT };
+                let relay = server.host.clone();
                 match bounded(limit, Self::spawn_on(server, options), late).await {
-                    Ok(carrier) => Some(carrier),
+                    Ok(carrier) => {
+                        if let Some(peer) = peer {
+                            super::relay_rank::note_carried(peer, &relay);
+                        }
+                        Some(carrier)
+                    }
                     Err(AllocFailure::Proxy(error)) => {
                         tracing::warn!(%error, "the proxy refused TURN over TLS");
                         *refusal.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(error);
@@ -1563,7 +1631,7 @@ pub async fn timed_allocation(
 
 /// A STUN Binding request (RFC 5389 §7): a TURN server answers it without
 /// credentials, so its answer says only that the server is there.
-fn binding_request() -> Option<Vec<u8>> {
+pub(super) fn binding_request() -> Option<Vec<u8>> {
     let mut message = stun_message::Message::new();
     message
         .build(&[

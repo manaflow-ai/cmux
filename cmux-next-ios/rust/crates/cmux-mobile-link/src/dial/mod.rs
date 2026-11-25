@@ -18,6 +18,7 @@ pub mod diagnosis;
 pub(crate) mod dpi;
 pub mod portmap;
 pub mod relay;
+pub mod relay_rank;
 pub(crate) mod turn;
 #[doc(hidden)]
 pub use dpi::dropped_wireguard_datagrams;
@@ -175,6 +176,11 @@ pub struct DialOptions {
     /// privacy) or a firewall drops outbound UDP. Inbound UDP still works.
     #[doc(hidden)]
     pub drop_outbound_udp: bool,
+    /// The device this dial's link is with, so its TURN allocations rank
+    /// relays for the pair ([`relay_rank`]). Set by the dial itself; None
+    /// ranks by this side's round trips alone.
+    #[doc(hidden)]
+    pub relay_peer: Option<String>,
     /// Test support: WireGuard's plain UDP sends to addresses this returns
     /// true for fail as refused by the OS (`EHOSTUNREACH`, as macOS Local
     /// Network privacy answers for LAN peers).
@@ -333,6 +339,7 @@ impl Default for DialOptions {
             egress: crate::egress::Egress::default(),
             turn_tls_roots: None,
             drop_outbound_udp: false,
+            relay_peer: None,
             refuse_udp_to: None,
             drop_udp_to: None,
             on_udp_sent: None,
@@ -726,7 +733,7 @@ pub async fn connect_after<E: std::fmt::Display>(
     link_config: LinkConfig,
 ) -> Result<(SignalingClient, Connected), DialError> {
     refuse_unreachable(kind, options)?;
-    let early = (kind == TransportKind::WireGuard).then(|| wireguard::EarlyTurn::start(options));
+    let early = (kind == TransportKind::WireGuard).then(|| wireguard::EarlyTurn::start(options, mac));
     let signaling = signaling.await.map_err(|error| DialError::Signaling(error.to_string()))?;
     options.timeline.mark("signaling_connected");
     let connected = connect_on(&signaling, mac, kind, options, link_config, early).await?;
