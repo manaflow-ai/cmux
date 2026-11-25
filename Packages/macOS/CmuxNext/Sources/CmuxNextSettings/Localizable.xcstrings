@@ -239373,6 +239373,270 @@
         }
       }
     },
+    "settings.labs.commentThreads": {
+      "comment": "Settings > Advanced > Labs: toggle that sends browser pane and terminal comments to the agent chat as threads showing the agent's reply",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comment Threads in Browser and Terminal"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سلاسل التعليقات في المتصفح والطرفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niti komentara u pregledniku i terminalu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kommentartråde i browser og terminal"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kommentar-Threads in Browser und Terminal"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hilos de comentarios en el navegador y el terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fils de commentaires dans le navigateur et le terminal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thread di commenti nel browser e nel terminale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザとターミナルのコメントスレッド"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ខ្សែមតិយោបល់ក្នុងកម្មវិធីរុករក និងទែមីណាល់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저와 터미널의 댓글 스레드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kommentartråder i nettleser og terminal"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wątki komentarzy w przeglądarce i terminalu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Threads de comentários no navegador e no terminal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ветки комментариев в браузере и терминале"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เธรดความคิดเห็นในเบราว์เซอร์และเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarayıcıda ve terminalde yorum dizileri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Гілки коментарів у браузері й терміналі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Luồng bình luận trong trình duyệt và terminal"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览器和终端中的评论线程"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "瀏覽器與終端機中的留言串"
+          }
+        }
+      }
+    },
+    "settings.labs.commentThreads.help": {
+      "comment": "Settings > Advanced > Labs: help for the Comment Threads in Browser and Terminal toggle",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send browser and terminal comments to the chat as threads that show the agent's reply."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أرسل تعليقات المتصفح والطرفية إلى الدردشة كسلاسل تعرض رد الوكيل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Šalji komentare iz preglednika i terminala u chat kao niti koje prikazuju odgovor agenta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send kommentarer fra browser og terminal til chatten som tråde, der viser agentens svar."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kommentare aus Browser und Terminal als Threads an den Chat senden, die die Antwort des Agenten zeigen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envía los comentarios del navegador y del terminal al chat como hilos que muestran la respuesta del agente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoie les commentaires du navigateur et du terminal au chat sous forme de fils qui affichent la réponse de l'agent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invia i commenti del browser e del terminale alla chat come thread che mostrano la risposta dell'agente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザとターミナルのコメントを、エージェントの返信が表示されるスレッドとしてチャットに送信します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ញើមតិយោបល់ពីកម្មវិធីរុករក និងទែមីណាល់ទៅការជជែក ជាខ្សែដែលបង្ហាញការឆ្លើយតបរបស់ភ្នាក់ងារ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저와 터미널 댓글을 에이전트의 답장이 표시되는 스레드로 채팅에 보냅니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send kommentarer fra nettleser og terminal til chatten som tråder som viser agentens svar."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wysyłaj komentarze z przeglądarki i terminala do czatu jako wątki z odpowiedzią agenta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envie comentários do navegador e do terminal ao chat como threads que mostram a resposta do agente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отправлять комментарии из браузера и терминала в чат ветками, в которых виден ответ агента."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ส่งความคิดเห็นจากเบราว์เซอร์และเทอร์มินัลไปยังแชตเป็นเธรดที่แสดงคำตอบของเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarayıcı ve terminal yorumlarını, ajanın yanıtını gösteren diziler olarak sohbete gönderin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Надсилати коментарі з браузера й термінала в чат гілками, у яких видно відповідь агента."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gửi bình luận từ trình duyệt và terminal vào cuộc trò chuyện dưới dạng luồng hiển thị câu trả lời của tác nhân."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将浏览器和终端中的评论作为线程发送到聊天，并显示代理的回复。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將瀏覽器與終端機中的留言以留言串傳送到聊天，並顯示代理的回覆。"
+          }
+        }
+      }
+    },
     "settings.updates.installWhenIdle": {
       "extractionState": "manual",
       "localizations": {
