@@ -15,7 +15,7 @@
 # actually bottlenecking us") come from a DEV cmux NEXT app built at this commit on each Mac (reload.sh --tag, as
 # chat-open.sh builds one): the viewer's is --app-viewer, the host's (the sharing app that approves the hub session)
 # is --app-host-app. The host app is started as a child of this step, so it inherits the launcher's Screen Recording;
-# it publishes its path through the peer server under /tmp/cmux-stage-table-<token hash>.host-app. Both apps sign in
+# it publishes its path through the peer server under ~/.cache/cmux-stage-table/<token hash>.host-app. Both apps sign in
 # to the device hub with CMUX_STAGE_TABLE_AUTH_FILE, else the Mac's ~/rd-hub-rig/private/creds.env (the Mac Screen
 # rig's agent test-account file), else ~/.secrets/cmuxterm-dev.env (the CI dev account, CMUX_UITEST_STACK_EMAIL and
 # _PASSWORD, the file cmux_next_pair_e2e.py signs its DEV app in from). Without that file, or when an app build or launch fails, the run keeps Apple's leg
@@ -46,11 +46,14 @@ auth_file() {
   done
   return 1
 }
-# Where the host half tells the viewer half its app (the peer server runs `cat`): per run, by the token.
-host_app_file="/tmp/cmux-stage-table-$(shasum -a 256 "$token_file" | cut -c1-16).host-app"
+# Where the host half tells the viewer half its app (the peer server runs `cat`): per run, by the token, in the
+# host account's own cache folder (a guessed shared /tmp name could be another account's file or link).
+host_app_name="$(shasum -a 256 "$token_file" | cut -c1-16).host-app"
+host_app_file="$HOME/.cache/cmux-stage-table/$host_app_name"
 
 if [[ "$role" == host ]]; then
   echo "SCREEN-STREAM-EVAL-STAGE stage-table host serving $addr:$port"
+  mkdir -p "${host_app_file%/*}" && chmod 700 "${host_app_file%/*}"
   rm -f "$host_app_file"
   python3 -I "$vs" peer-serve --bind "$addr" --port "$port" --token-file "$token_file" --hold-s 7200 &
   serve=$!
@@ -145,11 +148,11 @@ done
 app_args=()
 host_app=""
 [[ -z "$app_why" ]] && for _ in $(seq 1 360); do
-  host_app=$(python3 -I - "$url" "$token_file" "$host_app_file" <<'PY' 2>/dev/null
+  host_app=$(python3 -I - "$url" "$token_file" "$host_app_name" <<'PY' 2>/dev/null
 import json, sys, urllib.request
 token = open(sys.argv[2]).read().strip()
 req = urllib.request.Request(sys.argv[1] + "/run", method="POST", headers={"X-Eval-Token": token},
-                             data=json.dumps({"cmd": "cat " + sys.argv[3], "timeout": 10}).encode())
+                             data=json.dumps({"cmd": 'cat "$HOME/.cache/cmux-stage-table/' + sys.argv[3] + '"', "timeout": 10}).encode())
 res = json.loads(urllib.request.urlopen(req, timeout=10).read())
 print(res["out"].strip() if res.get("rc") == 0 else "")
 PY

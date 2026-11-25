@@ -24,8 +24,12 @@ bindgen = ["uniffi/cli"]
 [dependencies]
 async-trait = "0.1"
 cmux-auto-session.workspace = true
+# Wake on intent (src/cloud_wake.rs): the Mac's `wake_hint` rules.
+cmux-cloud-handlers.workspace = true
 # The terminal composer's keyed Send (src/composer_outbox.rs).
 cmux-composer-send.workspace = true
+# Attachments over the `bundle` service (src/bundle.rs).
+cmux-bundle.workspace = true
 cmux-follow-cam.workspace = true
 cmux-mobile-auto.workspace = true
 cmux-mobile-core.workspace = true
@@ -58,6 +62,8 @@ uuid.workspace = true
 [dev-dependencies]
 cmux-mobile-link = { workspace = true, features = ["testing"] }
 cmux-mobile-host = { path = "../cmux-mobile-host" }
+# The shaped bundle bench (tests/bundle_lte.rs).
+cmux-fault.workspace = true
 cmux-rd-core.workspace = true
 cmux-rd-engine.workspace = true
 sha2 = "0.10"
