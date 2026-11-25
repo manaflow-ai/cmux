@@ -162,6 +162,61 @@ fn pending_turn(session: &Session, prompt_id: &str) -> Option<(String, bool)> {
     })
 }
 
+/// How long a prompt under admission waits to read whether its chat's agent runs.
+const LIVE_CHECK_WITHIN: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// How many recent first-run acceptances a session keeps for resends (`Session::accepted_prompts`).
+pub(super) const KEPT_ACCEPTS: usize = 512;
+
+/// Keeps the acceptance `v` of client prompt id `prompt_id`'s first run, for a resend of it.
+fn keep_acceptance(session: &Session, prompt_id: &str, v: &Value) {
+    {
+        let mut kept = session.accepted_prompts.lock().unwrap_or_else(|e| e.into_inner());
+        kept.retain(|(id, _)| id != prompt_id);
+        kept.push_back((prompt_id.to_owned(), v.clone()));
+        while kept.len() > KEPT_ACCEPTS {
+            kept.pop_front();
+        }
+    }
+    session.accepted_seq.send_modify(|n| *n = n.wrapping_add(1));
+}
+
+/// The acceptance a resend of `prompt_id` answers with: the first run's own (kept as it was
+/// accepted), or its place in the queue or its turn (a prompt restored after a restart, accepted
+/// by an earlier daemon). Waits while the first run is neither accepted nor ended; None once it
+/// ended unaccepted (refused before it was taken: its answer says why).
+async fn first_acceptance(
+    session: &Session,
+    prompt_id: &str,
+    first: &mut tokio::sync::watch::Receiver<Option<Result<Value, RpcError>>>,
+) -> Option<Value> {
+    let mut seq = session.accepted_seq.subscribe();
+    loop {
+        seq.borrow_and_update();
+        let kept = session
+            .accepted_prompts
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .rev()
+            .find(|(id, _)| id == prompt_id)
+            .map(|(_, v)| v.clone());
+        if kept.is_some() {
+            return kept;
+        }
+        if let Some((turn, queued)) = pending_turn(session, prompt_id) {
+            return Some(json!({"turnId": turn, "queued": queued}));
+        }
+        if first.borrow().is_some() {
+            return None;
+        }
+        tokio::select! {
+            changed = first.changed() => if changed.is_err() { return None },
+            _ = seq.changed() => {}
+        }
+    }
+}
+
 /// A `file://` URI for the saved file, percent-encoded so a project folder with
 /// spaces or non-ASCII letters still names a valid link (and a Windows path
 /// gets its drive form).
@@ -330,9 +385,40 @@ impl Hub {
                     admission.release();
                 }
                 if let Some(f) = opts.on_accepted.take() {
-                    // The first run's turn, once it has one (queued or running): the sender of
-                    // this copy then knows the prompt was taken. With none yet, the first run
-                    // may still be held or refused, and only its answer says.
+                    // The first run's acceptance, once it was accepted: its queue place, its
+                    // turn or its inbox receipt. Not yet: this copy waits for it (or for the
+                    // first run's end), so it never answers "taken, no turn" for a run that may
+                    // yet be refused, nor waits out a whole inbox message's answer (an outbox
+                    // retry did, every 120 s, forever: 2026-11-25).
+                    if let Some(kept) =
+                        Box::pin(first_acceptance(session, &prompt_id, &mut first)).await
+                    {
+                        let mut notice = duplicate(json!({"_meta": {"acpmux": {
+                            "turnId": kept.get("turnId"),
+                            "surgeHeld": kept.get("surgeHeld"),
+                            "threadId": kept.get("threadId"),
+                        }}}));
+                        for key in ["queued", "inbox", "sessionHeld", "held"] {
+                            if let Some(v) = kept.get(key) {
+                                notice.set(key, v.clone());
+                            }
+                        }
+                        f(notice);
+                        let dropped =
+                            || RpcError::internal("the first run of this prompt was dropped");
+                        let result = first
+                            .wait_for(Option::is_some)
+                            .await
+                            .map_err(|_| dropped())?
+                            .clone()
+                            .unwrap_or_else(|| Err(dropped()));
+                        return result.map(|mut v| {
+                            merge_mux_meta(&mut v, json!({"duplicate": true}));
+                            v
+                        });
+                    }
+                    // The first run ended unaccepted (refused) or is gone: as before, its
+                    // answer says.
                     let (turn, queued) = pending_turn(session, &prompt_id).unzip();
                     let previous = first
                         .borrow()
@@ -427,6 +513,7 @@ impl Hub {
                     keep_message(&kept_in, &kept_id, message);
                     name_message(&mut v, message);
                 }
+                keep_acceptance(&kept_in, &kept_id, &v);
                 f(v);
             }));
         } else {
@@ -440,6 +527,7 @@ impl Hub {
                     record_message_context(&hub, &target_id, message, &v);
                     keep_message(&kept_in, &kept_id, message);
                 }
+                keep_acceptance(&kept_in, &kept_id, &v);
             }));
         }
         let result = self.prompt_unless_held(session, blocks, client, steer, opts).await;
@@ -685,10 +773,18 @@ impl Hub {
         // A prompt that cannot reach any agent (none running, and its folder or harness is gone)
         // is refused before it is recorded (`cold_prompt_check`, after steer-only's refusal).
         admission.enter("agent");
-        let live = match session.child.lock().await.as_ref() {
-            Some(child) => child.is_alive().await,
-            None => false,
-        };
+        // Bounded: this holds the chat's prompt admission, and the agent lock is held through a
+        // whole agent start. One not free within the bound is held by a start or a turn using the
+        // agent: an agent is coming, so no cold check. Unbounded, every later prompt of the chat
+        // (an outbox delivery each 120 s) waited behind it.
+        let live = tokio::time::timeout(LIVE_CHECK_WITHIN, async {
+            match session.child.lock().await.as_ref() {
+                Some(child) => child.is_alive().await,
+                None => false,
+            }
+        })
+        .await
+        .unwrap_or(true);
         let text = prompt_text(&blocks);
         let running = session.turn();
         // Another agent's message to a turn past its cap waits for the next turn (`turn_cap.rs`).
@@ -3371,3 +3467,7 @@ mod close_why_tests;
 #[cfg(test)]
 #[path = "set_mode_unchanged_tests.rs"]
 mod set_mode_unchanged_tests;
+
+#[cfg(test)]
+#[path = "first_acceptance_tests.rs"]
+mod first_acceptance_tests;

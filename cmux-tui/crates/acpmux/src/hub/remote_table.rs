@@ -45,8 +45,12 @@ impl RemoteTable {
 
     /// Changes the table: waits for any other writer, then changes a copy of the current table
     /// (O(1): its maps share every node until written), published when the guard drops.
+    #[track_caller]
     pub(crate) fn write(&self) -> WriteGuard<'_> {
-        WriteGuard::new(self, self.fence())
+        let writer = self.fence();
+        let mut guard = WriteGuard::new(self, writer);
+        guard.held = Some(super::held_lock::HeldTimer::start("remote_sessions"));
+        guard
     }
 
     /// [`Self::write`] if no writer holds the lock now.
@@ -77,12 +81,14 @@ pub(crate) struct WriteGuard<'a> {
     /// The table this one replaced, freed after the writer lock is released (fields drop in
     /// order), so the next writer never waits on the nodes no reader shares any more.
     replaced: Option<Arc<RemoteRows>>,
+    /// How long the writer lock is held (`held_lock.rs`, a log line only).
+    held: Option<super::held_lock::HeldTimer>,
 }
 
 impl<'a> WriteGuard<'a> {
     fn new(table: &'a RemoteTable, writer: MutexGuard<'a, ()>) -> Self {
         let rows = RemoteRows::clone(&table.current.load());
-        Self { table, rows, _writer: writer, replaced: None }
+        Self { table, rows, _writer: writer, replaced: None, held: None }
     }
 }
 
