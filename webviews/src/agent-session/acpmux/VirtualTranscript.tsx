@@ -5,7 +5,6 @@ import React, {
   useCallback,
   useDeferredValue,
   useEffect,
-  useImperativeHandle,
   useLayoutEffect,
   useMemo,
   useReducer,
@@ -13,6 +12,7 @@ import React, {
   useState,
   useSyncExternalStore,
   useInsertionEffect,
+  useImperativeHandle,
 } from "react";
 import { flushSync } from "react-dom";
 import { rowPresence, type RowPresenceHints } from "./conversation/rowPresence";
@@ -27,7 +27,6 @@ import { holdUntilSettled } from "./conversation/unsettledHeights";
 import { endOffscreenMotion } from "./conversation/offscreenMotion";
 import {
   layoutConversation,
-  layoutGeometry,
   type PlacedLayout,
   type RowHeights,
   placedFromEstimate,
@@ -48,6 +47,7 @@ import {
   restRoom,
   rowFrameKey,
   SINCE_DIVIDER,
+  layoutGeometry,
 } from "./model";
 import { RowFrameCache } from "./conversation/rowFrameCache";
 import { railOwnsWheel } from "./threadMinimap/railWheel";
@@ -155,9 +155,9 @@ import {
   playTurnEnd,
   settleTurnEnd,
   TURN_END_ATTR,
+  turnEndRecap,
   type TurnEndCapture,
   type TurnEndFold,
-  turnEndRecap,
 } from "./conversation/turnEndFold";
 import { installGutterSelect, type HeldRow } from "./conversation/gutterSelect";
 import {
@@ -169,7 +169,7 @@ import {
   type ChatFind,
   rowHolds,
 } from "./conversation/chatFind";
-import { LIVE_THINKING, THINKING, foldCovers, turnFooterFrom, retryTargetIn, NEXT_STEP } from "./conversation/turns";
+import { LIVE_THINKING, NEXT_STEP, THINKING, foldCovers, turnFooterFrom, retryTargetIn } from "./conversation/turns";
 import { createLiveLinePulse } from "./conversation/liveLinePulse";
 import { installWheelGlide } from "./wheelGlide";
 import { installDockWheelHold, installWheelPassThrough } from "./wheelPassThrough";
@@ -180,7 +180,6 @@ import { chatColumnOf, useChatSizing } from "./chatWidth";
 import { useChatDisplay, sendPopEnabled } from "./chatDisplay";
 import { useComposerSettings } from "./composerSettings";
 import { type Folds } from "./conversation/viewFolds";
-import { SUBAGENT_OF } from "./subagents/subagentRows";
 import { noteSendFromLatest } from "./conversation/sendMorph";
 import { sinceDone } from "./conversation/SinceDivider";
 import {
@@ -223,6 +222,8 @@ import { NO_ROWS, rowKind, FOLLOW_BOTTOM_DEADBAND_PX, SCROLL_ANCHOR_SETTLE_MS } 
 import { focusRoute } from "../../ui/focusRoute";
 import { continuesLiveResize, LIVE_RESIZE_MS, stepLiveResize } from "./conversation/liveResizeStep";
 import { DOCK_NOTICE } from "./noticeSlotModel";
+import { ThinkingGlyph } from "./conversation/ThinkingGlyph";
+import { useLiveGlyphTrigger } from "./conversation/thinkingGlyphModel";
 import {
   type DrawnHeight,
   type ReportDrawn,
@@ -243,8 +244,8 @@ import {
   arrivedAtTail,
   TokenRows,
   newestPromptId,
-  broughtSentPrompt,
   noReplyCame,
+  broughtSentPrompt,
 } from "./transcript/arrivals";
 import {
   scrollRangeIn,
@@ -700,6 +701,7 @@ function TranscriptView({
   loadPromptIndex,
   sessionId,
   onToggleActivity,
+  onLoadFold,
   onOpenDiff,
   expanded,
   registry: givenRegistry,
@@ -749,6 +751,7 @@ function TranscriptView({
   endReserve: cardReserve = 0,
   minimapBeside = false,
   topInset = 0,
+  corner,
 }: {
   rows: readonly AcpmuxRow[];
   /// The pane's live transcript: it draws the streaming reply's row ahead of the pane's snapshot
@@ -814,6 +817,7 @@ function TranscriptView({
   focusComposer?: () => void;
   /// `covers`: the clicked line's other keys (turns.ts `foldCovers`), toggled with it.
   onToggleActivity: (id: string, covers?: readonly string[]) => void;
+  onLoadFold?: (fold: number) => Promise<void>;
   onOpenDiff?: OpenDiff;
   expanded: Folds;
   registry?: NativeRegistry;
@@ -909,6 +913,9 @@ function TranscriptView({
   /// this much taller, so the first row rests where it did below the row and the latest one where it did
   /// above the composer. 0 for a scroller below its header.
   topInset?: number;
+  /// Small controls floated in the top end corner, over the rows, taking no row's room: a subagent's
+  /// view's close and Resume (subagents/SubagentViewCorner.tsx). Its rows lie as a chat's do.
+  corner?: React.ReactNode;
 }) {
   // Debug measurement (acpmuxPerf): the transcript's committed renders (perf.ts `renders`); tests
   // count them per key and per line (test/composer-smooth-grow.test.ts).
@@ -3220,21 +3227,7 @@ function TranscriptView({
   if (sameChat && (turnEnds || closingHeld) && !pageAway())
     turnEndCapture.current = captureTurnEnd(thread.current, ref.current, rows, sessionId, !turnEnds);
   else if (!sameChat) turnEndCapture.current = undefined;
-  // A subagent's view starts with its "Subagent of" pill (subagentRows.ts): pinned over the top, where
-  // its row lies at rest: the scroller's top in the stage (under the header) and the thread's own top
-  // padding. Read when it comes and as the view resizes, never per streamed token.
-  const pinnedPill = paneRows[0]?.kind === SUBAGENT_OF ? paneRows[0] : undefined;
-  const pinned = pinnedPill !== undefined;
-  const [pinAt, setPinAt] = useState({ top: 0, pad: 0 });
-  useLayoutEffect(() => {
-    const scroller = ref.current;
-    if (!pinned || !scroller || !thread.current) return;
-    const style = thread.current.ownerDocument.defaultView?.getComputedStyle(thread.current);
-    const pad = Number.parseFloat(style?.paddingTop ?? "") || 0;
-    const top = scroller.offsetTop + pad;
-    setPinAt((now) => (now.top === top && now.pad === pad ? now : { top, pad }));
-  }, [pinned, height]);
-  // What floats over the transcript's top (Jump to new, the pinned pill) starts at its clear line:
+  // What floats over the transcript's top (Jump to new, a subagent view's corner) starts at its clear line:
   // the lower of where the transcript shows (the scroller's top in the stage, plus the part a one-tab
   // pane's row floats over) and the header's bottom. The stage also holds the header (the pane's tab
   // row) above the scroller, so the stage's own top is the tab strip, and nothing placed from the
@@ -3242,7 +3235,7 @@ function TranscriptView({
   // (https://github.com/manaflow-ai/cmux/issues/40021). Observed: a header that resizes, or a
   // scroller that resizes (a line under the header pushes it down and shortens it, in a stage of
   // fixed height), moves the line before the frame paints.
-  const overTop = pinned || (sinceKey !== undefined && onJumpToSince !== undefined);
+  const overTop = corner !== undefined || (sinceKey !== undefined && onJumpToSince !== undefined);
   const [clearTop, setClearTop] = useState(topInset);
   useLayoutEffect(() => {
     const scroller = ref.current;
@@ -6197,6 +6190,11 @@ function TranscriptView({
         setJumpBackHeld(false);
       }
     }
+    // The reader's own scroll down that brings following back is a move toward the latest row, as a wheel down while
+    // following is (`cancelProgrammatic`) and a wheel at the end is (`reader-end`): it asks to follow through the input
+    // hold it leaves. Without the ask, what landed at the end inside that hold (the turn's last rows as the reader got
+    // back) stayed below the view's foot until the hold ran out, the view following 23 px short of its end.
+    if (readerReachedBottom && !followingRef.current) followRequest.current = userScrollIntent(node).request();
     queueScroll(next, scrolledTo.current.atLatest, immediate, "reader-scroll", down?.input ?? null);
     if (onAnchor) {
       clearTimeout(anchorTimer.current);
@@ -6929,6 +6927,11 @@ function TranscriptView({
     keptFrom.current = id;
     onKeepFrom(id, row?.at);
   };
+  // Set in render, as `followRef` and `motionScroll` are: the placement pass and the send effect run before any layout
+  // effect declared here and turn following on (`follow(true, "session" | "send")`), so a ref set in a layout effect
+  // still held the last render's rows and layout there (a row of the chat switched away from, or none on a first
+  // open) when the client was told the row to keep from.
+  keepFromNow.current = () => keepFromInView(ref.current);
   const checkOlder = () => {
     const node = ref.current;
     keepFromInView(node);
@@ -6982,7 +6985,6 @@ function TranscriptView({
   };
   useLayoutEffect(() => {
     checkOlderNow.current = checkOlder;
-    keepFromNow.current = () => keepFromInView(ref.current);
   });
   useLayoutEffect(() => {
     olderScrollTarget.current = undefined;
@@ -7242,6 +7244,7 @@ function TranscriptView({
     onFocus: rowFocus,
     onRowKeyDown: handleRowKeyDown,
     onToggleActivity: toggleRow,
+    onLoadFold,
     onOpenDiff,
     streams,
     sessionId,
@@ -7293,9 +7296,8 @@ function TranscriptView({
     jumpButton,
     behind,
     dockSpace,
-    pinnedPill,
+    corner,
     dockHoles,
-    pinAt,
     topInset,
     showMinimap,
     rows,
