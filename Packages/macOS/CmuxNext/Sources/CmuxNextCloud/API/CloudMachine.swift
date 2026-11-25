@@ -186,8 +186,9 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Codable {
     public var evictAt: Date?
     /// The auto-size pick a create with `autosize` answered.
     public var sizePick: CloudSizePick?
-    /// The guest's disk use, from the record's `disk_health` (``CloudDiskReport``); nil before the first sample.
-    public var disk: CloudDiskReport?
+    /// The guest's disk use as the record carries it (cmux-cloud-disk `DiskReport`, read from
+    /// `disk_health`): JSON the app passes to the Cloud rules unread; nil before the first sample.
+    public var disk: JSONValue?
     /// Why the last pause, resume or resize failed; nil when it did not.
     public var lastChangeFailure: ChangeFailure?
     /// The newest unresolved Pause, Resume or Kill sent from this app (``CloudMachineChanges``).

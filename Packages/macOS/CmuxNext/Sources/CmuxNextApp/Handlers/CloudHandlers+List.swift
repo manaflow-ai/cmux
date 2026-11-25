@@ -53,6 +53,13 @@ extension CloudHandlers {
     /// A machine joins `machines` only when its create returns, which can take minutes, so an
     /// agent that checks for its machine by name sees one still on its way and makes no second.
     ///
+    /// The record's disk report (cmux-cloud-disk `DiskReport`) as the Cloud rules' list and status facts
+    /// take it (cmux-tui `Listed.disk`, `Status.disk`): its JSON as it came, which the Rust rules read.
+    static func diskFacts(_ disk: JSONValue) -> Any? {
+        guard let data = try? JSONEncoder().encode(disk) else { return nil }
+        return try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
+    }
+
     /// `loaded` is whether the store holds a list the server answered for
     /// the signed-in user and team (``CloudService/hasLoadedCurrentMachines``).
     /// Before that (a relaunch, signed out, a failed first list, another
@@ -67,7 +74,7 @@ extension CloudHandlers {
             let machine = session.machine
             return ["machineId": session.machineID, "title": machine.title, "status": session.effectiveStatus.rawValue,
                     "createdBy": machine.createdBy as Any, "createdAt": machine.createdAt?.timeIntervalSince1970 as Any, "diskAllocatedMb": machine.size?.storageMb as Any,
-                    "failure": machine.lastChangeFailure.map { ["code": $0.code, "message": $0.message] } as Any, "disk": machine.disk?.facts as Any].compacted
+                    "failure": machine.lastChangeFailure.map { ["code": $0.code, "message": $0.message] } as Any, "disk": machine.disk.flatMap(Self.diskFacts) as Any].compacted
         }
         let creating: [[String: Any]] = cloud.creations.all.filter { $0.session == nil }.map { creation in
             var failed: String?
@@ -121,7 +128,7 @@ extension CloudHandlers {
             "machineId": session.machineID, "title": machine.title, "status": session.effectiveStatus.rawValue, "state": stats.state,
             "cpus": stats.cpus as Any, "cpuPercent": stats.cpuPercent as Any, "memoryUsedMb": stats.memoryUsedMb as Any,
             "memoryTotalMb": stats.memoryTotalMb as Any, "diskUsedMb": stats.diskUsedMb as Any, "diskTotalMb": stats.diskTotalMb as Any,
-            "ipv4": machine.address?.ipv4 as Any, "desktop": machine.opensCarrierDesktop, "disk": machine.disk?.facts as Any,
+            "ipv4": machine.address?.ipv4 as Any, "desktop": machine.opensCarrierDesktop, "disk": machine.disk.flatMap(Self.diskFacts) as Any,
         ]
         if let cost = CloudCreationRows.cost(machine, limits: nil) {
             facts["cost"] = ["hourlyRateUsd": cost.hourlyRateUsd as Any, "runningSince": cost.runningSince?.timeIntervalSince1970 as Any,
