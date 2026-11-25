@@ -199,6 +199,20 @@ impl Hub {
             if self.shutting_down() {
                 break;
             }
+            if let Err(why) = self.history_deletable(&session, cutoff, &hosted) {
+                *skipped.entry(why).or_default() += 1;
+                continue;
+            }
+            let dir = self.store.session_path(&session.id);
+            let size = match dir.clone() {
+                Some(dir) => {
+                    tokio::task::spawn_blocking(move || folder_bytes(&dir)).await.unwrap_or(0)
+                }
+                None => 0,
+            };
+            // The size read yields: what ran meanwhile (a status write, the end of a cold
+            // archive) may have changed the chat, so the revision the delete checks is taken
+            // only now, after it.
             let seen = match self.history_deletable(&session, cutoff, &hosted) {
                 Ok(seen) => seen,
                 Err(why) => {
@@ -207,13 +221,6 @@ impl Hub {
                 }
             };
             let meta = session.meta();
-            let dir = self.store.session_path(&session.id);
-            let size = match dir.clone() {
-                Some(dir) => {
-                    tokio::task::spawn_blocking(move || folder_bytes(&dir)).await.unwrap_or(0)
-                }
-                None => 0,
-            };
             let mut row = json!({
                 "sessionId": session.id,
                 "name": meta.name,
@@ -256,7 +263,7 @@ impl Hub {
                         chats.push(row);
                     }
                 }
-                Ok(false) => *skipped.entry("busy").or_default() += 1,
+                Ok(false) => *skipped.entry("changed").or_default() += 1,
                 Err(e) => {
                     tracing::warn!(session = %session.id, "history delete: {}", e.message);
                     *skipped.entry("error").or_default() += 1;
