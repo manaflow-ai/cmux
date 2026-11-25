@@ -57,7 +57,7 @@ export function projectSetupCommand(): string {
     `rm -rf ${PROJECT_DIR}`,
     `git clone -q --depth 1 --branch ${PROJECT_REF} ${PROJECT_REPO} ${PROJECT_DIR}`,
     `cd ${PROJECT_DIR}`,
-    "npm install --no-audit --no-fund --loglevel=error >/tmp/rl-install.log 2>&1",
+    "NODE_ENV=development npm install --include=dev --no-audit --no-fund --loglevel=error >/tmp/rl-install.log 2>&1",
     `PORT=${SERVICE_PORT} setsid node examples/hello-world >/tmp/rl-service.log 2>&1 < /dev/null &`,
     `for i in $(seq 1 100); do curl -sf -o /dev/null http://127.0.0.1:${SERVICE_PORT}/ && break; sleep 0.1; done`,
     `echo "head=$(git rev-parse HEAD)"`,
@@ -65,11 +65,21 @@ export function projectSetupCommand(): string {
   ].join("\n");
 }
 
+/** The smoke runner, one line each: test/app.js through mocha's API, resolved from the project. */
+export const SMOKE_RUNNER = [
+  "const M = require(require.resolve('mocha', { paths: [process.cwd()] }))",
+  "const m = new M({ reporter: 'dot' })",
+  "m.addFile('test/app.js')",
+  "m.run((f) => process.exit(f ? 1 : 0))",
+];
+
 /** Usable: the service answers 200, the project's smoke test passes, acpmux lists the session (when one is expected). */
 export function usableCommand(session: string | null): string {
   return [
     `s=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:${SERVICE_PORT}/ || true); echo "service=$s"`,
-    `cd ${PROJECT_DIR} && ./node_modules/.bin/mocha --reporter dot test/app.js >/tmp/rl-smoke.log 2>&1 && echo smoke=1 || echo smoke=0`,
+    // Mocha through its API, not its CLI: the CLI's old yargs loads as an ES module under Node 26 and throws.
+    `printf '%s\\n' ${SMOKE_RUNNER.map((l) => `"${l}"`).join(" ")} >/tmp/rl-smoke.cjs`,
+    `cd ${PROJECT_DIR} && NODE_ENV=test node /tmp/rl-smoke.cjs >/tmp/rl-smoke.log 2>&1 && echo smoke=1 || { echo smoke=0; echo "smoke_err=$(grep -m2 -E 'Error|failing' /tmp/rl-smoke.log | tr '\\n' ' ' | cut -c1-300)"; echo "node=$(node -v 2>&1)"; }`,
     `echo "head=$(git -C ${PROJECT_DIR} rev-parse HEAD 2>/dev/null)"`,
     session ? `acpmux ls 2>/dev/null | grep -q '${session}' && echo session=1 || echo session=0` : "echo session=skip",
   ].join("\n");
@@ -100,6 +110,7 @@ export const usable = (f: Record<string, string>, head: string) =>
 
 export type OpenRow = {
   run: number;
+  quota_wait_ms?: number;
   via: "link" | "snapshot";
   copy: string | null;
   resolve_ms: number | null;
@@ -114,7 +125,7 @@ export type OpenRow = {
   facts: Record<string, string> | null;
   error: string | null;
 };
-export type BaselineRow = { run: number; machine: string | null; create_ms: number | null; setup_ms: number | null; usable_ms: number | null; total_ms: number | null; facts: Record<string, string> | null; error: string | null };
+export type BaselineRow = { run: number; quota_wait_ms?: number; machine: string | null; create_ms: number | null; setup_ms: number | null; usable_ms: number | null; total_ms: number | null; facts: Record<string, string> | null; error: string | null };
 
 const median = (xs: number[]) => {
   if (!xs.length) return null;
@@ -145,6 +156,34 @@ export function verdict(opens: OpenRow[], baseline: BaselineRow[], meta: Record<
   };
 }
 
+/** Staging's test team sits near its machine cap; a create that hits it waits for room instead of
+ * failing the row (25 min, or ROOM_WAIT_MS). Returns the value and the time spent waiting, which the caller leaves out of its phase timing. */
+export async function withRoom<T>(fn: () => Promise<T>, budgetMs = Number(process.env.ROOM_WAIT_MS ?? 1_500_000)): Promise<[T, number]> {
+  // Returns the time spent waiting for room only: a full team (cloud.quota.vm_limit) waits and is left out of
+  // the timing. A call cut off at the client timeout is asked again, at most twice, under the same idempotency
+  // key, so it cannot make a second machine (runs 45570177493 and 45571955695 stopped there); that time counts.
+  const t0 = Date.now();
+  let roomAt = t0;
+  let timeouts = 0;
+  for (;;) {
+    try {
+      return [await fn(), roomAt - t0];
+    } catch (e) {
+      const m = String((e as Error).message);
+      if (m.includes("cloud.quota.vm_limit") && Date.now() - t0 <= budgetMs) {
+        await sleep(15_000);
+        roomAt = Date.now();
+        continue;
+      }
+      if (m.includes("timed out") && ++timeouts <= 2) {
+        await sleep(2_000);
+        continue;
+      }
+      throw e;
+    }
+  }
+}
+
 async function waitUsable(exec: Exec, session: string | null, head: string, budgetMs: number): Promise<Record<string, string>> {
   const t0 = Date.now();
   let f: Record<string, string> = {};
@@ -168,13 +207,18 @@ async function main(): Promise<number> {
   const password = process.env.CMUX_DOGFOOD_STACK_PASSWORD;
   if (!email || !password) throw new Error("set CMUX_DOGFOOD_STACK_EMAIL and CMUX_DOGFOOD_STACK_PASSWORD (the staging agent test account)");
   secrets.push(password);
+  // Each step names itself, so a bare "The operation timed out." says where (run 45570177493 did not).
+  let stage = "sign-in";
   const s = await passwordSignIn(STACK[backend.stack], email, password);
   secrets.push(s.access, s.refresh);
   api.bearer = s.access;
   const say = (v: unknown) => console.log(scrub(typeof v === "string" ? v : JSON.stringify(v), secrets));
+  stage = "client-config";
   const platform = clientPlatformOrigin((await api.raw("GET", "/v1/client-config", undefined, 30_000)).body);
   const tag = `rl-${Date.now().toString(36)}`;
+  stage = "user.ensure";
   const user = await api.op("user.ensure", {}, `${tag}-ensure`);
+  stage = "install token";
   const install = await mintInstallToken(api, backend.api, String(user?.id ?? user?.user?.id ?? ""), tag, team);
   secrets.push(install.token);
   let bearer = install.token;
@@ -193,14 +237,16 @@ async function main(): Promise<number> {
   let parent: string | null = null;
   try {
     // Parent: a real project, its service running, an agent session holding the canary as its launch credential.
+    stage = "parent create";
     const t0 = Date.now();
-    const created = await api.op("cloud.machine.create", { name: `runnable link ${tag} parent`, size: CHAT_START_SIZE }, `${tag}-parent`);
+    const [created] = await withRoom(() => api.op("cloud.machine.create", { name: `runnable link ${tag} parent`, size: CHAT_START_SIZE }, `${tag}-parent`));
     parent = String(created?.machine?.id ?? created?.machine ?? created?.id);
     machines.push(parent);
     await waitMachine(api, parent, (m) => m?.status === "running" && Boolean(m?.host), 300_000);
     const pexec = directExec(api, parent, journey);
     await firstExec(pexec, 120_000);
     meta.parent_ready_ms = Date.now() - t0;
+    stage = "parent setup";
     const s0 = Date.now();
     const setup = await pexec(projectSetupCommand(), 280_000);
     if (setup.code !== 0) throw new Error(`project setup: exit ${setup.code} ${setup.stderr.slice(-400)}`);
@@ -214,6 +260,7 @@ async function main(): Promise<number> {
     const session = sessionUp ? SESSION : null;
 
     // Mint.
+    stage = "mint";
     const m0 = Date.now();
     const minted = await http("POST", `${platform}/v1/runnable-links`, {
       machine: parent, clientKey: `${tag}-mint`, ttlSeconds: 3600, note: "hq#23807 experiment",
@@ -226,7 +273,8 @@ async function main(): Promise<number> {
       meta.disclosure = link.disclosure;
     } else {
       meta.via = "snapshot";
-      meta.link_api = `HTTP ${minted.status}`;
+      // The code tells a flag that is off (link.not_found before auth) from a refusal of this machine.
+      meta.link_api = `HTTP ${minted.status} ${String(minted.body?.code ?? minted.body?.error ?? "").slice(0, 80)}`.trim();
       const snap = await api.op("cloud.snapshot.create", { machine: parent, name: `runnable link ${tag}` }, `${tag}-snap`);
       snapshot = String(snap?.snapshot?.id ?? snap?.snapshot ?? snap?.id);
     }
@@ -254,16 +302,24 @@ async function main(): Promise<number> {
           if (g.status !== 200) throw new Error(`resolve: HTTP ${g.status}`);
         }
         r.resolve_ms = Date.now() - c0;
-        const f0 = Date.now();
+        let quotaWait = 0;
+        let f0 = Date.now();
         if (link) {
-          const f = await http("POST", `${platform}/v1/runnable-links/${link.id}/fork`, { clientKey: `${tag}-open-${run}` }, ph(), 180_000, true);
-          if (f.status !== 200 && f.status !== 201) throw new Error(`fork: HTTP ${f.status} ${JSON.stringify(f.body).slice(0, 200)}`);
+          const [f, waited] = await withRoom(async () => {
+            const f = await http("POST", `${platform}/v1/runnable-links/${link.id}/fork`, { clientKey: `${tag}-open-${run}` }, ph(), 180_000, true);
+            if (f.status !== 200 && f.status !== 201) throw new Error(`fork: HTTP ${f.status} ${JSON.stringify(f.body).slice(0, 200)}`);
+            return f;
+          });
+          quotaWait = waited;
           r.copy = String(f.body?.machine?.id);
         } else {
-          const a = await api.op("cloud.snapshot.restore", { snapshot, name: `runnable link ${tag} open ${run}` }, `${tag}-open-${run}`);
+          const [a, waited] = await withRoom(() => api.op("cloud.snapshot.restore", { snapshot, name: `runnable link ${tag} open ${run}` }, `${tag}-open-${run}`));
+          quotaWait = waited;
           r.copy = String(a?.machine?.id ?? a?.machine ?? a?.id);
         }
         machines.push(r.copy);
+        f0 += quotaWait;
+        r.quota_wait_ms = quotaWait;
         r.fork_call_ms = Date.now() - f0;
         await waitMachine(api, r.copy, (m) => m?.status === "running" && Boolean(m?.host), 300_000);
         r.running_ms = Date.now() - f0;
@@ -277,7 +333,7 @@ async function main(): Promise<number> {
         const u0 = Date.now();
         r.facts = await waitUsable(exec, session, head, 120_000);
         r.usable_ms = Date.now() - u0;
-        r.click_to_usable_ms = Date.now() - c0;
+        r.click_to_usable_ms = Date.now() - c0 - (r.quota_wait_ms ?? 0);
       } catch (e) {
         r.error = scrub(String((e as Error).message), [...secrets, canary]).slice(0, 400);
       } finally {
@@ -308,10 +364,12 @@ async function main(): Promise<number> {
     // Baseline: a fresh machine, clone, install, start, smoke.
     for (let run = 1; run <= baselineRuns; run++) {
       const b: BaselineRow = { run, machine: null, create_ms: null, setup_ms: null, usable_ms: null, total_ms: null, facts: null, error: null };
-      const b0 = Date.now();
+      let b0 = Date.now();
       try {
         await renew();
-        const c = await api.op("cloud.machine.create", { name: `runnable link ${tag} baseline ${run}`, size: CHAT_START_SIZE }, `${tag}-base-${run}`);
+        const [c, waited] = await withRoom(() => api.op("cloud.machine.create", { name: `runnable link ${tag} baseline ${run}`, size: CHAT_START_SIZE }, `${tag}-base-${run}`));
+        b.quota_wait_ms = waited;
+        b0 += waited;
         b.machine = String(c?.machine?.id ?? c?.machine ?? c?.id);
         machines.push(b.machine);
         await waitMachine(api, b.machine, (m) => m?.status === "running" && Boolean(m?.host), 300_000);
@@ -335,7 +393,7 @@ async function main(): Promise<number> {
       say({ phase: "baseline", run, total_ms: b.total_ms, error: b.error });
     }
   } catch (e) {
-    meta.error = scrub(String((e as Error).message), [...secrets, canary]).slice(0, 600);
+    meta.error = scrub(`${stage}: ${String((e as Error).message)}`, [...secrets, canary]).slice(0, 600);
   } finally {
     if (snapshot && !keep) await api.op("cloud.snapshot.delete", { snapshot }, `${tag}-snap-del`).then(() => cleanup.push("snapshot deleted"), () => cleanup.push(`snapshot NOT deleted (${snapshot})`));
     if (parent && !keep) await api.deleteMachine(parent, `${tag}-del-parent`).then(() => cleanup.push("parent deleted"), () => cleanup.push(`parent NOT deleted (${parent})`));
