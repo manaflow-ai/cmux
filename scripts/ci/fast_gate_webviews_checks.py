@@ -101,6 +101,10 @@ def advisory_class(check: str, lines: list[str]) -> bool:
     return CHECK_CLASSES[check][0] == "lint" or (check == "typecheck" and outside_the_app(lines))
 LINE_REF = re.compile(r"(\S):\d+(?::\d+)?\b")
 TIMING = re.compile(r"\b\d+(?:\.\d+)?\s?(?:ms|s)\b")
+# Vite bundles its config to `node_modules/.vite-temp/vite.config.ts.timestamp-<ms>-<hash>.mjs` on every run, so a
+# config that fails to load prints stack frames that differ between the base's run and the merge's (#46890's fast
+# gate read the base's own `Resources/markdown-viewer` ENOENT as five new findings). The name is kept, the stamp dropped.
+VITE_TEMP = re.compile(r"\.timestamp-\d+-[0-9a-f]+\.(m?js)\b")
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 # Oxlint's graphical report (the type check, `vp lint`): `  x typescript(TS2339): message`, wrapped lines of the
 # message, `   ,-[path:line:col]`, a code frame and `help:` lines. One finding per diagnostic, its whole message.
@@ -178,8 +182,8 @@ def run_check(webviews: Path, check: str, fixit: bool = False) -> tuple[int, str
 
 
 def key(line: str, root: str = "") -> str:
-    """A line as a finding: stripped, its checkout root, `path:line[:col]` numbers and timings dropped."""
-    return TIMING.sub("<time>", LINE_REF.sub(r"\1", unroot(line, root).strip()))
+    """A line as a finding: stripped, its checkout root, `path:line[:col]` numbers, timings and Vite's temp config stamp dropped."""
+    return TIMING.sub("<time>", LINE_REF.sub(r"\1", VITE_TEMP.sub(r".timestamp.\1", unroot(line, root).strip())))
 
 
 def unroot(text: str, root: str) -> str:

@@ -132,6 +132,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/request_state",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "acp.session.fork",
       "params": {
         "$ref": "#/types/ForkParams"
@@ -185,6 +191,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/tailnet/join",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/tailnet/login",
       "params": true,
       "result": true
@@ -224,6 +236,12 @@
     {
       "kind": "request",
       "name": "_acpmux/callers",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/felt_snapshot",
       "params": true,
       "result": true
     },
@@ -507,10 +525,28 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/forum/post",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/forum/reply",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/forum/rules",
       "params": {
         "$ref": "#/types/ForumRulesParams"
       },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/forum/search",
+      "params": true,
       "result": true
     },
     {
@@ -554,6 +590,14 @@
       "name": "_acpmux/subagent_transcript",
       "params": {
         "$ref": "#/types/SubagentTranscriptParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/subagents",
+      "params": {
+        "$ref": "#/types/SubagentListParams"
       },
       "result": true
     },
@@ -636,6 +680,12 @@
     {
       "kind": "request",
       "name": "_acpmux/github_app_lease",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/github_rest",
       "params": true,
       "result": true
     },
@@ -915,6 +965,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/surgery",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/task_list/set",
       "params": true,
       "result": true
@@ -1022,6 +1078,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/session_hold",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/fleet_hold",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/keep",
       "params": true,
       "result": true
@@ -1080,13 +1148,31 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/controls",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/info",
       "params": true,
       "result": true
     },
     {
       "kind": "request",
+      "name": "_acpmux/session_resync",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/machine_info",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/scorecard",
       "params": true,
       "result": true
     },
@@ -1774,6 +1860,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/chat_transcript_page",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/chat_transcript_find",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/chats_search",
       "params": true,
       "result": true
@@ -1868,6 +1966,12 @@
     {
       "kind": "request",
       "name": "_acpmux/transfer_forget",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/transfer_preflight",
       "params": true,
       "result": true
     },
@@ -2401,6 +2505,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/host_overload",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/vm_host",
       "params": true,
       "result": true
@@ -2414,6 +2524,18 @@
     {
       "kind": "request",
       "name": "_acpmux/place",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/chat_place",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/chat_place_set",
       "params": true,
       "result": true
     },
@@ -2635,6 +2757,54 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/channel/listen",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/channel/unlisten",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/channel/open",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "client_notification",
+      "name": "_acpmux/channel/send",
+      "params": true
+    },
+    {
+      "kind": "client_notification",
+      "name": "_acpmux/channel/close",
+      "params": true
+    },
+    {
+      "kind": "client_notification",
+      "name": "_acpmux/channel/connect",
+      "params": true
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/channel/opened",
+      "params": true
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/channel/data",
+      "params": true
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/channel/closed",
+      "params": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/pair_redeem",
       "params": true,
       "result": true
@@ -2734,6 +2904,11 @@
     {
       "kind": "notification",
       "name": "_acpmux/connections.changed",
+      "params": true
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/control",
       "params": true
     },
     {
@@ -2844,6 +3019,7 @@
         "cliHost": true,
         "compression": true,
         "context": true,
+        "createKey": true,
         "createdBy": true,
         "cwd": true,
         "decisionNonce": true,
@@ -2852,6 +3028,7 @@
         "effort": true,
         "env": true,
         "ephemeral": true,
+        "features": true,
         "forceAdmit": true,
         "forwardProjection": true,
         "fromAgent": true,
@@ -2880,6 +3057,8 @@
         "personDecision": true,
         "personKey": true,
         "personStop": true,
+        "personVerified": true,
+        "placeRedirect": true,
         "policy": true,
         "pr": true,
         "preset": true,
@@ -2889,6 +3068,7 @@
         "provenance": true,
         "reportTo": true,
         "requestId": true,
+        "requireAsking": true,
         "requireFullAccess": true,
         "resend": true,
         "restricted": true,
@@ -3237,6 +3417,13 @@
             "null"
           ]
         },
+        "quietHidden": {
+          "description": "True: the client draws nothing of the chat while it is hidden (`visible: false`), so the\nagent's `session/update` stream is left out until `_acpmux/view` shows it, which then sends\none `_acpmux/lagged` naming the chat (`server/view.rs`); default false.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "omitTimeBreakdown": {
           "description": "True from a client that never draws the breakdown (the phone): the reply's `session`\nleaves `timeBreakdown` out whatever its version (`server/requests/time_breakdown_gate.rs`).",
           "type": [
@@ -3497,6 +3684,51 @@
         "sessionId": true,
         "targetHarness": true
       },
+      "type": "object"
+    },
+    "CapacityWait": {
+      "description": "A chat waiting for capacity (`hub/capacity_wait.rs`): a turn cut by an overloaded model, an\nexhausted account pool or the account's rate limit, which acpmux continues by itself. A\nclient draws it as one calm state (\"Waiting for capacity, about 40 s\"; in a list \"paused for\ncapacity, resumes ~22:41\"), never as a failed turn, and keeps `error` for a details\ndisclosure.",
+      "properties": {
+        "error": {
+          "description": "The harness's raw error, cut to 600 characters, for a details disclosure only.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "$ref": "#/types/RetryReason",
+          "description": "`capacity` or `rate_limit`."
+        },
+        "resumesAt": {
+          "description": "When it goes on (epoch ms); absent while the continuation is still being decided.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "since": {
+          "description": "Since when it waits (epoch ms): the cut turn's end.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "turnId": {
+          "description": "The cut turn the wait continues, when there is one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "reason"
+      ],
       "type": "object"
     },
     "Carrier": {
@@ -3852,6 +4084,16 @@
     "EventsParams": {
       "additionalProperties": false,
       "properties": {
+        "_meta": {
+          "anyOf": [
+            {
+              "$ref": "#/types/AuthorMeta"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "afterSeq": {
           "description": "Records after this one; it may not lie beyond the last record.",
           "format": "uint64",
@@ -3907,6 +4149,13 @@
         "sessionId": {
           "type": "string"
         },
+        "sinceSeen": {
+          "description": "Read the transcript after this reader's New line, or their persisted readThrough cursor while away.\nWithout a cursor the page is empty. Incompatible with afterSeq, beforeSeq, promptIndex and turnOpener.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "subagent": {
           "description": "Only this subagent's own records: the updates acpmux tagged with it and those that start\nor change it (`EventFilter::of_subagent`). A subagent pane reads its subagent with it.",
           "type": [
@@ -3947,14 +4196,23 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "seenSeq": {
+          "description": "The cutover used by sinceSeen, null on a first visit. Absent from ordinary pages.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "required": [
-        "createdAt",
         "events",
         "hasMore",
         "lastSeq",
-        "pageThrough"
+        "pageThrough",
+        "createdAt"
       ],
       "type": "object"
     },
@@ -4390,6 +4648,15 @@
             "null"
           ]
         },
+        "heldUntil": {
+          "description": "When a `capacity` turn's continuation runs, while it waits.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "promptId": {
           "type": [
             "string",
@@ -4404,7 +4671,7 @@
           ]
         },
         "status": {
-          "description": "`completed`, `failed` or `cancelled`.",
+          "description": "`completed`, `failed` or `cancelled`; on a session row, `capacity` for a failed turn a\ncapacity error cut whose continuation acpmux waits for or runs (`hub/auto_resume.rs`).",
           "type": [
             "string",
             "null"
@@ -5744,6 +6011,8 @@
         "harness": true,
         "model": true,
         "release": true,
+        "reserveHome": true,
+        "wait": true,
         "workspaceId": true
       },
       "type": "object"
@@ -6265,13 +6534,14 @@
       "type": "object"
     },
     "RetryReason": {
-      "description": "Why a turn is retried (`hub::turn_errors::resume_cause`): the provider or the gateway had no\ncapacity (HTTP 503 or 529, overloaded, no account free), the account hit its usage or rate\nlimit (`rate_limit`, HTTP 429: the chat holds every turn until the reset, `hub/rate_hold.rs`),\nthe connection dropped, the agent process died mid-turn, or the chat outgrew its model's\ncontext window (`context`: it is compacted, then continued at once).",
+      "description": "Why a turn is retried (`hub::turn_errors::resume_cause`): the provider or the gateway had no\ncapacity (HTTP 503 or 529, overloaded, no account free), the account hit its usage or rate\nlimit (`rate_limit`, HTTP 429: the chat holds every turn until the reset, `hub/rate_hold.rs`),\nthe connection dropped, the agent process died mid-turn, the chat outgrew its model's\ncontext window (`context`: it is compacted, then continued at once), or the machine's disk\nwas full (`disk`: it goes on once space is free again).",
       "enum": [
         "capacity",
         "rate_limit",
         "transport",
         "agent_exited",
-        "context"
+        "context",
+        "disk"
       ],
       "type": "string"
     },
@@ -6335,45 +6605,6 @@
       ],
       "type": "object"
     },
-    "RollingSummary": {
-      "description": "A chat's rolling summary (`hub/rolling_summary.rs`): one short line on where it stands and\nthe next action, kept current after each turn a person started (or one that ended on a\n`wrap_up`). The sidebar and the chat header draw it.",
-      "properties": {
-        "at": {
-          "description": "When it was written, Unix ms.",
-          "format": "uint64",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "next": {
-          "description": "The next action, for the person or the agent; absent when there is none.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "source": {
-          "description": "Who wrote it: `wrap_up` (the agent's own recap and ask, no model call) or `model`.",
-          "type": "string"
-        },
-        "text": {
-          "description": "Where the chat stands, one or two short sentences.",
-          "type": "string"
-        },
-        "turn": {
-          "description": "The chat's turn count it covers.",
-          "format": "uint64",
-          "minimum": 0,
-          "type": "integer"
-        }
-      },
-      "required": [
-        "text",
-        "source",
-        "turn",
-        "at"
-      ],
-      "type": "object"
-    },
     "RouteListParams": {
       "additionalProperties": false,
       "properties": {
@@ -6390,6 +6621,7 @@
         "_meta": {
           "$ref": "#/types/RequestMeta"
         },
+        "keepAs": true,
         "secretId": true,
         "sessionId": true,
         "value": true
@@ -6757,6 +6989,17 @@
         "backgroundsWork": {
           "description": "`_acpmux/process/background` (Ctrl-B) moves its foreground work: its\nharness is Claude Code (claude-stdio), whatever the harness's name.\nClients offer Ctrl-B from this, not from `harness`.",
           "type": "boolean"
+        },
+        "capacityWait": {
+          "anyOf": [
+            {
+              "$ref": "#/types/CapacityWait"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "It waits for capacity and goes on by itself (`hub/capacity_wait.rs`). Absent otherwise,\nand from a peer on an older acpmux."
         },
         "children": {
           "description": "Its sub-sessions that are not closed.",
@@ -7141,17 +7384,6 @@
         "retryDeciding": {
           "description": "Its last turn failed on an error an automatic retry answers, and whether, and when, it\nis retried is not settled yet: `retry` is about to be set or stay null, or the retry is\nstarting or runs (`hub/auto_resume.rs`). `_acpmux/wait` answers for that turn once it is\nsettled. Absent otherwise, and from a peer on an older acpmux.",
           "type": "boolean"
-        },
-        "rollingSummary": {
-          "anyOf": [
-            {
-              "$ref": "#/types/RollingSummary"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Where the chat stands and its next action (`hub/rolling_summary.rs`), for the sidebar\nand the chat header. Absent before the first turn that makes one, and from a peer on an\nolder acpmux."
         },
         "root": {
           "default": "",
@@ -7737,6 +7969,17 @@
           "description": "`_acpmux/process/background` (Ctrl-B) moves its foreground work: its\nharness is Claude Code (claude-stdio), whatever the harness's name.\nClients offer Ctrl-B from this, not from `harness`.",
           "type": "boolean"
         },
+        "capacityWait": {
+          "anyOf": [
+            {
+              "$ref": "#/types/CapacityWait"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "It waits for capacity and goes on by itself (`hub/capacity_wait.rs`). Absent otherwise,\nand from a peer on an older acpmux."
+        },
         "children": {
           "description": "Its sub-sessions that are not closed.",
           "format": "uint32",
@@ -8111,17 +8354,6 @@
           "description": "Its last turn failed on an error an automatic retry answers, and whether, and when, it\nis retried is not settled yet: `retry` is about to be set or stay null, or the retry is\nstarting or runs (`hub/auto_resume.rs`). `_acpmux/wait` answers for that turn once it is\nsettled. Absent otherwise, and from a peer on an older acpmux.",
           "type": "boolean"
         },
-        "rollingSummary": {
-          "anyOf": [
-            {
-              "$ref": "#/types/RollingSummary"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Where the chat stands and its next action (`hub/rolling_summary.rs`), for the sidebar\nand the chat header. Absent before the first turn that makes one, and from a peer on an\nolder acpmux."
-        },
         "root": {
           "default": "",
           "description": "The root of its lineage tree: the first ancestor no agent started; its own\nid for a root. Absent from a peer on an older acpmux.",
@@ -8462,6 +8694,13 @@
             "null"
           ]
         },
+        "topLevelOnly": {
+          "description": "`_acpmux/sessions` only (a watch refuses it): exclude side chats (a `side` tag) and\nsessions another chat's agent started (`spawnedBy`, `startedBy`) before pagination: the\nchats a list shows on their own (capability `session-list-top-level-v1`).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "usage": {
           "description": "`_acpmux/sessions` only: read each chat's usage from its harness's records first\n(`usageStats`; at most one read every 5 s, waited for at most 750 ms). Without it the\nrows carry what the last read found.",
           "type": [
@@ -8656,6 +8895,17 @@
         "spawn_failed"
       ],
       "type": "string"
+    },
+    "SubagentListParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "ended": true,
+        "sessionId": true
+      },
+      "type": "object"
     },
     "SubagentStopParams": {
       "additionalProperties": false,
@@ -9329,6 +9579,15 @@
           "description": "Its person attends the chat it shows: on screen, window key, input within the client's\nidle window. Absent: true. A shown chat nobody attends stays shown, but its turns are\nunread (`hub/seen.rs`).",
           "type": [
             "boolean",
+            "null"
+          ]
+        },
+        "cutoverSeq": {
+          "description": "A transient cutover for recap reads while this view is visible and attended.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
             "null"
           ]
         },

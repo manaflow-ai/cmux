@@ -172,4 +172,18 @@ final class AllUIStatesSurfacesCaptureUITests: UIStateCaptureCase {
             Scene(group: g, id: "large-preview-low-space", args: ["-cmux-mobile-demo", "large-preview-low-space"]),
         ])
     }
+
+    /// The stand-ins a tab card's picture draws (math, running tool, menu; A, B and C), each through
+    /// `ImageRenderer`, in light and dark and under two Mac themes. Fails when a picture holds no image.
+    @MainActor
+    func testStillPictures() {
+        let g = "11 Tab card still pictures"
+        capture([
+            // The gallery takes its scheme from -cmux-mobile-gallery-appearance, not the device's look.
+            Scene(group: g, id: "stills-light", args: ["-cmux-mobile-recovery-gallery", "stills", "-cmux-mobile-gallery-appearance", "light"], looks: [.light], ready: .clock(3)),
+            Scene(group: g, id: "stills-dark", args: ["-cmux-mobile-recovery-gallery", "stills", "-cmux-mobile-gallery-appearance", "dark"], looks: [.dark], ready: .clock(3)),
+            Scene(group: g, id: "stills-mocha", args: ["-cmux-mobile-recovery-gallery", "stills-mocha", "-cmux-mobile-gallery-appearance", "dark"], looks: [.dark], ready: .clock(3)),
+            Scene(group: g, id: "stills-solarized", args: ["-cmux-mobile-recovery-gallery", "stills-solarized", "-cmux-mobile-gallery-appearance", "light"], looks: [.light], ready: .clock(3)),
+        ])
+    }
 }
