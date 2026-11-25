@@ -7,13 +7,22 @@
 //! at the frontmost app's priority (46-47), like Claude Desktop's. What made
 //! cmux NEXT feel slower was its agent work: every agent host, harness and the
 //! git, rg and compiles they run sat at the default (31) and took the disk at
-//! the default I/O tier, level with everything the app needs. So:
+//! the default I/O tier, level with everything the app needs. That made agents yield to the
+//! app (the `utility` policy below), until it cost them more than it gave the app:
+//!
+//! Agent work runs level with a terminal by default (Lucas, 2026-11-24, "match terminal time
+//! parity"). Across 21 days of one Mac's chats, the same tools ran 2 to 4 times longer in NEXT
+//! chats than in terminal Claude Code: tests 37 s against 11 s (median), git push 79 s against
+//! 43 s, builds 220 s against 52 s (p90). A one-commit rebase took 87 minutes in uninterruptible
+//! disk waits at 0% CPU. The same `git grep` took 6 s and 32 s at the default class, 61 s and
+//! 962 s at background class, and 8 s against 42 s at the utility disk tier with a cold cache.
+//! So, unless `ACPMUX_QOS` asks for less ([`AgentPolicy`]):
 //!
 //! | Tier | Who | macOS | Linux |
 //! |---|---|---|---|
 //! | [`Tier::Serving`] | the daemon | unchanged: acknowledged replies wait on the event journal's sync, so its disk I/O stays at the default tier ([`enter_daemon`]) | unchanged |
-//! | [`Tier::AgentStart`] | agent hosts and their harnesses | disk I/O at `IOPOL_UTILITY`; CPU while the harness starts: the daemon's (unchanged); once its session's start is over: the harness and what it started at nice +11 (priority 20, as the utility clamp), or background class (`cpu_class.rs`) | while it starts: unchanged; then the harness at nice +5 and its host's session (autogroup) at nice 5 |
-//! | [`Tier::Agent`] | background-task runners, and everything they start | CPU clamped to utility (priority 20) and disk I/O at `IOPOL_UTILITY` | nice +5 |
+//! | [`Tier::AgentStart`] | agent hosts and their harnesses | unchanged ([`AgentPolicy::Level`]); `ACPMUX_QOS=utility`: disk I/O at `IOPOL_UTILITY`, and once its session's start is over the harness and what it started at nice +11 (`cpu_class.rs`) | unchanged; `utility`: the harness at nice +5 and its host's session (autogroup) at nice 5 |
+//! | [`Tier::Agent`] | background-task runners, and everything they start | unchanged; `ACPMUX_QOS=utility`: CPU clamped to utility (priority 20) and disk I/O at `IOPOL_UTILITY` | unchanged; `utility`: nice +5 |
 //! | [`Tier::Background`] | housekeeping inside the daemon that holds no lock other work waits on (probe cleanup at start) | the thread at `QOS_CLASS_BACKGROUND` for the pass (CPU throttled; its disk I/O at the background class's tier), then back | unchanged |
 //! | [`Tier::OnScreen`] | the daemon's reads for a chat being opened on screen (a visible `_acpmux/attach`: its log load and its first page) | the thread at `QOS_CLASS_USER_INITIATED` for the read (its CPU; its disk I/O stays at the daemon's default tier), then back | unchanged |
 //!
@@ -28,11 +37,11 @@
 //! `thread_policy.c`). A per-thread I/O policy also drops the thread out of
 //! QoS (`imp::ThreadOnScreen`), so a reused pool thread never takes it.
 //!
-//! An agent's start is work a person waits on, so it is not agent work (W6, 2026-11-12): on
-//! Leo's Mac at load average 125 to 256, waking an agent took 10 to 82 s, and one start ran out
-//! its 90 s with 1.8 s of CPU used, its host and harness under the utility clamp and below every
-//! default-priority process on the machine. An agent host therefore starts at the daemon's CPU
-//! priority (its disk I/O still at utility) and spawns its harness there; once the session's start is over (its `initialize` and
+//! Under `ACPMUX_QOS=utility`, an agent's start is still work a person waits on, so it is not
+//! agent work (W6, 2026-11-12): on Leo's Mac at load average 125 to 256, waking an agent took
+//! 10 to 82 s, and one start ran out its 90 s with 1.8 s of CPU used, its host and harness under
+//! the utility clamp and below every default-priority process on the machine. An agent host
+//! therefore starts at the daemon's CPU priority (its disk I/O still at utility) and spawns its harness there; once the session's start is over (its `initialize` and
 //! `session/new` or `session/load` answered), the daemon lowers the running harness
 //! ([`AGENT_NICE`], `cpu_class::CpuClass::enter`): its builds and tests still run below the app.
 //!
@@ -50,13 +59,14 @@
 //! holds the store's writers lock; the upload sweep holds the in-use set) stays
 //! at the daemon's own priority: throttling it would stall every stream.
 //!
-//! Why utility and not background for agents: background class gives the app
+//! Why `utility` and not `background` when agents yield: background class gives the app
 //! more (manaflow-ai/cmuxterm-hq#4947: a Chromium pane's drag lag under 14 busy
 //! processes was 55 ms p95 at default, 40 ms at utility, 6 ms at background),
 //! but it keeps agent work off the performance cores even on an idle Mac: a
 //! fixed CPU job took 0.9 s at default, 0.8 s at utility and 16.6 s at
 //! background on one thread, and 4.0 / 3.6 / 28.5 s on ten (cmux-mac-mini, 4P +
-//! 6E). `ACPMUX_QOS=background` picks background for agent hosts anyway.
+//! 6E). `ACPMUX_QOS=background` picks background for agent hosts anyway. The app's main thread
+//! keeps the frontmost app's priority (46-47) either way, above every agent at the default.
 //!
 //! `ACPMUX_QOS=off` turns all of it off (a process started with it set starts
 //! as before); agent hosts get it through their environment allowlist
@@ -72,8 +82,9 @@ pub enum Tier {
     Serving,
     /// Agent work: background-task runners and every tool they run.
     Agent,
-    /// Agent hosts: the daemon's tier while their harness starts (a person waits on a start),
-    /// [`Tier::Agent`]'s once its session's start is over (`cpu_class::CpuClass::enter`).
+    /// Agent hosts: the daemon's tier while their harness starts (a person waits on a start), and
+    /// by default after it too; [`Tier::Agent`]'s once its session's start is over when
+    /// `ACPMUX_QOS` asks agents to yield (`cpu_class::CpuClass::enter`).
     AgentStart,
     /// Work nobody waits for: sweeps, retention, cleanup.
     Background,
@@ -110,7 +121,7 @@ pub const ENV: &str = "ACPMUX_QOS";
 pub const CLAMPED_ENV: &str = "ACPMUX_QOS_CLAMPED";
 
 pub(crate) fn enabled() -> bool {
-    std::env::var_os(ENV).is_none_or(|v| v != "off")
+    agent_policy() != AgentPolicy::Off
 }
 
 /// The nice value a harness runs at once its start is over: on macOS the base priority of the
@@ -122,9 +133,56 @@ pub const AGENT_NICE: libc::c_int = 11;
 #[cfg(all(unix, not(target_os = "macos")))]
 pub const AGENT_NICE: libc::c_int = 5;
 
-/// `ACPMUX_QOS=background`: agent hosts run in background instead of utility.
-fn agent_background() -> bool {
-    std::env::var_os(ENV).is_some_and(|v| v == "background")
+/// How agent work runs against the person's own apps: `ACPMUX_QOS` as the process got it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentPolicy {
+    /// Unset or any other value: agent hosts, harnesses, background-task runners and the tools
+    /// they run keep the default CPU priority and disk tier, as a terminal's do (module docs).
+    Level,
+    /// `utility`: agent work yields to the app: disk I/O at `IOPOL_UTILITY`, a harness at nice +11
+    /// once its start is over (`cpu_class.rs`), a background-task runner under the utility clamp.
+    Utility,
+    /// `background`: agent hosts in background class, the most the app can get (module docs).
+    Background,
+    /// `off`: nothing is set, the daemon's own threads included.
+    Off,
+}
+
+impl AgentPolicy {
+    /// The policy `ACPMUX_QOS`'s value names.
+    pub fn from_env(value: Option<&std::ffi::OsStr>) -> Self {
+        match value.and_then(|v| v.to_str()).map(str::trim) {
+            Some("off") => Self::Off,
+            Some("utility") => Self::Utility,
+            Some("background") => Self::Background,
+            _ => Self::Level,
+        }
+    }
+
+    /// Whether agent work runs below the app ([`Self::Utility`] or [`Self::Background`]).
+    pub fn yields(self) -> bool {
+        matches!(self, Self::Utility | Self::Background)
+    }
+}
+
+/// This process's [`AgentPolicy`]. A value that names none runs agents level, with one warning:
+/// before, any value but `off` and `background` meant `utility`.
+pub fn agent_policy() -> AgentPolicy {
+    let value = std::env::var_os(ENV);
+    let policy = AgentPolicy::from_env(value.as_deref());
+    let unnamed = value.as_deref().map(|v| v.to_string_lossy().trim().to_owned());
+    if policy == AgentPolicy::Level
+        && let Some(v) =
+            unnamed.filter(|v| !v.is_empty() && !matches!(v.as_str(), "level" | "normal"))
+    {
+        static WARNED: std::sync::Once = std::sync::Once::new();
+        WARNED.call_once(|| {
+            tracing::warn!(
+                "{ENV}={v:?} names no policy (utility, background, off): agents run level"
+            );
+        });
+    }
+    policy
 }
 
 /// This process (or, on Linux, this thread) at nice 0 when it runs below it: an agent host or a
@@ -187,14 +245,19 @@ pub fn enter(role: Role) {
     if matches!(tier(role), Tier::Agent | Tier::AgentStart) {
         at_least_default_nice();
     }
+    let policy = agent_policy();
     match tier(role) {
         // Nothing: acknowledged replies wait on the event journal's sync ([`enter_daemon`]).
         Tier::Serving => {}
+        // The default: agent work level with a terminal's (module docs).
+        Tier::Agent | Tier::AgentStart if !policy.yields() => {}
         // Opt-in: the whole agent tree in background (hq#4947's 55 -> 6 ms
         // drag lag), at the cost of agent speed (module docs).
-        Tier::Agent | Tier::AgentStart if agent_background() => imp::process_background(),
-        // Its disk I/O at utility, its CPU unclamped: the start runs at the daemon's CPU priority,
-        // and the harness is lowered once its session's start is over
+        Tier::Agent | Tier::AgentStart if policy == AgentPolicy::Background => {
+            imp::process_background()
+        }
+        // `utility`: its disk I/O at utility, its CPU unclamped: the start runs at the daemon's
+        // CPU priority, and the harness is lowered once its session's start is over
         // (`cpu_class::CpuClass::enter`).
         Tier::AgentStart => imp::disk_utility(),
         Tier::Agent => {
@@ -549,12 +612,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_daemon_keeps_its_cpu_and_agents_yield() {
+    fn each_role_has_its_tier() {
         assert_eq!(tier(Role::Daemon), Tier::Serving);
         assert_eq!(tier(Role::AgentHost), Tier::AgentStart);
         assert_eq!(tier(Role::BackgroundTaskRunner), Tier::Agent);
         assert_eq!(tier(Role::Housekeeping), Tier::Background);
         assert_eq!(tier(Role::VisibleOpen), Tier::OnScreen);
+    }
+
+    /// Agent work is level with a terminal's unless `ACPMUX_QOS` asks it to yield.
+    #[test]
+    fn agents_run_level_unless_the_env_asks_them_to_yield() {
+        let policy = |v: Option<&str>| AgentPolicy::from_env(v.map(std::ffi::OsStr::new));
+        assert_eq!(policy(None), AgentPolicy::Level);
+        assert_eq!(policy(Some("")), AgentPolicy::Level);
+        assert_eq!(policy(Some("normal")), AgentPolicy::Level);
+        assert_eq!(policy(Some("utility")), AgentPolicy::Utility);
+        assert_eq!(policy(Some(" background ")), AgentPolicy::Background);
+        assert_eq!(policy(Some("off")), AgentPolicy::Off);
+        assert!(!AgentPolicy::Level.yields() && !AgentPolicy::Off.yields());
+        assert!(AgentPolicy::Utility.yields() && AgentPolicy::Background.yields());
     }
 
     #[test]

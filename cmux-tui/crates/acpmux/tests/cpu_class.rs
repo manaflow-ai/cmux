@@ -1,6 +1,6 @@
-//! A session's harness starts at normal CPU class and runs below the GUI's once its start is over
-//! (macOS, `cpu_class.rs`): background (`PRIO_DARWIN_BG`) unless its profile, the daemon's env or
-//! config asks for `normal`, or it is a Claude Code launcher, which defaults to `normal`. A start has a deadline, and at background class a busy disk held a
+//! A session's harness starts at normal CPU class and, by default, keeps it, as a terminal's agent
+//! does (macOS, `cpu_class.rs`). A profile, the daemon's env or config can ask for `background`
+//! (`PRIO_DARWIN_BG`): the harness then runs below the GUI's once its start is over. A start has a deadline, and at background class a busy disk held a
 //! harness past it (2026-10-30), so the daemon lowers the running harness only after its
 //! `session/new` answered; the tools its turns start inherit the class. A start that still misses
 //! its deadline at background class runs once more, and a start that misses it names what its
@@ -21,7 +21,8 @@ mod daemon_env;
 // inherit it: the hosted test checks that its harness clears it at its exec. The in-process hubs
 // start their harnesses directly and read no `ACPMUX_QOS`.
 // The hermetic environment keeps stand-ins at normal class (`daemon_env::vars`); these tests
-// check the product's background class, so this process and its daemons ask for it.
+// check the background class a profile or config can name, so this process and its daemons ask
+// for it.
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().with_env(&[
     ("ACPMUX_TEST_CPU_CLASS_REF", "normal"),
     ("ACPMUX_QOS", "background"),
@@ -533,9 +534,13 @@ fn cpu_class_a_claude_launcher_stays_above_background_by_default() {
     assert!(priority > BACKGROUND_PRI, "the launcher runs at background class (pri {priority})");
 }
 
-/// Claude Code itself still runs below the GUI, with the tools its turns start.
+/// Claude Code itself runs its turns, and the tools they start, level with a terminal's agent:
+/// at this process's own priority, neither at background class nor at an agent tier's nice
+/// (`qos.rs`, "match terminal time parity"). At background class the same tools ran 2 to 4 times
+/// longer.
 #[test]
-fn cpu_class_claude_itself_runs_at_background_by_default() {
+fn cpu_class_claude_itself_runs_level_with_a_terminal_by_default() {
+    let own = class_priority(std::process::id() as i32);
     let priority = default_class_of_claude_harness_named("cl", "claude");
-    assert_eq!(priority, BACKGROUND_PRI, "Claude Code is not at background class");
+    assert!(priority >= own, "Claude Code's tool runs below this process (pri {priority} < {own})");
 }

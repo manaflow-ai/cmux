@@ -502,8 +502,8 @@ pub fn vars(scratch: &Path, agents: Agents, tools: &[&str]) -> Vec<(String, Stri
     if agents == Agents::Deny {
         env.push(("ACPMUX_AGENT_LAUNCH".into(), "deny".into()));
     }
-    // Stand-in harnesses at normal CPU class once their start is over, not the product's
-    // background default (`cpu_class.rs`): they time their turns with short sleeps, and at
+    // Stand-in harnesses at normal CPU class once their start is over (the product's default,
+    // `cpu_class.rs`), whatever a host's config names: they time their turns with short sleeps, and at
     // background class on a loaded fleet Mac (load 13 to 21 on 10 performance cores) a Codex-steer
     // turn did not end in 18 to 30 s. `tests/cpu_class.rs` sets background itself.
     env.push((acpmux::cpu_class::ENV.into(), "normal".into()));

@@ -1,11 +1,12 @@
-//! An agent's start runs at the daemon's priority, and its harness yields once the start is over
-//! (`qos.rs`, `cpu_class.rs`; W6, 2026-11-12). Under the utility clamp (macOS) or nice +5 (Linux)
+//! An agent's start runs at the daemon's priority (`qos.rs`, `cpu_class.rs`; W6, 2026-11-12), and by
+//! default its harness keeps it, level with a terminal's agent; under `ACPMUX_QOS=utility` or at
+//! background class it yields once the start is over. Under the utility clamp (macOS) or nice +5 (Linux)
 //! from its host's first instruction, a start on a machine at load average 125 to 256 waited 10
 //! to 82 s for the CPU, and one ran out its 90 s with 1.8 s of CPU used.
 //!
 //! A real daemon starts a hosted stand-in harness (`fake_agent.py`), which logs its own nice as it
-//! answers `session/new` (`FAKE_CLASS_LOG`): the daemon's. After its first turn, its nice is the
-//! agent tier's (`qos::AGENT_NICE`).
+//! answers `session/new` (`FAKE_CLASS_LOG`): the daemon's. After its first turn its nice is still
+//! the daemon's, or the agent tier's (`qos::AGENT_NICE`) when it yields.
 #![cfg(any(target_os = "linux", target_os = "macos"))]
 
 #[path = "support/daemon_env.rs"]
@@ -30,9 +31,13 @@ impl Drop for Daemon {
     }
 }
 
-fn start(scratch: &Path, home: &Path) -> (Daemon, PathBuf) {
+fn start(scratch: &Path, home: &Path, qos: Option<&str>) -> (Daemon, PathBuf) {
     let socket = scratch.join("s.sock");
-    let mut child = daemon_env::command(scratch, daemon_env::Agents::StandIn, &["ps"])
+    let mut cmd = daemon_env::command(scratch, daemon_env::Agents::StandIn, &["ps"]);
+    if let Some(qos) = qos {
+        cmd.env("ACPMUX_QOS", qos);
+    }
+    let mut child = cmd
         .args(["daemon", "run", "--ready-fd", "1", "--log", "warn"])
         .env("ACPMUX_HOME", home)
         .env("ACPMUX_SOCKET", &socket)
@@ -102,21 +107,28 @@ fn nice_of(pid: u32) -> Option<i32> {
     }
 }
 
-/// `normal`: what the hermetic environment gives a stand-in (`daemon_env::vars`).
+/// `normal`, the product's default (`cpu_class::DEFAULT`): the harness keeps the daemon's priority
+/// after its start, as a terminal's agent does.
 #[test]
-fn a_harness_starts_at_the_daemons_priority_and_yields_once_started() {
-    starts_at_the_daemons_priority_and_yields("normal");
+fn a_normal_harness_keeps_the_daemons_priority_once_started() {
+    starts_at_the_daemons_priority_then("normal", None);
 }
 
-/// `background`: the product's default for every harness but a Claude Code launcher
-/// (`cpu_class::DEFAULT`). Linux has no background class, so the agent tier's nice is all the
-/// lowering it gets there; on macOS the harness is also in background class.
+/// `ACPMUX_QOS=utility` (`qos::AgentPolicy::Utility`): a `normal` harness yields to the agent
+/// tier once its start is over, as every harness did before agents ran level.
+#[test]
+fn a_normal_harness_yields_to_the_agent_tier_under_utility() {
+    starts_at_the_daemons_priority_then("normal", Some("utility"));
+}
+
+/// `background`, named by a profile or config. Linux has no background class, so the agent tier's
+/// nice is all the lowering it gets there; on macOS the harness is also in background class.
 #[test]
 fn a_background_class_harness_also_yields_to_the_agent_tier() {
-    starts_at_the_daemons_priority_and_yields("background");
+    starts_at_the_daemons_priority_then("background", None);
 }
 
-fn starts_at_the_daemons_priority_and_yields(class: &str) {
+fn starts_at_the_daemons_priority_then(class: &str, qos: Option<&str>) {
     let scratch = std::env::temp_dir().join(format!(
         "amx-startpri-{}-{}",
         std::process::id(),
@@ -135,7 +147,7 @@ fn starts_at_the_daemons_priority_and_yields(class: &str) {
         "defaultHarness": "fake", "permissionPolicy": "approve-all"
     });
     fs::write(home.join("config.json"), config.to_string()).unwrap();
-    let (daemon, socket) = start(&scratch, &home);
+    let (daemon, socket) = start(&scratch, &home, qos);
     // SAFETY: reads this process's own nice.
     let own = unsafe { libc::getpriority(libc::PRIO_PROCESS, 0) };
     // The agent tier's nice (`qos::AGENT_NICE`); a process already at it or past it is not lowered.
@@ -167,11 +179,17 @@ fn starts_at_the_daemons_priority_and_yields(class: &str) {
     // The start ran at the daemon's priority (this process's: the daemon inherits it), not under
     // the agent tier its host used to enter first thing.
     assert_eq!(at_start, own, "the harness answered session/new at nice {at_start}");
-    // Once the start is over the harness yields; the daemon lowers it right after the start.
-    let deadline = Instant::now() + Duration::from_secs(10);
-    let expected = own.max(agent);
+    // Once the start is over a yielding harness is lowered (the daemon does it right after the
+    // start); a level one keeps its nice for as long as it is watched.
+    let yields = class == "background" || qos == Some("utility");
+    let expected = if yields { own.max(agent) } else { own };
+    let watch = if yields { Duration::from_secs(10) } else { Duration::from_secs(3) };
+    let deadline = Instant::now() + watch;
     let mut now = nice_of(pid);
-    while now != Some(expected) && Instant::now() < deadline {
+    while Instant::now() < deadline {
+        if (yields && now == Some(expected)) || (!yields && now != Some(expected)) {
+            break;
+        }
         std::thread::sleep(Duration::from_millis(50));
         now = nice_of(pid);
     }
