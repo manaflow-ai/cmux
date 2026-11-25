@@ -2977,9 +2977,12 @@ pub(super) fn dial_wireguard<'a>(
                             // The service's answer to `ticketEarly`: this side's ticket,
                             // before the Mac's. The join starts now, off the wait.
                             SignalPayload::WgTicket {} => {
-                                if let (true, None, Some(endpoint), Some(ticket)) =
-                                    (own_relay_now, &early_join, relay_endpoint(options), envelope.relay_ticket)
-                                {
+                                if let (true, None, Some(endpoint), Some(ticket)) = (
+                                    own_relay_now,
+                                    &early_join,
+                                    relay_endpoint(options),
+                                    envelope.relay_ticket,
+                                ) {
                                     options.timeline.mark("relay_early_join");
                                     let (session, peer, used) =
                                         (session_id.to_owned(), mac.to_owned(), ticket.clone());
