@@ -423,6 +423,66 @@ pub fn model_named_in(error: &str) -> Option<String> {
         .or_else(|| after("model `", &['`']))
 }
 
+// ---------------------------------------------------------------- capacity fallback
+//
+// Leo, 2026-11-24: "fix 529s properly with better designs". A chat whose provider stays overloaded
+// (HTTP 529) for several attempts goes on on a smaller model of the same harness, and back once a
+// turn there ends well (`hub/auto_resume/capacity_failover.rs`). The table names families only;
+// the id is the catalog's newest model of that family, so a new Sonnet needs no code change.
+
+/// The family a sustained overload moves a chat to, by the family it runs: Opus and Fable go to
+/// Sonnet. Sonnet and Haiku are already the small ones: no move.
+const CAPACITY_FALLBACK: [(&str, &str); 2] = [("opus", "sonnet"), ("fable", "sonnet")];
+
+/// The catalog id `name` is in `entry`: an id or alias as written, else the one id it folds to.
+/// `default` (Claude Code's own menu entry for its default) is the entry's default model.
+fn catalog_id(entry: &crate::catalog::CatalogHarness, name: &str) -> Option<String> {
+    let name = match name {
+        "default" => entry.default_model.as_deref()?,
+        name => name,
+    };
+    let listed = entry
+        .models
+        .iter()
+        .find(|m| m.id == name || m.aliases.as_deref().unwrap_or(&[]).iter().any(|a| a == name));
+    if let Some(m) = listed {
+        return Some(m.id.clone());
+    }
+    canonical_model(entry, name).ok().filter(|c| c.known).map(|c| c.model)
+}
+
+/// The model a chat running `running` moves to when its provider stays overloaded: the newest
+/// catalog model of its [`CAPACITY_FALLBACK`] family, with `running`'s `[1m]`-style suffix. None
+/// when the catalog does not know `running`, its family has no fallback (already small), or the
+/// catalog lists no model of the fallback family.
+pub fn capacity_fallback(entry: &crate::catalog::CatalogHarness, running: &str) -> Option<String> {
+    let (base, suffix) = split_suffix(running.trim());
+    let id = catalog_id(entry, base)?;
+    let parts = id_parts(split_suffix(&id).0)?;
+    let to = CAPACITY_FALLBACK.iter().find(|(from, _)| parts.words.iter().any(|w| w == from))?.1;
+    let newest = entry
+        .models
+        .iter()
+        .filter_map(|m| {
+            let p = id_parts(&m.id)?;
+            p.words.iter().any(|w| w == to).then_some((p.version, m.id.as_str()))
+        })
+        .max_by(|a, b| a.0.cmp(&b.0))?
+        .1;
+    Some(format!("{newest}{suffix}"))
+}
+
+/// Whether `a` and `b` name the same model in `entry` (each read as its catalog id), so a chat
+/// that reports `sonnet` runs the `claude-sonnet-5-5` a failover set.
+pub fn same_model(entry: Option<&crate::catalog::CatalogHarness>, a: &str, b: &str) -> bool {
+    let id = |name: &str| {
+        let (base, suffix) = split_suffix(name.trim());
+        let base = entry.and_then(|e| catalog_id(e, base)).unwrap_or_else(|| base.to_owned());
+        format!("{base}{suffix}")
+    };
+    id(a) == id(b)
+}
+
 #[cfg(test)]
 #[path = "model_catalog_tests.rs"]
 mod alias_tests;

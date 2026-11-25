@@ -11,8 +11,9 @@ public struct StreamedBrowserPage: View {
     let model: StreamedBrowserModel
     var insets: EdgeInsets
     var reportScroll: @MainActor (CGFloat) -> Void
-    /// The tab's last-known picture (the phone's own, or the one the Mac pushed): shown dimmed
-    /// under "Loading browser session…" until the first frame decodes, never once it is live.
+    /// The tab's last-known picture (the phone's own, or the one the Mac pushed): shown at full
+    /// strength, with no waiting words over it, until the first frame decodes; never once it is
+    /// live (Leo, 2026-11-24: no greying, no "suspended in a state of connection limbo").
     var lastKnown: CGImage?
     @State private var keyboard = false
     /// The keyboard rose because the page focused a field (it goes when the field does).
@@ -61,15 +62,16 @@ public struct StreamedBrowserPage: View {
                                    height: geo.size.width * CGFloat(lastKnown.height) / CGFloat(max(1, lastKnown.width)))
                             .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
                             .clipped()
-                            .opacity(0.55)
                     }
                     .background(Color(uiColor: .systemBackground))
                     .padding(.top, insets.top)
                     .padding(.bottom, insets.bottom)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
+                } else {
+                    status(String(localized: "Loading browser session…"))
+                        .placeholderBound("browser.stream.loading", .milliseconds(2000))
                 }
-                status(String(localized: "Loading browser session…"))
             } else if let notice = model.notice {
                 refusal(notice)
             }
@@ -215,6 +217,7 @@ public struct StreamedBrowserPage: View {
             .padding(.top, 8)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .accessibilityIdentifier("browser.reconnecting")
+            .placeholderBound("browser.connection.chip", .milliseconds(0))
     }
 }
 
@@ -314,6 +317,7 @@ public struct StreamedBrowserCard: View {
                     .font(.system(size: 72, weight: .light))
                     .foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .placeholderBound("tabgrid.stream.icon", .milliseconds(1000))
             }
         }
     }

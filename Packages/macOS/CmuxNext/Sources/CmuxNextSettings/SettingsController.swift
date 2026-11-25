@@ -403,10 +403,36 @@ public final class SettingsController {
     /// A controller made with this read writes the setting again on each change, so the next launch
     /// starts with it (part of the process reads the saved value before this runs).
     public static func readAtLaunch(file: CmuxConfigFile.LaunchFile, buildDefaults: SettingsBuildDefaults = .none) -> LaunchRead {
-        var read = readAtLaunch(fileURL: file.url, buildDefaults: buildDefaults)
+        appliedAtLaunch(launchRead(file: file, managedReader: ManagedPreferenceLocation.defaultReader(), buildDefaults: buildDefaults,
+                                   valid: validValues))
+    }
+
+    /// The launch's read, started off the main thread at the top of `main` while AppKit starts: the
+    /// settings file made when missing (``CmuxConfigFile/launchFile()``), read and parsed with the managed
+    /// preferences and the active theme file. The launch awaits it before its first window and passes it to
+    /// ``appliedAtLaunch(_:)``, so the main thread reads no settings file before its first frame.
+    public static func startLaunchRead(buildDefaults: SettingsBuildDefaults) -> Task<LaunchRead, Never> {
+        let (valid, reader) = (validValues, ManagedPreferenceLocation.defaultReader())
+        // concurrency-allow: the launch's settings file read runs detached, off the main actor, while AppKit starts.
+        return Task.detached(priority: .userInitiated) {
+            launchRead(file: CmuxConfigFile.launchFile(), managedReader: reader, buildDefaults: buildDefaults, valid: valid)
+        }
+    }
+
+    /// The launch read's process side, on the main thread before the first window: the font smoothing
+    /// default (see ``readAtLaunch(file:buildDefaults:)``).
+    public static func appliedAtLaunch(_ read: LaunchRead) -> LaunchRead {
+        ProcessFontSmoothing.apply(read.snapshot.fontSmoothing, to: .standard)
+        return read
+    }
+
+    /// ``readAtLaunch(file:buildDefaults:)`` without its process side, on any thread.
+    private nonisolated static func launchRead(file: CmuxConfigFile.LaunchFile, managedReader: any ManagedPreferenceReader,
+                                               buildDefaults: SettingsBuildDefaults,
+                                               valid: (densities: Set<String>, metrics: Set<String>)) -> LaunchRead {
+        var read = readAtLaunch(fileURL: file.url, managedReader: managedReader, buildDefaults: buildDefaults, valid: valid)
         read.createdEmptyFile = file.createdEmpty
         read.appliesFontSmoothing = true
-        ProcessFontSmoothing.apply(read.snapshot.fontSmoothing, to: .standard)
         return read
     }
 
@@ -414,8 +440,13 @@ public final class SettingsController {
         fileURL: URL, managedReader: any ManagedPreferenceReader = ManagedPreferenceLocation.defaultReader(),
         buildDefaults: SettingsBuildDefaults = .none
     ) -> LaunchRead {
+        readAtLaunch(fileURL: fileURL, managedReader: managedReader, buildDefaults: buildDefaults, valid: validValues)
+    }
+
+    private nonisolated static func readAtLaunch(fileURL: URL, managedReader: any ManagedPreferenceReader, buildDefaults: SettingsBuildDefaults,
+                                                 valid: (densities: Set<String>, metrics: Set<String>)) -> LaunchRead {
         let source = Result { try CmuxConfigFile.source(at: fileURL) }
-        return LaunchRead(loaded: loaded(source, managed: managedReader.read(), team: .none, lastGood: .object([:]), valid: validValues,
+        return LaunchRead(loaded: loaded(source, managed: managedReader.read(), team: .none, lastGood: .object([:]), valid: valid,
                                          configDirectory: fileURL.deletingLastPathComponent(), buildDefaults: buildDefaults,
                                          listingThemes: false),
                           fileURL: fileURL, buildDefaults: buildDefaults)
