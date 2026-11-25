@@ -735,6 +735,49 @@ async fn start_stop_pause_resume_post_to_their_action() {
 }
 
 #[tokio::test]
+async fn a_verb_given_a_name_acts_on_the_one_vm_of_that_name() {
+    let server = MockServer::start().await;
+    let other = "vm_zzzzzzzzzzzzzzzzzzzzzzzzzz";
+    let mut lane = vm("running");
+    lane["displayName"] = json!("lane-7");
+    let mut first = vm("running");
+    first["id"] = json!(other);
+    first["displayName"] = json!("lane-6");
+    Mock::given(method("GET"))
+        .and(path("/v1/vms"))
+        .and(query_param("cursor", "page-2"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "items": [lane], "nextCursor": null })),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/v1/vms"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "items": [first], "nextCursor": "page-2" })),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path(format!("/v1/vms/{VM_ID}/pause")))
+        .and(authorized())
+        .respond_with(ResponseTemplate::new(200).set_body_json(vm("paused")))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let out = cli(&server, &["--json", "pause", "lane-7"]).await;
+    assert_eq!(out.code, exit::OK, "stderr: {}", out.stderr);
+    assert_eq!(json_stdout(&out)["state"], "paused");
+
+    let missing = cli(&server, &["pause", "lane-9"]).await;
+    assert_eq!(missing.code, exit::USAGE, "stderr: {}", missing.stderr);
+    assert!(missing.stderr.contains("no VM named"), "{}", missing.stderr);
+}
+
+#[tokio::test]
 async fn fork_sends_the_body() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))

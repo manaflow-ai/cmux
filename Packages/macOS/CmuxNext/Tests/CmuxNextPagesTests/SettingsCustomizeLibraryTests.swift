@@ -30,11 +30,17 @@ import Testing
         #expect(answer["library"]?["entries"] != nil)
     }
 
+    @Test func standupReadsWithoutAGesture() async throws {
+        let runs = Runs()
+        _ = try await library(runs).call(SettingsCustomizeLibrary.op, params: ["verb": "standup"], context: Self.page)
+        #expect(runs.arguments == [["--json", "customize", "library", "standup"]])
+    }
+
     /// An override moves the CLI's library state into the config folder, so the app's default file
     /// is never named: the card then lists what an ordinary `cmux customize` run kept (review P1-F1).
     @Test func theDefaultSettingsFileKeepsTheCLIsOwnStateFolder() {
         let home = ["HOME": "/Users/someone"]
-        let defaultFile = URL(fileURLWithPath: "/Users/someone/.config/cmux/cmux-next.json")
+        let defaultFile = URL(fileURLWithPath: "/Users/someone/.config/cmux-next/cmux-next.json")
         #expect(SettingsCustomizeLibrary.environment(home, settingsFile: defaultFile)["CMUX_NEXT_CONFIG_FILE"] == nil)
         #expect(SettingsCustomizeLibrary.environment(home, settingsFile: nil)["CMUX_NEXT_CONFIG_FILE"] == nil)
         let tagged = URL(fileURLWithPath: "/tmp/tagged/cmux-next.json")

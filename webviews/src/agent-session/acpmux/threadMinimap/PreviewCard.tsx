@@ -23,6 +23,7 @@ import { experimentArm } from "../../../experiments/experiment";
 import { Button } from "../../../ui/Button";
 import { sliceWhole, sliceWholeEnd } from "../../../ui/wholeChars";
 import { type CoveredCandidates, useSeeThroughBlur } from "../../../ui/glass/seeThroughBlur";
+import { hostGlassCover } from "../chatUnderGlass";
 import { useSenderIdentity } from "../subagents/subsessions";
 import { SenderIdentityLabel } from "../SenderIdentityLabel";
 import { PromptMarksSession } from "./promptMarks";
@@ -337,7 +338,9 @@ export const PreviewCard = React.forwardRef<
     [],
   );
   // After the card is placed, so the blur's first measure finds it where it draws.
-  useSeeThroughBlur(self, !!layer, underCard);
+  // Over the composer, which takes no filter, it keeps the page's glass (data-glass-keeps-underlay):
+  // on the App's glass alone the composer's text would read crisp through it.
+  useSeeThroughBlur(self, !!layer, underCard, hostGlassCover);
   // Content that grows or shrinks without a render (a font loading, a wrap, the card opening over
   // its transition) places it again. One observer for the card's life, not one per row the pointer
   // crosses (each new one notifies on observe). It stops with the card: disconnected in the cleanup
@@ -382,7 +385,11 @@ export const PreviewCard = React.forwardRef<
     <div
       ref={own}
       id={id}
-      className="ui-card ui-glass acpmux-minimap__card"
+      // One material (design/glass-system.md): the hover-card glass, on the App's popover glass in a
+      // see-through pane (ui/glass/hostGlass.ts). It blurs what it covers itself (useSeeThroughBlur),
+      // so it is no cover surface.
+      className="acpmux-minimap__card ui-glass ui-glass-transient"
+      data-host-glass="popover"
       data-prompt={prompt !== undefined ? "" : undefined}
       data-incoming={from !== undefined || undefined}
       data-pending={pending || undefined}

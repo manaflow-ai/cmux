@@ -19,6 +19,7 @@
 import { useRef } from "react";
 import { PrefixFilter } from "../conversation/prefixFlatMap";
 import { linkUp, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
+import { sameValue } from "../session-info/sameValue";
 import type { AcpmuxSessionEntry } from "../sessionList";
 
 /// What a running turn changes on each tool step that nothing in the composer reads (Composer.tsx,
@@ -33,6 +34,17 @@ const TURN_LIVE = [
   "subagentViews",
   "subagentProgress",
   "subagentStructureVersion",
+  // And what the pane reads of the link and the transcript that the composer never does: since when a
+  // request has waited on acpmux ("Waiting for the agent service", HostError.tsx), whether a kept tail
+  // drew the open, and the asks and permission groups (the composer reads `asks` alone).
+  "daemonWaitingSince",
+  "drewKeptTail",
+  "groupedAsks",
+  "permissionGroups",
+  // Whether the client has read the chat list yet, and a fork's handoff state: the pane's, never read
+  // by the composer, and each flips on a reconnect.
+  "listedSessions",
+  "handoff",
 ] as const satisfies readonly (keyof AcpmuxSnapshot)[];
 
 /// What another chat changes as it runs (its status, its dot, its times, its unread mark, its latest
@@ -85,12 +97,16 @@ const composerReads = new PrefixFilter<AcpmuxRow>(
   (row) => row.kind === "user" || row.queued !== undefined || (row.kind === "turnSummary" && row.status === "failed"),
 );
 
-/// The same members by identity, one level down: arrays element by element, anything else by `Object.is`.
+/// The same member: by identity first, else by value (session-info/sameValue.ts). Identity holds while
+/// a turn runs (the client keeps every row and list it did not change), so the value is read only when
+/// a member is new. A reconnect is one: the client reads the chat again and builds every row, the
+/// summary, the commands and the peers anew with the same contents, and each drew the composer again
+/// (Leo, 2026-11-22: "idk if the waiting for agent service bullshit has anything to do with it").
 function sameMember(a: unknown, b: unknown): boolean {
   if (Object.is(a, b)) return true;
-  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
-  for (let index = 0; index < a.length; index++) if (!Object.is(a[index], b[index])) return false;
-  return true;
+  if (Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((item, index) => item === b[index]))
+    return true;
+  return sameValue(a, b);
 }
 
 /// The same chat list for a started chat's composer: entry by entry the same object, or, for a chat
@@ -106,12 +122,17 @@ export function sameSessions(
     const before = a[index]!;
     const after = b[index]!;
     if (before === after) continue;
-    if (before.sessionId !== after.sessionId || before.sessionId === shown) return false;
+    if (before.sessionId !== after.sessionId) return false;
+    // The shown chat's own entry, read again with the same contents (a reconnect), is the same.
+    if (before.sessionId === shown) {
+      if (!sameValue(before, after)) return false;
+      continue;
+    }
     const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
     for (const key of keys)
       if (
         !OTHER_CHAT_LIVE.has(key) &&
-        !Object.is(before[key as keyof AcpmuxSessionEntry], after[key as keyof AcpmuxSessionEntry])
+        !sameValue(before[key as keyof AcpmuxSessionEntry], after[key as keyof AcpmuxSessionEntry])
       )
         return false;
   }
@@ -141,22 +162,27 @@ export function sameComposerView(a: AcpmuxSnapshot, b: AcpmuxSnapshot): boolean 
 /// is up, which is all the composer could read of it, and the turn's live fields (`TURN_LIVE`) left
 /// out. The last view while it holds the same members (sameComposerView), so a snapshot that changed
 /// only what the composer does not show leaves it be.
-export function composerView(snapshot: AcpmuxSnapshot): AcpmuxSnapshot {
+///
+/// The composer reads the link only to offer Resume (resumeControl.ts); `readsLink` false (no Resume
+/// offered) keeps the view's link up whatever the client says, so a drop and its reconnect ("Waiting
+/// for the agent service") leave the view as it was. Down, the client names each step of a reconnect
+/// ("disconnected", "connecting…", "connecting (attempt 3)…"): each step is the one "disconnected".
+export function composerView(snapshot: AcpmuxSnapshot, readsLink = true): AcpmuxSnapshot {
   const view: AcpmuxSnapshot = {
     ...snapshot,
     rows: composerRows(snapshot.rows),
-    connection: linkUp(snapshot.connection) ? "connected" : snapshot.connection,
+    connection: !readsLink || linkUp(snapshot.connection) ? "connected" : "disconnected",
   };
   for (const key of TURN_LIVE) delete view[key];
   return view;
 }
 
-/// `composerView(snapshot)`, the last one returned while it holds the same members.
-export function useComposerView(snapshot: AcpmuxSnapshot): AcpmuxSnapshot {
-  const last = useRef<{ from: AcpmuxSnapshot; view: AcpmuxSnapshot } | undefined>(undefined);
-  if (last.current?.from === snapshot) return last.current.view;
-  const next = composerView(snapshot);
+/// `composerView(snapshot, readsLink)`, the last one returned while it holds the same members.
+export function useComposerView(snapshot: AcpmuxSnapshot, readsLink = true): AcpmuxSnapshot {
+  const last = useRef<{ from: AcpmuxSnapshot; readsLink: boolean; view: AcpmuxSnapshot } | undefined>(undefined);
+  if (last.current?.from === snapshot && last.current.readsLink === readsLink) return last.current.view;
+  const next = composerView(snapshot, readsLink);
   const view = last.current && sameComposerView(last.current.view, next) ? last.current.view : next;
-  last.current = { from: snapshot, view };
+  last.current = { from: snapshot, readsLink, view };
   return view;
 }
