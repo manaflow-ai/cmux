@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import Testing
 import CmuxAuthRuntime
 @testable import CmuxPushRegistration
@@ -1752,6 +1755,7 @@ actor RetryDelayRecorder {
         )
     }
 
+#if canImport(Darwin)
     private func makeRedirectService(
         scenario: PushRedirectURLProtocol.Scenario
     ) async -> PushRegistrationService {
@@ -1818,4 +1822,5 @@ actor RetryDelayRecorder {
 
         #expect(await PushRedirectURLProtocol.state.targetRequests.isEmpty)
     }
+#endif
 }
