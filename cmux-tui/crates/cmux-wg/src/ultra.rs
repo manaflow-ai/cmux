@@ -765,6 +765,9 @@ pub(crate) struct UltraUnderlay {
     /// The staged datagram was rebuilt from parity.
     staged_rebuilt: bool,
     counters: Arc<UltraCounters>,
+    /// Measurement only (`testing::set_receive_tap`): the wire size of each
+    /// parity datagram consumed here since the driver last took them.
+    tapped_parity: Vec<usize>,
 }
 
 impl UltraUnderlay {
@@ -793,7 +796,14 @@ impl UltraUnderlay {
             staged_bytes: Vec::new(),
             staged_rebuilt: false,
             counters,
+            tapped_parity: Vec::new(),
         }
+    }
+
+    /// Measurement only: the parity datagrams `poll_recv` consumed since the
+    /// last call, by wire size (empty unless a receive tap is set).
+    pub(crate) fn take_tapped_parity(&mut self) -> Vec<usize> {
+        std::mem::take(&mut self.tapped_parity)
     }
 
     /// Carry on over a new carrier after a network change; the mode stays.
@@ -1160,6 +1170,10 @@ impl Underlay for UltraUnderlay {
         UltraCounters::add(&self.counters.data_bytes, datagram.len() as u64);
     }
 
+    fn hold_routine_probes(&mut self, floor: Option<Instant>) {
+        self.inner.hold_routine_probes(floor);
+    }
+
     fn poll_probes(&mut self, now: Instant) -> DueProbes {
         self.inner.poll_probes(now)
     }
@@ -1212,6 +1226,9 @@ impl Underlay for UltraUnderlay {
                 if self.trusts(received.origin) {
                     let datagram = datagram.to_vec();
                     self.on_parity(&datagram, received.origin);
+                }
+                if crate::testing::tapping() {
+                    self.tapped_parity.push(received.len);
                 }
                 parities += 1;
                 if parities >= PARITY_PER_POLL {
