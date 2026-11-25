@@ -3,8 +3,7 @@
 //! defaults and the disk, observes its main-actor state, and asks here what each means.
 
 use cmux_cloud_start_core::moves::{
-    autosize, cli, folder, ledger, pin, place, placement, priority, progress, seed, targets,
-    wait,
+    autosize, cli, folder, ledger, pin, place, placement, priority, progress, seed, targets, wait,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
