@@ -65,7 +65,10 @@
 #               to ui-video.mp4 in the artifact: before/after videos of a change;
 #               with ffmpeg on the host (Homebrew), also ui-video-small.mp4:
 #               540 wide, H.264 CRF 30, no audio, small enough for PR media
-#               (lane-gh media takes at most 25 MiB)
+#               (lane-gh media takes at most 25 MiB); with ffmpeg, also
+#               ui-video-shifts.md and ui-video.mp4.shifts.json: the jumps
+#               (layout shifts), blinks and staggered settles in the video
+#               (scripts/cmux-next/recording-shifts-report.py, report only)
 #             profile record a CPU stack-sampling profile of the UI test run:
 #               `xctrace record --instrument 'Time Profiler' --all-processes`
 #               on the host (a simulator app is a host process, so every launch
@@ -152,6 +155,11 @@
 #           Then the upload leg: the phone streams a sparse ~150 MB file (past
 #           the old 100 MiB cap) to the Mac with its own LinkUpload, and the
 #           stored file's size and SHA-256 must match (UploadProbe.swift).
+#           Optional upload words (each one `--arg`): upload-mb=N (N MiB, 1-4096,
+#           instead of ~150 MB), upload-random (random bytes, as a video's, not a
+#           sparse file), upload-relay (the phone's link relay only),
+#           upload-block-udp (the phone's link with UDP blocked), upload-wait=S
+#           (seconds to wait for the probe's result, 60-3600, default 300).
 #   listperf
 #           build, plus the list frame-rate rig (ListStressRig,
 #           verify/listperf/): each case launches the Demo app with
@@ -361,6 +369,27 @@ if [[ "$mode" == handoff ]]; then
 fi
 if [[ "$mode" == shots && ${#scenes[@]} -eq 0 ]]; then
   echo "cmux-next-ios-sim.sh: shots needs one or more scenes after it, name=WORD,WORD,..." >&2; exit 2
+fi
+
+# pair-e2e's optional upload words (see MODE above), checked before anything is built.
+pair_upload=()
+if [[ "$mode" == pair-e2e && $# -gt 1 ]]; then
+  for word in "${@:2}"; do
+    case "$word" in
+      upload-mb=*)
+        n="${word#upload-mb=}"
+        [[ "$n" =~ ^[1-9][0-9]{0,3}$ && "$n" -le 4096 ]] || { echo "cmux-next-ios-sim.sh: upload-mb= wants 1-4096, got '$n'" >&2; exit 2; }
+        pair_upload+=(--upload-bytes "$((n << 20))") ;;
+      upload-wait=*)
+        n="${word#upload-wait=}"
+        [[ "$n" =~ ^[1-9][0-9]{1,3}$ && "$n" -ge 60 && "$n" -le 3600 ]] || { echo "cmux-next-ios-sim.sh: upload-wait= wants 60-3600, got '$n'" >&2; exit 2; }
+        pair_upload+=(--upload-wait "$n") ;;
+      upload-random) pair_upload+=(--upload-random) ;;
+      upload-relay) pair_upload+=(--upload-relay-only) ;;
+      upload-block-udp) pair_upload+=(--upload-block-udp) ;;
+      *) echo "cmux-next-ios-sim.sh: pair-e2e takes upload-mb=N, upload-wait=S, upload-random, upload-relay and upload-block-udp, got '$word'" >&2; exit 2 ;;
+    esac
+  done
 fi
 
 # test's optional selection (see MODE above), checked before anything is built.
@@ -1549,11 +1578,14 @@ if [[ $((${#ui_suites[@]} + ${#ui_cold[@]})) -gt 0 ]]; then
   # CMUX_MOBILE_APPLE_SIGN_IN=YES shows Sign in with Apple, as the App Store
   # configurations and ios-review-gate.yml do: Debug hides it, so
   # AppReviewGateUITests failed here on every commit for want of the button.
-  ui_udid="$(sim_create "cmux-next-ios-sim-ui-${CMUX_CI_STEP_KEY:-local}" "$device_type" "$runtime")"
+  # CMUX_CI_SIM_WARM_OK=1: this iPhone may come already booted from the worker's warm pool (hq
+  # build-fleet/cmd/worker/sim_warm.go), leased in seconds instead of made and booted; every boot below
+  # tolerates a booted device.
+  ui_udid="$(CMUX_CI_SIM_WARM_OK=1 sim_create "cmux-next-ios-sim-ui-${CMUX_CI_STEP_KEY:-local}" "$device_type" "$runtime")"
   recorder=""
   if [[ $ui_video -eq 1 || $ui_profile -eq 1 ]]; then
     # Booted first so the recording covers the whole run; the test run uses the booted device.
-    xcrun simctl boot "$ui_udid"
+    xcrun simctl boot "$ui_udid" >/dev/null 2>&1 || true
     xcrun simctl bootstatus "$ui_udid" -b >/dev/null
   fi
   [[ $reduce_motion -eq 0 ]] || sim_boot_reduce_motion "$ui_udid" "UI test"
@@ -1654,6 +1686,15 @@ print(f"MOBILEBENCH video-start t={t0:.3f} source=launch")
       fi
     elif [[ -s "$out/ui-video.mp4" ]]; then
       note "- UI test video, small copy: no ffmpeg on this host, none"
+    fi
+    # Layout shifts in the recording (Leo, 2026-11-24: "this on reviving had tons of layout shifts"): blocks that
+    # jump in one frame, blinks and staggered settles, as ui-video.mp4.shifts.json and a table in the notes.
+    # A report, never this step's failure; the seeded recordings in CI are what gate the detector.
+    if [[ -s "$out/ui-video.mp4" && -n "$ffmpeg_bin" ]]; then
+      PATH="$(dirname "$ffmpeg_bin"):$PATH" python3 -I scripts/cmux-next/recording-shifts-report.py "$out/ui-video.mp4" \
+        --title "Layout shifts in ui-video.mp4" >"$out/ui-video-shifts.md" 2>"$work/ui-video-shifts.log" || true
+      note "- UI test video, layout shifts (ui-video-shifts.md): $(grep -m1 '^| `' "$out/ui-video-shifts.md" 2>/dev/null || echo "not read, see ui-video-shifts.log")"
+      cp "$work/ui-video-shifts.log" "$out/" 2>/dev/null || true
     fi
   fi
   if [[ $ui_profile -eq 1 ]]; then
@@ -2276,7 +2317,8 @@ if [[ "$mode" == pair-e2e ]]; then
   note "- Mac app: $((SECONDS - t0)) s (reload.sh --tag $mac_tag, Debug)"
   set +e
   python3 -I scripts/ci/cmux_next_pair_e2e.py --mac-app "$mac_app" --ios-app "$app" --sims "$sims" \
-    --udid "$udid" --bundle-id "$bundle_id" --work "$work" --out "$out" --summary "$summary"
+    --udid "$udid" --bundle-id "$bundle_id" --work "$work" --out "$out" --summary "$summary" \
+    ${pair_upload[@]+"${pair_upload[@]}"}
   pair_status=$?
   set -e
 fi

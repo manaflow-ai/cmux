@@ -1,11 +1,12 @@
-import React, { memo, useEffect, useRef, useState, useSyncExternalStore, useLayoutEffect } from "react";
+import React, { memo, useEffect, useReducer, useRef, useState, useSyncExternalStore, useLayoutEffect } from "react";
 import { DismissButton } from "../../../ui/DismissButton";
 import { Icon } from "../icons/Icon";
 import { useT, type StringKey } from "../i18n";
 import { ArrowRight } from "./icons";
 import { focusRoute } from "../../../ui/focusRoute";
 import { inlineText } from "../question/inlineText";
-import { answerPrompt, type NextStepAsk } from "./nextStepAsk";
+import { hasCustomizeRunner, idleRun, runCustomize, runReducer, type CustomizeRun } from "./customizeRun";
+import { answerPrompt, type NextStepAsk, type NextStepOption } from "./nextStepAsk";
 import type { AnswerBlock } from "../subagents/restart";
 import {
   answerState,
@@ -110,6 +111,9 @@ export const NextStepCard = memo(function NextStepCard({
   const { sending, failed = false } = state;
   const update = (state: AnswerState) => (answerKey ? setAnswerState(answerKey, state) : setOwn(state));
   const primary = useRef<HTMLButtonElement>(null);
+  // A typed answer (`{label, run}`, customizeRun.ts) runs `cmux customize`: Try it on, then Keep
+  // or Revert. The card's own state: the run is the person's click here, not a reply.
+  const [run, dispatchRun] = useReducer(runReducer, idleRun);
   // A recap alone has no answer to send, so it leaves ⌘↩ to the composer.
   const shown = answer ?? givenAnswer(state);
   const settled = shown !== undefined || superseded;
@@ -191,6 +195,24 @@ export const NextStepCard = memo(function NextStepCard({
       () => update({ failed: true, typed: typed ? text : undefined }),
     );
   };
+  const customize = (action: CustomizeRun) => {
+    if (run.phase === "running") return;
+    dispatchRun({ type: "start" });
+    void runCustomize(action).then((result) => dispatchRun({ type: "done", run: action, ok: result.ok }));
+  };
+  // After a try-on the card offers Keep and Revert; once either ran, the typed answers are done.
+  const tried = run.phase === "tried";
+  const done = run.phase === "kept" || run.phase === "reverted";
+  const shownOptions: NextStepOption[] = tried
+    ? [
+        { label: t("liveCustomize.keep"), run: { customize: "keep" } },
+        { label: t("liveCustomize.revert"), run: { customize: "revert" } },
+      ]
+    : done
+      ? ask.options.filter((option) => !option.run)
+      : ask.options;
+  const click = (option: NextStepOption) =>
+    option.run && hasCustomizeRunner() ? customize(option.run) : send(option.label);
   return (
     <fieldset ref={card} className={`acpmux-next-step${className ? ` ${className}` : ""}`} aria-label={ask.question}>
       <div className="acpmux-question-bar acpmux-next-step__bar">
@@ -215,17 +237,26 @@ export const NextStepCard = memo(function NextStepCard({
           {t(whole ? "message.less" : "message.more")}
         </button>
       )}
+      {(done || run.phase === "running" || run.failed) && (
+        <output className="acpmux-next-step__detail">
+          {run.phase === "running"
+            ? t("liveCustomize.running")
+            : run.failed
+              ? t("liveCustomize.failed")
+              : t(run.phase === "kept" ? "liveCustomize.kept" : "liveCustomize.reverted")}
+        </output>
+      )}
       {onAnswer ? (
         <div className="acpmux-next-step__answers">
-          {ask.options.map((option, index) => (
+          {shownOptions.map((option, index) => (
             <button
               key={option.label}
               ref={index === 0 ? primary : undefined}
               type="button"
               className={index === 0 ? "acpmux-next-step__answer is-primary" : "acpmux-next-step__answer"}
               aria-keyshortcuts={answerKeys(index, index === 0 && registerKey !== undefined)}
-              disabled={sending !== undefined}
-              onClick={() => send(option.label)}
+              disabled={sending !== undefined || run.phase === "running"}
+              onClick={() => click(option)}
             >
               <span className="acpmux-question-number" aria-hidden="true">
                 {index + 1}

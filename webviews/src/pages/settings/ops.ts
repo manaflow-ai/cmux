@@ -53,8 +53,16 @@ export type Diagnostic = { path: string | string[]; message: string; kind?: stri
  */
 export type RowNoteData = { path: string; kind: string; file?: string };
 
-/** `recent_fonts`: font families written lately to any font setting, newest first (RecentFonts.swift). */
-export type Domains = { themes: string[]; font_families: string[]; sounds: string[]; recent_fonts: string[] };
+/** `recent_fonts`: font families written lately to any font setting, newest first (RecentFonts.swift).
+ * `ui_font_families`: every installed family, proportional ones too, for the App Font row
+ * (`domain:ui_font_family`); `font_families` holds the fixed-pitch ones. */
+export type Domains = {
+  themes: string[];
+  font_families: string[];
+  ui_font_families: string[];
+  sounds: string[];
+  recent_fonts: string[];
+};
 
 /** Published value domains; `null` for a domain the app never published. */
 export type PublishedDomains = { [K in keyof Domains]: string[] | null };
@@ -2525,6 +2533,9 @@ export type SettingsOps = {
   "cmux.settings.preview.end": [{ key: string }, unknown];
   /** Native: play a notification sound. */
   "cmux.settings.sound.play": [{ name: string }, unknown];
+  /** Custom Sound…: the host's open panel; the picked file is copied into cmux's sounds folder and
+   * set as `key`. `name` is null when the person left the panel. */
+  "cmux.settings.sound.import": [{ key: string }, { name: string | null }];
   /** Native: a catalog action, run with origin user (react-pages.md 1.3). */
   "cmux.app.action.run": [{ action: string; args?: Record<string, unknown>; target?: string }, unknown];
   /** Native: write text to the pasteboard (react-pages.md 1.3). */
