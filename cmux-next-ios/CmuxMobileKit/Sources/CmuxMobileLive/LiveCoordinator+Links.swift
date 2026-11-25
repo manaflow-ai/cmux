@@ -65,12 +65,34 @@ extension LiveCoordinator {
                                             deadline: session.terminalFeed.requestDeadline,
                                             clock: session.terminalFeed.clock)
         }
+        #if canImport(CmuxMobileLinkFFI)
+        // Typed keys are held and sent once under a key (`TerminalKeyOutbox`): a stalled or
+        // redialing link delays them (up to the keyboard's 10 s hold) and past it they are
+        // reported not sent or maybe sent, never dropped.
+        session.terminalKeys.connection = { [weak session] in
+            guard let session, session.workspaces.daemon != nil else { return nil }
+            return session.workspaces.connectionSerial
+        }
+        session.terminalKeys.request = { [weak session] command, params, connection, deadline in
+            // Never another connection's channel.
+            guard let session, session.workspaces.connectionSerial == connection, let client = session.workspaces.daemon else {
+                throw LinkError(code: "no-link", message: "Not connected to the Mac")
+            }
+            // Only bytes cross to the client's actor; it decodes them there (Swift 6 `sending`).
+            return try await client.request(command, json: params, deadline: deadline)
+        }
+        session.terminalFeed.type = { [weak session] surface, bytes, connection in
+            guard let session else { throw LinkError(code: "no-link", message: "Not connected to the Mac") }
+            try await session.terminalKeys.type(surface: surface, bytes: bytes, connection: connection)
+        }
+        #else
         session.terminalFeed.type = { [weak session] surface, bytes, connection in
             guard let session, session.workspaces.connectionSerial == connection, let client = session.workspaces.daemon else {
                 throw LinkError(code: "no-link", message: "Not connected to the Mac")
             }
             _ = try WorkspaceSync.check(try await client.request("send", params: ["surface": surface, "bytes": bytes.base64EncodedString()]))
         }
+        #endif
         session.workspaces.onErrorChanged = { [weak self, weak session] in
             guard let self, let session else { return }
             self.updateDiagnostics(session)
@@ -1033,18 +1055,6 @@ extension LiveCoordinator {
         // History items name their workspace and tab once the tree places their session.
         if session.acpmux.isReady { session.feed.hydrate(Array(session.acpmux.sessions.values)) }
         session.terminalFeed.treeChanged(tree, macID: macID, connection: session.workspaces.connectionSerial)
-    }
-
-    /// One write per main-queue turn, however many items a burst changed.
-    func scheduleFeedSave(_ archive: FeedArchive) {
-        guard !feedSavePending else { return }
-        feedSavePending = true
-        Task { @MainActor [weak self] in
-            guard let self, !stopped else { return }
-            feedSavePending = false
-            // Encoded and written off the main thread (a save per change dropped frames while scrolling).
-            archive.saveInBackground(feedStore.items)
-        }
     }
 
     /// Where an acpmux session lives (acpmux session ids are unique across Macs).

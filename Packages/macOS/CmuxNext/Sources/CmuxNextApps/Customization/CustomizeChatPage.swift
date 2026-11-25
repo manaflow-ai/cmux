@@ -1,9 +1,9 @@
+// Only the launcher: CmuxNextDaemon has a JSONValue of its own, and this file speaks the page's.
+import class CmuxNextDaemon.BundledExecutable
 public import CmuxNextPages
 public import CmuxNextSettings
-public import Foundation
-// Only the CLI finder: CmuxNextDaemon has a JSONValue of its own, and this file speaks the page's.
-import class CmuxNextDaemon.BundledExecutable
 import CmuxNextWakeups
+public import Foundation
 
 /// The agent chat's Customize bar (webviews `agent-session/acpmux/customizeBar/`): `cmux.customize.run
 /// {verb, arg?}` runs `cmux --json customize VERB [ARG]` through the bundled CLI and answers its JSON,
