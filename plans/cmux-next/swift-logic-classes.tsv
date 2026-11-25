@@ -5558,7 +5558,7 @@ CmuxNextDaemon	struct	TerminalClipboardRead	0	MIRROR	0	100	Packages/macOS/CmuxNe
 CmuxNextDaemon	struct	PaneDelta	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Events/WorkspaceDelta.swift	from struct WorkspaceDelta:7: hand decode of daemon event/delta
 CmuxNextDaemon	struct	ScreenDelta	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Events/WorkspaceDelta.swift	from struct WorkspaceDelta:7: hand decode of daemon event/delta
 CmuxNextDaemon	struct	WorkspaceDelta	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Events/WorkspaceDelta.swift	hand decode of daemon event/delta
-CmuxNextDaemon	struct	BundledCLIEnvironment	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/BundledCLIEnvironment.swift	bundle resource paths for CLI environment
+CmuxNextDaemon	struct	BundledCLIEnvironment	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/BundledCLIEnvironment.swift	thin call into the Rust launch rules (cmux-daemon-launch-core ops via DaemonLaunchRules): bundled_cli_apply
 CmuxNextDaemon	class	BundledExecutable	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/BundledExecutable.swift	bundled executable lookup (bundle resources)
 CmuxNextDaemon	struct	CloudLinkLauncher	0	MIXED	68	0	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/CloudLinkLauncher.swift	from class CloudLinkCredentialServer:11: local credential socket server for cmux link: stamp checks/relay policy LOGIC; socket/process plumbing PLATFORM (approx)
 CmuxNextDaemon	class	CloudLinkLifecycle	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/CloudLinkLifecycle.swift	from class CloudLinkLifecycle:10: cloud link ensure lifecycle: one ensure at a time, session generation
@@ -5586,7 +5586,7 @@ CmuxNextDaemon	protocol	FrontendInstallKeyStore	0	PLATFORM	0	0	Packages/macOS/Cm
 CmuxNextDaemon	struct	CodeSigningTeam	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/FrontendInstallKeyStore.swift	from protocol FrontendInstallKeyStore:9: key store protocol
 CmuxNextDaemon	struct	FrontendInstallKeyStores	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/FrontendInstallKeyStore.swift	from protocol FrontendInstallKeyStore:9: key store protocol
 CmuxNextDaemon	struct	FileFrontendInstallKeyStore	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/FrontendInstallKeyStoreBackends.swift	file key store
-CmuxNextDaemon	struct	GhosttyShellIntegration	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/GhosttyShellIntegration.swift	Ghostty shell-integration argv/env rule (modes, features)
+CmuxNextDaemon	struct	GhosttyShellIntegration	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/GhosttyShellIntegration.swift	thin call into the Rust launch rules (cmux-daemon-launch-core ops via DaemonLaunchRules): settings fields and shell_arguments
 CmuxNextDaemon	struct	LastAppCLIPointer	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/LastAppCLIPointer.swift	last-app CLI pointer file in Application Support
 CmuxNextDaemon	struct	LaunchSnapshot	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/LaunchSnapshot.swift	launch snapshot of daemon tree/windows/sidebar cached before connect
 CmuxNextDaemon	struct	LaunchSnapshotLocation	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/LaunchSnapshot.swift	from struct LaunchSnapshot:10: launch snapshot of daemon tree/windows/sidebar cached before connect
@@ -5601,7 +5601,7 @@ CmuxNextDaemon	struct	ProcessResult	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sourc
 CmuxNextDaemon	struct	ProcessRunner	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/ProcessRunner.swift	from struct ProcessResult:6: child process runner
 CmuxNextDaemon	class	StderrLines	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/StderrLines.swift	stderr lines
 CmuxNextDaemon	class	TempOutput	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/TempOutput.swift	temp output
-CmuxNextDaemon	struct	TerminalEnvironment	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/TerminalEnvironment.swift	terminal environment allow-list/deny-list policy
+CmuxNextDaemon	struct	TerminalEnvironment	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/TerminalEnvironment.swift	thin call into the Rust launch rules (cmux-daemon-launch-core ops via DaemonLaunchRules): terminal/term/ghostty_identity/terminal_spawn_environment
 CmuxNextDaemon	class	UnresponsiveOwnerWatch	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/UnresponsiveOwnerWatch.swift	unresponsive owner policy: stuck ensures count, sustained window, per-launch cap
 CmuxNextDaemon	enum	BrowserRuntimeError	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Loopback/BrowserRuntimeWire.swift	from enum BrowserRuntimeRequest:6: browser runtime wire request types
 CmuxNextDaemon	enum	BrowserRuntimeRequest	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Loopback/BrowserRuntimeWire.swift	browser runtime wire request types
