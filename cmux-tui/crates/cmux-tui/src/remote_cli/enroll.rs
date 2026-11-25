@@ -73,6 +73,9 @@ pub(super) struct EnrollAdminArgs {
     relay_tickets: Vec<InvitationTicketArg>,
     pub(super) device_key: Option<String>,
     pub(super) device_name: Option<String>,
+    /// `create --via-machine KEY`: the hub route the invitation carries, else this machine's
+    /// own node key when it is joined to a hub ([`local_hub_route`]).
+    pub(super) via_machine: Option<String>,
 }
 
 pub(super) fn parse_enroll_admin_args(args: &[String]) -> anyhow::Result<EnrollAdminArgs> {
@@ -94,6 +97,7 @@ pub(super) fn parse_enroll_admin_args(args: &[String]) -> anyhow::Result<EnrollA
         relay_tickets: Vec::new(),
         device_key: None,
         device_name: None,
+        via_machine: None,
     };
     let mut seen = BTreeSet::new();
     let mut options_ended = false;
@@ -174,6 +178,21 @@ pub(super) fn parse_enroll_admin_args(args: &[String]) -> anyhow::Result<EnrollA
                 index += 1;
                 parsed.device_key = Some(key);
             }
+            "--via-machine" => {
+                require_create_action(action, "--via-machine")?;
+                require_unique_flag(&mut seen, "--via-machine")?;
+                // Not strict_option_value: a base64 key may begin with `--`.
+                let key = args.get(index).cloned().ok_or_else(|| {
+                    anyhow!(catalog().remote_client.option_needs_value("--via-machine"))
+                })?;
+                index += 1;
+                if !cmux_remote::identity::is_hub_machine_key(&key) {
+                    return Err(anyhow!(
+                        "--via-machine takes the machine's node key (`acpmux machine status --json`, wgPublicKey: base64 of 32 bytes)"
+                    ));
+                }
+                parsed.via_machine = Some(key);
+            }
             "--device-name" => {
                 require_create_action(action, "--device-name")?;
                 require_unique_flag(&mut seen, "--device-name")?;
@@ -251,7 +270,11 @@ pub(super) fn run_enroll(
             session_id: parsed.positionals[1].clone(),
         },
     };
-    let response = tokio_runtime()?.block_on(call_admin(&admin_socket, &request))?;
+    let mut response = tokio_runtime()?.block_on(call_admin(&admin_socket, &request))?;
+    if parsed.action == EnrollAdminAction::Create {
+        let via = parsed.via_machine.clone().or_else(local_hub_route);
+        carry_hub_route(&mut response, via.as_deref())?;
+    }
     if parsed.device_key.is_some() {
         require_bound_invitation(&response)?;
     }
@@ -268,6 +291,36 @@ pub(super) fn run_enroll(
         }
     }
     print_admin_response(parsed.action.name(), response, parsed.json)
+}
+
+/// This machine's node key as its hub knows it, when it is joined to one (acpmux's join record
+/// in the home `cmux acp` uses): the route another machine of the account reaches its loopback
+/// daemon by.
+pub(super) fn local_hub_route() -> Option<String> {
+    crate::acp::daemon_acpmux_home()
+        .and_then(|home| acpmux::cli::cloud_join::joined_node_key_at(&home))
+}
+
+/// Put `via` into the invitation a create answered (`via_machine`), unless it names one
+/// already: its route hints are often this machine's loopback daemon alone, which another
+/// machine reaches only through the hub (`cmux remote connect --via-machine`). The daemon
+/// mints the invitation; its URI is unsigned JSON, so the CLI adds the field before showing it.
+pub(super) fn carry_hub_route(
+    response: &mut AdminResponse,
+    via: Option<&str>,
+) -> anyhow::Result<()> {
+    let Some(via) = via else { return Ok(()) };
+    let Some(result) = response.result.as_mut().and_then(Value::as_object_mut) else {
+        return Ok(());
+    };
+    let Some(uri) = result.get("uri").and_then(Value::as_str) else { return Ok(()) };
+    let mut invitation = EnrollmentInvitation::from_uri(uri)?;
+    if invitation.via_machine.is_some() {
+        return Ok(());
+    }
+    invitation.via_machine = Some(via.to_owned());
+    result.insert("uri".into(), Value::String(invitation.to_uri()?));
+    Ok(())
 }
 
 /// `enroll create` prints the URI as stdout's only line, for scripts that

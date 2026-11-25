@@ -35,6 +35,15 @@ pub mod customize {
 
 pub use cmux_app_manifest::{Issue, PackageReport, Severity, is_valid};
 
+/// The scene motion contract (`cmux.motion/1`): the typed `animation`, `loop`, `transition` and
+/// `contentTransition` vocabulary, its clamps, and the normalizer the app host runs on every scene
+/// batch, so a tool can check a motion value exactly as cmux will.
+pub use cmux_app_host::motion;
+
+/// A look's `motion` block (theme file `motion`): named `{duration, bounce}` spring presets and
+/// design-token spring and fade overrides, clamped to `cmux.motion/1`.
+pub use cmux_app_host::motion_profile;
+
 use serde_json::{Map, Value, json};
 use std::path::Path;
 
@@ -71,6 +80,13 @@ pub fn event(name: &str) -> Option<&'static Event> {
 /// The live source named `name`, if there is one.
 pub fn signal(name: &str) -> Option<&'static Signal> {
     SIGNALS.iter().find(|s| s.name == name)
+}
+
+/// Placement of a composer's live reasoning choices in a searchable model picker.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReasoningMenu {
+    Column,
+    Separate,
 }
 
 /// Where a sidebar section starts; the person moves it.
@@ -178,7 +194,7 @@ impl Manifest {
         self.implement("cmux.pane/1", export, title, symbol, None)
     }
 
-    /// A whole New Tab page (`cmux.newtab/1`) drawn by the script's `export`. It shows only once
+    /// A New Tab view (`cmux.newtab/1`, over cmux's composer) drawn by the script's `export`. It shows only once
     /// the person names the extension in `tabs.newTabApp`; otherwise cmux draws its own page.
     pub fn new_tab(self, export: &str, title: &str, symbol: &str) -> Self {
         self.implement("cmux.newtab/1", export, title, symbol, None)
@@ -225,6 +241,21 @@ impl Manifest {
         {
             items.push(entry);
         }
+        self
+    }
+
+    /// Use the searchable model menu, with the live reasoning choices in the menu's column
+    /// or in a separate chip. This data-only interface needs no activation or scope.
+    pub fn model_picker(mut self, reasoning: ReasoningMenu) -> Self {
+        let reasoning = match reasoning {
+            ReasoningMenu::Column => "column",
+            ReasoningMenu::Separate => "separate",
+        };
+        self.insert_in(
+            "implements",
+            "cmux.composer.model.picker/1",
+            json!({ "options": { "modelMenu": "search", "reasoningMenu": reasoning } }),
+        );
         self
     }
 

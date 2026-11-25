@@ -40,8 +40,20 @@ const MAXIMUM_ASSET_DEPTH: usize = 32;
 /// Asset kinds a background may name.
 const ASSET_EXTENSIONS: [&str; 10] =
     ["png", "jpg", "jpeg", "heic", "webp", "gif", "tiff", "mp4", "mov", "m4v"];
+/// Font files a pack may ship (`fonts`), each told by its first bytes too.
+const FONT_KINDS: [(&str, &[&[u8]]); 5] = [
+    ("ttf", &[b"\x00\x01\x00\x00", b"true"]),
+    ("otf", &[b"OTTO", b"\x00\x01\x00\x00"]),
+    ("ttc", &[b"ttcf"]),
+    ("woff", &[b"wOFF"]),
+    ("woff2", &[b"wOF2"]),
+];
+/// A font file larger than this is dropped (a full CJK face fits).
+pub const MAXIMUM_FONT_BYTES: u64 = 32 * 1024 * 1024;
+/// At most this many font files are read; the rest are dropped.
+pub const MAXIMUM_FONTS: usize = 32;
 /// Top-level manifest keys.
-const KNOWN_KEYS: [&str; 10] = [
+const KNOWN_KEYS: [&str; 11] = [
     "$schema",
     "cmuxPack",
     "id",
@@ -52,6 +64,7 @@ const KNOWN_KEYS: [&str; 10] = [
     "look",
     "colors",
     "slots",
+    "fonts",
 ];
 
 /// Why a pack could not be read at all. The look in use stays.
@@ -78,7 +91,7 @@ impl std::error::Error for LoadError {}
 /// One value, slot or section the pack lost, and why.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PackDiagnostic {
-    /// `look`, `colors`, `slots`, `assets`, `capabilities` or the manifest itself (`""`).
+    /// `look`, `colors`, `slots`, `fonts`, `assets`, `capabilities` or the manifest itself (`""`).
     pub section: String,
     /// The dotted key, slot id or asset path, when it is about one.
     pub key: Option<String>,
@@ -164,11 +177,11 @@ impl Pack {
         text
     }
 
-    /// The dotted settings keys the pack sets (no `colors` or `slots`).
+    /// The dotted settings keys the pack sets (none of the file's own keys: `colors`, `slots`, `fonts`).
     pub fn keys(&self) -> Vec<String> {
         self.theme
             .keys()
-            .filter(|key| !theme_file::RESERVED_KEYS.contains(&key.as_str()) && *key != "slots")
+            .filter(|key| !theme_file::RESERVED_KEYS.contains(&key.as_str()))
             .cloned()
             .collect()
     }
@@ -289,6 +302,7 @@ fn read(
     reader.guarded("look", |reader| reader.look(manifest.get("look"), edits));
     reader.guarded("colors", |reader| reader.colors(manifest.get("colors")));
     reader.guarded("slots", |reader| reader.slots(manifest.get("slots")));
+    reader.guarded("fonts", |reader| reader.fonts(manifest.get("fonts")));
     reader.guarded("look", Reader::check);
     let Reader { theme, diagnostics, .. } = reader;
     Some(Pack {
@@ -570,6 +584,26 @@ impl Reader<'_> {
     }
 
     fn resolve_asset(&self, relative: &str, is_folder: bool) -> Result<PathBuf, String> {
+        let (path, metadata) = self.contained(relative)?;
+        if is_folder {
+            return if metadata.is_dir() { Ok(path) } else { Err("not a folder".into()) };
+        }
+        let extension =
+            path.extension().map(|ext| ext.to_string_lossy().to_lowercase()).unwrap_or_default();
+        if !metadata.is_file() || !ASSET_EXTENSIONS.contains(&extension.as_str()) {
+            return Err(format!(
+                "expected a picture or video file ({})",
+                ASSET_EXTENSIONS.join(", ")
+            ));
+        }
+        if metadata.len() > MAXIMUM_ASSET_BYTES {
+            return Err(format!("larger than {} MB", MAXIMUM_ASSET_BYTES / (1024 * 1024)));
+        }
+        Ok(path)
+    }
+
+    /// `relative` as a real path inside the pack's `assets/`, with its metadata.
+    fn contained(&self, relative: &str) -> Result<(PathBuf, std::fs::Metadata), String> {
         let written = Path::new(relative);
         let inside = written.components().all(|part| matches!(part, Component::Normal(_)));
         if relative.is_empty() || !inside || !relative.starts_with(&format!("{ASSETS}/")) {
@@ -595,19 +629,81 @@ impl Reader<'_> {
             return Err(format!("points outside the pack's {ASSETS} folder"));
         }
         let metadata = std::fs::metadata(&path).map_err(|error| error.to_string())?;
-        if is_folder {
-            return if metadata.is_dir() { Ok(path) } else { Err("not a folder".into()) };
+        Ok((path, metadata))
+    }
+
+    /// The pack's own font files (`fonts`: a list of `assets/...` paths), each
+    /// checked by name, size and first bytes, written to the compiled file as
+    /// absolute `file:` paths. The app registers them for itself while the
+    /// pack is in use; the look names their families (`terminal.fontFamily`).
+    fn fonts(&mut self, fonts: Option<&Value>) {
+        let Some(fonts) = fonts else { return };
+        if !self.allows("fonts", "fonts", Capability::Fonts, fonts) {
+            return;
         }
-        let extension =
-            path.extension().map(|ext| ext.to_string_lossy().to_lowercase()).unwrap_or_default();
-        if !metadata.is_file() || !ASSET_EXTENSIONS.contains(&extension.as_str()) {
-            return Err(format!(
-                "expected a picture or video file ({})",
-                ASSET_EXTENSIONS.join(", ")
+        let Value::Array(items) = fonts else {
+            self.diagnostics.push(PackDiagnostic::new(
+                "fonts",
+                None,
+                format!("expected a list of font files, as {ASSETS}/NAME.otf"),
+                Some(fonts),
+            ));
+            return;
+        };
+        if items.len() > MAXIMUM_FONTS {
+            self.diagnostics.push(PackDiagnostic::new(
+                "fonts",
+                None,
+                format!("more than {MAXIMUM_FONTS} font files; the rest are dropped"),
+                None,
             ));
         }
-        if metadata.len() > MAXIMUM_ASSET_BYTES {
-            return Err(format!("larger than {} MB", MAXIMUM_ASSET_BYTES / (1024 * 1024)));
+        let mut kept: Vec<Value> = Vec::new();
+        for item in items.iter().take(MAXIMUM_FONTS) {
+            let checked = match item.as_str() {
+                Some(relative) => self.font(relative),
+                None => Err(format!("expected a path, as {ASSETS}/NAME.otf")),
+            };
+            match checked {
+                Ok(path) => {
+                    let value = Value::String(format!("file:{}", path.display()));
+                    if !kept.contains(&value) {
+                        kept.push(value);
+                    }
+                }
+                Err(problem) => self.diagnostics.push(PackDiagnostic::new(
+                    "fonts",
+                    item.as_str(),
+                    problem,
+                    Some(item),
+                )),
+            }
+        }
+        if !kept.is_empty() {
+            self.theme.insert("fonts".into(), Value::Array(kept));
+        }
+    }
+
+    fn font(&self, relative: &str) -> Result<PathBuf, String> {
+        let (path, metadata) = self.contained(relative)?;
+        let extension =
+            path.extension().map(|ext| ext.to_string_lossy().to_lowercase()).unwrap_or_default();
+        let names = || FONT_KINDS.map(|(name, _)| name).join(", ");
+        let Some((_, magics)) = FONT_KINDS.iter().find(|(name, _)| *name == extension) else {
+            return Err(format!("expected a font file ({})", names()));
+        };
+        if !metadata.is_file() {
+            return Err(format!("expected a font file ({})", names()));
+        }
+        if metadata.len() > MAXIMUM_FONT_BYTES {
+            return Err(format!("larger than {} MB", MAXIMUM_FONT_BYTES / (1024 * 1024)));
+        }
+        let mut head = [0u8; 4];
+        std::fs::File::open(&path)
+            .and_then(|mut file| std::io::Read::read_exact(&mut file, &mut head))
+            .map_err(|_| "too short to be a font file".to_string())?;
+        if !magics.iter().any(|magic| head == **magic) {
+            return Err(format!("not a .{extension} font (its first bytes say otherwise)"));
         }
         Ok(path)
     }
@@ -717,7 +813,7 @@ impl Reader<'_> {
                 value: diagnostic.value.clone(),
             });
         }
-        let reserved = |key: &str| theme_file::RESERVED_KEYS.contains(&key) || key == "slots";
+        let reserved = |key: &str| theme_file::RESERVED_KEYS.contains(&key);
         self.theme.retain(|key, _| reserved(key) || kept.contains(key));
         if matches!(self.theme.get("colors"), Some(Value::Object(colors)) if colors.is_empty()) {
             self.theme.remove("colors");

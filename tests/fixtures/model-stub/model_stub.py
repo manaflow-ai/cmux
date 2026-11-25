@@ -451,7 +451,7 @@ def make_handler(stub: Stub) -> type[BaseHTTPRequestHandler]:
                 fault = stub.take_fault(path)
                 if fault:
                     if fault.get("delay_ms"):
-                        time.sleep(fault["delay_ms"] / 1000)
+                        time.sleep(fault["delay_ms"] / 1000)  # sleep-ok: the fault's scripted slow answer, a slow peer
                     if "status" in fault:
                         stub.log({"protocol": "anthropic" if path.endswith("/messages") else "openai", **row, "fault": fault})
                         return self._error(path, fault)
@@ -473,7 +473,7 @@ def make_handler(stub: Stub) -> type[BaseHTTPRequestHandler]:
         def scripted(self, path: str, i: int, step: dict[str, Any], row: dict[str, Any], results: list[str]) -> bool:
             """A step's delay_ms, then its error if it is an error step (answered here: True)."""
             if step.get("delay_ms"):
-                time.sleep(step["delay_ms"] / 1000)
+                time.sleep(step["delay_ms"] / 1000)  # sleep-ok: the step's scripted delay, a slow peer
             if "error" not in step:
                 return False
             stub.log({"protocol": "anthropic" if path.endswith("/messages") else "openai", **row, "tool_results": len(results), "step": i, "fault": step["error"]})
@@ -482,7 +482,8 @@ def make_handler(stub: Stub) -> type[BaseHTTPRequestHandler]:
 
         def anthropic(self, body: dict[str, Any], row: dict[str, Any]) -> None:
             i, step, results, turn = stub.step(anthropic_results(body), row["tools"])
-            time.sleep(step.get("pause", 0))
+            if step.get("pause"):
+                time.sleep(step["pause"])  # sleep-ok: the step's scripted pause before answering
             if self.scripted("/v1/messages", i, step, row, results):
                 return
             content, stop = self.anthropic_content(i, step, row["tools"], results)
@@ -526,7 +527,8 @@ def make_handler(stub: Stub) -> type[BaseHTTPRequestHandler]:
 
         def openai(self, body: dict[str, Any], row: dict[str, Any]) -> None:
             i, step, results, turn = stub.step(openai_results(body), row["tools"])
-            time.sleep(step.get("pause", 0))
+            if step.get("pause"):
+                time.sleep(step["pause"])  # sleep-ok: the step's scripted pause before answering
             if self.scripted("/v1/responses", i, step, row, results):
                 return
             item = self.openai_item(i, step, row["tools"], results)

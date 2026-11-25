@@ -178,6 +178,7 @@ def main():
         min_bytes = int(args[k + 1])
         del args[k:k + 2]
     total = count = 0
+    written = []
     for path in args:
         text, moves = plan(path, min_bytes)
         if not moves:
@@ -194,7 +195,55 @@ def main():
                     f.write(new_body)
             with open(path, "w", encoding="utf-8") as f:
                 f.write(text)
+            written += [dest for _, _, _, dest, _, _ in moves]
+    if written:
+        rustfmt(written)
     print(f"total {total} bytes in {count} moves")
+
+
+def crate_edition(path):
+    """The edition rustfmt must use for `path`: its crate's, as `cargo fmt` (CI's autofix) reads it. The nearest
+    Cargo.toml with a [package] says `edition = "Y"`, or `edition.workspace = true` and the workspace root's
+    [workspace.package] says it. cmux-tui's workspace is 2024, but cmux-hub-host and cmux-rd-host are 2021, and a
+    2024 format of their moved tests is a diff the autofix bot would push back (cmux#49132)."""
+    d = os.path.dirname(os.path.abspath(path))
+    inherit = False
+    while True:
+        toml = os.path.join(d, "Cargo.toml")
+        if os.path.isfile(toml):
+            with open(toml, encoding="utf-8") as f:
+                text = f.read()
+            if not inherit and re.search(r"^\[package\]", text, re.M):
+                m = re.search(r'^edition\s*=\s*"(\d+)"', text, re.M)
+                if m:
+                    return m.group(1)
+                inherit = bool(re.search(r"^edition\.workspace\s*=\s*true", text, re.M))
+            if inherit:
+                m = re.search(r'^\[workspace\.package\][^\[]*?^edition\s*=\s*"(\d+)"', text, re.M | re.S)
+                if m:
+                    return m.group(1)
+        parent = os.path.dirname(d)
+        if parent == d:
+            return "2024"
+        d = parent
+
+
+def rustfmt(paths):
+    """Format the moved bodies as CI's autofix would: one level less indentation lets rustfmt join lines it had
+    wrapped, and an unformatted file draws a bot commit that moves the PR's head (cmux#49124 twice). rustfmt finds
+    the nearest rustfmt.toml itself; the edition is each file's crate's ([`crate_edition`])."""
+    import shutil
+    import subprocess
+    if not shutil.which("rustfmt"):
+        print("warning: rustfmt not found; the moved files are unformatted", file=sys.stderr)
+        return
+    by_edition = {}
+    for path in paths:
+        by_edition.setdefault(crate_edition(path), []).append(path)
+    for edition, group in sorted(by_edition.items()):
+        done = subprocess.run(["rustfmt", "--edition", edition, *group], check=False)
+        if done.returncode:
+            print(f"warning: rustfmt --edition {edition} exited {done.returncode} on the moved files", file=sys.stderr)
 
 
 main()

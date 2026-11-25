@@ -32,6 +32,7 @@
 //! and written back in any of them. A scheme from a background image
 //! (`image_palette.rs`): median cut over the caller's decoded pixels, held
 //! to the spec's contrast floors.
+//! A whole scheme from two colors, a canvas and an accent (`two_color.rs`).
 //!
 //! ```no_run
 //! use cmux_theme_tokens::{Appearance, Env, ThemeTokens, load};
@@ -54,8 +55,11 @@ mod rgb;
 mod scheme;
 mod spec;
 mod tokens;
+mod two_color;
 
-pub use app_theme::{AppTheme, AppToken, Oklch, ThemeAccent, fit_contrast, from_oklch, oklch};
+pub use app_theme::{
+    AppTheme, AppToken, Oklch, ThemeAccent, fit_contrast, from_oklch, mix_oklab, oklch,
+};
 pub use colors::parse_color;
 pub use config::{
     Appearance, DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, Env, Loaded, THEME_ACCENT_KEY,
@@ -73,6 +77,7 @@ pub use scheme::{
 /// token and how it derives (`cmux customize schema` lists them).
 pub use spec::DESIGN_TOKENS;
 pub use tokens::*;
+pub use two_color::{TwoColorTheme, theme_from_two_colors};
 
 /// Loads the process's Ghostty config for `appearance` and derives the
 /// tokens under `borders`.

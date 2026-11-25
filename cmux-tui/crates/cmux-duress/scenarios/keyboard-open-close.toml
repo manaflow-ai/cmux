@@ -1,0 +1,37 @@
+name = "keyboard-open-close"
+summary = "keyboard opens and closes repeatedly while the terminal streams: resize churn"
+sources = [
+  "KeyboardToggleInterruptUITests: re-presses the keyboard 0.05-0.45 s into its motion; ComposerKeyboardPinUITests, TerminalKeyboardNoResizeUITests",
+  "TerminalDemo.swift (~line 400): resize settles in 250 ms",
+  "MockTerminalSession.swift:18-19: 50 columns, 40 rows with the keyboard closed",
+  "rows 22 with the keyboard open is an estimate; no harness states it",
+]
+headless_reason = "headless covers the terminal's resize and reflow (rows 40 <-> 22, with history); the keyboard animation, safe-area and composer layout are Swift, sim only"
+spec = "duress,stream_seconds=20,chat_records=0,link=none"
+headless = true
+cols = 50
+rows = 40
+
+[[event]]
+kind = "resize"
+every_ms = 250
+rows = [40, 22]
+
+[[check]]
+metric = "resize_mismatch"
+max = 0
+
+[[check]]
+metric = "resize_ms"
+stat = "p95"
+max = 16.7
+
+[[check]]
+metric = "frame_ms"
+stat = "p95"
+max = 16.7
+
+[sim]
+ui = ["KeyboardToggleInterruptUITests", "ComposerKeyboardPinUITests"]
+duress = "duress"
+covers = "the keyboard's animation, the terminal's inset and the composer pin"

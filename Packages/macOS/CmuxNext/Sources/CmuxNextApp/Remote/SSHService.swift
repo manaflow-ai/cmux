@@ -457,6 +457,8 @@ final class SSHService {
     }
 
     // MARK: Helpers
+    /// The app's own cmux-tui (`DaemonLauncher`) run with ``environment()``; nil when the bundle has none.
+    static var bundledCLI: HostCLI? { (try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)).map { HostCLI(binary: $0, environment: environment) } }
 
     /// The environment ssh runs with: the app's own process identity (HOME,
     /// USER, SSH_AUTH_SOCK for the user's agent) plus the login shell's

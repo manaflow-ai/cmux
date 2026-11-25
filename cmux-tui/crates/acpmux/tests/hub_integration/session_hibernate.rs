@@ -48,6 +48,11 @@ pub(super) async fn rig_with_store(policy: PermissionPolicy) -> Rig {
     rig_in(policy, false, &[("FAKE_CODEX_STORE", "1")]).await
 }
 
+/// A rig whose fake harness runs with `env` too (fake_agent.py's modes: `FAKE_CLAUDE_STEER`...).
+pub(super) async fn rig_with_env(policy: PermissionPolicy, env: &[(&str, &str)]) -> Rig {
+    rig_in(policy, false, env).await
+}
+
 /// A rig whose store is on disk, so `Rig::restart` brings its chats back in a new daemon.
 pub(super) async fn rig_on_disk(policy: PermissionPolicy) -> Rig {
     rig_in(policy, true, &[]).await
@@ -219,8 +224,8 @@ async fn an_idle_session_hibernates_after_two_minutes_even_while_shown() {
 /// idle pass ended them serially, so at 1,000 idle agents it took minutes and most stayed live
 /// (cmux#43143). Each harness here ignores SIGTERM, so its stop waits out the 300 ms grace before
 /// the SIGKILL; its stand-in MCP server ends at the SIGTERM. One after another, each harness ends
-/// before the next one is told to stop; together, the stops are told while the first harness
-/// still waits out its grace. Read from that order, not from wall time: a loaded suite stretches
+/// before the next one is told to stop; together, most of them wait out their grace at once.
+/// Read from that overlap, not from wall time: a loaded suite stretches
 /// the pass's own reads (`ps`) and this test's polling (2.09 s for 8 in a full run, 0.83 s alone),
 /// never the order.
 #[cfg(unix)]
@@ -258,19 +263,31 @@ async fn idle_sessions_hibernate_at_once_not_one_after_another() {
         }
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
-    let first_end = ended.iter().flatten().min().copied().unwrap();
-    let told_in_grace = told.iter().flatten().filter(|t| **t < first_end).count();
+    // How many harnesses were in their stop at once: told (its server ended) and not yet ended,
+    // at one sample, ends included (a poll can see a told and an end at the same instant). One
+    // after another, a stop is told only once the one before it ended: two at most, those
+    // two meeting at one sample. Together, most of them. Not "told before the first one
+    // ended": the censuses share one `ps` reading, and the ones that asked while the first ran
+    // take the next (`agent_host/proc_table.rs`). On a loaded runner that next one comes about
+    // 1 s later, so one harness stops alone, ahead of the rest (base, 2026-11-22, every run:
+    // told [1.05 s, then 7 at 1.83-2.34 s], the first end at 1.45 s).
+    let windows: Vec<(Duration, Duration)> =
+        told.iter().zip(&ended).map(|(t, e)| (t.unwrap(), e.unwrap())).collect();
+    let together = windows
+        .iter()
+        .flat_map(|(t, e)| [*t, *e])
+        .map(|at| windows.iter().filter(|(t, e)| *t <= at && at <= *e).count())
+        .max()
+        .unwrap();
     eprintln!(
-        "{N} slow harnesses: told {told:?}, ended {ended:?}; {told_in_grace} told before the \
-         first ended at {first_end:?}"
+        "{N} slow harnesses: told {told:?}, ended {ended:?}; at most {together} in their stop at once"
     );
-    // One after another, no stop is told before the harness before it ended: one at most. Most
-    // of them, not all: under a loaded suite the pass's reads spread the stops (602 to 813 ms in
-    // a full run, the first end at 985 ms), and a pass two or four at a time still fails here.
+    // Most of them, not all: under a loaded suite the pass's reads spread the stops, and a pass
+    // two or four at a time still fails here.
     assert!(
-        told_in_grace > N / 2,
-        "{told_in_grace} of {N} slow harnesses were told to stop before the first one ended \
-         (at {first_end:?}): they stop one after another (told {told:?}, ended {ended:?})"
+        together > N / 2,
+        "at most {together} of {N} slow harnesses were in their stop at once: they stop one \
+         after another (told {told:?}, ended {ended:?})"
     );
     r.until("an idle session never hibernated", || ids.iter().all(|id| r.status(id) == "idle"))
         .await;
