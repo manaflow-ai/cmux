@@ -910,6 +910,10 @@ pub(super) fn working_row(t: &Transcript, c: &Chrome) -> Row {
             if t.active_tools == 1 { "" } else { "s" }
         ));
     }
+    if let Some(wait) = t.subagent_wait(now_ms()) {
+        label.push_str(" · ");
+        label.push_str(&wait);
+    }
     let queued =
         t.items.iter().filter(|item| matches!(item, Item::User { queued: true, .. })).count();
     if queued > 0 {
