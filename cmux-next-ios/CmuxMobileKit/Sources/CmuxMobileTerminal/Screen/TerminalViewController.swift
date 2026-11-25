@@ -1,6 +1,7 @@
 #if os(iOS)
 import CmuxMobileArtifacts
 import CmuxMobileDesign
+import CmuxMobileLinkFFI
 import CmuxMobileSupport
 import GhosttyNextKit
 import Observation
@@ -404,6 +405,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     /// The launch marks' first typed key and its echo on screen (`LaunchMarks`).
     private var firstEcho = TerminalFirstEcho()
+    /// Every typed key's tap to the frame showing the Mac's echo of it, into the
+    /// Rust key-to-paint histogram (`key_paint`, release builds too): one key in
+    /// flight at a time, given up after 2 s (a key that echoes nothing).
+    private var keyPaint = TerminalFirstEcho()
+    private var keyPaintStart: CFTimeInterval = 0
     #if DEBUG
     /// Every typed key's echo (`InputLatencyTrace`, `terminal_key_echo`): one key
     /// in flight at a time, given up after 2 s (a key that echoes nothing).
@@ -923,6 +929,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 if model.connectionState.isAttached, !inputRefused, !LaunchMarks.shared.has("terminal_key_sent"),
                    firstEcho.sent(data) {
                     LaunchMarks.shared.mark("terminal_key_sent")
+                }
+                if model.connectionState.isAttached, !inputRefused {
+                    let now = CACurrentMediaTime()
+                    if keyPaint.step != .idle, now - keyPaintStart > 2 { keyPaint = TerminalFirstEcho() }
+                    if keyPaint.sent(data) { keyPaintStart = now }
                 }
                 #if DEBUG
                 if model.connectionState.isAttached, !inputRefused { ResumeMarks.shared?.note("terminal_key_sent") }
@@ -2107,6 +2118,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                               queueEmpty: output.isEmpty)
                 model.scanOutput(data)
                 firstEcho.fed(data)
+                keyPaint.fed(data)
                 #if DEBUG
                 echoMeter.fed(data)
                 devProbe?.fed(data)
@@ -2598,6 +2610,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             applyTUIPlacement()
         }
         firstEcho.processed()
+        keyPaint.processed()
         #if DEBUG
         echoMeter.processed()
         devProbe?.processed()
@@ -3245,6 +3258,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private func surfacePresented() {
         if firstEcho.presented() { LaunchMarks.shared.mark("terminal_echo_presented") }
         paintPresented()
+        if keyPaint.presented() {
+            recordKeyPaint(paintMs: UInt32(clamping: Int(((CACurrentMediaTime() - keyPaintStart) * 1000).rounded())))
+            keyPaint = TerminalFirstEcho()
+        }
         #if DEBUG
         if echoMeter.presented() {
             InputLatencyTrace.shared?.sample("terminal_key_echo", since: echoStart)
