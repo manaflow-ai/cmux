@@ -103,14 +103,16 @@ test("the host line moves nothing in any state: connected, reconnecting, restori
   expectSameFlow(signature);
 });
 
-test("nothing shows until the link is down, and the chip then is out of flow", async () => {
+test("nothing shows while the link is down, and the restore's chip is out of flow", async () => {
   const container = installDom();
   const draw = draws(container);
   await draw(<HostRecoveringLine now={LONG} />);
   expect(container.querySelector(".acpmux-host-chip, .acpmux-host-line")).toBeNull();
   await draw(<HostRecoveringLine linkDown now={0} />);
+  expect(container.querySelector(".acpmux-host-chip, .acpmux-host-line")).toBeNull();
+  await draw(<HostRecoveringLine linkDown restoring={{ waitedMs: 0, at: 0 }} now={0} />);
   const chip = container.querySelector(".acpmux-host-chip")!;
-  expect(chip.textContent).toBe("Reconnecting…");
+  expect(chip.textContent).toContain("Restoring sessions…");
   expectOutOfFlow(chip);
   expect(container.querySelector(".acpmux-host-line")).toBeNull();
 });
