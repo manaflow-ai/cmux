@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
@@ -23,5 +24,13 @@ struct ChiefOwnerSettingsFileTests {
     @Test func theChiefOwnerGetsTheNormalizedPath() {
         let environment = DaemonLauncher.chiefEnvironment(["HOME": "/h", "CMUX_NEXT_CONFIG_FILE": "~/.config/cmux/x.json"])
         #expect(environment["CMUX_NEXT_CONFIG_FILE"] == "/h/.config/cmux/x.json")
+    }
+
+    /// The build's egress mode reaches the Chief owner and the link, so they enforce what the app does.
+    @Test func theEgressModeReachesTheChiefOwnerAndTheLink() {
+        #expect(DaemonLauncher.chiefEnvironment(["HOME": "/h", "CMUX_EGRESS": "enforce"])["CMUX_EGRESS"] == "enforce")
+        #expect(DaemonLauncher.chiefEnvironment(["HOME": "/h", "CMUX_EGRESS": "log"])["CMUX_EGRESS"] == "log")
+        let link = CloudLinkLauncher(binary: URL(fileURLWithPath: "/bin/cmux"), stateRoot: nil, tagged: true)
+        #expect(link.environment(["HOME": "/h", "CMUX_EGRESS": "enforce"])["CMUX_EGRESS"] == "enforce")
     }
 }

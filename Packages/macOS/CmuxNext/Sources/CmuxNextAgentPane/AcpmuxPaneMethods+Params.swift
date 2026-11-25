@@ -66,7 +66,7 @@ nonisolated extension AcpmuxPaneMethods {
         // schemas/agent-pane/attach-params.json lists every key the page sends here.
         "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "attending", "waitLogs", "settled", "hold", "afterSeq"], []),
         "_acpmux/detach": (["sessionId"], []),
-        "_acpmux/view": (["sessionId", "visible", "attending", "seenSeq"], []),
+        "_acpmux/view": (["sessionId", "visible", "attending", "seenSeq", "cutoverSeq"], []),
         "_acpmux/seen": (["sessionId", "seq"], []),
         // Whether this pane types in a shared chat, never its text (multiplayer/presenceClient.ts).
         "_acpmux/typing": (["sessionId", "on"], []),
@@ -128,8 +128,9 @@ nonisolated extension AcpmuxPaneMethods {
         // The chat Inspector's Perf tab and page reporter (PerfPanel.tsx, perfReporter.ts; acpmux perf_watch.rs):
         // a default-off diagnostic that names no path and starts nothing; acpmux answers this Mac's app and
         // unix socket only. `op`: on, off, status, read (`after`, `limit`, `waitMs`), snapshot, budgets, or report (the
-        // page's measurements: `page`, `windowMs`, `spans`, `renders`, `frames`, `layoutShifts`, `bytes`).
-        "_acpmux/perf": (["op", "after", "limit", "waitMs", "page", "windowMs", "spans", "renders", "frames", "layoutShifts", "bytes"], []),
+        // page's measurements: `page`, `windowMs`, `spans`, `renders`, `frames`, `layoutShifts`, `bytes`), frames, or tally (frameTally.ts: `bucketMs`, `gaps`).
+        "_acpmux/perf": (["op", "after", "limit", "waitMs", "page", "windowMs", "spans", "renders", "frames", "layoutShifts", "bytes", "bucketMs", "gaps"], []),
+        "_acpmux/host_overload": ([], []),
         // Placement names are local display labels; the optional source lets the page filter
         // targets for a chat without exposing a host URL or session identity.
         "_acpmux/move_targets": (["source", "sourceKind"], []),
@@ -166,7 +167,7 @@ nonisolated extension AcpmuxPaneMethods {
         // `_meta`: only the gesture ticket of the person's Build pick, as an answer's. No
         // `harnesses`: the pane builds with the chat's own harness, or it and the other of Claude
         // and Codex for a compare.
-        "_acpmux/plan/build": (["sessionId", "permissionId", "target", "_meta"], []),
+        "_acpmux/plan/build": (["sessionId", "permissionId", "target", "plan", "_meta"], []),
         "_acpmux/plan/compare": (["sessionId", "buildId"], []),
         "_acpmux/plan/keep": (["sessionId", "buildId", "keep"], []),
         "_acpmux/handoff_prepare": (["sessionId", "harness", "handoffKey"], []),
