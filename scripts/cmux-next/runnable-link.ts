@@ -193,13 +193,18 @@ async function main(): Promise<number> {
   const password = process.env.CMUX_DOGFOOD_STACK_PASSWORD;
   if (!email || !password) throw new Error("set CMUX_DOGFOOD_STACK_EMAIL and CMUX_DOGFOOD_STACK_PASSWORD (the staging agent test account)");
   secrets.push(password);
+  // Each step names itself, so a bare "The operation timed out." says where (run 45570177493 did not).
+  let stage = "sign-in";
   const s = await passwordSignIn(STACK[backend.stack], email, password);
   secrets.push(s.access, s.refresh);
   api.bearer = s.access;
   const say = (v: unknown) => console.log(scrub(typeof v === "string" ? v : JSON.stringify(v), secrets));
+  stage = "client-config";
   const platform = clientPlatformOrigin((await api.raw("GET", "/v1/client-config", undefined, 30_000)).body);
   const tag = `rl-${Date.now().toString(36)}`;
+  stage = "user.ensure";
   const user = await api.op("user.ensure", {}, `${tag}-ensure`);
+  stage = "install token";
   const install = await mintInstallToken(api, backend.api, String(user?.id ?? user?.user?.id ?? ""), tag, team);
   secrets.push(install.token);
   let bearer = install.token;
@@ -218,6 +223,7 @@ async function main(): Promise<number> {
   let parent: string | null = null;
   try {
     // Parent: a real project, its service running, an agent session holding the canary as its launch credential.
+    stage = "parent create";
     const t0 = Date.now();
     const [created] = await withRoom(() => api.op("cloud.machine.create", { name: `runnable link ${tag} parent`, size: CHAT_START_SIZE }, `${tag}-parent`));
     parent = String(created?.machine?.id ?? created?.machine ?? created?.id);
@@ -226,6 +232,7 @@ async function main(): Promise<number> {
     const pexec = directExec(api, parent, journey);
     await firstExec(pexec, 120_000);
     meta.parent_ready_ms = Date.now() - t0;
+    stage = "parent setup";
     const s0 = Date.now();
     const setup = await pexec(projectSetupCommand(), 280_000);
     if (setup.code !== 0) throw new Error(`project setup: exit ${setup.code} ${setup.stderr.slice(-400)}`);
@@ -239,6 +246,7 @@ async function main(): Promise<number> {
     const session = sessionUp ? SESSION : null;
 
     // Mint.
+    stage = "mint";
     const m0 = Date.now();
     const minted = await http("POST", `${platform}/v1/runnable-links`, {
       machine: parent, clientKey: `${tag}-mint`, ttlSeconds: 3600, note: "hq#23807 experiment",
@@ -371,7 +379,7 @@ async function main(): Promise<number> {
       say({ phase: "baseline", run, total_ms: b.total_ms, error: b.error });
     }
   } catch (e) {
-    meta.error = scrub(String((e as Error).message), [...secrets, canary]).slice(0, 600);
+    meta.error = scrub(`${stage}: ${String((e as Error).message)}`, [...secrets, canary]).slice(0, 600);
   } finally {
     if (snapshot && !keep) await api.op("cloud.snapshot.delete", { snapshot }, `${tag}-snap-del`).then(() => cleanup.push("snapshot deleted"), () => cleanup.push(`snapshot NOT deleted (${snapshot})`));
     if (parent && !keep) await api.deleteMachine(parent, `${tag}-del-parent`).then(() => cleanup.push("parent deleted"), () => cleanup.push(`parent NOT deleted (${parent})`));
