@@ -33,13 +33,19 @@ for key in sys.argv[2].split("."):
 print("" if value is None else value)' "$1" "$2"
 }
 
+# The host claims images the way the app does (Resources/Info.plist's "Image" document type): a sandboxed
+# extension may open files only with an app that claims their type, else Launch Services refuses with
+# kLSAppDoesNotClaimTypeErr (-10820, "sandboxed callers only") and the host never launches.
 write_app_plist() { # <app> <id> <name> <executable>
   mkdir -p "$1/Contents"
   python3 -I -c '
 import plistlib, sys
+images = {"CFBundleTypeName": "Image", "CFBundleTypeRole": "Viewer", "LSHandlerRank": "Alternate",
+          "LSItemContentTypes": ["public.png", "public.jpeg", "public.image"]}
 plistlib.dump({"CFBundleIdentifier": sys.argv[2], "CFBundleName": sys.argv[3], "CFBundleExecutable": sys.argv[4],
                "CFBundlePackageType": "APPL", "CFBundleVersion": "4242", "CFBundleShortVersionString": "0.99.1",
-               "LSMinimumSystemVersion": "14.0", "LSUIElement": True}, open(sys.argv[1], "wb"))' \
+               "LSMinimumSystemVersion": "14.0", "LSUIElement": True, "CFBundleDocumentTypes": [images]},
+              open(sys.argv[1], "wb"))' \
     "$1/Contents/Info.plist" "$2" "$3" "$4"
 }
 
