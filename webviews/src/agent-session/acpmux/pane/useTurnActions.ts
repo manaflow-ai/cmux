@@ -480,18 +480,16 @@ export function turnActionsFrom(deps: TurnActionsDeps): TurnActions {
     ...(restartChat && {
       nextStepKey,
       ...(directClient.current?.canRestoreTestTampering && {
-        restoreTestTampering: (
-          (owner: string) => (finding: TamperingEvidence) => {
-            const client = directClient.current;
-            if (!client || !restartReaches(owner, sessionIdRef.current, client.selectedSession) || !finding.eventSeq)
-              return Promise.reject(new Error(CHAT_CHANGED));
-            return client.restoreTestTampering({
-              eventSeq: finding.eventSeq,
-              fileIndex: finding.fileIndex,
-              findingIndex: finding.findingIndex,
-            });
-          }
-        )(restartChat),
+        restoreTestTampering: ((owner: string) => (finding: TamperingEvidence) => {
+          const client = directClient.current;
+          if (!client || !restartReaches(owner, sessionIdRef.current, client.selectedSession) || !finding.eventSeq)
+            return Promise.reject(new Error(CHAT_CHANGED));
+          return client.restoreTestTampering({
+            eventSeq: finding.eventSeq,
+            fileIndex: finding.fileIndex,
+            findingIndex: finding.findingIndex,
+          });
+        })(restartChat),
       }),
       ...(asker && { asker }),
       // A pane that moved to another chat since sends nothing there, and says so on the card.
