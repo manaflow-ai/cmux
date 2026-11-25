@@ -260,6 +260,8 @@ on:
       - tests/test_cmux_next_dev_landing_workflow.py
       - tests/test_dev_landing_place.py
       - scripts/ci/dev_landing_place.py
+      - tests/test_dev_build_stop.py
+      - scripts/dev-build.py
       - scripts/cmux-next/dev-cas-holder.sh
       - scripts/cmux-next/dev_cas_seed.py
       - tests/test_cmux_next_dev_cas_seed.py
@@ -641,6 +643,8 @@ on:
       - tests/test_cmux_next_dev_landing_workflow.py
       - tests/test_dev_landing_place.py
       - scripts/ci/dev_landing_place.py
+      - tests/test_dev_build_stop.py
+      - scripts/dev-build.py
       - scripts/cmux-next/dev-cas-holder.sh
       - scripts/cmux-next/dev_cas_seed.py
       - tests/test_cmux_next_dev_cas_seed.py
@@ -1115,9 +1119,9 @@ jobs:
   macos-placement:
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
     # Why: docs/ci/cmux-next-workflow-notes.md#note-15
-    needs: [path_route, push-head-preflight, app-compile-placement]
+    needs: [path_route, push-head-preflight, app-compile-placement, fast-tier-cargo]
     # Why: docs/ci/cmux-next-workflow-notes.md#note-369
-    if: ${{ !cancelled() && (((inputs.same_tree_sha == '' && needs.push-head-preflight.outputs.current == 'true' && needs.path_route.outputs.macos == 'true') || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready')) && github.repository_owner == 'manaflow-ai' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt == 1 || contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.fast-tier-cargo.result == 'success' || needs.fast-tier-cargo.result == 'skipped') && (((inputs.same_tree_sha == '' && needs.push-head-preflight.outputs.current == 'true' && needs.path_route.outputs.macos == 'true') || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready')) && github.repository_owner == 'manaflow-ai' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt == 1 || contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     name: cmux-next macOS placement
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'cmux-linux' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.run_attempt == 1 && 'cmux-linux' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }}
     # Why: docs/ci/cmux-next-workflow-notes.md#note-108
@@ -1553,6 +1557,7 @@ jobs:
             python3 tests/test_xcode_build_timeline.py
             python3 tests/test_cmux_next_dev_landing_workflow.py
             python3 tests/test_dev_landing_place.py
+            python3 tests/test_dev_build_stop.py
             python3 tests/test_cmux_next_dev_cas_seed.py
             python3 tests/test_cmux_next_dev_daily_tree_wait.py
             [script-tests]
@@ -2730,8 +2735,8 @@ jobs:
   # Why: docs/ci/cmux-next-workflow-notes.md#note-35
   app-compile-placement:
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
-    needs: [path_route, push-head-preflight]
-    if: ${{ !cancelled() && (github.event_name == 'pull_request' && github.repository_owner == 'manaflow-ai' && vars.CI_COMPILE_CHECK_GATEWAY != '' && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && vars.CI_PR_POOL_OWNED == '1' && needs.path_route.outputs.macos == 'true' && github.run_attempt == 1) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    needs: [path_route, push-head-preflight, fast-tier-cargo]
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.fast-tier-cargo.result == 'success' || needs.fast-tier-cargo.result == 'skipped') && (github.event_name == 'pull_request' && github.repository_owner == 'manaflow-ai' && vars.CI_COMPILE_CHECK_GATEWAY != '' && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && vars.CI_PR_POOL_OWNED == '1' && needs.path_route.outputs.macos == 'true' && github.run_attempt == 1) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     name: cmux-next app compile placement
     runs-on: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'cmux-linux' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.run_attempt == 1 && 'cmux-linux' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # Why: docs/ci/cmux-next-workflow-notes.md#note-179
@@ -4891,7 +4896,18 @@ jobs:
         env:
           CMUX_METRICS_WEB_CACHE_OUTCOME: ${{ steps.web-bundle-cache.outcome }}
           CMUX_METRICS_WEB_CACHE_HIT: ${{ steps.web-bundle-r2.outputs.cache-hit == 'true' && 'true' || steps.web-bundle-cache.outputs.cache-hit }}
-        run: python3 ../../../scripts/ci/swiftpm_build_metrics.py --role daemon-test --output-dir "$RUNNER_TEMP/cmux-next-build-metrics" -- swift build --build-tests
+          # Fleet-built test bundles for this commit (scripts/ci/fleet-test-products.py), off unless
+          # vars.CI_FAST_TIER_PRODUCTS_FLEET is 1. The generated-files checks need the whole build, so a job
+          # that folds them builds here as before; so does any job the fleet has no products for.
+          CMUX_SWIFT_TEST_PRODUCTS: ${{ vars.CI_FAST_TIER_PRODUCTS_FLEET == '1' && env.CMUX_NEXT_FOLD_GENERATED != 'true' && 'fleet' || 'build' }}
+          CMUX_FLEET_CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
+          CMUX_PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if [[ "$CMUX_SWIFT_TEST_PRODUCTS" == fleet ]]; then
+            python3 ../../../scripts/ci/fleet-test-products.py Packages/macOS/CmuxNext && exit 0
+            echo "::warning title=Fleet test products::none for this commit; building them on this Mac"
+          fi
+          python3 ../../../scripts/ci/swiftpm_build_metrics.py --role daemon-test --output-dir "$RUNNER_TEMP/cmux-next-build-metrics" -- swift build --build-tests
 
       - name: Upload the test build measurement and log
         continue-on-error: true

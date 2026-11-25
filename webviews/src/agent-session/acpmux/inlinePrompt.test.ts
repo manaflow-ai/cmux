@@ -219,10 +219,12 @@ test("refused Retry and Edit retain every screenshot and video preview in strip 
     await io.client.send("plain", attachments).catch(() => undefined);
     await settle(() => io.rows().some((row) => row.failed));
     const row = io.rows().find((row) => row.failed)!;
-    expect(io.sent[0]._meta.acpmux.inlineParts).toHaveLength(8);
-    expect(io.sent[0]._meta.acpmux.inlineParts.every((part: any) => part.companionOf + 1 === part.blockIndex)).toBe(
-      true,
-    );
+    // Each screenshot's companion link, then the video's own part carrying its picture size.
+    const parts = io.sent[0]._meta.acpmux.inlineParts;
+    expect(parts).toHaveLength(9);
+    expect(parts.slice(0, 8).every((part: any) => part.companionOf + 1 === part.blockIndex)).toBe(true);
+    expect(parts[8]).toMatchObject({ kind: "file", width: 20, height: 10 });
+    expect(parts[8].companionOf).toBeUndefined();
     expect(row.inlineParts).toBeUndefined();
     expect(row.images).toHaveLength(8);
     expect(row.images?.every((image) => image.src === "data:image/png;base64,AQID")).toBe(true);

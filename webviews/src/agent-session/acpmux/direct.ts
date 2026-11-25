@@ -85,7 +85,7 @@ import type { PeerLinkDetail } from "./linkState";
 import { peerResourcesFromStatus } from "./machineResources";
 import { type ChatUnavailable, chatUnavailable, type PeerStatus, peerStatusFromStatus } from "./chatUnavailable";
 import { resolvedTarget } from "./conversation/sessionRefs";
-import { isNews } from "./conversation/sinceNews";
+import { isNews, isOthersNews } from "./conversation/sinceNews";
 import { noteReplaced } from "./sessionIndex";
 import {
   formerNamesOf,
@@ -347,6 +347,8 @@ import {
 import { permissionFromMessage } from "./direct/permissions";
 import {
   queuedEntry,
+  withSystem,
+  systemKindOf,
   keepStopHold,
   holdOf,
   queuedMessage,
@@ -437,7 +439,11 @@ export { backgroundTask } from "./direct/sessionUpdates";
 /// The page's `initialize` params. The app's relay checks them against its params rule
 /// (AcpmuxPaneMethods+Params.swift `knownParams`), and `schemas/agent-pane/initialize-params.json`
 /// holds both sides to the same keys: a key the rule does not know refuses every connection.
-export function initializeParams() {
+///
+/// `compression`: the page's own socket to an acpmux across a network (`frameCompression`) also
+/// asks for zlib frames. The bridge never does: its relay's rule refuses the key, and the app's
+/// socket to its own acpmux is loopback, where compressing costs CPU and saves no link bytes.
+export function initializeParams(options: { compression?: boolean } = {}) {
   return {
     protocolVersion: 1,
     clientInfo: { name: "cmux-react-agent-pane", version: "1" },
@@ -447,9 +453,61 @@ export function initializeParams() {
     // `chunkDeltas`: a streamed chunk after the first as `_acpmux/chunk`; `sessionChangedDelta`: a
     // row change after the first as `_acpmux/session_patch`. `receive` reads both back into the
     // frames they stand for (chatDeltas.ts); an acpmux before them ignores the keys.
-    _meta: { acpmux: { peerRowBatches: true, chunkDeltas: true, sessionChangedDelta: true } },
+    // `compression`: acpmux then sends each message of 16 KiB or more as one Binary frame of its
+    // zlib stream (acpmux frame_compress.rs); an acpmux before it ignores the key and sends Text.
+    _meta: {
+      acpmux: {
+        peerRowBatches: true,
+        chunkDeltas: true,
+        sessionChangedDelta: true,
+        ...(options.compression ? { compression: [FRAME_CODEC] } : {}),
+      },
+    },
   };
 }
+
+/// The one frame codec acpmux offers (frame_compress.rs `ZLIB`): RFC 1950, which the browser's
+/// own `DecompressionStream` reads as `"deflate"`.
+export const FRAME_CODEC = "zlib";
+
+/// The most text one compressed frame may inflate to: above acpmux's largest message (31 MiB).
+const MAX_INFLATED_BYTES = 64 << 20;
+
+/// Whether this page's connection asks acpmux for compressed frames: only its own WebSocket
+/// (`acpmux-websocket`, the `/app/` browser shell) to a daemon that is not on this machine, and only
+/// where the browser has a native zlib decoder. A loopback socket gains no link bytes from it.
+export function frameCompression(host: Pick<AcpmuxHostConfig, "transport" | "endpoint">): boolean {
+  if (host.transport !== "acpmux-websocket" || !host.endpoint) return false;
+  if (typeof DecompressionStream !== "function") return false;
+  let hostname: string;
+  try {
+    hostname = new URL(host.endpoint).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  return !(hostname === "localhost" || hostname === "[::1]" || hostname === "::1" || hostname.startsWith("127."));
+}
+
+/// The JSON text of one Binary frame acpmux compressed (`frameCompression`), through the browser's
+/// native zlib decoder.
+export async function inflateFrame(data: ArrayBuffer | ArrayBufferView | Blob): Promise<string> {
+  const blob = data instanceof Blob ? data : new Blob([data as BlobPart]);
+  const reader = blob.stream().pipeThrough(new DecompressionStream("deflate")).getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  let bytes = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) return text + decoder.decode();
+    bytes += value.byteLength;
+    if (bytes > MAX_INFLATED_BYTES) {
+      void reader.cancel();
+      throw new Error("compressed frame too large");
+    }
+    text += decoder.decode(value, { stream: true });
+  }
+}
+
 type Session = Record<string, any> & { sessionId: string };
 type Reply = {
   id: number | string;
@@ -1636,8 +1694,8 @@ export class AcpmuxDirectClient {
   /// that turn (stopThroughReconnect.ts).
   private turnPrompt?: string;
   private lastSeq = 0;
-  /// The chat's held surge, its newest snapshot by seq (conversation/surgeHold.ts): the composer hat's
-  /// one row for it (SurgeHoldRow.tsx). A full refold keeps it: its events set it again or leave a
+  /// The chat's held surge, its newest snapshot by seq (conversation/surgeHold.ts): Session Info's
+  /// Background tasks row (session-info/agentSide.ts). A full refold keeps it: its events set it again or leave a
   /// listing's newer one.
   private surge?: SurgeHold;
   /// Each gap read out or failed (`fetchMissedEvents`), by its own key: the seq the chat's records
@@ -2617,6 +2675,8 @@ export class AcpmuxDirectClient {
       this.hostHidden = false;
       this.hiddenHole = undefined;
       let opened = false;
+      // The Binary frames still inflating, in arrival order (`onmessage` below).
+      let inflating: Promise<void> | undefined;
       socket.onopen = () => {
         opened = true;
         this.daemonLastFrameAt = Date.now();
@@ -2625,8 +2685,6 @@ export class AcpmuxDirectClient {
         this.daemonProbeRefused = false;
         this.resetRequestCheck();
         this.wire.lifecycle("open");
-        // The action trace's spans and its status question go on this socket (actionTrace.ts).
-        actionTrace.connect((method, params) => this.request(method, params));
         resolve(socket);
       };
       socket.onerror = () => {
@@ -2639,6 +2697,16 @@ export class AcpmuxDirectClient {
         reject(openError ?? new Error(translate("error.connectFailed")));
       };
       socket.onclose = (event?: CloseEvent) => {
+        // A frame that fully arrived before the close is the daemon's answer: it is read before the
+        // close rejects what is still pending, so a reply inflating when the link drops is applied,
+        // not shown as interrupted.
+        if (inflating) {
+          const onclose = socket.onclose;
+          const closeAfter = () => onclose?.call(socket, event as CloseEvent);
+          void inflating.then(closeAfter, closeAfter);
+          inflating = undefined;
+          return;
+        }
         // A socket the pane gave up on itself (`recoverStall`) already took the lost path.
         if (this.socket !== socket || this.closed || this.endedSocket === socket) return;
         this.wire.lifecycle("close", {
@@ -2658,8 +2726,28 @@ export class AcpmuxDirectClient {
       // the swap rejects on that answer); only its peer notes, about a connection that is gone, drop.
       // Chunk refs and row numbers are this connection's own (chatDeltas.ts).
       const deltas = new ChatDeltas();
-      socket.onmessage = (message) =>
-        acpmuxPerf.timed("client.receive", () => this.receive(String(message.data), this.socket !== socket, deltas));
+      // A Binary frame is a compressed message (`frameCompression`): it inflates off this callback,
+      // and every frame after it waits its turn, so the page reads them in the order they came.
+      socket.binaryType = "arraybuffer";
+      const read = (raw: string) =>
+        acpmuxPerf.timed("client.receive", () => this.receive(raw, this.socket !== socket, deltas));
+      socket.onmessage = (message) => {
+        const data: unknown = message.data;
+        if (typeof data === "string" && !inflating) return read(data);
+        const text =
+          typeof data === "string"
+            ? Promise.resolve(data)
+            : inflateFrame(data as ArrayBuffer).catch((error: unknown) => {
+                this.wire.lifecycle("error", { message: `compressed frame: ${(error as Error)?.message ?? error}` });
+                return undefined;
+              });
+        const turn: Promise<void> = (inflating ?? Promise.resolve()).then(async () => {
+          const raw = await text;
+          if (raw !== undefined) read(raw);
+          if (inflating === turn) inflating = undefined;
+        });
+        inflating = turn;
+      };
     }).catch((error: unknown) => {
       this.releaseCopyAttach(mine);
       this.dropTailDrawnWhileConnecting(error);
@@ -2683,9 +2771,13 @@ export class AcpmuxDirectClient {
       // answers is checked for life (`armDaemonLiveness`) instead of holding the handshake for good.
       const initialized = await this.request(
         "initialize",
-        initializeParams(),
+        initializeParams({ compression: frameCompression(this.host) }),
         AcpmuxDirectClient.DAEMON_PROBE_AFTER_MS,
       );
+      // The action trace's status question and spans go on this socket once it is initialized: a
+      // connection's first frame is its initialize, which the relay carries the LocalApp token in
+      // and refuses anything else as (actionTrace.ts, cmux-agent-pane-policy check.rs).
+      actionTrace.connect((method, params) => this.request(method, params));
       this.canFork = servesOperation(initialized, FORK_OP);
       const features = initialized?._meta?.acpmux?.features;
       this.features = new Set(
@@ -7513,12 +7605,16 @@ export class AcpmuxDirectClient {
       this.scrolledFrom = undefined;
       return;
     }
+    // While the agent's turn runs, what it writes in front of the reader is not new (Leo,
+    // 2026-11-25: "dont mark it as new if it's still going"): only another person's or agent's
+    // message places the line then. The turn's end places it over what the reader scrolled past.
+    const news = this.turnRunning() ? isOthersNews : isNews;
     const rows = this.rows.sorted();
     let message = false;
     for (let index = rows.length - 1; index >= 0 && !message; index -= 1) {
       const row = rows[index]!;
       if (this.rows.orderOf(row.id) <= from.seq) break;
-      message = isNews(row);
+      message = news(row);
     }
     if (!message) return;
     this.scrolledFrom = undefined;
@@ -8975,18 +9071,21 @@ export class AcpmuxDirectClient {
           next === undefined
             ? entry
             : keepStopHold(
-                queuedEntry(
-                  entry.id,
-                  entry.prompt,
-                  entry.id === next,
-                  false,
-                  entry.images,
-                  entry.message,
-                  entry.author,
-                  entry.inlineParts,
-                  entry.retry,
-                  entry,
-                  entry.inbox,
+                withSystem(
+                  queuedEntry(
+                    entry.id,
+                    entry.prompt,
+                    entry.id === next,
+                    false,
+                    entry.images,
+                    entry.message,
+                    entry.author,
+                    entry.inlineParts,
+                    entry.retry,
+                    entry,
+                    entry.inbox,
+                  ),
+                  entry.system,
                 ),
                 // Sent now, it is no longer held (hub/queue.rs `put_next`).
                 entry.id === next ? undefined : entry,
@@ -9047,28 +9146,32 @@ export class AcpmuxDirectClient {
           named.length || msg.awaitingOwner === true ? named : this.queue.find((entry) => entry.id === id)?.images;
         this.queue = [
           ...this.queue.filter((entry) => entry.id !== id),
-          queuedEntry(
-            id,
-            String(msg.text ?? ""),
-            false,
-            false,
-            images,
-            queuedMessage(msg, this.incomingContext()),
-            promptAuthor(msg),
-            msg.awaitingOwner === true
-              ? recordedPromptParts(msg, undefined)
-              : (recordedPromptParts(
-                  msg,
-                  this.optimisticPromptParts.get(id) ?? this.queue.find((entry) => entry.id === id)?.inlineParts,
-                ) ?? this.optimisticPromptParts.get(id)),
-            subagentRetryNotice(String(msg.text ?? ""), msg),
-            // A guest's prompt waits for the owner's Approve or Decline (QueuedMessageCard.tsx).
-            holdOf(
-              msg,
-              this.queue.find((entry) => entry.id === id),
+          withSystem(
+            queuedEntry(
+              id,
+              String(msg.text ?? ""),
+              false,
+              false,
+              images,
+              queuedMessage(msg, this.incomingContext()),
+              promptAuthor(msg),
+              msg.awaitingOwner === true
+                ? recordedPromptParts(msg, undefined)
+                : (recordedPromptParts(
+                    msg,
+                    this.optimisticPromptParts.get(id) ?? this.queue.find((entry) => entry.id === id)?.inlineParts,
+                  ) ?? this.optimisticPromptParts.get(id)),
+              subagentRetryNotice(String(msg.text ?? ""), msg),
+              // A guest's prompt waits for the owner's Approve or Decline (QueuedMessageCard.tsx).
+              holdOf(
+                msg,
+                this.queue.find((entry) => entry.id === id),
+              ),
+              // acpmux's inbox notice: other agents' messages, drawn with them (queuedMessages.ts).
+              queuedInbox(msg, this.incomingContext()),
             ),
-            // acpmux's inbox notice: other agents' messages, drawn with them (queuedMessages.ts).
-            queuedInbox(msg, this.incomingContext()),
+            // acpmux's own prompt (a surge digest, a subagent's resume): apart from the steer rows.
+            systemKindOf(msg),
           ),
         ];
       }
@@ -13008,18 +13111,21 @@ export class AcpmuxDirectClient {
     if (this.queue.some((queued) => queued.id === promptId && Boolean(queued.sending) !== (next.state === "sending")))
       this.queue = this.queue.map((queued) =>
         queued.id === promptId
-          ? queuedEntry(
-              queued.id,
-              queued.prompt,
-              queued.next === true,
-              next.state === "sending",
-              queued.images,
-              queued.message,
-              queued.author,
-              queued.inlineParts,
-              queued.retry,
-              queued,
-              queued.inbox,
+          ? withSystem(
+              queuedEntry(
+                queued.id,
+                queued.prompt,
+                queued.next === true,
+                next.state === "sending",
+                queued.images,
+                queued.message,
+                queued.author,
+                queued.inlineParts,
+                queued.retry,
+                queued,
+                queued.inbox,
+              ),
+              queued.system,
             )
           : queued,
       );
@@ -13994,7 +14100,7 @@ export class AcpmuxDirectClient {
     return inboxMessages(Array.isArray(reply?.messages) ? reply.messages : []).reverse();
   }
   /// The chat's inbox threads (acpmux `_acpmux/inbox_threads`), as acpmux sent them, for the held
-  /// surge's panel (SurgeHoldRow.tsx). A reply that carries the surge's snapshot is as new as every
+  /// surge's panel (session-info/agentSide.ts). A reply that carries the surge's snapshot is as new as every
   /// event the page has heard, so it takes the row's place until a later event moves it.
   async inboxThreads(): Promise<unknown> {
     const sessionId = this.selectedSessionId;
