@@ -21,6 +21,19 @@
      long"; row-arrival-settle.test.ts). */
   --agent-motion-arrive: var(--cmux-motion-quick, 80ms);
   --agent-motion-out: var(--cmux-motion-quick, 80ms);
+  /* CLAUDE-CODE-FADES: the transcript's fades on Claude Code's own clocks (the Claude desktop app's
+     Code view, read from its bundle 2026-11-25), so rows and words fade in and out as theirs do
+     (Leo, 2026-11-25: "have more fading as messages fade and come in. like the claude code i told
+     you guys to do it like their animations, you need to follow them more closely"). Each rides a
+     host token, so ui.animationSpeed scales it and motion off makes it 0.
+     - row: a thinking, tool or status row arriving, and the live line's words rolling over to the
+       next step: their tool timeline's row, opacity over COLLAPSE_EXPAND (.2 s) on SNAPPY_OUT
+       [.19, 1, .22, 1]. Theirs also grows its height; ours never animates layout.
+     - fresh: the reply's newest words and a new message, as `[data-transcript-new]`: cds-fade-in,
+       opacity 0 to 1 over 400 ms ease-out. */
+  --agent-motion-row: calc(var(--agent-motion-arrive) * 2.5); /* motion-allow: Claude Code's timeline row, 200 ms */
+  --agent-ease-row: cubic-bezier(0.19, 1, 0.22, 1);
+  --agent-motion-fresh: calc(var(--agent-motion-in) * 10 / 3); /* motion-allow: Claude Code's data-transcript-new fade, 400 ms */
   /* The native move spring's timed equivalent (MotionSpring.move: visibly at rest by 180 ms). */
   --agent-motion-move: var(--cmux-motion-standard, 180ms);
   /* Something that has done its job leaving calmly in place, never a move: the read "New" line's
@@ -56,6 +69,8 @@
 [data-chat-motion="minimal"] {
   --agent-motion-in: 0ms !important;
   --agent-motion-arrive: 0ms !important;
+  --agent-motion-row: 0ms !important;
+  --agent-motion-fresh: 0ms !important;
   --agent-motion-out: 0ms !important;
   --agent-motion-move: 0ms !important;
   --agent-motion-send: 0ms !important;
