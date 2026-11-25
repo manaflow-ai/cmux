@@ -148,6 +148,27 @@ import Testing
         #expect(resets["another tab and back"] == 0)
     }
 
+    /// Leo, 2026-11-25, of Claude Code on the phone: "the layout calculations too". Re-wrapped
+    /// from a Mac pane of 120 columns, each of its rules took a row and a half of the phone's.
+    /// An inline TUI on the primary screen is claimed like the alternate screen: the Mac pane
+    /// takes the phone's grid while the page claims it (one resize), so Claude Code draws its
+    /// rules at the phone's columns; the page leaving gives the Mac its grid back.
+    @Test func claudeCodeInlineDrawsAtThePhonesColumns() {
+        let mac = MacPaneMockSession(columns: 120, rows: 40, program: "claude")
+        let session = TerminalSessionChoice.session(live: mac, mockDataEnabled: false, macName: "Mac", programName: "claude")
+        let page = Page()
+        page.phoneColumns = 54
+        session.setClaimsSize(true)
+        session.resize(columns: 54, rows: 38)
+        session.start { page.take($0) }
+        #expect(mac.ptyResizes == 1, "the Mac pane took the phone's grid once: \(mac.resizeLog)")
+        #expect(mac.ptyGrid.columns == 54 && mac.ptyGrid.rows == 38, "\(mac.resizeLog)")
+        #expect(page.wideFrames == 0)
+        // The page leaves (another tab, the app in the background): the Mac has its grid back.
+        session.setClaimsSize(false)
+        #expect(mac.ptyGrid.columns == 120 && mac.ptyGrid.rows == 40, "\(mac.resizeLog)")
+    }
+
     /// Leo, 2026-11-17: "Surely we can just calculate a f***ing terminal and
     /// resize whatever needs exceptions when it comes / Fall back if need be".
     ///

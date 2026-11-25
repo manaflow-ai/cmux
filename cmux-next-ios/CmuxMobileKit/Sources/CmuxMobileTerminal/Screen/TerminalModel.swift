@@ -237,9 +237,18 @@ public final class TerminalModel {
     }
 
     /// The bytes this host's fresh surface shows before the Mac's replay: its kept rows, else
-    /// the Mac's screen text when it came first. Once, at the session's start.
-    func takeSeed() -> Data? {
-        guard !seeded, let rows = seedRows ?? cardScreenText.flatMap(TerminalSeed.rows(fromScreenText:)) else { return nil }
+    /// the Mac's screen text when it came first, each of its rows cut at the surface's `columns`
+    /// (``TerminalSeed/rows(_:clippedTo:)``). Once, at the session's start.
+    func takeSeed(columns: Int = 0) -> Data? {
+        guard !seeded else { return nil }
+        let rows: String
+        if let kept = seedRows {
+            rows = kept
+        } else if let mac = cardScreenText.flatMap(TerminalSeed.rows(fromScreenText:)) {
+            rows = TerminalSeed.rows(mac, clippedTo: columns)
+        } else {
+            return nil
+        }
         seedRows = nil
         seeded = true
         return TerminalSeed.bytes(rows: rows)
