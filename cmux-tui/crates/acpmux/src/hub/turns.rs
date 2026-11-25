@@ -309,6 +309,11 @@ impl Hub {
         };
         let outcome = match seen {
             Err(mut first) => {
+                // A copy never reaches the queue: it lets the chat's prompt admission go
+                // (#52381) before it waits for the first run. Held, it kept every later prompt
+                // of the chat from its queue for the whole first run, and that run's own queue
+                // never moved on (a burst of doubled sends answered none of them).
+                drop(opts.prompt_admission.take());
                 if let Some(f) = opts.on_accepted.take() {
                     // The first run's turn, once it has one (queued or running): the sender of
                     // this copy then knows the prompt was taken. With none yet, the first run
@@ -662,6 +667,10 @@ impl Hub {
         if first_work.is_some() {
             let seam = self.first_work_seam.lock().unwrap_or_else(|e| e.into_inner()).take();
             if let Some((arrived, release)) = seam {
+                // Queue admission is let go first: held, it alone would keep every other prompt
+                // out while this one waits, and `first_work_tests.rs` checks that the first
+                // work's own hold (`inbox.rs`) keeps notices and the delegator right without it.
+                admitted();
                 let _ = arrived.send(());
                 let _ = release.await;
             }
@@ -774,6 +783,7 @@ impl Hub {
         // An automatic continuation runs only while its chat still ends on the cut turn: no await
         // from here to `queue_slot`'s choice, so it never joins the queue (`auto_resume.rs`).
         let after_turn = opts.after_turn.clone();
+        let fired = opts.fired;
         super::auto_resume::check_cut(
             session,
             after_turn.as_deref(),
@@ -998,7 +1008,9 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
-        if let Err(e) = self.start_turn(session, after_turn.as_deref(), no_queue, retry, turn) {
+        if let Err(e) =
+            self.start_turn(session, after_turn.as_deref(), fired, no_queue, retry, turn)
+        {
             self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             drop(guard);
             return Err(e);
@@ -1785,6 +1797,15 @@ impl Hub {
             _ => None,
         };
         self.schedule_auto_resume(session, &turn_id, cut);
+        // A turn that ended well on a capacity fallback puts the chat's own model back
+        // (`auto_resume/capacity_failover.rs`).
+        if !detached
+            && result
+                .as_ref()
+                .is_ok_and(|v| v.get("stopReason").and_then(Value::as_str) != Some("cancelled"))
+        {
+            self.restore_after_capacity(session);
+        }
         // The agent a Stop ended starts again on the same conversation now, while this turn's
         // lock is still held: the next queued turn finds it running (`cancel.rs`).
         self.respawn_stopped_agent(session, &turn_id, stops).await;
@@ -2476,7 +2497,24 @@ impl Hub {
         let asked_option = (m == method::SESSION_SET_CONFIG_OPTION)
             .then(|| super::full_access_bound::asked_option(&params))
             .flatten();
-        let res = match child.request(m, params).await {
+        // Bounded (`forward_wait.rs`): an agent alive that never answers ends this request, and
+        // the `harness_use` read it holds, at its start budget instead of never.
+        let bound = self.config.read().await.agent_start_timeout();
+        let mut wait =
+            cmux_bounded::Driver::<super::forward_wait::ForwardWait, tokio::time::Instant>::new(
+                super::forward_wait::ForwardWait::asked(bound),
+            );
+        let answer = tokio::select! {
+            answer = child.request(m, params) => {
+                wait.feed(super::forward_wait::Event::Answered);
+                answer
+            }
+            () = wait.expired() => {
+                wait.expire_due();
+                Err(super::forward_wait::no_answer(m, bound))
+            }
+        };
+        let res = match answer {
             Ok(v) => v,
             Err(mut e) => {
                 // A process that died on this request: quote its last stderr

@@ -51,6 +51,26 @@ fn on_unless_turned_off() {
 }
 
 #[test]
+fn the_environment_beats_the_settings_file() {
+    let env = |pairs: &'static [(&'static str, &'static str)]| {
+        move |var: &str| pairs.iter().find(|(k, _)| *k == var).map(|(_, v)| v.to_string())
+    };
+    let off = json!({"agents": {"cacheCompact": {"enabled": false}}});
+    assert_eq!(settings_threshold_with(Some(&off), env(&[(ENV_ENABLED, "1")])), Some(0.3));
+    assert_eq!(settings_threshold_with(None, env(&[(ENV_ENABLED, "0")])), None);
+    assert_eq!(settings_threshold_with(None, env(&[(ENV_ENABLED, "false")])), None);
+    let at_80 = json!({"agents": {"cacheCompact": {"minContextPercent": 80}}});
+    let env_50 = env(&[(ENV_MIN_CONTEXT, "50")]);
+    assert_eq!(settings_threshold_with(Some(&at_80), env_50), Some(0.5));
+    assert_eq!(settings_threshold_with(None, env(&[(ENV_MIN_CONTEXT, "400")])), Some(0.95));
+    let junk = env(&[(ENV_MIN_CONTEXT, "lots"), (ENV_ENABLED, "maybe")]);
+    assert_eq!(settings_threshold_with(Some(&at_80), junk), Some(0.8), "junk: the file decides");
+    let note = |key: &str| row(key)["note"].as_str().unwrap().to_owned();
+    assert!(note(SETTING_ENABLED).contains(ENV_ENABLED), "the note names its env");
+    assert!(note(SETTING_MIN_CONTEXT).contains(ENV_MIN_CONTEXT), "the note names its env");
+}
+
+#[test]
 fn it_fires_the_lead_before_the_expiry_only_over_the_threshold() {
     let now = 1_000_000;
     let expires = now + 300_000;
