@@ -7,23 +7,27 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, createRef, type RefObject } from "react";
 import type { Root } from "react-dom/client";
+import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { ComposerEditCommand, ComposerHandle } from "../src/agent-session/acpmux/Composer";
-import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
+import {
+  inlineToken,
+  inlineTokenIds,
+  promptBlocks,
+  withoutInlineTokens,
+  type ComposerAttachment,
+} from "../src/agent-session/acpmux/attachments";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
-import type { AttachmentView } from "../src/agent-session/acpmux/composerSettings";
+import {
+  PASTE_CHIP_CHARS,
+  PASTE_CHIP_WORDS,
+  isLargePaste,
+  pastedTextAttachment,
+  resentAttachments,
+  shownPrompt,
+} from "../src/agent-session/acpmux/pastedText";
+import { keptChips } from "../src/agent-session/acpmux/composer/keptAttachments";
+import { setComposerSettings, type AttachmentView } from "../src/agent-session/acpmux/composerSettings";
 import { teardownDom } from "./support/domTeardown";
-import { importWithDom } from "./support/importWithDom";
-
-const { noChat } = await importWithDom(() => import("../src/gallery/fixtures/acpmux"));
-const { inlineToken, inlineTokenIds, promptBlocks, withoutInlineTokens } = await importWithDom(
-  () => import("../src/agent-session/acpmux/attachments"),
-);
-const { PASTE_CHIP_CHARS, PASTE_CHIP_WORDS, isLargePaste, pastedTextAttachment, resentAttachments, shownPrompt } =
-  await importWithDom(() => import("../src/agent-session/acpmux/pastedText"));
-const { keptChips } = await importWithDom(() => import("../src/agent-session/acpmux/composer/keptAttachments"));
-const { DEFAULT_COMPOSER, setComposerSettings } = await importWithDom(
-  () => import("../src/agent-session/acpmux/composerSettings"),
-);
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -85,7 +89,7 @@ afterEach(() => {
   // Every test opens chat "chat-a": its saved draft (composerDraft.ts, the page's localStorage
   // remount cache) would come back in the next test's prompt.
   dom.window.localStorage.clear();
-  setComposerSettings({ attachmentView: DEFAULT_COMPOSER.attachmentView });
+  setComposerSettings({ attachmentView: "inline" });
 });
 
 afterAll(async () => {

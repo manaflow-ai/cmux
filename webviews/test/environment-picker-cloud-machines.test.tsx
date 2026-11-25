@@ -120,9 +120,7 @@ async function mount(environments: boolean, extra: Record<string, unknown> = {})
 const doc = () => dom.window.document;
 const computerButton = () =>
   [...host.querySelectorAll<HTMLButtonElement>(".acpmux-location-button")].find((button) =>
-    [t("composer.environment"), t("composer.computer")].some((name) =>
-      (button.getAttribute("aria-label") ?? "").startsWith(name + ":"),
-    ),
+    (button.getAttribute("aria-label") ?? "").startsWith(t("composer.computer") + ":"),
   );
 async function openPicker() {
   const button = computerButton();
@@ -298,7 +296,7 @@ test("the Where list has one Cloud row, Cloud, whatever the account state (Send 
   const { setCloudMachinesForTestAccount } = await import("../src/agent-session/acpmux/cloudMachines");
   const whereRows = async () => {
     const button = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-location-button")].find((candidate) =>
-      (candidate.getAttribute("aria-label") ?? "").startsWith(t("composer.environment") + ":"),
+      (candidate.getAttribute("aria-label") ?? "").startsWith(t("composer.computer") + ":"),
     );
     expect(button, "no Where control").toBeTruthy();
     await act(async () => {
@@ -467,7 +465,7 @@ test("previews on: the account's machines join the other machines with their sta
   expect(picks).toEqual([["cloud", "vm-paused"]]);
   // No chat moved yet: the control names the machine the pick waits for, as starting.
   expect(computerButton()?.getAttribute("aria-label")).toBe(
-    `${t("composer.environment")}: build box · ${t("composer.envStarting")}`,
+    `${t("composer.computer")}: build box · ${t("composer.envStarting")}`,
   );
 });
 
@@ -525,7 +523,7 @@ test("a Cloud machine picked while paused takes the chat once acpmux lists it re
     ["cloud", "vm-paused"],
     ["computer", "build box"],
   ]);
-  expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: build box`);
+  expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.computer")}: build box`);
 });
 
 test("another pick ends the wait for a Cloud machine", async () => {
@@ -546,7 +544,7 @@ test("another pick ends the wait for a Cloud machine", async () => {
     ["cloud", "vm-paused"],
     ["computer", "gpu-box"],
   ]);
-  expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: gpu-box`);
+  expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.computer")}: gpu-box`);
 });
 
 /// The props of a New Tab composer waiting on `build box` (picked while paused), for a rerender.
@@ -593,7 +591,7 @@ test("a Cloud machine that fails to start ends the wait: the control says so and
   const { picks, render, ready } = await waitOnBuildBox();
   await render({ cloudMachines: [{ ...account[0]!, stage: "failed" }, ...account.slice(1)] });
   expect(computerButton()?.getAttribute("aria-label")).toBe(
-    `${t("composer.environment")}: build box · ${t("switch.failedShort")}`,
+    `${t("composer.computer")}: build box · ${t("switch.failedShort")}`,
   );
   await render({ ...ready, cloudMachines: [{ ...account[0]!, stage: "failed" }, ...account.slice(1)] });
   expect(picks).toEqual([["cloud", "vm-paused"]]);

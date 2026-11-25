@@ -10,6 +10,7 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxActivity } from "../src/agent-session/acpmux/model";
+import { exitLeadMs } from "../src/agent-session/acpmux/conversation/exitLead";
 import { settleReact } from "./support/domTeardown";
 import { importWithDom } from "./support/importWithDom";
 
@@ -287,8 +288,21 @@ for (const { name, node, body } of collapsibles) {
     click();
     expect(toggle().getAttribute("aria-expanded")).toBe("false");
     expect(animations.length).toBe(2);
-    expect(animations[1]!.options.duration).toBe(token);
-    expect(animations[1]!.keyframes.at(-1)).toEqual({ height: "0px", opacity: 0 });
+    // Exit before move (exitLead.ts, design/chat-fold-motion.md): the text is gone over the lead while
+    // the height holds, then the height shuts on the fold's token. Leo, 2026-11-21: "we must hide text
+    // faster and sooner".
+    const closing = animations[1]!;
+    const lead = exitLeadMs(token);
+    expect(lead).toBeGreaterThan(0);
+    expect(closing.options.duration).toBe(lead + token);
+    expect(closing.options.easing).toBe("linear");
+    const [shown, faded, shut] = closing.keyframes;
+    expect(shown!.opacity).toBe(1);
+    expect(faded!.opacity).toBe(0);
+    expect(faded!.offset).toBeCloseTo(lead / (lead + token), 6);
+    expect(faded!.height).toBe(shown!.height);
+    expect(faded!.easing).toBe(MOTION_EASE_OUT);
+    expect(shut).toEqual({ height: "0px", opacity: 0 });
     // Drawn while it slides away, then gone.
     expect(container.querySelector(body)).not.toBeNull();
     animations[1]!.finish();

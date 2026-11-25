@@ -106,12 +106,6 @@ afterEach(async () => {
 });
 
 const counts: WorkingCounts = {
-  agents: 0,
-  commands: 0,
-  sessions: 0,
-  openAgents: () => {},
-  openCommands: () => {},
-  openSessions: () => {},
   tokens: 1_800,
 };
 

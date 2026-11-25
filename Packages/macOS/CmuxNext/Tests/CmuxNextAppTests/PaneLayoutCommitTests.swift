@@ -30,6 +30,9 @@ import Testing
     final class Surface: Content, PaneCommitSurface {
         private(set) var asks: [CGSize] = []
         private var ready: (@MainActor () -> Void)?
+        /// The frame ticks it asks its commits to wait for it (a page laying out at a size it took ahead); nil: the
+        /// commit's own bound.
+        var commitWaitTicks: Int?
 
         func commitWillResize(by change: CGSize, ready: @escaping @MainActor () -> Void) {
             asks.append(change)
@@ -109,6 +112,7 @@ import Testing
             configure(model)
             root = LayoutRootView(model: model, contentProvider: provider)
             root.context.reduceMotionOverride = false
+            if PaneLayoutCommitMove.isOn { root.context.commitMotionOverride = true }
             // The test steps the frames: no display link runs beside it.
             root.driver.isManual = true
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1600, height: 1000), styleMask: [.borderless],
@@ -137,6 +141,8 @@ import Testing
                 frame.panes[host.pane] = host.frame
                 // A pane that shows no content of its own (its content view is hidden) fits nothing.
                 let content = host.convert(host.content.frame, from: host.content.superview)
+                // With the panes' move on, a pane that the layout no longer has shows to the motion's end: it fits nothing.
+                if PaneLayoutCommitMove.isOn, screen.context.hosts[host.pane] !== host { continue }
                 if host.content.isHidden || !near(content, host.contentRect) { frame.misfits[host.pane] = (content, host.contentRect) }
             } else if view is DividerHandleView {
                 frame.dividers.append(view.frame)
@@ -165,8 +171,12 @@ import Testing
         }
 
         /// Whether `frame` shows exactly this layout: its panes and no other, each at its rest rect, and its dividers.
+        /// With the panes' move on (`PaneLayoutCommitMove`), the panes that a close took out or a zoom covers can
+        /// show too, to the motion's end.
         func isShown(by frame: Frame) -> Bool {
-            guard Set(frame.panes.keys) == Set(panes.keys), frame.dividers.count == dividers.count else { return false }
+            let shown = Set(frame.panes.keys)
+            guard PaneLayoutCommitMove.isOn ? shown.isSuperset(of: panes.keys) : shown == Set(panes.keys) else { return false }
+            guard frame.dividers.count == dividers.count else { return false }
             guard panes.allSatisfy({ pane, rect in frame.panes[pane].map { PaneLayoutCommitTests.near($0, rect) } ?? false }) else { return false }
             return dividers.allSatisfy { rect in frame.dividers.contains { PaneLayoutCommitTests.near($0, rect) } }
         }

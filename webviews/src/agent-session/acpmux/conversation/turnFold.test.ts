@@ -22,15 +22,17 @@ test("replacing the live header leaves no fading copy of its clock beside the ac
     tops: ids.map((_, index) => index * 30),
   });
   row("u", 0, "user", "Fix the layout");
-  const clock = row("working-u", 1, "working", "Working for 1m");
-  const before = placed(["u", "working-u"]);
+  // The turn's header, running: its chevron's slot held unseen (WorkingFor.tsx).
+  const clock = row("worked-u", 1, "worked", "Working for 1m");
+  clock.insertAdjacentHTML("beforeend", '<svg class="cv-worked__chevron is-reserved"></svg>');
+  const before = placed(["u", "worked-u"]);
   const ghosts = new Set<HTMLElement>();
   const fold = startTurnFold(thread, "u", false, before, "chat", 0)!;
   try {
     expect(fold).toBeDefined();
     clock.remove();
-    row("activityLine-u", 1, "activityLine", "Edit file 1m");
-    expect(playTurnFold(fold, thread, placed(["u", "activityLine-u"]), "chat", ghosts, 1)).toBe(true);
+    row("thinking-live", 1, "thinking", "Edit file 1m");
+    expect(playTurnFold(fold, thread, placed(["u", "thinking-live"]), "chat", ghosts, 1)).toBe(true);
     expect(thread.textContent).not.toContain("Working for");
     expect(thread.textContent).toContain("Edit file 1m");
   } finally {

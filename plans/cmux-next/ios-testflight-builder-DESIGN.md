@@ -191,6 +191,12 @@ ssh cmux23 'python3 ~/ios-internal-builder/ios_internal_builder.py status'
   the pre-push web lint covers other agents' files in that range, so set
   `CMUX_WEB_LINT_SKIP_REASON`). The push also registers the dispatch-only
   workflow with GitHub, which refuses to dispatch a workflow it never ran.
+  What the builder judges an archive with stays the built commit's:
+  `testflight-build.sh` runs `check-production-binary.sh` and
+  `check-app-store-rules.py` from `$sha`, not from the builder checkout, so a
+  rule changed on feat-cmux-next applies at once (the builder's stale copy
+  failed every nightly's signing from 2026-11-24 until it moved;
+  `tests/test_testflight_build_checkers.py`).
 - After `scripts/ci/ios_internal_builder.py` changes, copy it to the mini:
   `scp scripts/ci/ios_internal_builder.py cmux23:ios-internal-builder/` (the
   admission hook and watch loop run that copy; a stale copy refuses jobs).

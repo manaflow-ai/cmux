@@ -9,6 +9,11 @@ import type { AcpmuxPermission } from "../model";
 import { currentLanguage, translate } from "../i18n";
 import { plainText } from "../question/inlineText";
 import { consentChoice, hasPreviews, itemAnswerText, type AgentQuestion } from "../question/model";
+import { HTML_PREVIEW_MIN_HEIGHT } from "../question/htmlPreviewModel";
+import { questionPreviewLayout } from "../question/previewLayout.experiment";
+import { previewText, shownPreview } from "../question/questionCardModel";
+import { experimentArm } from "../../../experiments/experiment";
+import type { NextStepAsk } from "../conversation/nextStepAsk";
 import { gridLength } from "../transcriptGrid";
 import {
   alwaysAllowScope,
@@ -29,7 +34,7 @@ const padding = gridLength("cards-padding");
 /// The face the card is drawn in, `--font-ui`: the chat's Interface Font (chatUiFont.ts) as the
 /// canvas can measure it, the macOS system stack by default. A canvas can't read CSS variables.
 export function cardFont(): string {
-  return chatUiMeasureStack(chatDisplay().uiFont);
+  return chatUiMeasureStack(chatDisplay().uiFont, chatDisplay().uiFamily);
 }
 
 /// The letter-spacing the card's text at `size` px is drawn with, in px: its type-scale step's
@@ -38,7 +43,8 @@ export function cardFont(): string {
 /// token when it isn't the size's own: the buttons draw body-size labels with detail's tracking.
 export function cardLetterSpacing(size: number, step?: string): number {
   const name = step ?? typeScale.steps.find((entry) => entry.size === size)?.name;
-  return name ? chatUiTracking(chatDisplay().uiFont, name) * size : 0;
+  // A font pack's family draws at its designed spacing (chatUiFontVariables).
+  return name && !chatDisplay().uiFamily ? chatUiTracking(chatDisplay().uiFont, name) * size : 0;
 }
 
 // The same line breaker as prose estimates, using the card's UI font rather than chat text size.
@@ -112,11 +118,10 @@ export function permissionCardHeight(permission: AcpmuxPermission | undefined, w
   return height;
 }
 
-// PermissionCard's frame (styles.css, .acpmux-permission-*): the request block is 16px around its
-// title and description lines 4px apart; the details band adds 12px above the command and scope,
-// 8px apart; the button row is 12px above and 16px below rows of 28px buttons, 8px apart.
+// PermissionCard's frame (a Surface role="ask", ui/surface, the --surface-ask-* variables): 16px
+// padding all round, the header row, the body, the command and scope, the edits and the answers as
+// siblings 8px apart; the body's lines 4px apart; the answers rows of 28px buttons, 8px apart.
 const EDGE = 16;
-const BAND = 12;
 const GAP = 8;
 const CONTROL_ROW = 28;
 /// The width of the chevron segment a plan's Approve plan is joined to (styles.css `.acpmux-plan-build-chevron`).
@@ -131,13 +136,16 @@ function estimatePermission(permission: AcpmuxPermission, width: number, scale: 
   const plan = permission.plan;
   let height = 2 * EDGE + body.lineHeight;
   const description = external ? translate("permission.external.detail") : permissionDetail(permission);
-  if (description) height += 4 + textHeight(description, room, body.size, body.lineHeight);
+  // The body slot is drawn only with a line or a plan in it; its lines are 4px apart.
+  const lines: number[] = [];
+  if (description) lines.push(textHeight(description, room, body.size, body.lineHeight));
   // The plan's Markdown, inset 8 by 12 and scrolled past 320px.
-  if (plan) height += 4 + Math.min(320, 16 + textHeight(plan, room - 24, detail.size, detail.size * 1.5));
+  if (plan) lines.push(Math.min(320, 16 + textHeight(plan, room - 24, detail.size, detail.size * 1.5)));
+  if (lines.length) height += GAP + lines.reduce((sum, line) => sum + line, 0) + 4 * (lines.length - 1);
   const { allowOnce, allowAlways, deny, others } = permissionAnswers(permission.options);
   const command = permissionCommand(permission);
   const scoped = !external && Boolean(permission.scope || (allowAlways && alwaysAllowScope(permission, allowAlways)));
-  if (command || scoped) height += BAND;
+  if (command || scoped) height += GAP;
   if (command) {
     const preview = commandPreview(command);
     const line = detail.size * 1.5;
@@ -166,7 +174,7 @@ function estimatePermission(permission: AcpmuxPermission, width: number, scale: 
   const button = (label: string, weight = 400) => textWidth(label, body.size, weight, "detail");
   const widths = labels.map(
     (label, index) =>
-      button(label, allowOnce && index === 0 ? 500 : 400) +
+      button(label, allowOnce && index === 0 ? 600 : 400) +
       24 +
       (plan && allowOnce && index === 0 ? PLAN_BUILD_CHEVRON : 0),
   );
@@ -177,7 +185,7 @@ function estimatePermission(permission: AcpmuxPermission, width: number, scale: 
     widths.push(Math.min(button(label), 14 * button("0")) + 24);
   }
   const rows = wrappedRows(widths, room, GAP);
-  height += BAND + EDGE + rows * CONTROL_ROW + Math.max(0, rows - 1) * GAP;
+  height += GAP + rows * CONTROL_ROW + Math.max(0, rows - 1) * GAP;
   return height * scale;
 }
 
@@ -193,7 +201,7 @@ function questionHeight(question: AgentQuestion, width: number, bubbleScale = 1)
     const by = answer.respondent;
     const display = chatDisplay();
     const metrics = chatMetrics(display);
-    const tracking = chatUiFontVariables(display.uiFont)["--cv-tracking"];
+    const tracking = chatUiFontVariables(display.uiFont, display.uiFamily)["--cv-tracking"];
     let letterSpacing = tracking ? Number.parseFloat(tracking) : 0;
     if (tracking?.endsWith("em")) letterSpacing *= drawnFontSize(display);
     // The bubble's 16 px sides and 10 px block padding (conversation.css .cv-user__bubble).
@@ -215,60 +223,130 @@ function questionHeight(question: AgentQuestion, width: number, bubbleScale = 1)
   }
   const item = question.items[0];
   if (!item) return 24;
-  const promptCard = question.source.harness !== "acp" && !consentChoice(question) && !question.items.some(hasPreviews);
-  if (promptCard) {
-    // The size the chat draws at the density (chatDisplay.ts drawnFontSize), as the card's text is.
-    const contentSize = drawnFontSize(chatDisplay());
-    const line = contentSize * chatDisplay().lineHeight;
-    const inner = Math.max(1, width - 32);
-    let height = 32 + 24 + 24 + text(item.prompt, inner, line, contentSize);
-    height +=
-      8 +
-      item.options.reduce(
-        (sum, option) =>
-          sum +
-          Math.max(
-            40,
-            16 +
-              text(option.label, inner - 52, line, contentSize) +
-              (option.detail ? 2 + text(option.detail, inner - 52, detail.lineHeight, detail.size) : 0),
-          ),
-        0,
-      );
-    // Custom input and the grouped actions share one footer; narrow cards wrap them.
-    height += 8 + (item.allowsOther ? Math.max(36, 16 + line) : 32) + (item.allowsOther && inner < 320 ? 40 : 0);
-    return height;
-  }
-  const chip = item.header ? Math.min(room * 0.4, textWidth(item.header, caption.size, 600) + 16) + 8 : 0;
-  const promptRoom = Math.max(1, room - chip);
-  // Needs-input pill + gap, fieldset edges, then the 12px-padded header and its divider.
-  let height = 24 + 8 + 1 + 2 * padding + text(item.prompt, promptRoom, body.lineHeight, body.size, 600) + 0.5;
+  // Every pending ask is one card on an 8 px inset (question/questionCard.css): the card's padding,
+  // the "Needs your input" line, the question as a 14/20 title, 36 px rows, then a 36 px last row.
+  const contentSize = drawnFontSize(chatDisplay());
+  const titleLine = contentSize * (20 / 14);
+  const inner = Math.max(1, width - 32);
   const consent = consentChoice(question);
   if (consent) {
+    // No header line: the title, its scope line, and Deny and Allow (28 px buttons).
+    let height = 16 + 8 + text(item.prompt, inner, titleLine, contentSize) + 8;
     const scope = item.options[consent.accept]?.detail;
-    if (scope) height += 4 + text(scope, promptRoom, detail.lineHeight, detail.size);
-    return height + 12 + 28 + 8;
+    if (scope) height += 2 + text(scope, inner, body.lineHeight, body.size);
+    return height + 28;
   }
-  if (question.items.length > 1) {
-    const tabs = question.items.map((each, index) => textWidth(String(each.header ?? index + 1), caption.size) + 16);
-    const rows = wrappedRows(tabs, room, 4);
-    height += 8 + rows * (caption.lineHeight + 4) + (rows - 1) * 4;
-  }
-  // List padding (4px), row padding (8px), and the 16px choice mark with its 8px gap.
-  const optionRoom = Math.max(1, width - 1 - 8 - 16 - 24);
-  height +=
-    8 +
-    item.options.reduce(
-      (sum, option) =>
+  // An ask of several questions is as tall on every page (QuestionCard `RowsSizer`): its title takes
+  // the tallest question's lines and its body the tallest question's rows and preview.
+  const title = Math.max(...question.items.map((each) => text(each.prompt, inner, titleLine, contentSize)));
+  let height = 16 + 28 + 2 + title + 8;
+  // The rows and the preview share the body, inside the card's 8 px padding (questionCard.css). The
+  // preview a page opens with is its first row's, else the first one (QuestionCard `shownPreview`).
+  const box = width - 16;
+  const bodyHeight = (each: (typeof question.items)[number]) => {
+    const preview = hasPreviews(each) ? shownPreview(each.options, [0]) : undefined;
+    const layout = preview ? experimentArm(questionPreviewLayout) : undefined;
+    // Split and even put the preview beside the rows, by their flex basis and grow (styles.css), 8 px
+    // apart, until the body is too narrow for both bases and the preview wraps under the rows.
+    const flex = layout === "split" ? [220, 2, 280, 3] : layout === "even" ? [260, 1, 280, 1] : undefined;
+    const beside = flex !== undefined && box >= flex[0]! + 8 + flex[2]!;
+    const rowsWidth = beside ? flex[0]! + ((box - flex[0]! - 8 - flex[2]!) * flex[1]!) / (flex[1]! + flex[3]!) : box;
+    // A row's label: the row's 8 px padding each side, the 20 px mark and its 10 px gap.
+    const rowRoom = Math.max(1, rowsWidth - 46);
+    let rows = each.options.reduce(
+      (sum, option, index) =>
         sum +
+        (index ? 2 : 0) +
         Math.max(
           36,
           16 +
-            text(option.label, optionRoom, 19, body.size, 600) +
-            (option.detail ? 2 + text(option.detail, optionRoom, detail.lineHeight, detail.size) : 0),
+            text(option.label, rowRoom, body.lineHeight, body.size) +
+            (option.detail ? text(option.detail, rowRoom, detail.lineHeight, detail.size) : 0),
         ),
       0,
     );
-  if (item.allowsOther) height += item.options.length ? 36 : 40;
-  return height + 8 + 28 + 8;
+    if (preview) {
+      // Inline opens under its row, 2 px below it, past the mark; beside, the taller column sets the
+      // height; under the rows, 8 px below them, the body's width.
+      if (layout === "inline") rows += 2 + previewHeight(preview, rowsWidth - 38);
+      else if (beside) rows = Math.max(rows, previewHeight(preview, box - rowsWidth - 8));
+      else rows += 8 + previewHeight(preview, box);
+    }
+    return rows;
+  };
+  height += Math.max(...question.items.map(bodyHeight));
+  // The last row (8 px gap with its hairline, unless no question has options); a narrow card wraps
+  // Skip and Send under the typed answer, on every page when any question takes one.
+  height +=
+    (question.items.some((each) => each.options.length > 0) ? 8 : 0) +
+    36 +
+    (question.items.some((each) => each.allowsOther) && inner < 320 ? 28 : 0);
+  return height;
+}
+
+type QuestionOption = AgentQuestion["items"][number]["options"][number];
+
+// An option's preview box (QuestionCard `OptionPreview`, questionCard.css): 8 px above, 12 px beside
+// and below, its label 2 px down, then 8 px to the picture: a monospace block that keeps its lines
+// (it scrolls sideways, never wraps), or an HTML frame at its least height until it reports one.
+function previewHeight(option: QuestionOption, width: number): number {
+  const label = translate("question.preview", { option: plainText(option.label) });
+  const picture =
+    option.preview?.format === "html"
+      ? HTML_PREVIEW_MIN_HEIGHT
+      : previewText(option.preview?.text ?? "").split("\n").length * detail.size * 1.45;
+  return 8 + 2 + textHeight(label, width - 24, caption.size, caption.lineHeight) + 8 + picture + 12;
+}
+
+/// A tagged ask's card (conversation/NextStepCard.tsx, NextStepCard.css), the same in every pane: a
+/// pane that cannot send draws the same rows read only and its reason in the typed answer's row.
+/// Waiting: the 8 px inset, the 28 px "Needs your input" line, a wrap-up's recap (2 px over it, 8 under),
+/// the question as a 14/20 title (8 lines at most) and its muted line (4 at most) in 8 px of side
+/// padding, Show more under them when either is cut, then each answer's row, 2 px apart: 36 px, or its
+/// label's lines when it wraps beside the number and the arrow; then the last row's 36 px under its 8 px
+/// gap. Answered or superseded: 12 px over and under, the recap and 8 + 8 px under it, the question
+/// and, 2 px under it, the answer, in 16 px of side padding. A recap alone: its box, 12 px over and
+/// under, 16 px and the hairline at the sides.
+export function nextStepCardHeight(
+  ask: NextStepAsk,
+  width: number,
+  settled?: { answer?: string; superseded?: boolean },
+  /// The chat's text scale, which the transcript's body and caption steps follow
+  /// (conversation.css `.acpmux-scroll` `--cv-text-scale`). The card's spacing tokens are fixed px in
+  /// the pane (desktop.css), at every Interface Size and density.
+  textScale = chatDensityTextScale(),
+): number {
+  const bodySize = body.size * textScale;
+  const bodyLine = body.lineHeight * textScale;
+  const room = Math.max(1, width - 32);
+  const prose = (value: string, available = room) => textHeight(plainText(value), available, bodySize, bodyLine);
+  // The recap box's hairline, a device line at any size.
+  if (!ask.question) return ask.recap ? 24 + 1 + prose(ask.recap, room - 1) : 0;
+  if (settled && (settled.answer !== undefined || settled.superseded)) {
+    const made = ask.options.find((option) => option.key && option.label === settled.answer)?.key;
+    return (
+      24 +
+      (ask.recap ? prose(ask.recap) + 16 : 0) +
+      prose(ask.question) +
+      (settled.answer !== undefined ? 2 + prose(made ? translate(made) : settled.answer) : 0)
+    );
+  }
+  const contentSize = drawnFontSize(chatDisplay());
+  const titleLine = contentSize * (20 / 14);
+  const question = textHeight(plainText(ask.question), room, contentSize, titleLine);
+  const detailLines = ask.detail ? prose(ask.detail) : 0;
+  let height = 16 + 28;
+  if (ask.recap) height += 2 + prose(ask.recap) + 8;
+  height += 2 + Math.min(8 * titleLine, question) + (ask.detail ? 2 + Math.min(4 * bodyLine, detailLines) : 0) + 8;
+  // Show more: its caption line, 4 px tucked under the text and 8 px over the answers.
+  if (question > 8 * titleLine + 0.5 || detailLines > 4 * bodyLine + 0.5)
+    height += -4 + 8 + caption.lineHeight * textScale;
+  // A row's label: the row's 8 px padding each side, the 20 px number, the 12 px arrow, 10 px apart
+  // (a read-only row keeps the arrow's room, hidden, so its label wraps where a live row's does).
+  const labelRoom = Math.max(1, width - (16 + 16 + 20 + 12 + 2 * 10));
+  ask.options.forEach((option, index) => {
+    const label = option.key ? translate(option.key) : plainText(option.label);
+    height += (index ? 2 : 0) + Math.max(36, 16 + textHeight(label, labelRoom, bodySize, bodyLine));
+  });
+  return height + (ask.options.length ? 8 + 36 : 0);
 }

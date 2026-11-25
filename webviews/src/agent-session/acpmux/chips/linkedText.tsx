@@ -49,6 +49,7 @@ function webLinkedText(text: string, key: string): ReactNode[] {
         <PathChip
           key={`${key}-${index}`}
           path={link.path!}
+          line={link.line}
           written={link.value}
           label={link.line ? `${pathName(link.path!)}:${link.line}` : undefined}
         />

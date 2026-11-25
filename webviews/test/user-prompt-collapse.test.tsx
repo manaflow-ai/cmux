@@ -361,6 +361,7 @@ try {
     // Fifty lines fold under the prompt's one Show more.
     expect(body().classList.contains("is-clamped")).toBe(true);
     expect(toggle()?.textContent).toBe(MORE);
+    // The one fold.
     expect(host.querySelectorAll("[aria-expanded]")).toHaveLength(1);
     copied.length = 0;
     await act(async () => {

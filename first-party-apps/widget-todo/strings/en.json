@@ -1,0 +1,16 @@
+{
+  "clear": "Clear",
+  "completed": "{count} Completed",
+  "empty": "Nothing to do",
+  "more": "{count} more",
+  "new.placeholder": "New item",
+  "problem": "Couldn't save: {message}",
+  "row.check": "Mark as done",
+  "row.delete": "Delete",
+  "row.uncheck": "Mark as not done",
+  "sample.1": "Buy milk",
+  "sample.2": "Call the dentist",
+  "sample.3": "Water the plants",
+  "sample.4": "Book flights",
+  "title": "To Do"
+}

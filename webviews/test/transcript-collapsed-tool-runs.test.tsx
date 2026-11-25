@@ -10,6 +10,7 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { TRANSCRIPT_LINE_ROW } from "../src/agent-session/acpmux/transcriptGrid";
 import { teardownDom } from "./support/domTeardown";
 import { importWithDom } from "./support/importWithDom";
 
@@ -120,8 +121,8 @@ test("the app routes a folded mixed run to tool rows and estimates one summary l
   const work = shaped(mixed).find((entry) => entry.id === "work")!;
   expect(work.foldRun).toBe(true);
   expect(isEditRow(work)).toBe(false);
-  // One 22px line (design/chat-transcript.md "One-line row pitch", #29965).
-  expect(layoutConversation([work], 760).heights[0]).toBe(22);
+  // One one-line row (design/chat-transcript.md "One-line row pitch", #29965; TRANSCRIPT_LINE_ROW).
+  expect(layoutConversation([work], 760).heights[0]).toBe(TRANSCRIPT_LINE_ROW);
 });
 
 test("the line's glyph is the run's main kind of work", () => {
@@ -155,7 +156,7 @@ test("the run the agent works in keeps its call in flight out, on the live line"
   const rows = shaped(mixed);
   const now = rows.find((entry) => entry.id === "now")!;
   expect(words(now)).not.toContain("bun test");
-  expect(rows.find((entry) => entry.doing)?.doing).toContain("bun test");
+  expect(rows.find((entry) => entry.doing)?.doing).toContain("Running tests");
 });
 
 // Leo, 2026-10-31: "I FUCKING HATE THESE SPINNERS FOR TOOL CALLS AND SHIT".

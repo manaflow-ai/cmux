@@ -5,6 +5,7 @@ import { locale, t } from "../strings";
 import { NumberField } from "./NumberField";
 import { Select } from "./Select";
 import type { EditorProps } from "./types";
+import { intl } from "../../../ui/intl";
 
 /** Seconds in one of a row's time units. Milliseconds rows (delays, animation times) keep their slider. */
 const UNIT_SECONDS: Partial<Record<string, number>> = { seconds: 1, minutes: 60, hours: 3600, days: 86400 };
@@ -82,7 +83,7 @@ export function isDuration(row: SchemaRow): boolean {
  * language; a zero reads in `zeroUnit` (the row's own unit), never as seconds of a days row. */
 export function durationLabel(seconds: number, zeroUnit: Intl.NumberFormatOptions["unit"] = "second"): string {
   const format = (unit: Intl.NumberFormatOptions["unit"], value: number) =>
-    new Intl.NumberFormat(locale(), { style: "unit", unit, unitDisplay: "long" }).format(value);
+    intl.NumberFormat(locale(), { style: "unit", unit, unitDisplay: "long" }).format(value);
   if (seconds === 0) return format(zeroUnit, 0);
   const units: Array<[Intl.NumberFormatOptions["unit"], number]> = [
     ["week", 7 * 86400],

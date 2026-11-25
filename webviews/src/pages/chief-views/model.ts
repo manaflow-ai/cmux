@@ -1,8 +1,11 @@
 // What the views show, derived from the app's replies (types.ts). Pure: no clock, no DOM; every
 // function takes `now` or the start of today. The ordering is the old Lanes view's (#20363; that
 // view and its agent-activity/lanes.ts are gone from the base): what needs a person first, the
-// longest idle next, working last.
+// longest idle next, working last. No row takes the time: a row's "4 min" stamp keeps its own
+// clock (parts.tsx Ago, woken when its words change) and the views get only the day, so a passing
+// minute draws no row.
 import type { AgentState, ChiefAgent, FleetMachine, FleetPR, LandingPR, LandingReply } from "./types";
+import { intl } from "../../ui/intl";
 
 export const LOCAL_MACHINE = "local";
 /** The label that marks a pull request as handed to the autolander. */
@@ -27,7 +30,80 @@ export function shortDuration(ms: number, locale?: string): string {
       : minutes < 48 * 60
         ? [Math.round(minutes / 60), "hour"]
         : [Math.round(minutes / (24 * 60)), "day"];
-  return new Intl.NumberFormat(locale, { style: "unit", unit, unitDisplay: "narrow" }).format(value);
+  return intl.NumberFormat(locale, { style: "unit", unit, unitDisplay: "narrow" }).format(value);
+}
+
+/** Rounded minutes since `at` as `shortDuration` counts them. */
+const minutesSince = (at: number, now: number) => Math.max(0, Math.round((now - at) / 60_000));
+
+/**
+ * When `shortDuration(now - at)` next reads differently: the first rounded minute whose words
+ * differ ("1 min" holds over 0 and 1; hours change at the half hour, days at the half day), so a
+ * "3 hr" stamp wakes once an hour, not each minute. Always after `now`.
+ */
+export function nextShortDuration(at: number, now: number): number {
+  const minutes = minutesSince(at, now);
+  const next =
+    minutes < 60
+      ? Math.max(minutes + 1, 2)
+      : minutes < 48 * 60
+        ? Math.min(Math.round(minutes / 60) * 60 + 30, 48 * 60)
+        : Math.round(minutes / (24 * 60)) * 24 * 60 + 12 * 60;
+  // Math.round takes a half up, so the words change half a minute before `next` whole minutes.
+  return at + (next - 0.5) * 60_000;
+}
+
+/** The next local midnight after `now`: when "today" moves. */
+export function nextDay(now: number): number {
+  const day = new Date(now);
+  return new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1).getTime();
+}
+
+/** One level of equality: the same keys, each the same value, an array's items the same in order. */
+function sameFields(a: object, b: object): boolean {
+  const left = a as Record<string, unknown>;
+  const right = b as Record<string, unknown>;
+  const keys = Object.keys(left);
+  if (keys.length !== Object.keys(right).length) return false;
+  return keys.every((key) => {
+    const x = left[key];
+    const y = right[key];
+    if (Object.is(x, y)) return true;
+    return (
+      Array.isArray(x) &&
+      Array.isArray(y) &&
+      x.length === y.length &&
+      x.every((item, index) => Object.is(item, y[index]))
+    );
+  });
+}
+
+/** Props equal one level into object props: a card or event rebuilt from unchanged data (the same
+ * agents, the same pull request) counts as unchanged. The `memo` test of the views' rows. */
+export function sameRowProps(a: object, b: object): boolean {
+  const left = a as Record<string, unknown>;
+  const right = b as Record<string, unknown>;
+  const keys = Object.keys(left);
+  if (keys.length !== Object.keys(right).length) return false;
+  return keys.every((key) => {
+    const x = left[key];
+    const y = right[key];
+    return Object.is(x, y) || (isPlain(x) && isPlain(y) && sameFields(x, y));
+  });
+}
+
+/** An object literal (a card, an event, an agent), not a Map, a Set or an array. */
+const isPlain = (value: unknown): value is object =>
+  !!value && typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype;
+
+/** The stream's new list with each unchanged agent kept as the previous object, so a change to one
+ * agent draws its row alone (the app sends every agent on each change). */
+export function keptAgents(previous: readonly ChiefAgent[], next: readonly ChiefAgent[]): ChiefAgent[] {
+  const byKey = new Map(previous.map((agent) => [`${agent.kind}:${agent.id}`, agent]));
+  return next.map((agent) => {
+    const old = byKey.get(`${agent.kind}:${agent.id}`);
+    return old && sameFields(old, agent) ? old : agent;
+  });
 }
 
 /** A person should look: it waits on them or failed. */

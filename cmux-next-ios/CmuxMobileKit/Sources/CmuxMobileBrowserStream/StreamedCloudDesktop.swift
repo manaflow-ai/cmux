@@ -27,8 +27,14 @@ extension StreamedBrowserDirectory {
     /// stopped running.
     public func cloudDesktopModel(machineID: String, teamID: String, macID: String,
                                   refused: @escaping @MainActor @Sendable (String) -> Void) -> StreamedBrowserModel? {
+        viewOnlyModel(tab: Self.cloudDesktopTab(machineID: machineID, teamID: teamID), macID: macID, refused: refused)
+    }
+
+    /// A view-only `surface` stream of `tab` over `macID`'s link (a Cloud desktop, or a Mac
+    /// display, StreamedMacDisplay.swift), or nil when not linked.
+    func viewOnlyModel(tab: String, macID: String,
+                       refused: @escaping @MainActor @Sendable (String) -> Void) -> StreamedBrowserModel? {
         guard isLive else { return nil }
-        let tab = Self.cloudDesktopTab(machineID: machineID, teamID: teamID)
         return StreamedBrowserModel(tab: tab, url: nil) { [weak self] sink, tab, _ in
             guard let link = await self?.link(macID: macID) else {
                 throw LinkError(code: "no-link", message: "Not connected to the Mac")
@@ -106,6 +112,27 @@ public struct StreamedViewOnlySurface: UIViewRepresentable {
 
     public func updateUIView(_ view: UIView, context: Context) {
         view.accessibilityLabel = label
+    }
+}
+
+/// A stream's picture taking touches and keys: every finger on it a pointer at 0...1 of the
+/// picture, the keyboard (``StreamedBrowserModel/wantsKeyboard``) typing into it. A Mac
+/// screen link's control session (its connection maps them to the Mac's input).
+public struct StreamedTouchSurface: View {
+    let model: StreamedBrowserModel
+    let label: String
+    let identifier: String
+
+    public init(model: StreamedBrowserModel, label: String, identifier: String) {
+        self.model = model
+        self.label = label
+        self.identifier = identifier
+    }
+
+    public var body: some View {
+        SimulatorSurface(model: model)
+            .accessibilityLabel(label)
+            .accessibilityIdentifier(identifier)
     }
 }
 #endif
