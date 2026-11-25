@@ -510,14 +510,19 @@ test("cmd-N: with nothing known the chip still holds its place (no layout shift)
 });
 
 /// A New Tab with Cloud picked; its Return starts Cloud (`onCloud`), and its folder grants (`onProjectPicked`).
-async function cloudTab(sessions: ReturnType<typeof session>[], fields: { startedProject?: string } = {}) {
+async function cloudTab(
+  sessions: ReturnType<typeof session>[],
+  fields: { startedProject?: string; knownProjects?: string[] } = {},
+  { offeredLate = false } = {},
+) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   act(() => root?.unmount());
   root = createRoot(host);
   const clouded: unknown[][] = [];
   const granted: string[] = [];
-  await act(async () =>
+  // PaneBody passes onProjectPicked only while Cloud is offered: `offeredLate` mounts the page before that.
+  const render = (offered: boolean) =>
     root!.render(
       <NewTabScreen
         snapshot={noChat(sessions)}
@@ -530,7 +535,7 @@ async function cloudTab(sessions: ReturnType<typeof session>[], fields: { starte
         environments
         runMode={{ mode: "cloud", onMode: noop }}
         onCloud={(...args: unknown[]) => (clouded.push(args), true)}
-        onProjectPicked={(cwd: string) => void granted.push(cwd)}
+        onProjectPicked={offered ? (cwd: string) => void granted.push(cwd) : undefined}
         onAsk={noop}
         onOpen={noop}
         onSearch={noop}
@@ -539,8 +544,12 @@ async function cloudTab(sessions: ReturnType<typeof session>[], fields: { starte
         onOpenSession={noop}
         onShowAll={noop}
       />,
-    ),
-  );
+    );
+  await act(async () => render(!offeredLate));
+  if (offeredLate) {
+    expect(granted).toEqual([]);
+    await act(async () => render(true));
+  }
   const field = host.querySelector<MarkdownFieldElement>(".nt-field")!;
   for (let turn = 0; turn < 200 && !(field.acpmuxMarkdownField && field.querySelector("[contenteditable]")); turn++)
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
@@ -574,4 +583,20 @@ test("Cloud comes back to its own last pick: a repository started on Cloud is th
   const page = await cloudTab([theirs]);
   expect(page.chip).toContain("acme/api");
   expect(page.folder).toBe("github:acme/api");
+});
+
+test("a remembered Cloud folder the host no longer lists gives way to the folder last started, never a missing folder (cmux#53226)", async () => {
+  await startChat(PICKED);
+  const { rememberCloudPick } = await import("../src/agent-session/acpmux/newtab/startedProject");
+  rememberCloudPick("/Users/dev/removed-project");
+  const page = await cloudTab([theirs], { knownProjects: [PICKED] });
+  expect(page.folder).toBe(PICKED);
+  expect(page.granted).not.toContain("/Users/dev/removed-project");
+});
+
+test("a Cloud offered after the New Tab mounts still grants the default folder, so the start can copy it (cmux#53226)", async () => {
+  await startChat(PICKED);
+  const page = await cloudTab([theirs], {}, { offeredLate: true });
+  expect(page.granted).toContain(PICKED);
+  expect(page.folder).toBe(PICKED);
 });

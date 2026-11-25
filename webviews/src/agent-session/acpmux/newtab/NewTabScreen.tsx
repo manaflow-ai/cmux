@@ -853,7 +853,13 @@ export function NewTabScreen(props: Props) {
   // repository and never No folder (cmux#53226). A folder no pick named (the tab's inherited one) still goes as
   // none: it once went as a 23 GB copy (#53186).
   const [cloudRemembered] = useState(rememberedCloudPick);
-  const cloudDefault = !picked && !none ? (cloudRemembered ?? started) : undefined;
+  // A remembered folder of this Mac counts only while the host's project list still has it (removed or deleted
+  // gives way to `started`, as cmux#51272); a GitHub repository stays as it is.
+  const cloudKnown =
+    cloudRemembered !== undefined && !githubFolderRepo(cloudRemembered)
+      ? firstProject([cloudRemembered], undefined, props.knownProjects)
+      : cloudRemembered;
+  const cloudDefault = !picked && !none ? (cloudKnown ?? started) : undefined;
   // The default is the person's pick from before: the host grants it here too, so the Cloud start can copy it.
   const grantDefault = useRef(props.onProjectPicked);
   useLayoutEffect(() => {
@@ -861,9 +867,12 @@ export function NewTabScreen(props: Props) {
   });
   const cloudDefaultHere =
     cloudMode && cloudDefault !== undefined && !githubFolderRepo(cloudDefault) ? cloudDefault : undefined;
+  // The host can grant only while Cloud is offered (PaneBody passes onProjectPicked then): a Cloud that becomes
+  // offerable after the page mounts grants the default then.
+  const canGrantDefault = props.onProjectPicked !== undefined;
   useEffect(() => {
-    if (cloudDefaultHere) grantDefault.current?.(cloudDefaultHere);
-  }, [cloudDefaultHere]);
+    if (cloudDefaultHere && canGrantDefault) grantDefault.current?.(cloudDefaultHere);
+  }, [cloudDefaultHere, canGrantDefault]);
   const cloudFolder =
     cloudDefault ??
     (picked && project !== undefined && localAskFolder === project && !githubFolderRepo(project)
