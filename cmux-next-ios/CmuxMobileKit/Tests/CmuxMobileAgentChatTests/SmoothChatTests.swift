@@ -397,7 +397,11 @@ import UIKit
         store.nextFrame = nil
         store.apply(.earlierHistory(true))
         store.apply(.batch((10..<40).flatMap { SmoothChatTests.turn($0) }))
-        let list = ChatTranscriptList(store: store, surface: AgentChatSurface())
+        let surface = AgentChatSurface()
+        // This scenario is the reader, not the newest-turn follower. Make that state explicit
+        // so `reload()` takes its anchor before prepending the older page.
+        surface.following = false
+        let list = ChatTranscriptList(store: store, surface: surface)
         list.collectionView.frame = CGRect(x: 0, y: 0, width: 390, height: 800)
         list.boundsMayHaveChanged()
         list.collectionView.layoutIfNeeded()
