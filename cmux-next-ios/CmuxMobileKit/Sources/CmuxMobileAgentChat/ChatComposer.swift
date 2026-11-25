@@ -63,7 +63,14 @@ struct ChatComposer: View {
     @State private var mentionIndex = MentionIndex()
 
     private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
-    private var hasContent: Bool { !trimmed.isEmpty || !attachments.isEmpty }
+    /// Read by the body on every key: stops at the draft's first visible character, where
+    /// trimming copied the whole draft through Foundation per key (ComposerTypingLagUITests).
+    private var hasContent: Bool {
+        #if DEBUG
+        if ComposerReturnTextView.measuresWholeDraft { return !trimmed.isEmpty || !attachments.isEmpty }
+        #endif
+        return text.contains(where: { !$0.isWhitespace }) || !attachments.isEmpty
+    }
     private var collapsedTarget: Bool { collapsible && !focus.wrappedValue && !hasContent && !expandRequested }
     /// Follows `collapsedTarget` inside an explicit `.cmuxMobileSmooth` animation.
     /// Losing focus to the keyboard's dismissal changes the target in an
@@ -73,6 +80,9 @@ struct ChatComposer: View {
     private var collapsed: Bool { shownCollapsed ?? collapsedTarget }
     /// `collapsible` as last placed: it flips when the chat's first turns come.
     @State private var placedCollapsible: Bool?
+    #if DEBUG
+    @State private var didFillTypingDemo = false
+    #endif
 
     var body: some View {
         #if DEBUG
@@ -115,20 +125,35 @@ struct ChatComposer: View {
             }
             .ignoresSafeArea()
         }
+        // Files start for the Mac the moment they are picked, not at Send (AttachmentPrestager).
+        .onChange(of: attachments.map(\.id), initial: true) { _, _ in
+            store.composerAttachmentsChanged(attachments)
+        }
         .onChange(of: photoItems) { _, items in
             guard !items.isEmpty else { return }
             Task { await loadPhotos(items) }
         }
         .cmuxMobileSensoryFeedback(.impact(weight: .light), trigger: sendCount)
-        .onChange(of: focus.wrappedValue) { _, focused in
-            if focused { expandRequested = false }
+        .onChange(of: expandRequested && focus.wrappedValue) { _, expansionFocused in
+            if expansionFocused { expandRequested = false }
         }
-        .onAppear { if expandOnAppear { expand() } }
+        .onAppear {
+            if expandOnAppear { expand() }
+            #if DEBUG
+            guard !didFillTypingDemo,
+                  let mode = ProcessInfo.processInfo.environment["CMUX_MOBILE_DEMO_CHAT_COMPOSER"],
+                  mode.hasPrefix("chars:"), text.isEmpty,
+                  let count = Int(mode.dropFirst("chars:".count).prefix(while: \.isNumber)) else { return }
+            didFillTypingDemo = true
+            text = Self.demoTypingText(count, oneParagraph: mode.hasSuffix(":oneline"))
+            focus.wrappedValue = true
+            #endif
+        }
         #if DEBUG
         .task {
             let arguments = ProcessInfo.processInfo.arguments
             guard let index = arguments.firstIndex(of: "-cmux-mobile-demo"),
-                  arguments.indices.contains(index + 1), arguments[index + 1] == "offline-send",
+                  arguments.indices.contains(index + 1), ["offline-send", "offline-held"].contains(arguments[index + 1]),
                   !ranOfflineSendDemo else { return }
             ranOfflineSendDemo = true
             text = "Run the tests and summarize the results."
@@ -171,6 +196,22 @@ struct ChatComposer: View {
             }
         }
     }
+
+    #if DEBUG
+    /// ComposerTypingLagUITests' long draft: the terminal's demo prose (a paragraph break every
+    /// four sentences), or with `oneParagraph` the same text as a single paragraph.
+    private static func demoTypingText(_ count: Int, oneParagraph: Bool) -> String {
+        let sentence = "The build fails on the second step when the cache is cold, so check the log and the screenshots before rerunning it. "
+        var text = ""
+        var index = 0
+        while text.utf8.count < count {
+            text += sentence
+            index += 1
+            if index % 4 == 0, !oneParagraph { text += "\n\n" }
+        }
+        return String(text.prefix(count))
+    }
+    #endif
 
     /// A copied image or file pasted into the field: attached as Photos or
     /// Files would attach it (`UIPasteboard.composerImages`).
@@ -238,66 +279,58 @@ struct ChatComposer: View {
     /// that wraps goes above the same controls. Before 2026-11-23 the text always had a row of its
     /// own over the controls, 96 pt tall at one line with 10 pt between the text and the buttons.
     private var card: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        ComposerCard(lineHeight: UIFont.preferredFont(forTextStyle: .body).lineHeight) {
             if !collapsed, !attachments.isEmpty || preparingVideos > 0 {
                 attachmentStrip
             }
-            ComposerRowLayout(lineHeight: UIFont.preferredFont(forTextStyle: .body).lineHeight) {
-                HStack(spacing: 0) {
-                    plusMenu
-                    if voice.placement == .leading { voiceButton }
-                }
-                if collapsed {
-                    // One placeholder: the collapsed capsule reads the same as the field it opens.
-                    Text(placeholder)
-                        .lineLimit(1)
-                        .foregroundStyle(.tertiary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        // A 44 pt target that reports one line, so the row reads it as one line.
-                        .padding(.vertical, 12)
-                        .contentShape(.rect)
-                        .padding(.vertical, -12)
-                        .onTapGesture { expand() }
-                        .accessibilityAddTraits(.isButton)
-                        .accessibilityLabel(placeholder)
-                } else {
-                    // Return starts a new line, the send button sends; a hardware
-                    // keyboard's Return sends, Shift-Return starts a new line.
-                    ChatComposerField(text: $text, placeholder: placeholder, isFocused: focus, onSend: sendFromKeyboard,
-                                      onPasteAttachments: pasteAttachments,
-                                      onLineChange: { store.lineMotionPending = true })
-                        .onAppear { if expandRequested { focus.wrappedValue = true } }
-                }
-                HStack(spacing: 4) {
-                    if !collapsed {
-                        if store.currentModelID != nil || !store.models.isEmpty || !store.modes.isEmpty
-                            || store.effortOption?.options.isEmpty == false { pickerMenu }
-                        if let usage = store.contextUsage { ContextUsageRing(usage: usage) }
-                    }
-                    // Voice mode instead of a dictation mic (the keyboard's own mic still
-                    // dictates into the field): with no draft, the send circle is the voice
-                    // button (ChatGPT's composer); while the agent runs it sits beside Stop.
-                    // Hidden unless turned on in Settings → Composer (Leo, 2026-11-22: "im
-                    // hiding this by default"); "Left of Field" puts it after +.
-                    let voiceInSend = voice.placement == .sendButton
-                    if primaryState == .empty || primaryState == .stop, voiceInSend { voiceButton }
-                    if primaryState != .empty || !voiceInSend { primaryButton }
-                }
+        } leading: {
+            HStack(spacing: 0) {
+                plusMenu
+                if voice.placement == .leading { voiceButton }
             }
-            .padding(.horizontal, 8)
-            // CMUX-46: the one-line card is the 44 pt row plus 2 pt each side, 48 pt: a true
-            // capsule at its 24 pt radius, the 36 pt circles 6 pt in from its edge (concentric).
-            // The same 48 pt whether collapsed, focused and empty, or holding one line.
-            .padding(.vertical, 2)
+        } field: {
+            if collapsed {
+                // One placeholder: the collapsed capsule reads the same as the field it opens.
+                Text(placeholder)
+                    .lineLimit(1)
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    // A 44 pt target that reports one line, so the row reads it as one line.
+                    .padding(.vertical, 12)
+                    .contentShape(.rect)
+                    .padding(.vertical, -12)
+                    .onTapGesture { expand() }
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityLabel(placeholder)
+            } else {
+                // Return starts a new line, the send button sends; a hardware
+                // keyboard's Return sends, Shift-Return starts a new line.
+                ChatComposerField(text: $text, placeholder: placeholder, isFocused: focus, onSend: sendFromKeyboard,
+                                  onPasteAttachments: pasteAttachments,
+                                  onLineChange: { store.lineMotionPending = true })
+                    .onAppear { if expandRequested { focus.wrappedValue = true } }
+            }
+        } trailing: {
+            HStack(spacing: 4) {
+                if !collapsed {
+                    if store.currentModelID != nil || !store.models.isEmpty || !store.modes.isEmpty
+                        || store.effortOption?.options.isEmpty == false { pickerMenu }
+                    if let usage = store.contextUsage { ContextUsageRing(usage: usage) }
+                }
+                // Voice mode instead of a dictation mic (the keyboard's own mic still
+                // dictates into the field): with no draft, the send circle is the voice
+                // button (ChatGPT's composer); while the agent runs it sits beside Stop.
+                // Hidden unless turned on in Settings → Composer (Leo, 2026-11-22: "im
+                // hiding this by default"); "Left of Field" puts it after +.
+                let voiceInSend = voice.placement == .sendButton
+                if primaryState == .empty || primaryState == .stop, voiceInSend { voiceButton }
+                if primaryState != .empty || !voiceInSend { primaryButton }
+            }
         }
-        .frame(minHeight: 48, alignment: .bottom)
-        // Its own height whatever it is offered: a min-height frame offered
-        // less takes the offer, and the grown draft ran outside the rounded
-        // card (user report 2026-11-12, the same rule as the terminal composer).
-        .fixedSize(horizontal: false, vertical: true)
-        .glassEffect(.regular, in: .rect(cornerRadius: 24, style: .continuous))
+        // The same 48 pt whether collapsed, focused and empty, or holding one line
+        // (``ComposerCard``, the terminal's composer too).
         .accessibilityIdentifier("chat.composer.card")
-        .padding(.horizontal, collapsed ? 20 : 12)
+        .padding(.horizontal, collapsed ? 20 : ComposerCardMetrics.horizontalInset)
     }
 
     private var placeholder: String {
