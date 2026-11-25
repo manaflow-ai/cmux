@@ -1490,6 +1490,7 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           FULL_CI: ${{ contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+          WARN_ONLY: ${{ github.event_name == 'push' && '--warn-only' || '' }}
         run: |
           python3 scripts/ci/tooling_steps.py run --workflow .github/workflows/cmux-next-guards.yml \
             --job tooling-tests --selection "$RUNNER_TEMP/tooling.out" \
@@ -1635,7 +1636,9 @@ jobs:
       - name: The Python test registry, and the tests no pull request runs
         id: tt-test-registry
         if: ${{ success() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-test-registry ')) }}
-        run: python3 scripts/ci/validate_test_execution_registry.py --pr-lanes feat-cmux-next --base-sha "$(git rev-parse HEAD^1)" ${{ github.event_name == 'push' && '--warn-only' || '' }}
+        env:
+          WARN_ONLY: ${{ github.event_name == 'push' && '--warn-only' || '' }}
+        run: python3 scripts/ci/validate_test_execution_registry.py --pr-lanes feat-cmux-next --base-sha "$(git rev-parse HEAD^1)" $WARN_ONLY
 
       # A Swift test target no pull request check runs (hq#11644): cmux#43937 added seven tests that
       # the fast tier built and listed, and no check ran. The tree check fails on a package test
