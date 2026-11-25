@@ -448,7 +448,7 @@ public actor DaemonConnection {
             if pacer.socketFailures == pacer.policy.socketRetries {
                 logger.error("cmux-tui reconnect: \(self.pacer.socketFailures) new daemon sockets failed; waiting for app activation or a reconnect")
             }
-            if delay == nil, !Task.isCancelled, !isClosedPhase { retriesSpentObserver?(serial) }
+            if delay == nil || pacer.spentTimedRetries, !Task.isCancelled, !isClosedPhase { retriesSpentObserver?(serial) }
             if pacer.waitsForToken, let delay {
                 logger.info("cmux-tui reconnect: drop budget spent; next attempt in \(String(describing: delay), privacy: .public) or on an event")
             }
@@ -480,6 +480,9 @@ public actor DaemonConnection {
                 }
             } catch {
                 logger.info("cmux-tui reconnect attempt \(self.pacer.failures) failed: \(String(describing: error), privacy: .public)")
+            }
+            if pacer.spentTimedRetries, !pacer.waitsForEventOnly, let tail = pacer.policy.slowTail {
+                logger.info("cmux-tui reconnect: timed retries spent; next attempt in \(String(describing: tail), privacy: .public) or on an event")
             }
             if pacer.waitsForEventOnly {
                 logger.info("cmux-tui reconnect: timed retries spent; waiting for the daemon socket or another event")
