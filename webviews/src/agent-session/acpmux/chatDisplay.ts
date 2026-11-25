@@ -48,6 +48,7 @@ import {
   resolveChatFontFaces,
 } from "./chatFontFaces";
 import { configureStatusVerbs } from "./statusVerbs";
+import { configureKeyStyle } from "../../ui/keyStyle";
 import { configureChatLayout } from "./chatLayout";
 import { configureThinkingLook } from "./conversation/thinkingLook";
 import { isUnreadBannerMode, type UnreadBannerMode } from "./conversation/unreadState";
@@ -144,6 +145,10 @@ export const CHAT_MINIMAP_KEY = "agentPane.display.vscodeMinimap";
 /// Settings > Agent Chat > Status Pills in All Chats (newtab/AllChatsList.tsx ChatStatusPill), off by
 /// default: a taste prototype (Taste Board #19). Not part of ChatDisplay: no transcript row is measured again.
 export const CHAT_LIST_STATUS_PILLS_KEY = "agentPane.display.chatListStatusPills";
+/// Settings > Agent Chat > Header Path, off by default (taste prototype, Taste Board #20): the header's
+/// title drawn as one monospace slash path, `repo / branch / title` (header/ThreadTitle.tsx). Off, the
+/// header shows the plain title as before. Not part of ChatDisplay: switching it measures no row again.
+export const HEADER_BREADCRUMB_KEY = "agentPane.display.headerBreadcrumb";
 /// Settings > Agent Chat > Pin Task List in Chat, off by default: the running turn's todo list pinned
 /// under its latest message (conversation/turns.ts). Off, the composer's hat shows it
 /// (subagents/SubagentTray.tsx `plan`; Leo, 2026-11-03: "we said earlier the composer hat is kinda ok?").
@@ -550,6 +555,7 @@ let current = DEFAULT_CHAT_DISPLAY;
 let raw: Values = {};
 let minimapOn = false;
 let statusPillsOn = false;
+let headerBreadcrumbOn = false;
 let pinnedPlanOn = false;
 let trayTuckedOn = false;
 let sendPopOn = false;
@@ -620,11 +626,14 @@ export function setChatDisplay(value: unknown): void {
   configureChatLayout(raw);
   configureThinkingLook(raw);
   configureSenderIconLook(raw);
+  // `app.keyStyle` and `app.shortcutLayout` (Swift AgentPaneDisplaySetting.followedAppPaths): every list here.
+  configureKeyStyle(raw);
   const readingValues = readingLookValues(raw, experimentArm(readingLook));
   const nextHighContrastArm = experimentArm(highContrastLook);
   const next = resolveChatDisplay(highContrastLookValues(readingValues, nextHighContrastArm));
   const minimap = raw[CHAT_MINIMAP_KEY] === true;
   const statusPills = raw[CHAT_LIST_STATUS_PILLS_KEY] === true;
+  const headerBreadcrumb = raw[HEADER_BREADCRUMB_KEY] === true;
   const pinnedPlan = raw[PINNED_PLAN_KEY] === true;
   const trayTucked = raw[TRAY_TUCKED_KEY] === true;
   // The pop's gate: written only when the setting changes, so a page that set its own
@@ -679,6 +688,7 @@ export function setChatDisplay(value: unknown): void {
     !facesChanged &&
     minimap === minimapOn &&
     statusPills === statusPillsOn &&
+    headerBreadcrumb === headerBreadcrumbOn &&
     pinnedPlan === pinnedPlanOn &&
     trayTucked === trayTuckedOn &&
     handle === trayHandle &&
@@ -703,6 +713,7 @@ export function setChatDisplay(value: unknown): void {
   changesPillOn = changesPill;
   minimapOn = minimap;
   statusPillsOn = statusPills;
+  headerBreadcrumbOn = headerBreadcrumb;
   pinnedPlanOn = pinnedPlan;
   trayTuckedOn = trayTucked;
   trayHandle = handle;
@@ -905,6 +916,10 @@ export const setRailShow = (show: RailShow): void =>
   changeChatDisplay(RAIL_SHOW_KEY, show === DEFAULT_RAIL_SHOW ? null : show);
 /// Whether the chat minimap is on (CHAT_MINIMAP_KEY).
 export const useChatMinimap = (): boolean => useSyncExternalStore(subscribe, minimapSnapshot, minimapSnapshot);
+const headerBreadcrumbSnapshot = () => headerBreadcrumbOn;
+/// Whether the header draws its title as a slash path (HEADER_BREADCRUMB_KEY).
+export const useHeaderBreadcrumb = (): boolean =>
+  useSyncExternalStore(subscribe, headerBreadcrumbSnapshot, headerBreadcrumbSnapshot);
 /// The rail's arm, separate from the measured chat look so switching it remeasures no transcript row.
 export const useThreadMinimapArm = (): ThreadMinimapArm | null =>
   useSyncExternalStore(subscribe, threadMinimapSnapshot, threadMinimapSnapshot);
