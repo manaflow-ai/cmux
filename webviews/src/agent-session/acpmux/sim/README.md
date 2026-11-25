@@ -271,7 +271,9 @@ the escape hatch for any record acpmux writes.
   it, or the block gap (24) when it is another agent's line (a notice or message; transcriptSpacing.ts
   `footer-to-received`, by design). `a-head-gap`: the turn's head (its "Working for" / "Worked for" line, or
   the first row under its opening row) stands at least the block gap (24) under the opening row.
-- **(b) folds**: no row folds (leaves the drawn rows, or its fold closes) before its turn's `turn_result`.
+- **(b) folds**: no row folds (leaves the drawn rows, or its fold closes) before its turn ends: its `turn_result`, or
+  the named `turn_end` acpmux logs a moment before it, where the pane already draws the turn as its result will
+  (direct.ts `endTurnId`).
   Allowed, and counted in the summary as "mid-turn sibling folds": a finished run of calls (and a
   compaction line inside it) closed with a reply of the same running turn under it: the `runs` arm of
   live-turn-work, where a run stays open until the agent's next paragraph (#48597). A run closed by the

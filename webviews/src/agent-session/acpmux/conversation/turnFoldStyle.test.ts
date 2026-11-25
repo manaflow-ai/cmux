@@ -27,7 +27,13 @@ const call = (id: string) => ({
   text: "Run",
   tool: { id, title: "Run", kind: "execute", status: "completed" },
 });
-const prompt: AcpmuxRow = { id: "p", version: 1, at: 0, kind: "user", text: "Fix it" };
+const prompt: AcpmuxRow = {
+  id: "p",
+  version: 1,
+  at: 0,
+  kind: "user",
+  text: "Fix it",
+};
 const work = (id: string, at: number, n: number) =>
   ({
     id,
@@ -36,7 +42,13 @@ const work = (id: string, at: number, n: number) =>
     kind: "activity",
     items: Array.from({ length: n }, (_, i) => call(`${id}-${i}`)),
   }) as AcpmuxRow;
-const say = (id: string, at: number, text: string): AcpmuxRow => ({ id, version: 1, at, kind: "assistant", text });
+const say = (id: string, at: number, text: string): AcpmuxRow => ({
+  id,
+  version: 1,
+  at,
+  kind: "assistant",
+  text,
+});
 const end: AcpmuxRow = {
   id: "s",
   version: 1,
@@ -144,9 +156,14 @@ test("claude: a turn that ends on a call keeps its last takeaway in sight, the c
   expect(ids(rows.filter((row) => row.kind !== "turnSummary" && row.kind !== "user"))).toEqual([worked.id, "t"]);
 });
 
-test("claude: a turn with only its reply draws no Worked for", () => {
-  const rows = turnView([prompt, say("a", 5_000, "Yes."), end], new Set(), { now: 70_000, agentFamily: "claude" });
-  expect(rows.some((row) => row.kind === WORKED)).toBe(false);
+// Leo, 2026-11-22: "accounting for space for the worked for/working heading should always be there anyways".
+test("claude: a turn with only its reply keeps its Worked for, closed over nothing, so the reply holds its place", () => {
+  const rows = turnView([prompt, say("a", 5_000, "Yes."), end], new Set(), {
+    now: 70_000,
+    agentFamily: "claude",
+  });
+  const worked = rows.find((row) => row.kind === WORKED);
+  expect(worked?.foldOpen).toBe(false);
   expect(ids(rows)).toContain("a");
 });
 

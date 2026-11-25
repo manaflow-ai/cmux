@@ -13,7 +13,7 @@ import { AcpmuxDirectClient, type EventRecord } from "../direct";
 import { turnViewFrom, type TurnView } from "../conversation/turns";
 import { layoutConversation, type AcpmuxRow, type AcpmuxSnapshot, type ConversationLayout } from "../model";
 import { acpmuxSendCall } from "../conversation/acpmuxSends";
-import { ROW_GAP_LOOKS, TRANSCRIPT_BLOCK_GAP, TRANSCRIPT_TURN_GAP, MARK_STEP, transcriptGap } from "../transcriptGrid";
+import { MARK_STEP, ROW_GAP_LOOKS, TRANSCRIPT_BLOCK_GAP, TRANSCRIPT_TURN_GAP, transcriptGap } from "../transcriptGrid";
 import { STARTED_LINE_NAMES, withSubagentLines, type DoneLineCache } from "../subagents/runningTray";
 import { SUBAGENT_STARTED } from "../subagents/subagentRows";
 import { subagentNamed } from "../subagents/subsessions";
@@ -225,7 +225,7 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
         turn += 1;
         ended = false;
       }
-      if (event.kind === "turn_result") {
+      if (event.kind === "turn_result" || endsTurn(event)) {
         if (!turnEnds.has(turn)) turnEnds.set(turn, event.at);
         ended = true;
       }
@@ -282,7 +282,7 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
         turn += 1;
         turnEnded = false;
       }
-      if (event?.kind === "turn_result") turnEnded = true;
+      if (event?.kind === "turn_result" || (event && endsTurn(event))) turnEnded = true;
       const messageId = event?.kind === "agent_message_chunk" ? event.msg?.params?.update?.messageId : undefined;
       if (typeof messageId === "string") turnMessages.add(messageId);
       const status = event?.kind === "status" ? event.msg?.status : undefined;
@@ -774,6 +774,13 @@ export async function runSimulationAsync(
     if (rows) sim.check(index, await measure(rows, scenario.steps[index]!, index, sim.state()));
   }
   return sim.result();
+}
+
+/// acpmux's `turn_end` of a named turn: the pane draws the turn's end there, as its `turn_result` (logged a moment
+/// later, with the turn's git stats) will (direct.ts `endTurnId`), so the turn has ended for the reader. Rule b
+/// counts from it: a fold the end draws is the turn's end fold, not one before it.
+function endsTurn(event: EventRecord): boolean {
+  return event.kind === "turn_end" && typeof event.msg?.turnId === "string" && event.msg.turnId !== "";
 }
 
 /// A prompt that starts a turn: the person's, or another agent's message; not the inbox's notice of threads.

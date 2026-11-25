@@ -1355,7 +1355,7 @@ function shapedTurn(
     // no time yet. The sent prompt's row is stamped when it goes, so a time here would jump from
     // "Thinking 20s" back to 0s when the turn opens (cmux#30642).
     if (user.queued) Object.assign(line, { queued: user.queued, untimed: true });
-    shaped = [...date, ...drawnUser, line];
+    shaped = [...date, ...drawnUser, ...sentHeader(user, line, sessionStatus, expanded), line];
   } else {
     const shapedBody = shapeTurn(
       user,
@@ -1397,7 +1397,8 @@ function shapedTurn(
     // IT LOOK KLIKE YOU'RE NOT RESPONDING HERE???", "this is bad. it looks like you're not working.").
     // The line is the first prompt's (`waiting` above), by id, so the turn that opens goes on with it.
     const sent = last && liveLine.length === 0 ? sentAfterTurn(held) : undefined;
-    const line = sent ? [sentLine(sent)] : liveLine;
+    const sentRow = sent ? sentLine(sent) : undefined;
+    const line = sent && sentRow ? [...sentHeader(sent, sentRow, sessionStatus, expanded), sentRow] : liveLine;
     // Other agents' messages that started a finished turn are its "Worked for"'s first entries
     // (``isAgentPrompt``): out of sight while it is closed, right under its line while it is open,
     // in time order before the work. While the turn runs, or when it did nothing to fold (a reply
@@ -1588,6 +1589,20 @@ function sentLine(sent: AcpmuxRow): AcpmuxRow {
 /// between when you send off a message versus otherwise, like it's like there's a one-two
 /// discontinuity. That's not good.").
 const LIVE_SLOT: Partial<AcpmuxRow> = { below: true };
+
+/// The "Working for" over a prompt the person sent that acpmux has not opened its turn for yet (`waiting`,
+/// `sentLine`): the turn's header (`shapeLiveRows`) under the same id, in the frame the bubble lands, so the
+/// turn opening (its echo, its first call) adds no row between the bubble and its Thinking line and moves
+/// nothing (Leo, 2026-11-25: "when i send a message in gui, the space below should automatically start
+/// accomodating for the working and the thinking already"). Its line under it reads only "Thinking", as the
+/// headed live turn's does. None where the running turn would draw no header (`livesUnderHeader`).
+function sentHeader(sent: AcpmuxRow, line: AcpmuxRow, sessionStatus: boolean, expanded: Folds): AcpmuxRow[] {
+  if (experimentArm(liveTurnClock) !== "top" || sessionStatus || !sentByPerson(sent)) return [];
+  line.untimed = true;
+  const header: AcpmuxRow = { id: turnHeaderId(sent.id), version: 1, at: sent.at, kind: WORKED, turnPhase: "running" };
+  if (experimentArm(liveTurnWork) === "folded") header.foldOpen = expanded.has(turnHeaderId(sent.id));
+  return [header];
+}
 
 const isAnswer = (row: AcpmuxRow) => row.kind === "assistant";
 
@@ -2213,13 +2228,26 @@ function shapeTurn(
       messages.sent + messages.received === 0 &&
       ((durationMs === undefined && !toolCount && callsIn(work) === 0) ||
         ((durationMs === undefined || durationMs < 1000) && lone));
-    if ((work.length && !dialogue && !unlabeled) || promptOnly) {
+    // A turn the person sent that only replied (no calls, no steers) still ends on its "Worked for": its
+    // "Working for" stood over the reply from the turn's first frame (shapeLiveTurn), and a header gone at
+    // the end would pull the reply up into its place. The closed line holds no rows.
+    const holdsHeader =
+      !foldsPrompt &&
+      first &&
+      segments.length === 1 &&
+      style.conclusion &&
+      sentByPerson(user) &&
+      summary.status === "completed" &&
+      body.some((row) => row.kind === "assistant") &&
+      steerDialogue.size === 0 &&
+      work.every(isDialogue);
+    if ((work.length && !dialogue && !unlabeled) || promptOnly || holdsHeader) {
       if (!promptOnly) folded = style.conclusion;
     } else if (lone) {
       // Its footer says no count or time under the subagent's row either (`footerSays`).
       folded = style.conclusion;
     }
-    if ((work.length && !dialogue && !unlabeled) || promptOnly) {
+    if ((work.length && !dialogue && !unlabeled) || promptOnly || holdsHeader) {
       const from = segment.anchor.at;
       // The `header` arm names the work on the line itself ("Worked for 5m 15s · Finished 2 background
       // tasks and ran 8 commands"), as every arm of workedLine but `time` does for any turn.
@@ -3399,7 +3427,7 @@ function shapeLiveRows(
   let shaped = shapeAs(chosen);
   // `folded` hides the work only under a "Working for" that opens it: a turn drawn with no such line
   // (`livesUnderHeader`) keeps every call in sight, as `open` draws it.
-  const headed = livesUnderHeader(drawn, shaped, foldsPrompt, worked);
+  const headed = livesUnderHeader(user, drawn, shaped, foldsPrompt, worked);
   if (!headed && folds && chosen === "line") shaped = shapeAs("open");
   // The line is the turn's last row, made fresh here.
   if (named?.earlier) shaped.at(-1)!.linedCall = named.tool.id;
@@ -3432,6 +3460,7 @@ function shapeLiveRows(
 /// agent started on its own after an ended stretch (its summary in the turn) or in the background
 /// has no prompt of its own to stand under.
 function livesUnderHeader(
+  user: AcpmuxRow,
   drawn: readonly AcpmuxRow[],
   shaped: readonly AcpmuxRow[],
   foldsPrompt: boolean,
@@ -3446,7 +3475,11 @@ function livesUnderHeader(
   // never comes in over the message at the first call, and the turn's end only swaps its words (Leo,
   // 2026-11-17: "the jostles and shifts and spacing are still bad here").
   // Work the open read folded counts too (`worked`, shapeLiveTurn): the line stands over it as over work it watched.
-  return foldsPrompt || worked;
+  // The person's own prompt holds its slot too, from the turn's first row: the heading standing late (at the
+  // first call) or going at the end moves what is under it (Leo, 2026-11-22: "accounting for space for the
+  // worked for/working heading should always be there anyways so it disappearing means there's multiple
+  // problems"). Its end draws the "Worked for" in the same place (shapedTurn `holdsHeader`).
+  return foldsPrompt || sentByPerson(user) || worked;
 }
 
 /// A turn's header (`shapeLiveTurn`, `shapeTurn`), keyed by the turn's prompt: its "Working for"
