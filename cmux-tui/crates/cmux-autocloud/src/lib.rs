@@ -7,6 +7,7 @@
 mod link;
 mod login;
 mod readiness;
+mod start;
 mod transcript;
 mod ui;
 
@@ -52,9 +53,22 @@ enum Cmd {
 
 #[derive(Args, Clone)]
 struct ChatArgs {
-    /// An AutoCloud machine, over the Cloud carrier (needs `login`).
-    #[arg(long, conflicts_with_all = ["host", "via"])]
+    /// An AutoCloud machine, over the Cloud carrier (needs `login`). Signed in and with no target,
+    /// the chat goes to your AutoCloud machine anyway, starting one when there is none.
+    #[arg(long, conflicts_with_all = ["host", "via", "new_machine", "local"])]
     machine: Option<String>,
+    /// Start a new AutoCloud machine for this chat (needs `login`).
+    #[arg(long, conflicts_with_all = ["host", "via", "local"])]
+    new_machine: bool,
+    /// Chat on this machine even when signed in (also `CMUX_AUTOCLOUD_START=0`).
+    #[arg(long, conflicts_with_all = ["host", "via"])]
+    local: bool,
+    /// The Cloud API machines start on: prod, staging, dev or a URL (`CMUX_AUTOCLOUD_API`).
+    #[arg(long, env = "CMUX_AUTOCLOUD_API", default_value = "prod")]
+    api: String,
+    /// The Cloud team to start machines in (default: the account's).
+    #[arg(long)]
+    team: Option<String>,
     /// A box you can SSH to that runs acpmux.
     #[arg(long, conflicts_with = "via")]
     host: Option<String>,
@@ -294,7 +308,37 @@ fn fire_prompt(link: &Link, session: &str, id: &str, text: &str, resend: bool) {
     );
 }
 
-async fn chat(args: ChatArgs) -> Result<()> {
+async fn chat(mut args: ChatArgs) -> Result<()> {
+    // Start (or reuse) the person's AutoCloud machine: asked with --new-machine, else on by
+    // default for a signed-in chat with no target (start.rs).
+    let untargeted = args.machine.is_none()
+        && args.host.is_none()
+        && args.via.is_none()
+        && args.session.is_none()
+        && args.beside.is_empty()
+        && !args.local;
+    let saved = login::load();
+    let wants_cloud = args.new_machine
+        || (untargeted
+            && start::on_by_default(
+                std::env::var(start::KILL_SWITCH).ok().as_deref(),
+                saved.is_some(),
+            ));
+    if wants_cloud {
+        let Some(session) = &saved else {
+            bail!("not signed in: run `cmux-autocloud login` first");
+        };
+        let id = start::ensure_machine(
+            &start::api_base(&args.api),
+            &session.access_token,
+            args.team.as_deref(),
+            &args.name,
+            args.new_machine,
+            &mut |line| eprintln!("{line}"),
+        )
+        .await?;
+        args.machine = Some(id);
+    }
     let spec = args.spec();
     let token = if spec.needs_sign_in() {
         match login::load() {
