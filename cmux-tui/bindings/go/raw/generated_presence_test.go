@@ -53598,6 +53598,12 @@ func TestGeneratedRequiredFieldsRejectOmission(t *testing.T) {
 			t.Fatal("missing required field pane decoded successfully")
 		}
 	})
+	t.Run("FlushLaunchSnapshotResult.Flushed", func(t *testing.T) {
+		var decoded FlushLaunchSnapshotResult
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field flushed decoded successfully")
+		}
+	})
 	t.Run("FocusDirectionRequest.Dir", func(t *testing.T) {
 		var decoded FocusDirectionRequest
 		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
@@ -62565,6 +62571,12 @@ func TestGeneratedRequiredNonnullableFieldsRejectNull(t *testing.T) {
 			t.Fatal("required non-nullable field pane accepted null")
 		}
 	})
+	t.Run("FlushLaunchSnapshotResult.Flushed", func(t *testing.T) {
+		var decoded FlushLaunchSnapshotResult
+		if err := json.Unmarshal([]byte("{\"flushed\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field flushed accepted null")
+		}
+	})
 	t.Run("FocusDirectionRequest.Dir", func(t *testing.T) {
 		var decoded FocusDirectionRequest
 		if err := json.Unmarshal([]byte("{\"dir\":null}"), &decoded); err == nil {
@@ -67793,8 +67805,8 @@ const (
 	generatedOptionalNullableFieldCount    = 1329
 	generatedRequiredNullableFieldCount    = 174
 	generatedOptionalNonnullableFieldCount = 399
-	generatedRequiredFieldCount            = 1621
-	generatedRequiredNonnullableFieldCount = 1447
+	generatedRequiredFieldCount            = 1622
+	generatedRequiredNonnullableFieldCount = 1448
 	generatedConstrainedFieldCount         = 134
 	generatedEncodedConstrainedFieldCount  = 134
 )

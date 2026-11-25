@@ -14613,6 +14613,49 @@ func (value *FloatPaneOptions) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// FlushLaunchSnapshotRequest is the exact flush-launch-snapshot wire payload.
+type FlushLaunchSnapshotRequest struct {
+}
+
+func (value *FlushLaunchSnapshotRequest) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode FlushLaunchSnapshotRequest: expected object")
+	}
+	var fields struct {
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode FlushLaunchSnapshotRequest: %w", err)
+	}
+	type wire FlushLaunchSnapshotRequest
+	var decoded wire
+	*value = FlushLaunchSnapshotRequest(decoded)
+	return nil
+}
+
+type FlushLaunchSnapshotResult struct {
+	Flushed bool `json:"flushed"`
+}
+
+func (value *FlushLaunchSnapshotResult) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode FlushLaunchSnapshotResult: expected object")
+	}
+	var fields struct {
+		Flushed *bool `json:"flushed"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode FlushLaunchSnapshotResult: %w", err)
+	}
+	type wire FlushLaunchSnapshotResult
+	var decoded wire
+	if fields.Flushed == nil {
+		return fmt.Errorf("decode FlushLaunchSnapshotResult: required field flushed is missing or null")
+	}
+	decoded.Flushed = *fields.Flushed
+	*value = FlushLaunchSnapshotResult(decoded)
+	return nil
+}
+
 // FocusDirectionRequest is the exact focus-direction wire payload.
 type FocusDirectionRequest struct {
 	Dir  PaneDirection `json:"dir"`
@@ -39113,6 +39156,13 @@ func (c *Client) FloatPane(ctx context.Context, pane ID, options FloatPaneOption
 		return result, err
 	}
 	err = c.requestGenerated(ctx, commandMetadata["float-pane"], "float-pane", params, &result)
+	return result, err
+}
+
+// FlushLaunchSnapshot sends flush-launch-snapshot. Protocol v12; authority control.
+func (c *Client) FlushLaunchSnapshot(ctx context.Context) (FlushLaunchSnapshotResult, error) {
+	var result FlushLaunchSnapshotResult
+	err := c.requestGenerated(ctx, commandMetadata["flush-launch-snapshot"], "flush-launch-snapshot", nil, &result)
 	return result, err
 }
 
