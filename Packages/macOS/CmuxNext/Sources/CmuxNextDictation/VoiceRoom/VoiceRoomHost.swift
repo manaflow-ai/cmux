@@ -1,3 +1,4 @@
+import CmuxEgress
 public import Foundation
 import Observation
 
@@ -38,6 +39,7 @@ public final class VoiceRoomHost {
     ///   - allowed: The Labs switch, read under Observation: when it turns false the room stops.
     public func open(_ address: VoiceRoomAddress, allowed: @escaping @MainActor () -> Bool) {
         if isOpen, self.address == address { return }
+        CmuxEgress.allowNamed(address.base)   // the room the person set in Settings
         session?.stop()
         let made = makeSession(address, frames)
         session = made
