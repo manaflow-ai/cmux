@@ -18,6 +18,8 @@
 //! - [`modes`]: a chat set to Cloud or to this machine only, and a move the Cloud refuses.
 //! - [`native`]: the agent's own session file going with the copy, both ways.
 //! - [`taking`]: a chat moved while its holder is in the middle of taking the Cloud's inbox.
+//! - [`chat_move`]: the same moves through `_acpmux/chat_move`, the request `cmux chat move`
+//!   and the agent's `move_chat` send.
 #![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
@@ -27,6 +29,8 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
 #[path = "auto_journey/asked.rs"]
 mod asked;
+#[path = "auto_journey/chat_move.rs"]
+mod chat_move;
 #[path = "auto_journey/journey.rs"]
 mod journey;
 #[path = "auto_journey/logs.rs"]

@@ -608,6 +608,11 @@ The manual move carries those files (`hub/transfer.rs`, `native::locate`); the A
   These are the record's three states; the place picker's rows map to them as in the table above
   (This Mac = `local`).
 - `_acpmux/auto_session/move` `{sessionId, to: "cloud" | "local"}`: the wish, sent to the store.
+- `_acpmux/chat_move` `{sessionId, on: "local" | "cloud" | "auto"}` (the base's, 2026-11-25,
+  https://github.com/manaflow-ai/cmux/pull/56018: `cmux chat move --on`, `acpmux session place`, the agent's
+  `move_chat`) is `set` by `mode` behind `chat_place::consent`, so `cloud` moves the chat now and `local`
+  brings a chat the Cloud has home before Auto goes off. As the base landed it the request set `auto` and
+  `keepInCloud` only, which moved nothing and could not bring a chat home from the Cloud.
 - A chat's row gains `autoSession.mode` and `autoSession.moving` (`"cloud" | "local"`, absent when not moving).
 - `_acpmux/chat_place` and `_acpmux/chat_place_set` (the base's) stay what they are: the pick for a chat that
   has not started. Nothing on the page calls the two requests above yet. As the base ships it (2026-11-24,
