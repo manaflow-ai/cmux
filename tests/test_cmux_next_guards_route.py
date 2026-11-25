@@ -115,9 +115,10 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
         group = jobs["ci-guard-group"]
         self.assertTrue(group["if"].startswith(  # then the land tier (tests/test_head_tier.py)
                         "${{ ((github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false' && "
-                        "needs.fast-check-route.outputs.ci_guard_group != 'false' && "
-                        "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) && "),
+                        "needs.fast-check-route.outputs.ci_guard_group != 'false')) && "),
+                        # no Tier B skip clause: a routed pull request runs it (a guard it breaks must go red on it)
                         group["if"])
+        self.assertNotIn("startsWith(github.event.pull_request.base.ref, 'feat-cmux-next')", group["if"])
         steps = {step.get("name"): step for step in group["steps"]}
         script = steps["Run the ci guard group and the routed groups"]["run"]
         calls = [line for line in script.splitlines() if "scripts/ci/guards-local.sh" in line and "--list" not in line]
