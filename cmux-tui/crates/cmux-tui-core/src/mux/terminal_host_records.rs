@@ -45,9 +45,24 @@ pub(super) fn schedule_discovered_terminal_host_cleanup(
     incarnation: Option<String>,
 ) {
     let name = format!("terminal-discovered-clean-{}", terminal_id);
-    let _ = std::thread::Builder::new().name(name).spawn(move || {
-        terminate_discovered_terminal_host_in(&root, &terminal_id, incarnation.as_deref());
-    });
+    let fallback_root = root.clone();
+    let fallback_terminal_id = terminal_id.clone();
+    let fallback_incarnation = incarnation.clone();
+    if std::thread::Builder::new()
+        .name(name)
+        .spawn(move || {
+            terminate_discovered_terminal_host_in(&root, &terminal_id, incarnation.as_deref());
+        })
+        .is_err()
+    {
+        // If the process cannot create another worker, preserve the cleanup
+        // rather than dropping the discovered host record on the floor.
+        terminate_discovered_terminal_host_in(
+            &fallback_root,
+            &fallback_terminal_id,
+            fallback_incarnation.as_deref(),
+        );
+    }
 }
 
 #[cfg(any(unix, windows))]
