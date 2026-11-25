@@ -416,7 +416,10 @@ class WorkflowShape(unittest.TestCase):
 
     def test_concurrency_per_pull_request(self):
         concurrency = workflow()["concurrency"]
-        self.assertEqual(concurrency["group"], "fast-gates-${{ github.event.pull_request.number || inputs.pr }}")
+        # Then the land tier's suffix (tests/test_ci_label_events_skip_full_ci.py): another label event gets its own group.
+        self.assertTrue(concurrency["group"].startswith("fast-gates-${{ github.event.pull_request.number || inputs.pr }}"),
+                        concurrency["group"])
+        self.assertIn("format('-label-{0}', github.run_id)", concurrency["group"])
         self.assertIs(concurrency["cancel-in-progress"], True)
 
     def test_permissions_are_minimal(self):
