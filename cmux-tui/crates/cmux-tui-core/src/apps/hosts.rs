@@ -638,7 +638,9 @@ impl Supervisor {
                 if let Some(why) = cmux_app_host::protocol::kept_state_refusal(&values, bytes) {
                     return self.log_locked(inner, &key.app, "warn", why);
                 }
-                inner.hosts.get_mut(key).expect("host").kept_state = Some(values);
+                if let Some(host) = inner.hosts.get_mut(key) {
+                    host.kept_state = Some(values);
+                }
                 vec![]
             }
             FromHost::Done { cb, ok, body } => {
