@@ -54,13 +54,17 @@ source "$(dirname "${BASH_SOURCE[0]}")/signer-env.sh"
 MODE="${CMUX_SIGN_MODE:-all}"
 [[ "$MODE" == all ]] && [[ -z "${CMUX_NEXT_CEF_ON_DEMAND:-}${CMUX_NEXT_LANGUAGE_PACKS:-}" ]] ||
   { echo "error: CMUX_SIGN_MODE=$MODE, CMUX_NEXT_CEF_ON_DEMAND and CMUX_NEXT_LANGUAGE_PACKS are not supported here" >&2; exit 2; }
-# The Screen Sharing helper ("<app> Screen Sharing.app"), when the app carries
+# The Screen Sharing helper ("<app> Helper.app", executable cmux-screen-sharing; an app built
+# before the rename has "<app> Screen Sharing.app", which the stamp renames), when the app carries
 # one: stamped for the app's final bundle id and name first (the nightly-next
 # identity went into Info.plist after the build), as sign-cmux-bundle.sh step 2.
 screen_share=""
 find_screen_share() {
   local found
   screen_share=""
+  for found in "$APP_PATH/Contents/Library/"*" Helper.app"; do
+    if [[ -e "$found/Contents/MacOS/cmux-screen-sharing" ]]; then screen_share="$found"; return 0; fi
+  done
   for found in "$APP_PATH/Contents/Library/"*" Screen Sharing.app"; do
     if [[ -d "$found/Contents" ]]; then screen_share="$found"; return 0; fi
   done
@@ -121,11 +125,16 @@ echo "==> signing as $cn"
 
 find "$APP_PATH" -name '._*' -type f -delete   # AppleDouble files from an unzip
 plist_get() { python3 -I -c 'import plistlib,sys; print(plistlib.load(open(sys.argv[1],"rb"))[sys.argv[2]])' "$@"; }
-jit="$work/jit.entitlements" empty="$work/empty.entitlements"
+jit="$work/jit.entitlements" empty="$work/empty.entitlements" cdm="$work/cdm.entitlements"
 printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' \
   '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
   '<plist version="1.0">' '<dict>' '  <key>com.apple.security.cs.allow-jit</key><true/>' '</dict>' '</plist>' > "$jit"
 sed '/<key>/d' "$jit" > "$empty"
+# The plain Chromium helper runs the Widevine CDM, which Google's team signs (sign-cef.sh).
+printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' \
+  '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+  '<plist version="1.0">' '<dict>' '  <key>com.apple.security.cs.allow-jit</key><true/>' \
+  '  <key>com.apple.security.cs.disable-library-validation</key><true/>' '</dict>' '</plist>' > "$cdm"
 
 # Effective app entitlements (sign-cmux-bundle.sh:109-133). openssl unwraps the
 # profile where the Mac uses security cms -D. cmux-next ships no tunnel.
@@ -297,7 +306,8 @@ fi
 # 3. The Chromium engine (feat-cmux-next scripts/cmux-next/sign-cef.sh, blob
 # 42525cf0): the framework, its Libraries and the shim get no entitlements;
 # of the "<product> Helper*.app" apps, the plain one, GPU and Renderer get
-# allow-jit (CEF 156 starts renderers from the plain helper).
+# allow-jit (CEF 156 starts renderers from the plain helper); the plain one also
+# disable-library-validation (it loads the Google-signed Widevine CDM).
 # The remote browser host in Contents/Helpers (rbh_sign of
 # scripts/cmux-next/remote-browser-host-layout.sh, blob 654ee654): its helper
 # apps by the same rule, the host app with no entitlements. Then every other
@@ -305,7 +315,8 @@ fi
 cef_helper() { # <helper.app>
   exe_of "$1"
   case "$1" in
-    *" Helper.app" | *" Helper (GPU).app" | *" Helper (Renderer).app") ent["$exe"]="$jit" ;;
+    *" Helper.app") ent["$exe"]="$cdm" ;;
+    *" Helper (GPU).app" | *" Helper (Renderer).app") ent["$exe"]="$jit" ;;
     *) clear["$exe"]=1 ;;
   esac
 }

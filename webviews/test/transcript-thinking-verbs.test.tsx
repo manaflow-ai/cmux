@@ -64,7 +64,7 @@ test("with no verbs, or no turn to key them, the line reads Thinking", () => {
 test("a step in flight still names the step, never the verb", () => {
   expect(
     drawn(THINKING_VERBS, { since: 1_000, verbKey: "u-1", doing: "cargo test", doingShell: true, now: () => 4_000 }),
-  ).toStartWith("Running");
+  ).toStartWith("cargo test");
 });
 
 test("English gets the verbs; another language keeps its own word for Thinking", () => {

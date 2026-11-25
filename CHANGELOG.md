@@ -4,6 +4,10 @@ All notable changes to cmux are documented here.
 
 ## [Unreleased]
 
+### Added
+- `acpmux fetch URL -o FILE` reads a large file over 16 parallel range requests (a Cloud VM's IPv4 path from GitHub is 11x faster that way), and the managed Codex install switches to it when one stream is slow.
+- Read files, byte ranges, and directory listings from paused VMs with `cmux vm file read` and `cmux vm file ls`, without starting the machine.
+
 ### Fixed
 - Cloud agent authentication failures now name missing, expired or rejected provider credentials and offer an explicit, confirmed setup followed by retrying the failed turn.
 - ACPMux `new` keeps a lone positional session name, explains `--stay` and `--wait` compatibility flags, and avoids stale, restarting or outdated placement hosts.

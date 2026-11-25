@@ -2,7 +2,7 @@
 //! (stream.rs's `encode_off_loop_tests`, moved out of the file to keep it in budget).
 
 use super::*;
-use crate::carrier::{Carrier, Incoming};
+use crate::carrier::{Carrier, DatagramDeparture, Incoming, MediaQueueStats};
 use cmux_rd_core::policy::{ConsentRule, HostPolicy, Mode, PrincipalClass};
 use cmux_rd_core::session::StartRequest;
 use cmux_rd_proto::{InputEvent, InputPacket};
@@ -83,6 +83,7 @@ struct FakeCarrier {
     seen: Arc<Seen>,
     release: Option<mpsc::Sender<()>>,
     sent_input: bool,
+    queue_stats: Option<MediaQueueStats>,
     /// Always readable, so the loop keeps reading.
     ready: (UnixStream, UnixStream),
 }
@@ -139,6 +140,9 @@ impl Carrier for FakeCarrier {
     ) -> std::io::Result<()> {
         Ok(())
     }
+    fn media_queue_stats(&self) -> Option<MediaQueueStats> {
+        self.queue_stats
+    }
     fn send_control(&mut self, _control: &Control) -> std::io::Result<()> {
         Ok(())
     }
@@ -147,10 +151,13 @@ impl Carrier for FakeCarrier {
 fn cfg() -> SessionCfg {
     SessionCfg {
         display: String::new(),
+        display_pick: None,
+        window: None,
         max_fps: 60,
         encode_profile: Default::default(),
         start_kbps: 1000,
         max_kbps: 2000,
+        pin_kbps: None,
         preset: String::new(),
         profile: String::new(),
         codec: String::new(),
@@ -163,6 +170,9 @@ fn cfg() -> SessionCfg {
         upstream_record_max_bytes: 0,
         frames_in_flight: 2,
         input_frame_now: false,
+        rtt_tail_probe: false,
+        resolution_ladder: false,
+        max_qp: cmux_rd_core::resolution::DEFAULT_MAX_QP,
         max_width: None,
         show_cursor: true,
         capture: crate::capture_backend::CaptureBackend::default(),
@@ -188,8 +198,13 @@ fn viewer_input_is_injected_while_a_frame_encodes() {
     let ready = UnixStream::pair().expect("socket pair");
     use std::io::Write;
     (&ready.0).write_all(&[1]).expect("make the carrier readable");
-    let mut carrier =
-        FakeCarrier { seen: seen.clone(), release: Some(release_tx), sent_input: false, ready };
+    let mut carrier = FakeCarrier {
+        seen: seen.clone(),
+        release: Some(release_tx),
+        sent_input: false,
+        queue_stats: None,
+        ready,
+    };
     let viewer = Principal {
         user: "owner".into(),
         install: "test".into(),
@@ -221,4 +236,114 @@ fn viewer_input_is_injected_while_a_frame_encodes() {
         seen.injected_before_encode_returned.load(SeqCst),
         "the key press waited for the encode to finish"
     );
+}
+
+/// cmux#50591: a viewer that negotiated `h264.baseline` (OpenH264) gets Constrained Baseline
+/// whatever `--profile` says; any other viewer keeps the host's profile.
+#[test]
+fn an_openh264_viewer_gets_constrained_baseline() {
+    use cmux_rd_core::service::caps::{CLOCK, H264_BASELINE};
+    let high = SessionCfg { profile: "high".into(), ..cfg() };
+    let asked = [CLOCK.to_owned(), H264_BASELINE.to_owned()];
+    assert_eq!(super::session_cfg(&high, &asked).profile, "baseline");
+    assert_eq!(super::session_cfg(&high, &[CLOCK.to_owned()]).profile, "high");
+    assert!(super::offers_h264_baseline("videotoolbox"));
+    assert!(super::offers_h264_baseline("openh264"));
+    assert!(!super::offers_h264_baseline("vp9"));
+}
+
+#[test]
+fn a_pending_send_queue_blocks_the_next_encoded_frame() {
+    let carrier = FakeCarrier {
+        seen: Arc::new(Seen::default()),
+        release: None,
+        sent_input: false,
+        queue_stats: Some(MediaQueueStats {
+            queue_frames: 1,
+            queue_datagrams: 4,
+            ..MediaQueueStats::default()
+        }),
+        ready: UnixStream::pair().expect("socket pair"),
+    };
+    assert!(encoded_frame_waits_for_queues(&carrier, None, false));
+    assert!(!encoded_frame_waits_for_queues(&carrier, None, true));
+}
+
+/// Like `LinkCarrier`: `send_datagram` only enqueues; a receipt appears when the transport
+/// writes the datagram, stamped with that write's time.
+#[derive(Default)]
+struct EnqueueOnlyCarrier {
+    queued: Vec<Vec<u8>>,
+    receipts: Vec<DatagramDeparture>,
+}
+
+impl EnqueueOnlyCarrier {
+    /// The transport writes everything queued at `departed_us`.
+    fn transmit(&mut self, departed_us: u64) {
+        for datagram in self.queued.drain(..) {
+            let (header, _) = DatagramHeader::decode(&datagram).expect("header");
+            self.receipts.push(DatagramDeparture {
+                header,
+                departed_us,
+                wire_bytes: datagram.len(),
+            });
+        }
+    }
+}
+
+impl Carrier for EnqueueOnlyCarrier {
+    fn drain_departures(&mut self, out: &mut Vec<DatagramDeparture>) {
+        out.append(&mut self.receipts);
+    }
+    fn departure_overflows(&self) -> u64 {
+        0
+    }
+    fn fds(&self) -> Vec<RawFd> {
+        Vec::new()
+    }
+    fn receive(&mut self, _out: &mut Vec<Incoming>) -> Result<(), String> {
+        Ok(())
+    }
+    fn send_datagram(&mut self, datagram: &[u8]) -> std::io::Result<()> {
+        self.queued.push(datagram.to_vec());
+        Ok(())
+    }
+    fn send_datagram_frame(
+        &mut self,
+        datagrams: Vec<Vec<u8>>,
+        _droppable: bool,
+    ) -> std::io::Result<()> {
+        self.queued.extend(datagrams);
+        Ok(())
+    }
+    fn send_control(&mut self, _control: &Control) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Review F1 on #44555: a datagram the carrier accepted but has not written has not departed.
+#[test]
+fn an_enqueued_datagram_has_no_departure_until_its_receipt() {
+    let header = DatagramHeader {
+        flags: 0,
+        kind: DatagramKind::Video,
+        stream: 0,
+        frame: 7,
+        index: 0,
+        count: 1,
+        fec_count: 0,
+        transport_seq: 19,
+    };
+    let mut carrier = EnqueueOnlyCarrier::default();
+    carrier.send_datagram(&header.encode()).expect("enqueued");
+    let mut receipts = Vec::new();
+    let mut stamps = Vec::new();
+    drain_departures(&mut carrier, &mut receipts, |h, at| stamps.push((*h, at)));
+    assert!(stamps.is_empty(), "send_datagram returning is an enqueue, not a departure");
+
+    carrier.transmit(1_234_567);
+    receipts.clear();
+    drain_departures(&mut carrier, &mut receipts, |h, at| stamps.push((*h, at)));
+    assert_eq!(stamps, vec![(header, 1_234_567)], "stamped with the receipt's own time");
+    assert_eq!(receipts.len(), 1);
 }
