@@ -128,6 +128,14 @@ extension CEFTab {
             pendingFocus = true
             return
         }
+        // The page's focus is its view's in a key window (`cmux_browser_set_embedder_active`). With no key window in
+        // the app (an inactive app an agent drives), the grant makes the page's own cmux window key, as a grant did in
+        // the other modes (Chromium activated the page window, or the in-tree page's window took the keys back); never
+        // another cmux window that has the keys, and never a Chromium window (it has none on screen).
+        if let key = Self.presentedGrantKeyWindow(current: keyWindows.keyWindow(), owner: window) {
+            host.lifecycleTrace.record(id, "grant: the presented page's window becomes key")
+            keyWindows.makeKey(key)
+        }
         if window.firstResponder === page {
             // Already its window's first responder: Chromium may have lost the page's focus meanwhile (a hide).
             page.reassertPageFocus()
@@ -136,6 +144,12 @@ extension CEFTab {
         if !FocusRoute(.person, "cmux grants a presented page the keyboard").moveKeyboard(in: window, to: page) {
             host.lifecycleTrace.record(id, "grant refused: presented page view")
         }
+    }
+
+    /// The window a grant to a presented page in `owner` makes key: `owner` when no window of the app is key, else none
+    /// (the window with the keys keeps them).
+    static func presentedGrantKeyWindow(current: NSWindow?, owner: NSWindow) -> NSWindow? {
+        current == nil ? owner : nil
     }
 
     /// cmux takes the keyboard from a presented page: its key state goes off. The page view's own resignation does the

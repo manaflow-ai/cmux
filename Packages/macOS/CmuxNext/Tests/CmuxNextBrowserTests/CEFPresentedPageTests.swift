@@ -276,6 +276,17 @@ import Testing
         #expect(shim.focus.map(\.focused) == [true, false, true])
     }
 
+    /// A grant to a presented page in an app with no key window (an agent drives an inactive app) makes the page's own
+    /// cmux window key, as a grant did in the other modes; a window that has the keys keeps them.
+    @Test func aGrantWithNoKeyWindowMakesThePagesOwnCmuxWindowKey() {
+        let other = NSWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
+        other.isReleasedWhenClosed = false
+        defer { other.close() }
+        #expect(CEFTab.presentedGrantKeyWindow(current: nil, owner: window) === window)
+        #expect(CEFTab.presentedGrantKeyWindow(current: other, owner: window) == nil)
+        #expect(CEFTab.presentedGrantKeyWindow(current: window, owner: window) == nil)
+    }
+
     // MARK: Cursor, forwarded keys
 
     @Test func chromiumsCursorShowsOverThePageView() throws {
