@@ -1,13 +1,18 @@
 import AppKit
 import CmuxNextDesign
 
-/// The panes under a pane that moves with no ground.
+/// The panes under several panes that move with no ground.
+///
+/// Under ONE pane that moves (a zoom, an unzoom, a close in which one pane takes the room) each pane shows only
+/// outside that pane: a mask with a hole on its clip, in each kind of window (`PaneCommitMotion+Under`). No one hole
+/// goes with several panes, so only an act that moves more than one pane (a close in which several panes take the
+/// room) gets this file's way.
 ///
 /// A pane that moves has the window's ground under its content where the window gives one: an opaque window's colour,
 /// or a copy of one still picture (`PaneCommitMotion+Sheet`). It then covers what is under it. A glass window, a
 /// blurred or see-through picture and a window with no picture give no ground, and a pane's tab row and the room
-/// around its content paint nothing: a pane under the one that moves would show through it. So there each pane
-/// under a pane that moves shows only past one edge of that pane, in each frame of the move.
+/// around its content paint nothing: a pane under the ones that move would show through them. So there each pane
+/// under the panes that move shows only past one edge of each of them, in each frame of the move.
 ///
 /// How. A pane's host clips what is in it to its own layer. The host's layer becomes a window that goes with the
 /// edge of the pane over it: its place and the origin of its own coordinates move by the same amount, on the act's
@@ -21,8 +26,9 @@ import CmuxNextDesign
 /// corner in some frames: the part that is past that edge and beside the other one. The side is the one that takes
 /// the least of the pane, by reads of the way (``coverSide(of:under:to:)``).
 ///
-/// The window stays at its end until the motion's end takes it away (``finish()``): a pane that a zoom covers does
-/// not come back in a frame between the spring's end and the frame that hides it.
+/// The window stays at its end until the motion's end takes it away (``finish()``): a pane that a close took out does
+/// not come back in a frame between the spring's end and the frame that hides it. A later act in the move that moves
+/// one pane gives no window; a window of the act before stays while its pane is kept under.
 extension PaneCommitMotion {
     /// One edge of a pane that moves. A pane under it shows only past that edge: `minX` at a smaller x, and so on.
     enum CoverSide: CaseIterable {
@@ -119,21 +125,21 @@ extension PaneCommitMotion {
         }
     }
 
-    /// Each pane of `hosts` (the panes that the act's move keeps under the others, or over which an unzoom's pane
-    /// closes) shows only past one edge of each pane of `changes` that has no ground and goes over it, from this pass
-    /// to the motion's end. A pane over which no such pane goes gets nothing. A pane with a window from an act before
-    /// goes on from that window's end: the 2 moves add up, as the moves of the pane over it do (a zoom, and the
-    /// unzoom in its move). When this act's window starts at another place, the pane gets this act's window alone.
+    /// Each pane of `hosts` (the panes that a close's move keeps under the others; none for an act that moves one
+    /// pane, whose way is ``cut(_:by:_:)``) shows only past one edge of each pane of `changes` that has no ground and
+    /// goes over it, from this pass to the motion's end. A pane over which no such pane goes gets nothing. A pane with
+    /// a window from an act before goes on from that window's end: the 2 moves add up, as the moves of the panes over
+    /// it do (a close, and a second close in its move). When this act's window starts at another place, the pane gets
+    /// this act's window alone.
     ///
-    /// A window of an act before goes when no pane is over its pane as that act left it, unless this act's window
-    /// goes on from it: this act moves the pane itself (an unzoom, then a zoom of a pane that came back); the move
-    /// kept the pane under and a change took it back (a close, taken back); the window was under an unzoom's pane,
-    /// and that pane left. Else it stays: the pane over it still moves.
+    /// A window of an act before goes when this act moves its pane, or when a change took its pane back into the
+    /// layout (a close, taken back), unless this act's window goes on from it. Else it stays: the move still keeps
+    /// the pane under.
     func cover(_ hosts: [PaneHostView], under changes: [Change], _ token: MotionSpring) {
         let bare = changes.filter { change in !sheets.contains { $0.host === change.host } }
         var stale = covers.filter { entry in
             let had = entry.value
-            return changes.contains { $0.host === had.host } || (had.kept ? !had.host.isLeaving : raised?.host.isLeaving ?? true)
+            return changes.contains { $0.host === had.host } || !had.host.isLeaving
         }
         defer {
             for (id, had) in stale {
@@ -175,7 +181,7 @@ extension PaneCommitMotion {
                 }
             }
             window(layer, token, from: start, to: end, over: base)
-            covers[id] = (host: host, kept: host.isLeaving, frame: frame, window: end, acts: acts)
+            covers[id] = (host: host, frame: frame, window: end, acts: acts)
             stale[id] = nil
         }
     }

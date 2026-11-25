@@ -14,10 +14,10 @@ import UniformTypeIdentifiers
 /// its children, such as the palette opened with no key window), once per display frame of its screen (a
 /// FrameClient of the window's FrameScheduler, 120 Hz on ProMotion), as JPEG frames
 /// `DIR/frame-NNNNN.jpg` plus `DIR/frames.json` (index, host time in
-/// seconds since `t0_s`, its first tick on the display link's clock). Returns at once; the recording stops by
-/// itself. For before/after motion proof of the Home tab against
-/// MessagesLab's own recordings (its `--live-send`); no Screen Recording
-/// permission is needed for an app's own window.
+/// seconds since `t0_s`: its first tick on the display link's clock, or the first captured frame of a
+/// recording from the launch, which waits for the window to show). Returns at once; the recording stops by
+/// itself. For before/after motion proof of the Home tab against MessagesLab's own recordings (its
+/// `--live-send`); no Screen Recording permission is needed for an app's own window.
 ///
 /// `frames.json` also carries, per frame, how bright it was: `luminance`, its
 /// mean Rec. 709 luminance (0...1), and `peak`, the brightest of its 64 cells.

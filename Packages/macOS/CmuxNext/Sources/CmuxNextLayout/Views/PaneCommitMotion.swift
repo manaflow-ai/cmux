@@ -18,7 +18,7 @@ import CmuxNextDesign
 /// - A pane that a close took out, or that a zoom covers, does not move: it stays as it shows, under the panes that
 ///   take its room, and hides in the frame that ends the motion (``keepsDeparted(on:)``).
 /// - A pane that moves in a window with one plain sheet colour has it under its whole cell (`PaneCommitMotion+Sheet`).
-/// - Where the window gives no such ground, a pane under one that moves shows only past its edge (`PaneCommitMotion+Cover`).
+/// - Under several panes that move with no such ground, a pane shows only past an edge of each (`PaneCommitMotion+Cover`).
 /// - An unzoom's pane closes from its screen's size to its place over the panes that come back, which do not move.
 ///   Its last frame shows at its old size under its moving clip (`PaneCommitMotion+Unzoom`); with no last frame
 ///   and no picture of its own the unzoom shows in one frame.
@@ -111,8 +111,8 @@ final class PaneCommitMotion {
     /// The hosts that show the window's ground under their content in this motion (`PaneCommitMotion+Sheet`): each with
     /// its layer's old colour, its copy of the window's picture, and its plain ground when that is a layer in its card.
     var sheets: [(host: PaneHostView, color: CGColor?, picture: CALayer?, plain: CALayer?)] = []
-    /// The hosts that show only past an edge of a pane over them, each with its window's facts (`PaneCommitMotion+Cover`).
-    var covers: [ObjectIdentifier: (host: PaneHostView, kept: Bool, frame: CGRect, window: CGRect, acts: [Int])] = [:]
+    /// The hosts that show only past an edge of each pane over them, each with its window's facts (`PaneCommitMotion+Cover`).
+    var covers: [ObjectIdentifier: (host: PaneHostView, frame: CGRect, window: CGRect, acts: [Int])] = [:]
     /// The dividers whose lines an unzoom holds back to the motion's end (`PaneCommitMotion+Lines`).
     var lateLines: [DividerHandleView] = []
     /// The window's picture that the copies show, as it was read at the motion's first act, and its screen.
@@ -294,7 +294,7 @@ final class PaneCommitMotion {
             closeOver(changes[0], last: last, others: others, act.spring)
         }
         cut(act != .split && changes.count == 1 ? others : [], by: changes[0], act.spring)
-        cover(others, under: changes, act.spring)
+        cover(changes.count == 1 ? [] : others, under: changes, act.spring) // one pane that moves: the cut above
         for view in screen.dividerViews.values where !view.isHidden {
             guard let layer = view.layer else { continue }
             let new = layer.frame
