@@ -106,6 +106,21 @@ fn the_launch_credential_rides_the_heredoc_not_argv() {
     );
 }
 
+/// The start reaches acpmux on the socket of whichever home the machine's acpmux uses:
+/// `ACPMUX_SOCKET`, the cmux daemon's acpmux home, then acpmux's own (where a machine's
+/// `acpmux.service` listens), the order cloud-journey.ts `launchCredentialStartProgram` tries.
+#[test]
+fn the_start_program_looks_for_acpmux_in_its_own_home_too() {
+    let program =
+        launch_credential_program("journey-jr-1", "claude", "CLAUDE_CODE_OAUTH_TOKEN", "x");
+    let paths = program.lines().find(|l| l.starts_with("paths = ")).expect("the socket list");
+    let at = |needle: &str| paths.find(needle).unwrap_or_else(|| panic!("{needle} in {paths}"));
+    let env = at("os.environ.get('ACPMUX_SOCKET')");
+    let cmux = at("home + '/.cmux/acpmux/acpmux.sock'");
+    let own = at("home + '/.acpmux/acpmux.sock'");
+    assert!(env < cmux && cmux < own, "{paths}");
+}
+
 #[test]
 fn stub_reply_needs_the_nonce_and_the_tool_output() {
     assert!(stub_reply_ok("Stub reply ab12. The tool printed ab12-tool.", "ab12"));
@@ -123,4 +138,105 @@ fn run_tags_look_like_the_ts_tags() {
     let tag = run_tag();
     assert!(tag.starts_with("jr-"));
     assert!(tag[3..].bytes().all(|b| b.is_ascii_digit() || b.is_ascii_lowercase()));
+}
+
+#[test]
+fn start_size_is_the_spare_shape_unless_killed() {
+    // The platform's CHAT_START_SHAPE (2 vCPU, 4 GiB, 20 GiB): the only size its Scaler claims a warm spare for.
+    assert_eq!(start_size(None), (2, 4_096, 20_480));
+    assert_eq!(start_size(Some("1")), (2, 4_096, 20_480));
+    for kill in ["0", "false", " OFF "] {
+        assert_eq!(start_size(Some(kill)), NO_SPARE_SIZE, "{kill}");
+    }
+}
+
+fn machine(
+    id: &str,
+    name: &str,
+    status: &str,
+    last_active_at: Option<i64>,
+) -> cmux_cloud_wire::CloudMachine {
+    serde_json::from_value(json!({
+        "id": id,
+        "team": "team_a",
+        "creator": "user_a",
+        "name": name,
+        "size": {"cpu": null, "memory_mb": null, "disk_mb": null},
+        "status": status,
+        "image": {"id": "img", "daemon_version": null},
+        "host": null,
+        "classic": false,
+        "created_at": 0,
+        "last_active_at": last_active_at,
+        "idle_policy": {"idle_seconds": 0},
+        "error": null,
+        "revision": "r1"
+    }))
+    .expect("CloudMachine record")
+}
+
+fn b36(mut n: i64) -> String {
+    let mut out = Vec::new();
+    while n > 0 {
+        out.push(char::from_digit(u32::try_from(n % 36).unwrap(), 36).unwrap());
+        n /= 36;
+    }
+    out.iter().rev().collect()
+}
+
+#[test]
+fn sweep_owns_only_names_a_deleting_run_gives() {
+    let t = 1_795_560_000_000_i64;
+    let tag = b36(t);
+    for name in [
+        format!("cloud journey auto jr-{tag}"),
+        format!("cloud journey auto jr-{tag} gateway"),
+        format!("cloud journey auto jr-{tag} cold"),
+        format!("cloud start bench jr-{tag} source"),
+        format!("cloud start bench jr-{tag} spare 3"),
+        format!("repro capsule nightly-next-pkg jr-{tag}"),
+    ] {
+        assert_eq!(sweep::owned_tag_ms(&name), Some(t), "{name}");
+    }
+    for name in [
+        format!("cloud journey jr-{tag}"),
+        format!("cloud journey kept jr-{tag}"),
+        format!("cloud journey auto jr-{tag} other"),
+        format!("cloud start bench jr-{tag} spare"),
+        format!("repro capsule jr-{tag}"),
+        "my machine".to_owned(),
+        "cloud journey auto jr-".to_owned(),
+        "cloud journey auto jr-UPPER".to_owned(),
+    ] {
+        assert_eq!(sweep::owned_tag_ms(&name), None, "{name}");
+    }
+}
+
+#[test]
+fn sweep_picks_stale_idle_journey_machines_only() {
+    let now = 1_795_600_000_000_i64;
+    let old = format!("jr-{}", b36(now - sweep::STALE_MS - 60_000));
+    let young = format!("jr-{}", b36(now - sweep::STALE_MS + 60_000));
+    let future = format!("jr-{}", b36(now + 60_000));
+    let rows = vec![
+        machine("vm_old", &format!("cloud journey auto {old}"), "paused", None),
+        machine(
+            "vm_capsule",
+            &format!("repro capsule c1 {old}"),
+            "running",
+            Some(now - 2 * sweep::IDLE_MS),
+        ),
+        machine("vm_young", &format!("cloud journey auto {young}"), "paused", None),
+        machine("vm_busy", &format!("cloud journey auto {old}"), "running", Some(now - 60_000)),
+        machine("vm_kept", &format!("cloud journey {old}"), "paused", None),
+        machine("vm_deleting", &format!("cloud journey auto {old}"), "deleting", None),
+        machine("vm_future", &format!("cloud journey auto {future}"), "paused", None),
+        machine("vm_person", "dev box", "paused", None),
+    ];
+    let ids: Vec<&str> = sweep::stale(&rows, now).iter().map(|m| m.id.as_str()).collect();
+    assert_eq!(ids, ["vm_old", "vm_capsule"]);
+    let many: Vec<_> = (0..40)
+        .map(|i| machine(&format!("vm_{i}"), &format!("cloud journey auto {old}"), "paused", None))
+        .collect();
+    assert_eq!(sweep::stale(&many, now).len(), sweep::MAX_PER_RUN);
 }

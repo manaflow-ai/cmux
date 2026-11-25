@@ -11,8 +11,6 @@ pub(crate) fn session_change_kind(record_kind: &str) -> Option<&str> {
         | "turn_error"
         | "renamed"
         | "titled"
-        // The row's `rollingSummary` changed (`hub/rolling_summary.rs`).
-        | "summarized"
         | "forked"
         | "imported"
         // The chat moved to another machine: the row's `movedTo` (`hub/transfer_out.rs`).

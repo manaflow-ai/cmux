@@ -2,7 +2,8 @@
   "title": "Consent card of cmux apps install --deploy self-hosted",
   "settings": {
     "labs": {
-      "previewFeatures": true
+      "previewFeatures": true,
+      "appStore": true
     }
   },
   "launch_args": [],
