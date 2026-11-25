@@ -67,6 +67,16 @@ impl Cloud for Fake {
         unreachable!("a resize runs nothing on the machine")
     }
 
+    async fn write(
+        &self,
+        _machine: &str,
+        _path: &str,
+        _data: &[u8],
+        _mode: u32,
+    ) -> Result<(), Failure> {
+        unreachable!("a resize writes no file")
+    }
+
     async fn pause(&self, _duration: Duration) {}
 }
 
