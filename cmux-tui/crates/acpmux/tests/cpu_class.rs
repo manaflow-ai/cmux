@@ -47,8 +47,6 @@ const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 const FAKE_CLAUDE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude_auto.py");
 /// The scheduler's base priority of a darwinbg process (`MAXPRI_THROTTLE`).
 const BACKGROUND_PRI: u32 = 4;
-/// The base priority at the agent tier's nice (+11, `qos::AGENT_NICE`) or under a utility clamp.
-const AGENT_TIER_PRI: u32 = 20;
 /// `IOPOL_UTILITY`: an agent host's disk tier (`qos.rs`), which a harness must not keep.
 const IOPOL_UTILITY: i64 = 4;
 /// The in-process daemon's person key (`hub/person.rs`), as a daemon the app started holds one.
@@ -85,6 +83,18 @@ fn class_priority(pid: i32) -> u32 {
 fn runs_above_background() {
     let own = base_priority(std::process::id() as i32);
     assert!(own > BACKGROUND_PRI, "the test process itself runs at background class (pri {own})");
+}
+
+/// `ps -o nice=` of `pid`: what a renice changes, and nothing else does (the scheduler priority
+/// also decays for a while as a busy process uses the CPU).
+fn nice(pid: i32) -> i32 {
+    let out = std::process::Command::new("/bin/ps")
+        .args(["-o", "nice=", "-p", &pid.to_string()])
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&out.stdout).trim().parse().unwrap_or_else(|_| {
+        panic!("ps -o nice= -p {pid}: {:?}", String::from_utf8_lossy(&out.stdout))
+    })
 }
 
 /// `ps -o ppid=` of `pid`.
@@ -558,12 +568,8 @@ fn cpu_class_a_claude_launcher_stays_above_background_by_default() {
 /// background class they waited on the disk whenever the Mac was busy (`cpu_class.rs`).
 #[test]
 fn cpu_class_claude_itself_runs_above_background_by_default() {
-    let own = base_priority(std::process::id() as i32);
     let priority = default_class_of_claude_harness_named("cl", "claude");
     assert!(priority > BACKGROUND_PRI, "Claude Code runs at background class (pri {priority})");
-    if own > AGENT_TIER_PRI {
-        assert!(priority > AGENT_TIER_PRI, "Claude Code was reniced (pri {priority}, own {own})");
-    }
 }
 
 /// Through the real daemon with nothing named anywhere and the product's own QoS (agent hosts at
@@ -571,7 +577,7 @@ fn cpu_class_claude_itself_runs_above_background_by_default() {
 /// does, at its starter's CPU priority and the default disk tier, once its start is over too.
 #[test]
 fn cpu_class_a_hosted_harness_and_its_tools_run_as_in_a_terminal_by_default() {
-    let own = base_priority(std::process::id() as i32);
+    let own = nice(std::process::id() as i32);
     let dir = scratch("dt");
     let harness = json!({"argv": ["python3", FAKE], "env": logged(&dir, &[])});
     let daemon = RealDaemon::start_full("dt", &harness, None, true);
@@ -581,17 +587,18 @@ fn cpu_class_a_hosted_harness_and_its_tools_run_as_in_a_terminal_by_default() {
     assert!(ran.status.success(), "acpmux run failed: {}", String::from_utf8_lossy(&ran.stderr));
     let report = read_json(&out);
     let tool = report["sleeper"].as_i64().unwrap() as i32;
-    let tool_pri = class_priority(tool);
-    let running = class_priority(parent(tool));
+    let harness = parent(tool);
+    // Give a wrong renice the time the daemon takes to make it: it lowers right after the start.
+    std::thread::sleep(Duration::from_secs(2));
+    let (tool_pri, running) = (class_priority(tool), class_priority(harness));
+    let (tool_nice, harness_nice) = (nice(tool), nice(harness));
     kill(tool);
     drop(daemon);
     let disk = report["diskio"].as_i64().expect("the harness's disk I/O policy");
     assert_ne!(disk, IOPOL_UTILITY, "the harness kept its agent host's utility disk tier");
     assert!(running > BACKGROUND_PRI, "the started harness runs at background class");
     assert!(tool_pri > BACKGROUND_PRI, "a tool its turn started runs at background class");
-    if own > AGENT_TIER_PRI {
-        assert!(running > AGENT_TIER_PRI, "the harness was reniced (pri {running}, own {own})");
-        assert!(tool_pri > AGENT_TIER_PRI, "its tool was reniced (pri {tool_pri}, own {own})");
-    }
+    assert_eq!(harness_nice, own.max(0), "the harness was reniced");
+    assert_eq!(tool_nice, own.max(0), "its tool was reniced");
     let _ = std::fs::remove_dir_all(&dir);
 }
