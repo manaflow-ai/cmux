@@ -187,6 +187,7 @@ await requireBrowserLane("composer-bottom-controls.browser.test.ts", async () =>
                 still = resting ? still + 1 : 0;
                 if (still >= 3) return done();
                 if (performance.now() - start > timeout) return fail(new Error("the thumb never came to rest"));
+                // raf-read: a wait for rest, not a paint sample: it polls the scrolling mark and ink each frame until three frames run still
                 requestAnimationFrame(tick);
               };
               tick();
