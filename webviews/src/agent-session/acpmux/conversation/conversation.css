@@ -6835,6 +6835,66 @@ a.cv-sha:focus-visible {
   flex: 1;
   min-width: 0;
 }
+/* The settings-ask-card experiment's `popover` arm: a chip under the turn with the Needs you mark
+   (needsYou.css .acpmux-needs-you-dot), and anchored to it the Needs you popover's own surface
+   (.acpmux-needs-you) holding the one setting's row. */
+.cv-settings-ask-anchor {
+  display: flex;
+  min-width: 0;
+}
+.cv-settings-ask-chip {
+  all: unset;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-width: 0;
+  max-width: 100%;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: var(--ds-radius-full, 999px);
+  background: var(--ds-color-elevated);
+  box-shadow: var(--elevation-1);
+  color: var(--agent-text);
+  font-size: var(--text-detail);
+  cursor: default;
+}
+:root:not([data-borders="none"]) .cv-settings-ask-chip {
+  outline: 1px solid var(--ds-color-separator);
+  outline-offset: -1px;
+}
+.cv-settings-ask-chip:hover,
+.cv-settings-ask-chip[data-open] {
+  background: var(--ds-surface-hover, var(--ds-color-elevated));
+}
+.cv-settings-ask-chip:focus-visible {
+  outline: 2px solid var(--agent-accent, currentColor);
+  outline-offset: 1px;
+}
+.cv-settings-ask-chip__dot {
+  flex: none;
+  width: 8px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--acpmux-needs-you-mark);
+}
+.cv-settings-ask-chip__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-settings-ask-popover.acpmux-needs-you {
+  max-height: none;
+}
+.cv-settings-ask-popover__panel {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 4px;
+}
+.cv-settings-ask-popover__panel .cv-settings-ask__row {
+  padding: 4px 8px 4px 12px;
+}
 /* The Connect GitHub card (GitHubConnectCard.tsx) is a next step, not a failure: GitHub's mark in
    the prose's ink, never the failure red. */
 .cv-github-connect .cv-turn-error__icon {
