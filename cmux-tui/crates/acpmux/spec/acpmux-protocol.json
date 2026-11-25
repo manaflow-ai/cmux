@@ -367,6 +367,26 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/here/beat",
+      "params": {
+        "$ref": "#/types/HereBeatParams"
+      },
+      "result": {
+        "$ref": "#/types/HereBeatDone"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/here",
+      "params": {
+        "$ref": "#/types/HereParams"
+      },
+      "result": {
+        "$ref": "#/types/HereResult"
+      }
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/markUnread",
       "params": {
         "$ref": "#/types/MarkUnreadParams"
@@ -1058,6 +1078,30 @@
       "result": true
     },
     {
+      "kind": "request",
+      "name": "_acpmux/auto_session/set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/auto_session/leftover",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/auto_session/wake",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/auto_session/transcript",
+      "params": true,
+      "result": true
+    },
+    {
       "kind": "notification",
       "name": "_acpmux/process_update",
       "params": true
@@ -1211,6 +1255,14 @@
       "name": "_acpmux/turn_shots",
       "params": {
         "$ref": "#/types/TurnShotsParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/customize_run",
+      "params": {
+        "$ref": "#/types/CustomizeRunParams"
       },
       "result": true
     },
@@ -2952,6 +3004,11 @@
       "params": true
     },
     {
+      "kind": "notification",
+      "name": "_acpmux/admission_waiting",
+      "params": true
+    },
+    {
       "kind": "client_local",
       "name": "_acpmux/disconnected",
       "params": true
@@ -3014,6 +3071,7 @@
         "approverDecisions": true,
         "argv": true,
         "author": true,
+        "autoPlace": true,
         "beforePromptId": true,
         "callerKind": true,
         "callerProtocol": true,
@@ -3357,6 +3415,7 @@
           "$ref": "#/types/RequestMeta"
         },
         "archived": true,
+        "opId": true,
         "sessionId": true
       },
       "type": "object"
@@ -3881,6 +3940,16 @@
         }
       ]
     },
+    "CustomizeRunParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "run": true
+      },
+      "type": "object"
+    },
     "DeliveryReceipt": {
       "properties": {
         "messageId": {
@@ -3912,6 +3981,36 @@
         "acknowledged"
       ],
       "type": "string"
+    },
+    "DialFail": {
+      "description": "Why a peer's route last went down (`downReason`): what the failed dial or the dropped path\nran into, typed from the error that raised it (an `io::ErrorKind`, an HTTP status, ssh's\nfailure class), never guessed from its text. When every path of a cold connect failed with\ndifferent kinds, the one a person can act on first is kept ([`DialFail::rank`]). Null\nbefore any route went down, or when no failure so far had a type.",
+      "oneOf": [
+        {
+          "const": "timeout",
+          "description": "The dial or its upgrade ran past its deadline.",
+          "type": "string"
+        },
+        {
+          "const": "refused",
+          "description": "The machine answered and refused the connection (nothing listens there).",
+          "type": "string"
+        },
+        {
+          "const": "auth",
+          "description": "The peer refused this daemon's token or this computer's ssh login.",
+          "type": "string"
+        },
+        {
+          "const": "pathChanged",
+          "description": "The path carrying the link died while another answered: the link moved there.",
+          "type": "string"
+        },
+        {
+          "const": "unreachable",
+          "description": "No route to the machine: the network or host is unreachable, or its name did not\nresolve.",
+          "type": "string"
+        }
+      ]
     },
     "Done": {
       "description": "An acknowledgement with nothing in it.",
@@ -4435,6 +4534,219 @@
         "cwd": true
       },
       "type": "object"
+    },
+    "HereActivity": {
+      "description": "What the person on a device is doing, as its client sees it.",
+      "oneOf": [
+        {
+          "const": "present",
+          "description": "The app is in front; `idleMs` says how long since the last input.",
+          "type": "string"
+        },
+        {
+          "const": "working",
+          "description": "The person is typing or driving a terminal.",
+          "type": "string"
+        },
+        {
+          "const": "away",
+          "description": "The app is in the background, the screen locked or asleep.",
+          "type": "string"
+        }
+      ]
+    },
+    "HereBeatDone": {
+      "properties": {
+        "changed": {
+          "description": "Whether the beat changed what `_acpmux/here` answers.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "changed"
+      ],
+      "type": "object"
+    },
+    "HereBeatParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/here/beat`: send about every 10 s while the app runs (a beat lives 30 s) and once\nwith `leave` when it quits. At most 64 devices are held; `seq` grows per device, so a beat\nthat arrives late or twice changes nothing.",
+      "properties": {
+        "_meta": {
+          "anyOf": [
+            {
+              "$ref": "#/types/AuthorMeta"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The person, when a peer forwards for one of its own; none is this machine's owner."
+        },
+        "activity": {
+          "$ref": "#/types/HereActivity"
+        },
+        "device": {
+          "description": "The device's stable id, one line of at most 128 bytes.",
+          "type": "string"
+        },
+        "deviceKind": {
+          "$ref": "#/types/HereDeviceKind"
+        },
+        "idleMs": {
+          "default": 0,
+          "description": "Milliseconds since the person's last input on this device.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "leave": {
+          "description": "The device is going away: drop its beat now.",
+          "type": "boolean"
+        },
+        "scopes": {
+          "description": "The chats or workspaces the device shows; at most 16, each at most 256 bytes.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "seq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "device",
+        "deviceKind",
+        "seq",
+        "activity"
+      ],
+      "type": "object"
+    },
+    "HereDevice": {
+      "properties": {
+        "ageMs": {
+          "description": "Milliseconds since its last beat, on this daemon's clock.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "device": {
+          "type": "string"
+        },
+        "deviceKind": {
+          "$ref": "#/types/HereDeviceKind"
+        },
+        "status": {
+          "$ref": "#/types/HereStatus"
+        },
+        "working": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ageMs",
+        "device",
+        "deviceKind",
+        "status",
+        "working"
+      ],
+      "type": "object"
+    },
+    "HereDeviceKind": {
+      "description": "The kind of device a heartbeat comes from.",
+      "enum": [
+        "mac",
+        "vm",
+        "phone",
+        "web",
+        "other"
+      ],
+      "type": "string"
+    },
+    "HereKind": {
+      "enum": [
+        "person",
+        "agent"
+      ],
+      "type": "string"
+    },
+    "HereMember": {
+      "description": "One person or agent, across their devices.",
+      "properties": {
+        "devices": {
+          "items": {
+            "$ref": "#/types/HereDevice"
+          },
+          "type": "array"
+        },
+        "id": {
+          "description": "`owner` for this machine's person, an author id for another, the session id for an agent.",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/types/HereKind"
+        },
+        "name": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/types/HereStatus",
+          "description": "The best status across devices."
+        },
+        "working": {
+          "description": "Typing, driving a terminal, or (an agent) in a turn.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "devices",
+        "id",
+        "kind",
+        "name",
+        "status",
+        "working"
+      ],
+      "type": "object"
+    },
+    "HereParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/here`.",
+      "properties": {
+        "scope": {
+          "description": "Only who shows this chat or workspace; agents match by session id.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "HereResult": {
+      "properties": {
+        "here": {
+          "description": "Active first, then idle, then away; people before agents; then by name.",
+          "items": {
+            "$ref": "#/types/HereMember"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "here"
+      ],
+      "type": "object"
+    },
+    "HereStatus": {
+      "description": "Best first.",
+      "enum": [
+        "active",
+        "idle",
+        "away"
+      ],
+      "type": "string"
     },
     "InboxThreadParams": {
       "additionalProperties": false,
@@ -5437,7 +5749,7 @@
       "type": "object"
     },
     "PeerStateChanged": {
-      "description": "`_acpmux/peer_state_changed`, to every watching connection (`_acpmux/watch`) when a peer's\nlink changes (`link`, `carrier`, `cause`, `reason` or `nextRetryAt`), never twice for the same one: a\npeer that is added sends its first state, and one that is removed a last `offline` with\n`error: \"removed\"`. Listed as the `peerStateEvents` feature.",
+      "description": "`_acpmux/peer_state_changed`, to every watching connection (`_acpmux/watch`) when a peer's\nlink changes (`link`, `carrier`, `cause`, `reason`, `downReason` or `nextRetryAt`), never twice for the same one: a\npeer that is added sends its first state, and one that is removed a last `offline` with\n`error: \"removed\"`. Listed as the `peerStateEvents` feature.",
       "properties": {
         "action": {
           "anyOf": [
@@ -5478,6 +5790,18 @@
             }
           ],
           "description": "Why the link is down; null while it is up or on its way the first time."
+        },
+        "downReason": {
+          "anyOf": [
+            {
+              "$ref": "#/types/DialFail"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Why the route last went down (a failed dial, or a path that died while another\nanswered); null before any did, or when no failure so far had a type. Kept while the\nlink is up again, so a surface can say why it moved. A word this build does not know (a\nnewer daemon's) reads as null, so the rest of the note still lands."
         },
         "error": {
           "description": "Why the link is down, when it is.",
@@ -5540,6 +5864,7 @@
         "at",
         "carrier",
         "cause",
+        "downReason",
         "error",
         "lastSeen",
         "link",
