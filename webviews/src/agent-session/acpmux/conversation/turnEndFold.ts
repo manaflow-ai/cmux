@@ -26,16 +26,39 @@ import {
   MOTION_SPRING_STEP,
   MOTION_EASE_OUT,
 } from "../../../motion/scale.generated";
-import { bezierAt, cssBezier, parseBezier, type CubicBezier } from "../../../ui/cubicBezier";
+import {
+  bezierAt,
+  cssBezier,
+  parseBezier,
+  type CubicBezier,
+} from "../../../ui/cubicBezier";
 import { currentChatMetrics } from "../chatDisplay";
 import { EXIT_EASING, exitLeadMs } from "./exitLead";
 import { cssTimeMs, foldMs } from "./fold";
 import { ARRIVAL_FRAME_LINES } from "./followChase";
-import { boxOf, clippedBottom, clippedBottomOf, coverClip, ghostOf, type CoverPath, isLiveClockNode } from "./turnFold";
-import { ACTIVITY_LINE, LIVE_THINKING, WORKED, NEXT_STEP, WORKING } from "./turns";
-import { isLineRow, type AcpmuxRow } from "../model";
+import {
+  boxOf,
+  clippedBottom,
+  clippedBottomOf,
+  coverClip,
+  ghostOf,
+  type CoverPath,
+  isLiveClockNode,
+} from "./turnFold";
+import {
+  ACTIVITY_LINE,
+  LIVE_THINKING,
+  WORKED,
+  NEXT_STEP,
+  WORKING,
+} from "./turns";
+import { isLineRow, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
 import { experimentArm } from "../../../experiments/experiment";
-import { turnEndFoldLook, turnEndRecapLook, turnEndSubagentLook } from "./turnEndFoldLook.experiment";
+import {
+  turnEndFoldLook,
+  turnEndRecapLook,
+  turnEndSubagentLook,
+} from "./turnEndFoldLook.experiment";
 
 /// How the rows the fold takes away go. `fade` (shipped): each copy fades out where it was while the
 /// rows that stay slide over it. `tuck`: the copies slide up under the folded line as they fade, as
@@ -132,7 +155,12 @@ export const TURN_END_LOOKS: readonly TurnEndLook[] = [
   "defer",
 ];
 /// The looks that replace in place (`playReplace`) rather than slide.
-const REPLACE_LOOKS: ReadonlySet<TurnEndLook> = new Set(["snapshot", "wipe", "sprout", "defer"]);
+const REPLACE_LOOKS: ReadonlySet<TurnEndLook> = new Set([
+  "snapshot",
+  "wipe",
+  "sprout",
+  "defer",
+]);
 /// Set on a moved row's snapshot: the id of the row it pictures (the recorder pairs the two).
 export const TURN_END_SNAPSHOT_ATTR = "data-fold-snapshot";
 
@@ -149,8 +177,16 @@ export const TURN_END_SNAPSHOT_ATTR = "data-fold-snapshot";
 ///   card's whole height in one frame (VirtualTranscript `recapCame`). Nothing fades up from below.
 /// Leo, 2026-11-22: "i think the fade in from the bottom is pretty awkward sometimes when you finish
 /// chats. this is in relation to me calling the folding looking like a gash."
-export type TurnEndRecap = "hold" | "rise" | "unfurl" | "bead" | "place" | "open";
-export const TURN_END_RECAPS: readonly TurnEndRecap[] = ["hold", "rise", "unfurl", "bead", "place", "open"];
+export type TurnEndRecap =
+  "hold" | "rise" | "unfurl" | "bead" | "place" | "open";
+export const TURN_END_RECAPS: readonly TurnEndRecap[] = [
+  "hold",
+  "rise",
+  "unfurl",
+  "bead",
+  "place",
+  "open",
+];
 export const TURN_END_RECAP_ATTR = "data-turn-end-recap";
 
 /// How a subagent block (it stays out of the fold, turns.ts `staysOut`) gets to its place under the
@@ -159,11 +195,20 @@ export const TURN_END_RECAP_ATTR = "data-turn-end-recap";
 /// - `swap`: it does not slide: its snapshot fades where it was as it fades in where it lands;
 /// - `dip`: `dissolve` for it alone: out where it was, then in where it lands.
 export type TurnEndSubagent = "slide" | "swap" | "dip";
-export const TURN_END_SUBAGENTS: readonly TurnEndSubagent[] = ["slide", "swap", "dip"];
+export const TURN_END_SUBAGENTS: readonly TurnEndSubagent[] = [
+  "slide",
+  "swap",
+  "dip",
+];
 export const TURN_END_SUBAGENT_ATTR = "data-turn-end-subagent";
 /// The subagent block's rows: the group's header and its start and done lines.
-const SUBAGENT_CLASSES = ["acpmux-subagents", "acpmux-subagentStarted", "acpmux-subagentDone"];
-const isSubagentNode = (node: Element) => SUBAGENT_CLASSES.some((name) => node.classList.contains(name));
+const SUBAGENT_CLASSES = [
+  "acpmux-subagents",
+  "acpmux-subagentStarted",
+  "acpmux-subagentDone",
+];
+const isSubagentNode = (node: Element) =>
+  SUBAGENT_CLASSES.some((name) => node.classList.contains(name));
 /// The look's attribute, on the transcript or any element over it (the gallery's variants set it).
 export const TURN_END_LOOK_ATTR = "data-turn-end-fold";
 /// `morph`'s card: the tinted surface that stands in for the folded rows while the fold closes.
@@ -183,8 +228,13 @@ const LIVE_LINE = LIVE_THINKING;
 
 /// Whether `rows` holds a running turn's line near its end.
 export function hasLiveLine(rows: readonly AcpmuxRow[]): boolean {
-  for (let index = rows.length - 1; index >= 0 && index >= rows.length - LINE_TAIL; index -= 1)
-    if (rows[index]!.id === LIVE_LINE || rows[index]!.kind === ACTIVITY_LINE) return true;
+  for (
+    let index = rows.length - 1;
+    index >= 0 && index >= rows.length - LINE_TAIL;
+    index -= 1
+  )
+    if (rows[index]!.id === LIVE_LINE || rows[index]!.kind === ACTIVITY_LINE)
+      return true;
   return false;
 }
 
@@ -193,30 +243,75 @@ export function hasLiveLine(rows: readonly AcpmuxRow[]): boolean {
 /// replays the chat under new ids) takes the line away with the prompt: no turn ended there, and
 /// nothing folds (a fold there left copies of the rows that went, the edited prompt's among them,
 /// over the new transcript).
-export function endsTurn(before: readonly AcpmuxRow[] | undefined, after: readonly AcpmuxRow[]): boolean {
-  if (before === undefined || before === after || !hasLiveLine(before)) return false;
+export function endsTurn(
+  before: readonly AcpmuxRow[] | undefined,
+  after: readonly AcpmuxRow[],
+): boolean {
+  if (before === undefined || before === after || !hasLiveLine(before))
+    return false;
   if (hasLiveLine(after)) {
     let worked: string | undefined;
-    for (let index = after.length - 1; index >= 0 && index >= after.length - LINE_TAIL; index -= 1) {
+    for (
+      let index = after.length - 1;
+      index >= 0 && index >= after.length - LINE_TAIL;
+      index -= 1
+    ) {
       if (after[index]!.kind === "user" && !isLineRow(after[index]!)) break;
       // An ended header: the running one is still the running turn's.
-      if (after[index]!.kind === WORKED && after[index]!.turnPhase !== "running") {
+      if (
+        after[index]!.kind === WORKED &&
+        after[index]!.turnPhase !== "running"
+      ) {
         worked = after[index]!.id;
         break;
       }
     }
     if (worked === undefined) return false;
     // The ended header was the running one before (turns.ts `turnHeaderId`: one row, two phases).
-    for (let index = before.length - 1; index >= 0 && index >= before.length - LINE_TAIL; index -= 1)
-      if (before[index]!.id === worked && before[index]!.turnPhase !== "running") return false;
-    if (!before.some((row) => row.id === worked && row.turnPhase === "running")) return false;
+    for (
+      let index = before.length - 1;
+      index >= 0 && index >= before.length - LINE_TAIL;
+      index -= 1
+    )
+      if (
+        before[index]!.id === worked &&
+        before[index]!.turnPhase !== "running"
+      )
+        return false;
+    if (!before.some((row) => row.id === worked && row.turnPhase === "running"))
+      return false;
   }
   let prompt: string | undefined;
-  for (let index = before.length - 1; index >= 0 && prompt === undefined; index -= 1)
+  for (
+    let index = before.length - 1;
+    index >= 0 && prompt === undefined;
+    index -= 1
+  )
     // The prompt, not a line another agent's message or the inbox drew (model.ts `isLineRow`): such a
     // line regroups under a new id as the turn ends, and its id going is no cut transcript.
-    if (before[index]!.kind === "user" && !isLineRow(before[index]!)) prompt = before[index]!.id;
+    if (before[index]!.kind === "user" && !isLineRow(before[index]!))
+      prompt = before[index]!.id;
   return prompt === undefined || after.some((row) => row.id === prompt);
+}
+
+/// Whether `snapshot`'s rows are a copy the page drew before acpmux's attach of the chat answered: a
+/// kept tail (a restored tab after Restart to Update, a cache-first open) or the page's saved snapshot.
+/// A copy keeps rows, not whether its turn still runs, so a turn its rows show running may have ended
+/// long before; the attach that says so is no end the reader is watching (Leo, 2026-11-22, after
+/// Restart to Update: "the crazy [very] stupid folding animations somehow replay even though these
+/// messages had already been seen by me"). The transcript draws that end in place, as it does a turn
+/// that ended while the page was away (VirtualTranscript.tsx `turnEnds`).
+export function drawsCopy(
+  snapshot: Pick<
+    AcpmuxSnapshot,
+    "chatAttached" | "drewKeptTail" | "connection"
+  >,
+): boolean {
+  if (snapshot.chatAttached === true) return false;
+  return (
+    snapshot.drewKeptTail === true ||
+    snapshot.connection.startsWith("connecting")
+  );
 }
 
 /// A row drawn at the swap: where its top was in the view, and its copy when the swap takes it away.
@@ -237,7 +332,8 @@ type Drawn = {
 };
 
 /// A clip that hides `bottom` px of a row's bottom and nothing past its other edges (tailGlide.ts's).
-const clipBottom = (bottom: number) => `inset(-4096px -4096px ${bottom}px -4096px)`;
+const clipBottom = (bottom: number) =>
+  `inset(-4096px -4096px ${bottom}px -4096px)`;
 
 /// The rows drawn when the turn ended, read before the swap renders.
 export type TurnEndCapture = {
@@ -264,12 +360,14 @@ export type TurnEndFold = {
   ended?: () => void;
 };
 
-const mounted = (thread: HTMLElement) => thread.querySelectorAll<HTMLElement>(":scope > .acpmux-row[data-row-id]");
+const mounted = (thread: HTMLElement) =>
+  thread.querySelectorAll<HTMLElement>(":scope > .acpmux-row[data-row-id]");
 
 /// A message the person sent, drawn as their bubble: the prompt or a steer, never the line another
 /// agent's message or a notice draws (model.ts `isLineRow`).
 const isPersonMessage = (node: HTMLElement) =>
-  node.classList.contains("acpmux-user") && !node.classList.contains("acpmux-row--line");
+  node.classList.contains("acpmux-user") &&
+  !node.classList.contains("acpmux-row--line");
 
 /// Whether the fold after `capture` would play across a message the person sent: the swap takes
 /// away a row drawn above one of their messages that stays, or takes one of their messages away.
@@ -302,7 +400,10 @@ export const turnEndFoldPerf = {
   sameFramePasses: 0,
 };
 export function resetTurnEndFoldPerf(): void {
-  for (const key of Object.keys(turnEndFoldPerf) as (keyof typeof turnEndFoldPerf)[]) turnEndFoldPerf[key] = 0;
+  for (const key of Object.keys(
+    turnEndFoldPerf,
+  ) as (keyof typeof turnEndFoldPerf)[])
+    turnEndFoldPerf[key] = 0;
 }
 
 /// Reads the rows `thread` draws now, before `after` replaces them: undefined when the fold would
@@ -319,17 +420,26 @@ export function captureTurnEnd(
   if (!thread || !scroller || foldMs(thread) <= 0) return undefined;
   const nodes = [...mounted(thread)];
   const liveLine = (node: HTMLElement) =>
-    node.dataset.rowId === LIVE_LINE || node.classList.contains(`acpmux-${ACTIVITY_LINE}`);
+    node.dataset.rowId === LIVE_LINE ||
+    node.classList.contains(`acpmux-${ACTIVITY_LINE}`);
   if (!held && !nodes.some(liveLine)) return undefined;
   // The ids the swap keeps, from the first mounted row on: rows before the window never matter.
   const first = Math.max(
     0,
-    Math.min(...nodes.map((node) => (Number(node.getAttribute("aria-posinset")) || 1) - 1)) - 1,
+    Math.min(
+      ...nodes.map(
+        (node) => (Number(node.getAttribute("aria-posinset")) || 1) - 1,
+      ),
+    ) - 1,
   );
   const kept = new Set<string>();
   // The turn's edits card takes its first edit's row id (turns.ts `editsCard`), but it is a new row
   // under the answer, not that run moved: the run goes and the card comes in.
-  for (let index = Math.min(first, after.length); index < after.length; index += 1)
+  for (
+    let index = Math.min(first, after.length);
+    index < after.length;
+    index += 1
+  )
     if (!after[index]!.merged) kept.add(after[index]!.id);
   const look = turnEndLook(thread);
   const replaces = REPLACE_LOOKS.has(look);
@@ -356,9 +466,16 @@ export function captureTurnEnd(
     const id = node.dataset.rowId!;
     if (kept.has(id)) return false;
     // The live header stays as the ended one in its slot (below): it does not go.
-    return !(node.classList.contains(`acpmux-${WORKING}`) && kept.has(`${WORKED}-${id.slice(WORKING.length + 1)}`));
+    return !(
+      node.classList.contains(`acpmux-${WORKING}`) &&
+      kept.has(`${WORKED}-${id.slice(WORKING.length + 1)}`)
+    );
   };
-  if (!nodes.some((node) => seen(node) && ((!held && liveLine(node)) || goes(node))))
+  if (
+    !nodes.some(
+      (node) => seen(node) && ((!held && liveLine(node)) || goes(node)),
+    )
+  )
     return { rows: [], scrollTop: scroller.scrollTop, sessionId, silent: true };
   const rows = nodes.map((node) => {
     const box = node.getBoundingClientRect();
@@ -366,7 +483,8 @@ export function captureTurnEnd(
     // The running header is the ended header, one row (turns.ts `turnHeaderId`): it stays, and it is
     // the folded line the copies go under. Running, it holds its chevron's slot unseen (WorkingFor.tsx).
     const id = priorId;
-    const header = node.classList.contains(`acpmux-${WORKED}`) && isLiveClockNode(node);
+    const header =
+      node.classList.contains(`acpmux-${WORKED}`) && isLiveClockNode(node);
     // A row clipped over the row gliding under it (tailGlide.ts) draws only down to that row's top:
     // the fold goes on from what it drew, never from its whole box (one read, only while clipped).
     const clip = clippedBottom(node);
@@ -378,7 +496,10 @@ export function captureTurnEnd(
       ...(header && kept.has(id) && { replacesHeader: true }),
       ...(clip > 0 && { clip, shown: box.bottom - clip }),
       ...(!kept.has(id) && { copy: ghostOf(node) }),
-      ...(kept.has(id) && (replaces || (swapsSubagents && isSubagentNode(node))) && { snapshot: snapshotOf(node, id) }),
+      ...(kept.has(id) &&
+        (replaces || (swapsSubagents && isSubagentNode(node))) && {
+          snapshot: snapshotOf(node, id),
+        }),
     };
   });
   return { rows, scrollTop: scroller.scrollTop, sessionId };
@@ -393,7 +514,9 @@ function snapshotOf(node: HTMLElement, id: string): HTMLElement {
 
 /// The recap entrance set over `node`, else the dev setting's, else the shipped `place`.
 export function turnEndRecap(node: Element): TurnEndRecap {
-  const set = node.closest(`[${TURN_END_RECAP_ATTR}]`)?.getAttribute(TURN_END_RECAP_ATTR);
+  const set = node
+    .closest(`[${TURN_END_RECAP_ATTR}]`)
+    ?.getAttribute(TURN_END_RECAP_ATTR);
   if (TURN_END_RECAPS.includes(set as TurnEndRecap)) return set as TurnEndRecap;
   const arm = experimentArm(turnEndRecapLook);
   return TURN_END_RECAPS.includes(arm) ? arm : "place";
@@ -404,20 +527,26 @@ export const RECAP_ENTRANCE_ATTR = "data-recap-entrance";
 
 /// Marks `row` with its recap entrance when it is the recap card, before its entrance's style resolves.
 export function markRecapEntrance(row: Element): void {
-  if (row.classList.contains(`acpmux-${NEXT_STEP}`)) row.setAttribute(RECAP_ENTRANCE_ATTR, turnEndRecap(row));
+  if (row.classList.contains(`acpmux-${NEXT_STEP}`))
+    row.setAttribute(RECAP_ENTRANCE_ATTR, turnEndRecap(row));
 }
 
 /// The subagent block's fold set over `node`, else the dev setting's, else the shipped `slide`.
 export function turnEndSubagent(node: Element): TurnEndSubagent {
-  const set = node.closest(`[${TURN_END_SUBAGENT_ATTR}]`)?.getAttribute(TURN_END_SUBAGENT_ATTR);
-  if (TURN_END_SUBAGENTS.includes(set as TurnEndSubagent)) return set as TurnEndSubagent;
+  const set = node
+    .closest(`[${TURN_END_SUBAGENT_ATTR}]`)
+    ?.getAttribute(TURN_END_SUBAGENT_ATTR);
+  if (TURN_END_SUBAGENTS.includes(set as TurnEndSubagent))
+    return set as TurnEndSubagent;
   const arm = experimentArm(turnEndSubagentLook);
   return TURN_END_SUBAGENTS.includes(arm) ? arm : "slide";
 }
 
 /// The look set over `node`, else the dev setting's (turnEndFoldLook.experiment.ts), else the shipped one.
 export function turnEndLook(node: Element): TurnEndLook {
-  const set = node.closest(`[${TURN_END_LOOK_ATTR}]`)?.getAttribute(TURN_END_LOOK_ATTR);
+  const set = node
+    .closest(`[${TURN_END_LOOK_ATTR}]`)
+    ?.getAttribute(TURN_END_LOOK_ATTR);
   if (TURN_END_LOOKS.includes(set as TurnEndLook)) return set as TurnEndLook;
   const arm = experimentArm(turnEndFoldLook);
   return TURN_END_LOOKS.includes(arm) ? arm : "fade";
@@ -450,7 +579,11 @@ const CAPPED_EASING = (() => {
     const t = index / 24;
     const u = Math.max(0, t - (1 - CAPPED_CRUISE));
     const x =
-      index === 24 ? 1 : speed * Math.min(t, 1 - CAPPED_CRUISE) + speed * u - (speed * u * u) / (2 * CAPPED_CRUISE);
+      index === 24
+        ? 1
+        : speed * Math.min(t, 1 - CAPPED_CRUISE) +
+          speed * u -
+          (speed * u * u) / (2 * CAPPED_CRUISE);
     return x.toFixed(4);
   });
   return `linear(${points.join(", ")})`;
@@ -466,11 +599,15 @@ function cappedMs(px: number): number {
 const ridesSheet = (look: TurnEndLook) => look === "sheet" || look === "water";
 
 /// The look's clock: `glide`, `spring`, `capped` and `water` play their own; the rest the house settle.
-function lookTiming(look: TurnEndLook, settled: { ms: number; easing: string }): { ms: number; easing: string } {
+function lookTiming(
+  look: TurnEndLook,
+  settled: { ms: number; easing: string },
+): { ms: number; easing: string } {
   if (look === "glide") return GLIDE;
   if (look === "spring") return { ms: SPRING_MS, easing: SPRING_EASING };
   if (look === "capped") return { ms: settled.ms, easing: CAPPED_EASING };
-  if (look === "water") return { ms: MOTION_MS[MOTION_SPRING_STEP], easing: MOTION_SPRING };
+  if (look === "water")
+    return { ms: MOTION_MS[MOTION_SPRING_STEP], easing: MOTION_SPRING };
   return settled;
 }
 
@@ -481,7 +618,8 @@ function curveProgress(easing: string): ((x: number) => number) | undefined {
   const linear = /^linear\((.*)\)$/.exec(easing.trim());
   if (!linear) return undefined;
   const points = linear[1]!.split(",").map((point) => Number.parseFloat(point));
-  if (points.length < 2 || points.some((point) => !Number.isFinite(point))) return undefined;
+  if (points.length < 2 || points.some((point) => !Number.isFinite(point)))
+    return undefined;
   return (x) => {
     const at = Math.min(1, Math.max(0, x)) * (points.length - 1);
     const low = Math.floor(at);
@@ -492,8 +630,12 @@ function curveProgress(easing: string): ((x: number) => number) | undefined {
 
 function settle(thread: HTMLElement): { ms: number; easing: string } {
   const style = thread.ownerDocument.defaultView?.getComputedStyle(thread);
-  const ms = cssTimeMs(style?.getPropertyValue("--cmux-motion-settle") ?? "") ?? SETTLE_FALLBACK_MS;
-  const easing = style?.getPropertyValue("--cmux-ease-settle").trim() || SETTLE_FALLBACK_EASE;
+  const ms =
+    cssTimeMs(style?.getPropertyValue("--cmux-motion-settle") ?? "") ??
+    SETTLE_FALLBACK_MS;
+  const easing =
+    style?.getPropertyValue("--cmux-ease-settle").trim() ||
+    SETTLE_FALLBACK_EASE;
   return { ms, easing };
 }
 
@@ -503,17 +645,26 @@ const FRAME_MS = 1000 / 120;
 /// The most a fold moves in one 120 Hz frame (px): ARRIVAL_FRAME_LINES of a line, as the arrival
 /// step keeps to (followChase.ts `arrivalStepMs`), under the two thirds of a line no transition's frame
 /// may move (turn-transition-jumps.test.ts).
-const foldFrameBound = () => ARRIVAL_FRAME_LINES * currentChatMetrics().lineHeight;
+const foldFrameBound = () =>
+  ARRIVAL_FRAME_LINES * currentChatMetrics().lineHeight;
 
 /// The most a move of `px` over `ms` on `curve` moves in any one 120 Hz frame: every frame-long
 /// window, read at quarter-frame offsets, since a fold's first frame may land anywhere on the grid.
 /// A window's ends are four quarter frames apart, so each step reads the curve once. It stops at the
 /// first window past `over` (the caller only asks whether the move fits). The straight line is read
 /// as it is: each frame moves the frame's share of the move.
-function longestFoldFrame(px: number, ms: number, curve: CubicBezier, over = Infinity): number {
-  if (curve[0] === curve[1] && curve[2] === curve[3]) return px * Math.min(1, FRAME_MS / ms);
+function longestFoldFrame(
+  px: number,
+  ms: number,
+  curve: CubicBezier,
+  over = Infinity,
+): number {
+  if (curve[0] === curve[1] && curve[2] === curve[3])
+    return px * Math.min(1, FRAME_MS / ms);
   const quarter = FRAME_MS / 4;
-  const ring = [0, 1, 2, 3].map((index) => bezierAt(curve, (index * quarter) / ms));
+  const ring = [0, 1, 2, 3].map((index) =>
+    bezierAt(curve, (index * quarter) / ms),
+  );
   let longest = 0;
   for (let index = 0; index * quarter < ms; index += 1) {
     const end = bezierAt(curve, ((index + 4) * quarter) / ms);
@@ -530,14 +681,22 @@ function foldFits(px: number, ms: number, easing: string): boolean {
   const curve = parseBezier(easing);
   const move = Math.abs(px);
   const most = foldFrameBound() + 1e-9;
-  return !curve || ms <= 0 || move <= foldFrameBound() || longestFoldFrame(move, ms, curve, most) <= most;
+  return (
+    !curve ||
+    ms <= 0 ||
+    move <= foldFrameBound() ||
+    longestFoldFrame(move, ms, curve, most) <= most
+  );
 }
 
 /// The first of `count` candidates that `fits`, or undefined: candidates that fit only follow ones
 /// that do not (a longer fold, or a curve leaned further toward the straight line, only slows its
 /// fastest frame), so it bisects, reading about log2(count) of them. The first is read first: most
 /// folds that need a search fit there.
-function firstFit(count: number, fits: (index: number) => boolean): number | undefined {
+function firstFit(
+  count: number,
+  fits: (index: number) => boolean,
+): number | undefined {
   if (count <= 0) return undefined;
   if (fits(0)) return 0;
   if (!fits(count - 1)) return undefined;
@@ -579,7 +738,11 @@ export function clearTurnEndFoldMemo(): void {
 /// - past about 295 px even the straight line moves more than the bound in a frame, and the fold still
 ///   ends with the settle, on the straight line: a long move resolves as fast as a short one.
 /// Curves that are not a cubic-bezier() keep `ms` and `easing`.
-export function turnEndFoldTiming(px: number, ms: number, easing: string): { ms: number; easing: string } {
+export function turnEndFoldTiming(
+  px: number,
+  ms: number,
+  easing: string,
+): { ms: number; easing: string } {
   const curve = parseBezier(easing);
   const most = foldFrameBound();
   if (!curve || ms <= 0 || Math.abs(px) <= most) return { ms, easing };
@@ -609,15 +772,24 @@ function searchFoldTiming(
   most: number,
 ): { ms: number; easing: string } {
   const over = most + 1e-9;
-  const fits = (on: CubicBezier) => longestFoldFrame(move, ms, on, over) <= over;
+  const fits = (on: CubicBezier) =>
+    longestFoldFrame(move, ms, on, over) <= over;
   // The curve the browser plays is the CSS text's, so each lean is read back from it.
   const leanText = (step: number) => {
     if (step === 0) return easing;
-    const lean = curve.map((value, index) => value + ((LINEAR_BEZIER[index]! - value) * step) / LEAN_STEPS);
+    const lean = curve.map(
+      (value, index) =>
+        value + ((LINEAR_BEZIER[index]! - value) * step) / LEAN_STEPS,
+    );
     return cssBezier(lean as unknown as CubicBezier);
   };
-  const lean = firstFit(LEAN_STEPS + 1, (step) => fits(parseBezier(leanText(step))!));
-  return { ms, easing: lean !== undefined ? leanText(lean) : cssBezier(LINEAR_BEZIER) };
+  const lean = firstFit(LEAN_STEPS + 1, (step) =>
+    fits(parseBezier(leanText(step))!),
+  );
+  return {
+    ms,
+    easing: lean !== undefined ? leanText(lean) : cssBezier(LINEAR_BEZIER),
+  };
 }
 /// How long after its first painted frame a fold's curve may still flatten: three 120 Hz frames (two at
 /// 60 Hz), the frames in which the virtualizer mounts the rows above the swap. A pass later in the
@@ -626,7 +798,10 @@ function searchFoldTiming(
 const GROW_WINDOW_MS = 3 * FRAME_MS;
 
 /// Ends `fold` at once, drawn where it lands: its animations finish and its copies go.
-export function settleTurnEnd(thread: HTMLElement | null, fold: TurnEndFold | undefined): void {
+export function settleTurnEnd(
+  thread: HTMLElement | null,
+  fold: TurnEndFold | undefined,
+): void {
   if (!fold) return;
   clearTimeout(fold.timer);
   fold.stop?.();
@@ -648,7 +823,16 @@ export function settleTurnEnd(thread: HTMLElement | null, fold: TurnEndFold | un
 /// scrolls (the bottom kept pinned).
 const READER_SCROLLS = ["wheel", "touchmove", "pointerdown"] as const;
 /// The keys that scroll the view: a reader who reads by keyboard scrolls too (rule 4).
-const SCROLL_KEYS = new Set(["PageDown", "PageUp", "Home", "End", "ArrowDown", "ArrowUp", " ", "Spacebar"]);
+const SCROLL_KEYS = new Set([
+  "PageDown",
+  "PageUp",
+  "Home",
+  "End",
+  "ArrowDown",
+  "ArrowUp",
+  " ",
+  "Spacebar",
+]);
 function endOnReaderScroll(
   thread: HTMLElement,
   scroller: HTMLElement | null | undefined,
@@ -671,7 +855,8 @@ function endOnReaderScroll(
     if (from === undefined || scroller.scrollTop === from) return;
     settleTurnEnd(thread, fold);
   };
-  for (const name of READER_SCROLLS) scroller.addEventListener(name, arm, { passive: true });
+  for (const name of READER_SCROLLS)
+    scroller.addEventListener(name, arm, { passive: true });
   scroller.addEventListener("keydown", key, true);
   scroller.addEventListener("scroll", moved, { passive: true });
   return () => {
@@ -719,7 +904,11 @@ const RISE_LINES = 0.5;
 const BEAD_SCALE = 0.96;
 
 /// The recap card's keyframes for its entrance (`TurnEndRecap`), from ink `from`; `height`, its box's.
-function recapEntrance(recap: TurnEndRecap, from: number, height: number): Keyframe[] {
+function recapEntrance(
+  recap: TurnEndRecap,
+  from: number,
+  height: number,
+): Keyframe[] {
   if (recap === "rise") {
     const rise = RISE_LINES * currentChatMetrics().lineHeight;
     return [
@@ -765,23 +954,36 @@ export type WipeSpan = { from: number; to: number };
 /// apart (the summary up top, the answer below the kept steers) played as two or three motions with
 /// stills between them (the fold fuzzer: 78 of 500 seeds). Over the spans it changes something on every
 /// frame, one motion. Never empty: with nothing in the view, a 1 px run where the first box starts.
-export function wipeSpans(boxes: { top: number; height: number }[], top?: number, bottom?: number): WipeSpan[] {
+export function wipeSpans(
+  boxes: { top: number; height: number }[],
+  top?: number,
+  bottom?: number,
+): WipeSpan[] {
   const sorted = boxes
     .map((box) => ({
       from: top === undefined ? box.top : Math.max(top, box.top),
-      to: bottom === undefined ? box.top + box.height : Math.min(bottom, box.top + box.height),
+      to:
+        bottom === undefined
+          ? box.top + box.height
+          : Math.min(bottom, box.top + box.height),
     }))
     .filter((span) => span.to > span.from)
     .sort((a, b) => a.from - b.from);
   const spans: WipeSpan[] = [];
   for (const span of sorted) {
     const last = spans.at(-1);
-    if (last && span.from <= last.to + WIPE_SPAN_JOIN_PX) last.to = Math.max(last.to, span.to);
+    if (last && span.from <= last.to + WIPE_SPAN_JOIN_PX)
+      last.to = Math.max(last.to, span.to);
     else spans.push({ ...span });
   }
   if (spans.length) return spans;
   const at = Math.min(...boxes.map((box) => box.top), bottom ?? Infinity);
-  return [{ from: Number.isFinite(at) ? at : 0, to: (Number.isFinite(at) ? at : 0) + 1 }];
+  return [
+    {
+      from: Number.isFinite(at) ? at : 0,
+      to: (Number.isFinite(at) ? at : 0) + 1,
+    },
+  ];
 }
 
 /// Rows closer than this are one stretch of a wipe's run: a gap a frame's step crosses anyway.
@@ -818,7 +1020,12 @@ export function wipeReach(spans: WipeSpan[], y: number, up = false): number {
 const clipTop = (top: number) => `inset(${top}px -4096px -4096px -4096px)`;
 /// The reader's gestures that end `defer`'s hold. Scrolls alone are not among them: the view scrolls
 /// itself to keep the bottom pinned.
-const READER_GESTURES = ["wheel", "touchstart", "keydown", "pointerdown"] as const;
+const READER_GESTURES = [
+  "wheel",
+  "touchstart",
+  "keydown",
+  "pointerdown",
+] as const;
 
 /// Plays a replace look (`snapshot`, `wipe`, `sprout`, `defer`): nothing slides. Each row that moved is
 /// drawn where it lands from the first frame, the rows the swap added where they land; over them, the
@@ -835,16 +1042,28 @@ function playReplace(
   const fold: TurnEndFold = { animations: new Set(), copies: new Set() };
   const View = thread.ownerDocument.defaultView;
   const timeline = thread.ownerDocument.timeline;
-  const now = () => (typeof timeline?.currentTime === "number" ? timeline.currentTime : performance.now());
+  const now = () =>
+    typeof timeline?.currentTime === "number"
+      ? timeline.currentTime
+      : performance.now();
   const settleMs = settle(thread).ms;
-  const ms = look === "snapshot" ? settleMs : look === "sprout" ? SPROUT_TRAVEL_MS + SPROUT_FADE_MS : WIPE.ms;
+  const ms =
+    look === "snapshot"
+      ? settleMs
+      : look === "sprout"
+        ? SPROUT_TRAVEL_MS + SPROUT_FADE_MS
+        : WIPE.ms;
   const edgeAt = curveProgress(WIPE.easing) ?? ((x: number) => x);
-  const was = new Map(capture.rows.filter((row) => !row.copy).map((row) => [row.id, row]));
+  const was = new Map(
+    capture.rows.filter((row) => !row.copy).map((row) => [row.id, row]),
+  );
   const gone = capture.rows.filter((row) => row.copy);
   /// The old frame: each element, and the top it was drawn at (in the view, as `layoutTops`).
   const old = new Map<HTMLElement, number>([
     ...gone.map((row) => [row.copy!, row.top] as const),
-    ...[...was.values()].filter((row) => row.snapshot).map((row) => [row.snapshot!, row.top] as const),
+    ...[...was.values()]
+      .filter((row) => row.snapshot)
+      .map((row) => [row.snapshot!, row.top] as const),
   ]);
   /// When the swap starts: the first painted frame, `defer`'s hold after it, or the reader's gesture.
   let startsAt: number | undefined;
@@ -853,11 +1072,17 @@ function playReplace(
   /// change merged, the rows between them that stay skipped). `up`: it runs from the bottom up, when the
   /// rows that move go down more than up, so it reaches most moved rows' new place before their old one.
   let edge: { spans: WipeSpan[]; up: boolean } | undefined;
-  const played = new Map<HTMLElement, { key: string; animations: Animation[] }>();
+  const played = new Map<
+    HTMLElement,
+    { key: string; animations: Animation[] }
+  >();
   const toStart = () => (startsAt === undefined ? hold : startsAt - now());
   const arm = () => {
     clearTimeout(fold.timer);
-    fold.timer = setTimeout(() => settleTurnEnd(thread, fold), Math.max(0, toStart() + ms + 50));
+    fold.timer = setTimeout(
+      () => settleTurnEnd(thread, fold),
+      Math.max(0, toStart() + ms + 50),
+    );
   };
   const drop = (element: HTMLElement) => {
     for (const animation of played.get(element)?.animations ?? []) {
@@ -907,7 +1132,9 @@ function playReplace(
       }
     }
     const tops = layoutTops(nodes);
-    const layers = [...old.keys()].filter((element) => fold.copies.has(element));
+    const layers = [...old.keys()].filter((element) =>
+      fold.copies.has(element),
+    );
     const layerTops = layoutTops(layers);
     const heights = nodes.map((node) => node.offsetHeight);
     const layerHeights = layers.map((element) => element.offsetHeight);
@@ -919,7 +1146,11 @@ function playReplace(
     let travel = 0;
     nodes.forEach((node, index) => {
       const before = was.get(node.dataset.rowId!);
-      if (before && Math.abs(before.top - tops[index]!) < 0.5 && !played.has(node)) {
+      if (
+        before &&
+        Math.abs(before.top - tops[index]!) < 0.5 &&
+        !played.has(node)
+      ) {
         if (before.snapshot) still.add(before.snapshot);
         return;
       }
@@ -934,7 +1165,12 @@ function playReplace(
       const snapshot = was.get(box.node.dataset.rowId!)?.snapshot;
       if (snapshot) lands.set(snapshot, box);
     }
-    const stale: { element: HTMLElement; top: number; height: number; lands?: { top: number; height: number } }[] = [];
+    const stale: {
+      element: HTMLElement;
+      top: number;
+      height: number;
+      lands?: { top: number; height: number };
+    }[] = [];
     layers.forEach((element, index) => {
       if (still.has(element)) {
         drop(element);
@@ -945,12 +1181,20 @@ function playReplace(
       // Held where it was drawn, whatever the view did since.
       const drawn = old.get(element)!;
       element.style.translate = `0 ${drawn - layerTops[index]!}px`;
-      stale.push({ element, top: drawn, height: layerHeights[index]!, lands: lands.get(element) });
+      stale.push({
+        element,
+        top: drawn,
+        height: layerHeights[index]!,
+        lands: lands.get(element),
+      });
     });
     if (!edge) {
       const boxes = [...fresh, ...stale];
       if (boxes.length === 0) return;
-      edge = { spans: wipeSpans(boxes, view?.top, view?.bottom), up: travel > 0 };
+      edge = {
+        spans: wipeSpans(boxes, view?.top, view?.bottom),
+        up: travel > 0,
+      };
     }
     const { spans, up } = edge;
     /// Where a box of the view crosses the edge's run, as a fraction of it (0 where it starts, 1 at its end).
@@ -981,7 +1225,9 @@ function playReplace(
     /// stops, so the rows the reader IS looking at would animate differently than they do today. What
     /// the guard changes is which rows animate, never the edge they animate against.
     const boxSeen = (top: number, height: number) =>
-      !view || view.height === 0 || (top + height >= view.top && top <= view.bottom);
+      !view ||
+      view.height === 0 ||
+      (top + height >= view.top && top <= view.bottom);
     // `snapshot`: the new frame comes in on the ease-out as the old goes on the ease-in, all on one clock.
     // `sprout`: each box crossfades over the micro step once the edge reaches its middle.
     // `wipe`, `defer`: each box is clipped at the edge, the new above it and the old below it.
@@ -995,14 +1241,26 @@ function playReplace(
       // stays once the entrance ended, so the entrance itself is what counts.
       const enters =
         node.matches(".acpmux-row--enter, .acpmux-row--message-enter") &&
-        node.getAnimations().some((animation) => animation.playState === "running" || animation.playState === "paused");
+        node
+          .getAnimations()
+          .some(
+            (animation) =>
+              animation.playState === "running" ||
+              animation.playState === "paused",
+          );
       if (look === "snapshot") {
-        if (!enters) play(node, key, seen, () => [[[{ opacity: 0 }, { opacity: 1 }], { easing: MOTION_EASE_OUT }]]);
+        if (!enters)
+          play(node, key, seen, () => [
+            [[{ opacity: 0 }, { opacity: 1 }], { easing: MOTION_EASE_OUT }],
+          ]);
       } else if (look === "sprout") {
         const delay = reach(top + height / 2) * SPROUT_TRAVEL_MS;
         if (!enters)
           play(node, key, seen, () => [
-            [[{ opacity: 0 }, { opacity: 1 }], { delay, duration: SPROUT_FADE_MS, easing: MOTION_EASE_OUT }],
+            [
+              [{ opacity: 0 }, { opacity: 1 }],
+              { delay, duration: SPROUT_FADE_MS, easing: MOTION_EASE_OUT },
+            ],
           ]);
       } else
         play(node, key, seen, () => [
@@ -1034,11 +1292,16 @@ function playReplace(
       // here is in the view, or is already playing and is left to run out to the same end.
       const seen = boxSeen(top, height) || played.has(element);
       if (look === "snapshot")
-        play(element, key, seen, () => [[[{ opacity: 1 }, { opacity: 0 }], { easing: EASE_IN, fill: "both" }]]);
+        play(element, key, seen, () => [
+          [[{ opacity: 1 }, { opacity: 0 }], { easing: EASE_IN, fill: "both" }],
+        ]);
       else if (look === "sprout") {
         const delay = reach(top + height / 2) * SPROUT_TRAVEL_MS;
         play(element, key, seen, () => [
-          [[{ opacity: 1 }, { opacity: 0 }], { delay, duration: SPROUT_FADE_MS, easing: EASE_IN, fill: "both" }],
+          [
+            [{ opacity: 1 }, { opacity: 0 }],
+            { delay, duration: SPROUT_FADE_MS, easing: EASE_IN, fill: "both" },
+          ],
         ]);
       } else
         play(element, key, seen, () => [
@@ -1053,10 +1316,17 @@ function playReplace(
               const drawnThere =
                 !lands ||
                 step === WIPE_POINTS ||
-                (Math.abs(lands.top - top) < 0.5 && Math.abs(lands.height - height) < 0.5) ||
-                (up ? lands.top + lands.height <= spans[0]!.from : lands.top >= spans.at(-1)!.to) ||
+                (Math.abs(lands.top - top) < 0.5 &&
+                  Math.abs(lands.height - height) < 0.5) ||
+                (up
+                  ? lands.top + lands.height <= spans[0]!.from
+                  : lands.top >= spans.at(-1)!.to) ||
                 (up ? y <= lands.top : y >= lands.top + lands.height);
-              return { clipPath: drawnThere ? clipAt(false, top, height, y) : clipTop(0) };
+              return {
+                clipPath: drawnThere
+                  ? clipAt(false, top, height, y)
+                  : clipTop(0),
+              };
             }),
             { easing: "linear", fill: "both" },
           ],
@@ -1079,7 +1349,8 @@ function playReplace(
   // `defer`: the reader's first gesture starts the swap now.
   const page = thread.ownerDocument;
   const gesture = () => {
-    for (const name of READER_GESTURES) page.removeEventListener(name, gesture, true);
+    for (const name of READER_GESTURES)
+      page.removeEventListener(name, gesture, true);
     if (toStart() <= 0) return;
     hold = 0;
     startsAt = now();
@@ -1087,13 +1358,16 @@ function playReplace(
     pass();
     arm();
   };
-  if (look === "defer") for (const name of READER_GESTURES) page.addEventListener(name, gesture, true);
+  if (look === "defer")
+    for (const name of READER_GESTURES)
+      page.addEventListener(name, gesture, true);
   const observer = View?.MutationObserver
     ? new View.MutationObserver((records) => {
         const placed = (record: MutationRecord) =>
           record.type === "childList"
             ? record.target === thread
-            : record.target.parentNode === thread && (record.target as Element).hasAttribute("data-row-id");
+            : record.target.parentNode === thread &&
+              (record.target as Element).hasAttribute("data-row-id");
         if (records.some(placed)) pass();
       })
     : undefined;
@@ -1118,7 +1392,8 @@ function playReplace(
     observer?.disconnect();
     scroller?.removeEventListener("scroll", pass);
     unscroll();
-    for (const name of READER_GESTURES) page.removeEventListener(name, gesture, true);
+    for (const name of READER_GESTURES)
+      page.removeEventListener(name, gesture, true);
   };
   arm();
   return fold;
@@ -1139,14 +1414,19 @@ export function playTurnEnd(
 ): TurnEndFold | undefined {
   // Out of the reader's view there is nothing to play: its caller has settled what the turn's end
   // settles (the fold before it, the follow motion, the tail glide) and the swap is already drawn.
-  if (capture.silent || capture.sessionId !== sessionId || foldMs(thread) <= 0) return undefined;
+  if (capture.silent || capture.sessionId !== sessionId || foldMs(thread) <= 0)
+    return undefined;
   // Never across a message the person sent: the swap stays as it rendered, in one frame.
   if (foldCrossesPerson(capture)) return undefined;
   const look = turnEndLook(thread);
-  if (REPLACE_LOOKS.has(look)) return playReplace(thread, capture, look, scroller);
+  if (REPLACE_LOOKS.has(look))
+    return playReplace(thread, capture, look, scroller);
   const recapLook = turnEndRecap(thread);
   const subagentLook = turnEndSubagent(thread);
-  const { ms: settleMs, easing: settleEasing } = lookTiming(look, settle(thread));
+  const { ms: settleMs, easing: settleEasing } = lookTiming(
+    look,
+    settle(thread),
+  );
   // The fold's one clock: the settle's length, its curve flattened as a pass finds a longer move
   // (turnEndFoldTiming). Rows the virtualizer mounts above after the swap move the rows under them
   // again, so the first pass's moves are not the longest (turn-transition-jumps `tool-group`: 2 px at
@@ -1163,7 +1443,10 @@ export function playTurnEnd(
   // first painted frame is the fold's first, never most of the way there in one step.
   const View = thread.ownerDocument.defaultView;
   const timeline = thread.ownerDocument.timeline;
-  const now = () => (typeof timeline?.currentTime === "number" ? timeline.currentTime : performance.now());
+  const now = () =>
+    typeof timeline?.currentTime === "number"
+      ? timeline.currentTime
+      : performance.now();
   // Exit before move (exitLead.ts): the copies of the rows the swap took away fade out over the exit
   // lead, from the first painted frame, and every move (the rows that stay, the copies, their clips, the
   // rows that come in) starts when it ends, held at its start until then. A fold that takes nothing
@@ -1203,14 +1486,31 @@ export function playTurnEnd(
   // `wait`: until the move starts, negative once it runs, so a pass mid-move arms what is left.
   const arm = (wait = toMove()) => {
     clearTimeout(fold.timer);
-    fold.timer = setTimeout(() => settleTurnEnd(thread, fold), Math.max(0, wait + ms + tail + 50));
+    fold.timer = setTimeout(
+      () => settleTurnEnd(thread, fold),
+      Math.max(0, wait + ms + tail + 50),
+    );
   };
-  const play = (node: HTMLElement, keyframes: Keyframe[], timing: KeyframeAnimationOptions = {}) => {
+  const play = (
+    node: HTMLElement,
+    keyframes: Keyframe[],
+    timing: KeyframeAnimationOptions = {},
+  ) => {
     // On the fold's clock: a pass after its first frame starts each animation part way, in step.
     const delay = (timing.delay ?? 0) + toMove();
     const fill: FillMode | undefined =
-      lead > 0 ? (timing.fill === "forwards" || timing.fill === "both" ? "both" : "backwards") : timing.fill;
-    const animation = node.animate(keyframes, { duration: ms, easing, ...timing, delay, ...(fill && { fill }) });
+      lead > 0
+        ? timing.fill === "forwards" || timing.fill === "both"
+          ? "both"
+          : "backwards"
+        : timing.fill;
+    const animation = node.animate(keyframes, {
+      duration: ms,
+      easing,
+      ...timing,
+      delay,
+      ...(fill && { fill }),
+    });
     fold.animations.add(animation);
     return animation;
   };
@@ -1218,13 +1518,23 @@ export function playTurnEnd(
   /// clock started again (`starts` has its drawn ink) goes on from that ink over the exit left.
   // With no lead (the gallery's `none` arm, the look before) the copy fades on the move's own clock,
   // gone by 60% of it, as #41078 had it.
-  const exitMs = look === "crossfade" || look === "cascade" || ridesSheet(look) ? ms : lead > 0 ? lead : ms * 0.6; // motion-allow: the `none` arm's share of the settle
+  const exitMs =
+    look === "crossfade" || look === "cascade" || ridesSheet(look)
+      ? ms
+      : lead > 0
+        ? lead
+        : ms * 0.6; // motion-allow: the `none` arm's share of the settle
   /// `wait`: the copies keep their ink through the hold, and fade over the house exit lead at its end.
   /// `sheet` and `water`: the copies keep their ink over the move's first half, riding in under the line.
   const exitFrom =
-    look === "wait" ? Math.max(0, lead - exitLeadMs(settleMs, 1, thread)) : ridesSheet(look) ? ms / 2 : 0;
+    look === "wait"
+      ? Math.max(0, lead - exitLeadMs(settleMs, 1, thread))
+      : ridesSheet(look)
+        ? ms / 2
+        : 0;
   /// `morph`'s card, behind the rows, and the geometry it plays (to play it again only when that changes).
-  let card: { element: HTMLElement; key: string; animations: Animation[] } | undefined;
+  let card:
+    { element: HTMLElement; key: string; animations: Animation[] } | undefined;
   const exit = (copy: HTMLElement, offset: number) => {
     const drawn = starts.get(copy)?.opacity;
     const since = startedAt === undefined ? 0 : now() - startedAt;
@@ -1242,14 +1552,19 @@ export function playTurnEnd(
   };
   // The rows the swap kept, by id; a row it took away left its copy, and its id may come back as
   // a new row (the edits card), which comes in as one.
-  const was = new Map(capture.rows.filter((row) => !row.copy).map((row) => [row.id, row]));
+  const was = new Map(
+    capture.rows.filter((row) => !row.copy).map((row) => [row.id, row]),
+  );
   const gone = capture.rows.filter((row) => row.copy);
   const goneByCopy = new Map(gone.map((row) => [row.copy!, row]));
   const moving = new Map<HTMLElement, Moving>();
   const copyMoves = new Map<HTMLElement, Moving>();
   /// Where each row's or copy's motion on the current clock starts (a top in the view, as `tops`),
   /// and its ink then: the swap's for the first clock, the drawn ones when the curve changes.
-  const starts = new Map<HTMLElement, { top?: number; opacity?: number; shown?: number }>();
+  const starts = new Map<
+    HTMLElement,
+    { top?: number; opacity?: number; shown?: number }
+  >();
   /// Each row's and copy's laid-out top at the last pass: with its translate then, where it was drawn.
   const laid = new Map<HTMLElement, number>();
   /// The copies taken out before the fold ended (a row came in under them, below).
@@ -1286,7 +1601,9 @@ export function playTurnEnd(
   /// slot right at the edge is where the reader is looking. A view of no height has not been laid out
   /// (a pane measured before its first layout), so everything counts as seen there, as `unmeasured`.
   const bandSeen = (top: number, height: number) =>
-    !viewNow || viewNow.height === 0 || (top + height >= viewNow.top && top <= viewNow.bottom);
+    !viewNow ||
+    viewNow.height === 0 ||
+    (top + height >= viewNow.top && top <= viewNow.bottom);
   /// Whether the box an animation would START on meets the view: where the row is drawn at that
   /// moment, not where it lands and not the band between.
   ///
@@ -1311,13 +1628,21 @@ export function playTurnEnd(
     // with the anchor's move already taken out (a scroll it causes runs this pass again, finding none).
     if (anchor && scroller) {
       const node = nodes.find((n) => n.dataset.rowId === anchor.id);
-      const moved = node ? node.getBoundingClientRect().top - (starts.get(node)?.top ?? anchor.top) : 0;
+      const moved = node
+        ? node.getBoundingClientRect().top -
+          (starts.get(node)?.top ?? anchor.top)
+        : 0;
       if (node && !moving.has(node) && Math.abs(moved) > 0.5) {
         scroller.scrollTop += moved;
         nodes = [...mounted(thread)];
       }
     }
-    if (gone.length > 0 && fold.copies.size === 0 && copyMoves.size === 0 && dropped.size === 0) {
+    if (
+      gone.length > 0 &&
+      fold.copies.size === 0 &&
+      copyMoves.size === 0 &&
+      dropped.size === 0
+    ) {
       // The rows that went: each copy goes in before the rows that stay, so they draw over it.
       const below = nodes[0] ?? null;
       for (const row of gone) {
@@ -1344,8 +1669,10 @@ export function playTurnEnd(
     /// `tops`, where it is laid out. Taken here, in the pass's read phase with every other
     /// measurement, so this costs no layout of its own; `restart` says why it needs it.
     const drawnTop = new Map<HTMLElement, number>();
-    for (const node of nodes) drawnTop.set(node, node.getBoundingClientRect().top);
-    for (const snapshot of snapshots.values()) drawnTop.set(snapshot, snapshot.getBoundingClientRect().top);
+    for (const node of nodes)
+      drawnTop.set(node, node.getBoundingClientRect().top);
+    for (const snapshot of snapshots.values())
+      drawnTop.set(snapshot, snapshot.getBoundingClientRect().top);
     // The lowest row the swap kept, where it was drawn then, and how far from its place it starts. A
     // row that comes in under it (the next turn's prompt, its live line and reply, arriving while the
     // fold plays) moves with it: placed where it lands and drawn there at once, it sat over the kept
@@ -1362,19 +1689,27 @@ export function playTurnEnd(
         lowestWas = before.top;
       }
     });
-    const arrives = (node: HTMLElement, index: number) => !was.has(node.dataset.rowId!) && tops[index]! > lowest;
+    const arrives = (node: HTMLElement, index: number) =>
+      !was.has(node.dataset.rowId!) && tops[index]! > lowest;
     // The ended turn's own footer (direct.ts `summary-TURN`) comes in with the swap where its live line was,
     // and takes only that line's place, not its work's: a turn that ended on its calls, no answer under
     // them, lost their copy on the fold's first frame, and the view stood blank 108 ms while the rows above
     // fell in (the fold matrix's `ends-on-tool` cell; Leo, 2026-11-22: "tool calls at various times and
     // turn ends at various").
-    const nextTurn = nodes.some((node, index) => arrives(node, index) && !node.dataset.rowId!.startsWith("summary-"));
+    const nextTurn = nodes.some(
+      (node, index) =>
+        arrives(node, index) && !node.dataset.rowId!.startsWith("summary-"),
+    );
     // The copies of what the ended turn drew under its last kept row (its live line) go once the next
     // turn's rows come in there: those rows take that place, and a copy fading under them drew its
     // text through theirs (the same replay: the new tool row over the old "Thinking" line, 107 px).
     if (Number.isFinite(lowest) && nodes.some(arrives))
       for (const row of gone)
-        if (row.top > lowestWas && fold.copies.has(row.copy!) && (nextTurn || row.id === LIVE_LINE)) {
+        if (
+          row.top > lowestWas &&
+          fold.copies.has(row.copy!) &&
+          (nextTurn || row.id === LIVE_LINE)
+        ) {
           for (const animation of copyMoves.get(row.copy!)?.animations ?? []) {
             animation.cancel();
             fold.animations.delete(animation);
@@ -1384,9 +1719,12 @@ export function playTurnEnd(
           dropped.add(row.copy!);
           row.copy!.remove();
         }
-    const copies = gone.map((row) => row.copy!).filter((copy) => fold.copies.has(copy));
+    const copies = gone
+      .map((row) => row.copy!)
+      .filter((copy) => fold.copies.has(copy));
     // The copies' drawn tops, with the rows' above: still the pass's read phase, before anything plays.
-    for (const copy of copies) drawnTop.set(copy, copy.getBoundingClientRect().top);
+    for (const copy of copies)
+      drawnTop.set(copy, copy.getBoundingClientRect().top);
     const copyTops = layoutTops(copies);
     // Each box's height and paddings, read with the places (only while a copy shows): where each row's
     // and copy's text draws (`coverClip`).
@@ -1394,18 +1732,27 @@ export function playTurnEnd(
     // Each row's and copy's height, read with the places: the writes below (each `animate()`) dirty
     // style, so a height read between them forced a style pass per row (chat-render-pipeline R2).
     // Translate, clip and opacity never change a height, so these are the heights the loop read.
-    const heights = boxes.length ? boxes.slice(0, nodes.length).map((box) => box.height) : nodes.map(heightOf);
-    const copyHeights = boxes.length ? boxes.slice(nodes.length).map((box) => box.height) : copies.map(heightOf);
+    const heights = boxes.length
+      ? boxes.slice(0, nodes.length).map((box) => box.height)
+      : nodes.map(heightOf);
+    const copyHeights = boxes.length
+      ? boxes.slice(nodes.length).map((box) => box.height)
+      : copies.map(heightOf);
     turnEndFoldPerf.passes += 1;
     turnEndFoldPerf.rowsRead += nodes.length + copies.length;
-    turnEndFoldPerf.mostRowsRead = Math.max(turnEndFoldPerf.mostRowsRead, nodes.length + copies.length);
+    turnEndFoldPerf.mostRowsRead = Math.max(
+      turnEndFoldPerf.mostRowsRead,
+      nodes.length + copies.length,
+    );
     /// Each row's path on this clock, for the copies under or over it.
     const paths: CoverPath[] = [];
     // The folded line: the first row the swap added (the turn's "Worked for"). Copies tuck under it.
     const line =
-      tops.find((_, index) => was.get(nodes[index]!.dataset.rowId!)?.replacesHeader) ??
-      tops.find((_, index) => !was.has(nodes[index]!.dataset.rowId!));
-    const startTop = (node: HTMLElement, fallback: number) => starts.get(node)?.top ?? fallback;
+      tops.find(
+        (_, index) => was.get(nodes[index]!.dataset.rowId!)?.replacesHeader,
+      ) ?? tops.find((_, index) => !was.has(nodes[index]!.dataset.rowId!));
+    const startTop = (node: HTMLElement, fallback: number) =>
+      starts.get(node)?.top ?? fallback;
     // `edge`: a kept row that starts wholly out of the view (above or below it) starts just past the
     // view's edge instead, stacked on the row next to it, so nothing travels farther than it is seen; a
     // row already moving keeps its start. Read before anything plays.
@@ -1422,8 +1769,13 @@ export function playTurnEnd(
         if (!before) continue;
         const node = nodes[index]!;
         let from = startTop(node, before.top);
-        if (!moving.has(node) && from + heights[index]! <= view.top && from < tops[index]!) {
-          const nearest = Math.min(view.top, next ?? view.top) - heights[index]!;
+        if (
+          !moving.has(node) &&
+          from + heights[index]! <= view.top &&
+          from < tops[index]!
+        ) {
+          const nearest =
+            Math.min(view.top, next ?? view.top) - heights[index]!;
           from = Math.min(tops[index]!, Math.max(from, nearest));
           starts.set(node, { ...starts.get(node), top: from });
         }
@@ -1447,7 +1799,11 @@ export function playTurnEnd(
       let longest = 0;
       nodes.forEach((node, index) => {
         const before = was.get(node.dataset.rowId!);
-        if (before) longest = Math.max(longest, Math.abs(startTop(node, before.top) - tops[index]!));
+        if (before)
+          longest = Math.max(
+            longest,
+            Math.abs(startTop(node, before.top) - tops[index]!),
+          );
       });
       if ((look === "tuck" || look === "cascade") && line !== undefined)
         copies.forEach((copy) => {
@@ -1463,7 +1819,11 @@ export function playTurnEnd(
     const longest = early ? longestMove() : 0;
     // `glide` and `spring` keep their own curve whole: leaned to the frame bound, a long move ran on the
     // straight line, which is the look they are there to compare against.
-    const ownCurve = look === "glide" || look === "spring" || look === "capped" || look === "water";
+    const ownCurve =
+      look === "glide" ||
+      look === "spring" ||
+      look === "capped" ||
+      look === "water";
     const timing =
       look === "capped"
         ? early
@@ -1472,7 +1832,9 @@ export function playTurnEnd(
         : early && !ownCurve && !foldFits(longest, ms, easing)
           ? turnEndFoldTiming(longest, settleMs, settleEasing)
           : undefined;
-    grew = timing !== undefined && (timing.easing !== easing || Math.abs(timing.ms - ms) >= FRAME_MS);
+    grew =
+      timing !== undefined &&
+      (timing.easing !== easing || Math.abs(timing.ms - ms) >= FRAME_MS);
     if (grew) {
       if (startedAt !== undefined) {
         // A frame has painted: each row and copy goes on from where it was drawn. All reads first.
@@ -1481,18 +1843,39 @@ export function playTurnEnd(
         // clip 8 px on the fold's second frame and split the fold in two around the lead (fade seed 74
         // on cmux#50751).
         const moveRuns = movesAt !== undefined && now() >= movesAt;
-        const drawn = [...moving.keys(), ...copyMoves.keys()].flatMap((node) => {
-          const top = laid.get(node);
-          if (top === undefined) return [];
-          const style = (View ?? window).getComputedStyle(node);
-          const y = style.translate === "none" ? 0 : Number.parseFloat(style.translate.split(" ")[1] ?? "") || 0;
-          const captured = moving.get(node)?.clip;
-          const clip = captured ? (moveRuns ? clippedBottom(node) : captured) : 0;
-          const shown = clip > 0 ? top + y + node.offsetHeight - clip : undefined;
-          return [{ node, top: top + y, opacity: Number.parseFloat(style.opacity), shown }];
-        });
+        const drawn = [...moving.keys(), ...copyMoves.keys()].flatMap(
+          (node) => {
+            const top = laid.get(node);
+            if (top === undefined) return [];
+            const style = (View ?? window).getComputedStyle(node);
+            const y =
+              style.translate === "none"
+                ? 0
+                : Number.parseFloat(style.translate.split(" ")[1] ?? "") || 0;
+            const captured = moving.get(node)?.clip;
+            const clip = captured
+              ? moveRuns
+                ? clippedBottom(node)
+                : captured
+              : 0;
+            const shown =
+              clip > 0 ? top + y + node.offsetHeight - clip : undefined;
+            return [
+              {
+                node,
+                top: top + y,
+                opacity: Number.parseFloat(style.opacity),
+                shown,
+              },
+            ];
+          },
+        );
         for (const { node, top, opacity, shown } of drawn)
-          starts.set(node, { top, opacity: Number.isFinite(opacity) ? opacity : undefined, shown });
+          starts.set(node, {
+            top,
+            opacity: Number.isFinite(opacity) ? opacity : undefined,
+            shown,
+          });
         // The move's clock starts again from this pass, or where the exit ends if it has not yet.
         movesAt = Math.max(now(), movesAt ?? 0);
       }
@@ -1562,14 +1945,18 @@ export function playTurnEnd(
     /// The rows that start clipped this pass: where each starts, the bottom it draws, its bottom at rest.
     const covers: { top: number; bottom: number }[] = [];
     /// Where each copy starts drawn (a top in the view, as `tops`).
-    const copyStarts = copies.map((copy) => startTop(copy, goneByCopy.get(copy)!.top));
+    const copyStarts = copies.map((copy) =>
+      startTop(copy, goneByCopy.get(copy)!.top),
+    );
     // How far each kept row starts from its place (its move's distance), and the settle curve's
     // progress at a time fraction. A row that arrives holds at its place until no kept row's drawn box
     // overlaps it (sampled along the move), then fades in: the reply's ink starts there, not at the
     // move's end.
     const drift = nodes.map((node, index) => {
       const before = was.get(node.dataset.rowId!);
-      return before && !arrives(node, index) ? startTop(node, before.top) - tops[index]! : 0;
+      return before && !arrives(node, index)
+        ? startTop(node, before.top) - tops[index]!
+        : 0;
     });
     const progressAt = curveProgress(easing);
     const clearFraction = (index: number) => {
@@ -1582,7 +1969,11 @@ export function playTurnEnd(
         const overlaps = nodes.some((other, k) => {
           if (k === index || drift[k] === 0 || arrives(other, k)) return false;
           const drawn = tops[k]! + drift[k]! * (1 - progress);
-          return Math.min(bottom, drawn + other.offsetHeight) - Math.max(top, drawn) > 0.5;
+          return (
+            Math.min(bottom, drawn + other.offsetHeight) -
+              Math.max(top, drawn) >
+            0.5
+          );
         });
         if (overlaps) last = step;
       }
@@ -1599,8 +1990,14 @@ export function playTurnEnd(
       const movers = nodes
         .map((node, index) => ({ node, index }))
         .filter(({ index }) => Math.abs(drift[index]!) >= 0.5)
-        .sort((a, b) => Math.abs(tops[a.index]! - seam) - Math.abs(tops[b.index]! - seam));
-      const step = Math.min(FRAME_MS, MOTION_MS.quick / Math.max(1, movers.length - 1));
+        .sort(
+          (a, b) =>
+            Math.abs(tops[a.index]! - seam) - Math.abs(tops[b.index]! - seam),
+        );
+      const step = Math.min(
+        FRAME_MS,
+        MOTION_MS.quick / Math.max(1, movers.length - 1),
+      );
       movers.forEach(({ node }, rank) => viscousDelay.set(node, rank * step));
       holds = Math.max(holds, ...viscousDelay.values());
     }
@@ -1609,7 +2006,9 @@ export function playTurnEnd(
     nodes.forEach((node, index) => {
       const before = was.get(node.dataset.rowId!);
       // Its path, for the copies under or over it (`coverClip`), with the clip it starts under (below).
-      const path = boxes.length ? { from: tops[index]!, to: tops[index]!, ...boxes[index]! } : undefined;
+      const path = boxes.length
+        ? { from: tops[index]!, to: tops[index]!, ...boxes[index]! }
+        : undefined;
       if (path) paths.push(path);
       if (arrives(node, index)) {
         // A row first mounted in the settle snapshot has its final layout top, so it is placed there
@@ -1626,15 +2025,22 @@ export function playTurnEnd(
         const clear = ms * clearFraction(index);
         const last = moving.get(node);
         // Nothing crosses a row that plays its own entrance: that entrance is its only fade.
-        if (clear === 0 && !last && node.matches(".acpmux-row--enter, .acpmux-row--message-enter")) {
+        if (
+          clear === 0 &&
+          !last &&
+          node.matches(".acpmux-row--enter, .acpmux-row--message-enter")
+        ) {
           entering = true;
           return;
         }
         const running = !grew && last?.fades && (last.hold ?? 0) <= elapsed;
-        const hold = clear > elapsed ? clear : running ? (last.hold ?? 0) : elapsed;
+        const hold =
+          clear > elapsed ? clear : running ? (last.hold ?? 0) : elapsed;
         holds = Math.max(holds, hold);
         const from = hold > elapsed ? 0 : (starts.get(node)?.opacity ?? 0);
-        const recap = node.classList.contains(`acpmux-${NEXT_STEP}`) ? recapLook : "hold";
+        const recap = node.classList.contains(`acpmux-${NEXT_STEP}`)
+          ? recapLook
+          : "hold";
         // Its band is its place: it is already laid out there, holding at no ink and fading in. Out of
         // the reader's view `restart` draws it at full ink instead, which is where that fade ends.
         restart(
@@ -1643,13 +2049,18 @@ export function playTurnEnd(
           { from: tops[index]!, to: tops[index]!, height: heights[index]! },
           { delta: 0, fades: true, animations: [], hold },
           () => [recapEntrance(recap, from, node.offsetHeight)],
-          { delay: hold, fill: "backwards", ...(recap !== "hold" && { easing: MOTION_EASE_OUT }) },
+          {
+            delay: hold,
+            fill: "backwards",
+            ...(recap !== "hold" && { easing: MOTION_EASE_OUT }),
+          },
         );
         return;
       }
       if (!before) {
         // A row the swap added fades in where it lands, unless it plays its own entrance.
-        if (node.matches(".acpmux-row--enter, .acpmux-row--message-enter")) return;
+        if (node.matches(".acpmux-row--enter, .acpmux-row--message-enter"))
+          return;
         const from = starts.get(node)?.opacity ?? 0;
         // Its band is where it lands. Out of view it is drawn there at full ink instead: a fade no one
         // sees is a half-state to whoever scrolls to it (the closed "Worked for" of a turn that ended
@@ -1679,15 +2090,24 @@ export function playTurnEnd(
       const shown = starts.get(node)?.shown ?? before.shown;
       const height = heights[index]!;
       let clip = shown === undefined ? 0 : Math.max(0, from + height - shown);
-      for (const copyTop of copyStarts) if (copyTop > from) clip = Math.max(clip, from + height - copyTop);
+      for (const copyTop of copyStarts)
+        if (copyTop > from) clip = Math.max(clip, from + height - copyTop);
       // A row the swap's render grew (the reply's last lines, shown in the commit that
       // ends its stream: revealedMarkdownModel.ts) starts as tall as it drew and opens to its full height on the fold's clock. Grown
       // at once in the swap's frame, the lines showed a frame of motion of their own before the fold
       // began, a second motion (cmux#50299).
       // Read as the capture read it (a box, not the rounded offsetHeight), so a row that did not grow clips nothing.
-      if (!starts.has(node) && !before.replacesHeader && before.height !== undefined)
-        clip = Math.max(clip, node.getBoundingClientRect().height - before.height);
-      if (path) Object.assign(path, { from, clip: clip >= 0.5 ? clip : undefined });
+      if (
+        !starts.has(node) &&
+        !before.replacesHeader &&
+        before.height !== undefined
+      )
+        clip = Math.max(
+          clip,
+          node.getBoundingClientRect().height - before.height,
+        );
+      if (path)
+        Object.assign(path, { from, clip: clip >= 0.5 ? clip : undefined });
       // Work stays below the header as it moves into the closed turn's place. Both share this
       // clock, so keeping their start and end ordered keeps every frame ordered too.
       if (clip >= 0.5 || node.classList.contains(`acpmux-${WORKED}`))
@@ -1704,13 +2124,25 @@ export function playTurnEnd(
       const snapshot = snapshots.get(node.dataset.rowId!);
       // `swap`: the subagent block is drawn where it lands at once, fading in there over the move as its
       // snapshot, held where it was drawn, fades out.
-      if (subagent === "swap" && snapshot && Math.abs(delta) >= 0.5 && clip < 0.5) {
+      if (
+        subagent === "swap" &&
+        snapshot &&
+        Math.abs(delta) >= 0.5 &&
+        clip < 0.5
+      ) {
         const order = [...snapshots.values()].indexOf(snapshot);
         // Where the slide starts the row (`from`): its drawn top, carried with the rows mounted above since.
         snapshotPlaces.push([snapshot, from - snapshotTops[order]!]);
-        restart(node, moving, band, { delta, fades: true, animations: [] }, () => [[{ opacity: 0 }, { opacity: 1 }]], {
-          easing: MOTION_EASE_OUT,
-        });
+        restart(
+          node,
+          moving,
+          band,
+          { delta, fades: true, animations: [] },
+          () => [[{ opacity: 0 }, { opacity: 1 }]],
+          {
+            easing: MOTION_EASE_OUT,
+          },
+        );
         // The snapshot is drawn where the row started and fades there, so the move's band is its band too.
         restart(
           snapshot,
@@ -1722,7 +2154,11 @@ export function playTurnEnd(
         );
         return;
       }
-      if ((look === "dissolve" || subagent === "dip") && Math.abs(delta) >= 0.5 && clip < 0.5) {
+      if (
+        (look === "dissolve" || subagent === "dip") &&
+        Math.abs(delta) >= 0.5 &&
+        clip < 0.5
+      ) {
         restart(
           node,
           moving,
@@ -1745,17 +2181,26 @@ export function playTurnEnd(
         node,
         moving,
         band,
-        { delta, fades: false, animations: [], clip, ...(lag > 0 && { hold: lag }) },
+        {
+          delta,
+          fades: false,
+          animations: [],
+          clip,
+          ...(lag > 0 && { hold: lag }),
+        },
         () => [
           [{ translate: `0 ${delta}px` }, { translate: "0 0" }],
           // The clip as read, not rounded up: a whole pixel more hid part of a line the reader had seen,
           // a step of up to 1 px on the fold's first frame (fade seed 74 on cmux#50751).
-          ...(clip >= 0.5 ? [[{ clipPath: clipBottom(clip) }, { clipPath: clipBottom(0) }]] : []),
+          ...(clip >= 0.5
+            ? [[{ clipPath: clipBottom(clip) }, { clipPath: clipBottom(0) }]]
+            : []),
         ],
         lag > 0 ? { delay: lag, fill: "backwards" } : {},
       );
     });
-    for (const [snapshot, offset] of snapshotPlaces) snapshot.style.translate = `0 ${offset}px`;
+    for (const [snapshot, offset] of snapshotPlaces)
+      snapshot.style.translate = `0 ${offset}px`;
     // A snapshot whose row did not move (or is not drawn now) pictures nothing that changes: it goes.
     for (const [id, snapshot] of snapshots) {
       const row = nodes.find((node) => node.dataset.rowId === id);
@@ -1773,12 +2218,21 @@ export function playTurnEnd(
       tail = holds;
       if (fold.timer !== undefined) arm();
     }
-    const placedById = new Map(nodes.map((node, index) => [node.dataset.rowId!, { node, index }]));
+    const placedById = new Map(
+      nodes.map((node, index) => [node.dataset.rowId!, { node, index }]),
+    );
     type Boundary = { row: Drawn; node: HTMLElement; index: number };
-    const boundaries = new Map<HTMLElement, { above?: Boundary; below?: Boundary }>();
+    const boundaries = new Map<
+      HTMLElement,
+      { above?: Boundary; below?: Boundary }
+    >();
     for (const step of [1, -1]) {
       let boundary: Boundary | undefined;
-      for (let at = step === 1 ? 0 : capture.rows.length - 1; at >= 0 && at < capture.rows.length; at += step) {
+      for (
+        let at = step === 1 ? 0 : capture.rows.length - 1;
+        at >= 0 && at < capture.rows.length;
+        at += step
+      ) {
         const row = capture.rows[at]!;
         if (row.copy) {
           const pair = boundaries.get(row.copy) ?? {};
@@ -1794,40 +2248,66 @@ export function playTurnEnd(
     copies.forEach((copy, order) => {
       const from = copyStarts[order]!;
       const at = from - copyTops[order]!;
-      let end = (look === "tuck" || look === "cascade") && line !== undefined ? line - copyTops[order]! : at;
+      let end =
+        (look === "tuck" || look === "cascade") && line !== undefined
+          ? line - copyTops[order]!
+          : at;
       // `sheet`, `water`: the copy moves as the row under it does (else the row over it), so the work and
       // the answer travel as one surface and the rows closing over it crop it.
       if (ridesSheet(look)) {
         const { above: over, below: under } = boundaries.get(copy) ?? {};
         const rider = under ?? over;
-        if (rider) end = at + tops[rider.index]! - startTop(rider.node, rider.row.top);
+        if (rider)
+          end = at + tops[rider.index]! - startTop(rider.node, rider.row.top);
       }
       // Under a clipped row (above): it ends no higher than that row's bottom at rest, so with the clip
       // opening on the same clock, the row's drawn bottom never passes the copy's drawn top. The move
       // is linear in the fold's progress on both, so where it holds at the first and last frame it
       // holds on every frame between.
-      for (const cover of covers) if (cover.top < from) end = Math.max(end, cover.bottom - copyTops[order]!);
+      for (const cover of covers)
+        if (cover.top < from)
+          end = Math.max(end, cover.bottom - copyTops[order]!);
       // The work fades only between the surviving rows that surrounded it. Those rows can
       // move over its former place, so crop the copy on their shared clock rather than drawing
       // its text through the header or the final answer.
       const { above, below } = boundaries.get(copy) ?? {};
       const height = copyHeights[order]!;
       const topFrom = above
-        ? Math.max(0, startTop(above.node, above.row.top) + (above.row.height ?? heights[above.index]!) - from)
+        ? Math.max(
+            0,
+            startTop(above.node, above.row.top) +
+              (above.row.height ?? heights[above.index]!) -
+              from,
+          )
         : 0;
-      const topTo = above ? Math.max(0, tops[above.index]! + heights[above.index]! - (copyTops[order]! + end)) : 0;
+      const topTo = above
+        ? Math.max(
+            0,
+            tops[above.index]! +
+              heights[above.index]! -
+              (copyTops[order]! + end),
+          )
+        : 0;
       const bottomFrom = Math.max(
         goneByCopy.get(copy)!.clip ?? 0,
         below ? from + height - startTop(below.node, below.row.top) : 0,
       );
-      const bottomTo = below ? Math.max(0, copyTops[order]! + end + height - tops[below.index]!) : 0;
+      const bottomTo = below
+        ? Math.max(0, copyTops[order]! + end + height - tops[below.index]!)
+        : 0;
       const cropFrom = `inset(${topFrom}px -4096px ${Math.max(0, bottomFrom)}px -4096px)`;
       const cropTo = `inset(${topTo}px -4096px ${bottomTo}px -4096px)`;
-      const crop = [topFrom, topTo, bottomFrom, bottomTo].some((value) => value >= 0.5)
+      const crop = [topFrom, topTo, bottomFrom, bottomTo].some(
+        (value) => value >= 0.5,
+      )
         ? `${cropFrom}|${cropTo}`
         : undefined;
       const box = boxes[nodes.length + order]!;
-      const cover = coverClip({ from, to: copyTops[order]! + end, ...box }, paths, clippedBottomOf(copy));
+      const cover = coverClip(
+        { from, to: copyTops[order]! + end, ...box },
+        paths,
+        clippedBottomOf(copy),
+      );
       const covered = cover ? JSON.stringify(cover) : undefined;
       // A copy drawn outside the view where its animation would start takes its final state at once: no ink,
       // no exit fade and no move. The row it pictures is gone from the new frame, so there is no other
@@ -1848,7 +2328,9 @@ export function playTurnEnd(
       /// is where this copy is drawn in this pass. Either box outside the view is a start the reader
       /// cannot see (`restart` says it at length).
       const copyDrawn = drawnTop.get(copy);
-      const copySeen = (copyDrawn === undefined || bandSeen(copyDrawn, height)) && startSeen(from, height);
+      const copySeen =
+        (copyDrawn === undefined || bandSeen(copyDrawn, height)) &&
+        startSeen(from, height);
       if (unseen.has(copy) || !copySeen) {
         unseen.add(copy);
         copy.style.opacity = "0";
@@ -1870,14 +2352,24 @@ export function playTurnEnd(
       }
       // Held at its start until the move, so a copy that has faded never shows full again.
       // `cascade`: the first row first, each a step after the one over it, inside the first half of the move.
-      const foldDelay = look === "cascade" ? (ms * 0.5 * order) / Math.max(1, copies.length) : 0;
-      const timing: KeyframeAnimationOptions = { fill: "both", ...(foldDelay > 0 && { delay: foldDelay }) };
+      const foldDelay =
+        look === "cascade"
+          ? (ms * 0.5 * order) / Math.max(1, copies.length)
+          : 0;
+      const timing: KeyframeAnimationOptions = {
+        fill: "both",
+        ...(foldDelay > 0 && { delay: foldDelay }),
+      };
       // The last row first, each a step after the one under it, inside the exit lead.
-      const step = look === "stagger" ? exitMs / Math.max(2, copies.length * 2) : 0;
+      const step =
+        look === "stagger" ? exitMs / Math.max(2, copies.length * 2) : 0;
       // The copy's text is gone when the exit lead ends, before it or anything over it moves: faded on
       // the move's clock (by 60% of it, #41078), its text still travelled, faint, while the rows
       // slid over its place (agent-pane-stream-row-overlap: 5.5 px under the reply at 94%).
-      const faded = exit(copy, exitFrom + foldDelay + (copies.length - 1 - order) * step);
+      const faded = exit(
+        copy,
+        exitFrom + foldDelay + (copies.length - 1 - order) * step,
+      );
       const motion = play(
         copy,
         [
@@ -1912,9 +2404,12 @@ export function playTurnEnd(
       const parentTop = tops[0]! - nodes[0]!.offsetTop;
       // The line over the work was out of the window when the turn ended (a long turn, read at its
       // bottom): the card starts at the first folded row's top and lands under the folded line.
-      const header = nodes.findIndex((node) => node.classList.contains(`acpmux-${WORKED}`));
+      const header = nodes.findIndex((node) =>
+        node.classList.contains(`acpmux-${WORKED}`),
+      );
       const fromTop = above
-        ? startTop(above.node, above.row.top) + (above.row.height ?? above.node.offsetHeight)
+        ? startTop(above.node, above.row.top) +
+          (above.row.height ?? above.node.offsetHeight)
         : startTop(first, gone[0]!.top);
       const toTop = above
         ? tops[above.index]! + above.node.offsetHeight
@@ -1926,7 +2421,9 @@ export function playTurnEnd(
       const top = Math.min(fromTop, toTop);
       const bottom = Math.max(fromBottom, toBottom);
       if (!(bottom - top > 1)) return;
-      const key = [fromTop, toTop, fromBottom, toBottom].map((value) => Math.round(value)).join(" ");
+      const key = [fromTop, toTop, fromBottom, toBottom]
+        .map((value) => Math.round(value))
+        .join(" ");
       if (card && card.key === key && !grew) return;
       if (!card) {
         const element = thread.ownerDocument.createElement("div");
@@ -1949,8 +2446,12 @@ export function playTurnEnd(
         fold.animations.delete(animation);
       }
       card.key = key;
-      Object.assign(card.element.style, { top: `${top - parentTop}px`, height: `${bottom - top}px` });
-      const inset = (from: number, to: number) => `inset(${from - top}px 0 ${bottom - to}px 0 round 10px)`;
+      Object.assign(card.element.style, {
+        top: `${top - parentTop}px`,
+        height: `${bottom - top}px`,
+      });
+      const inset = (from: number, to: number) =>
+        `inset(${from - top}px 0 ${bottom - to}px 0 round 10px)`;
       card.animations = [
         play(
           card.element,
@@ -1981,8 +2482,10 @@ export function playTurnEnd(
   // once per frame; `sameFramePasses` counts the passes that still share a frame.
   let lastFrame: number | null | undefined;
   const passAgain = () => {
-    const frame = typeof timeline?.currentTime === "number" ? timeline.currentTime : null;
-    if (frame !== null && frame === lastFrame) turnEndFoldPerf.sameFramePasses += 1;
+    const frame =
+      typeof timeline?.currentTime === "number" ? timeline.currentTime : null;
+    if (frame !== null && frame === lastFrame)
+      turnEndFoldPerf.sameFramePasses += 1;
     lastFrame = frame;
     pass();
   };
@@ -1995,7 +2498,10 @@ export function playTurnEnd(
     for (const row of mounted(thread)) {
       if (watched.has(row)) continue;
       watched.add(row);
-      observer.observe(row, { attributes: true, attributeFilter: ["style", "aria-posinset"] });
+      observer.observe(row, {
+        attributes: true,
+        attributeFilter: ["style", "aria-posinset"],
+      });
     }
   };
   const observer = View?.MutationObserver
@@ -2004,8 +2510,10 @@ export function playTurnEnd(
         const placed = (record: MutationRecord) =>
           record.type === "childList"
             ? record.target === thread
-            : record.target.parentNode === thread && (record.target as Element).hasAttribute("data-row-id");
-        if (records.some((record) => record.type === "childList")) watchRows(self);
+            : record.target.parentNode === thread &&
+              (record.target as Element).hasAttribute("data-row-id");
+        if (records.some((record) => record.type === "childList"))
+          watchRows(self);
         if (records.some(placed)) passAgain();
       })
     : undefined;
