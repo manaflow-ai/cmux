@@ -194,7 +194,7 @@ open(path, "w", encoding="utf-8").write(text.replace(' : [\n\n  ]', ' : []'))
 EOF
 grep -q '"unservedByBundledDaemon" : \[\]$' "$json" || fail "the fixture lacks the hand-edited [] form: $(cat "$json")"
 if out="$(run)"; then fail "a hand-edited [] passed: $out"; fi
-[[ "$out" == *"CMUX_UPDATE_DAEMON_CAPABILITIES=1"* ]] || fail "the byte failure lacks the regenerate command: $out"
+[[ "$out" == *"check-daemon-capabilities-fresh.py --write"* ]] || fail "the byte failure lacks the regenerate command: $out"
 [[ "$out" == *'+  "unservedByBundledDaemon" : []'* ]] || fail "the byte failure lacks a diff: $out"
 
 # A key order or spacing other than the encoder's fails the same way.
