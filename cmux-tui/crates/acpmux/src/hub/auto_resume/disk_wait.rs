@@ -57,6 +57,8 @@ pub(in crate::hub) struct RefusedRules<'a> {
     pub trust_gate: bool,
     /// The family sender its prompt spoke for (`subsession_guard::is_family`).
     pub from: Option<&'a str>,
+    /// The refused prompt's own slash command, resent as itself rather than a generic continue.
+    pub slash: Option<&'a str>,
     /// Whether its prompt is one a cut turn of goes on for (no trigger's, no cache compaction's,
     /// no cold wake's), as `turns.rs` decides for a turn its agent failed.
     pub goes_on: bool,
@@ -99,7 +101,7 @@ impl Hub {
             trust_gate: rules.trust_gate,
             error,
             not_before: None,
-            slash: None,
+            slash: rules.slash,
         };
         self.schedule_auto_resume(session, turn_id, Some(cut));
     }
