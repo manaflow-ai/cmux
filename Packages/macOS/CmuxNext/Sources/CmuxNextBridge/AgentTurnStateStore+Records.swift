@@ -133,7 +133,7 @@ extension AgentTurnStateStore {
     public func detail(for ref: AgentSessionRef) -> AgentChatDetail? { local(ref)?.detail }
 
     /// The title of the chat an agent chat tab shows; nil when it has none yet, or for a chat of
-    /// another machine whose page has not read it yet (``noteRemote(_:host:)``).
+    /// another machine whose page has not read it yet (``noteRemote(_:host:machine:)``).
     public func title(for ref: AgentSessionRef) -> String? { named(ref)?.title }
 
     /// The launcher/session name, when it is user-readable.

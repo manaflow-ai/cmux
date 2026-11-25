@@ -55,7 +55,8 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     /// A new Cloud chat's steps to its first token on the composer send's timeline (``CloudSendTimelines``, cmux#45953):
     /// its first prompt out, its start answered (with the machine's own phases) and its agent's first text.
     var cloudSendMark: (@Sendable (_ step: String, _ phases: [String: Int]?) -> Void)?
-    var chatNoted: RemoteAcpmuxWire.ChatNoted? = { AgentTurnStateStore.shared.noteRemote($0, host: $1) } // its tab and workspace take its title (cmux#55668), only from the person's own machine (``ownerLink``)
+    var chatNoted: RemoteAcpmuxWire.ChatNoted? // its tab and workspace take its title (cmux#55668), only from the person's own machine (``ownerLink``)
+    static func notesChats(of machine: String) -> RemoteAcpmuxWire.ChatNoted { { AgentTurnStateStore.shared.noteRemote($0, host: $1, machine: machine) } }
 
     func cloudRepository(method: String, params: [String: any Sendable], timeout: Duration?) async throws -> Data {
         try await AgentSessionAttachClient.forwardingCloudRepository(surface: surface, reconnect: reconnect, endpoint: endpoint,
@@ -147,5 +148,4 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
         return try await AgentRemoteStartCoordinator(approvals: approvals, servesKeyedReason: servesKeyedReason, updateMachine: updateMachine, restartsInStart: cloudMachineID == nil)
             .keyedStart(cwd, harness, model, proceed: proceed, start: start)
     }
-
 }

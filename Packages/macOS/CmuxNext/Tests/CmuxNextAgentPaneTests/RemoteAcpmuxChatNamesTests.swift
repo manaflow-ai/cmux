@@ -99,6 +99,15 @@ import Testing
         }
     }
 
+    /// Only a summary's name fields cross to the app: never its icon bytes or any other field, and each is capped.
+    @Test func onlyTheNameFieldsAreHandedOn() {
+        let names = RemoteAcpmuxWire.chatNames(["sessionId": "acp_1", "title": String(repeating: "t", count: 10_000), "icon": ["kind": "image", "data": "AAAA"],
+                                                "formerNames": (0..<50).map { "n\($0)" }, "cwd": "/Users/x", "lastMessage": "secret"])
+        #expect(Set(names.keys) == ["sessionId", "title", "formerNames"])
+        #expect((names["title"] as? String)?.count == 4096)
+        #expect((names["formerNames"] as? [String])?.count == 8)
+    }
+
     private static func waitUntil(_ condition: @Sendable () -> Bool) async throws {
         for _ in 0..<500 where !condition() { try await Task.sleep(for: .milliseconds(5)) }
         #expect(condition())

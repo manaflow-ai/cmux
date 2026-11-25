@@ -101,7 +101,8 @@ public struct WorkspaceAutoNameReader {
             // agent still reads as the agent's name now, never frozen on the name it had at launch.
             // acpmux keeps only a few former names, so the hold remembers a match once seen (`WorkspaceAutoNameHold`).
             var formerNames = turns.formerNames(for: session)
-            let launcherNamed = workspace.nameRevision == 0 && sessionName != nil
+            // Another machine's names never unlock a name the person gave the workspace (cmux#55668).
+            let launcherNamed = workspace.nameRevision == 0 && sessionName != nil && !turns.namesAreRemote(session)
                 && hold.launcherNamed(workspace: workspace.id, name: workspace.name, session: session.session ?? "",
                                       matches: SidebarMapping.isSessionNamed(workspace.name, sessionName: sessionName,
                                                                              displayName: givenName,

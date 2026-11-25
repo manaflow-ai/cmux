@@ -43,24 +43,44 @@ extension AgentTurnStateStore {
         return safe
     }
 
-    /// `text` as plain one-line text: line breaks, tabs and control characters become one space, invisible format
-    /// characters (bidi overrides and isolates, zero-width spaces) are dropped but the joiner emoji sequences use, and it
-    /// is trimmed and capped at ``remoteNameLimit`` characters. Nil when nothing readable is left.
+    /// The most combining marks kept on one character (a stack of them overflows the tab strip and the row).
+    nonisolated static let remoteMarksPerCharacter = 2
+
+    /// `text` as plain one-line text: line breaks, tabs and control characters become one space; invisible characters
+    /// (bidi overrides and isolates, zero-width spaces, Hangul fillers, the blank braille cell, every default-ignorable
+    /// code point but the emoji presentation selector and the joiner between two emoji) are dropped; at most
+    /// ``remoteMarksPerCharacter`` combining marks stay on a character. Trimmed and capped at ``remoteNameLimit``
+    /// characters; nil when nothing readable is left.
     public nonisolated static func plainName(_ text: String?) -> String? {
         guard let text else { return nil }
+        let input = Array(text.unicodeScalars.prefix(remoteFieldLimit))
+        func emoji(_ scalar: Unicode.Scalar?) -> Bool {
+            guard let scalar else { return false }
+            return (scalar.properties.isEmoji && scalar.value > 0x7F) || scalar == "\u{FE0F}" || scalar.properties.isEmojiModifier
+        }
         var scalars = String.UnicodeScalarView()
-        var spaced = true
-        for scalar in text.unicodeScalars.prefix(remoteFieldLimit) {
-            switch scalar.properties.generalCategory {
+        var spaced = true, marks = 0
+        for (index, scalar) in input.enumerated() {
+            let category = scalar.properties.generalCategory
+            switch category {
             case .control, .lineSeparator, .paragraphSeparator, .spaceSeparator:
                 if !spaced { scalars.append(" ") }
                 spaced = true
-            case .format where scalar != "\u{200D}", .surrogate, .privateUse, .unassigned:
+                marks = 0
                 continue
+            case .format, .surrogate, .privateUse, .unassigned:
+                // The joiner of an emoji sequence (👩‍💻) stays; any other format character never shows.
+                guard scalar == "\u{200D}", emoji(scalars.last), emoji(input.dropFirst(index + 1).first) else { continue }
+            case .nonspacingMark, .enclosingMark, .spacingMark:
+                if scalar == "\u{FE0F}" || scalar == "\u{FE0E}" || scalar == "\u{20E3}" { break }
+                guard !scalar.properties.isDefaultIgnorableCodePoint, !spaced, marks < remoteMarksPerCharacter else { continue }
+                marks += 1
             default:
-                scalars.append(scalar)
-                spaced = false
+                guard !scalar.properties.isDefaultIgnorableCodePoint, scalar != "\u{2800}" else { continue }
+                marks = 0
             }
+            scalars.append(scalar)
+            spaced = false
         }
         let plain = String(String(scalars).trimmingCharacters(in: .whitespaces).prefix(remoteNameLimit))
         return plain.isEmpty ? nil : plain
@@ -74,19 +94,38 @@ extension AgentTurnStateStore {
     /// How many remote chats have names noted (tests).
     public var remoteRecordCount: Int { remoteSessions.count }
 
-    /// Notes the names of the chat `summary` describes (an acpmux session summary) on machine `host` (the tab's
-    /// `install:<id>`, ``AgentSessionRef/host``). Ignored for this Mac's own host and the mirrored ones: their
-    /// watch owns those records. Writes only what changed.
-    public func noteRemote(_ untrusted: [String: Any], host: String) {
+    /// The most chats of one host whose names are kept: past it, only that host's start again, never another machine's.
+    static let remoteLimitPerHost = 512
+    /// What ``remoteHostMachines`` holds for a host two machines claimed.
+    static let contestedRemoteHost = ""
+
+    /// Notes the names of the chat `summary` describes (an acpmux session summary) on host `host` (the tab's
+    /// `install:<id>`, ``AgentSessionRef/host``), read from `machine` (this Mac's id of the daemon whose wire read it, never
+    /// the remote's word). Refused before this Mac knows its own host, for this Mac's host and the mirrored ones (their watch
+    /// owns those records), and for a host another machine noted first: a machine can name only its own chats, and a host
+    /// two machines claim is noted from neither again, its names dropped. Writes only what changed.
+    public func noteRemote(_ untrusted: [String: Any], host: String, machine: String) {
         let summary = Self.remoteSummary(untrusted)
-        guard let session = summary["sessionId"] as? String, Self.isRemoteSessionID(session), !host.isEmpty,
-              host != localHost, !mirroredHosts.contains(host) else { return }
+        guard let localHost, let session = summary["sessionId"] as? String, Self.isRemoteSessionID(session), !host.isEmpty,
+              !machine.isEmpty, host != localHost, !mirroredHosts.contains(host) else { return }
+        switch remoteHostMachines[host] {
+        case machine?: break
+        case nil: remoteHostMachines[host] = machine
+        default:
+            if remoteHostMachines[host] != Self.contestedRemoteHost {
+                logger.error("remote chat names: host \(host, privacy: .public) claimed by two machines; its names are dropped")
+                remoteHostMachines[host] = Self.contestedRemoteHost
+                dropRemote(host: host)
+            }
+            return
+        }
         let key = Self.remoteKey(host: host, session: session)
         let record: Session
         if let held = remoteSessions[key] {
             record = held
         } else {
             if remoteSessions.count >= Self.remoteLimit { remoteSessions.removeAll() }
+            if remoteSessions.keys.lazy.filter({ $0.hasPrefix(host + "\u{0}") }).count >= Self.remoteLimitPerHost { dropRemote(host: host) }
             record = Session()
             remoteSessions[key] = record
             if let signal = awaited.removeValue(forKey: key) { signal.made &+= 1 }
@@ -105,6 +144,24 @@ extension AgentTurnStateStore {
             record.identity = identity
             record.iconArt = nil
         }
+    }
+
+    /// Drops every noted name of `host`; each of its readers reads its chat as unnamed.
+    private func dropRemote(host: String) {
+        for key in remoteSessions.keys where key.hasPrefix(host + "\u{0}") {
+            let record = remoteSessions.removeValue(forKey: key)
+            record?.title = nil
+            record?.generatedTitle = nil
+            record?.sessionName = nil
+            record?.identity = nil
+        }
+    }
+
+    /// Whether the names `ref` reads are another machine's (``noteRemote(_:host:machine:)``), not this Mac's own chat's.
+    /// Those never pick a name the person's own act keeps (Name from Activity) nor keep a name they gave a workspace.
+    public func namesAreRemote(_ ref: AgentSessionRef) -> Bool {
+        guard let session = ref.session, ref.host != localHost, !mirroredHosts.contains(ref.host) else { return false }
+        return remoteSessions[Self.remoteKey(host: ref.host, session: session)] != nil
     }
 
     /// The noted names of the chat `ref` shows when it runs on another machine; nil for this Mac's chats and
