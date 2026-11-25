@@ -865,6 +865,7 @@ impl Hub {
             queued: session.queued(),
             // The person's unsent text (`set_composer_draft`): an idle app update waits for it.
             has_draft: m.composer_draft.as_deref().is_some_and(|d| !d.trim().is_empty()),
+            pinned: m.pinned,
             // Background work no turn shows: an idle app update waits for it too.
             working_below: self.holds_work_below_read(session),
             // A turn failed: the prompts that waited behind it wait for a client to resume them.
@@ -1301,6 +1302,8 @@ impl Hub {
             // Messages handed to this daemon that are not delivered yet (`outbox.rs`):
             // `acpmux ls` says so, `acpmux send --status` lists them.
             "outboxPending": self.outbox_unsettled(),
+            // Its counters and gauges (`outbox_stats.rs`): `acpmux ls` ends with them.
+            "outboxStats": self.outbox.stats(),
             // The lock bridge (`hub/lock_bridge.rs`): this Mac's screen lock, whether
             // `sessions.keepAwakeWhenLocked` is on, and whether it holds idle sleep off now.
             "lockBridge": super::lock_bridge::state(),

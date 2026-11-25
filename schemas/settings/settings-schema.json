@@ -142,7 +142,8 @@
         "id" : "general",
         "lead" : [
           "customizeProgress",
-          "textSize"
+          "textSize",
+          "replayIntro"
         ],
         "symbol" : "gearshape",
         "title" : {
@@ -455,6 +456,7 @@
         ],
         "id" : "appearance",
         "lead" : [
+          "looksGallery",
           "themeStudio",
           "backdrops",
           "density"
@@ -1447,7 +1449,10 @@
               "remote.agentShareIdleMinutes",
               "remote.ultra",
               "transport.tailnetCarrier",
-              "remote.screenSharingProfile"
+              "remote.screenSharingProfile",
+              "remoteDesktop.quality",
+              "remoteDesktop.maxFps",
+              "remoteDesktop.maxBitrateMbps"
             ],
             "title" : {
               "key" : "settings.group.cmuxRemote",
@@ -2450,7 +2455,8 @@
           {
             "key" : "settings.group.developerTools",
             "rows" : [
-              "developerTools.appPages"
+              "developerTools.appPages",
+              "developerTools.overloadNotice"
             ],
             "title" : {
               "key" : "settings.group.developerTools",
@@ -2496,6 +2502,7 @@
               "labs.commentThreads",
               "labs.previousBuild",
               "labs.hostsSidebar",
+              "labs.connectionsUpcoming",
               "appearance.experimentalControls",
               "appearance.glassControls",
               "appearance.settingsBetaChips"
@@ -2524,6 +2531,7 @@
               "experiments.menuRowStates",
               "experiments.composerHatGroups",
               "experiments.toastsV2",
+              "experiments.themedPrompts",
               "experiments.toastGlass",
               "experiments.terminalHistoryFind",
               "experiments.chatWidgets",
@@ -123184,6 +123192,140 @@
         true,
         false
       ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.labs",
+        "text" : "Labs"
+      },
+      "help" : {
+        "key" : "settings.labs.connectionsUpcoming.help",
+        "text" : "Lists Slack and Google in Connections before they can be connected."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "labs.connectionsUpcoming",
+      "keywords" : [
+        "labs",
+        "connections",
+        "integrations",
+        "slack",
+        "google",
+        "gmail",
+        "mcp"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "labs",
+        "connectionsUpcoming"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:labs.connectionsUpcoming"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.labs.connectionsUpcoming",
+        "text" : "Upcoming Connections"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "consumers" : [
@@ -125411,6 +125553,144 @@
       "title" : {
         "key" : "settings.experiments.toastsV2",
         "text" : "Toasts v2"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.experiments",
+        "text" : "Experiments"
+      },
+      "help" : {
+        "key" : "settings.experiments.themedPrompts.help",
+        "text" : "Prompts over other apps, such as a teammate asking to control this Mac, use your theme's glass and colors."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "experiments.themedPrompts",
+      "keywords" : [
+        "experiments",
+        "experimental",
+        "prototype",
+        "prompt",
+        "consent",
+        "control",
+        "screen sharing",
+        "glass",
+        "theme"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "experiments",
+        "themedPrompts"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:experiments.themedPrompts"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.experiments.themedPrompts",
+        "text" : "Themed Floating Prompts"
       },
       "validation" : "portable"
     },
@@ -132670,6 +132950,144 @@
         true,
         false
       ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.developerTools",
+        "text" : "Developer Tools"
+      },
+      "help" : {
+        "key" : "settings.developerTools.overloadNotice.help",
+        "text" : "Shows a banner above the composer when this Mac's load or swap is too high."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "developerTools.overloadNotice",
+      "keywords" : [
+        "overload",
+        "overloaded",
+        "load",
+        "swap",
+        "banner",
+        "warning",
+        "host pressure",
+        "slow",
+        "developer"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "developerTools",
+        "overloadNotice"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:developerTools.overloadNotice"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.developerTools.overloadNotice",
+        "text" : "Overload Warning in Chats"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "userOnly",
       "agent_settable" : false,
       "consumers" : [
@@ -134108,6 +134526,486 @@
       "title" : {
         "key" : "settings.remote.screenSharingProfile",
         "text" : "Screen Sharing Profile"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "auto",
+        "sharpText",
+        "smoothMotion",
+        "lowBandwidth"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.remoteDesktop.auto",
+            "text" : "Auto"
+          },
+          "value" : "auto"
+        },
+        {
+          "title" : {
+            "key" : "settings.remoteDesktop.quality.sharpText",
+            "text" : "Sharp Text"
+          },
+          "value" : "sharpText"
+        },
+        {
+          "title" : {
+            "key" : "settings.remoteDesktop.quality.smoothMotion",
+            "text" : "Smooth Motion"
+          },
+          "value" : "smoothMotion"
+        },
+        {
+          "title" : {
+            "key" : "settings.remoteDesktop.quality.lowBandwidth",
+            "text" : "Low Bandwidth"
+          },
+          "value" : "lowBandwidth"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "auto",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.cmuxRemote",
+        "text" : "cmux Remote"
+      },
+      "help" : {
+        "key" : "settings.remoteDesktop.quality.help",
+        "text" : "The quality a new Screen Sharing session starts at. The session's toolbar can still change it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "remoteDesktop.quality",
+      "keywords" : [
+        "screen sharing",
+        "remote desktop",
+        "mac screen",
+        "quality",
+        "resolution",
+        "sharp text",
+        "smooth motion",
+        "low bandwidth"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "remoteDesktop",
+        "quality"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:remoteDesktop.quality"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.remoteDesktop.quality",
+        "text" : "Screen Sharing Quality"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "auto",
+        1,
+        240,
+        120.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.remoteDesktop.auto",
+            "text" : "Auto"
+          },
+          "value" : "auto"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "auto",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.cmuxRemote",
+        "text" : "cmux Remote"
+      },
+      "help" : {
+        "key" : "settings.remoteDesktop.maxFps.help",
+        "text" : "The most frames per second a Screen Sharing session asks for. Auto follows this display's refresh rate."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "remoteDesktop.maxFps",
+      "keywords" : [
+        "screen sharing",
+        "remote desktop",
+        "fps",
+        "frame rate",
+        "frames per second",
+        "refresh"
+      ],
+      "kind" : "choice_or_number",
+      "page_hidden" : false,
+      "path" : [
+        "remoteDesktop",
+        "maxFps"
+      ],
+      "placeholder" : null,
+      "range" : {
+        "max" : 240,
+        "min" : 1,
+        "placeholder" : 60,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        "__not_a_choice__",
+        true,
+        -238,
+        479,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:remoteDesktop.maxFps"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.remoteDesktop.maxFps",
+        "text" : "Screen Sharing Frame Rate Limit"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "auto",
+        0.5,
+        80,
+        40.25
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.remoteDesktop.auto",
+            "text" : "Auto"
+          },
+          "value" : "auto"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "auto",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.cmuxRemote",
+        "text" : "cmux Remote"
+      },
+      "help" : {
+        "key" : "settings.remoteDesktop.maxBitrateMbps.help",
+        "text" : "The most megabits per second a new Screen Sharing session may use. Auto lets the host decide."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "remoteDesktop.maxBitrateMbps",
+      "keywords" : [
+        "screen sharing",
+        "remote desktop",
+        "bitrate",
+        "bandwidth",
+        "mbps",
+        "megabits",
+        "data"
+      ],
+      "kind" : "choice_or_number",
+      "page_hidden" : false,
+      "path" : [
+        "remoteDesktop",
+        "maxBitrateMbps"
+      ],
+      "placeholder" : null,
+      "range" : {
+        "max" : 80,
+        "min" : 0.5,
+        "placeholder" : 10,
+        "step" : 0.5,
+        "unit" : "count"
+      },
+      "refuses" : [
+        "__not_a_choice__",
+        true,
+        -79,
+        159.5,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:remoteDesktop.maxBitrateMbps"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.remoteDesktop.maxBitrateMbps",
+        "text" : "Screen Sharing Bitrate Limit"
       },
       "validation" : "portable"
     },

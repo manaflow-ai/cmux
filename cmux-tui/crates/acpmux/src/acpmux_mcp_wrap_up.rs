@@ -43,7 +43,7 @@ pub(super) fn tool() -> Value {
             "type": "object",
             "properties": {
                 "recap": {"type": "string", "description": format!("Two or three sentences on changes, verification and unfinished work, at most {MAX_RECAP} characters. Trimmed above {RECAP_CEILING}.")},
-                "ask": {"type": "string", "description": format!("Ask only for a decision the person needs to make, at most {MAX_ASK} characters.")},
+                "ask": {"type": "string", "description": format!("Ask only for a decision the person needs to make, at most {MAX_ASK} characters. Never ask them to click or switch tabs: focus or capture it yourself. An unanswered question still waits, so do not ask it again.")},
                 "actions": {"type": "array", "items": {"anyOf": [{"type": "string"}, {"type": "object", "properties": {"label": {"type": "string"}, "run": {"type": "object", "properties": {"customize": {"type": "string", "enum": ["try", "keep", "revert"]}, "target": {"type": "string", "description": "With try: pr:N, branch:B, sha:S, dir:PATH or a profile name."}, "minutes": {"type": "integer", "description": "With try: how long it stays on, 1 to 240."}}, "required": ["customize"]}}, "required": ["run"]}]}, "description": format!("With ask, up to {MAX_ACTIONS} answer buttons of at most {MAX_ACTION} characters each, preferred first. Defaults to Yes and Not now. After a customization, an answer may be {{label, run}}: run {{customize: \"try\", target: \"pr:123\", minutes: 15}} tries it on (the card then offers Keep and Revert), or {{customize: \"keep\"}} / {{customize: \"revert\"}}.")},
                 "learned": {"type": "array", "items": {"type": "string"}, "description": format!("After a correction or a failed then successful command, offer up to {MAX_LEARNED} one-line project facts for the person to accept (at most {MAX_FACT} characters each).")}
             },
@@ -409,6 +409,20 @@ mod tests {
         }
         let at = "x".repeat(RECAP_CEILING);
         assert_eq!(shown(json!({"recap": at}))["recap"], at);
+    }
+
+    /// https://github.com/manaflow-ai/cmux/issues/52766: an agent woken by background-command
+    /// notices ended seven turns on the same "Can you click the dev build tab in my right split"
+    /// ask. The ask's description rules out both: a request to click a tab, and asking again.
+    #[test]
+    fn the_ask_rules_out_clicking_tabs_and_asking_again() {
+        let tool = tool();
+        let said = tool["inputSchema"]["properties"]["ask"]["description"].as_str().unwrap();
+        for phrase in
+            ["Never ask them to click", "focus or capture it yourself", "do not ask it again"]
+        {
+            assert!(said.contains(phrase), "{phrase}: {said}");
+        }
     }
 
     /// The census of 2026-11-23 (cmuxterm-hq docs/findings/2026-11-23-mcp-tool-error-census.md):

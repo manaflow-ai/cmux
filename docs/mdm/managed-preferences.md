@@ -794,6 +794,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `labs.commentThreads` | boolean | `false` |  | Comment Threads in Browser and Terminal. Send browser and terminal comments to the chat as threads that show the agent's reply. |
 | `labs.previousBuild` | boolean | `false` |  | Go Back to Previous Build. Show the build cmux kept before the last update on the Updates card, with a button to go back to it. |
 | `labs.hostsSidebar` | boolean | `false` |  | Hosts Sidebar. Shows your machines in the sidebar with Add Host and per-host terminal actions. |
+| `labs.connectionsUpcoming` | boolean | `false` |  | Upcoming Connections. Lists Slack and Google in Connections before they can be connected. |
 | `experiments.appFontChrome` | boolean | `false` |  | App Font in Native Chrome. The sidebar, tabs and titlebar draw in the App Font too. Some text changes after cmux restarts. |
 | `experiments.glassToolbarGroups` | boolean | `false` |  | Glass Toolbar Groups. The chat header's buttons become round glass buttons, with related actions sharing one glass capsule, a search chip and shortcut keycaps. |
 | `experiments.composerButtonsVisible` | boolean | `false` |  | Always Show Composer Buttons. Keep Send, attachment removal, and queued message actions visible in agent chats. |
@@ -810,6 +811,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `experiments.menuRowStates` | boolean | `false` |  | Menu Row States. Menu rows that are unavailable say why, and rows that start work show their progress. |
 | `experiments.composerHatGroups` | boolean | `true` |  | Composer Hat: Two Groups. Show subagents and background tasks as two groups, with the hat aligned to the composer's plus glyph. |
 | `experiments.toastsV2` | boolean | `false` |  | Toasts v2. Spinner toasts that turn into their result in place, and an Undo after closing a tab or workspace or archiving a chat. |
+| `experiments.themedPrompts` | boolean | `false` |  | Themed Floating Prompts. Prompts over other apps, such as a teammate asking to control this Mac, use your theme's glass and colors. |
 | `experiments.toastGlass` | boolean | `false` |  | Toast Glass. Toasts in chats sit on the same glass as the app's own toasts. |
 | `experiments.terminalHistoryFind` | boolean | `false` |  | Terminal History Find. Cmd-F in a terminal searches its whole history, with case, whole-word and regex options. |
 | `experiments.chatWidgets` | boolean | `false` |  | Extension Chat Widgets. Installed extensions can show a card under a finished tool call in agent chat. |
@@ -860,6 +862,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `diagnostics.shareInstallCounts` | boolean | `false` |  | Share Package Installs to Improve cmux. Sends cmux the names of packages agents install and of tools you add to your Cloud machines, so new Cloud machines come with the common ones already downloaded. Names and counts only, never prompts, commands, file or project names, or anything that identifies you. Turning it off deletes your tool list. |
 | `app.sendAnonymousTelemetry` | boolean | `false` |  | Send Crash Reports and Analytics. Sends cmux crash reports and anonymous usage events, so we can fix crashes and see which features are used. Stacks, app and macOS versions and event names only, never your prompts, files, paths, branches or text. Crash reports start at the next launch. |
 | `developerTools.appPages` | boolean | `true` |  | Developer Tools for cmux Pages. Inspect Element and ⌥⌘I in chats, Home, Markdown and Settings. |
+| `developerTools.overloadNotice` | boolean | `false` |  | Overload Warning in Chats. Shows a banner above the composer when this Mac's load or swap is too high. |
 | `app.internalDeveloperMode` | boolean | `false` |  | Internal Developer Mode. Shows "Debug: …" commands in the Command Palette. |
 | `macScreen.systemShortcuts` | boolean | `false` |  | Send System Shortcuts to the Remote Mac. Shortcuts like ⌘Tab and ⌘Space go to the other Mac. Needs Accessibility. |
 | `macScreen.shareWithoutAsking` | boolean | `false` |  | Share This Mac Without Asking. Your own cmux CLI, agents and devices turn sharing on with no sheet. Each device's access still applies. |
@@ -870,6 +873,9 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `remote.ultra` | string | `"auto"` | `off`, `auto`, `always` | Ultra Connection Mode. Sends repair data so lossy networks stay fast. Always uses 2 to 3 times the data. |
 | `transport.tailnetCarrier` | string | `"off"` | `off`, `direct-only`, `on` | Tailscale Carrier. Race a peer's direct Tailscale address with the other transports when tailscaled reports one. |
 | `remote.screenSharingProfile` | string | `"balanced"` | `balanced`, `ultra` | Screen Sharing Profile. Ultra spends the link on a fast direct connection when viewing another Mac: up to 120 fps, up to 150 Mbps, near-lossless text. Balanced is the default. Not Ultra Connection Mode, which repairs a lossy network. |
+| `remoteDesktop.quality` | string | `"auto"` | `auto`, `sharpText`, `smoothMotion`, `lowBandwidth` | Screen Sharing Quality. The quality a new Screen Sharing session starts at. The session's toolbar can still change it. |
+| `remoteDesktop.maxFps` | string | `"auto"` | `auto` | Screen Sharing Frame Rate Limit. The most frames per second a Screen Sharing session asks for. Auto follows this display's refresh rate. Also accepts a number from 1 to 240 in a raw profile. |
+| `remoteDesktop.maxBitrateMbps` | string | `"auto"` | `auto` | Screen Sharing Bitrate Limit. The most megabits per second a new Screen Sharing session may use. Auto lets the host decide. Also accepts a number from 0 to 80 in a raw profile. |
 | `deviceHub.url` | string | `""` |  | Device Hub Address. The device hub for Mac Screen sharing. Empty uses the built-in one. |
 | `contextMenus.showCustomizeItem` | boolean | `false` |  | Show Customize Menu…. Adds Customize Menu… to the end of every right-click menu. |
 | `imessage.enabled` | boolean | `false` |  | Connect iMessage. Lets cmux read Messages conversations on this Mac. Sending needs your click. |

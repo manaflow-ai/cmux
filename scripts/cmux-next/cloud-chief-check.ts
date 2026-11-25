@@ -23,7 +23,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Api, directExec, Journey, listAllMachines, passwordSignIn, resolveBackend, STACK, type Exec } from "./cloud-journey";
+import { Api, directExec, Journey, listAllMachines, machineStopFields, passwordSignIn, resolveBackend, STACK, type Exec } from "./cloud-journey";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const CHIEF_DIR = path.join(ROOT, "images/cmux-vm/chief");
@@ -31,6 +31,7 @@ const STAGE = "/var/tmp/cmux-chief-check";
 const NAME_PREFIX = "cmux-test-chief-";
 const SWEEP_AFTER_MS = 3 * 60 * 60 * 1000;
 const CHUNK = 3 << 20;
+const CHANNEL_URL = "https://files.cmux.com/cmux-tui/channels/cloud-machine.json";
 const INSTALL_FILE = "/home/cmux/.cmux/chief/cloud/install.json";
 
 const arg = (name: string): string | undefined => {
@@ -189,13 +190,89 @@ async function main(): Promise<number> {
       return { value: null, detail: `${old.length} older than 3 h deleted` };
     });
     const m = await J.step("create machine", async () => {
-      const v = await api.op("cloud.machine.create", { name, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `chief-check-${run}-create`);
+      // Run 45562243340: the create's request hit Api.op's 60 s cap ("The operation timed out") on a slow staging
+      // create; run 45558916018's answered in 35 s. The create is keyed, so ask again under the same key, which
+      // answers the machine the first ask made instead of a second one, for up to 5 min in all.
+      const createKey = `chief-check-${run}-create`;
+      const createUntil = Date.now() + 300_000;
+      let asks = 0;
+      let v: any;
+      for (;;) {
+        asks++;
+        try {
+          v = await api.op("cloud.machine.create", { name, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, createKey);
+          break;
+        } catch (e) {
+          const msg = String((e as Error)?.message ?? e);
+          if (!/timed out|TimeoutError|aborted/i.test(msg) || Date.now() > createUntil) throw new Error(`${msg} (ask ${asks} under ${createKey})`);
+          console.log(`create machine: ask ${asks} cut off (${msg}); asking again under the same key`);
+        }
+      }
       machine = String(v.machine.id);
       const up = await waitRunning(api, machine, 420_000);
-      return { value: up, detail: `${name} ${machine}, image ${up?.image?.id ?? up?.image?.name ?? "?"}, daemon ${up?.image?.daemon_version ?? "?"}` };
+      return { value: up, detail: `${name} ${machine} (${asks} ask${asks === 1 ? "" : "s"}), image ${up?.image?.id ?? up?.image?.name ?? "?"}, daemon ${up?.image?.daemon_version ?? "?"}` };
     });
     void m;
-    const exec = directExec(api, machine, J);
+    // Run 45558916018: the machine stopped 207 s after create, between the readback's 15 s polls (exec 409
+    // vm_not_running). A fresh machine with no client is idle to the platform; turn its idle pause off, as the
+    // wake-echo journey does, so the check measures the update and not the idle policy.
+    await J.step("idle pause off", async () => {
+      await api.op("cloud.machine.idle_policy.set", { machine, idle_seconds: 0 }, `chief-check-${run}-idle`);
+      return { value: null, detail: "idle_seconds 0" };
+    });
+    const rawExec = directExec(api, machine, J);
+    // A refused exec names who stopped the machine (status, pause_reason, paused_by), not only the HTTP code.
+    const exec: Exec = async (command, timeoutMs) => {
+      try {
+        return await rawExec(command, timeoutMs);
+      } catch (e) {
+        const msg = String((e as Error)?.message ?? e);
+        if (!/409/.test(msg)) throw e;
+        const row = await api.read("cloud.machine.get", { machine }).then((v: any) => machineStopFields(v?.machine ?? v), (r) => `read failed: ${String((r as Error)?.message ?? r)}`);
+        throw new Error(`${msg}; machine row: ${JSON.stringify(row)}`);
+      }
+    };
+
+    // RFD 0166 row 302: a fresh Cloud machine runs the acpmux the signed cloud-machine channel names, not the
+    // image's build or main's rolling cmux-tui/latest. The image's updater reads the channel 30 s after boot and
+    // every minute, so wait for it, then read back acpmux's version and the updater's status.
+    await J.step("acpmux follows the cloud-machine channel", async () => {
+      const res = await fetch(CHANNEL_URL, { signal: AbortSignal.timeout(20_000) });
+      if (!res.ok) throw new Error(`${CHANNEL_URL}: HTTP ${res.status}`);
+      const want = String(JSON.parse(Buffer.from(String((await res.json()).payload), "base64").toString("utf8")).commit ?? "");
+      if (!/^[0-9a-f]{40}$/.test(want)) throw new Error(`the channel names no commit: ${want}`);
+      const read = `${ACPMUX} --version 2>&1 | head -n 3; echo ---; (cmux host update status --json || /opt/cmux/current/bin/cmux host update status --json) 2>&1 | head -c 4000`;
+      const deadline = Date.now() + 300_000;
+      let seen = "";
+      const w12 = want.slice(0, 12);
+      // acpmux prints a short commit (`acpmux 1.0.0 (29d6beb60 2026-11-25)`, 9 hex today): match any hex run of
+      // 7+ in the version line as a prefix of the channel's commit, not a fixed 12-char slice.
+      const runsWant = (version: string): boolean =>
+        (version.match(/\b[0-9a-f]{7,40}\b/g) ?? []).some((h) => want.startsWith(h));
+      // Only a flip to the channel's build, or a first check that found the image already on it, counts: the
+      // status always echoes the channel's commit, so a bare substring match would pass a machine that never moved.
+      const onChannel = (out: string): boolean => {
+        const [version, status = ""] = out.split("\n---");
+        if (runsWant(version)) return true;
+        let st: any;
+        try { st = JSON.parse(status.slice(status.indexOf("{"))); } catch { return false; }
+        if (st?.off) throw new Error(`the machine's updater is off: ${JSON.stringify(st.off)}`);
+        const look = st?.state?.look, first = st?.state?.first_ready;
+        return st?.state?.applied_commit === want
+          || (look?.settled?.commit === w12 && look.settled.outcome === "updated")
+          || look?.swapped?.commit === w12
+          || (first?.outcome === "current" && String(first.channel_commit ?? "").startsWith(w12));
+      };
+      for (;;) {
+        seen = (await exec(asRoot(read), 60_000)).stdout.trim();
+        if (onChannel(seen)) break;
+        if (Date.now() > deadline) throw new Error(`after 5 min the machine still does not run channel commit ${want}: ${seen.slice(0, 1500)}`);
+        await sleep(15_000);
+      }
+      const version = seen.split("\n---")[0].replace(/\s+/g, " ").trim();
+      console.log(`acpmux channel readback: channel ${want}; acpmux ${version}`);
+      return { value: want, detail: `channel ${want.slice(0, 12)}; acpmux ${version}` };
+    });
 
     const baked = await J.step("image chief units", async () => {
       const r = await exec("test -f /etc/systemd/system/cmux-chief.service && test -x /var/lib/cmux-chief/current && echo baked || echo absent");

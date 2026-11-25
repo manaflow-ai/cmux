@@ -3681,6 +3681,12 @@
       "title" : "Developer Tools for cmux Pages",
       "type" : "boolean"
     },
+    "developerTools.overloadNotice" : {
+      "default" : false,
+      "description" : "Shows a banner above the composer when this Mac's load or swap is too high.",
+      "title" : "Overload Warning in Chats",
+      "type" : "boolean"
+    },
     "deviceHub.url" : {
       "default" : "",
       "description" : "The device hub for Mac Screen sharing. Empty uses the built-in one.",
@@ -4369,6 +4375,12 @@
       "title" : "Terminal History Find",
       "type" : "boolean"
     },
+    "experiments.themedPrompts" : {
+      "default" : false,
+      "description" : "Prompts over other apps, such as a teammate asking to control this Mac, use your theme's glass and colors.",
+      "title" : "Themed Floating Prompts",
+      "type" : "boolean"
+    },
     "experiments.threadMinimapRestReveal" : {
       "default" : false,
       "description" : "In narrow chats the prompt rail opens only when the pointer rests on the edge, never while you select text.",
@@ -4708,6 +4720,12 @@
       "default" : false,
       "description" : "Send browser and terminal comments to the chat as threads that show the agent's reply.",
       "title" : "Comment Threads in Browser and Terminal",
+      "type" : "boolean"
+    },
+    "labs.connectionsUpcoming" : {
+      "default" : false,
+      "description" : "Lists Slack and Google in Connections before they can be connected.",
+      "title" : "Upcoming Connections",
       "type" : "boolean"
     },
     "labs.hostsSidebar" : {
@@ -5859,6 +5877,36 @@
         "always"
       ],
       "title" : "Ultra Connection Mode",
+      "type" : "string"
+    },
+    "remoteDesktop.maxBitrateMbps" : {
+      "default" : "auto",
+      "description" : "The most megabits per second a new Screen Sharing session may use. Auto lets the host decide. Also accepts a number from 0 to 80 in a raw profile.",
+      "enum" : [
+        "auto"
+      ],
+      "title" : "Screen Sharing Bitrate Limit",
+      "type" : "string"
+    },
+    "remoteDesktop.maxFps" : {
+      "default" : "auto",
+      "description" : "The most frames per second a Screen Sharing session asks for. Auto follows this display's refresh rate. Also accepts a number from 1 to 240 in a raw profile.",
+      "enum" : [
+        "auto"
+      ],
+      "title" : "Screen Sharing Frame Rate Limit",
+      "type" : "string"
+    },
+    "remoteDesktop.quality" : {
+      "default" : "auto",
+      "description" : "The quality a new Screen Sharing session starts at. The session's toolbar can still change it.",
+      "enum" : [
+        "auto",
+        "sharpText",
+        "smoothMotion",
+        "lowBandwidth"
+      ],
+      "title" : "Screen Sharing Quality",
       "type" : "string"
     },
     "RestrictToManagedTeam" : {

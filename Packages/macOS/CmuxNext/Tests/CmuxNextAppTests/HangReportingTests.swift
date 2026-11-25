@@ -73,12 +73,13 @@ import Testing
 
     @Test func memoryPressureRateLimiterRefillsAfterItsInterval() {
         var limiter = MemoryPressureRateLimiter(capacity: 1, refillNanos: 10)
-        // `admit` mutates, and `#expect` captures its operand as an immutable closure argument: call it first.
+        // A mutating call inside #expect is refused ("cannot use mutating member on immutable value"): each
+        // admit is its own statement.
         let first = limiter.admit(nowNanos: 0)
-        let tooSoon = limiter.admit(nowNanos: 9)
+        let early = limiter.admit(nowNanos: 9)
         let refilled = limiter.admit(nowNanos: 10)
         #expect(first)
-        #expect(!tooSoon)
+        #expect(!early)
         #expect(refilled)
     }
 
