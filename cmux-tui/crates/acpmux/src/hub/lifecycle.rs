@@ -474,6 +474,8 @@ impl Hub {
             *session.credential.lock().unwrap_or_else(|e| e.into_inner()) = credential;
             *session.fork_from.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
                 fork_from.clone();
+            // In its meta too, written below: a restart before its first start forks it still.
+            session.keep_fork_start(true);
             // Read before the session is published: a stop from then on ends its first start.
             let stops = session.stops.load(Ordering::SeqCst);
             sessions.insert(id.clone(), session.clone());
@@ -1670,7 +1672,7 @@ impl Hub {
                     self.restore_mode_mark(session, mode);
                 }
                 if fork_from.is_some() {
-                    session.fork_from.lock().unwrap().take();
+                    session.fork_resumed();
                 }
                 if level != "new" {
                     self.append(
