@@ -71,7 +71,10 @@ describe("cloud journey", () => {
     expect(await machineIdleSeconds(api({}), "vm_x")).toBeNull();
     expect(idlePauseDeadlineMs(1800, 600)).toBe(2_100_000);
     expect(idlePauseDeadlineMs(120, 600)).toBe(900_000);
-    expect(idlePauseDeadlineMs(null, 600)).toBe(86_700_000);
+    // A record with both fields: the top-level idle_seconds wins.
+    expect(await machineIdleSeconds(api({ idle_seconds: 120, idle_policy: { idle_seconds: 1800 } }), "vm_x")).toBe(120);
+    // No policy fails at once instead of waiting out the 24 h backstop.
+    expect(() => idlePauseDeadlineMs(null, 600)).toThrow(/names no idle policy/);
   });
 
   test("preclaim table survives the enclosing journey step on success and failure", async () => {

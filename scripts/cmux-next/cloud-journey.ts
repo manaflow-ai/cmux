@@ -1990,10 +1990,12 @@ export async function machineIdleSeconds(api: Api, machine: string): Promise<num
 
 /**
  * How long the journey waits for an idle pause: the idle policy or the post-chat hold, whichever is longer, plus
- * 300 s for the alarm's re-check. A policy the record does not name gets the 24 h backstop's worth (86400 s).
+ * 300 s for the alarm's re-check. A record that names no policy is a failure now, not a 24 h wait: sizing the wait
+ * from the 24 h backstop hung the walk until the CI job's own timeout killed it, so idleHeldBy never said why.
  */
 export function idlePauseDeadlineMs(policyS: number | null, holdS: number): number {
-  return (Math.max(policyS ?? 86400, holdS) + 300) * 1000;
+  if (policyS === null) throw new Error("cloud.machine.get names no idle policy for this machine (idle_seconds and idle_policy.idle_seconds both unset), so there is no pause to wait for");
+  return (Math.max(policyS, holdS) + 300) * 1000;
 }
 
 /** Test-side bounded wait on a machine field (the product never polls; this is the harness). */
