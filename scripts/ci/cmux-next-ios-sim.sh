@@ -65,7 +65,10 @@
 #               to ui-video.mp4 in the artifact: before/after videos of a change;
 #               with ffmpeg on the host (Homebrew), also ui-video-small.mp4:
 #               540 wide, H.264 CRF 30, no audio, small enough for PR media
-#               (lane-gh media takes at most 25 MiB)
+#               (lane-gh media takes at most 25 MiB); with ffmpeg, also
+#               ui-video-shifts.md and ui-video.mp4.shifts.json: the jumps
+#               (layout shifts), blinks and staggered settles in the video
+#               (scripts/cmux-next/recording-shifts-report.py, report only)
 #             profile record a CPU stack-sampling profile of the UI test run:
 #               `xctrace record --instrument 'Time Profiler' --all-processes`
 #               on the host (a simulator app is a host process, so every launch
@@ -352,10 +355,12 @@ handoff_tag=""
 if [[ "$mode" == handoff ]]; then
   [[ $# -eq 2 && "${2:-}" == tag=* ]] || { echo "cmux-next-ios-sim.sh: handoff takes one argument, tag=TAG" >&2; exit 2; }
   handoff_tag="${2#tag=}"
-  [[ "$handoff_tag" =~ ^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$ && "$handoff_tag" != default ]] ||
-    { echo "cmux-next-ios-sim.sh: handoff tag= wants lowercase letters, digits and dashes (at most 64), got '$handoff_tag'" >&2; exit 2; }
-  # dev.cmux.mobile.dev is the cmux Dev app (try mode), which shows the person's real data.
-  [[ "$handoff_tag" != dev ]] || { echo "cmux-next-ios-sim.sh: tag dev is the cmux Dev app's (try mode); pick another tag" >&2; exit 2; }
+  # The one tag rule of every build entry point (reload.sh, review.sh): a canonical tag (its own slug, so
+  # no two spellings share the space dev:<tag>), and none of the reserved ones: default, dev (the cmux Dev
+  # app, try mode, which shows the person's real data), demo and prod (demo-build.sh's installs).
+  # shellcheck source=scripts/lib/mobile-attach.sh
+  source "$(dirname "${BASH_SOURCE[0]}")/../lib/mobile-attach.sh"
+  cmux_attach_validate_dev_tag "$handoff_tag" || { echo "cmux-next-ios-sim.sh: handoff tag=$handoff_tag refused" >&2; exit 2; }
 fi
 if [[ "$mode" == shots && ${#scenes[@]} -eq 0 ]]; then
   echo "cmux-next-ios-sim.sh: shots needs one or more scenes after it, name=WORD,WORD,..." >&2; exit 2
@@ -582,6 +587,16 @@ note() { printf '%s\n' "$*" | tee -a "$summary"; }
 # "detected conflict: 'lib/rustlib/aarch64-apple-ios-sim/...'" and "the 'cargo'
 # binary ... is not applicable"). It also kept Homebrew's bun ahead of the pin.
 export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin:$HOME/.cargo/bin"
+
+# The host-side cargo builds (cmux-duress, coord-sim) run from the checkout's root
+# with --manifest-path, and rustup looks for rust-toolchain.toml from the working
+# directory, not the manifest's: the pin in cmux-tui/ was never read, so a worker
+# with no default toolchain failed them (2026-11-24: "rustup could not
+# choose a version of cargo to run"). Name the pinned channel for every cargo here.
+if [[ -z "${RUSTUP_TOOLCHAIN:-}" && -f cmux-tui/rust-toolchain.toml ]]; then
+  rust_pin=$(sed -n 's/^channel *= *"\(.*\)".*/\1/p' cmux-tui/rust-toolchain.toml | head -1)
+  [[ -n "$rust_pin" ]] && export RUSTUP_TOOLCHAIN="$rust_pin"
+fi
 
 # Everything this step makes outside its checkout goes away when it ends: the
 # pinned xcodegen's temp dir and, once made, the simulator device set.
@@ -1424,6 +1439,11 @@ ui_cold_tests() {
 # cmux-duress link knob is the existing seeded cmux-fault shaper used by the
 # duress replay generator. `idle,link=PROFILE` gives a shaped, otherwise idle,
 # run when the caller asks for net= with duress=off.
+# Rust builds here run from inside cmux-tui: rustup picks the toolchain from the current
+# directory's rust-toolchain.toml (cmux-tui/rust-toolchain.toml), and --manifest-path does not
+# count. From the repo root a worker with no rustup default fails ("rustup could not choose a
+# version of cargo to run"; two Mac workers, 2026-11-24, steps 93ff6323 and
+# 83a54e14 lost every duress= UI pass).
 ui_cold_matrix() {
   local spec net effective slug dir t1
   local specs=() nets=()
@@ -1431,7 +1451,7 @@ ui_cold_matrix() {
   if [[ ${#net_profiles[@]} -gt 0 ]]; then nets=("${net_profiles[@]}"); else nets=(off); fi
   if [[ " ${specs[*]} " != " off " || " ${nets[*]} " != " off " ]]; then
     t1=$SECONDS
-    if ! cargo build --release --quiet --manifest-path cmux-tui/Cargo.toml -p cmux-duress --no-default-features >"$work/duress-build.log" 2>&1; then
+    if ! (cd cmux-tui && cargo build --release --quiet -p cmux-duress --no-default-features) >"$work/duress-build.log" 2>&1; then
       tail -40 "$work/duress-build.log"; cp "$work/duress-build.log" "$out/duress-build.log" 2>/dev/null || true
       note "- duress: cmux-duress did not build (duress-build.log)"; ui_status=1; return
     fi
@@ -1482,7 +1502,7 @@ ui_duress_runs() {
   ui_action=test-without-building
   if [[ " ${duress_specs[*]} " != " off " ]]; then
     t1=$SECONDS
-    if ! cargo build --release --quiet --manifest-path cmux-tui/Cargo.toml -p cmux-duress --no-default-features >"$work/duress-build.log" 2>&1; then
+    if ! (cd cmux-tui && cargo build --release --quiet -p cmux-duress --no-default-features) >"$work/duress-build.log" 2>&1; then
       tail -40 "$work/duress-build.log"; cp "$work/duress-build.log" "$out/duress-build.log" 2>/dev/null || true
       note "- duress: cmux-duress did not build (duress-build.log)"; ui_status=1; return
     fi
@@ -1532,11 +1552,14 @@ if [[ $((${#ui_suites[@]} + ${#ui_cold[@]})) -gt 0 ]]; then
   # CMUX_MOBILE_APPLE_SIGN_IN=YES shows Sign in with Apple, as the App Store
   # configurations and ios-review-gate.yml do: Debug hides it, so
   # AppReviewGateUITests failed here on every commit for want of the button.
-  ui_udid="$(sim_create "cmux-next-ios-sim-ui-${CMUX_CI_STEP_KEY:-local}" "$device_type" "$runtime")"
+  # CMUX_CI_SIM_WARM_OK=1: this iPhone may come already booted from the worker's warm pool (hq
+  # build-fleet/cmd/worker/sim_warm.go), leased in seconds instead of made and booted; every boot below
+  # tolerates a booted device.
+  ui_udid="$(CMUX_CI_SIM_WARM_OK=1 sim_create "cmux-next-ios-sim-ui-${CMUX_CI_STEP_KEY:-local}" "$device_type" "$runtime")"
   recorder=""
   if [[ $ui_video -eq 1 || $ui_profile -eq 1 ]]; then
     # Booted first so the recording covers the whole run; the test run uses the booted device.
-    xcrun simctl boot "$ui_udid"
+    xcrun simctl boot "$ui_udid" >/dev/null 2>&1 || true
     xcrun simctl bootstatus "$ui_udid" -b >/dev/null
   fi
   [[ $reduce_motion -eq 0 ]] || sim_boot_reduce_motion "$ui_udid" "UI test"
@@ -1637,6 +1660,15 @@ print(f"MOBILEBENCH video-start t={t0:.3f} source=launch")
       fi
     elif [[ -s "$out/ui-video.mp4" ]]; then
       note "- UI test video, small copy: no ffmpeg on this host, none"
+    fi
+    # Layout shifts in the recording (Leo, 2026-11-24: "this on reviving had tons of layout shifts"): blocks that
+    # jump in one frame, blinks and staggered settles, as ui-video.mp4.shifts.json and a table in the notes.
+    # A report, never this step's failure; the seeded recordings in CI are what gate the detector.
+    if [[ -s "$out/ui-video.mp4" && -n "$ffmpeg_bin" ]]; then
+      PATH="$(dirname "$ffmpeg_bin"):$PATH" python3 -I scripts/cmux-next/recording-shifts-report.py "$out/ui-video.mp4" \
+        --title "Layout shifts in ui-video.mp4" >"$out/ui-video-shifts.md" 2>"$work/ui-video-shifts.log" || true
+      note "- UI test video, layout shifts (ui-video-shifts.md): $(grep -m1 '^| `' "$out/ui-video-shifts.md" 2>/dev/null || echo "not read, see ui-video-shifts.log")"
+      cp "$work/ui-video-shifts.log" "$out/" 2>/dev/null || true
     fi
   fi
   if [[ $ui_profile -eq 1 ]]; then
@@ -1999,7 +2031,7 @@ if [[ "$mode" == listperf ]]; then
           # One heavy coordinator's records from coord-sim (cmux-tui/crates/coord-sim, serde only: a few seconds to
           # build), written once, copied into this install's data container for CoordSimReplaySource.
           if [[ ! -s "$lp/coord-sim/coord-sim-chat.ndjson" ]]; then
-            cargo build --quiet --release --manifest-path cmux-tui/crates/coord-sim/Cargo.toml &&
+            (cd cmux-tui/crates/coord-sim && cargo build --quiet --release) &&
               cmux-tui/crates/coord-sim/target/release/coord-sim surface --target ios --out "$lp/coord-sim" \
                 --history "${COORD_SIM_HISTORY:-3000}" --rate "${COORD_SIM_RATE:-10}" --seconds 90 \
                 --max-event-bytes 65536 >"$lp/coord-sim.txt" 2>&1 ||
