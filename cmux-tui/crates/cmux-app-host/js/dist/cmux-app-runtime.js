@@ -235,7 +235,7 @@
       this.name = "CmuxError";
     }
   }
-  var HOST_OPS = new Set(["action.run", "action.list", "app.storage.get", "app.storage.set", "app.storage.delete", "app.storage.keys", "app.settings.set", "net.fetch", "integration.request", "clipboard.write", "toast.show"]);
+  var HOST_OPS = new Set(["action.run", "action.list", "app.storage.get", "app.storage.set", "app.storage.delete", "app.storage.keys", "app.settings.set", "net.fetch", "integration.request", "clipboard.write", "toast.show", "app.pane.open", "app.pane.close"]);
   var state = {
     native: null,
     nextCallback: 1,
@@ -504,7 +504,22 @@
         settings: Object.assign(() => state.settings[0](), {
           set: (values) => c("app.settings.set", { values })
         }),
-        context: () => state.context ?? {}
+        context: () => state.context ?? {},
+        openPane: async (args = {}, options = {}) => {
+          const waiting = c("app.pane.open", { args });
+          try {
+            await c("action.run", { id: "app.open", args: { app: state.app.id } }, options);
+          } catch (e) {
+            await c("app.pane.close", {}).catch(() => {
+              return;
+            });
+            await waiting.catch(() => {
+              return;
+            });
+            throw e;
+          }
+          return waiting;
+        }
       },
       theme,
       toast: (options) => {
@@ -3176,7 +3191,7 @@
   };
   var g = globalThis;
   var widgetClocks = new Map;
-  var RUNTIME_VERSION = "1.4.0";
+  var RUNTIME_VERSION = "1.5.0";
   var exportsOf2 = () => g.__cmuxAppExports ?? {};
   var describe2 = (e) => e instanceof Error ? `${e.name === "Error" ? "" : `${e.name}: `}${e.message}` : String(e);
   function entry(name, fn, fallback) {
@@ -3243,9 +3258,18 @@
             widgetClocks.set(mountId, setNow);
             ctx.now = now;
           }
+          const opened = [];
+          if (ctx && typeof ctx === "object" && "args" in ctx) {
+            ctx.close = (result) => call("app.pane.close", { mount: mountId, result: result ?? null });
+            ctx.onOpen = (fn) => void opened.push(fn);
+            ctx.onClose = (fn) => onCleanup(fn);
+          }
           state.context = ctx;
           state.mount = mountId;
           mount(mountId, () => render(ctx), ctx);
+          if (ctx?.args != null)
+            for (const fn of opened)
+              fn(ctx.args);
           state.context = null;
           state.mount = null;
         });
