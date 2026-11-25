@@ -341,6 +341,9 @@ export type PaneBodyDeps = NewTabShown &
     chatName: string;
     renameFromTitle: (() => void) | undefined;
     titleTrail: readonly string[] | undefined;
+    /// What the header names (subagentPanes.ts `paneHeading`): a subagent's own pane heads with the
+    /// subagent, never its chat's title and summary.
+    heading: { title: string; renamable: boolean };
     tabRowTools: (element: HTMLElement | null) => void;
     liveTreeEnabled: boolean;
     readLiveTree: () => Promise<unknown>;
@@ -616,6 +619,7 @@ export function drawPaneBody({
   chatName,
   renameFromTitle,
   titleTrail,
+  heading,
   tabRowTools,
   liveTreeEnabled,
   readLiveTree,
@@ -1276,14 +1280,12 @@ export function drawPaneBody({
                       <span className="acpmux-header-status-content">
                         <ThreadTitle
                           key={snapshot.sessionId}
-                          title={chatName}
-                          onRename={renameFromTitle}
-                          trail={titleTrail}
-                          icon={snapshot.summary?.icon}
-                          formerNames={snapshot.summary?.formerNames}
+                          title={heading.title}
+                          onRename={heading.renamable ? renameFromTitle : undefined}
+                          trail={heading.renamable ? titleTrail : undefined}
+                          icon={heading.renamable ? snapshot.summary?.icon : undefined}
+                          formerNames={heading.renamable ? snapshot.summary?.formerNames : undefined}
                         />
-                        {/* No rolling summary beside the name: the sidebar's hover card and Expanded rows show it
-                              (Leo, 2026-11-22, on the line here: "im not sure if this is useful ... it's overlapping"). */}
                       </span>
                     )}
                   </ChatHeaderStatus>
