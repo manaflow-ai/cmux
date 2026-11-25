@@ -190,10 +190,27 @@ async function main(): Promise<number> {
       return { value: null, detail: `${old.length} older than 3 h deleted` };
     });
     const m = await J.step("create machine", async () => {
-      const v = await api.op("cloud.machine.create", { name, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, `chief-check-${run}-create`);
+      // Run 45562243340: the create's request hit Api.op's 60 s cap ("The operation timed out") on a slow staging
+      // create; run 45558916018's answered in 35 s. The create is keyed, so ask again under the same key, which
+      // answers the machine the first ask made instead of a second one, for up to 5 min in all.
+      const createKey = `chief-check-${run}-create`;
+      const createUntil = Date.now() + 300_000;
+      let asks = 0;
+      let v: any;
+      for (;;) {
+        asks++;
+        try {
+          v = await api.op("cloud.machine.create", { name, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 } }, createKey);
+          break;
+        } catch (e) {
+          const msg = String((e as Error)?.message ?? e);
+          if (!/timed out|TimeoutError|aborted/i.test(msg) || Date.now() > createUntil) throw new Error(`${msg} (ask ${asks} under ${createKey})`);
+          console.log(`create machine: ask ${asks} cut off (${msg}); asking again under the same key`);
+        }
+      }
       machine = String(v.machine.id);
       const up = await waitRunning(api, machine, 420_000);
-      return { value: up, detail: `${name} ${machine}, image ${up?.image?.id ?? up?.image?.name ?? "?"}, daemon ${up?.image?.daemon_version ?? "?"}` };
+      return { value: up, detail: `${name} ${machine} (${asks} ask${asks === 1 ? "" : "s"}), image ${up?.image?.id ?? up?.image?.name ?? "?"}, daemon ${up?.image?.daemon_version ?? "?"}` };
     });
     void m;
     // Run 45558916018: the machine stopped 207 s after create, between the readback's 15 s polls (exec 409
