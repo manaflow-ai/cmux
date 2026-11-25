@@ -2,3 +2,12 @@
 # (scripts/cmux-next/regenerate-settings-exports-linux.sh), as MODULE/PATH, beyond those that import an Apple-only
 # module (the script skips those itself): what reads a Darwin-only API through Foundation.
 CmuxNextSettings/ConfigFileWatcher.swift
+CmuxNextDesignTokens/BackdropCoverage.swift
+CmuxNextDesignTokens/CloseFocus/CloseSelection+Tabs.swift
+CmuxNextDesignTokens/Launch/LaunchMarkPath.swift
+CmuxNextDesignTokens/LowPowerMode.swift
+CmuxNextDesignTokens/LowPowerModeObservation.swift
+CmuxNextDesignTokens/Motion/AnimatedFrame.swift
+CmuxNextDesignTokens/MuseumArtSearch+Parse.swift
+CmuxNextDesignTokens/StatusIndicator/StatusGlyphGeometry.swift
+CmuxNextDesignTokens/ThemeApplyLedger.swift

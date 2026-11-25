@@ -16,10 +16,10 @@ public nonisolated enum TunableFile {
         switch kind {
         case .number:
             // JSONSerialization gives NSNumber for both numbers and booleans.
-            guard let number = json as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
+            guard let number = json as? NSNumber, !number.isTunableBoolean else { return nil }
             return .number(number.doubleValue)
         case .bool:
-            guard let number = json as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { return nil }
+            guard let number = json as? NSNumber, number.isTunableBoolean else { return nil }
             return .bool(number.boolValue)
         case .choice:
             return (json as? String).map(TunableValue.choice)
@@ -125,5 +125,16 @@ package nonisolated final class TunableFileWriter: Sendable {
         }
         try? manager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? TunableFile.encode(snapshot).write(to: url, options: .atomic)
+    }
+}
+
+extension NSNumber {
+    /// Whether JSONSerialization read a boolean (it gives NSNumber for both).
+    fileprivate nonisolated var isTunableBoolean: Bool {
+        #if canImport(Darwin)
+        CFGetTypeID(self) == CFBooleanGetTypeID()
+        #else
+        String(cString: objCType) == "c"
+        #endif
     }
 }

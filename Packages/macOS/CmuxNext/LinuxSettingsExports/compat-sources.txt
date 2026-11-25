@@ -1,0 +1,10 @@
+# The CmuxNextCompat files the Linux settings exporter builds (scripts/cmux-next/regenerate-settings-exports-linux.sh):
+# what the settings model and its design types name. StandIns/CmuxNextCompat.swift stands in for the rest they read.
+BuildIdentity+AppNames.swift
+BuildIdentity.swift
+BuildStatePaths.swift
+MainActorHandlerRegistration.swift
+MainActorHandlers.swift
+NextSupport.swift
+NotificationPreviews.swift
+SidebarProjectionCustomization.swift

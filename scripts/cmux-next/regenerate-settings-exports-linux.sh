@@ -8,10 +8,11 @@
 # reads, from links to this checkout's files:
 #   CmuxNextSettings, CmuxNextDesignTokens  every file but those that import an Apple-only module (APPLE_ONLY below)
 #                                           or are listed in LinuxSettingsExports/excluded.txt;
-#   CmuxNextDesign                          the files in LinuxSettingsExports/design-sources.txt;
+#   CmuxNextDesign, CmuxNextCompat          the files in LinuxSettingsExports/design-sources.txt and
+#                                           compat-sources.txt;
 #   CmuxNextActions                         the action exporter's list (LinuxActionExports/sources.txt), linked
 #                                           against the pinned Rust action catalog (build-action-catalog-linux.sh);
-#   CmuxNextCompat, CoreGraphics            LinuxSettingsExports/StandIns, the few names the model reads;
+#   CoreGraphics, and Linux stand-ins       LinuxSettingsExports/StandIns, for the few Apple names the model reads;
 #   CmuxTheme                               Packages/Shared/CmuxTheme, as is;
 # plus the generated half of CmuxNextSettings (gen-settings-sources.py, as the Mac's SettingsSchemaPlugin runs it).
 # The `cmux-next-settings-exports` tool writes the files through the code the Mac's tests compare them with
@@ -57,10 +58,11 @@ link_portable() { # MODULE: every file that imports no Apple-only module, less e
 }
 link_list "$package/LinuxActionExports/sources.txt" CmuxNextActions
 link_list "$tool/design-sources.txt" CmuxNextDesign
+link_list "$tool/compat-sources.txt" CmuxNextCompat
 link_portable CmuxNextDesignTokens
 link_portable CmuxNextSettings
 python3 -I "$root/scripts/cmux-next/gen-settings-sources.py" --swift-out "$sources/CmuxNextSettings/Generated" >/dev/null
-for module in CmuxNextCompat CmuxNextDesign CmuxNextSettings CoreGraphics; do
+for module in CmuxNextCompat CmuxNextDesign CmuxNextDesignTokens CmuxNextSettings CoreGraphics; do
   mkdir -p "$sources/$module"
   ln -s "$tool/StandIns/$module.swift" "$sources/$module/LinuxStandIns.swift"
 done

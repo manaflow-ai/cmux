@@ -1,5 +1,5 @@
 # CmuxNextDesign's files the Linux settings exporter compiles (scripts/cmux-next/regenerate-settings-exports-linux.sh),
-# relative to Sources/CmuxNextDesign: the design model the settings schema and config parsing read.
+# relative to Sources/CmuxNextDesign: the design model the settings read, none of it AppKit.
 AppleWallpapers.swift
 BackdropArt.swift
 BackdropCatalog.swift
@@ -16,7 +16,7 @@ StatusIndicator/StatusIconSet.swift
 TabShape.swift
 Text/FontSmoothing.swift
 Text/ProcessFontSmoothing.swift
-TitleAreaTone.swift
 Toast/CmuxToastStyle.swift
+TitleAreaTone.swift
 TwoTone.swift
 Windows/SurfaceBackgrounds.swift
