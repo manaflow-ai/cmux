@@ -277,6 +277,8 @@ export class AcpmuxPerf {
   private keyTarget: Pick<Document, "addEventListener" | "removeEventListener"> | undefined;
   /// Told each agent mark as it is kept (the perf watch's new-chat span, perfReporter.ts); unset while it is off.
   markListener: ((stage: AgentMark, at: number) => void) | undefined;
+  /// Told each launch mark as it is kept (ms since 1970; the action trace, actionTrace.ts); unset while it is off.
+  launchListener: ((stage: LaunchMark, at: number) => void) | undefined;
   /// The perf watch's per-send, token and chat-switch hooks (perfReporter.ts); unset while it is off.
   sendListener: ((send: PerfSendMark) => void) | undefined;
   tokenListener: ((at: number) => void) | undefined;
@@ -398,6 +400,7 @@ export class AcpmuxPerf {
     if (stage === "handshakeStart") this.handshakeAttempts += 1;
     if (this.launchMarks[stage] !== undefined) return;
     this.launchMarks[stage] = now;
+    this.launchListener?.(stage, now);
     // The same stage as a user-timing mark, so a trace (DevTools, bench/chat-floor.bench.ts) shows it.
     if (typeof performance !== "undefined" && typeof performance.mark === "function")
       performance.mark(`acpmux:${stage}`);
