@@ -1,134 +1,134 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "cloudStart.eta.setupFirst" : {
-      "comment" : "Agent pane: how long a Cloud environment's setup script usually takes on its first run, after its words on the quiet line",
+    "settings.experiments.toastGlass" : {
+      "comment" : "Settings > Experimental row title: toasts (small notices that appear and go away) in chats drawn on the app's own glass.",
       "extractionState" : "manual",
       "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "a few minutes the first time"
-          }
-        },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "بضع دقائق في المرة الأولى"
+            "value" : "زجاج الإشعارات المنبثقة"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "nekoliko minuta prvi put"
+            "value" : "Staklo obavijesti"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "et par minutter første gang"
+            "value" : "Glas til meddelelser"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "beim ersten Mal ein paar Minuten"
+            "value" : "Glas für Hinweise"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toast Glass"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "unos minutos la primera vez"
+            "value" : "Cristal de avisos"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "quelques minutes la première fois"
+            "value" : "Verre des notifications"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "qualche minuto la prima volta"
+            "value" : "Vetro degli avvisi"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "初回は数分"
+            "value" : "トーストのガラス"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ប៉ុន្មាននាទីនៅលើកដំបូង"
+            "value" : "កញ្ចក់ការជូនដំណឹងខ្លី"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "처음에는 몇 분"
+            "value" : "토스트 유리"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "noen minutter første gang"
+            "value" : "Glass for varsler"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "kilka minut za pierwszym razem"
+            "value" : "Szkło powiadomień"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "alguns minutos na primeira vez"
+            "value" : "Vidro dos avisos"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "несколько минут в первый раз"
+            "value" : "Стекло всплывающих уведомлений"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ครั้งแรกใช้เวลาไม่กี่นาที"
+            "value" : "กระจกของการแจ้งเตือนแบบป๊อปอัป"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ilk seferde birkaç dakika"
+            "value" : "Bildirim camı"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "кілька хвилин першого разу"
+            "value" : "Скло спливних сповіщень"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "vài phút ở lần đầu"
+            "value" : "Kính của thông báo nhanh"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "首次需要几分钟"
+            "value" : "提示条玻璃"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "首次需要幾分鐘"
+            "value" : "提示條玻璃"
           }
         }
       }

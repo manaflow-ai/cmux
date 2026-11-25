@@ -1,134 +1,134 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "cloudStart.eta.underMinute" : {
-      "comment" : "Agent pane: how long a Cloud start's current stage usually takes, after its words on the quiet line",
+    "surge.needYou" : {
+      "comment" : "Agent Session Info: dimmer text after the held surge row's title: how many held messages need the agent. {n} is a count",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "usually under a minute"
+            "value" : "{n} need the agent"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "عادةً أقل من دقيقة"
+            "value" : "{n} تحتاج إلى الوكيل"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "obično manje od minute"
+            "value" : "{n} treba agentu"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "normalt under et minut"
+            "value" : "{n} kræver agenten"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "meist unter einer Minute"
+            "value" : "{n} brauchen den Agenten"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "normalmente menos de un minuto"
+            "value" : "{n} necesitan al agente"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "en général moins d'une minute"
+            "value" : "{n} nécessitent l'agent"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "di solito meno di un minuto"
+            "value" : "{n} richiedono l'agente"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "通常 1 分以内"
+            "value" : "{n} 件がエージェント待ち"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ជាធម្មតាតិចជាងមួយនាទី"
+            "value" : "{n} ត្រូវការភ្នាក់ងារ"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "보통 1분 이내"
+            "value" : "{n}개가 에이전트 필요"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "vanligvis under ett minutt"
+            "value" : "{n} trenger agenten"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "zwykle poniżej minuty"
+            "value" : "{n} wymaga agenta"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "normalmente menos de um minuto"
+            "value" : "{n} precisam do agente"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "обычно меньше минуты"
+            "value" : "{n} требуют агента"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ปกติไม่ถึงหนึ่งนาที"
+            "value" : "{n} รายการต้องการเอเจนต์"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "genellikle bir dakikadan kısa"
+            "value" : "{n} tanesi ajana ihtiyaç duyuyor"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "зазвичай менше хвилини"
+            "value" : "{n} потребують агента"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "thường dưới một phút"
+            "value" : "{n} cần tác tử"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "通常不到一分钟"
+            "value" : "{n} 条需要智能体"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "通常不到一分鐘"
+            "value" : "{n} 則需要代理"
           }
         }
       }

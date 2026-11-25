@@ -24,6 +24,7 @@ import { PullRequestGlyph } from "./PullRequestGlyph";
 import type { PullRequestGlyphState } from "./pullRequestGlyphModel";
 import { openPullRequestDiff, pullRequestDiffUrl } from "./pullRequestDiff";
 import { heightAbove, useFoldMotion } from "./foldMotion";
+import { revealControls } from "../../../ui/revealCover";
 import {
   CHANGES_SHOWN,
   type LineCounts,
@@ -143,7 +144,9 @@ function PullRequestRow({
     // The whole row lights on hover, so the whole row is one target: the link's hit area stretches
     // over the row's own gap and padding (sessionInfo.css), with only the ⋯ button above it. The
     // owner chip is inside the link and opens the pull request too; a label, not its own control.
-    <li className="acpmux-session-info-pr" data-state={state}>
+    // The ⋯ shows on hover only, so it lies over the title's end instead of taking a column of its
+    // own (ui/revealCover.ts; data-reveal-overlap: the owner chip follows a short title).
+    <li className="acpmux-session-info-pr ui-reveal-host" data-state={state} data-reveal-overlap="">
       <a
         ref={setAnchor}
         className="acpmux-session-info-pr__link"
@@ -167,12 +170,14 @@ function PullRequestRow({
             {/* Untitled, the reference is the title, said once: never `#N` over `repo #N` (Leo
                 2026-10-21: "#23377 / cmux #23377"). */}
             {title ? (
-              <span className="acpmux-session-info-pr__title">{title}</span>
+              <span className="acpmux-session-info-pr__title ui-reveal-text">{title}</span>
             ) : (
-              <span className="acpmux-session-info-pr__title acpmux-session-info-pr__ref">{shortReference}</span>
+              <span className="acpmux-session-info-pr__title acpmux-session-info-pr__ref ui-reveal-text">
+                {shortReference}
+              </span>
             )}
             {live.owner && (
-              <span className="acpmux-session-info-pr__owner">
+              <span className="acpmux-session-info-pr__owner ui-reveal-under">
                 <span className="acpmux-session-info-sr-only">{t("sessionInfo.changes.ownerLabel")} </span>
                 {live.owner}
               </span>
@@ -248,42 +253,44 @@ function PullRequestRow({
         pullRequest={{ repo: pr.repo, number: pr.number, title: title || undefined, state }}
         side="top"
       />
-      <Menu>
-        <MenuButton
-          className="acpmux-session-info-icon-button acpmux-session-info-pr__more"
-          label={t("sessionInfo.changes.more", { reference })}
-          aria-haspopup="menu"
-        >
-          <Icon name="action.more" size={14} />
-        </MenuButton>
-        <MenuPopup
-          className="acpmux-session-info-menu"
-          label={t("sessionInfo.changes.actions", { reference })}
-          align="end"
-        >
-          {diffUrl && (
-            <MenuItem className="acpmux-session-info-menu__item" onSelect={() => openPullRequestDiff(diffUrl)}>
-              {t("sessionInfo.changes.viewDiff")}
+      <span className="acpmux-session-info-pr__actions" ref={revealControls}>
+        <Menu>
+          <MenuButton
+            className="acpmux-session-info-icon-button acpmux-session-info-pr__more"
+            label={t("sessionInfo.changes.more", { reference })}
+            aria-haspopup="menu"
+          >
+            <Icon name="action.more" size={14} />
+          </MenuButton>
+          <MenuPopup
+            className="acpmux-session-info-menu"
+            label={t("sessionInfo.changes.actions", { reference })}
+            align="end"
+          >
+            {diffUrl && (
+              <MenuItem className="acpmux-session-info-menu__item" onSelect={() => openPullRequestDiff(diffUrl)}>
+                {t("sessionInfo.changes.viewDiff")}
+              </MenuItem>
+            )}
+            {onOpenBeside && (
+              <MenuItem className="acpmux-session-info-menu__item" onSelect={() => onOpenBeside(pr.url)}>
+                {t("sessionInfo.changes.openBeside")}
+              </MenuItem>
+            )}
+            <MenuItem className="acpmux-session-info-menu__item" onSelect={() => void copyText(pr.url)}>
+              {t("sessionInfo.changes.copyLink")}
             </MenuItem>
-          )}
-          {onOpenBeside && (
-            <MenuItem className="acpmux-session-info-menu__item" onSelect={() => onOpenBeside(pr.url)}>
-              {t("sessionInfo.changes.openBeside")}
+            <MenuItem className="acpmux-session-info-menu__item" onSelect={() => void copyText(reference)}>
+              {t("sessionInfo.changes.copyReference")}
             </MenuItem>
-          )}
-          <MenuItem className="acpmux-session-info-menu__item" onSelect={() => void copyText(pr.url)}>
-            {t("sessionInfo.changes.copyLink")}
-          </MenuItem>
-          <MenuItem className="acpmux-session-info-menu__item" onSelect={() => void copyText(reference)}>
-            {t("sessionInfo.changes.copyReference")}
-          </MenuItem>
-          {onDismiss && (
-            <MenuItem className="acpmux-session-info-menu__item" onSelect={() => onDismiss(pr.url)}>
-              {t("prDock.dismiss", { number: pr.number })}
-            </MenuItem>
-          )}
-        </MenuPopup>
-      </Menu>
+            {onDismiss && (
+              <MenuItem className="acpmux-session-info-menu__item" onSelect={() => onDismiss(pr.url)}>
+                {t("prDock.dismiss", { number: pr.number })}
+              </MenuItem>
+            )}
+          </MenuPopup>
+        </Menu>
+      </span>
     </li>
   );
 }

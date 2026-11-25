@@ -1,134 +1,134 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "cloudStart.eta.seconds" : {
-      "comment" : "Agent pane: how long a Cloud start's current stage usually takes, after its words on the quiet line",
+    "surge.held" : {
+      "comment" : "Agent Session Info: right-aligned count on the held surge row. {n} is how many messages are held",
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "usually a few seconds"
+            "value" : "{n} held"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "عادةً بضع ثوانٍ"
+            "value" : "{n} محتجزة"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "obično nekoliko sekundi"
+            "value" : "{n} zadržano"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "normalt et par sekunder"
+            "value" : "{n} tilbageholdt"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "meist ein paar Sekunden"
+            "value" : "{n} zurückgehalten"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "normalmente unos segundos"
+            "value" : "{n} retenidos"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "en général quelques secondes"
+            "value" : "{n} retenus"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "di solito pochi secondi"
+            "value" : "{n} trattenuti"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "通常数秒"
+            "value" : "{n} 件保留"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ជាធម្មតាប៉ុន្មានវិនាទី"
+            "value" : "{n} បានរក្សាទុក"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "보통 몇 초"
+            "value" : "{n}개 보류"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "vanligvis noen sekunder"
+            "value" : "{n} holdt tilbake"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "zwykle kilka sekund"
+            "value" : "{n} wstrzymano"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "normalmente alguns segundos"
+            "value" : "{n} retidas"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "обычно несколько секунд"
+            "value" : "{n} задержано"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ปกติไม่กี่วินาที"
+            "value" : "พักไว้ {n}"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "genellikle birkaç saniye"
+            "value" : "{n} bekletildi"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "зазвичай кілька секунд"
+            "value" : "{n} затримано"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "thường vài giây"
+            "value" : "{n} đang giữ"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "通常几秒钟"
+            "value" : "已暂存 {n} 条"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "通常幾秒鐘"
+            "value" : "已暫存 {n} 則"
           }
         }
       }
