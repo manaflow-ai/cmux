@@ -22,6 +22,7 @@ pub mod command_host;
 pub mod command_new;
 pub(crate) mod consent_admin;
 pub mod daemon_felt;
+pub mod daemon_placement;
 pub mod daemon_service;
 pub mod daemon_stats;
 pub mod desktop;
@@ -40,6 +41,7 @@ pub mod harness_registry;
 pub mod harness_run;
 pub mod harness_secret;
 pub(crate) mod help_examples;
+pub(crate) mod hold_line;
 pub mod host_agents;
 pub mod host_approvals;
 #[cfg(unix)]

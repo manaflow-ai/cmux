@@ -705,6 +705,25 @@ class HotKeys(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(json.loads(done.stdout)["parts"], ["rust"])
 
+    def test_keys_sorted_by_other_rules_fall_back_to_the_diff(self):
+        # A live_apply.py rule change moves files between digests: the two records do not compare.
+        self.publish(self.base, rules="a" * 64)
+        self.publish(FIX, rules="b" * 64)
+        done = subprocess.run([sys.executable, str(SCRIPT), "plan", FIX, "--base", self.base, "--app", str(self.tmp / "none")],
+                              capture_output=True, text=True, env=self.env)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        plan = json.loads(done.stdout)
+        self.assertNotIn("via", plan)
+        self.assertEqual(plan["parts"], ["rust"])  # cmux#37155's real diff
+        self.publish(FIX, rules="a" * 64)
+        code, plan, err = self.plan()
+        self.assertEqual(code, 0, err)
+        self.assertEqual(plan["via"], "published keys")
+
+    def test_the_keys_name_the_rules_that_sorted_them(self):
+        hot = load_hot("hot_apply_rules_digest_under_test")
+        self.assertRegex(hot.rules_digest(), r"^[0-9a-f]{64}$")
+
     def test_equal_keys_are_a_no_op(self):
         self.publish(self.base)
         self.publish(FIX)

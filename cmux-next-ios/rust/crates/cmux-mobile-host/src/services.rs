@@ -39,6 +39,8 @@ pub struct Peer {
     pub route: Option<LinkRoute>,
     /// The link's path now (direct, TURN, TURN over TLS), if the link reports one.
     pub path: Option<tokio::sync::watch::Receiver<cmux_mobile_link::dial::LinkPath>>,
+    /// The link's viewport sync port, on a WireGuard overlay (`None` elsewhere).
+    pub viewport: Option<Arc<crate::viewport_link::LinkHub>>,
 }
 
 /// What the link's route is read from.
@@ -150,6 +152,7 @@ pub async fn serve(
         "chief" => chief(&config, &peer, &sender, receiver).await,
         "acpmux" => acpmux(&config, &peer, &args, &sender, receiver).await,
         "cloud-directory" => cloud_directory(&sender, &args).await,
+        "catch-up" => crate::catch_up::serve(&config, &peer, &args, &sender).await,
         "cloud-acpmux" => cloud_acpmux(&sender, receiver, &args).await,
         "file" => file(&config, &args, &sender, false).await,
         "file-preview" => file(&config, &args, &sender, true).await,
@@ -266,8 +269,10 @@ const ACPMUX_MAX_MESSAGE_BYTES: usize = 64 << 20;
 /// logged to `phone-frames.jsonl`, `phone_frames.rs`).
 /// `tab-snapshots-v1`: the `tabs` service (every tab's title, favicon, thumbnail or screen text,
 /// with deltas and content-addressed blobs, `tab_snapshots.rs`).
+/// `mailbox-send-v1`: the mailbox takes `send` and `compose` items, held up to 24 hours and
+/// applied once in each phone's `seq` order (`mailbox.rs`, PROTOCOL.md "Store and forward").
 /// The names are declared once in `cmux_mobile_link::names`.
-pub const CAPABILITIES: [&str; 10] = [
+pub const CAPABILITIES: [&str; 11] = [
     names::REMOVAL,
     names::FILE_PREVIEW,
     names::LOCALHOST_FORWARD,
@@ -278,6 +283,7 @@ pub const CAPABILITIES: [&str; 10] = [
     names::PAIR_REQUESTS,
     names::PHONE_FRAMES,
     names::TAB_SNAPSHOTS,
+    names::MAILBOX_SEND,
 ];
 /// Added to [`CAPABILITIES`] when this Mac can stream browser tabs (`browser`).
 pub const BROWSER_STREAM: &str = names::BROWSER_STREAM;
@@ -664,6 +670,14 @@ async fn daemon(
     {
         return Err(Refusal::new("bad_request", "invalid session name"));
     }
+    // A new phone asks for redraw ids (`"pseq": true`) and for viewport sync (`"viewport_sync": 1`);
+    // an old one gets the plain stream.
+    let pseq = args.get("pseq") == Some(&Value::Bool(true));
+    let asked = args.get("viewport_sync").and_then(Value::as_u64) == Some(1);
+    let sync = match (asked, &config.viewport_sync, &peer.viewport) {
+        (true, Some(selector), Some(hub)) => Some((Arc::clone(hub), selector.clone())),
+        _ => None,
+    };
     splice(
         &path,
         session,
@@ -674,6 +688,7 @@ async fn daemon(
         sender,
         receiver,
         peer.session_exposure.clone(),
+        LineStamps { pseq, sync },
     )
     .await
 }
@@ -699,7 +714,15 @@ async fn chief(
         }),
         None => ChiefPolicy::new(),
     };
-    splice(&path, "chief", LinePolicy::Chief(policy), None, sender, receiver, None).await
+    let stamps = LineStamps { pseq: true, sync: None };
+    splice(&path, "chief", LinePolicy::Chief(policy), None, sender, receiver, None, stamps).await
+}
+
+/// How a splice's daemon lines leave for the phone: stamped with redraw ids (`pseq`) or not,
+/// and through a viewport sync (the link's port and the path selector's numbers) or not.
+struct LineStamps {
+    pseq: bool,
+    sync: Option<(Arc<crate::viewport_link::LinkHub>, crate::viewport_sync::SelectorConfig)>,
 }
 
 /// Bound an unanswered ordered command; its splice closes on expiry. Terminal
@@ -708,6 +731,7 @@ const SIDE_COMPLETION_WAIT: std::time::Duration = std::time::Duration::from_secs
 
 /// Splices one phone channel to a daemon socket. Responses and refusals
 /// reach the phone as whole lines, never interleaved.
+#[allow(clippy::too_many_arguments)] // one splice: its socket, policies, channel, exposure and line stamps
 async fn splice(
     path: &Path,
     label: &str,
@@ -716,6 +740,7 @@ async fn splice(
     sender: &ChannelSender,
     mut receiver: ChannelReceiver,
     exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
+    stamps: LineStamps,
 ) -> Result<(), Refusal> {
     // The daemon lane: a phone's new terminal opens in its pane's folder (with_pane_folder).
     let terminal_folders = matches!(policy, LinePolicy::Daemon(_)).then(|| path.to_path_buf());
@@ -746,12 +771,25 @@ async fn splice(
     let daemon_exposure = exposure.clone();
     let request_exposure = daemon_exposure.clone();
     let answers = Arc::clone(&pending);
+    // The daemon lane: when each output byte went to the phone (output_paint.rs).
+    let output_stamps = reply_phone.as_deref().map(crate::output_paint::Tracker::start);
+    let LineStamps { pseq, sync } = stamps;
+    let mut viewport = sync.map(|(hub, selector)| {
+        crate::viewport_link::ViewportLink::new(hub, selector, pseq, daemon_lines.clone())
+    });
+    let hybrid_marks = viewport.as_ref().map(crate::viewport_link::ViewportLink::hybrid_marks);
     let mut from_daemon = tokio::spawn(async move {
         let mut reader = BufReader::with_capacity(64 * 1024, daemon_read);
         loop {
             let mut line = Vec::new();
             match reader.read_until(b'\n', &mut line).await {
-                Ok(0) | Err(_) => return,
+                Ok(0) | Err(_) => {
+                    // Every sync's last lines, in order, before the stream ends.
+                    if let Some(viewport) = &mut viewport {
+                        let _ = viewport.finish().await;
+                    }
+                    return;
+                }
                 Ok(_) => {
                     // hostd's own releases: answered to hostd, not the phone.
                     if answers.answer(&line) {
@@ -760,8 +798,18 @@ async fn splice(
                     let line = completed.answer(line);
                     let Some(line) = reply_policy.reply(line) else { continue };
                     let Some(line) = exposed_daemon_line(line, daemon_exposure.as_ref()) else { continue };
-                    // A redraw's id and its read time (Mac redraw to iPhone paint).
-                    let (line, _) = crate::paint_latency::stamp_line(line);
+                    if let Some(viewport) = &mut viewport {
+                        // Its own lines and this one, stamped when asked, in order.
+                        if viewport.on_line(line).await.is_err() {
+                            return;
+                        }
+                        continue;
+                    }
+                    // A redraw's id and its read time (Mac redraw to iPhone paint), when asked.
+                    let line = crate::viewport_link::stamped(line, pseq);
+                    if let Some(stamps) = &output_stamps {
+                        stamps.line(&line);
+                    }
                     if daemon_lines.send(line).await.is_err() {
                         return;
                     }
@@ -781,10 +829,7 @@ async fn splice(
     side_workers.spawn(async move {
         while let Some((line, verdict)) = side_rx.recv().await {
             let Some(cache) = &side_cache else { return };
-            if let Some((tree, personal, layout)) = side_requirements(&line) {
-                cache.wait_for(tree, personal, layout).await;
-            }
-            let verdict = owned_check(cache, &line, verdict);
+            let verdict = daemon_owned_verdict(cache, &line, verdict).await;
             match verdict {
                 Verdict::Refuse(answer) => {
                     if ready_tx.send(Verdict::Refuse(answer)).await.is_err() {
@@ -879,15 +924,13 @@ async fn splice(
                 if line.iter().all(u8::is_ascii_whitespace) {
                     continue;
                 }
-                if let Some(answer) = daemon_exposure_refusal(&line, request_exposure.as_ref()) {
-                    if refusals.send(answer).await.is_err() {
-                        return;
-                    }
-                    continue;
-                }
-                let (verdict, canonical) = policy.evaluate(&line);
-                if let Some(canonical) = canonical {
-                    line = canonical;
+                let (checked, verdict) = daemon_line_verdict(&policy, line, request_exposure.as_ref());
+                line = checked;
+                // A hybrid attach's surface never syncs (its stream is not the PTY's bytes).
+                if let Some(marks) = &hybrid_marks
+                    && !matches!(verdict, Verdict::Refuse(_))
+                {
+                    marks.observe(&line);
                 }
                 // A reply to a terminal notification is answered locally. Keep it
                 // in the input task so it cannot be confused with an ordinary rewrite.
@@ -1022,6 +1065,85 @@ async fn splice(
     to_daemon.abort();
     from_daemon.abort();
     Ok(())
+}
+
+/// The first check of one phone request line on a daemon lane (the `daemon` and `chief`
+/// splices and `catch-up`): the chat exposure, then the lane's policy. The line to go on
+/// (the Chief lane's re-serialized object) and its verdict; an exposure refusal is a
+/// `Refuse`.
+fn daemon_line_verdict(
+    policy: &LinePolicy,
+    line: Vec<u8>,
+    exposure: Option<&tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
+) -> (Vec<u8>, Verdict) {
+    if let Some(answer) = daemon_exposure_refusal(&line, exposure) {
+        let answer = String::from_utf8_lossy(answer.strip_suffix(b"\n").unwrap_or(&answer)).into_owned();
+        return (line, Verdict::Refuse(answer));
+    }
+    let (verdict, canonical) = policy.evaluate(&line);
+    (canonical.unwrap_or(line), verdict)
+}
+
+/// The daemon lane's ownership check of a request the policy let through: the cached
+/// views it needs are read (waited for when cold), then [`owned_check`]. The splice's
+/// side worker and `catch-up` both call this.
+async fn daemon_owned_verdict(
+    cache: &crate::workspace_cache::WorkspaceCache,
+    line: &[u8],
+    verdict: Verdict,
+) -> Verdict {
+    if let Some((tree, personal, layout)) = side_requirements(line) {
+        cache.wait_for(tree, personal, layout).await;
+    }
+    owned_check(cache, line, verdict)
+}
+
+/// One read-only request a `catch-up` sends the daemon, checked as the `daemon` channel
+/// checks the same line: [`daemon_line_verdict`] (exposure, then [`DaemonPolicy`]), then,
+/// for a line that names something owned, [`daemon_owned_verdict`] against the live
+/// workspace cache (a line that needs one and has none is refused), the Mac's folder for a
+/// new tab, and the exposure once more. `Ok`: the bytes to send (with their newline);
+/// `Err`: the refusal line the channel would have answered.
+pub(crate) async fn checked_daemon_request(
+    policy: &DaemonPolicy,
+    cache: Option<&crate::workspace_cache::WorkspaceCache>,
+    exposure: Option<&tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
+    line: Vec<u8>,
+) -> Result<Vec<u8>, String> {
+    let (line, verdict) = daemon_line_verdict(&LinePolicy::Daemon(policy.clone()), line, exposure);
+    let needs_cache = side_requirements(&line).is_some() || crate::policy::ownership(&line).is_some();
+    let verdict = match (cache, needs_cache) {
+        (Some(cache), _) => daemon_owned_verdict(cache, &line, verdict).await,
+        (None, false) => verdict,
+        (None, true) => {
+            let request = serde_json::from_slice::<Value>(&line).ok();
+            Verdict::Refuse(crate::policy::error_line(
+                request.as_ref().and_then(|request| request.get("id")),
+                "forbidden",
+                "not available without the workspace cache",
+            ))
+        }
+    };
+    let line = match verdict {
+        Verdict::Forward => line,
+        Verdict::Rewrite(line) => line,
+        Verdict::Refuse(answer) => return Err(answer),
+    };
+    let mut line = with_pane_folder(cache.and_then(|cache| cache.tree()).as_deref(), line);
+    if let Some(answer) = daemon_exposure_refusal(&line, exposure) {
+        return Err(String::from_utf8_lossy(answer.strip_suffix(b"\n").unwrap_or(&answer)).into_owned());
+    }
+    line.push(b'\n');
+    Ok(line)
+}
+
+/// A daemon reply line as the `daemon` channel would pass it to the phone (the exposure's
+/// reply filter, [`exposed_daemon_line`]); None when it would drop it.
+pub(crate) fn exposed_daemon_reply(
+    line: Vec<u8>,
+    exposure: Option<&tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
+) -> Option<Vec<u8>> {
+    exposed_daemon_line(line, exposure)
 }
 
 /// Check again after the side worker's awaits and when draining queued replies.
@@ -1205,6 +1327,218 @@ struct AcpmuxRelayState {
     server_reply_ids: std::collections::HashMap<String, String>,
 }
 
+/// What the relay does with one phone message ([`AcpmuxRelay::upstream`]).
+pub(crate) enum Upstream {
+    /// Send this (canonical, maybe marked) text to acpmux.
+    Send(String),
+    /// Answer the phone with this and send nothing to acpmux.
+    Answer(String),
+    /// The message's session ids could not be resolved now (not a refusal): answer the phone
+    /// with this and send nothing to acpmux.
+    Unresolved(String),
+    /// The exposure changed under the relay, or became unreadable: end the relay.
+    Close,
+}
+
+/// What the relay does with one acpmux text message ([`AcpmuxRelay::downstream`]).
+pub(crate) enum Downstream {
+    /// Send this (filtered) text to the phone.
+    Send(String),
+    /// Drop it (it names a chat the phone may not see).
+    Skip,
+    /// A chat this relay touched is no longer exposed: end the relay.
+    Close,
+}
+
+/// The checks one `acpmux` relay applies to every message both ways: canonical session
+/// ids, per-chat exposure, the asking-mode rule, Full-access marking on the phone's own
+/// credential, and the reply filter. The `acpmux` channel and `catch-up`
+/// (`catch_up.rs`) both call these, so a catch-up line passes exactly what the channel's
+/// would.
+pub(crate) struct AcpmuxRelay<'a> {
+    target: &'a AcpmuxTarget,
+    exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
+    /// acpmux was reached on the phone's own credential (`control::phone_credential`).
+    as_phone: bool,
+    /// What both directions learn about the sessions this phone touches. Locked only for a
+    /// moment, never across an await.
+    shared: std::sync::Mutex<AcpmuxRelayState>,
+}
+
+impl<'a> AcpmuxRelay<'a> {
+    pub(crate) fn new(
+        target: &'a AcpmuxTarget,
+        exposure: Option<tokio::sync::watch::Receiver<crate::control::SessionExposure>>,
+        as_phone: bool,
+    ) -> Self {
+        Self { target, exposure, as_phone, shared: std::sync::Mutex::new(AcpmuxRelayState::default()) }
+    }
+
+    pub(crate) fn state(&self) -> crate::control::SessionExposure {
+        self.exposure.as_ref().map(|receiver| receiver.borrow().clone()).unwrap_or_default()
+    }
+
+    /// Whether the relay must end now: the exposure is unreadable, or a chat it touched
+    /// was turned off.
+    pub(crate) fn closed(&self, state: &crate::control::SessionExposure) -> bool {
+        let relay = self.shared.lock().expect("acpmux relay state");
+        !state.available || relay.bound_sessions.iter().any(|session| state.blocked.contains(session))
+    }
+
+    /// Checks one phone message on its way to acpmux. `side` is hostd's own second
+    /// connection for the mode check (`_acpmux/info`), opened on first use.
+    pub(crate) async fn upstream(
+        &self,
+        side: &mut Option<AcpmuxSocket>,
+        known: &mut CanonicalIds,
+        text: &str,
+    ) -> Upstream {
+        let Some((text, dependencies)) = canonicalize_requests(self.target, text, known).await else {
+            return Upstream::Unresolved(serde_json::json!({"jsonrpc":"2.0","id":null,"error":{"code":-32602,"message":"Session exposure could not be resolved"}}).to_string());
+        };
+        let state = self.state();
+        if !state.available || dependencies.iter().any(|session| state.blocked.contains(session)) {
+            return Upstream::Close;
+        }
+        let refusal = {
+            let relay = self.shared.lock().expect("acpmux relay state");
+            crate::acpmux_policy::exposure_refusal_with_replies(
+                &text,
+                &state,
+                &relay.bound_sessions,
+                &relay.server_reply_ids,
+            )
+        };
+        if let Some(answer) = refusal {
+            return Upstream::Answer(answer);
+        }
+        {
+            let mut relay = self.shared.lock().expect("acpmux relay state");
+            if let Ok(value) = serde_json::from_str::<Value>(&text) {
+                let requests = match &value {
+                    Value::Array(items) => items.iter().collect::<Vec<_>>(),
+                    other => vec![other],
+                };
+                for request in requests {
+                    if request
+                        .get("method")
+                        .and_then(Value::as_str)
+                        .is_some_and(|method| method == "session/new" || method == "acp.session.new")
+                        && let Some(id) = request.get("id")
+                    {
+                        relay.pending_new.insert(id.to_string());
+                    }
+                }
+            }
+            relay.bound_sessions.extend(dependencies);
+            // Bind every accepted session-targeting request, not only
+            // prompt/retry methods; info, events and mode changes also
+            // keep a live channel's exposure alive.
+            for (_, session) in crate::acpmux_policy::request_targets(&text) {
+                relay.bound_sessions.insert(session.clone());
+            }
+        }
+        // An agent a phone drives stays in a mode that asks
+        // (`acpmux_policy`): a refused mode set is answered here.
+        let refused = match crate::acpmux_policy::refusal(&text) {
+            Some(answer) => Some(answer),
+            None => match crate::acpmux_policy::controlled_session(&text) {
+                Some((id, session)) => {
+                    let mode = current_mode(self.target, side, &session).await;
+                    crate::acpmux_policy::mode_refusal(&id, mode.as_deref())
+                }
+                None => None,
+            },
+        };
+        // On the phone's own credential acpmux decides by its Full-access setting.
+        let (text, refused) = match (refused, self.as_phone) {
+            (Some(answer), true) => match crate::acpmux_policy::marked(&text) {
+                Some(marked) => (marked, None),
+                None => (text, Some(answer)),
+            },
+            (refused, _) => (text, refused),
+        };
+        if let Some(answer) = refused {
+            return Upstream::Answer(answer);
+        }
+        let latest = self.state();
+        let mut relay = self.shared.lock().expect("acpmux relay state");
+        if !latest.available
+            || relay.bound_sessions.iter().any(|session| latest.blocked.contains(session))
+            || crate::acpmux_policy::exposure_refusal_with_replies(
+                &text,
+                &latest,
+                &relay.bound_sessions,
+                &relay.server_reply_ids,
+            )
+            .is_some()
+        {
+            return Upstream::Close;
+        }
+        if let Ok(value) = serde_json::from_str::<Value>(&text) {
+            let methodless = match &value {
+                Value::Array(items) => items.iter().all(|item| item.get("method").is_none()),
+                other => other.get("method").is_none(),
+            };
+            if methodless {
+                for id in crate::acpmux_policy::response_ids(&text) {
+                    relay.server_reply_ids.remove(&id);
+                }
+            }
+        }
+        Upstream::Send(text)
+    }
+
+    /// Checks one acpmux text message on its way to the phone.
+    pub(crate) fn downstream(&self, text: &str) -> Downstream {
+        let state = self.state();
+        let mut relay = self.shared.lock().expect("acpmux relay state");
+        if !state.available || relay.bound_sessions.iter().any(|session| state.blocked.contains(session)) {
+            return Downstream::Close;
+        }
+        for (id, session) in crate::acpmux_policy::returned_sessions(text) {
+            if relay.pending_new.remove(&id) {
+                relay.bound_sessions.insert(session);
+            }
+        }
+        let Some(text) = crate::acpmux_policy::filter_response(text, &state, &relay.bound_sessions) else {
+            return Downstream::Skip;
+        };
+        if let Ok(value) = serde_json::from_str::<Value>(&text) {
+            let requests = match &value {
+                Value::Array(items) => items.iter().collect::<Vec<_>>(),
+                other => vec![other],
+            };
+            for request in requests {
+                if request.get("method").is_some() {
+                    for (id, session) in crate::acpmux_policy::request_targets(&request.to_string()) {
+                        relay.bound_sessions.insert(session.clone());
+                        relay.server_reply_ids.insert(id, session);
+                    }
+                }
+            }
+        }
+        Downstream::Send(text)
+    }
+}
+
+/// The acpmux connection a phone's channel uses: on the phone's own credential when the app
+/// gave it one and acpmux takes it (true), else the dashboard token (false).
+pub(crate) async fn connect_for_phone(
+    target: &AcpmuxTarget,
+    device_id: &str,
+) -> Result<(AcpmuxSocket, bool), Refusal> {
+    let credential = control::phone_credential(device_id);
+    let own = match credential.as_deref() {
+        Some(credential) => connect_acpmux_as(target, Some(credential)).await.ok(),
+        None => None,
+    };
+    match own {
+        Some(socket) => Ok((socket, true)),
+        None => Ok((connect_dashboard(target).await?, false)),
+    }
+}
+
 /// `acpmux`: splice to the acpmux loopback WebSocket. One link data frame
 /// carries one WebSocket text message in each direction.
 ///
@@ -1213,7 +1547,7 @@ struct AcpmuxRelayState {
 /// rule). What `acpmux_policy` refuses then goes on marked, and acpmux runs it only when
 /// that phone's Full-access setting (Settings > Devices on the Mac, off by default)
 /// covers it. Without a credential, or when acpmux refuses it, the dashboard token and
-/// the refusal here stay as they were.
+/// the refusal here stay as they were. Every message passes [`AcpmuxRelay`].
 async fn acpmux(
     config: &ServiceConfig,
     peer: &Peer,
@@ -1226,24 +1560,13 @@ async fn acpmux(
     {
         return Err(Refusal::new("forbidden", "session exposure state is unavailable"));
     }
-    let credential = control::phone_credential(&peer.device_id);
-    let own = match credential.as_deref() {
-        Some(credential) => connect_acpmux_as(&config.acpmux, Some(credential)).await.ok(),
-        None => None,
-    };
-    let as_phone = own.is_some();
-    let socket = match own {
-        Some(socket) => socket,
-        None => connect_dashboard(&config.acpmux).await?,
-    };
+    let (socket, as_phone) = connect_for_phone(&config.acpmux, &peer.device_id).await?;
     let (mut ws_sink, mut ws_source) = socket.split();
     // The phone reads compressed envelopes (`link_deflate.rs`, CMUX-563).
     let deflate = crate::link_deflate::asked(args);
     let mut message = MessageAssembler::default();
-    let exposure = peer.session_exposure.clone();
-    // What both directions learn about the sessions this phone touches. Locked only for a
-    // moment, never across an await.
-    let shared = std::sync::Mutex::new(AcpmuxRelayState::default());
+    let relay = AcpmuxRelay::new(&config.acpmux, peer.session_exposure.clone(), as_phone);
+    let relay = &relay;
     // A second connection of hostd's own, for `_acpmux/info` (the mode check).
     let mut side: Option<AcpmuxSocket> = None;
     // Session ids acpmux already answered as their own canonical id on this link. A current
@@ -1254,122 +1577,24 @@ async fn acpmux(
     // bulk): a big frame waiting for room toward the phone (`downstream`) no longer stops
     // `upstream` reading the phone's next prompt. When either half ends, the other is
     // dropped and the socket closed.
-    let exposure_down = exposure.clone();
-    let shared = &shared;
     let upstream = async {
         loop {
             let event = receiver.recv().await;
             match event {
                 Some(ChannelEvent::Data(bytes)) => {
                     let Some(text) = message.push(&bytes)? else { continue };
-                    let Some((text, dependencies)) =
-                        canonicalize_requests(&config.acpmux, &text, &mut canonical_ids).await
-                    else {
-                        let answer = serde_json::json!({"jsonrpc":"2.0","id":null,"error":{"code":-32602,"message":"Session exposure could not be resolved"}}).to_string();
-                        let _ = sender.send(Bytes::from(answer)).await;
-                        continue;
-                    };
-                    let state =
-                        exposure.as_ref().map(|receiver| receiver.borrow().clone()).unwrap_or_default();
-                    if !state.available || dependencies.iter().any(|session| state.blocked.contains(session))
-                    {
-                        break;
-                    }
-                    let refusal = {
-                        let relay = shared.lock().expect("acpmux relay state");
-                        crate::acpmux_policy::exposure_refusal_with_replies(
-                            &text,
-                            &state,
-                            &relay.bound_sessions,
-                            &relay.server_reply_ids,
-                        )
-                    };
-                    if let Some(answer) = refusal {
-                        if sender.send(Bytes::from(answer.into_bytes())).await.is_err() {
-                            break;
-                        }
-                        continue;
-                    }
-                    {
-                        let mut relay = shared.lock().expect("acpmux relay state");
-                        if let Ok(value) = serde_json::from_str::<Value>(&text) {
-                            let requests = match &value {
-                                Value::Array(items) => items.iter().collect::<Vec<_>>(),
-                                other => vec![other],
-                            };
-                            for request in requests {
-                                if request.get("method").and_then(Value::as_str).is_some_and(|method| {
-                                    method == "session/new" || method == "acp.session.new"
-                                }) && let Some(id) = request.get("id")
-                                {
-                                    relay.pending_new.insert(id.to_string());
-                                }
+                    match relay.upstream(&mut side, &mut canonical_ids, &text).await {
+                        Upstream::Send(text) => {
+                            if ws_sink.send(Message::Text(text.into())).await.is_err() {
+                                break;
                             }
                         }
-                        relay.bound_sessions.extend(dependencies);
-                        // Bind every accepted session-targeting request, not only
-                        // prompt/retry methods; info, events and mode changes also
-                        // keep a live channel's exposure alive.
-                        for (_, session) in crate::acpmux_policy::request_targets(&text) {
-                            relay.bound_sessions.insert(session.clone());
-                        }
-                    }
-                    // An agent a phone drives stays in a mode that asks
-                    // (`acpmux_policy`): a refused mode set is answered here.
-                    let refused = match crate::acpmux_policy::refusal(&text) {
-                        Some(answer) => Some(answer),
-                        None => match crate::acpmux_policy::controlled_session(&text) {
-                            Some((id, session)) => {
-                                let mode = current_mode(&config.acpmux, &mut side, &session).await;
-                                crate::acpmux_policy::mode_refusal(&id, mode.as_deref())
-                            }
-                            None => None,
-                        },
-                    };
-                    // On the phone's own credential acpmux decides by its Full-access setting.
-                    let (text, refused) = match (refused, as_phone) {
-                        (Some(answer), true) => match crate::acpmux_policy::marked(&text) {
-                            Some(marked) => (marked, None),
-                            None => (text, Some(answer)),
-                        },
-                        (refused, _) => (text, refused),
-                    };
-                    if let Some(answer) = refused {
-                        if sender.send(Bytes::from(answer.into_bytes())).await.is_err() {
-                            break;
-                        }
-                        continue;
-                    }
-                    let latest =
-                        exposure.as_ref().map(|receiver| receiver.borrow().clone()).unwrap_or_default();
-                    {
-                        let mut relay = shared.lock().expect("acpmux relay state");
-                        if !latest.available
-                            || relay.bound_sessions.iter().any(|session| latest.blocked.contains(session))
-                            || crate::acpmux_policy::exposure_refusal_with_replies(
-                                &text,
-                                &latest,
-                                &relay.bound_sessions,
-                                &relay.server_reply_ids,
-                            )
-                            .is_some()
-                        {
-                            break;
-                        }
-                        if let Ok(value) = serde_json::from_str::<Value>(&text) {
-                            let methodless = match &value {
-                                Value::Array(items) => items.iter().all(|item| item.get("method").is_none()),
-                                other => other.get("method").is_none(),
-                            };
-                            if methodless {
-                                for id in crate::acpmux_policy::response_ids(&text) {
-                                    relay.server_reply_ids.remove(&id);
-                                }
+                        Upstream::Answer(answer) | Upstream::Unresolved(answer) => {
+                            if sender.send(Bytes::from(answer.into_bytes())).await.is_err() {
+                                break;
                             }
                         }
-                    }
-                    if ws_sink.send(Message::Text(text.into())).await.is_err() {
-                        break;
+                        Upstream::Close => break,
                     }
                 }
                 _ => break,
@@ -1381,50 +1606,17 @@ async fn acpmux(
         loop {
             match ws_source.next().await {
                 Some(Ok(Message::Text(text))) => {
-                    let state =
-                        exposure_down.as_ref().map(|receiver| receiver.borrow().clone()).unwrap_or_default();
-                    let filtered = {
-                        let mut relay = shared.lock().expect("acpmux relay state");
-                        if !state.available
-                            || relay.bound_sessions.iter().any(|session| state.blocked.contains(session))
-                        {
-                            break;
-                        }
-                        for (id, session) in crate::acpmux_policy::returned_sessions(&text) {
-                            if relay.pending_new.remove(&id) {
-                                relay.bound_sessions.insert(session);
-                            }
-                        }
-                        let Some(text) =
-                            crate::acpmux_policy::filter_response(&text, &state, &relay.bound_sessions)
-                        else {
-                            continue;
-                        };
-                        if let Ok(value) = serde_json::from_str::<Value>(&text) {
-                            let requests = match &value {
-                                Value::Array(items) => items.iter().collect::<Vec<_>>(),
-                                other => vec![other],
-                            };
-                            for request in requests {
-                                if request.get("method").is_some() {
-                                    for (id, session) in
-                                        crate::acpmux_policy::request_targets(&request.to_string())
-                                    {
-                                        relay.bound_sessions.insert(session.clone());
-                                        relay.server_reply_ids.insert(id, session);
-                                    }
-                                }
-                            }
-                        }
-                        text
+                    let filtered = match relay.downstream(&text) {
+                        Downstream::Send(text) => text,
+                        Downstream::Skip => continue,
+                        Downstream::Close => break,
                     };
                     if sender.send(crate::link_deflate::frame(deflate, &filtered).await).await.is_err() {
                         break;
                     }
                 }
                 Some(Ok(Message::Binary(bytes))) => {
-                    let state =
-                        exposure_down.as_ref().map(|receiver| receiver.borrow().clone()).unwrap_or_default();
+                    let state = relay.state();
                     if state.configured || !state.available {
                         break;
                     }
@@ -1438,16 +1630,14 @@ async fn acpmux(
         }
     };
     let exposure_watch = async {
-        let mut exposure = exposure_down.clone();
+        let mut exposure = peer.session_exposure.clone();
         let Some(exposure) = exposure.as_mut() else { return std::future::pending::<()>().await };
         loop {
             if exposure.changed().await.is_err() {
                 return;
             }
             let state = exposure.borrow().clone();
-            let relay = shared.lock().expect("acpmux relay state");
-            if !state.available || relay.bound_sessions.iter().any(|session| state.blocked.contains(session))
-            {
+            if relay.closed(&state) {
                 return;
             }
         }
@@ -1541,7 +1731,7 @@ async fn trusted_session_query(target: &AcpmuxTarget, method: &str, params: Valu
 /// still checked on every request against the canonical id. Bounded: past the cap it starts
 /// over, which only costs lookups again.
 #[derive(Default)]
-struct CanonicalIds(HashSet<String>);
+pub(crate) struct CanonicalIds(HashSet<String>);
 
 impl CanonicalIds {
     const CAP: usize = 4096;
@@ -2324,6 +2514,7 @@ mod tests {
             chief_socket: None,
             browser: crate::browser::BrowserConfig::default(),
             surface: Default::default(),
+            viewport_sync: None,
         };
         let view = config.view().await;
         assert!(view.browser_urls.is_empty());
@@ -2402,6 +2593,7 @@ mod tests {
             chief_socket: None,
             browser: crate::browser::BrowserConfig::default(),
             surface: Default::default(),
+            viewport_sync: None,
         };
         assert_eq!(
             capabilities(&config),
@@ -2415,7 +2607,8 @@ mod tests {
                 "appearance-v1",
                 "pair-requests-v1",
                 "phone-frames-v1",
-                "tab-snapshots-v1"
+                "tab-snapshots-v1",
+                "mailbox-send-v1"
             ]
         );
         let launcher: crate::browser::Launcher = std::sync::Arc::new(|_| {
@@ -2435,6 +2628,7 @@ mod tests {
                 "pair-requests-v1",
                 "phone-frames-v1",
                 "tab-snapshots-v1",
+                "mailbox-send-v1",
                 BROWSER_STREAM,
                 BROWSER_VIDEO_TRACK
             ]
@@ -2521,6 +2715,7 @@ mod tests {
             chief_socket: None,
             browser: crate::browser::BrowserConfig::default(),
             surface: Default::default(),
+            viewport_sync: None,
         };
         assert!(!capabilities(&config).contains(&CLOUD_DESKTOP));
         config.surface = crate::surface::SurfaceConfig::new(Some(launcher), 1);
