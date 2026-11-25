@@ -262,7 +262,7 @@ fn sanitize_makes_unit_safe_names() {
 /// pod binds the system dirs, never `/`, and every ancestor of its root is the pod user's.
 #[test]
 fn a_pods_root_and_every_ancestor_are_the_pod_users_own() {
-    let argv = bwrap_argv("/p/pods", "/p/pods/a", "/p/pods/a", "/opt/x/acpmux", &[]);
+    let argv = bwrap_argv("/p/pods", "/p/pods/a", "/p/pods/a", &[], "/opt/x/acpmux", &[]);
     let pairs: Vec<_> = argv.windows(3).map(|w| (w[0].as_str(), w[1].as_str())).collect();
     assert!(!pairs.iter().any(|(flag, src)| flag.contains("bind") && *src == "/"), "{argv:?}");
     for dir in ["/usr", "/etc", "/opt/x/acpmux"] {
@@ -278,7 +278,7 @@ fn a_pods_root_and_every_ancestor_are_the_pod_users_own() {
     let script = format!(
         "p={root}; while :; do stat -c '%u %n' \"$p\"; [ \"$p\" = / ] && break; p=$(dirname \"$p\"); done"
     );
-    let argv = bwrap_argv(pods, root, root, "/bin/sh", &["-c".into(), script]);
+    let argv = bwrap_argv(pods, root, root, &[], "/bin/sh", &["-c".into(), script]);
     let out = std::process::Command::new(&argv[0]).args(&argv[1..]).output();
     let Ok(out) = out.inspect_err(|_| drop(std::fs::remove_dir_all(&base))) else {
         eprintln!("no bwrap here; the argv check above stands");

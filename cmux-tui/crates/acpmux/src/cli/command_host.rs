@@ -458,6 +458,10 @@ pub struct HypervisorOpts {
     /// by name, so its value never shows in an argv (a model token); repeat for more.
     #[arg(long = "pod-env", value_name = "NAME")]
     pub pod_env: Vec<String>,
+    /// With --driver pods: a host path every pod sees read-only at its own path, such as a
+    /// harness installed under a home (`~/.local/share/claude`); repeat for more.
+    #[arg(long = "pod-bind", value_name = "PATH")]
+    pub pod_bind: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]

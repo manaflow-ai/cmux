@@ -130,6 +130,7 @@ impl<X: CommandRunner> SystemdPodRuntime<X> {
             &self.pods_dir,
             &root,
             request.cwd.as_deref().unwrap_or(&root),
+            &[],
             &request.program,
             &request.args,
         ));
@@ -170,18 +171,25 @@ pub const SYSTEM_DIRS: &[&str] = &[
     "/run", "/mnt", "/media", "/sys", "/nix", "/snap",
 ];
 
-/// `bwrap` around one program, the pod's whole view of its host: the [`SYSTEM_DIRS`] and the
-/// program read-only, its own pid and IPC namespaces, a private `/tmp`, and its own root.
+/// `bwrap` around one program, the pod's whole view of its host: the [`SYSTEM_DIRS`], the
+/// host's `binds` and the program read-only, its own pid and IPC namespaces, a private `/tmp`,
+/// and its own root.
 pub fn bwrap_argv(
     pods_dir: &str,
     root: &str,
     cwd: &str,
+    binds: &[String],
     program: &str,
     args: &[String],
 ) -> Vec<String> {
     let mut out = argv(&["bwrap", "--die-with-parent", "--unshare-pid", "--unshare-ipc"]);
     for dir in SYSTEM_DIRS {
         out.extend(argv(&["--ro-bind-try", dir, dir]));
+    }
+    // What the host names for every pod, at its own path: a harness installed under a home
+    // (a native `claude` in `~/.local`), which the system dirs leave out.
+    for path in binds {
+        out.extend(argv(&["--ro-bind-try", path, path]));
     }
     // An init under a home (a lane's own build of `acpmux`) is visible at its own path.
     if program.starts_with('/') {
