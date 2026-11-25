@@ -412,6 +412,29 @@
           ]
         },
         {
+          "key": "experiments.forumCallCard",
+          "note": "Forum Tool Calls: a call to the agent forum (agent-forum search, show, list, ask, post, reply, topic, close) draws as a forum row in the chat, its line in the forum's words and the threads it found, read or posted as links, in place of the shell row (webviews experiment forum-call-card, arm card; forumShellCalls.ts). Off by default; off keeps the shell row. A cmux-forum MCP post, reply or search draws its card either way (forumCalls.ts). Leo, 2026-11-22: \"i wonder if that's also grounds for a new type of tool call appearance in the gui\".",
+          "title": {
+            "key": "settings.experiments.forumCallCard",
+            "text": "Forum Tool Calls"
+          },
+          "help": {
+            "key": "settings.experiments.forumCallCard.help",
+            "text": "Agent forum searches, reads and posts show as forum rows with links to their threads."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiment",
+            "experimental",
+            "forum",
+            "agent forum",
+            "tool call",
+            "threads",
+            "labs"
+          ]
+        },
+        {
           "key": "experiments.toastsV2",
           "note": "Taste prototype: toasts v2. A working toast (a spinner) turns into its result in place; every person's tab close, a single workspace close and a sidebar chat archive show one line with an inline Undo; toasts draw quiet glass with a mark in the tone's color and an ink-filled action (CmuxToastCenter.v2, from experimentSwitches; the web toast arm from useExperimentSwitch(\"toastsV2\")). Off by default; off keeps today's toasts.",
           "title": {
