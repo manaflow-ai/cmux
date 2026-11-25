@@ -30,7 +30,7 @@ import Testing
         #expect(!rule.showsTitle("Deploy", tabTitles: ["deploy "], expanded: false))
         #expect(rule.showsTitle("Deploy", tabTitles: ["Deploy", "logs"], expanded: false))
         #expect(rule.showsTitle("Deploy", tabTitles: ["zsh"], expanded: false))
-        #expect(rule.showsTitle("Deploy", tabTitles: ["Deploy"], expanded: true), "Show details hides the name")
+        #expect(!rule.showsTitle("Deploy", tabTitles: ["Deploy"], expanded: true), "Show details repeats the tab row's name")
         #expect(WorkspaceHoverCardTitle.always.showsTitle("Deploy", tabTitles: ["Deploy"], expanded: false))
         #expect(!WorkspaceHoverCardTitle.withDetails.showsTitle("Deploy", tabTitles: ["zsh", "logs"], expanded: false))
 

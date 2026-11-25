@@ -137,6 +137,11 @@ struct WorkspaceHoverCardContent: Equatable {
             card.activitySince = nil
             for index in card.facts.indices { card.facts[index].since = nil }
         }
+        // The last reply is not said twice: the History's newest line already reads it (Lawrence 2026-11-25).
+        let historyTexts = Set(timeline.prefix(options.historyRows).compactMap(\.text))
+        if options.layout != .classic, !historyTexts.isEmpty {
+            card.facts.removeAll { $0.kind == Fact.lastReplyKind && historyTexts.contains($0.text) }
+        }
         // The History lists what was asked and what happened, never acpmux's inbox notices
         // ("[inbox] New messages from other agents…"); the stats still count their work.
         let shown = timeline.filter { entry in
@@ -262,7 +267,8 @@ struct WorkspaceHoverCardContent: Equatable {
             workspace.agentFormerName.flatMap { $0 == name ? nil : Strings.formerlyKnownAs(name, former: $0) } ?? name
         }
         if workspace.agentName != nil || identity != nil {
-            let text = [identity, workspace.agentName, detail.model].compactMap { $0 }.joined(separator: " · ")
+            // No model: the tab row under the name reads it already (Lawrence 2026-11-25, "make it more minimal").
+            let text = [identity, workspace.agentName].compactMap { $0 }.joined(separator: " · ")
             facts.append(Fact(icon: .agentChat, text: text, kind: "agent"))
         }
         if let usage = usageFact(detail) { facts.append(usage) }
