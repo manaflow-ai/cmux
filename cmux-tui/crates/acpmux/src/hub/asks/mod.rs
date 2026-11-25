@@ -89,6 +89,31 @@ pub fn is_person_message(msg: &Value) -> bool {
     !provenance && person
 }
 
+/// Classifies a person's words at capture time. Short acknowledgements are replies, explicit
+/// approvals and shipping decisions are decisions, and all other non-empty messages are asks.
+pub fn classify(text: &str) -> AskKind {
+    let normalized = text.trim().to_ascii_lowercase();
+    if normalized.is_empty() {
+        return AskKind::Reply;
+    }
+    if matches!(
+        normalized.as_str(),
+        "yes" | "y" | "no" | "n" | "nope" | "ok" | "okay" | "thanks" | "thank you" | "lol"
+    ) {
+        return AskKind::Reply;
+    }
+    if normalized.contains("go ahead")
+        || normalized.contains("ship it")
+        || normalized.contains("approved")
+        || normalized.contains("approve")
+        || normalized.starts_with("decide ")
+        || normalized.starts_with("decision ")
+    {
+        return AskKind::Decision;
+    }
+    AskKind::Ask
+}
+
 /// One message the person sent.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -104,6 +129,47 @@ pub struct Ask {
     pub host: String,
     /// The record's `promptId`, else `seq-N`.
     pub message_id: String,
+    /// The capture-time classification used by the Next list.
+    #[serde(default)]
+    pub kind: AskKind,
+}
+
+/// A person's captured message classification. Replies remain in the append-only event log but
+/// are omitted from the board, so capture never has to guess a durable owner or status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum AskKind {
+    #[default]
+    Ask,
+    Decision,
+    Reply,
+}
+
+impl AskKind {
+    fn on_board(self) -> bool {
+        matches!(self, Self::Ask | Self::Decision)
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Ask => "ask",
+            Self::Decision => "decision",
+            Self::Reply => "reply",
+        }
+    }
+}
+
+/// An append-only fact about a captured ask. The current board status is derived from these
+/// events and the current PR links, while old `Ask` lines remain readable for compatibility.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AskEvent {
+    pub ask: String,
+    pub ts: u64,
+    pub kind: String,
+    pub by: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
 }
 
 /// A pull request's state, as far as the daemon heard it.
@@ -164,6 +230,9 @@ pub(crate) enum Line {
     /// A pull request as last noted (later lines replace earlier ones of the same URL).
     #[serde(rename = "pr")]
     Pr(PullRequest),
+    /// An append-only capture or lifecycle fact. The derived indexes are rebuilt from these lines.
+    #[serde(rename = "e")]
+    Event(AskEvent),
     /// The chat was purged: every ask of it before this line is dropped.
     #[serde(rename = "p")]
     Purge { sid: String },
@@ -176,6 +245,10 @@ pub(crate) struct State {
     order: BTreeSet<(u64, String)>,
     by_session: HashMap<String, Vec<String>>,
     prs: HashMap<String, PullRequest>,
+    /// Append-only events, retained in capture order for lifecycle queries and duress inspection.
+    events: Vec<AskEvent>,
+    /// Event ids already folded, so replaying a capture source is idempotent.
+    event_keys: HashSet<(String, String, u64)>,
     /// Ask id -> the pull request URLs naming it.
     by_ask: HashMap<String, Vec<String>>,
     /// Chats purged this run: none of their late records adds an ask.
@@ -193,6 +266,15 @@ impl State {
         self.order.insert((ask.ts, ask.id.clone()));
         self.by_session.entry(ask.session_id.clone()).or_default().push(ask.id.clone());
         self.asks.insert(ask.id.clone(), ask);
+        true
+    }
+
+    pub(crate) fn add_event(&mut self, event: AskEvent) -> bool {
+        let key = (event.ask.clone(), event.kind.clone(), event.ts);
+        if !self.event_keys.insert(key) {
+            return false;
+        }
+        self.events.push(event);
         true
     }
 
@@ -224,20 +306,36 @@ impl State {
 
     /// Forgets every ask of `session`.
     pub(crate) fn remove_session(&mut self, session: &str) {
-        for id in self.by_session.remove(session).unwrap_or_default() {
+        let ids = self.by_session.remove(session).unwrap_or_default();
+        let removed: HashSet<String> = ids.iter().cloned().collect();
+        self.events.retain(|event| !removed.contains(&event.ask));
+        self.event_keys.retain(|(ask, _, _)| !removed.contains(ask));
+        for id in ids {
             if let Some(ask) = self.asks.remove(&id) {
                 self.order.remove(&(ask.ts, ask.id));
             }
         }
     }
 
-    /// The status an ask's pull requests give it.
+    /// The status an ask's lifecycle events give it, with the old PR index as a compatibility
+    /// fallback for ledgers written before event lines existed.
     fn status(&self, id: &str) -> &'static str {
-        let prs: Vec<&PullRequest> =
-            self.by_ask.get(id).into_iter().flatten().filter_map(|url| self.prs.get(url)).collect();
-        if prs.iter().any(|pr| pr.state == PrState::Merged) {
+        let mut has_pr = false;
+        let mut merged = false;
+        for url in self.by_ask.get(id).into_iter().flatten() {
+            let Some(pr) = self.prs.get(url) else { continue };
+            has_pr = true;
+            let latest = self
+                .events
+                .iter()
+                .filter(|event| event.target.as_deref() == Some(url.as_str()))
+                .max_by_key(|event| event.ts);
+            merged |=
+                latest.is_some_and(|event| event.kind == "prMerged") || pr.state == PrState::Merged;
+        }
+        if merged {
             "merged"
-        } else if prs.is_empty() {
+        } else if !has_pr {
             "open"
         } else {
             "pr"
@@ -269,6 +367,17 @@ impl State {
             _ => Map::new(),
         };
         row.insert("status".into(), json!(self.status(&ask.id)));
+        row.insert("kind".into(), json!(ask.kind));
+        row.insert(
+            "events".into(),
+            Value::Array(
+                self.events
+                    .iter()
+                    .filter(|event| event.ask == ask.id)
+                    .filter_map(|event| serde_json::to_value(event).ok())
+                    .collect(),
+            ),
+        );
         row.insert("prs".into(), Value::Array(prs));
         Value::Object(row)
     }
@@ -284,6 +393,9 @@ pub struct AsksQuery {
     pub before: Option<u64>,
     /// Tie breaker for asks recorded in the same millisecond.
     pub before_id: Option<String>,
+    /// The Next board view excludes captured replies. The default is also board-safe so older
+    /// clients never receive a reply row they cannot render.
+    pub next: bool,
 }
 
 impl AsksQuery {
@@ -309,7 +421,13 @@ impl AsksQuery {
             Some(Value::String(id)) if before.is_some() => Some(id.clone()),
             _ => return Err("beforeId requires before and a string id".into()),
         };
-        Ok(Self { session_id, limit, before, before_id })
+        let next = match params.get("view") {
+            None | Some(Value::Null) => false,
+            Some(Value::String(view)) if view == "next" => true,
+            Some(Value::String(_)) => return Err("view must be next".into()),
+            Some(_) => return Err("view must be a string".into()),
+        };
+        Ok(Self { session_id, limit, before, before_id, next })
     }
 }
 
@@ -439,8 +557,8 @@ impl AskLedger {
         }
     }
 
-    /// Observes one appended record of chat `session`; only the person's `user_message` does
-    /// anything. The meta read is one short lock of the chat's own meta.
+    /// Observes one appended record of chat `session`. The daemon's provenance mark decides
+    /// whether it is a person's capture, then classification happens before anything is stored.
     pub(crate) fn observe(&self, session: &super::Session, record: &EventRecord) {
         if !self.enabled || record.kind != "user_message" || session.purged.load(Ordering::SeqCst) {
             return;
@@ -451,7 +569,7 @@ impl AskLedger {
         });
     }
 
-    /// [`AskLedger::observe`] for chat `id`; `harness` is read only for an ask.
+    /// [`AskLedger::observe`] for chat `id`; `harness` is read only for a person's capture.
     pub(crate) fn record(&self, id: &str, record: &EventRecord, harness: impl FnOnce() -> String) {
         if !self.enabled || record.kind != "user_message" || !is_person_message(&record.msg) {
             return;
@@ -473,14 +591,23 @@ impl AskLedger {
                 return;
             }
         }
+        let kind = classify(text);
         let ask = Ask {
-            id: ask_id,
+            id: ask_id.clone(),
             ts: record.at,
             text: crate::secret_scan::mask(text).chars().take(MAX_TEXT_CHARS).collect(),
             harness: harness(),
             session_id: id.to_owned(),
             host: self.host.clone(),
             message_id,
+            kind,
+        };
+        let event = AskEvent {
+            ask: ask_id,
+            ts: record.at,
+            kind: "captured".into(),
+            by: "person".into(),
+            target: Some(kind.as_str().into()),
         };
         let mut s = self.lock();
         if s.purged.contains(id) {
@@ -488,6 +615,9 @@ impl AskLedger {
         }
         if s.add_ask(ask.clone()) {
             self.emit(&mut s, Line::Ask(ask));
+            if s.add_event(event.clone()) {
+                self.emit(&mut s, Line::Event(event));
+            }
         }
     }
 
@@ -532,6 +662,23 @@ impl AskLedger {
         let pr = s.put_pr(pr);
         if known.as_ref() != Some(&pr) {
             self.emit(&mut s, Line::Pr(pr.clone()));
+            let event_kind = match pr.state {
+                PrState::Merged => "prMerged",
+                PrState::Open => "prOpened",
+                PrState::Closed => "prClosed",
+            };
+            for ask in &pr.asks {
+                let event = AskEvent {
+                    ask: ask.clone(),
+                    ts: at,
+                    kind: event_kind.into(),
+                    by: "daemon".into(),
+                    target: Some(pr.url.clone()),
+                };
+                if s.add_event(event.clone()) {
+                    self.emit(&mut s, Line::Event(event));
+                }
+            }
         }
         let linked: Vec<&String> = pr.asks.iter().filter(|id| s.asks.contains_key(*id)).collect();
         json!({"url": pr.url, "state": pr.state, "traceIds": pr.asks, "linked": linked})
@@ -564,7 +711,9 @@ impl AskLedger {
         self.note_pr(note, at);
     }
 
-    /// The `_acpmux/asks` reply: asks newest first, each with its pull requests and status.
+    /// The `_acpmux/asks` reply: Next rows newest first, each with its pull requests and derived
+    /// status. `view: "next"` is accepted explicitly for the new board while older clients can
+    /// keep calling the original method with an empty parameter object.
     /// `title` names a chat (its meta's title), or `None` when this daemon no longer holds it;
     /// it is asked once the ledger's lock is released (a chat's meta lock is taken before it).
     pub fn query(&self, q: &AsksQuery, title: impl Fn(&str) -> Option<String>) -> Value {
@@ -585,6 +734,9 @@ impl AskLedger {
         reply.insert("enabled".into(), json!(true));
         reply.insert("asks".into(), Value::Array(rows));
         reply.insert("host".into(), json!(self.host));
+        if q.next {
+            reply.insert("view".into(), json!("next"));
+        }
         if let Some((ts, id)) = next {
             reply.insert("next".into(), ts);
             reply.insert("nextId".into(), id);
@@ -616,6 +768,11 @@ impl AskLedger {
             },
         };
         ids.filter(|a| {
+            // Replies are captured and durable, but the board is intentionally limited to asks
+            // and decisions until the event detail view lands.
+            a.kind.on_board()
+        })
+        .filter(|a| {
             q.before.is_none_or(|before| {
                 a.ts < before
                     || (a.ts == before && q.before_id.as_ref().is_some_and(|id| &a.id < id))
@@ -687,7 +844,7 @@ impl super::Hub {
     }
 }
 
-/// Every ask and pull request in `state`, one line each: the rewritten file.
+/// Every ask, event and pull request in `state`, one line each: the rewritten file.
 fn snapshot(state: &State) -> Vec<Line> {
     let mut lines: Vec<Line> = state
         .order
@@ -699,6 +856,7 @@ fn snapshot(state: &State) -> Vec<Line> {
     let mut prs: Vec<&PullRequest> = state.prs.values().collect();
     prs.sort_by(|a, b| a.url.cmp(&b.url));
     lines.extend(prs.into_iter().cloned().map(Line::Pr));
+    lines.extend(state.events.iter().cloned().map(Line::Event));
     lines
 }
 

@@ -38,6 +38,31 @@ fn an_ask_id_is_stable_and_shaped() {
 }
 
 #[test]
+fn capture_classifies_the_next_board_at_the_event_boundary() {
+    assert_eq!(classify("build the next list"), AskKind::Ask);
+    assert_eq!(classify("go ahead and ship it"), AskKind::Decision);
+    assert_eq!(classify("yes"), AskKind::Reply);
+    assert_eq!(classify("   "), AskKind::Reply);
+}
+
+#[test]
+fn replies_are_captured_as_events_but_hidden_from_the_next_list() {
+    let l = ledger();
+    l.record("chat", &rec(1, 10, person("ask", "build the next list")), || "codex".into());
+    l.record("chat", &rec(2, 20, person("reply", "yes")), || "codex".into());
+    l.record("chat", &rec(3, 30, person("decision", "go ahead and ship it")), || "codex".into());
+
+    let rows = asks_of(&l, &all());
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["kind"], "decision");
+    assert_eq!(rows[1]["kind"], "ask");
+    let events = &l.lock().events;
+    assert_eq!(events.len(), 3);
+    assert_eq!(events[1].target.as_deref(), Some("reply"));
+    assert_eq!(l.query(&AsksQuery { next: true, ..all() }, |_| None)["view"], "next");
+}
+
+#[test]
 fn the_same_message_twice_is_one_ask() {
     let l = ledger();
     l.record("chat", &rec(3, 1_000, person("p1", "build the ledger")), || "claude".into());
@@ -269,6 +294,7 @@ fn the_file_keeps_asks_and_links_across_a_restart_and_a_purge_rewrites_it() {
     }
     let text = std::fs::read_to_string(path.join(store::FILE)).unwrap();
     assert!(!text.contains("purged"), "a purge leaves no words of the chat: {text}");
+    assert!(text.contains("\"t\":\"e\""), "capture events are append-only: {text}");
     // A torn last line is cut off and the rest still reads.
     std::fs::write(path.join(store::FILE), format!("{text}{{\"t\":\"a\",\"id\"")).unwrap();
     let l = AskLedger::open_as(Some(path.clone()), "mac".into());

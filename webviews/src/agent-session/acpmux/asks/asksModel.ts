@@ -8,6 +8,7 @@ export const ASKS_LIMIT = 200;
 
 export type AskStatus = "open" | "pr" | "merged";
 export type AskPrState = "open" | "merged" | "closed";
+export type AskKind = "ask" | "decision";
 
 export type AskPr = { url: string; repo?: string; number?: number; state: AskPrState };
 
@@ -19,6 +20,7 @@ export type Ask = {
   sessionId: string;
   sessionTitle?: string;
   host: string;
+  kind: AskKind;
   status: AskStatus;
   prs: AskPr[];
 };
@@ -33,6 +35,7 @@ const num = (value: unknown): number | undefined =>
 
 const STATUSES: readonly AskStatus[] = ["open", "pr", "merged"];
 const PR_STATES: readonly AskPrState[] = ["open", "merged", "closed"];
+const KINDS: readonly AskKind[] = ["ask", "decision"];
 
 function readPr(value: unknown): AskPr | undefined {
   const pr = record(value);
@@ -58,6 +61,7 @@ function readAsk(value: unknown): Ask | undefined {
     harness: text(ask.harness) ?? "",
     sessionId,
     host: text(ask.host) ?? "",
+    kind: KINDS.find((kind) => kind === ask.kind) ?? "ask",
     status: STATUSES.find((s) => s === ask.status) ?? "open",
     prs: Array.isArray(ask.prs) ? ask.prs.map(readPr).filter((pr): pr is AskPr => pr !== undefined) : [],
     ...(title ? { sessionTitle: title } : {}),

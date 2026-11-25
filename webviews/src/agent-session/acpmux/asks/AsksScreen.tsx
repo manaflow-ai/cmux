@@ -39,7 +39,7 @@ export function AsksScreen({ load, openSession, openUrl, now }: Props) {
 
   const read = useCallback(() => {
     const id = ++request.current;
-    loadRef.current({ limit: ASKS_LIMIT }).then(
+    loadRef.current({ limit: ASKS_LIMIT, view: "next" }).then(
       (value) => {
         if (id === request.current) setState({ phase: "ready", reply: readAsks(value), at: Date.now() });
       },
@@ -110,7 +110,7 @@ function AskRow({
   const when = age(ask.ts, now, t);
   const chat = ask.sessionTitle || t("asks.chat");
   return (
-    <li className="ask-row" data-status={ask.status}>
+    <li className="ask-row" data-status={ask.status} data-kind={ask.kind}>
       <span className="ask-mark" aria-hidden>
         <AgentMark harness={ask.harness} />
       </span>

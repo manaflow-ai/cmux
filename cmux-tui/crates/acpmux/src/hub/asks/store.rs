@@ -47,6 +47,9 @@ pub(crate) fn fold(path: &Path, state: &mut State) {
             Ok(Line::Pr(pr)) => {
                 state.put_pr(pr);
             }
+            Ok(Line::Event(event)) => {
+                state.add_event(event);
+            }
             Ok(Line::Purge { sid }) => state.remove_session(&sid),
             Err(e) => tracing::debug!("asks: skipped a line: {e}"),
         }
