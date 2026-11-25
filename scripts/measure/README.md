@@ -221,7 +221,7 @@ This file indexes every entry in `scripts/measure/`. Registered benches wrap som
 | `agent-loop.py` | Python driver for agent-loop.sh. | hq#7149 L8 | 2026-11-05 | active |
 | `chief-build-cache.sh` | Chief build cache timing before and after. | #28481 | 2026-10-30 | active |
 | `chief-latency.sh` | Chief latency before/after: a scratch Chief at two refs on one Mac, the 15-ask `latency` scenario with a real model (chief-latency bench; how to run: `Native/OptChat/optchat-chief/measure/README-latency.md`). | Chief latency lane | 2026-11-23 | active |
-| `local-chat-first-reply.sh` | Local chat select to first reply on a build of a commit (local-chat bench; driver `local_chat_first_reply.py`). | local-instant-start | 2026-11-25 | active |
+| `local-chat-first-reply.sh` | Local chat select to first reply on a build of a commit (local-chat bench; driver `local_chat_first_reply.py`). Run: `cmux-ci run --class exclusive --measurement --label measure --display --script scripts/measure/local-chat-first-reply.sh --ref SHA --arg=base_url=http://100.120.48.119:4016 [--arg=build=SHA] --artifact artifacts/local-chat-first-reply.json --timeout 5400`; from a lane VM with no controller route, the broker runs it only for the open PR of the checkout's branch. | local-instant-start | 2026-11-25 | active |
 | `chief-import.sh` | One Chief import of a 2,020-message corpus on a quiet Mac. | - | 2026-10-10 | stale |
 | `chief-prompt-bubble.sh` | Proof that a 140 KB Chief subagent prompt draws as the first bubble. | u4256 | 2026-10-27 | active |
 | `team-eval.sh` | One run of the coordinator-mode eval: one task, one arm. | - | 2026-11-07 | active |
