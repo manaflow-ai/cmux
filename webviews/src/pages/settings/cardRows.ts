@@ -86,6 +86,13 @@ export const APP_THEME_KEY = "appearance.appTheme";
 export const THEME_EDITS_KEY = "appearance.themeEdits";
 /** appearance.accent: drawn here as the swatch popup, after the app theme. */
 export const ACCENT_KEY = "appearance.accent";
+/** appearance.selection: drawn here as its setting row, after the accent it tints (another App Theme
+ * key: its group would draw a second "App Theme" card for it). */
+export const SELECTION_KEY = "appearance.selection";
+/** customize.doctorNotice: the Customization Problems toast's switch, drawn above the Customization
+ * Library with the doctor card (it sits in the schema's App Theme group, which would draw a second
+ * "App Theme" card for it). */
+export const DOCTOR_NOTICE_KEY = "customize.doctorNotice";
 /** appearance.highlightColor: drawn here as its setting row, after the accent (the App Theme group's
  * last key: without it the page drew a second "App Theme" card for this one row). */
 export const HIGHLIGHT_COLOR_KEY = "appearance.highlightColor";

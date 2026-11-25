@@ -99,10 +99,11 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
   // Customization Problems draws above the library in its slot; `focus=card.customizeDoctor` opens on it.
   customizeLibrary: () =>
     Promise.all([import("./CustomizeLibraryCard"), import("./CustomizeDoctorCard")]).then(
-      ([{ CustomizeLibraryCard }, { CustomizeDoctorCard }]) =>
+      ([{ CustomizeLibraryCard }, { CustomizeDoctorCard, DoctorNoticeSwitch }]) =>
         (focus, _workspace, reveal) => (
           <>
             <CustomizeDoctorCard focus={focus} />
+            <DoctorNoticeSwitch focus={focus} />
             <CustomizeLibraryCard reveal={reveal} />
           </>
         ),

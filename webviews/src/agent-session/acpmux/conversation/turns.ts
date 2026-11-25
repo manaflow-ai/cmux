@@ -2362,8 +2362,10 @@ function shapeTurn(
     // (Leo, 2026-11-25: "the worked for for collapsing the compaction and then the next worked for
     // + thinking is weird. layout shifts and awkward looking animations"). A /compact alone ends the
     // same way: its note ("Compacted · 152k → 18k") stays in the place its live "Compacting" line
-    // held, never shut inside a "Worked for 1s" that hides what it did.
-    const compactOnly = said === undefined && onlyCompaction(work);
+    // held, never shut inside a "Worked for 1s" that hides what it did. A turn stopped mid-compaction
+    // keeps its "You stopped after" line: the stop is news, and a stopped turn's fold opens, so the
+    // note stays in sight under it (agent-pane-steer.test.ts, a forced Stop reads as a plain stop).
+    const compactOnly = said === undefined && onlyCompaction(work) && !(final && isStopped(summary));
     const unlabeled =
       compactOnly ||
       (previous === undefined &&

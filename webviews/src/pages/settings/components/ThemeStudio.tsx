@@ -50,6 +50,7 @@ import {
   ACCENT_KEY,
   HIGHLIGHT_COLOR_KEY,
   ROTATE_FAVORITES_KEY,
+  SELECTION_KEY,
   THEME_FILE_KEY,
 } from "../cardRows";
 
@@ -60,6 +61,7 @@ export {
   ACCENT_KEY,
   HIGHLIGHT_COLOR_KEY,
   ROTATE_FAVORITES_KEY,
+  SELECTION_KEY,
   THEME_FILE_KEY,
 };
 const FOLLOW_TERMINAL = "followTerminal";
@@ -154,6 +156,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
   const appPaired = appSpec?.kind === "pair";
   const themeState = useRowState(THEME_KEY);
   const accentRow = rowsByKey.get(ACCENT_KEY);
+  const selectionRow = rowsByKey.get(SELECTION_KEY);
   const highlightRow = rowsByKey.get(HIGHLIGHT_COLOR_KEY);
   const rotateRow = rowsByKey.get(ROTATE_FAVORITES_KEY);
   const themeFileRow = rowsByKey.get(THEME_FILE_KEY);
@@ -445,6 +448,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
               />
             </StudioRow>
           )}
+          {selectionRow && <SettingRow row={selectionRow} focused={focused === SELECTION_KEY} />}
           {highlightRow && <SettingRow row={highlightRow} focused={focused === HIGHLIGHT_COLOR_KEY} />}
           {themeFileRow && <SettingRow row={themeFileRow} focused={focused === THEME_FILE_KEY} />}
           {themeFileRow && (
