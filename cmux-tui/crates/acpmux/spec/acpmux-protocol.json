@@ -2539,6 +2539,30 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/connections/claude_token.begin",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/claude_token.wait",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/claude_token.code",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/claude_token.cancel",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/connections/credential",
       "params": true,
       "result": true
@@ -3011,6 +3035,11 @@
     {
       "kind": "notification",
       "name": "_acpmux/start_mode_changed",
+      "params": true
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/fill",
       "params": true
     },
     {
@@ -6377,6 +6406,7 @@
         "model": true,
         "release": true,
         "reserveHome": true,
+        "shapes": true,
         "wait": true,
         "workspaceId": true
       },

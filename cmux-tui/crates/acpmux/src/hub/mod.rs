@@ -1496,6 +1496,8 @@ pub struct Hub {
     pub catalog: Arc<crate::catalog::CatalogService>,
     /// Sign in with ChatGPT: its attempts and per-account refresh locks (`crate::chatgpt`).
     pub chatgpt: Arc<crate::chatgpt::Service>,
+    /// One-click Claude Code tokens (`claude setup-token` in the daemon's own pty).
+    pub claude_token: Arc<crate::claude_token::Service>,
     /// Agent CLI health (`harness_health`, `hub/health_view.rs`).
     pub health: Arc<crate::harness_health::HealthService>,
     /// The token the web listener checks now (`web_token.rs`).
@@ -1926,6 +1928,7 @@ impl Hub {
             git_watch: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
             chatgpt: Arc::new(crate::chatgpt::Service::default()),
+            claude_token: Arc::new(crate::claude_token::Service::default()),
             health: Arc::new(crate::harness_health::HealthService::new()),
             web_token: WebToken::new(String::new()),
             person: Default::default(),
