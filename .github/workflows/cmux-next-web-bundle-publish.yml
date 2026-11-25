@@ -81,6 +81,9 @@ on:
       - "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json"
       - "Packages/macOS/CmuxNext/Sources/**/*.xcstrings"
       - ".github/workflows/cmux-next-web-bundle-publish.yml"
+      - "schemas/surface-roles/surface-roles.json"
+      - "schemas/type-scale/scene-type.json"
+      - "Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDescriptor.swift"
   workflow_dispatch:
     inputs:
       pr:
