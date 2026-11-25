@@ -366,6 +366,9 @@ jobs:
           pattern: linux-fallback-*
           path: handed
           merge-multiple: true
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
       - name: Rerun the Linux failures on the Mac
         run: |
           set -uo pipefail
