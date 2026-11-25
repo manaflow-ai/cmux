@@ -102,7 +102,9 @@ struct CmuxMobileApp: App {
         WindowGroup {
             Group {
             #if DEBUG
-            if BrowserEventsDemoRoot.isRequested {
+            if LiveCodeProbeRoot.isRequested {
+                LiveCodeProbeRoot()
+            } else if BrowserEventsDemoRoot.isRequested {
                 BrowserEventsDemoRoot()
             } else if RecoveryGalleryRoot.isRequested {
                 RecoveryGalleryRoot()
