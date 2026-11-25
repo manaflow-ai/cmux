@@ -163,17 +163,20 @@ test("the owner offline: the page says so, and Join again is the same attempt", 
   await page.unmount();
 });
 
-for (const [error, shown] of [
-  ["share.expired", "guest.ended.expired"],
-  ["share.revoked", "guest.ended.revoked"],
-  ["share.kicked", "guest.ended.kicked"],
-  ["share.used", "guest.ended.used"],
+for (const [error, shown, next] of [
+  ["share.expired", "guest.ended.expired", "guest.ended.askNewLink"],
+  ["share.revoked", "guest.ended.revoked", undefined],
+  ["share.kicked", "guest.ended.kicked", undefined],
+  ["share.used", "guest.ended.used", "guest.ended.askNewLink"],
+  ["share.left", "guest.ended.left", undefined],
 ] as const)
   test(`redeem answered ${error}: the ended page, with no way to retry`, async () => {
     const page = await mount({ redeem: async () => ({ ok: false, error }) });
     await typeName(page.host, "Ana");
     await submit(page.host);
-    expect(page.host.textContent).toBe(translate(shown));
+    // The title, then (a spent or expired link) the muted next step.
+    expect(page.host.querySelector("h1")?.textContent).toBe(translate(shown));
+    expect(page.host.querySelector(".guest-card__detail")?.textContent).toBe(next ? translate(next) : undefined);
     expect(page.host.querySelector("button, input")).toBeNull();
     await page.unmount();
   });
@@ -249,9 +252,65 @@ test("only a share that is over ends the page; offline and network failures may 
   expect(endedBy("share.closed")).toBe("closed");
   expect(endedBy("share.kicked")).toBe("kicked");
   expect(endedBy("share.used")).toBe("used");
-  expect(endedBy("share.left")).toBe("used");
+  expect(endedBy("share.left")).toBe("left");
   expect(endedBy("share.host_offline")).toBeUndefined();
   expect(endedBy("failed")).toBeUndefined();
+});
+
+test("an expired invite says the invite expired, and to ask the owner for another", async () => {
+  const page = await mount({
+    secret: undefined,
+    invite: true,
+    accept: async () => ({ ok: false, error: "share.expired" }),
+  });
+  await submit(page.host);
+  expect(page.host.querySelector("h1")?.textContent).toBe(translate("guest.ended.inviteExpired"));
+  expect(page.host.querySelector(".guest-card__detail")?.textContent).toBe(translate("guest.ended.askNewInvite"));
+  await page.unmount();
+});
+
+test("the name field is off while Join waits on the room", async () => {
+  const page = await mount({ redeem: () => new Promise(() => undefined) });
+  await typeName(page.host, "Ana");
+  await submit(page.host);
+  expect((page.host.querySelector("input") as HTMLInputElement).disabled).toBe(true);
+  expect(joinButton(page.host).textContent).toBe(translate("guest.join.joining"));
+  await page.unmount();
+});
+
+const signedInAs = (linkRole?: "talk" | "view") => () =>
+  Promise.resolve({ signedIn: true as const, name: "Priya Raman", ...(linkRole ? { linkRole } : {}) });
+
+for (const [linkRole, shown] of [
+  ["talk", "guest.join.asDetailTalk"],
+  ["view", "guest.join.asDetailView"],
+  [undefined, "guest.invite.detail"],
+] as const)
+  test(`a signed-in link join says what the link allows (${linkRole ?? "unnamed"})`, async () => {
+    const page = await mount({ whoami: signedInAs(linkRole) });
+    await roomFrames();
+    expect(page.host.querySelector(".guest-card__detail")?.textContent).toBe(translate(shown));
+    await page.unmount();
+  });
+
+test("a signed-in link join whose sign-in lapsed says so, with a link to sign in again", async () => {
+  const page = await mount({ whoami: signedInAs(), redeem: async () => ({ ok: false, error: "share.unauthorized" }) });
+  await roomFrames();
+  await submit(page.host);
+  const alert = page.host.querySelector("[role=alert]");
+  expect(alert?.textContent).toContain(translate("guest.join.signInExpired"));
+  expect(alert?.textContent).not.toContain(translate("guest.join.failed"));
+  expect(alert?.querySelector("a")?.textContent).toBe(translate("guest.join.signInAgain"));
+  expect(alert?.querySelector("a")?.getAttribute("href")).toBe("/");
+  await page.unmount();
+});
+
+test("a signed-in edited-name join keeps the field off while it waits", async () => {
+  const page = await mount({ whoami: signedInAs(), editName: true });
+  await roomFrames();
+  await submit(page.host);
+  expect((page.host.querySelector("input") as HTMLInputElement).disabled).toBe(true);
+  await page.unmount();
 });
 
 test("an invite joins as the signed-in account: no name field, and Join accepts this tab's attempt", async () => {
@@ -295,8 +354,11 @@ for (const [error, shown] of [
     await submit(page.host);
     expect(page.host.querySelector("[role=alert]")?.textContent).toContain(translate(shown));
     expect(joinButton(page.host).disabled).toBe(false);
-    if (error === "share.unauthorized")
+    // Signed in again, or (not invited) with another account: both at the invite's own address.
+    if (error === "share.unauthorized" || error === "share.not_invited")
       expect(page.host.querySelector("[role=alert] a")?.getAttribute("href")).toBe(`/i/${SHARE}`);
+    if (error === "share.not_invited")
+      expect(page.host.querySelector("[role=alert] a")?.textContent).toBe(translate("guest.invite.otherAccount"));
     await page.unmount();
   });
 
