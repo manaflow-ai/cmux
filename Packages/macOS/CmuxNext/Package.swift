@@ -316,6 +316,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextCloudPlace",
             // The chat place flow store and Auto's signals: Swift carries facts, Rust decides (cloud_move_place_*).
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextActions",
                 "CmuxNextCloud",
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
@@ -706,6 +707,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextWindowRules",
                 .product(name: "CmuxAppAttest", package: "CmuxAppAttest"),
                 .product(name: "CmuxEgress", package: "CmuxEgress"),
+                .product(name: "CmuxPagePushBound", package: "CmuxPagePushBound"),
             ],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
@@ -908,6 +910,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextOnboarding",
                 "CmuxNextSettings",
             ],
+            resources: [.process("Resources")],
             swiftSettings: uiSwiftSettings
         ),
         .target(
@@ -1128,6 +1131,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextWindowRules",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CCmuxAppFFI",
+                "CmuxNextCompat",
                 "CmuxNextDaemon",
             ],
             swiftSettings: daemonSwiftSettings
@@ -2081,8 +2085,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .copy("Resources/WhatsNew"),
                 // The keys a web update pointer may be signed with (plans/cmux-next/web-ota.md).
                 .copy("Resources/web-update-keys.json"),
-                // The relaunch's afterimage, run by /usr/bin/osascript (RelaunchAfterimage).
-                .copy("Resources/relaunch-afterimage.js"),
             ],
             swiftSettings: uiSwiftSettings
         ),
@@ -3104,6 +3106,8 @@ let package = !targetsLinux ? Package(
         .package(path: "../../Shared/CmuxHomeRender"),
         // Agent questions: one harness-neutral model (plans/cmux-next/agent-questions.md).
         .package(path: "../../Shared/CmuxAgentQuestion"),
+        // What the host may feed a chat page that does not drain (hung-page backpressure).
+        .package(path: "../../Shared/CmuxPagePushBound"),
         // The Mac Home transcript: MessagesLabAppKitNative, vendored (home-mac.md).
         .package(path: "../../Shared/CmuxMessagesLab"),
         // RFB (VNC) client for compatibility hosts in the remote view pane (remote-desktop.md 12).
