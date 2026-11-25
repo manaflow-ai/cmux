@@ -1,14 +1,14 @@
 // l10n-allow-file: test fixtures (real command lines and the English the rows draw).
 // A command row says what its command did (Leo, 2026-11-07: "it's not just you ran a command.
 // It's that you ran a specific thing"): a known program and subcommand read as a past-tense verb
-// and its main argument, a description names what the table cannot, and anything else reads as
+// and its main argument when the tool has no description, and anything else reads as
 // its command line without the plumbing after it. The full line stays in the opened Shell block.
 import { expect, test } from "bun:test";
 import { translatorFor } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { toolLabel } from "../toolPaths";
 import { toolGroupLabel } from "./toolGroups";
-import { commandAction } from "./commandActions";
+import { commandAction, commandSaid } from "./commandActions";
 
 const t = translatorFor("en");
 let next = 0;
@@ -36,7 +36,6 @@ const label = (item: AcpmuxActivity) => {
     (command) => (running ? command : t("tools.ranCommand", { command })),
     undefined,
     running ? undefined : t("tools.ranUnnamed"),
-    !running,
   );
 };
 
@@ -209,23 +208,26 @@ for (const [command, expected] of CASES)
     expect(label(shell(command))).toBe(expected);
   });
 
-test("a description names a command the table does not know, never one it knows", () => {
-  const script = `python3 - <<'EOF'\nimport json\nprint(len(json.load(open("a.json"))))\nEOF`;
-  expect(label(shell(script, { description: "Count the catalog's keys" }))).toBe("Count the catalog's keys");
-  expect(label(shell("git status", { description: "Look around" }))).toBe("Checked git status");
+test("a tool description labels known and unknown commands throughout their lifetimes", () => {
+  const description = "Check the working tree";
+  for (const command of ["git status", "worktree-report --local"]) {
+    for (const status of ["pending", "in_progress", "completed", "failed"]) {
+      const tool = shell(command, { description, status }).tool!;
+      expect(commandSaid(t, tool)).toBe(description);
+    }
+  }
 });
 
-test("a running command reads as written until it finishes; cleaning is for finished labels only", () => {
+test("a running command without a matching rule retains its working command", () => {
   const item = shell(`agent-memory search "better tooltips" 2>/dev/null | head -10`, {
     status: "in_progress",
   });
   expect(label(item)).toBe(`agent-memory search "better tooltips" 2>/dev/null | head -10`);
 });
 
-test("the live line names the command as written, whitespace normalised", () => {
-  // turns.ts runningLabel: no action, no cleaning (#36940).
+test("explicit raw detail keeps the command with whitespace normalised", () => {
   for (const status of ["in_progress", "completed"]) {
-    const tool = shell("git status   2>/dev/null | head -5", { status }).tool!;
+    const tool = shell("git status   2>/dev/null | head -5", { status, description: "Check the worktree" }).tool!;
     expect(toolLabel(tool, "Bash", (command) => command, undefined, undefined, false)).toBe(
       "git status 2>/dev/null | head -5",
     );

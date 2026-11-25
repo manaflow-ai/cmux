@@ -6,12 +6,8 @@
 // step of a compound command is named, with an ellipsis for the rest, so a label never claims more
 // than that step did. The opened row's Shell block always shows the whole line as it ran.
 //
-// Claude's Bash calls also carry a `description` the model wrote ("Search prior tooltip work");
-// Codex's exec calls carry none (acpmux passes `rawInput: {command, commandLine, cwd}`, and the
-// reads, searches and listings its app server parses arrive as read and search calls already).
-// The table comes first because it is read off what ran: a description is the model's own words
-// and could say one thing while the command does another (the reason #36940 drew commands as
-// typed). A description names only what the table cannot (`commandSaid`).
+// A tool's own description takes precedence over any inferred action. The opened Shell block
+// always displays the actual command, including setup and redirects.
 import type { StringKey, StringValues, Translate } from "../i18n";
 import { experimentArm } from "../../../experiments/experiment";
 import type { AcpmuxActivity } from "../model";
@@ -28,6 +24,8 @@ import {
   type Loop,
   type Stage,
 } from "./shellSteps";
+import { currentCommandRules } from "../session-info/commandLabelSettings";
+import { commandSummary } from "../session-info/commandRules";
 import { commandFolder } from "./commandFolder";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
@@ -1226,25 +1224,16 @@ const failed = (tool: Tool) =>
   (tool.exitCode !== undefined && tool.exitCode !== 0) ||
   tool.background?.state === "failed";
 
-/// A command row's words when they are not its command line: the table's action, else the call's
-/// description, as the look orders them. Undefined when the row reads "Ran <line>". A running call
-/// reads as its command line, with the shimmer carrying its live state (Leo, 2026-11-23: "running"
-/// doesn't need text).
-export function commandSaid(t: Translate, tool: Tool, look: CommandLabelLook = commandLook()): string | undefined {
+/// Prefer the author's description, including while the process is running or has failed.
+/// Past-tense actions describe successful exits only. The raw command remains in ShellBlock.
+export function commandSaid(t: Translate, tool: Tool): string | undefined {
+  const description = tool.description?.trim();
+  if (description) return description;
   const command = tool.command?.trim();
-  if (!command || look === "command" || look === "cleaned") return undefined;
-  const description = tool.description?.trim() || undefined;
-  // A running script reads as one, never as its heredoc marker (`python3 - <<'EOF'`).
-  if (running(tool)) return scriptSaid(t, command, true);
+  if (!command) return undefined;
+  if (running(tool)) return scriptSaid(t, command, true) ?? commandSummary(t, command, currentCommandRules());
   const action = failed(tool) ? undefined : commandAction(command);
-  if (look === "description" && description) return description;
-  // The table names one step: a line with more steps after it reads whole, never as its first. A
-  // loop the table read pass by pass is a compound command: its description says it first.
-  const named = action && !action.more && !(action.loop && description) ? action : undefined;
-  if (look === "description")
-    return named ? actionText(t, named) : (pipelineSaid(t, command) ?? scriptSaid(t, command));
-  if (named) return actionText(t, named);
-  return description ?? pipelineSaid(t, command) ?? scriptSaid(t, command);
+  return action && !action.more ? actionText(t, action) : (pipelineSaid(t, command) ?? scriptSaid(t, command));
 }
 
 /// A pipeline into inline code reads as its programs and files, "Ran ffmpeg → python3 on *.mov"

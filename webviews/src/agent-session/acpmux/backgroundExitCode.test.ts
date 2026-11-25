@@ -25,8 +25,12 @@ afterAll(async () => {
 });
 
 type Daemon = { record: (target: string, step: unknown, at?: number) => unknown };
-type Tool = { id: string; background?: { state: string; exitCode?: number } };
-type Row = { kind: string; items?: { tool?: Tool }[] };
+type Tool = { id: string; description?: string; background?: { state: string; exitCode?: number } };
+type Row = {
+  kind: string;
+  items?: { tool?: Tool }[];
+  backgroundTask?: { toolCallId: string; description?: string; command: string; summary?: string; state: string };
+};
 
 const update = (fields: Record<string, unknown>) => ({ update: fields });
 
@@ -35,14 +39,14 @@ test("a background shell's call keeps the exit code its end reported", async () 
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
   const socket = new MockAcpmuxSocket(() => Promise.resolve());
   const daemon = socket as unknown as Daemon;
-  const shell = (id: string, command: string) => [
+  const shell = (id: string, command: string, description?: string) => [
     update({
       sessionUpdate: "tool_call",
       toolCallId: id,
       title: command,
       kind: "execute",
       status: "in_progress",
-      rawInput: { command, description: `Run ${id}`, run_in_background: true },
+      rawInput: { command, description, run_in_background: true },
       _meta: { claude: { tool: "Bash" } },
     }),
     update({ sessionUpdate: "tool_call_update", toolCallId: id, status: "completed" }),
@@ -51,7 +55,7 @@ test("a background shell's call keeps the exit code its end reported", async () 
   const steps = [
     { mux: "user_message", msg: { text: "Run the benches" } },
     { mux: "turn_started", msg: {} },
-    ...shell("bench", "cargo bench"),
+    ...shell("bench", "cargo bench", "Run bench"),
     ...shell("serve", "npm run dev"),
     update({
       sessionUpdate: "background_task_update",
@@ -59,11 +63,45 @@ test("a background shell's call keeps the exit code its end reported", async () 
       taskId: "t-bench",
       command: "cargo bench",
       state: "failed",
+      description: "Secondary label",
       summary: 'Background command "Run bench" failed (exit code 101)',
       exitCode: 101,
     }),
+    // A task whose launch call is on another page reports its name once. Its terse completion
+    // still has that name and the command for disclosure.
+    update({
+      sessionUpdate: "background_task_update",
+      toolCallId: "orphan",
+      command: "git worktree add lane",
+      description: "Create worktree for lane",
+      state: "running",
+    }),
+    update({ sessionUpdate: "background_task_update", toolCallId: "orphan", state: "completed" }),
+    // Older SDK orphan updates recorded the description as the command. The notice identifies
+    // the subject explicitly, while ordinary summary text stays in the details.
+    update({
+      sessionUpdate: "background_task_update",
+      toolCallId: "legacy",
+      command: "Create worktree for lane",
+      summary: 'Background command "Create worktree for lane" completed (exit code 0)',
+      state: "completed",
+      exitCode: 0,
+    }),
+    update({
+      sessionUpdate: "background_task_update",
+      toolCallId: "plain",
+      command: "./custom-tool",
+      summary: 'Output: Background command "do not use this" completed (exit code 0)',
+      state: "completed",
+    }),
     // An end that names no code (a stop) keeps none.
-    update({ sessionUpdate: "background_task_update", toolCallId: "serve", command: "npm run dev", state: "stopped" }),
+    update({
+      sessionUpdate: "background_task_update",
+      toolCallId: "serve",
+      command: "npm run dev",
+      description: "Start the dev server",
+      state: "stopped",
+    }),
     { mux: "turn_result", msg: { status: "completed" } },
   ];
   for (const step of steps) daemon.record(mockHost.sessionId!, step);
@@ -86,9 +124,23 @@ test("a background shell's call keeps the exit code its end reported", async () 
       tools().find((t) => t.id === "serve")?.background?.state === "running"
     )
       await new Promise<void>((resolve) => wakes.push(resolve));
+    const notice = (id: string) => rows.find((row) => row.backgroundTask?.toolCallId === id)?.backgroundTask;
+    expect(notice("orphan")).toMatchObject({
+      command: "git worktree add lane",
+      description: "Create worktree for lane",
+      state: "completed",
+    });
+    expect(notice("legacy")).toMatchObject({
+      description: "Create worktree for lane",
+      command: "Create worktree for lane",
+      summary: 'Background command "Create worktree for lane" completed (exit code 0)',
+    });
+    expect(notice("plain")?.description).toBeUndefined();
     const bench = tools().find((tool) => tool.id === "bench")!;
+    expect(bench.description).toBe("Run bench");
     expect(bench.background).toMatchObject({ state: "failed", exitCode: 101 });
     const serve = tools().find((tool) => tool.id === "serve")!;
+    expect(serve.description).toBe("Start the dev server");
     expect(serve.background?.state).toBe("stopped");
     expect(serve.background?.exitCode).toBeUndefined();
   } finally {

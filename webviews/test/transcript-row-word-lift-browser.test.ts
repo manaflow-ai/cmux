@@ -118,7 +118,7 @@ await requireBrowserLane("transcript-row-word-lift-browser.test.ts", async () =>
       words: ".cv-notice__lead",
     },
     {
-      name: "Background command completed",
+      name: "Background task completion",
       entry: "agent-pane.turn-after-subagent",
       line: "button.cv-tool.cv-bgtask.is-toggle",
       words: ".cv-tool__text",

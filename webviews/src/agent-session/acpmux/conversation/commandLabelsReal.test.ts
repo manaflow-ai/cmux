@@ -37,7 +37,6 @@ const label = (tool: Tool) => {
     (command) => (running ? command : t("tools.ranCommand", { command })),
     undefined,
     running ? undefined : t("tools.ranUnnamed"),
-    !running,
   );
 };
 
@@ -215,7 +214,7 @@ test("the live line and a running row name the working step as written, not its 
 });
 
 test("a running script and the live line read as a script, never as its heredoc marker", () => {
-  expect(label(shell(ALS, { status: "in_progress" }))).toBe("python3 -");
+  expect(label(shell(ALS, { status: "in_progress" }))).toBe("A Python script on als.json");
   const live = (command: string) =>
     toolLabel(shell(command, { status: "in_progress" }), "Bash", (line) => line, undefined, undefined, false);
   for (const [command] of CASES) {

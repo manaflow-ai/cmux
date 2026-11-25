@@ -67,17 +67,17 @@ test("a run's header counts its finished background tasks first, then what it ra
   expect(line).toContain("Finished 2 background tasks and ran 3 commands (2 failed)");
 });
 
-test("a command that finished in the background reads Background command completed, then its command", () => {
-  const html = renderToStaticMarkup(
-    <CommandRow item={shell("Find the retry references", { background: { state: "completed", endedAt: 2 } })} />,
+test("a background command keeps its prose description and gains a completion status", () => {
+  const description = "Create worktree for lane";
+  const done = renderToStaticMarkup(
+    <CommandRow item={shell(description, { background: { state: "completed", endedAt: 2 } })} />,
   );
-  expect(html).toMatch(/class="cv-command__lead"[^>]*>Background command completed<\/span>/);
-  // Its command, never its description (Codex parity).
-  expect(words(html)).toContain("Background command completed make check");
-  expect(words(html)).not.toContain("Find the retry references");
-  // Still running, it is its command alone.
-  const live = renderToStaticMarkup(<CommandRow item={shell("Start the API", { background: { state: "running" } })} />);
-  expect(live).not.toContain("cv-command__lead");
+  expect(words(done)).toContain(`${description} · Finished`);
+  expect(done).not.toMatch(/<code\b/);
+  expect(words(done)).not.toContain("make check");
+  const live = renderToStaticMarkup(<CommandRow item={shell(description, { background: { state: "running" } })} />);
+  expect(words(live)).toContain(description);
+  expect(words(live)).not.toContain("Finished");
 });
 
 test("while a background command runs, an opened run lists it as a step, with no count line", () => {
@@ -123,14 +123,14 @@ test("a failed call's row is its command, then its failure tag, then its chevron
   expect(words(renderToStaticMarkup(<CommandRow item={shell(undefined)} />))).toContain("make check");
 });
 
-test("a background command's end reads Background command completed, its command in full ink", () => {
+test("background notices use the description, then a command summary, followed by the outcome", () => {
+  const task = { toolCallId: "x", command: "pytest -x" };
   const html = renderToStaticMarkup(
-    <BackgroundTaskNote task={{ toolCallId: "x", command: "pytest -x", state: "completed" }} />,
+    <BackgroundTaskNote task={{ ...task, description: "Check the worktree", state: "completed" }} />,
   );
-  expect(html).toMatch(/class="cv-bgtask__state"[^>]*>Background command completed<\/span>/);
-  expect(html).toMatch(/class="cv-bgtask__command"[^>]*>pytest -x<\/code>/);
-  const failed = renderToStaticMarkup(
-    <BackgroundTaskNote task={{ toolCallId: "y", command: "pytest -x", state: "failed" }} />,
-  );
-  expect(words(failed)).toContain("Background command failed pytest -x");
+  expect(words(html)).toContain("Check the worktree · Finished");
+  expect(html).not.toContain(task.command);
+  const failed = renderToStaticMarkup(<BackgroundTaskNote task={{ ...task, state: "failed" }} />);
+  expect(words(failed)).toContain("Running tests · Failed");
+  expect(failed).not.toContain("<code");
 });

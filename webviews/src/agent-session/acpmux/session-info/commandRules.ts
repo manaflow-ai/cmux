@@ -801,3 +801,9 @@ export function commandRead(
     ...(match ? { rule: match.rule.id } : {}),
   };
 }
+
+/// A localized summary from a recognized command rule. Callers with no summary show the command as code.
+export function commandSummary(t: Translate, command: string, configured: readonly CommandRule[]): string | undefined {
+  const read = commandRead(t, { command }, "terminal", configured);
+  return read.rule ? read.label : undefined;
+}
