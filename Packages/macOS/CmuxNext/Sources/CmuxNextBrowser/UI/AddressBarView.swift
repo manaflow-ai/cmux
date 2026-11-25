@@ -41,7 +41,7 @@ public final class AddressBarView: NSView {
     let chip = PageInfoChipButton()
     let field = AddressField()
     private let machineBadgeView = MachineBadgeView()
-    private let profileBadgeView = ProfileBadgeView()
+    let profileBadgeView = ProfileBadgeView()
     let starButton = BookmarkStarButton()
     /// The trailing badges (browser focus mode, browser profile, machine, bookmark star); hidden ones take no room.
     let focusModeBadgeView = FocusModeBadgeView()
@@ -286,6 +286,7 @@ public final class AddressBarView: NSView {
         shownProfileBadge = badge
         if let badge { profileBadgeView.show(badge) }
         profileBadgeView.isHidden = badge == nil
+        updateQuietIcons(fade: nil)
         updateBadgeSpace()
     }
 
