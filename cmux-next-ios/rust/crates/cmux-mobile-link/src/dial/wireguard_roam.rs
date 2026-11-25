@@ -1243,7 +1243,8 @@ impl Session {
         // takes the first grant that lands instead of asking again.
         let late = LateTurn::default();
         let turn = async {
-            let turn = if keeps_turn { TurnCarrier::allocate_keeping(&self.options, &late).await } else { None };
+            let turn =
+                if keeps_turn { TurnCarrier::allocate_keeping(&self.options, &late).await } else { None };
             match turn {
                 Some(turn) => Some(self.take_roam_turn(turn, &net, &host, &timeline).await),
                 None => None,
