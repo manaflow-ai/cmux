@@ -6,6 +6,7 @@
 import { describe, expect, test } from "bun:test";
 import { APIException } from "@apple/app-store-server-library";
 
+import * as nightly from "../services/billing/apple/nightlyCheck";
 import {
   appleClientForNightly,
   checkAppleDelivery,
@@ -230,6 +231,81 @@ describe("Apple delivery round trip", () => {
     });
     expect(report.ok).toBe(false);
     expect(report.failure).toContain("UUID");
+  });
+});
+
+describe("Production delivery before the first App Store release", () => {
+  const refusingProduction = () => appleClientForNightly({
+    requestTestNotification: async () => {
+      throw new APIException(401, null, null);
+    },
+    getTestNotificationStatus: async () => delivered,
+    getAllSubscriptionStatuses: async () => ({}),
+  });
+
+  test("a Production 401 with a working Sandbox is a neutral note while no release is recorded", async () => {
+    let probes = 0;
+    const report = await checkAppleDelivery({
+      client: refusingProduction(),
+      readHealth: health([recorded]).read,
+      clock: clock(),
+      environment: "Production",
+      productionLock: { sandboxAccepts: async () => (probes += 1) > 0, released: false },
+    } as Parameters<typeof checkAppleDelivery>[0]);
+    expect(report).toMatchObject({ ok: true, failure: null, lockedUntilRelease: true, appleDelivered: false });
+    expect((report as { note?: string | null }).note).toContain("first App Store release");
+    expect(probes).toBe(1);
+  });
+
+  test("goes red once the release is recorded (APPLE_IAP_PRODUCTION_RELEASED=1)", async () => {
+    const report = await checkAppleDelivery({
+      client: refusingProduction(),
+      readHealth: health([recorded]).read,
+      clock: clock(),
+      environment: "Production",
+      productionLock: { sandboxAccepts: async () => true, released: true },
+    } as Parameters<typeof checkAppleDelivery>[0]);
+    expect(report.ok).toBe(false);
+    expect(report.failure).toContain("APPLE_IAP_PRODUCTION_RELEASED");
+  });
+
+  test("a Sandbox that refuses the key too is a credential failure", async () => {
+    const report = await checkAppleDelivery({
+      client: refusingProduction(),
+      readHealth: health([recorded]).read,
+      clock: clock(),
+      environment: "Production",
+      productionLock: { sandboxAccepts: async () => false, released: false },
+    } as Parameters<typeof checkAppleDelivery>[0]);
+    expect(report.ok).toBe(false);
+    expect(report.failure).toContain("Sandbox refused the key too");
+  });
+
+  test("a Sandbox 401 stays a failure whatever the release state", async () => {
+    const report = await checkAppleDelivery({
+      client: refusingProduction(),
+      readHealth: health([recorded]).read,
+      clock: clock(),
+      environment: "Sandbox",
+      productionLock: { sandboxAccepts: async () => true, released: false },
+    } as Parameters<typeof checkAppleDelivery>[0]);
+    expect(report.ok).toBe(false);
+    expect(report.failure).toContain("HTTP 401");
+  });
+
+  test("the Sandbox probe reads the notification history: an answer accepts, a 401 refuses, anything else throws", async () => {
+    const probe = (nightly as unknown as {
+      sandboxAcceptsKey?: (api: { getNotificationHistory(token: string | null, request: object): Promise<unknown> }, nowMs: number) => Promise<boolean>;
+    }).sandboxAcceptsKey;
+    expect(typeof probe).toBe("function");
+    const at = Date.parse("2026-11-16T09:00:00Z");
+    expect(await probe!({ getNotificationHistory: async () => ({ notificationHistory: [] }) }, at)).toBe(true);
+    expect(await probe!({ getNotificationHistory: async () => {
+      throw new APIException(401, null, null);
+    } }, at)).toBe(false);
+    await expect(probe!({ getNotificationHistory: async () => {
+      throw new APIException(500, null, null);
+    } }, at)).rejects.toBeInstanceOf(APIException);
   });
 });
 

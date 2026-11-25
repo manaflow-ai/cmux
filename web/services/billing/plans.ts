@@ -74,9 +74,19 @@ export const MAX_PRICING_USD = {
 
 /**
  * cmux NEXT Cloud plans, sold monthly only. Their Stripe Prices come from
- * STRIPE_PRICE_NEXT_PRO_MONTHLY / STRIPE_PRICE_NEXT_MAX_MONTHLY; with a
- * variable unset that plan is not for sale (see services/billing/nextPlans.ts).
+ * STRIPE_PRICE_NEXT_PLUS_MONTHLY / STRIPE_PRICE_NEXT_PRO_MONTHLY /
+ * STRIPE_PRICE_NEXT_MAX_MONTHLY; with a variable unset that plan is not for
+ * sale (see services/billing/nextPlans.ts).
  */
+export const NEXT_PLUS_PRICING_USD = {
+  month: {
+    billedAmount: 20,
+    monthlyEquivalent: 20,
+    discountPercent: 0,
+    lookupKey: "cmux-next-plus-monthly-20",
+  },
+} as const satisfies MonthlyOnlyPlanPricing;
+
 export const NEXT_PRO_PRICING_USD = {
   month: {
     billedAmount: 50,

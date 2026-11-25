@@ -224,7 +224,7 @@ def test_npm_bootstrap_preserves_the_first_stable_version() -> None:
         block = workflow_job(bootstrap, job)
         assert (
             "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
-            "vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" in block
+            "vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}" in block
         )
     assert (
         "runs-on: ubuntu-latest # github-hosted-required: npm provenance publishing"
@@ -257,7 +257,7 @@ def test_pypi_bootstrap_reserves_the_project_before_release_tags() -> None:
     assert workflow_triggers(bootstrap) == {
         "repository_dispatch": {"types": ["sdk-bootstrap-pypi"]}
     }
-    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" in bootstrap
+    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}" in bootstrap
     assert "id-token: write" in bootstrap
     assert "name: pypi-bootstrap" in bootstrap
     assert "PYPI_BOOTSTRAP_TOKEN" not in bootstrap
@@ -320,7 +320,7 @@ def test_crates_bootstrap_preserves_the_first_stable_version() -> None:
     assert workflow_triggers(bootstrap) == {
         "repository_dispatch": {"types": ["sdk-bootstrap-crates"]}
     }
-    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}" in bootstrap
+    assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}" in bootstrap
     assert 'RUST_TOOLCHAIN: "1.95.0"' in bootstrap
     assert 'BOOTSTRAP_VERSION: "0.0.0-bootstrap.0"' in bootstrap
     assert "CARGO_BOOTSTRAP_TOKEN" in bootstrap
@@ -1542,7 +1542,9 @@ def test_sdk_publish_conformance_runs_live_against_exact_built_binary() -> None:
     typescript = workflow("sdk-publish-npm.yml")
     assert 'node-version: "22.14.0"' in typescript
     assert (
-        "cache-dependency-path: cmux-tui/bindings/typescript/package-lock.json"
+        # RFD 0148 row 19: setup-node's npm cache is an actions/cache twin that
+        # saves on base branches only, keyed on this lockfile.
+        "hashFiles('cmux-tui/bindings/typescript/package-lock.json')"
         in typescript
     )
     assert "npm ci --no-audit --no-fund" in typescript
