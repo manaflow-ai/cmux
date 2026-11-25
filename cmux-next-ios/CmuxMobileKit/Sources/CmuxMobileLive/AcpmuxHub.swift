@@ -1897,7 +1897,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         attachTask = Task { [weak self] in
             var pipelined = self?.takePipelined()
             while let read = self?.nextRead(generation) {
-                let pages = await Self.readPages(hub, read, pipelined: pipelined) { [weak self] in self?.generation == generation }
+                // A chat's first read is the "open-chat" action (``PhoneTrace``): its pages are
+                // its round trips; one, the pipelined attach, is the floor.
+                let pages = await PhoneTrace.action(read.firstAttach ? "open-chat" : "catch-up", floorRoundTrips: 1) {
+                    await Self.readPages(hub, read, pipelined: pipelined) { [weak self] in self?.generation == generation }
+                }
                 pipelined = nil
                 guard self?.caughtUp(pages, read, generation) == true else { return }
             }
