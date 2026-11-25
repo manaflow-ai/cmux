@@ -110,6 +110,10 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(AGENT_SESSION_START_CODEX_CREDENTIALS_CAPABILITY);
         // The owner's coming start warmed ahead (agent_session_prewarm.rs, cmux#45953).
         capabilities.push(AGENT_SESSION_PREWARM_CAPABILITY);
+        // With no folder, the chat's own `~/chats/<id>` (agent_session_prewarm.rs).
+        if agent_session_attach::chat_folder_prewarm_on() {
+            capabilities.push(AGENT_SESSION_PREWARM_CHAT_FOLDER_CAPABILITY);
+        }
     }
     #[cfg(unix)]
     if mux.serves_agent_update() {
@@ -416,6 +420,7 @@ pub(super) fn advertised_capabilities(
         conversations::CONVERSATION_TREE_CAPABILITY,
         conversations::CONVERSATION_THREAD_OBJECTS_CAPABILITY,
         conversations::CONVERSATION_INBOX_STATE_CAPABILITY,
+        crate::conversation_inbox_once::CAPABILITY,
         conversations::HOME_INBOX_CAPABILITY,
         conversation_scheduled::CONVERSATION_SCHEDULED_CAPABILITY,
         conversations::HOME_INBOX_SINCE_CAPABILITY,
