@@ -277,8 +277,6 @@ fn wg_selection_omission_is_legacy_but_unknown_or_malformed_never_downgrades() {
     .is_err());
 }
 
-// A test fixture built a handful of times; the size gap does not matter here.
-#[allow(clippy::large_enum_variant)]
 enum VersionedPeer {
     Legacy(Net),
     Current(Box<LinkCarrier>),
