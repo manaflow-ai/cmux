@@ -239,6 +239,8 @@ pub(super) fn resource_terminal_surface(
         .resolve_resource_path(crate::ResourceTarget::Terminal, &route)?
         .terminal
         .ok_or_else(|| ResourceError::not_found("terminal", "<resolved>"))?;
+    // A parked terminal starts on its first need (mux/terminal_respawn/lazy.rs).
+    mux.wake_lazy_terminal(&terminal_id);
     let surface_id = mux
         .resource_surface_for_terminal(&terminal_id)
         .ok_or_else(|| ResourceError::not_found("terminal", terminal_id.as_str()))?;

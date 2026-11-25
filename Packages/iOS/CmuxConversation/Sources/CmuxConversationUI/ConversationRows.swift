@@ -500,13 +500,17 @@ enum ConversationRowBuilder {
         let nextBreaksGroup = entry.isLastInRun
         let isOutgoing = message.senderID == meID
         let sender = info.participant(message.senderID)
-        let footer = footer(for: entry.status, isGroup: isGroup)
+        var footer = footer(for: entry.status, isGroup: isGroup)
+        // A sending attachment says how far its upload got under its bubble.
+        if isOutgoing, message.delivery == .sending, let progress = message.uploadProgress {
+            footer = uploadingFooter(progress)
+        }
         // Only a block's first reply quotes the thread's root (Messages): a
         // reply right under the message it answers, or one joining the block
         // above it, shows none.
         let root = entry.replyThread == nil ? nil : message.replyToID.flatMap { ConversationRunPlan.threadRoot(of: $0, message: store.message(id:)) }
         let quote: ReplyQuote? = entry.replyThread?.showsQuote != true ? nil : root.map {
-            ReplyQuote(text: $0.text.isEmpty ? ($0.audioAttachment != nil ? AudioMessageStrings.audioMessage : String(localized: "conversation.quote.photo", defaultValue: "Photo", bundle: .module)) : $0.text, isOutgoing: $0.senderID == meID, hasImage: !$0.attachments.isEmpty, replyCount: $0.replyCount)
+            ReplyQuote(text: $0.quoteText.isEmpty ? ($0.audioAttachment != nil ? AudioMessageStrings.audioMessage : String(localized: "conversation.quote.photo", defaultValue: "Photo", bundle: .module)) : $0.quoteText, isOutgoing: $0.senderID == meID, hasImage: !$0.attachments.isEmpty, replyCount: $0.replyCount)
         }
         rows.append(.message(PollRowModel.attach(to: MessageRowModel(
             rowID: message.rowID,
@@ -572,6 +576,12 @@ enum ConversationRowBuilder {
 
     private static func firstName(_ participantID: String, info: ConversationInfo) -> String {
         info.participant(participantID)?.name.split(separator: " ").first.map(String.init) ?? ""
+    }
+
+    /// "Uploading 42%" under a sending message whose attachments are uploading.
+    static func uploadingFooter(_ progress: Double) -> MessageFooter {
+        let percent = progress.formatted(.percent.precision(.fractionLength(0)))
+        return .status(String(format: String(localized: "conversation.status.uploading", defaultValue: "Uploading %@", bundle: .module), percent))
     }
 
     static func footer(for status: ConversationRunPlan.Status, isGroup: Bool) -> MessageFooter {

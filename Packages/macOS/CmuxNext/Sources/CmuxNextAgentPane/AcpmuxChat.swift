@@ -24,6 +24,12 @@ public nonisolated struct AcpmuxChat: Hashable, Sendable, Identifiable {
     /// The chat whose agent started this one (acpmux `parent`): it folds under that chat and is
     /// never listed on its own (Leo 2026-10-13).
     public var parent: String?
+    /// The name the session continuing this chat was given (acpmux `displayName`, its handle:
+    /// "Mango"); nil without one or from a daemon that predates it.
+    public var displayName: String?
+    /// The icon that session was given (acpmux `icon`); nil without one. An image icon is not
+    /// carried on chat rows.
+    public var icon: Icon?
     /// What a query window found in the chat's prompts and answers (acpmux `match`, `chats/text.rs`);
     /// nil for a chat found by its title or listed without a query.
     public var said: Said?
@@ -50,10 +56,38 @@ public nonisolated struct AcpmuxChat: Hashable, Sendable, Identifiable {
         }
     }
 
+    /// A session's icon as acpmux sends it (`session_icon.rs`): an agent mark, one emoji, or an
+    /// SF Symbol with the monogram (`text`, `hue`) a client that cannot draw it shows.
+    public nonisolated struct Icon: Hashable, Sendable {
+        public let kind: String
+        /// The mark id (`brand`), the emoji (`emoji`) or the symbol name (`symbol`).
+        public let value: String
+        public let text: String?
+        public let hue: Int?
+
+        public init(kind: String, value: String, text: String? = nil, hue: Int? = nil) {
+            (self.kind, self.value, self.text, self.hue) = (kind, value, text, hue)
+        }
+
+        init?(json: [String: Any]?) {
+            guard let json, let kind = json["kind"] as? String else { return nil }
+            let key = switch kind {
+            case "brand": "brand"
+            case "emoji": "text"
+            case "symbol": "name"
+            default: ""
+            }
+            guard let value = json[key] as? String, !value.isEmpty else { return nil }
+            self.init(kind: kind, value: value, text: kind == "symbol" ? json["text"] as? String : nil,
+                      hue: (json["hue"] as? NSNumber)?.intValue)
+        }
+    }
+
     public init(id: String, sessionID: String, harness: String, title: String? = nil, cwd: String? = nil,
                 createdAt: Date? = nil, updatedAt: Date, messageCount: Int? = nil, accounts: [String] = [],
                 roots: [String] = [], sourcePath: String? = nil, brand: String? = nil, attention: String? = nil,
-                preview: String? = nil, parent: String? = nil, said: Said? = nil) {
+                preview: String? = nil, parent: String? = nil, displayName: String? = nil, icon: Icon? = nil,
+                said: Said? = nil) {
         self.id = id
         self.sessionID = sessionID
         self.harness = harness
@@ -69,6 +103,8 @@ public nonisolated struct AcpmuxChat: Hashable, Sendable, Identifiable {
         self.attention = attention
         self.preview = preview
         self.parent = parent
+        self.displayName = displayName
+        self.icon = icon
         self.said = said
     }
 
@@ -89,6 +125,8 @@ public nonisolated struct AcpmuxChat: Hashable, Sendable, Identifiable {
                   sourcePath: json["sourcePath"] as? String, brand: json["brand"] as? String,
                   attention: json["attention"] as? String, preview: json["preview"] as? String,
                   parent: (json["parent"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+                  displayName: (json["displayName"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+                  icon: Icon(json: json["icon"] as? [String: Any]),
                   said: Said(json: json["match"] as? [String: Any]))
     }
 
@@ -101,7 +139,7 @@ public nonisolated struct AcpmuxChat: Hashable, Sendable, Identifiable {
     public func matches(_ query: String) -> Bool {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return true }
-        let fields: [String?] = [title, id, sessionID, harness, cwd, accounts.joined(separator: " "), roots.joined(separator: " ")]
+        let fields: [String?] = [displayName, title, id, sessionID, harness, cwd, accounts.joined(separator: " "), roots.joined(separator: " ")]
         return fields.compactMap { $0?.localizedLowercase }.contains { $0.localizedStandardRange(of: query.localizedLowercase) != nil }
     }
 

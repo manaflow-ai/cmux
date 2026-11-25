@@ -2,8 +2,9 @@
 //! holds: every start of its Claude Code, the first, a respawn and a restart, gets the condition
 //! as a prompt Stop hook (`--settings`), the hook Claude Code's `/goal` adds. A Chief subagent
 //! starts with it and one prompt, its task, instead of a "reply `ready`" turn and a `/goal`
-//! prompt (user, 2026-11-18: "why wasn't it just one prompt?"). An ACP harness keeps none, and
-//! the session/new answer says whether it was kept.
+//! prompt (user, 2026-11-18: "why wasn't it just one prompt?"). A Codex chat (codex-acp) gets it
+//! as Codex's own goal (`_session/goal` `set`), once, after its first prompt is written. Another
+//! ACP harness keeps none, and the session/new answer says whether it was kept.
 
 // Unix only until the Windows port runs the daemon (cmux::local_socket).
 #![cfg(unix)]
@@ -29,10 +30,19 @@ const FAKE_AGENT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.
 const CONDITION: &str = "The task in this session's first message is done and landed.";
 
 fn hub() -> Arc<Hub> {
+    hub_with(Path::new("/nonexistent"))
+}
+
+/// The hub, its fake Codex logging what reached it under `logs`.
+fn hub_with(logs: &Path) -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
             "fakeclaude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio"},
             "fake": {"argv": ["python3", FAKE_AGENT]},
+            "fakecodex": {"argv": ["python3", FAKE_AGENT], "family": "codex", "env": {
+                "FAKE_GOAL_LOG": logs.join("goal.jsonl"),
+                "FAKE_WIRE_LOG": logs.join("wire.jsonl"),
+            }},
         },
         "defaultHarness": "fakeclaude",
         "permissionPolicy": "approve-all",
@@ -100,8 +110,13 @@ impl Client {
     }
 }
 
+/// The settings a stop condition's Claude Code starts with (`hub/stop_condition.rs` `settings`):
+/// one prompt check and a cap of one block without a tool call between.
 fn stop_hook(condition: &str) -> Value {
-    json!({"hooks": {"Stop": [{"hooks": [{"type": "prompt", "prompt": condition}]}]}})
+    json!({
+        "env": {"CLAUDE_CODE_STOP_HOOK_BLOCK_CAP": "1"},
+        "hooks": {"Stop": [{"hooks": [{"type": "prompt", "prompt": condition}]}]},
+    })
 }
 
 #[tokio::test]
@@ -132,12 +147,60 @@ async fn claude_code_gets_the_stop_hook_at_every_start() {
 }
 
 #[tokio::test]
-async fn an_acp_harness_keeps_none_and_says_so() {
+async fn another_acp_harness_keeps_none_and_says_so() {
     let _hermetic = &HERMETIC;
     let hub = hub();
     let mut c = Client::new(&hub);
     let created = c.new_session("fake", json!(CONDITION)).await.expect("session/new");
     assert!(created.pointer("/_meta/acpmux/stopCondition").is_none(), "{created}");
+}
+
+fn lines(path: &Path) -> Vec<Value> {
+    std::fs::read_to_string(path)
+        .unwrap_or_default()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect()
+}
+
+#[tokio::test]
+async fn codex_gets_the_condition_as_its_goal_once_after_its_first_prompt() {
+    let _hermetic = &HERMETIC;
+    let logs = tempfile::tempdir().unwrap();
+    let hub = hub_with(logs.path());
+    let mut c = Client::new(&hub);
+    let created = c.new_session("fakecodex", json!(CONDITION)).await.expect("session/new");
+    assert_eq!(
+        created.pointer("/_meta/acpmux/stopCondition"),
+        Some(&json!(true)),
+        "the answer says it was kept: {created}"
+    );
+    let id = created["sessionId"].as_str().unwrap().to_owned();
+    for text in ["first", "second"] {
+        let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": text}]});
+        c.call("session/prompt", prompt).await.0.expect("session/prompt");
+    }
+    // The goal goes out beside the first prompt, unanswered: wait (bounded) for it to land.
+    let goal_log = logs.path().join("goal.jsonl");
+    let until = std::time::Instant::now() + Duration::from_secs(10);
+    while lines(&goal_log).is_empty() && std::time::Instant::now() < until {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let wire = lines(&logs.path().join("wire.jsonl"));
+    let method = |m: &str| wire.iter().position(|l| l["method"] == m);
+    let first_prompt = method("session/prompt").expect("a prompt reached Codex");
+    let goal = method("_session/goal").expect("the goal reached Codex");
+    assert!(first_prompt < goal, "the goal follows the first prompt: {wire:?}");
+    assert_eq!(
+        wire.iter().filter(|l| l["method"] == "_session/goal").count(),
+        1,
+        "once, not at every prompt: {wire:?}"
+    );
+    let goals = lines(&goal_log);
+    assert_eq!(goals.len(), 1, "{goals:?}");
+    assert_eq!(goals[0]["action"], "set");
+    assert_eq!(goals[0]["objective"], CONDITION);
+    assert_eq!(goals[0]["sessionId"], wire[first_prompt]["session"], "the agent's own session");
 }
 
 #[tokio::test]

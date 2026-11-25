@@ -30,7 +30,7 @@
 
 .acpmux-env-heading { min-height: 22px; font-weight: 500; }
 
-.acpmux-env-tabs { display: flex; gap: 2px; padding: 2px; border-radius: 7px; background: color-mix(in srgb, var(--agent-text) 6%, transparent); width: fit-content; }
+.acpmux-env-tabs { display: flex; gap: 2px; padding: 2px; border-radius: 7px; background: var(--ds-surface-inset); width: fit-content; }
 .acpmux-env-panel .acpmux-env-tab { height: 24px; padding: 0 10px; color: var(--agent-muted); }
 .acpmux-env-panel .acpmux-env-tab[aria-pressed="true"] { background: var(--agent-control); color: var(--agent-text); }
 

@@ -1,8 +1,16 @@
-//! What the hub keeps on disk (`<optchat root>/mcp/`): the servers the Chief
-//! added, its event subscriptions and its tasks in `servers.json`, and each
-//! server's secrets (headers, env, OAuth tokens) in `secrets/<name>.json`
-//! (0600 in a 0700 folder). `servers.json` never holds a secret, so it can be
-//! shown, listed and backed up as it is.
+//! What the hub keeps on disk. Two folders:
+//!
+//! - The machine's shared store ([`shared_dir`], `<acpmux home>/mcp/`): one file per
+//!   server in `servers/<name>.json`, and its secrets (headers, env, OAuth
+//!   tokens) in `secrets/<name>.json` (0600 in a 0700 folder). Every Chief home
+//!   on this machine and acpmux's connect card read and write it, so a server
+//!   connected anywhere in cmux is there for all of them, signed in once.
+//!   A server file never holds a secret, so it can be shown, listed and backed
+//!   up as it is.
+//! - The Chief's own folder (`<optchat root>/mcp/`): its event subscriptions
+//!   and tasks (`servers.json`, which wake that one Chief), the code-mode
+//!   declarations, logs and scripts. A server list left in an older
+//!   `servers.json` moves to the shared store on the first load.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -59,6 +67,15 @@ pub struct Server {
     /// The names (never the values) of the secret headers and env vars.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub secret_names: Vec<String>,
+    /// Who may use it, as the person chose on a connect card (`chat`,
+    /// `chief`, `allChiefs`, `agents`, `everywhere`); none when a Chief added it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
+    /// Whose `scope` it is: the chat's session id (`chat`), the Chief's home
+    /// id (`chief`). Kept as read, so a Chief that updates the record never
+    /// widens who sees it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
     /// The last tool list (cached so search and describe need no connect).
     #[serde(default)]
     pub tools: Vec<Value>,
@@ -75,6 +92,13 @@ pub struct Server {
     /// `connected`, `needs sign-in`, or `failed: why`.
     #[serde(default)]
     pub state: String,
+}
+
+impl Server {
+    /// Whether `viewer` may see and use it (the person's scope on the card).
+    pub fn visible_to(&self, viewer: &cmux_mcp_connect::shared::Viewer) -> bool {
+        cmux_mcp_connect::shared::visible(self.scope.as_deref(), self.owner.as_deref(), viewer)
+    }
 }
 
 /// One event subscription: a resource URI, or a notification method.
@@ -197,38 +221,127 @@ pub struct OAuthTokens {
     pub resource: String,
 }
 
-/// The hub's folder.
+/// The machine's shared MCP store (cmux-mcp-connect's `shared`: one
+/// definition for the Chief and acpmux): `$CMUX_MCP_HOME`, else the mcp
+/// folder of this build's acpmux home.
+pub fn shared_dir() -> PathBuf {
+    cmux_mcp_connect::shared::dir(&crate::acpmux_daemon::home(), &|k: &str| {
+        std::env::var(k).ok()
+    })
+}
+
+/// The hub's folders: the Chief's own, and the machine's shared store.
 #[derive(Clone, Debug)]
-pub struct Dir(pub PathBuf);
+pub struct Dir {
+    pub own: PathBuf,
+    pub shared: PathBuf,
+}
 
 impl Dir {
+    pub fn new(own: PathBuf, shared: PathBuf) -> Self {
+        Self { own, shared }
+    }
+
+    /// This Chief's subscriptions and tasks.
     pub fn state_path(&self) -> PathBuf {
-        self.0.join("servers.json")
+        self.own.join("servers.json")
+    }
+
+    /// The shared server records, one file each.
+    pub fn servers_dir(&self) -> PathBuf {
+        self.shared.join("servers")
+    }
+
+    pub fn server_path(&self, name: &str) -> PathBuf {
+        cmux_mcp_connect::shared::server_path(&self.shared, name)
     }
 
     pub fn secrets_path(&self, name: &str) -> PathBuf {
-        self.0.join("secrets").join(format!("{name}.json"))
+        cmux_mcp_connect::shared::secrets_path(&self.shared, name)
     }
 
     /// The code-mode declarations of one server (`api/<name>.d.ts`).
     pub fn api_path(&self, name: &str) -> PathBuf {
-        self.0.join("api").join(format!("{name}.d.ts"))
+        self.own.join("api").join(format!("{name}.d.ts"))
     }
 
     pub fn log_path(&self, name: &str) -> PathBuf {
-        self.0.join("logs").join(format!("{name}.log"))
+        self.own.join("logs").join(format!("{name}.log"))
     }
 
+    /// The shared servers as they are on disk now, by name.
+    pub fn load_servers(&self) -> BTreeMap<String, Server> {
+        let mut out = BTreeMap::new();
+        let Ok(entries) = std::fs::read_dir(self.servers_dir()) else {
+            return out;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            let Some(server) = std::fs::read(&path)
+                .ok()
+                .and_then(|b| serde_json::from_slice::<Server>(&b).ok())
+            else {
+                continue;
+            };
+            // The file's name is the server's name.
+            if path.file_stem().and_then(|s| s.to_str()) == Some(server.name.as_str()) {
+                out.insert(server.name.clone(), server);
+            }
+        }
+        out
+    }
+
+    /// The Chief's state with the shared servers in it. Servers an older
+    /// `servers.json` holds (and their secrets) move to the shared store
+    /// unless a server of that name is there already.
     pub fn load(&self) -> State {
-        std::fs::read(self.state_path())
+        let mut state: State = std::fs::read(self.state_path())
             .ok()
             .and_then(|b| serde_json::from_slice(&b).ok())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        let legacy = std::mem::take(&mut state.servers);
+        let mut shared = self.load_servers();
+        for server in legacy {
+            if shared.contains_key(&server.name) {
+                continue;
+            }
+            let old_secret = self
+                .own
+                .join("secrets")
+                .join(format!("{}.json", server.name));
+            if let Ok(bytes) = std::fs::read(&old_secret)
+                && let Ok(secrets) = serde_json::from_slice::<Secrets>(&bytes)
+                && self.save_secrets(&server.name, &secrets).is_ok()
+            {
+                let _ = std::fs::remove_file(&old_secret);
+            }
+            if self.save_server(&server).is_ok() {
+                shared.insert(server.name.clone(), server);
+            }
+        }
+        state.servers = shared.into_values().collect();
+        // Rewrite the Chief's file without the moved servers.
+        let _ = self.save_own(&state);
+        state
     }
 
-    pub fn save(&self, state: &State) -> Result<(), String> {
-        let text = serde_json::to_vec_pretty(state).map_err(|e| e.to_string())?;
+    /// The Chief's own part of `state` (subscriptions and tasks).
+    pub fn save_own(&self, state: &State) -> Result<(), String> {
+        let own = State {
+            servers: Vec::new(),
+            ..state.clone()
+        };
+        let text = serde_json::to_vec_pretty(&own).map_err(|e| e.to_string())?;
         write_atomic(&self.state_path(), &text, 0o644)
+    }
+
+    /// One shared server record.
+    pub fn save_server(&self, server: &Server) -> Result<(), String> {
+        let text = serde_json::to_vec_pretty(server).map_err(|e| e.to_string())?;
+        write_atomic(&self.server_path(&server.name), &text, 0o644)
     }
 
     pub fn secrets(&self, name: &str) -> Secrets {
@@ -249,7 +362,33 @@ impl Dir {
         write_atomic(&path, &text, 0o600)
     }
 
+    /// Runs `f` holding the machine-wide lock of `name`'s secrets (a token
+    /// refresh: two processes must not both spend one refresh token).
+    pub fn with_secret_lock<T>(&self, name: &str, f: impl FnOnce() -> T) -> T {
+        use std::os::unix::io::AsRawFd;
+        let path = self.shared.join("secrets").join(format!(".{name}.lock"));
+        let file = path.parent().and_then(|d| {
+            std::fs::create_dir_all(d).ok()?;
+            std::fs::OpenOptions::new()
+                .create(true)
+                .truncate(false)
+                .write(true)
+                .open(&path)
+                .ok()
+        });
+        if let Some(file) = &file {
+            // SAFETY: flock on an open descriptor we own; released on close.
+            unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
+        }
+        let out = f();
+        drop(file);
+        out
+    }
+
+    /// Removes a server everywhere on this machine: its record, secrets and
+    /// this Chief's declarations.
     pub fn forget(&self, name: &str) {
+        let _ = std::fs::remove_file(self.server_path(name));
         let _ = std::fs::remove_file(self.secrets_path(name));
         let _ = std::fs::remove_file(self.api_path(name));
     }
@@ -260,10 +399,12 @@ fn write_atomic(path: &Path, bytes: &[u8], mode: u32) -> Result<(), String> {
     use std::os::unix::fs::OpenOptionsExt;
     let dir = path.parent().ok_or("no parent folder")?;
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let tmp = dir.join(format!(
-        ".{}.{}.tmp",
+        ".{}.{}.{}.tmp",
         path.file_name().and_then(|n| n.to_str()).unwrap_or("f"),
-        std::process::id()
+        std::process::id(),
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
     let mut f = std::fs::OpenOptions::new()
         .write(true)

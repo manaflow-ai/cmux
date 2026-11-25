@@ -535,7 +535,7 @@ if (import.meta.main) {
       },
     });
     releases.push(["static server", () => statics.stop(true)]);
-    const endpoint = `#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t`;
+    const endpoint = `#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux`;
     const url = `http://127.0.0.1:${statics.port}/${endpoint}${NEW_CHAT ? `&cwd=${encodeURIComponent("/home/dev/sun")}` : `&session=${SESSION}`}`;
 
     let failed = 0;

@@ -4,7 +4,9 @@ import Foundation
 
 /// `notifications.banners`: the banners this app asked for, newest last (the bounded
 /// `DesktopNotifier.posted`), as `{banners: [{id, title, subtitle, body, surface, reply, approval,
-/// category}], authorization}`. A read: it moves no focus. An incognito window's banner is listed as
+/// category, posted_at_ms}], authorization}`. `posted_at_ms` is the Unix ms the app asked for the banner,
+/// the same clock as a daemon notification's `created_at_ms`, so daemon-to-banner latency is read from the
+/// two stamps rather than from how often a caller polls. A read: it moves no focus. An incognito window's banner is listed as
 /// it showed, naming nothing of the window, its surface included (`DesktopNotifier.post`).
 ///
 /// `notifications.open {"id": <banner id>}`: shows a tab banner's own surface, as its click does
@@ -32,14 +34,14 @@ extension ControlMethod {
                 guard let id = call.params["id"]?.stringValue, !id.isEmpty else {
                     throw ControlError(code: "invalid_params", message: String(localized: "notifications.control.openNeedsID",
                         defaultValue: "params.id names the banner to open (an id notifications.banners lists)",
-                        table: "NotificationsPanel", bundle: .module))
+                        table: "NotificationsPanel", bundle: .localizedModule))
                 }
                 guard let notifier = notifier() else { return .value(.null) }
                 // The newest banner with that id: a repeated id is the same tab's later banner.
                 guard let banner = notifier.posted.last(where: { $0.id == id }) else {
                     let message = String(format: String(localized: "notifications.control.bannerNotFound",
                         defaultValue: "No banner %@: notifications.banners lists the banners this app asked for",
-                        table: "NotificationsPanel", bundle: .module), id)
+                        table: "NotificationsPanel", bundle: .localizedModule), id)
                     throw ControlError(code: "not_found", message: message, data: ["id": .string(id)])
                 }
                 // A passkey, pairing, attention or Run banner's click acts on the person's intent (a passkey's
@@ -47,7 +49,7 @@ extension ControlMethod {
                 guard banner.id.hasPrefix(DesktopNotifier.tabBannerPrefix) else {
                     let message = String(format: String(localized: "notifications.control.openPersonOnly",
                         defaultValue: "Banner %@ opens only on your click in macOS; notifications.open opens a tab's banner",
-                        table: "NotificationsPanel", bundle: .module), id)
+                        table: "NotificationsPanel", bundle: .localizedModule), id)
                     throw ControlError(code: "person_required", message: message, data: ["id": .string(id)])
                 }
                 notifier.openTab(id: banner.id, surface: banner.surface)
@@ -67,6 +69,7 @@ extension DesktopNotifier.Posted {
             "surface": listedSurface,
             "reply": .bool(reply), "approval": .bool(approval),
             "category": category.map(JSONValue.string) ?? .null,
+            "posted_at_ms": .number((postedAt.timeIntervalSince1970 * 1000).rounded()),
         ]
     }
 

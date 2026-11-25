@@ -55,6 +55,33 @@ impl Mux {
             .collect()
     }
 
+    /// Those of `terminals` (host ids) a client holds an attach stream on.
+    pub(super) fn attached_among<'a>(
+        &self,
+        terminals: impl Iterator<Item = &'a String>,
+    ) -> HashSet<String> {
+        let wanted: HashSet<&String> = terminals.collect();
+        // The client registry is read after the state lock is released.
+        let views: Vec<(String, SurfaceId)> = {
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            state
+                .terminal_catalog
+                .values()
+                .filter_map(|runtime| {
+                    let identity = self.resource_terminal_host_identity(runtime)?;
+                    wanted
+                        .contains(&identity.terminal_id)
+                        .then_some((identity.terminal_id, runtime.id))
+                })
+                .collect()
+        };
+        views
+            .into_iter()
+            .filter(|(_, view)| self.terminal_view_attached(*view))
+            .map(|(terminal_id, _)| terminal_id)
+            .collect()
+    }
+
     /// A client holds an attach stream on the terminal view `view`. The
     /// client registry's lock is a leaf: it may be taken under the registry
     /// and state locks, as the reap close does.
