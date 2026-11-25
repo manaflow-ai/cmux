@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 
 /// ``NotificationSoundPlaying`` with `NSSound`: one instance per sound, kept, so a burst never
 /// loads a file twice and a sound still playing restarts instead of stacking.
