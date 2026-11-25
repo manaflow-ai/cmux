@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Merge-to-channel minutes for feat-cmux-next merges: one harness for before and after (PR_HEAD_FAST_LANE).
 
-For each merge commit SHA it reports the minutes from the merge (the squash commit's committer time, which
-is GitHub's merged_at) to the end of the first successful job that pointed the Cloud machine channel at
-that commit: cmux-machine-channel.yml's point-x86_64 / point-linux, or cmux-tui-artifacts.yml's
-point-machine-channel(-early). It also names whether that run built (cargo) or took the PR head's build.
+For each of the newest feat-cmux-next commits it reports the minutes from the merge (the squash commit's
+committer time, GitHub's merged_at) to the end of the first successful job that pointed the Cloud machine
+channel at that commit or a newer one (a coalesced push carries the older merges): cmux-machine-channel.yml's
+point-x86_64 / point-linux, or cmux-tui-artifacts.yml's point jobs. It names whether that run built (cargo)
+or took the PR head's build.
 
-    gh auth token | GH_TOKEN=... python3 scripts/ci/cmux_machine_channel_latency.py SHA [SHA ...]
-    python3 scripts/ci/cmux_machine_channel_latency.py --recent 10   # the newest feat-cmux-next pushes
+    python3 scripts/ci/cmux_machine_channel_latency.py --recent 30 --skip 5
 
 Read-only, stdlib only. GH_TOKEN, or `gh api` when it is unset (a lane VM's broker).
 """
@@ -25,6 +25,7 @@ import urllib.request
 from datetime import datetime
 
 REPO = "manaflow-ai/cmux"
+BRANCH = "feat-cmux-next"
 WORKFLOWS = ("cmux-machine-channel.yml", "cmux-tui-artifacts.yml")
 POINT_MARKS = ("point the Cloud machine channel", "point-x86_64", "point-linux", "point-machine-channel")
 
@@ -56,51 +57,66 @@ def is_point(name: str) -> bool:
     return any(m in name for m in POINT_MARKS) and "build" not in name.split("/")[-1]
 
 
-def measure(sha: str) -> dict:
-    commit = api(f"commits/{sha}")
-    merged = ts(commit["commit"]["committer"]["date"])
-    best = None
-    # By path, not actions/workflows/FILE: that resolves FILE on main, where these workflows are absent.
-    every = api(f"actions/runs?head_sha={sha}&event=push&per_page=100").get("workflow_runs", [])
-    for run in every:
-        wf = run.get("path", "").rsplit("/", 1)[-1]
-        if wf in WORKFLOWS:
+def pointed_runs(since: datetime) -> dict[str, tuple]:
+    """head sha -> (point job completed, workflow, run id, built here) for feat-cmux-next pushes since `since`."""
+    out: dict[str, tuple] = {}
+    for page in range(1, 11):
+        runs = api(f"actions/runs?branch={BRANCH}&event=push&per_page=100&page={page}").get("workflow_runs", [])
+        for run in runs:
+            wf = run.get("path", "").rsplit("/", 1)[-1]
+            if wf not in WORKFLOWS or ts(run["created_at"]) < since:
+                continue
             jobs = api(f"actions/runs/{run['id']}/jobs?per_page=100").get("jobs", [])
-            built = any("build" in j["name"] and j.get("conclusion") == "success" and "cmux-tui" in j["name"].lower()
-                        or "build-machine-channel" in j["name"] and j.get("conclusion") == "success" for j in jobs)
-            for j in jobs:
-                if is_point(j["name"]) and j.get("conclusion") == "success" and j.get("completed_at"):
+            ok = [j for j in jobs if j.get("conclusion") == "success"]
+            built = any("build-machine-channel" in j["name"] for j in ok)
+            for j in ok:
+                if is_point(j["name"]) and j.get("completed_at"):
                     done = ts(j["completed_at"])
-                    if best is None or done < best[0]:
-                        best = (done, wf, run["id"], j["name"], built)
-    row = {"sha": sha[:12], "merged": merged.isoformat(), "subject": commit["commit"]["message"].splitlines()[0][:70]}
-    if best:
-        row.update(pointed=best[0].isoformat(), minutes=round((best[0] - merged).total_seconds() / 60, 1),
-                   workflow=best[1], run=best[2], job=best[3], path="cargo here" if best[4] else "PR head build")
-    return row
+                    have = out.get(run["head_sha"])
+                    if have is None or done < have[0]:
+                        out[run["head_sha"]] = (done, wf, run["id"], built)
+        if not runs or ts(runs[-1]["created_at"]) < since:
+            break
+    return out
+
+
+def measure(commits: list[dict], pointed: dict[str, tuple]) -> list[dict]:
+    """Each merge's minutes until the channel named it or a newer commit (the coalesced push that carried it)."""
+    rows = []
+    for i, c in enumerate(commits):
+        merged = ts(c["commit"]["committer"]["date"])
+        row = {"sha": c["sha"][:12], "merged": merged.isoformat(), "subject": c["commit"]["message"].splitlines()[0][:70]}
+        best = None
+        for later in commits[: i + 1]:  # newest first: index <= i is this commit or a descendant on the branch
+            hit = pointed.get(later["sha"])
+            if hit and (best is None or hit[0] < best[0]):
+                best = (*hit, later["sha"])
+        if best:
+            row.update(pointed=best[0].isoformat(), minutes=round((best[0] - merged).total_seconds() / 60, 1),
+                       workflow=best[1], run=best[2], via=best[4][:12],
+                       path=("cargo here" if best[3] else "PR head build") + ("" if best[4] == c["sha"] else " (coalesced)"))
+        rows.append(row)
+    return rows
 
 
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("shas", nargs="*")
-    ap.add_argument("--recent", type=int, default=0, help="the newest N feat-cmux-next commits")
+    ap.add_argument("--recent", type=int, default=30, help="the newest N feat-cmux-next commits")
+    ap.add_argument("--skip", type=int, default=0, help="leave out the newest K (their channel may not have moved yet)")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args(argv)
-    shas = list(args.shas)
-    if args.recent:
-        shas += [c["sha"] for c in api(f"commits?sha=feat-cmux-next&per_page={args.recent}")]
-    rows = []
-    for s in shas:
-        r = measure(s)
-        rows.append(r)
-        if not args.json:
-            print(f"{r['sha']}  {r.get('minutes', '-'):>6}  {r.get('path', 'not pointed'):<14} {r.get('run', '')}  {r['subject']}",
-                  flush=True)
+    commits = api(f"commits?sha={BRANCH}&per_page={min(args.recent + args.skip, 100)}")
+    since = min(ts(c["commit"]["committer"]["date"]) for c in commits)
+    rows = measure(commits, pointed_runs(since))[args.skip:]
     if args.json:
         print(json.dumps(rows, indent=2))
+    else:
+        for r in rows:
+            print(f"{r['sha']}  {r.get('minutes', '-'):>6}  {r.get('path', 'not pointed'):<26} {r.get('via', '')}  {r['subject']}")
     mins = [r["minutes"] for r in rows if "minutes" in r]
     if mins:
-        print(f"p50 {statistics.median(mins):.1f} min over {len(mins)} pointed of {len(rows)}", file=sys.stderr)
+        print(f"p50 {statistics.median(mins):.1f} min, max {max(mins):.1f} over {len(mins)} pointed of {len(rows)}",
+              file=sys.stderr)
     return 0
 
 
