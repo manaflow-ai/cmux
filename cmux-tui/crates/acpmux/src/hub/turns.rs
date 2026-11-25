@@ -721,7 +721,9 @@ impl Hub {
             super::inbox::Route::Plain => None,
             super::inbox::Route::Inbox(agent, class) => {
                 admission.enter("inbox");
-                admission.commit();
+                // `inbox_accept` calls `accept` before it waits for the inbox notice's answer.
+                // Keep this prompt unanswered until that callback so any pre-accept work still
+                // reaches the bounded queue fallback instead of being treated as committed.
                 return Box::pin(self.inbox_accept(
                     session,
                     &blocks,
