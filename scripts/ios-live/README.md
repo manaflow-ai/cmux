@@ -15,7 +15,7 @@ scripts/ios-live/ios-live lease release
 
 Run it from your cmux checkout. "Your change" is that checkout against its merge base with
 `origin/feat-cmux-next`: commits, staged, unstaged and untracked files under `cmux-next-ios/` and
-`scripts/`. Nothing is pushed. Hosts are reached with `reach`; `ios-live help` lists every command.
+`scripts/`. Nothing is pushed. Hosts are reached with `reach` (from a lane VM through the lane-gh broker, which relays the slot commands on an `ios` pool host with no whole-host fleet lease: the slot lease is the admission, so a CI step or another lane on the host does not block you; `ios-live` sets `REACH_AUTO_LEASE=0` so reach never takes the host); `ios-live help` lists every command.
 
 ## Slots
 
