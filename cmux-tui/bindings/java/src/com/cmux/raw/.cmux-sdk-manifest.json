@@ -12,8 +12,8 @@
     },
     {
       "path": "ActivitySnapshot.java",
-      "sha256": "04419a7b4fd3d610114d725f947e061e6084ac3929651f830f28a421e726a0f2",
-      "size": 4759
+      "sha256": "d4282dee3fdbf4251e69d5481781fbd03af8b7ec29e9f49f33024739d32f5c16",
+      "size": 7130
     },
     {
       "path": "ActivitySubscribeResult.java",
@@ -787,8 +787,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "f79b5035645a76f6245ed5e4a9c32fba429d4af039eb3f522b91c760c06e5991",
-      "size": 87231
+      "sha256": "18c4838c494139d1cbccca1f4dc108fd9186341294d1f455461716d1ce508cd5",
+      "size": 87497
     },
     {
       "path": "ComputerUseApprovalsRequest.java",
@@ -942,8 +942,8 @@
     },
     {
       "path": "ConversationInboxOpRequest.java",
-      "sha256": "bed0fa7ae8f6ce55f8c5a223d78fe506ca20eaa8c67fc64ec403642b27140dfc",
-      "size": 2852
+      "sha256": "0257ad93b9c6c04608af84a099da93a0c2300a0f65d4c566f2bf434383da3eae",
+      "size": 3453
     },
     {
       "path": "ConversationInboxOpResult.java",
@@ -1242,8 +1242,8 @@
     },
     {
       "path": "CreateWorkspaceRequest.java",
-      "sha256": "85604c98b5130ea461d49753d2169a096a7cdfaa9a641faf77e2ad10f31e81e6",
-      "size": 6693
+      "sha256": "1009ee55b99e76ff412c85739bab7ea5b4f4052a05ef738788588bfc25283f9b",
+      "size": 7634
     },
     {
       "path": "CursorStyle.java",
@@ -1441,6 +1441,16 @@
       "size": 5380
     },
     {
+      "path": "FlushLaunchSnapshotRequest.java",
+      "sha256": "0dd827879eaef58ae2f6305ef4bec994fcc2a175bff05ee6bc3f50a7df5bdc5f",
+      "size": 1423
+    },
+    {
+      "path": "FlushLaunchSnapshotResult.java",
+      "sha256": "f8981959af3f00456708cdcaac6c853c18f447ba87f45036cab58cce6eb970cd",
+      "size": 2004
+    },
+    {
       "path": "FocusDirectionRequest.java",
       "sha256": "65fb72361d8f01181619b85b9b35ea93e4655e773515e7cb704ca8fe8280c514",
       "size": 2577
@@ -1502,8 +1512,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "6b8d2a194c992b21af5c2daea7b09ca4153e68dcfb93e4a2a2a5796ddb834944",
-      "size": 74521
+      "sha256": "f575c3f5fc804a1b1fca16246d757d1012211819ef4bb859e3f0c95c39d37784",
+      "size": 74750
     },
     {
       "path": "GetBlobRequest.java",
@@ -2287,7 +2297,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "b385728ded6c625af4d02ef6622c54e6fbf18d54b9faa7dad77e2660930469ca",
+      "sha256": "8571e9789d80e57bc6e063d4f4c82c4fb6b2c43ce705f82f8cbfe22be0e69d6a",
       "size": 8511
     },
     {
@@ -3847,7 +3857,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "0e9ad98facd4f616a6231f6b8026499abece893f159b8615c391195d999fb099",
+  "ir_sha256": "06b04f371f590cf85e5a742859b460ba88ba4a337c754058e101b84d90e89315",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

@@ -54,6 +54,8 @@ mod computer_use_worker;
 mod config;
 mod daemon_build;
 #[cfg(unix)]
+mod dev_reaper;
+#[cfg(unix)]
 mod files_lister;
 mod headless;
 mod heap_profile;
@@ -2057,6 +2059,16 @@ fn run_main() {
     // this process. It needs none of the mux's provider credentials or signal handlers.
     // `cmux share screens|start|stop|move …`: the screen shares, read and changed by this
     // machine's daemon device at the device hub (acpmux `share-host`), with no app needed.
+    // `cmux autocloud …`: cmux stripped to the essentials (RFD 0139), an agent chat on any
+    // machine in the terminal: sign in, readiness, the agent's stream, and a chat that survives
+    // a dropped link. Its links dial through this binary (`carrier dial`, `acp stdio`).
+    if raw_args.first().map(String::as_str) == Some("autocloud") {
+        discard_provider_secret_environment();
+        let args = std::iter::once(OsString::from("cmux autocloud"))
+            .chain(raw_args.iter().skip(1).map(OsString::from))
+            .collect();
+        client_log::exit(cmux_autocloud::run(args));
+    }
     #[cfg(unix)]
     if let Some(args) = cli::share_screen_args(&raw_args) {
         discard_provider_secret_environment();
@@ -2065,7 +2077,8 @@ fn run_main() {
     #[cfg(unix)]
     if let Some(head) = raw_args.first().map(String::as_str)
         && (matches!(head, "acp" | "harness" | "chats" | "board")
-            || cli::agent_engine_requested(&raw_args))
+            || cli::agent_engine_requested(&raw_args)
+            || cli::TOP_LEVEL_ENGINE_VERBS.contains(&head))
     {
         discard_provider_secret_environment();
         // From raw_args, not args_os: `cmux help chats` became `chats --help` there, and

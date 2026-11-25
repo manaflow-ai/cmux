@@ -51,6 +51,7 @@ import type { CloudTypingPrewarm } from "../cloudTypingPrewarm";
 import { harnessProfiles } from "../harnessProfiles";
 import { setStartModeSource } from "../startMode";
 import { setStartRecoveryPreview } from "../startRecoveryPreview";
+import { setComputerUsePreviewControls } from "../computerUse/computerUsePreview";
 import { setPromptSurfaces } from "../surfaces/promptSurface";
 import { preparedMockTransport } from "../mockTransport";
 import { BridgeSocket } from "../bridgeSocket";
@@ -59,6 +60,7 @@ import { type AutomationCompose, pageAction } from "../automation";
 import { acpWire } from "../wire";
 import { chatPerfCapture } from "../chatPerfCapture";
 import { acpmuxPerf } from "../perf";
+import { actionTrace } from "../actionTrace";
 import { perfReporter } from "../perfReporter";
 import { frameTally } from "../conversation/frameTally";
 import { reconciledProject } from "../newtab/startHint";
@@ -155,6 +157,7 @@ import {
   hostPlannedRestart,
 } from "../hostRetry";
 import { heldStartStop, sendsHeldForHost, untilHostAnswers } from "../sendWhenReady";
+import { revealedSubagent } from "../subagents/subagentPanes";
 import { newChatFolder } from "../startFolderModel";
 import { dismissPlanScopeDrift, keepPlanScopeArea } from "../planScopeDriftStore";
 import { setPaneNotices } from "../paneNoticeStore";
@@ -544,7 +547,11 @@ export function paneSnapshotEffect({
   };
   window.cmuxAcpmuxBridge = {
     toggleInspector,
-    perfCapture: (options) => chatPerfCapture.capture(options),
+    perfCapture: (options) =>
+      chatPerfCapture.capture(options, undefined, () => ({
+        rows: rowsRef.current.length,
+        events: directClient.current?.eventSeq ?? null,
+      })),
     lastCodeBlock: () => lastCodeBlock(snapshotRef.current?.rows ?? []) ?? null,
     composerState: () => {
       const draft = composerHandle.current?.draft();
@@ -710,6 +717,7 @@ export function paneSnapshotEffect({
       // pick; nothing creates a paid VM without one.
       setPromptSurfaces(on === true);
       setStartRecoveryPreview(on === true);
+      setComputerUsePreviewControls(on === true);
       // Workflows no longer follow Advanced > Labs; only applyWorkflowLabs switches them.
     },
     applyLiveTree(on) {
@@ -1002,6 +1010,13 @@ export function paneSnapshotEffect({
         setSessionInfoTab(host.tab);
         setStashTab(host.tab);
       }
+      // A pane opened on a subagent is the subagent's before anything draws: its header and composer
+      // are the subagent's from the first frame, not the chat's until the client connects (the 41 px
+      // composer drop and 40 to 28 px header of a subagent opening into a split, Leo 2026-11-22:
+      // "they need to be able to load faster and without layout shifts"). The reveal after connect
+      // runs again and changes nothing.
+      if (typeof host.revealTurn === "string" && revealedSubagent(host.revealTurn) !== undefined)
+        revealRef.current(host.revealTurn);
       acpmuxPerf.markAgent("handshakeReady");
       acpmuxPerf.markLaunch("handshakeReady");
       if (typeof host.autoCloudStartKey === "string") setAutoCloudStartKey(host.autoCloudStartKey);
@@ -1307,6 +1322,8 @@ export function paneSnapshotEffect({
         client.close();
         return;
       }
+      // One trace per user action, to the daemon's trace file when it writes one (actionTrace.ts).
+      actionTrace.install();
       acpmuxPerf.markLaunch("connected");
       connectingClient = client;
       directClient.current = client;
@@ -2504,7 +2521,7 @@ export function paneSnapshotEffect({
         // An inbox notice's thread the person opened: its messages, read without marking them
         // read (conversation/InboxNoticeCard.tsx).
         "chat.inbox.thread": ({ threadId }) => client.inboxThread(String(threadId ?? "")),
-        // The held surge's threads (SurgeHoldRow.tsx): the chat's inbox listing, read as its panel opens.
+        // The held surge's threads (session-info/agentSide.ts): the chat's inbox listing, on request.
         "chat.inbox.threads": () => client.inboxThreads(),
         // An agent link or `HOST/NAME` in a reply (conversation/sessionRefs.ts): the session it names.
         "chat.session.resolve": ({ query }) => client.resolveSession(String(query ?? "")),

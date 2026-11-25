@@ -1,7 +1,7 @@
 //! The Chief's turn tools (plans/cmux-next/chief-tools-DESIGN.md; the user,
 //! 2026-10-20: "you probably should have replied twice separately to the two
 //! different messages ... a `send message` tool ... a `stop` tool call ...
-//! another tool called `sleep`": `send` posts one or more messages now (text, files,
+//! another tool called `sleep`"): `send` posts one message now (text, files,
 //! a thread), `stop` ends the turn with no final text, `sleep` ends it and
 //! wakes the Chief later.
 
@@ -137,7 +137,7 @@ fn running(h: &mut Harness, text: &str) {
     h.connect();
     h.say("user_local", text);
     while h.agents.inner.lock().unwrap().prompts.is_empty() {
-        h.step();
+        h.poll_step();
     }
 }
 
@@ -152,24 +152,6 @@ fn send(text: &str) -> SendCall {
         text: Some(text.to_owned()),
         ..SendCall::default()
     }
-}
-
-fn plain_reply_script() -> Script {
-    Box::new(|_, _| {
-        vec![
-            json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
-            json!({
-                "dir": "in",
-                "kind": "claude.assistant",
-                "msg": {"message": {"id": "m1", "model": "test", "usage": {"input_tokens": 10, "output_tokens": 4}}}
-            }),
-            update(
-                "agent_message_chunk",
-                json!({"content": {"type": "text", "text": "A plain reply ends this turn."}}),
-            ),
-            json!({"dir": "in", "kind": "claude.result", "msg": {"type": "result", "subtype": "success"}}),
-        ]
-    })
 }
 
 #[test]
@@ -189,38 +171,6 @@ fn turn_tools_send_posts_a_top_level_message_now_and_a_repeat_is_a_noop() {
     h.agents.hold(false);
     h.agents.release();
     h.settle_posts();
-}
-
-#[test]
-fn a_plain_reply_ends_without_a_stop_request_and_is_posted() {
-    let mut h = Harness::new(plain_reply_script());
-    running(&mut h, "answer this directly");
-    h.agents.hold(false);
-    h.agents.release();
-    h.settle_posts();
-
-    assert_eq!(h.agents.inner.lock().unwrap().prompts.len(), 1);
-    let model_requests = h
-        .agents
-        .inner
-        .lock()
-        .unwrap()
-        .events
-        .values()
-        .flatten()
-        .filter(|event| event.kind == "claude.assistant")
-        .count();
-    assert_eq!(
-        model_requests, 1,
-        "one model request; no follow-up stop request"
-    );
-    assert_eq!(h.agents.inner.lock().unwrap().cancels.len(), 1);
-    assert!(
-        sends(&h)
-            .iter()
-            .any(|(_, parts, _, _)| texts(parts).contains("A plain reply ends this turn.")),
-        "the final plain text is posted"
-    );
 }
 
 /// cmux#25634: `send` with `delay_seconds` posts nothing now; the owner
@@ -730,43 +680,39 @@ fn turn_tools_the_chief_has_send_stop_and_sleep_and_a_subagent_does_not() {
     }
 }
 
-/// The reply length gate (chief_kernel::replies) keeps a long send within the
-/// short-message style by posting sentence-sized parts in one tool call.
+/// The reply length gate (chief_kernel::replies): the first send of a turn
+/// over `replies.maxWords` posts nothing and answers with its word count, so
+/// Chief cuts it; the next send of that turn posts as is.
 #[test]
-fn turn_tools_send_splits_a_long_reply_without_a_resend() {
+fn turn_tools_send_refuses_the_first_long_reply_of_a_turn_then_posts_the_next() {
     let mut h = Harness::new(default_script());
     running(&mut h, "status?");
-    let long = (0..3)
-        .map(|n| format!("Point {n}: {}.", "word ".repeat(20)))
-        .collect::<Vec<_>>()
-        .join(" ");
+    let long = format!("{} end.", "word ".repeat(80));
     let sp = spawner(&h);
-    let answer = run(&mut h, move || sp.send(send(&long))).expect("send answers");
+    let first = long.clone();
+    let refused = run(&mut h, move || sp.send(send(&first))).expect_err("refused");
+    assert!(
+        refused.contains("80 words") || refused.contains("81 words"),
+        "{refused}"
+    );
+    assert!(refused.contains("nothing was posted"), "{refused}");
+    assert!(
+        sends(&h).iter().all(|s| !texts(&s.1).contains("word word")),
+        "nothing posted"
+    );
+    let sp = spawner(&h);
+    let again = long.clone();
+    let answer = run(&mut h, move || sp.send(send(&again))).expect("the second send posts");
     assert!(answer.starts_with("outcome: done"), "{answer}");
-    wait_send(&mut h, "Point 0:");
-    h.settle_posts();
-    let posted: Vec<_> = sends(&h)
-        .into_iter()
-        .filter(|(_, parts, _, _)| texts(parts).contains("Point "))
-        .collect();
-    assert!(
-        posted.len() >= 2,
-        "one tool call posts multiple parts: {posted:?}"
-    );
-    assert!(
-        posted.iter().any(|(key, _, _, _)| key.contains(":part-")),
-        "split parts keep distinct idempotency keys: {posted:?}"
-    );
-    assert!(posted.iter().all(|(_, parts, _, _)| {
-        chief_kernel::replies::reply_words(&texts(parts)) <= chief_kernel::replies::REPLY_MAX_WORDS
-    }));
+    wait_send(&mut h, "end.");
     h.agents.hold(false);
     h.agents.release();
     h.settle_posts();
 }
 
-/// `long: true` keeps the explicit one-message escape hatch for an answer the
-/// user asked to receive as one block. The normal send path splits first.
+/// Leo, 2026-11-02: the 45-word refusal cost a resend each time Chief already
+/// knew its answer was long (a status list he asked for). `long: true` says so
+/// up front: the first send posts as is, and `send` without it is still gated.
 #[test]
 fn turn_tools_send_marked_long_posts_on_the_first_try() {
     assert_eq!(
@@ -781,7 +727,16 @@ fn turn_tools_send_marked_long_posts_on_the_first_try() {
         Call::parse("send", &json!({"text": "hi", "long": "yes"})).is_err(),
         "`long` must be a boolean"
     );
+    let mut h = Harness::new(default_script());
+    running(&mut h, "list every open PR");
     let long_text = "item ".repeat(80);
+    let sp = spawner(&h);
+    let gated = long_text.clone();
+    let refused = run(&mut h, move || sp.send(send(&gated)));
+    assert!(
+        refused.is_err(),
+        "unmarked long send is refused once: {refused:?}"
+    );
     let mut h = Harness::new(default_script());
     running(&mut h, "list every open PR");
     let sp = spawner(&h);

@@ -11113,6 +11113,30 @@
      },
      "presence": "required",
      "nullable": true
+    },
+    "last_person_attach_at_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": true
+    },
+    "echo_input_at_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": true
+    },
+    "echo_at_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": true
     }
    },
    "additional_properties": false,
@@ -11121,6 +11145,8 @@
     "live_agents counts agents whose state is working or blocked.",
     "last_user_input_at_ms is the wall-clock time of the newest keyboard, paste or mouse input from an attached client; null until the first.",
     "last_agent_action_at_ms is the wall-clock time of the newest agent hook commit or agent state report; null until the first.",
+    "last_person_attach_at_ms is the wall-clock time a person's client (tui, web, mac or frontend) last attached; absent from daemons without the vm-activity-echo-v1 capability, null until the first.",
+    "echo_input_at_ms and echo_at_ms pair the first person input after that attach with the first terminal output that followed it on the same terminal (input-to-echo timing); null until measured, reset by the next person attach.",
     "Times and counts only: no content and no surface ids."
    ]
   },
@@ -12623,6 +12649,35 @@
    },
    "stream": null,
    "constraints": []
+  },
+  "flush-launch-snapshot": {
+   "authority": "control",
+   "since": 12,
+   "capability": "launch-snapshot-flush-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "flushed": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Writes the launch snapshot (launch-snapshot-v1) now, with no settle, max delay or byte-budget wait, and answers once it landed or after 1 s: flushed is true when the file holds the session's state as of the request (written now, or already the same), false when the session has no launch snapshot writer, the write failed or the wait passed (the write still happens).",
+    "The daemon writes the same way on its own when a connection that wrote a native frontend projection closes (a quit, force quit, crash or kill of the app); a client sends this when it wants the answer. Other changes keep the settled timing."
+   ]
   },
   "export-layout": {
    "authority": "control",
@@ -14439,6 +14494,16 @@
       "default": null,
       "capability": "workspace-first-tab-v1",
       "description": "The workspace's first tab, made in the same request: {kind: \"browser\"} with the fields of new-frontend-browser-tab except pane, workspace, split and after. A first tab that cannot be made takes the workspace back; a replayed create replays a keyed tab and makes no second unkeyed one. The reply's first_tab is new-frontend-browser-tab's reply."
+     },
+     "name_source": {
+      "type": {
+       "kind": "ref",
+       "name": "NameSource"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "description": "user: name is exactly what the caller asked for (agents chat new --name), pinned like a rename at name_revision 1 so no automatic name or chat title replaces it. Absent or auto: a starting name the automatic namer may replace."
      },
      "origin": {
       "type": {
@@ -24820,6 +24885,14 @@
        "name": "JsonValue"
       },
       "presence": "required",
+      "nullable": true
+     },
+     "op_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
       "nullable": true
      }
     },

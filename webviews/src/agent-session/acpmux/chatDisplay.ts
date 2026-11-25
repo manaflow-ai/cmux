@@ -142,10 +142,18 @@ export const MINIMAL_MODE_KEY = "sidebar.minimal";
 /// Settings > Agent Chat > VS Code Minimap (chatMinimap/ChatMinimap.tsx), off by default. Not part of
 /// ChatDisplay: turning it on or off must not measure the transcript's rows again.
 export const CHAT_MINIMAP_KEY = "agentPane.display.vscodeMinimap";
+/// Settings > Agent Chat > Status Pills in All Chats (newtab/AllChatsList.tsx ChatStatusPill), off by
+/// default: a taste prototype (Taste Board #19). Not part of ChatDisplay: no transcript row is measured again.
+export const CHAT_LIST_STATUS_PILLS_KEY = "agentPane.display.chatListStatusPills";
 /// Settings > Agent Chat > Header Path, off by default (taste prototype, Taste Board #20): the header's
 /// title drawn as one monospace slash path, `repo / branch / title` (header/ThreadTitle.tsx). Off, the
 /// header shows the plain title as before. Not part of ChatDisplay: switching it measures no row again.
 export const HEADER_BREADCRUMB_KEY = "agentPane.display.headerBreadcrumb";
+/// Settings > Agent Chat > Subagent Of in Header, off by default: a subagent's own pane says whose it is,
+/// "Subagent of <chat>" muted beside its name in the header (subagents/subagentPanes.ts `paneHeading`; Leo,
+/// 2026-11-22: "it is prob ok to somehow denote the \"subagent of\"... at the top i feel like"). Off, the
+/// header names the subagent alone. Not part of ChatDisplay: switching it measures no row again.
+export const SUBAGENT_OF_KEY = "agentPane.display.subagentOf";
 /// Settings > Agent Chat > Pin Task List in Chat, off by default: the running turn's todo list pinned
 /// under its latest message (conversation/turns.ts). Off, the composer's hat shows it
 /// (subagents/SubagentTray.tsx `plan`; Leo, 2026-11-03: "we said earlier the composer hat is kinda ok?").
@@ -551,7 +559,9 @@ const quoteFamily = (name: string) => (/[,\s]/.test(name) && !name.includes(",")
 let current = DEFAULT_CHAT_DISPLAY;
 let raw: Values = {};
 let minimapOn = false;
+let statusPillsOn = false;
 let headerBreadcrumbOn = false;
+let subagentOfOn = false;
 let pinnedPlanOn = false;
 let trayTuckedOn = false;
 let sendPopOn = false;
@@ -628,7 +638,9 @@ export function setChatDisplay(value: unknown): void {
   const nextHighContrastArm = experimentArm(highContrastLook);
   const next = resolveChatDisplay(highContrastLookValues(readingValues, nextHighContrastArm));
   const minimap = raw[CHAT_MINIMAP_KEY] === true;
+  const statusPills = raw[CHAT_LIST_STATUS_PILLS_KEY] === true;
   const headerBreadcrumb = raw[HEADER_BREADCRUMB_KEY] === true;
+  const subagentOf = raw[SUBAGENT_OF_KEY] === true;
   const pinnedPlan = raw[PINNED_PLAN_KEY] === true;
   const trayTucked = raw[TRAY_TUCKED_KEY] === true;
   // The pop's gate: written only when the setting changes, so a page that set its own
@@ -682,7 +694,9 @@ export function setChatDisplay(value: unknown): void {
     sameLook &&
     !facesChanged &&
     minimap === minimapOn &&
+    statusPills === statusPillsOn &&
     headerBreadcrumb === headerBreadcrumbOn &&
+    subagentOf === subagentOfOn &&
     pinnedPlan === pinnedPlanOn &&
     trayTucked === trayTuckedOn &&
     handle === trayHandle &&
@@ -706,7 +720,9 @@ export function setChatDisplay(value: unknown): void {
   environmentCardOn = environmentCard;
   changesPillOn = changesPill;
   minimapOn = minimap;
+  statusPillsOn = statusPills;
   headerBreadcrumbOn = headerBreadcrumb;
+  subagentOfOn = subagentOf;
   pinnedPlanOn = pinnedPlan;
   trayTuckedOn = trayTucked;
   trayHandle = handle;
@@ -894,6 +910,10 @@ const trayHandleSnapshot = () => trayHandle;
 /// Where the hat's tuck chevron and pull tab sit along the composer's top edge (TRAY_HANDLE_KEY).
 export const useTrayHandle = (): TrayHandleSide =>
   useSyncExternalStore(subscribe, trayHandleSnapshot, trayHandleSnapshot);
+const statusPillsSnapshot = () => statusPillsOn;
+/// Whether All Chats draws a status pill on its live chats (CHAT_LIST_STATUS_PILLS_KEY).
+export const useChatListStatusPills = (): boolean =>
+  useSyncExternalStore(subscribe, statusPillsSnapshot, statusPillsSnapshot);
 const railShowSnapshot = () => railShow;
 const railControlSnapshot = () => railControlOn;
 /// What the prompt rail shows (RAIL_SHOW_KEY), separate from the measured look: a change remeasures no row.
@@ -909,6 +929,9 @@ const headerBreadcrumbSnapshot = () => headerBreadcrumbOn;
 /// Whether the header draws its title as a slash path (HEADER_BREADCRUMB_KEY).
 export const useHeaderBreadcrumb = (): boolean =>
   useSyncExternalStore(subscribe, headerBreadcrumbSnapshot, headerBreadcrumbSnapshot);
+const subagentOfSnapshot = () => subagentOfOn;
+/// Whether a subagent's own pane says "Subagent of <chat>" in its header (SUBAGENT_OF_KEY).
+export const useSubagentOf = (): boolean => useSyncExternalStore(subscribe, subagentOfSnapshot, subagentOfSnapshot);
 /// The rail's arm, separate from the measured chat look so switching it remeasures no transcript row.
 export const useThreadMinimapArm = (): ThreadMinimapArm | null =>
   useSyncExternalStore(subscribe, threadMinimapSnapshot, threadMinimapSnapshot);
