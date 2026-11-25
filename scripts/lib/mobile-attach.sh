@@ -21,6 +21,36 @@ cmux_attach_resolve_dev_api_base_url() {
   fi
 }
 
+# Iroh v2 control plane shared by a tagged Mac and its mobile build. A
+# --prod-auth build signs in with a production account, which the development
+# Worker refuses, so it uses production. An explicit CMUX_IROH_V2_ENVIRONMENT wins.
+cmux_attach_resolve_iroh_v2_environment() {
+  local prod_auth="${1:-0}"
+  if [[ -n "${CMUX_IROH_V2_ENVIRONMENT:-}" ]]; then
+    printf '%s' "$CMUX_IROH_V2_ENVIRONMENT"
+  elif [[ "$prod_auth" == "1" ]]; then
+    printf '%s' "production"
+  else
+    printf '%s' "development"
+  fi
+}
+
+# Worker URL for an Iroh v2 environment, matching MobileHostV2Configuration. The
+# macOS app keeps the last non-empty URL it was given, so a tag rebuilt for
+# another environment must pass the matching URL instead of leaving it empty.
+# An unknown environment gets none and the app refuses it.
+cmux_attach_resolve_iroh_v2_base_url() {
+  if [[ -n "${CMUX_IROH_V2_BASE_URL:-}" ]]; then
+    printf '%s' "$CMUX_IROH_V2_BASE_URL"
+    return 0
+  fi
+  case "$1" in
+    production) printf '%s' "https://cmux-v2.debussy.workers.dev" ;;
+    staging) printf '%s' "https://cmux-v2-staging.debussy.workers.dev" ;;
+    development) printf '%s' "https://cmux-v2-development.debussy.workers.dev" ;;
+  esac
+}
+
 # Raw slug WITHOUT the empty-input fallback: lowercase, ASCII non-[a-z0-9] -> '-',
 # trimmed/collapsed. Empty when the tag has no ASCII alphanumerics. The ASCII
 # class is deliberate (matches reload.sh + cmux-debug-cli.sh socket/DerivedData

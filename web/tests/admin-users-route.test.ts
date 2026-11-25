@@ -347,6 +347,25 @@ describe("admin users route", () => {
     expect(teamBody.teams[0]).toMatchObject({ id: "t2", isTeam: true, manualPlanId: "team", memberCount: 2 });
   });
 
+  test("GET leaves out empty probe teams unless showTestTeams=1, and rejects a malformed teams cursor", async () => {
+    const probe = stackTeam({ id: "probe", displayName: "cmux prod smoke's Team" });
+    probe.listUsers = async () => [];
+    teamDirectory = [probe, stackTeam({ id: "company", displayName: "cmux" })];
+    const hidden = (await (await GET(getRequest("cmux"))).json()) as Record<string, unknown>;
+    expect((hidden.teams as Array<{ id: string }>).map((team) => team.id)).toEqual(["company"]);
+    expect(hidden.hiddenTestTeams).toBe(1);
+    expect(hidden.teamsNextCursor).toBeNull();
+
+    const shown = (await (await GET(new NextRequest("https://cmux.com/api/admin/users?q=cmux&showTestTeams=1"))).json()) as {
+      teams: Array<{ id: string; isTestTeam: boolean }>;
+    };
+    expect(shown.teams.map((team) => [team.id, team.isTestTeam])).toEqual([["probe", true], ["company", false]]);
+
+    const bad = await GET(new NextRequest("https://cmux.com/api/admin/users?q=cmux&teamsCursor=%3Cscript%3E"));
+    expect(bad.status).toBe(400);
+    expect(await bad.json()).toEqual({ error: "invalid_cursor" });
+  });
+
   test("POST rejects cross-site browser mutations before touching auth", async () => {
     const response = await POST(
       postRequest({ userId: "u1", plan: "pro" }, { "sec-fetch-site": "cross-site", origin: "https://evil.example" }),
