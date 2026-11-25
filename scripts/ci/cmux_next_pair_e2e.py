@@ -287,6 +287,13 @@ def main():
     ap = argparse.ArgumentParser()
     for flag in ("--mac-app", "--ios-app", "--sims", "--udid", "--bundle-id", "--work", "--out", "--summary"):
         ap.add_argument(flag, required=True)
+    # The upload leg's shape (cmux-next-ios-sim.sh pair-e2e's upload words): a size other than the gate's
+    # sparse ~150 MB, random bytes (a real video's), the phone's relay-only or UDP-blocked link, a longer wait.
+    ap.add_argument("--upload-bytes", type=int, default=UPLOAD_BYTES)
+    ap.add_argument("--upload-random", action="store_true")
+    ap.add_argument("--upload-relay-only", action="store_true")
+    ap.add_argument("--upload-block-udp", action="store_true")
+    ap.add_argument("--upload-wait", type=int, default=300)
     a = ap.parse_args()
     proof_path = os.environ.get("CMUX_IOS_CLOUD_PROOF_FILE")
     proof = read_proof(proof_path, artifact_root=a.out) if proof_path else None
@@ -428,6 +435,11 @@ def main():
     # restart with a second identity key beside its Keychain key heals with no action on the phone.
     # CMUX_PAIR_E2E_DISCOVERY=0 leaves it out (a ref before it).
     discovery = os.environ.get("CMUX_PAIR_E2E_DISCOVERY") != "0"
+    connect_runs = connect_timeline_runs()
+    if connect_runs:
+        note(f"- connect timeline: {connect_runs} runs per profile and launch; foreground after "
+             f"{connect_timeline_aways()} s away, {connect_timeline_away_runs(connect_runs)} runs each "
+             f"(the commit's Connect-Timeline-Runs / -Away / -Away-Runs)")
     ask_ok = restart_ok = not discovery
     keychain = RigKeychain(a.mac_app)
     try:
@@ -578,19 +590,27 @@ def main():
             phone_log.wait(re.compile(r"live data on"), 60)
             phone_settled()  # the Devices list loads from the service after live data starts
             note(f"- phone Settings > Devices after pairing: {phone_shot('phone-devices-paired')}")
-            if paired:
+            if paired and connect_runs:
+                # A measurement run (the commit's Connect-Timeline-Runs trailer): only the connect
+                # leg; the theme, upload and restart legs are left to the ordinary pair-e2e runs.
+                theme_ok, uploaded, ask_ok, restart_ok = True, True, True, True
+                theme_ok = connect_timeline_leg(simctl, a.udid, a.bundle_id, phone_env, phone_log, connect_runs,
+                                                a.out, note)
+            elif paired:
                 try:
                     theme_ok = theme_file_leg(simctl, a.udid, a.bundle_id, phone_env, phone_log, mac_log, phone_shot,
                                               rpc, screens, themes_dir, support, a.out, note)
                 except Exception as error:  # noqa: BLE001  the leg fails; the legs after it still run
                     theme_ok = False
                     note(f"- theme-file repaint: FAIL ({type(error).__name__}: {redact(str(error))[:300]})")
-            if paired and probe:
+            if paired and probe and not connect_runs:
                 # The phone lists this Mac by the rig's device name (CMUX_NEXT_MOBILE_DEVICE_NAME), not the
                 # page's MacName: the probe waits for a link to that name (since 2026-10-29 it never matched).
-                uploaded, line = upload_leg(simctl, a.udid, a.bundle_id, phone_env, upload_root, RIG_MAC_NAME)
+                uploaded, line = upload_leg(simctl, a.udid, a.bundle_id, phone_env, upload_root, RIG_MAC_NAME,
+                                            size=a.upload_bytes, random_bytes=a.upload_random, wait=a.upload_wait,
+                                            relay_only=a.upload_relay_only, block_udp=a.upload_block_udp)
                 note(f"- upload: {line}")
-            if discovery and paired:  # last: it quits and restarts the Mac
+            if discovery and paired and not connect_runs:  # last: it quits and restarts the Mac
                 app, restart_ok = discovery_restart(app, exe, env, a.out, support, status, phone_log, streams,
                                                     phone_shot, note)
         note(f"- scanner sheet: {scanner(a.udid, phone_shot)}")
@@ -634,6 +654,154 @@ def main():
         note(f"- discovery: Allow request {'PASS' if ask_ok else 'FAIL'}, restart with a split identity "
              f"{'PASS' if restart_ok else 'FAIL'}")
     return 0 if paired and uploaded and theme_ok and cloud_ok and ask_ok and restart_ok else 1
+
+
+# The connect-timeline leg (RFD 0049's connect rows): the paired phone's own ConnectTimeline marks
+# (`timing <attempt> <step> +<ms> (...)`, CmuxMobileModel/ConnectTimeline.swift), per launch and per
+# foreground after CONNECT_AWAY seconds in the background, on the direct path ("lan": phone and Mac on
+# this one Mac) and forced onto TURN ("relay": -cmuxMobile.dev.relayOnly YES, the Developer toggle).
+# A measurement run asks for it with a trailer on the commit under test, since the fleet passes
+# pair-e2e no arguments and no environment:  Connect-Timeline-Runs: 20  (1-30).
+CONNECT_STEPS = ("dial_start", "link_connected", "first_daemon_response", "workspaces_live")
+# Fresh after a foreground: the tree arrived again, or the kept link answered (its list is current).
+CONNECT_FRESH = ("workspaces_live", "link_alive", "link_standby_promoted", "link_adopted")
+CONNECT_AWAY = 60  # the default away time; `Connect-Timeline-Away: 60,300,600` (seconds, 1-1800) asks for more
+CONNECT_BOUND = 30  # seconds one attempt may take before it counts as a miss
+TIMING = re.compile(r"timing (\w+) (\w+) \+(\d+)ms(?: \(\d+ms\))? ?(.*)$")
+
+
+def commit_trailer(key):
+    """A trailer of the commit under test ('' when it has none)."""
+    try:
+        return subprocess.run(["git", "-C", ROOT, "log", "-1", f"--format=%(trailers:key={key},valueonly)"],
+                              capture_output=True, text=True, timeout=30).stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+
+
+def connect_timeline_runs():
+    """The commit's Connect-Timeline-Runs trailer (1-30), else 0: the leg is off."""
+    got = commit_trailer("Connect-Timeline-Runs")
+    return int(got) if got.isdigit() and 1 <= int(got) <= 30 else 0
+
+
+def connect_timeline_profiles():
+    """The commit's Connect-Timeline-Profiles trailer (lan, relay or both, comma-separated; default both),
+    so two fleet steps can take one profile each at once."""
+    got = [p.strip() for p in commit_trailer("Connect-Timeline-Profiles").split(",") if p.strip()]
+    return [p for p in got if p in ("lan", "relay")] or ["lan", "relay"]
+
+
+def connect_timeline_aways():
+    """The commit's Connect-Timeline-Away trailer: away times in seconds (comma-separated, 1-1800; default 60)."""
+    got = [p.strip() for p in commit_trailer("Connect-Timeline-Away").split(",") if p.strip()]
+    return [int(p) for p in got if p.isdigit() and 1 <= int(p) <= 1800] or [CONNECT_AWAY]
+
+
+def connect_timeline_away_runs(runs):
+    """The commit's Connect-Timeline-Away-Runs trailer (1-30): foreground runs per away time, else `runs`.
+    A 600 s away costs 10 minutes a run, so a long one is usually asked for with fewer runs."""
+    got = commit_trailer("Connect-Timeline-Away-Runs")
+    return int(got) if got.isdigit() and 1 <= int(got) <= 30 else runs
+
+
+def connect_attempt(phone_log, attempt, since, wanted):
+    """{step: ms since the attempt began} for one attempt, until one of `wanted` (or the bound)."""
+    marks, details = {}, {}
+    deadline = time.monotonic() + CONNECT_BOUND
+    with phone_log.cond:
+        while True:
+            for at, line in zip(phone_log.times, phone_log.lines):
+                if at < since:
+                    continue
+                m = TIMING.search(line.rstrip())
+                if m and m.group(1) == attempt and m.group(2) not in marks:
+                    marks[m.group(2)] = int(m.group(3))
+                    details[m.group(2)] = m.group(4).strip()
+            done = [w for w in wanted if w in marks]
+            left = deadline - time.monotonic()
+            if done or left <= 0:
+                return marks, details, (done[0] if done else None)
+            phone_log.cond.wait(left)
+
+
+def connect_timeline_leg(simctl, udid, bundle_id, phone_env, phone_log, runs, out, note):
+    """Launch and foreground-after-away connect times, per profile; True when every run ended."""
+    rows, ok = [], True
+    aways, away_runs = connect_timeline_aways(), connect_timeline_away_runs(runs)
+    path = os.path.join(out, "connect-timeline.jsonl")
+    profiles = [(p, a) for p, a in (("lan", []), ("relay", ["-" + "cmuxMobile.dev.relayOnly", "YES"]))
+                if p in connect_timeline_profiles()]
+    for profile, args in profiles:
+        launch = simctl + ["launch", udid, bundle_id] + args
+        # Launch: a new process each run; the marks count from the process start.
+        for run in range(1, runs + 1):
+            subprocess.run(simctl + ["terminate", udid, bundle_id], capture_output=True)
+            time.sleep(1)
+            since = time.monotonic()
+            subprocess.run(launch, env=phone_env, capture_output=True)
+            marks, details, end = connect_attempt(phone_log, "launch", since, ("workspaces_live",))
+            rows.append({"profile": profile, "phase": "launch", "run": run, "end": end, "marks": marks,
+                         "transport": details.get("dial_start", ""), "rtt": details.get("link_alive", "")})
+        # Foreground after each away time: one process per away time, sent to the background by Settings and back.
+        for away in aways:
+            subprocess.run(simctl + ["terminate", udid, bundle_id], capture_output=True)
+            since = time.monotonic()
+            subprocess.run(launch, env=phone_env, capture_output=True)
+            connect_attempt(phone_log, "launch", since, ("workspaces_live",))
+            for run in range(1, away_runs + 1):
+                subprocess.run(simctl + ["launch", udid, "com.apple.Preferences"], capture_output=True)
+                time.sleep(away)
+                since = time.monotonic()
+                subprocess.run(simctl + ["launch", udid, bundle_id], env=phone_env, capture_output=True)
+                marks, details, end = connect_attempt(phone_log, "foreground", since, CONNECT_FRESH)
+                rows.append({"profile": profile, "phase": "foreground", "away": away, "run": run, "end": end,
+                             "marks": marks, "transport": details.get("dial_start", ""),
+                             "rtt": details.get("link_alive", "")})
+        subprocess.run(simctl + ["terminate", udid, bundle_id], capture_output=True)
+    with open(path, "w") as f:
+        for row in rows:
+            f.write(json.dumps(row) + "\n")
+            print("CONNECTTIMELINE " + json.dumps(row), flush=True)
+    note("")
+    note("### Connect timeline (ms, p50 / p95, n = runs that reached the end mark)")
+    note("")
+    note("| profile | phase | interval | p50 | p95 | n |")
+    note("| --- | --- | --- | --- | --- | --- |")
+    for profile, _ in profiles:
+        for phase, away in [("launch", None)] + [("foreground", w) for w in aways]:
+            got = [r for r in rows if r["profile"] == profile and r["phase"] == phase and r.get("away") == away]
+            label = phase if away is None else f"foreground after {away} s"
+            done = [r for r in got if r["end"]]
+            if len(done) < len(got):
+                ok = False
+            intervals = []
+            if phase == "launch":
+                prev = None
+                for step in CONNECT_STEPS:
+                    intervals.append((f"{prev or 'process start'} -> {step}",
+                                      [r["marks"][step] - (r["marks"][prev] if prev else 0) for r in done
+                                       if step in r["marks"] and (prev is None or prev in r["marks"])]))
+                    prev = step
+            else:
+                for step in CONNECT_STEPS:
+                    intervals.append((f"foreground -> {step}", [r["marks"][step] for r in done if step in r["marks"]]))
+                intervals.append(("foreground -> fresh (first of " + ", ".join(CONNECT_FRESH) + ")",
+                                  [r["marks"][r["end"]] for r in done]))
+            if phase == "launch":
+                intervals.append(("total: process start -> workspaces_live", [r["marks"]["workspaces_live"] for r in done]))
+            for name, values in intervals:
+                if values:
+                    note(f"| {profile} | {label} | {name} | {percentile(values, 0.5):.0f} | {percentile(values, 0.95):.0f} | {len(values)} |")
+                else:
+                    note(f"| {profile} | {label} | {name} | - | - | 0 |")
+            ends = {}
+            for r in got:
+                ends[r["end"] or "miss"] = ends.get(r["end"] or "miss", 0) + 1
+            transports = sorted({r["transport"] for r in got if r["transport"]})
+            note(f"| {profile} | {label} | end marks {ends}; transports {transports or ['none dialed']} | | | {len(got)} |")
+    note("")
+    return ok
 
 
 ASKS = re.compile(r"phone (\w+) asks to pair: (\w+)")
@@ -905,9 +1073,20 @@ def discovery_restart(app, exe, env, out, support, status, phone_log, streams, p
     return restarted.proc, ok
 
 
-def upload_leg(simctl, udid, bundle_id, phone_env, root, mac_name):
-    """The phone streams a sparse ~150 MB file to the Mac with its own LinkUpload (UploadProbe, a DEBUG
-    launch argument); (passed, summary line). The stored file must match byte for byte."""
+def random_file(path, size):
+    """`size` random bytes (incompressible, as a video is), written 1 MiB at a time."""
+    with open(path, "wb") as f:
+        left = size
+        while left:
+            f.write(os.urandom(min(left, 1 << 20)))
+            left -= min(left, 1 << 20)
+
+
+def upload_leg(simctl, udid, bundle_id, phone_env, root, mac_name, size=UPLOAD_BYTES, random_bytes=False, wait=300,
+               relay_only=False, block_udp=False):
+    """The phone streams a sparse ~150 MB file (or `size` random bytes) to the Mac with its own LinkUpload
+    (UploadProbe, a DEBUG launch argument), over a relay-only or UDP-blocked link when asked (the app's
+    developer options, as launch arguments); (passed, summary line). The stored file must match byte for byte."""
     data = subprocess.run(simctl + ["get_app_container", udid, bundle_id, "data"],
                           check=True, capture_output=True, text=True).stdout.strip()
     source = os.path.join(data, "tmp", UPLOAD_NAME)
@@ -915,17 +1094,25 @@ def upload_leg(simctl, udid, bundle_id, phone_env, root, mac_name):
     os.makedirs(os.path.dirname(source), exist_ok=True)
     if os.path.exists(result_path):
         os.unlink(result_path)
-    sparse_file(source, UPLOAD_BYTES)
+    (random_file if random_bytes else sparse_file)(source, size)
     try:
         want = sha256(source)
         args = ["-CmuxMobileUploadProbe", source, "-CmuxMobileUploadProbeCwd", root]
         if mac_name:
             args += ["-CmuxMobileUploadProbeMac", mac_name]
+        if relay_only:
+            args += ["-cmuxMobile.dev.relayOnly", "YES"]
+        if block_udp:
+            args += ["-cmuxMobile.dev.blockUDP", "YES"]
         subprocess.run(simctl + ["terminate", udid, bundle_id], capture_output=True)
         subprocess.run(simctl + ["launch", udid, bundle_id] + args, env=phone_env, check=True, capture_output=True)
         # Bounded wait on the app's own result file (no event reaches this script for it).
-        if not wait_for(lambda: os.path.exists(result_path), 300, every=2):
-            return False, f"FAIL: no upload-probe.json in 300 s (the probe waits for a served link to {mac_name!r})"
+        if not wait_for(lambda: os.path.exists(result_path), wait, every=2):
+            # How far it got: the bytes the Mac holds under the attachments folder (a partial file included).
+            held = sum(os.path.getsize(p) for p in glob.glob(os.path.join(root, ".cmux", "**"), recursive=True)
+                       if os.path.isfile(p))
+            return False, (f"FAIL: no upload-probe.json in {wait} s (the probe waits for a served link to {mac_name!r}); "
+                           f"the Mac holds {held:,} of {size:,} bytes under .cmux")
         result = json.load(open(result_path))
     finally:
         os.unlink(source)
@@ -938,11 +1125,12 @@ def upload_leg(simctl, udid, bundle_id, phone_env, root, mac_name):
         "in <cwd>/.cmux/attachments/phone-<session>/": os.path.dirname(folder) == os.path.join(root, ".cmux", "attachments")
         and os.path.basename(folder).startswith("phone-"),
         "same size and SHA-256": os.path.isfile(stored) and sha256(stored) == want,
-        "footprint grew < 1/5 of the file": grew < UPLOAD_BYTES // 5,
+        "footprint grew < 1/5 of the file": grew < size // 5,
     }
     failed = [name for name, ok in checks.items() if not ok]
-    return not failed, (f"{'PASSED' if not failed else 'FAIL: ' + ', '.join(failed)}; {UPLOAD_BYTES:,} bytes, sha256 "
-                        f"{want[1][:16]}..., in {took:.1f} s; stored at .../{os.path.relpath(stored, root)}; app footprint "
+    return not failed, (f"{'PASSED' if not failed else 'FAIL: ' + ', '.join(failed)}; {size:,} {'random' if random_bytes else 'sparse'} bytes"
+                        f"{', relay only' if relay_only else ''}{', UDP blocked' if block_udp else ''}, sha256 "
+                        f"{want[1][:16]}..., in {took:.1f} s ({size / max(took, 1e-9) / 1e6:.2f} MB/s); stored at .../{os.path.relpath(stored, root)}; app footprint "
                         f"{result.get('footprintBefore', 0) >> 20} MiB before, +{grew >> 20} MiB at its peak")
 
 
@@ -1296,7 +1484,7 @@ def collect(support, out, note):
     lines = []
     for path in glob.glob(os.path.join(support, "**/cmux-mobile-host.log"), recursive=True):
         lines += [redact(l) for l in open(path, errors="replace")
-                  if re.search(r"pair|auth|link (up|down)|registered|signaling connected", l)]
+                  if re.search(r"pair|auth|link (up|down|path)|registered|signaling connected|upload", l)]
     open(os.path.join(out, "hostd-pairing.log"), "w").writelines(lines)
     def scrub(value, key=""):
         if isinstance(value, dict):

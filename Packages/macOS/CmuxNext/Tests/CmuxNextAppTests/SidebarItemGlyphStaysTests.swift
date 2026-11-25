@@ -15,9 +15,7 @@ import Testing
     func aLayoutThatChangesNothingKeepsTheGlyphImage(_ style: SidebarItemRowView.Style) throws {
         let item = LayoutItem(id: Self.home, ref: SidebarLayoutDocument.homeRef)
         let layout = SidebarLayoutDocument(sections: [LayoutSection(id: LayoutSectionID("sec_top"), region: .top, items: [item])])
-        var info = try #require(SidebarBridge.itemInfo(for: layout, registered: { _ in true }, homeUnread: 0)[item.id])
-        // The Chief row draws its title alone (`SidebarChiefRowTitleOnlyTests`); this suite checks a glyph's image.
-        info.hidesGlyphBesideTitle = false
+        let info = try #require(SidebarBridge.itemInfo(for: layout, registered: { _ in true }, homeUnread: 0)[item.id])
         let row = SidebarItemRowView(frame: NSRect(x: 0, y: 0, width: 200, height: 52))
         row.configure(info, style: style)
         row.layoutSubtreeIfNeeded()

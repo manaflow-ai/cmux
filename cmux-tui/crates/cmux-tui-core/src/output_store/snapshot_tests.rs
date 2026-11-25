@@ -520,7 +520,8 @@ fn a_snapshot_replaced_while_a_respawn_reads_it_keeps_the_tail_bytes() {
             let _ = finished.recv_timeout(std::time::Duration::from_secs(2));
         }));
     });
-    let screen = store.previous_screen(&id).expect("a stored screen");
+    let screen =
+        store.previous_screen(&id, crate::DEFAULT_SCROLLBACK_LIMIT_BYTES).expect("a stored screen");
     let _ = std::fs::remove_dir_all(&root);
     let text = String::from_utf8_lossy(&screen.bytes);
     assert!(text.contains("second"), "the tail's bytes were lost: {text:?}");
@@ -650,23 +651,34 @@ fn compaction_capture_bench() {
         );
     }
     terminal.vt_write(&blob);
-    let budget = super::replay_budget(cols, rows, super::super::SNAPSHOT_DEFAULT_MAX_TOTAL_BYTES);
-    let rounds = 50_u32;
-    let started = std::time::Instant::now();
-    let mut digest_time = std::time::Duration::ZERO;
-    let mut bytes = 0;
-    for _ in 0..rounds {
-        let at = std::time::Instant::now();
-        let digest = super::content_digest(&mut terminal);
-        digest_time += at.elapsed();
-        assert!(digest.is_some());
-        let replay = terminal.vt_replay_bounded(budget).unwrap().into_self_contained_bytes();
-        bytes = replay.len();
-    }
-    let total = started.elapsed();
     eprintln!(
-        "compaction capture: {:.3} ms per capture (digest {:.3} ms), replay {bytes} bytes, budget {budget}",
-        total.as_secs_f64() * 1e3 / f64::from(rounds),
-        digest_time.as_secs_f64() * 1e3 / f64::from(rounds),
+        "terminal: {} history rows, {:?} resident bytes",
+        terminal.history_rows(),
+        terminal.primary_resident_bytes()
     );
+    // The budget before ask-e1f74d3ee2 (about 2,000 lines, 4 MiB at most),
+    // then today's (the seed budget), so one run gives before and after.
+    let before = ((2_000 + usize::from(rows)) * usize::from(cols) * 3).clamp(256 * 1024, 4 << 20);
+    let after = super::replay_budget(cols, rows, super::super::SNAPSHOT_DEFAULT_MAX_TOTAL_BYTES);
+    for (name, budget) in [("before", before), ("after", after)] {
+        let rounds = 20_u32;
+        let started = std::time::Instant::now();
+        let mut digest_time = std::time::Duration::ZERO;
+        let mut bytes = 0;
+        for _ in 0..rounds {
+            let at = std::time::Instant::now();
+            let digest = super::content_digest(&mut terminal);
+            digest_time += at.elapsed();
+            assert!(digest.is_some());
+            let replay = terminal.vt_replay_bounded(budget).unwrap().into_self_contained_bytes();
+            bytes = replay.len();
+        }
+        let total = started.elapsed();
+        eprintln!(
+            "compaction capture {name}: {:.3} ms per capture (digest {:.3} ms), replay {bytes} \
+             bytes, budget {budget}",
+            total.as_secs_f64() * 1e3 / f64::from(rounds),
+            digest_time.as_secs_f64() * 1e3 / f64::from(rounds),
+        );
+    }
 }

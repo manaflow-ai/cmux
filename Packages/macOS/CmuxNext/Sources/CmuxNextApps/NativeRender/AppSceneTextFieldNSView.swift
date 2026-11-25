@@ -3,7 +3,7 @@ import CmuxNextDesign
 
 /// `TextField`: a themed, unboxed field (its text, caret and placeholder in the scope's inks). The
 /// text is local while the person types; with `onEdit` each change sends `edit {text}`; Return sends
-/// `submit {text}` and Escape `cancel`. A new `text` from the app replaces the field's text.
+/// `submit {text}` and Escape `cancel {text}`. A new `text` from the app replaces the field's text.
 /// `autofocus` takes the keyboard when the field first shows.
 final class AppSceneTextFieldNSView: AppSceneNodeNSView, NSTextFieldDelegate {
     private let field = ThemedTextField()
@@ -46,17 +46,26 @@ final class AppSceneTextFieldNSView: AppSceneNodeNSView, NSTextFieldDelegate {
         window.makeFirstResponder(field)
     }
 
-    @objc private func submitted() { send("submit", ["text": .string(field.stringValue)]) }
+    @objc private func submitted() { report("submit") }
 
     func controlTextDidChange(_ obj: Notification) {
         guard node.flag("onEdit") else { return }
-        send("edit", ["text": .string(field.stringValue)])
+        report("edit")
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
         guard commandSelector == #selector(NSResponder.cancelOperation(_:)) else { return false }
-        send("cancel")
+        report("cancel")
         return true
+    }
+
+    /// Sends `event` with the text the field shows. The scene mirror takes that text as the prop's
+    /// value (`AppSceneModel.send`), and so does `appliedText`: the app's next `text` replaces the
+    /// field's whenever it differs from it, also when it equals the last value the app sent (a draft
+    /// cleared after a submit while no edit had reached the app).
+    private func report(_ event: String) {
+        appliedText = field.stringValue
+        send(event, ["text": .string(field.stringValue)])
     }
 
     override func contentHeight(width: CGFloat) -> CGFloat { max(18, ceil(field.intrinsicContentSize.height)) }

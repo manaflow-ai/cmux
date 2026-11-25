@@ -133,7 +133,7 @@ async fn a_chat_aged_out_between_passes_tells_its_own_row_only() {
     hub.usage_pass_due_for_test();
     hub.refresh_usage_stats().await;
     assert_eq!(hub.usage_passes_for_test(), (2, 0), "no chat to read");
-    assert!(!hub.usage_stats.stats.lock().unwrap().get("aging").is_some(), "its stats went");
+    assert!(hub.usage_stats.stats.lock().unwrap().get("aging").is_none(), "its stats went");
     assert!(session.summary_gen.load(Ordering::SeqCst) > own, "its own row was told");
     assert_eq!(every_row_generation(&hub), every, "no other closed row went stale");
     let told = hub.events.list_since(head).unwrap().rows;
@@ -151,7 +151,7 @@ async fn a_purged_chats_stats_make_every_closed_row_stale() {
     stats_found(&hub, "purged");
     let every = every_row_generation(&hub);
     hub.refresh_usage_stats().await;
-    assert!(!hub.usage_stats.stats.lock().unwrap().get("purged").is_some());
+    assert!(hub.usage_stats.stats.lock().unwrap().get("purged").is_none());
     assert!(every_row_generation(&hub) > every, "every closed row went stale");
 }
 
@@ -249,4 +249,27 @@ async fn a_chats_stats_go_stale_by_its_turn_and_its_transcript() {
     assert!(fresh(), "read again: fresh");
     hub.refresh_usage_stats_of(&session);
     assert!(!fresh() && kept(), "its turn ended: stale, still served");
+}
+
+/// A chat on a Claude Code wrapper profile (`family = "claude-sr2"`) is read as Claude Code,
+/// from Claude Code's own transcript; Chief's is not.
+#[tokio::test]
+async fn a_claude_sr2_chat_is_read_as_claude_code() {
+    let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+    let now = crate::store::now_ms();
+    for meta in [
+        meta("sr2", "claude-sr2", Some("s1"), "idle", now - 1_000),
+        meta("sr2-pipe", "claude-sr2-pipe", Some("s2"), "closed", now - 2_000),
+        meta("chief", "chief", Some("s3"), "idle", now - 3_000),
+    ] {
+        hub.store.save(&meta).unwrap();
+        hub.insert_test_session(meta);
+    }
+    let read = hub.usage_sources(&hub.sessions(), now).await;
+    assert_eq!(ids(&read), ["sr2", "sr2-pipe"]);
+    assert!(read.iter().all(|(_, s)| s.family == "claude"), "read from Claude Code's transcript");
+    assert_eq!(transcript_family("claude"), Some("claude"));
+    assert_eq!(transcript_family("codex"), Some("codex"));
+    assert_eq!(transcript_family("claudette"), None);
+    assert_eq!(transcript_family("gemini"), None);
 }

@@ -13,6 +13,7 @@ import { useNativeFinalFocus } from "./useNativeFinalFocus";
 import { popupCollision, type UiPopupFlip } from "./openSide";
 import { usePopupPadding } from "./popupInset";
 import { useScrollEdges } from "./scrollEdges";
+import { usePopupSettle } from "./popupSettle";
 
 /** A point or box on the page to place a popover at (a caret's coordinates, for example). */
 export interface UiAnchorRect {
@@ -69,6 +70,9 @@ export interface PopoverProps {
   hostGlass?: boolean;
   /** Fade a capped popup body when more content lies beyond its scroll edges. */
   fade?: boolean;
+  /** The popup rule this popover follows instead of the shared one (ui/popupSettle.ts): "results" for
+   * content that is the live subject (it streams in after open), "own" for a popup that sizes itself. */
+  popupSettle?: "results" | "own";
   /** Which side of the anchor receives the popover. */
   side?: "top" | "bottom" | "inline-end" | "inline-start";
   /** False keeps `side` while open (`useOpenSide` chose it); "shift" keeps it and slides the popup
@@ -103,6 +107,7 @@ export function Popover({
   style,
   hostGlass = true,
   fade = false,
+  popupSettle,
   side = "bottom",
   flip = true,
   align = "start",
@@ -117,6 +122,8 @@ export function Popover({
   const container = usePortalContainer();
   const positionMethod = useOverlayPosition();
   const padding = usePopupPadding();
+  // Opens at its final size and keeps it while data arrives (popupSettle.ts).
+  const settle = usePopupSettle<HTMLDivElement>();
   const nativePopup = useNativePopup({
     open: open === true && native !== undefined,
     model: native?.model ?? { side: "bottom", align: "start", width: 0, rows: [] },
@@ -161,12 +168,15 @@ export function Popover({
           sideOffset={UI_ANCHOR_GAP}
         >
           <BasePopover.Popup
+            ref={settle}
             // A shifted popup may use the window's height, not only the room on its side (popupSurface.css).
             data-popup-shift={flip === "shift" ? "" : undefined}
+            data-popup-settle={popupSettle}
             className={cx(popupClassName, fade && "ui-popup-scroll-shell")}
             style={style}
             // The App's popover glass under the page (glass/hostGlass.ts).
             data-host-glass={hostGlass ? "popover" : undefined}
+            data-surface-role="popover"
             data-host-glass-cover={hostGlass ? "" : undefined}
             id={id}
             aria-label={label}

@@ -24,7 +24,7 @@ import Testing
         services.machines.local.store.noteHandshake(try JSONDecoder().decode(DaemonIdentity.self, from: Data(json.utf8)))
         #expect(!services.machines.local.supports(DaemonClientRole.originClaimCapability))
         #expect(services.machines.local.connection == nil)
-        return PageRelayChannel(service: services.machines.local, page: PageRelayChannel.relayPageID(page))
+        return PageRelayChannel(service: services.machines.local, page: PageRelayPage.id(page))
     }
 
     private static func outcome(_ channel: PageRelayChannel, _ operation: String, _ context: PageCallContext,
