@@ -20,7 +20,7 @@ load=$((cores * 2))
 pids=()
 stop_load() {
   local p
-  for p in "${pids[@]:-}"; do [ -n "$p" ] && kill "$p" 2>/dev/null || true; done
+  for p in "${pids[@]:-}"; do [ -n "$p" ] && { kill "$p"; wait "$p"; } 2>/dev/null || true; done
   pids=()
 }
 trap stop_load EXIT
@@ -28,9 +28,9 @@ start_load() { # $1: class of the load
   local i
   for ((i = 0; i < load; i++)); do
     case $1 in
-      normal) timeout 600 yes >/dev/null & ;;
-      nice11) nice -n 11 timeout 600 yes >/dev/null & ;;
-      bg) taskpolicy -b timeout 600 yes >/dev/null & ;;
+      normal) perl -e 'alarm 600; exec "yes"' >/dev/null & ;;
+      nice11) nice -n 11 perl -e 'alarm 600; exec "yes"' >/dev/null & ;;
+      bg) taskpolicy -b perl -e 'alarm 600; exec "yes"' >/dev/null & ;;
     esac
     pids+=("$!")
   done
