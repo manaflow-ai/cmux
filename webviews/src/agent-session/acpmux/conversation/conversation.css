@@ -8069,6 +8069,22 @@ a.cv-sha:focus-visible {
   syntax: "*";
   inherits: false;
 }
+/* The bottom stack's room (transcriptShell.tsx), and the mask's foot and holes it sets: read on the
+   scroller itself (its mask, its scroll padding) and on the jump buttons, which set their own. Not
+   inherited, so the composer growing a line restyles the scroller and none of its rows: inherited,
+   each wrap restyled every row in WebKit, 13-16 ms in the key's frame (composer-typing.bench.ts L0). */
+@property --acpmux-dock-space {
+  syntax: "*";
+  inherits: false;
+}
+@property --acpmux-dock-holes {
+  syntax: "*";
+  inherits: false;
+}
+@property --acpmux-view-foot {
+  syntax: "*";
+  inherits: false;
+}
 /* The top band eases (smoothstep at 9 stops) and is 24px: a linear 18px band ended in a line under the
    header (Leo, 2026-11-22: "there's simultaneously a fade AND a hard break ideally lessen the hard
    break"). */
