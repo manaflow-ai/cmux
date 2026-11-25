@@ -429,6 +429,7 @@ impl Hub {
                     parse_epoch(params.get("epoch"))?,
                 )
             }
+            "preflight" => self.transfer_preflight(params).await,
             "receive" => self.transfer_receive(params).await,
             "write" => self.transfer_write(params),
             "finish" => self.transfer_finish(params).await,
@@ -548,6 +549,9 @@ impl Hub {
             );
             return Err(e.with_data(json!({"transferId": other, "idle": idle.map(|d| d.as_secs()), "takeover": "retry after the lease"})));
         };
+        // The move fence is the freeze boundary. It is taken only after an optional
+        // `--after-turn` wait and before cancelling a running turn or exporting its bundle.
+        let freeze_started_at_ms = crate::store::now_ms();
         // Fence every prior owner before any bundle bytes are exposed. The marker is persisted
         // before transfer_out so a daemon restart restores the same epoch while this move is in flight.
         let dir = transfers_dir().join(&transfer_id);
@@ -780,6 +784,7 @@ impl Hub {
             "files": files,
             "session": self.session_summary(session),
             "epoch": epoch,
+            "freezeStartedAtMs": freeze_started_at_ms,
             "frozenMs": u64::try_from(frozen_at.elapsed().as_millis()).unwrap_or(u64::MAX),
         });
         if let Some(id) = carried {

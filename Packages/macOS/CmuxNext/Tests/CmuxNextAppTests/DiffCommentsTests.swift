@@ -19,8 +19,11 @@ struct DiffCommentsTests {
         var keys: [String] = []
         var reviews: [String: JSONValue] = [:]
         var posted: [[String]] = []
+        var supportsCommentThreads = false
         /// Each `diff.comments.send`: its acpmux session, text and key.
         var sends: [(session: String, text: String, key: String)] = []
+        var threadedSends: [(session: String, ids: [String], text: String?, key: String)] = []
+        var threadChanges: [(id: String, reply: String?, resolved: Bool?, key: String)] = []
         /// What the next send throws instead of sending.
         var sendFailure: AgentPaneGitFailure?
 
@@ -68,6 +71,17 @@ struct DiffCommentsTests {
             sends.append((acpSession, text, key))
             let deleted = try await deleteComments(root: root, ids: ids, versions: versions, key: key)
             return ["sent": .number(Double(ids.count)), "cleared": deleted["ids"] ?? []]
+        }
+
+        func sendThreadedComments(root: String, acpSession: String, ids: [String], text: String?, key: String) async throws(AgentPaneGitFailure) -> JSONValue {
+            threadedSends.append((acpSession, ids, text, key))
+            return ["sent": .number(Double(ids.count)), "cleared": [], "threads": .array(ids.map(JSONValue.string))]
+        }
+
+        func threadComment(root: String, id: String, reply: String?, author: String?, resolved: Bool?, key: String) async throws(AgentPaneGitFailure) -> JSONValue {
+            threadChanges.append((id, reply, resolved, key))
+            let comment = (comments[root] ?? []).first { $0["id"]?.stringValue == id } ?? ["id": .string(id)]
+            return ["comment": comment]
         }
     }
 
@@ -294,5 +308,39 @@ struct DiffCommentsTests {
         #expect(local?.deliver != nil)
         #expect(DiffTabChat.of(session: nil, hostSends: true, isLocal: true, replies: replies, environment: nil) == nil)
         #expect(DiffTabChat.of(session: "", hostSends: true, isLocal: true, replies: replies, environment: nil) == nil)
+    }
+
+    @Test func threadedCommentsForwardRepliesResolutionAndSendWithoutClearing() async throws {
+        let git = StoringGit()
+        git.supportsCommentThreads = true
+        let (provider, grant, root) = try provider(git: git, tabChat: DiffTabChat(session: "acp-cloud-threads"))
+        defer { grant.remove(); try? FileManager.default.removeItem(at: root) }
+        let page = PageCallContext(page: "cmux.diff")
+        let config = try await provider.call("cmux.diff.config", params: [:], context: page)
+        #expect(config["payload"]?["commentsThreads"]?.boolValue == true)
+        _ = try await provider.call("cmux.diff.comments", params: comments("comments.save", [
+            "repoRoot": .string(Self.repository), "comment": ["filePath": "a.ts", "message": "Check this"],
+        ]), context: page)
+
+        let thread = try await provider.call("cmux.diff.comments", params: comments("comments.thread", [
+            "repoRoot": .string(Self.repository), "id": "c1", "reply": "I will check", "resolved": true,
+        ]), context: PageCallContext(page: "cmux.diff", opid: "diff-thread-1", userGesture: true))
+        #expect(thread["comment"]?["id"]?.stringValue == "c1")
+        // Arrays of tuples are not Equatable: compare each field.
+        #expect(git.threadChanges.map(\.id) == ["c1"])
+        #expect(git.threadChanges.map(\.reply) == ["I will check"])
+        #expect(git.threadChanges.map(\.resolved) == [true])
+        #expect(git.threadChanges.map(\.key) == ["diff-thread-1"])
+
+        let sent = try await provider.call("cmux.diff.comments", params: comments("comments.send", [
+            "repoRoot": .string(Self.repository), "ids": ["c1"], "threads": true,
+        ]), context: PageCallContext(page: "cmux.diff", opid: "diff-thread-send-1", userGesture: true))
+        #expect(git.threadedSends.map(\.session) == ["acp-cloud-threads"])
+        #expect(git.threadedSends.map(\.ids) == [["c1"]])
+        #expect(git.threadedSends.map(\.text) == [nil])
+        #expect(git.threadedSends.map(\.key) == ["diff-thread-send-1"])
+        #expect(sent["threads"]?.arrayValue?.compactMap(\.stringValue) == ["c1"])
+        #expect(git.comments[Self.repository]?.count == 1)
+        await provider.close()
     }
 }
