@@ -114,6 +114,7 @@
   justify-content: center;
   padding: var(--ds-space-1) var(--ds-space-3) var(--ds-space-2);
   background: color-mix(in srgb, var(--cmux-surface-solid, Canvas) 72%, transparent);
+  /* one-material-allow: the transcript header is a veil over the rows scrolling under it (part of the scrolling content), not a floating surface */
   backdrop-filter: var(--surface-blur, none);
   -webkit-backdrop-filter: var(--surface-blur, none);
   pointer-events: none;
