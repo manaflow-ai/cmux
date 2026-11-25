@@ -1,6 +1,14 @@
 import Foundation
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
+#if canImport(Darwin)
 import Darwin
+#else
+import Glibc
+#endif
 
 /// Downloads, verifies and installs the Chromium runtime pack an app build is
 /// pinned to (plans/cmux-next/bundle-size-DESIGN.md section 6.3).
@@ -310,11 +318,13 @@ public actor ChromiumRuntimeInstaller {
     /// Removes `com.apple.quarantine` from every item (the app downloaded
     /// the pack itself and verified it against its signed pin).
     static func removeQuarantine(in root: URL) {
+        #if canImport(Darwin)
         let rootPath = root.path
         removexattr(rootPath, "com.apple.quarantine", XATTR_NOFOLLOW)
         guard let enumerator = FileManager.default.enumerator(atPath: rootPath) else { return }
         while let relative = enumerator.nextObject() as? String {
             removexattr(rootPath + "/" + relative, "com.apple.quarantine", XATTR_NOFOLLOW)
         }
+        #endif
     }
 }

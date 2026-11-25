@@ -27,6 +27,7 @@ import PackageDescription
 //   CmuxNextDesignTokens -> Compat, Wakeups, CmuxTheme, CCmuxAppFFI (Design's values without views: tunables,
 //     motion tokens, theme specs, settings enums; CmuxNextDesign re-exports it)
 //   CmuxNextIcons -> system frameworks only (the cmux icon pack, catalog, renderer and Icon view)
+//   CmuxNextAgentPane -> CmuxNextAgentPanePlacement (pure right-column placement, no dependency; re-exported)
 //   CmuxNextChiefMemory -> Design (the built-in Memory Inspector: model and view; the App supplies its daemon-backed source)
 //   CmuxNextSettings -> Design, Actions (cmux.json load/watch/apply, SettingsSchema)
 //   CmuxNextSettingsWindow -> Settings, Design, Icons, Actions, Wakeups, Compat (Debug Settings, SwiftUI; Settings deep links and the string catalog the React Settings page reads)
@@ -673,6 +674,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextActions",
                 "CmuxNextAgentList",
+                "CmuxNextAgentPanePlacement",
                 "CmuxNextApps",
                 "CmuxNextCloud",
                 "CmuxNextCompat",
@@ -720,6 +722,19 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextWakeupsTestSupport",
                 "CmuxNextWindowRules",
             ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Where the agent pane opens things on the right of a chat (RightColumnPlacement) and
+        // the subagent panes that use it: pure placement logic, out of CmuxNextAgentPane so its
+        // tests build without the pane's Apple frameworks (the Linux shape below).
+        // CmuxNextAgentPane re-exports it.
+        .target(
+            name: "CmuxNextAgentPanePlacement",
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextAgentPanePlacementTests",
+            dependencies: ["CmuxNextAgentPanePlacement"],
             swiftSettings: uiSwiftSettings
         ),
         // Dictation (the composer's mic): the on-device speech engines and
@@ -3001,7 +3016,45 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
     ] + [appFFI]
 
-let package = Package(
+// The Linux shape: the Linux package jobs (scripts/ci/swift-linux-packages.txt) set
+// CMUX_SWIFTPM_TARGET_LINUX and get only the targets below, which build without Apple
+// frameworks or binaries (no CCmuxAppFFI, GhosttyKit, Sparkle, Sentry or WebRTC), plus
+// swift-crypto for CryptoKit. A build for an Apple platform, on any host, keeps every target.
+#if os(Linux)
+let targetsLinux = ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1"
+#else
+let targetsLinux = false
+#endif
+
+/// Targets in the Linux shape, each with every dependency it names also in it.
+let linuxTargetNames: Set<String> = [
+    "CmuxNextAgentPanePlacement",
+    "CmuxNextAgentPanePlacementTests",
+    "CmuxNextChromiumRuntime",
+    "CmuxNextChromiumRuntimeTests",
+    "CmuxNextHostPressure",
+    "CmuxNextHostPressureTests",
+]
+
+/// Dependencies only the Linux shape adds: swift-crypto's Crypto where Apple builds import CryptoKit.
+let linuxExtraDependencies: [String: [Target.Dependency]] = [
+    "CmuxNextChromiumRuntime": [.product(name: "Crypto", package: "swift-crypto")],
+    "CmuxNextChromiumRuntimeTests": [.product(name: "Crypto", package: "swift-crypto")],
+]
+
+/// Target is a class: the edits below change the shared targets, so they run only in the Linux shape.
+let linuxTargets: [Target] = !targetsLinux ? [] : packageTargets.filter { linuxTargetNames.contains($0.name) }.map { target in
+    target.dependencies += linuxExtraDependencies[target.name] ?? []
+    return target
+}
+
+let linuxPackageDependencies: [Package.Dependency] = [
+    .package(path: "../../Shared/CmuxEgress"),
+    .package(url: "https://github.com/apple/swift-crypto.git", exact: "3.15.1"),
+]
+
+// The Apple shape comes first: scripts/cmux-next/arch_counts.py reads the first Package call.
+let package = !targetsLinux ? Package(
     name: "CmuxNext",
     defaultLocalization: "en",
     platforms: [
@@ -3046,4 +3099,9 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-atomics.git", from: "1.3.0"),
     ],
     targets: packageTargets,
+) : Package(
+    name: "CmuxNext",
+    defaultLocalization: "en",
+    dependencies: linuxPackageDependencies,
+    targets: linuxTargets,
 )
