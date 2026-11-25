@@ -8,7 +8,8 @@ import CmuxNextDesignTokens
 /// `UNNotificationAttachment` can take (the center moves the file, so each
 /// banner gets its own copy).
 @MainActor
-package enum StatusNotificationImage {
+package struct StatusNotificationImage {
+    package init() {}
     static let side: CGFloat = 64
 
     /// PNG data per reason, icon set and theme.
