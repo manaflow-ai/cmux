@@ -5036,6 +5036,28 @@ the service down, or a base reader without the phase) is `unavailable` and fails
 other than 0, 1 or 75 did. A check the fleet still holds queued (`pending`) is a warning, as exit 75 was. swift-canary-fleet does the same for a pull request; any non-pass still lets the Mac
 canary run, and a push keeps its tip-check read and gateway compile.
 
+## note-affected-set-replay
+
+How much of a PR's verdict goes to checks its diff could not have made fail (Leo, 2026-11-21: "help 100x ci speed
+... while maintaining a partial semblance of checks. and we can infrequenrly have fuller checks."). Replayed over
+the last 20 non-bot PRs squash-merged into feat-cmux-next with `scripts/ci/affected_set_replay.py fetch` then
+`report` (input map and assumptions in its header; test `tests/test_ci_affected_set_replay.py`). It is also the
+before-number for cmux#54763.
+
+| Measure (20 PRs, 2026-11-24) | Value |
+| --- | --- |
+| Machine minutes on checks the diff could not have failed | 103 of 1396 (7%) |
+| Verdict wall summed, affected-only vs all | 1367 of 1380 min (1% less) |
+| Verdict wall p50, all checks that ran | 29.4 min |
+| Critical-path wall p50, affected checks only | 29.4 min |
+| Costliest unaffectable checks (machine min) | tooling-tests 64, app compile (build fleet) 16, fast tier (cargo) 12 |
+
+Reading: path routing already skips what the diff cannot touch (a skipped check costs nothing and is not counted),
+so the checks that did run were nearly all inputs of the diff, the PR itself, or the routers that decide the rest.
+An ideal input-based routing would save about 7% of minutes and almost no wall; the verdict wall is the slowest
+affected check (and queue and reruns), not unaffected work. Lower bound: routers, placement, comment and
+PR-metadata jobs and unknown checks count as affected, and CI plumbing paths are an input of every check.
+
 ## note-559
 
 Above the checkouts of `.github/workflows/cmux-next-fast-gates.yml` and `.github/workflows/pr-router.yml`, the
