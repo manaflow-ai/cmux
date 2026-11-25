@@ -165,18 +165,18 @@ export function HistoryPage({
     onCommand: (command, event) => {
       const inSearch = isEditableTarget(event.target);
       const doc = (event.target as Node).ownerDocument ?? document;
-      const move = (offset: number) => store.select(moveSelection(flat, snap.selection, offset));
+      const move = (offset: number) => store.select(moved(list, snap.selection, offset));
       if (command === "list.next") move(1);
       else if (command === "list.previous") move(-1);
       else if (command === "list.leave") {
         if (!inSearch) return false;
         focusRoute(doc.getElementById("history-list"), "person", "key style list key");
       } else if (inSearch) return false;
-      else if (command === "list.first") move(-flat.length);
-      else if (command === "list.last") move(flat.length);
+      else if (command === "list.first") move(-list.entries.length);
+      else if (command === "list.last") move(list.entries.length);
       else if (command === "list.pageDown") move(10);
       else if (command === "list.pageUp") move(-10);
-      else if (command === "list.open") open(returnTarget(flat, snap.selection));
+      else if (command === "list.open") open(target(list, snap.selection));
       else if (command === "list.search")
         focusRoute(doc.querySelector<HTMLInputElement>(".history-search"), "person", "key style list key");
       else return false;
