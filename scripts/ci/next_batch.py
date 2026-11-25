@@ -398,20 +398,24 @@ GRAPHQL_TOKEN = re.compile(r"^[A-Za-z0-9_=+/-]+$")
 DETAILS: dict[tuple[str, str], tuple[list[str], list[tuple[str, str, str]]]] = {}
 
 
-def detail_query(items: list[tuple[str, bool, str | None]]) -> str:
-    """One query for up to DETAIL_PAGE PRs: (node id, want files, contexts cursor).
-    A cursor of "" asks for the first contexts page, None for none."""
+def detail_query(items: list[tuple[int, bool, str | None]]) -> str:
+    """One query for up to DETAIL_PAGE PRs: (PR number, want files, contexts cursor).
+    A cursor of "" asks for the first contexts page, None for none. Each PR is read
+    under the repository by number, not by a root node(id:): the lane broker refuses
+    a root node read (it can reach any repository), so `next_batch.py select` failed
+    on every lane VM."""
     parts = []
-    for index, (node_id, files, cursor) in enumerate(items):
-        if not GRAPHQL_TOKEN.match(node_id) or (cursor and not GRAPHQL_TOKEN.match(cursor)):
-            raise ValueError(f"unexpected GraphQL id or cursor {node_id!r} {cursor!r}")
+    for index, (number, files, cursor) in enumerate(items):
+        if type(number) is not int or number <= 0 or (cursor and not GRAPHQL_TOKEN.match(cursor)):
+            raise ValueError(f"unexpected PR number or cursor {number!r} {cursor!r}")
         fields = "files(first: 100) { nodes { path } }" if files else ""
         if cursor is not None:
             after = f', after: "{cursor}"' if cursor else ""
             fields += (" commits(last: 1) { nodes { commit { statusCheckRollup { "
                        + CONTEXTS.format(after=after) + " } } } }")
-        parts.append(f'p{index}: node(id: "{node_id}") {{ ... on PullRequest {{ {fields} }} }}')
-    return "query {\n" + "\n".join(parts) + "\n}"
+        parts.append(f"p{index}: pullRequest(number: {number}) {{ {fields} }}")
+    return ("query($owner: String!, $name: String!) {\nrepository(owner: $owner, name: $name) {\n"
+            + "\n".join(parts) + "\n}\n}")
 
 
 def parse_contexts(rollup: list[dict]) -> list[tuple[str, str, str, str, str]]:
@@ -460,33 +464,35 @@ def newest_checks(runs: list[tuple[str, str, str, str, str]]) -> list[tuple[str,
     return checks
 
 
-def fetch_details(gh: GitHub, wanted: list[tuple[str, bool, bool]]) -> dict[str, tuple[list[str], list]]:
-    """Files and every check context for (node id, want files, want checks)."""
-    files: dict[str, list[str]] = {node_id: [] for node_id, _, _ in wanted}
-    checks: dict[str, list] = {node_id: [] for node_id, _, _ in wanted}
-    # node id -> (want files still, contexts cursor or None when done)
-    todo = {node_id: (want_files, "" if want_checks else None) for node_id, want_files, want_checks in wanted
+def fetch_details(gh: GitHub, wanted: list[tuple[int, bool, bool]]) -> dict[int, tuple[list[str], list]]:
+    """Files and every check context for (PR number, want files, want checks)."""
+    files: dict[int, list[str]] = {number: [] for number, _, _ in wanted}
+    checks: dict[int, list] = {number: [] for number, _, _ in wanted}
+    # PR number -> (want files still, contexts cursor or None when done)
+    todo = {number: (want_files, "" if want_checks else None) for number, want_files, want_checks in wanted
             if want_files or want_checks}
     while todo:
         batch = list(todo.items())[:DETAIL_PAGE]
-        data = gh.graphql(detail_query([(node_id, want, cursor) for node_id, (want, cursor) in batch]))
-        for index, (node_id, (want_files, cursor)) in enumerate(batch):
+        owner, name = gh.repo.split("/")
+        data = gh.graphql(detail_query([(number, want, cursor) for number, (want, cursor) in batch]),
+                          owner=owner, name=name)["repository"] or {}
+        for index, (number, (want_files, cursor)) in enumerate(batch):
             node = data.get(f"p{index}") or {}
             if want_files:
-                files[node_id] = [item["path"] for item in (node.get("files") or {}).get("nodes") or []]
+                files[number] = [item["path"] for item in (node.get("files") or {}).get("nodes") or []]
             following = None
             if cursor is not None:
                 commit = ((node.get("commits") or {}).get("nodes") or [{}])[0].get("commit") or {}
                 connection = (commit.get("statusCheckRollup") or {}).get("contexts") or {}
-                checks[node_id] += parse_contexts(connection.get("nodes") or [])
+                checks[number] += parse_contexts(connection.get("nodes") or [])
                 info = connection.get("pageInfo") or {}
                 if info.get("hasNextPage") and info.get("endCursor"):
                     following = info["endCursor"]
             if following is None:
-                del todo[node_id]
+                del todo[number]
             else:
-                todo[node_id] = (False, following)
-    return {node_id: (files[node_id], newest_checks(checks[node_id])) for node_id, _, _ in wanted}
+                todo[number] = (False, following)
+    return {number: (files[number], newest_checks(checks[number])) for number, _, _ in wanted}
 
 
 def rollup_failing(rollup: dict) -> bool:
@@ -536,21 +542,21 @@ def open_prs(gh: GitHub, fresh: bool = False) -> list[PullRequest]:
         if ineligible_reason(pr, at) is not None:
             continue
         key = (pr.sha, json.dumps(rollup, sort_keys=True))
-        keys[node["id"]] = key
+        keys[node["number"]] = key
         cached = None if fresh else DETAILS.get(key)
         if cached is None:
-            wanted.append((node["id"], True, rollup_failing(rollup)))
+            wanted.append((node["number"], True, rollup_failing(rollup)))
         else:
             found[key] = cached
     if wanted:
-        fetched = {keys[node_id]: details for node_id, details in fetch_details(gh, wanted).items()}
+        fetched = {keys[number]: details for number, details in fetch_details(gh, wanted).items()}
         found.update(fetched)
         if len(DETAILS) > 5000:
             DETAILS.clear()
         DETAILS.update(fetched)
     for pr, node in prs:
-        if node["id"] in keys:
-            pr.files, pr.checks = found[keys[node["id"]]]
+        if node["number"] in keys:
+            pr.files, pr.checks = found[keys[node["number"]]]
     return [pr for pr, _ in prs]
 
 
