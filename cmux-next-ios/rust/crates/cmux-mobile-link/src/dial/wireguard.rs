@@ -408,20 +408,29 @@ fn refused_by_proxy(udp_useless: bool, allocated: &Allocated) -> Option<DialErro
 
 /// A dial's TURN allocation, started before the dial: a redial
 /// ([`super::connect_after`]) starts it as the signaling reconnect starts,
-/// so the allocation's round trips overlap the reconnect's instead of
-/// following them. Nothing is held before the redial starts. It is the
+/// and a cold dial as soon as `/v1/ice` answers, beside the signaling
+/// socket's open ([`super::connect_with_early_turn`]), so the allocation's
+/// round trips overlap the socket's instead of following them. Nothing is
+/// held before the dial's ICE servers are known. It is the
 /// dial's own allocation ([`turn_beside`], the same path and 437 handling),
 /// and the dial takes it with the STUN wait's half of the link. Dropped
 /// unused (the reconnect failed, the dial was abandoned or dropped), it
 /// aborts the allocation: one under way releases what it opens
 /// (`TurnCarrier::allocate_on`), and one done is dropped, which deallocates
 /// (Refresh with LIFETIME 0).
-pub(crate) struct EarlyTurn {
+pub struct EarlyTurn {
     task: Option<tokio::task::JoinHandle<Allocated>>,
     stun: Option<StunSide>,
 }
 
 impl EarlyTurn {
+    /// The early allocation for a dial over `kind` on `options` (those the
+    /// dial will use, ICE servers included): only a WireGuard dial takes one.
+    /// Call it inside a Tokio runtime.
+    pub fn for_dial(kind: super::TransportKind, options: &DialOptions) -> Option<Self> {
+        (kind == super::TransportKind::WireGuard).then(|| Self::start(options))
+    }
+
     /// Start the allocation `options` ask for (`turn_early_allocated` once
     /// it is in hand).
     pub(crate) fn start(options: &DialOptions) -> Self {
@@ -447,6 +456,12 @@ impl EarlyTurn {
         };
         self.task = None;
         turn
+    }
+}
+
+impl std::fmt::Debug for EarlyTurn {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EarlyTurn").field("taken", &self.task.is_none()).finish()
     }
 }
 
@@ -571,7 +586,8 @@ fn relay_plan(
     peer: Option<&str>,
     ticket: Option<String>,
 ) -> Option<roam::RelayPlan> {
-    let endpoint = options.relay.clone()?;
+    let mut endpoint = options.relay.clone()?;
+    endpoint.egress = options.egress.clone();
     let Some(peer) = peer else {
         options.diagnosis.relay("peer_cannot", Some(endpoint.host()));
         return None;
@@ -1516,6 +1532,7 @@ impl HybridUnderlay {
                 self.last_marker = None;
                 // What we sent toward its old network may be lost.
                 self.replay_recent(true);
+                self.resend_initiation_now();
             }
             Control::Reached { from, via_turn } => self.reached(from, via_turn),
             Control::Blackhole => {
@@ -1840,6 +1857,28 @@ impl HybridUnderlay {
             timer: Box::pin(tokio::time::sleep(HANDSHAKE_REPEATS[0])),
         });
         // The receive task polls the timer: have it register this one.
+        self.wake_receiver();
+    }
+
+    /// Send the unanswered handshake initiation again now, the peer having
+    /// just named addresses it may not have reached before: a Mac behind NAT
+    /// answers `wg-init` with private addresses only and trickles its public
+    /// one after its STUN, so the first initiation through TURN had no target
+    /// and would wait out [`HANDSHAKE_REPEATS`]`[0]` (netlab: link ready 117
+    /// or 295 ms, by whether the trickle beat the first send). With a route
+    /// already chosen, the replay above has sent it.
+    fn resend_initiation_now(&mut self) {
+        if self.direct.is_some() {
+            return;
+        }
+        let Some(repeat) = &mut self.handshake_repeat else { return };
+        let (datagram, class) = (repeat.datagram.clone(), repeat.class);
+        repeat
+            .timer
+            .as_mut()
+            .reset(Instant::now() + HANDSHAKE_REPEATS[repeat.sent.min(HANDSHAKE_REPEATS.len() - 1)]);
+        tracing::debug!("WireGuard resends its handshake initiation to the peer's new addresses");
+        self.send_on_relays(&datagram, class);
         self.wake_receiver();
     }
 
@@ -2802,8 +2841,8 @@ fn running(net: &Arc<Mutex<Option<Arc<WgNet>>>>) -> Result<Arc<WgNet>, DialError
         .ok_or_else(|| DialError::Bye("tunnel closed".into()))
 }
 
-/// The phone's WireGuard dial: its TURN allocation is `early` (a redial's,
-/// started beside the signaling reconnect) or one it starts now, beside
+/// The phone's WireGuard dial: its TURN allocation is `early` (started
+/// beside the signaling reconnect or open) or one it starts now, beside
 /// the STUN gather.
 pub(super) fn dial_wireguard<'a>(
     signaling: &'a SignalingClient,
