@@ -22,6 +22,8 @@ import {
 } from "../../src/agent-session/acpmux/conversation/turnEndFold";
 import { TURN_FOLD_GHOST } from "../../src/agent-session/acpmux/conversation/turnFold";
 import type { AcpmuxRow } from "../../src/agent-session/acpmux/model";
+import { fuzzScenario, strayScenario, leoFoldScenario } from "./fold-fuzz.scenario";
+import { defineTranscriptMotion, TRANSCRIPT_MOTION } from "../support/transcriptMotion";
 import { runSimulationAsync } from "../../src/agent-session/acpmux/sim/run";
 import { parseRecords } from "../../src/agent-session/acpmux/sim/sanitize";
 import { replayScenario, sim, type SimScenario, SIM_START } from "../../src/agent-session/acpmux/sim/script";
@@ -42,6 +44,8 @@ globalThis.__cmuxPaneStrings = { en: strings.en };
 const query = new URLSearchParams(location.search);
 /** The real gap between two steps, capped: the turn plays in a few seconds, its end at its own pace. */
 const STEP_MS = Number(query.get("step")) || 70;
+/** A fuzz seed's longest real gap between two steps: long enough for any fold to finish between them. */
+const FUZZ_GAP_CAP_MS = Number(query.get("gapCap")) || 900;
 
 type PaneState = {
   rows: readonly AcpmuxRow[];
@@ -58,7 +62,11 @@ const expanded = new Set<string>();
 const SIM_CLOCK_OFFSET = Date.now() - SIM_START;
 
 function Pane() {
-  const [state, setState] = useState<PaneState>({ rows: [], working: false, sends: 0 });
+  const [state, setState] = useState<PaneState>({
+    rows: [],
+    working: false,
+    sends: 0,
+  });
   useLayoutEffect(() => {
     show = setState;
   }, []);
@@ -69,7 +77,10 @@ function Pane() {
       // The control (`none`): the swap applies at once (fold.ts `jump`), so the matrix reads what the
       // turn's end does with no fold at all.
       {...(state.look === "none" && { "data-fold-look": "jump" })}
-      {...{ [TURN_END_RECAP_ATTR]: state.recap, [TURN_END_SUBAGENT_ATTR]: state.subagent }}
+      {...{
+        [TURN_END_RECAP_ATTR]: state.recap,
+        [TURN_END_SUBAGENT_ATTR]: state.subagent,
+      }}
     >
       {/* The look's name, for the matrix's side-by-side clips; outside the thread, so never sampled. */}
       <div
@@ -134,17 +145,27 @@ function bigClaudeTurn({ recap = false, subagent = false } = {}): SimScenario {
   b.tool("Read src/net/retry.ts", { kind: "read" });
   b.tool("Read test/retry.test.ts", { kind: "read" });
   b.tool("bun test test/retry.test.ts", { status: "failed", output: "1 fail" });
-  b.tool("bun test test/retry.test.ts -t jitter", { status: "failed", output: "1 fail" });
+  b.tool("bun test test/retry.test.ts -t jitter", {
+    status: "failed",
+    output: "1 fail",
+  });
   b.tool("rg -n attempts src/net", { kind: "search" });
   b.say("The jitter case fails: the loop makes one call too many. Checking the backoff next.");
   b.tool("Read src/net/backoff.ts", { kind: "read" });
-  if (subagent) b.subagent("Scan the last 50 CI logs for the flaky retry test", { ms: 1_500, tracked: true });
+  if (subagent)
+    b.subagent("Scan the last 50 CI logs for the flaky retry test", {
+      ms: 1_500,
+      tracked: true,
+    });
   b.tool("Edit src/net/retry.ts", { kind: "edit", path: "src/net/retry.ts" });
   b.tool("bun test test/retry.test.ts");
   b.tool("bun test test/net");
   b.tool("bunx tsc --noEmit -p .");
   b.say("The count is right now; adding a case for a zero cap.");
-  b.tool("Edit test/retry.test.ts", { kind: "edit", path: "test/retry.test.ts" });
+  b.tool("Edit test/retry.test.ts", {
+    kind: "edit",
+    path: "test/retry.test.ts",
+  });
   b.tool("bun test test/retry.test.ts -t cap");
   b.tool("bun test test/net");
   b.tool("git diff --stat");
@@ -221,7 +242,12 @@ function matrixTurn(cell: MatrixCell): SimScenario {
   }
   if (cell.viewport === "up") b.reader({ scrollBy: -400 });
   const answer = cell.answer === "recap" ? LONG_ANSWER : ANSWER;
-  if (cell.ending !== "tool") b.say(answer, { chunks: cell.answer === "recap" ? 12 : 4, chunkMs: 90, after: 400 });
+  if (cell.ending !== "tool")
+    b.say(answer, {
+      chunks: cell.answer === "recap" ? 12 : 4,
+      chunkMs: 90,
+      after: 400,
+    });
   if (cell.wrapUp)
     b.tool("mcp__acpmux__wrap_up", {
       kind: "other",
@@ -231,6 +257,15 @@ function matrixTurn(cell: MatrixCell): SimScenario {
 }
 
 async function scenarioNamed(name: string): Promise<SimScenario> {
+  if (name.startsWith("fuzz:")) return fuzzScenario(Number(name.slice(5))).scenario;
+  if (name.startsWith("stray:")) return strayScenario(Number(name.slice(6))).scenario;
+  // `sim:NAME`: a chat-sim scenario by name (sim/scenarios.ts), such as `sim:notice-no-tool-turn`.
+  if (name.startsWith("sim:")) {
+    const { SCENARIOS } = await import("../../src/agent-session/acpmux/sim/scenarios");
+    const make = SCENARIOS[name.slice(4)];
+    if (!make) throw new Error(`no chat-sim scenario ${name.slice(4)}`);
+    return make();
+  }
   if (name.startsWith("matrix:")) return matrixTurn(JSON.parse(decodeURIComponent(name.slice(7))) as MatrixCell);
   // `url:PATH`: a recorded chat (ndjson) the dev server serves, such as one fetched outside the repo.
   if (name.startsWith("url:")) {
@@ -241,14 +276,20 @@ async function scenarioNamed(name: string): Promise<SimScenario> {
     const text = (await import("../fixtures/chat-sim/replay-lane-session.ndjson?raw")).default as string;
     return replayScenario("replay-lane-session", parseRecords(text));
   }
-  return bigClaudeTurn({ recap: name.includes("recap"), subagent: name.includes("subagent") });
+  return bigClaudeTurn({
+    recap: name.includes("recap"),
+    subagent: name.includes("subagent"),
+  });
 }
 
-/// A row's top, height and ink, and (when a clip hides part of it) the top and height of what it shows.
+/// A row's top, height and ink, and (when a clip hides part of it) the top and height of what it shows in the view.
 type Sample = {
   t: number;
   folding: boolean;
   view: number;
+  /** The transcript's whole height and scroll offset (the fold fuzzer's total-height check). */
+  scrollHeight: number;
+  scrollTop: number;
   rows: [key: string, top: number, height: number, ink: number, shownTop?: number, shownHeight?: number][];
   /** Every mounted row, in view or not: its key, its top from the thread's top, its height and its kind
    *  (the `acpmux-KIND` class), so a run can add up the turn's height frame by frame. */
@@ -288,14 +329,20 @@ function sampleFrame(): Sample {
     )?.[1];
     all.push([key, box.top - threadTop, box.height, opens ? "opener" : (kind ?? "?")]);
     if (!view || box.bottom < view.top || box.top > view.bottom || box.height === 0) continue;
-    // Ink is the opacity times the share of the box its clip leaves drawn (`wipe` and its kin replace
-    // rows by clipping, not fading).
+    // Ink is the opacity times the share its clip leaves drawn of the part of the box in the view (`wipe`
+    // and its kin replace rows by clipping, not fading). The band the clip shows is read inside the view
+    // too: a clip changing on the part of a row past the view's edge is nothing the reader sees.
     const style = getComputedStyle(element);
     const inset = style.clipPath === "none" ? undefined : insetOf(style.clipPath);
-    const shown = inset ? Math.max(0, box.height - inset.top - inset.bottom) : box.height;
-    const ink = Number(style.opacity) * (shown / box.height);
-    if (inset) rows.push([key, box.top - view.top, box.height, ink, box.top - view.top + inset.top, shown]);
-    else rows.push([key, box.top - view.top, box.height, ink]);
+    const opacity = Number(style.opacity);
+    if (inset) {
+      const from = Math.max(box.top, view.top);
+      const to = Math.min(box.bottom, view.bottom);
+      const shownTop = Math.min(to, Math.max(from, box.top + inset.top));
+      const shown = Math.max(0, Math.min(to, box.bottom - inset.bottom) - shownTop);
+      const ink = to > from ? opacity * (shown / (to - from)) : 0;
+      rows.push([key, box.top - view.top, box.height, ink, shownTop - view.top, shown]);
+    } else rows.push([key, box.top - view.top, box.height, opacity]);
   }
   // `morph`'s card, as the band its clip shows.
   for (const element of thread?.querySelectorAll<HTMLElement>(`:scope > .${TURN_END_CARD}`) ?? []) {
@@ -307,7 +354,38 @@ function sampleFrame(): Sample {
     const ink = Number(style.opacity) * Number(getComputedStyle(element.firstElementChild!).opacity);
     if (view) rows.push(["fold-card", top - view.top, Math.max(0, bottom - top), ink]);
   }
-  return { t: performance.now(), folding: !!thread?.hasAttribute(TURN_END_ATTR), view: view?.height ?? 0, rows, all };
+  return {
+    t: performance.now(),
+    folding: !!thread?.hasAttribute(TURN_END_ATTR),
+    view: view?.height ?? 0,
+    scrollHeight: scroller?.scrollHeight ?? 0,
+    scrollTop: scroller?.scrollTop ?? 0,
+    rows,
+    all,
+  };
+}
+
+/// A reader step as a person's wheel: a `wheel` event on the transcript each frame (what the pane reads as
+/// the reader's hand, userScroll.ts) and the offset moved by a share of the step, over `WHEEL_FRAMES` frames.
+const WHEEL_FRAMES = 6;
+async function wheelScroll(reader: { scroll: "top" | "bottom" } | { scrollBy: number }) {
+  const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+  if (!scroller) return;
+  const target =
+    "scrollBy" in reader ? scroller.scrollTop + reader.scrollBy : reader.scroll === "top" ? 0 : scroller.scrollHeight;
+  for (let frame = 1; frame <= WHEEL_FRAMES; frame += 1) {
+    const goal = "scroll" in reader && reader.scroll === "bottom" ? scroller.scrollHeight : target;
+    const step = (goal - scroller.scrollTop) / (WHEEL_FRAMES - frame + 1);
+    scroller.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: step,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+    scroller.scrollTop += step;
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+  }
 }
 
 // fixed-wait: the steps' real clock is what this page records; a turn plays at the pace a live one does.
@@ -326,15 +404,30 @@ async function run(
 ) {
   // A matrix cell plays its window on the steps' own clock (capped at 1.5 s a gap), so its timing is the chat's.
   const virtual = name.startsWith("matrix:");
-  const whole = await scenarioNamed(name);
+  // A fuzz seed (scripts/fold-fuzz.ts) names its own fold turn end and window, and plays the window on
+  // the steps' own clock (gaps capped at `FUZZ_GAP_CAP_MS`), so when each record lands is the seed's.
+  // A stray seed (`stray:N`, fold-fuzz.ts `--sweep`) is the fuzz seed's chat with the reader's sweep after
+  // it; its reader steps are a wheel's frames, as a person scrolls (`wheelScroll`).
+  // `leo:N` is Leo's pinned case (fold-fuzz.scenario.ts `leoFoldScenario`), swept as a stray seed is.
+  const leo = name.startsWith("leo:");
+  const stray = leo || name.startsWith("stray:");
+  const fuzz = name.startsWith("fuzz:")
+    ? fuzzScenario(Number(name.slice(5)))
+    : leo
+      ? leoFoldScenario(Number(name.slice(4)))
+      : stray
+        ? strayScenario(Number(name.slice(6)))
+        : undefined;
+  const whole = fuzz?.scenario ?? (await scenarioNamed(name));
   const scenario = end === undefined ? whole : { ...whole, steps: whole.steps.slice(0, end + 1) };
   flushSync(() => show({ rows: [], working: false, sends: 0, look, ...options }));
   await painted();
   let lastEnd = scenario.steps.length - 1;
   while (lastEnd > 0 && !scenario.steps[lastEnd]!.label.startsWith("turn_result")) lastEnd -= 1;
-  const fastUntil = end === undefined ? (virtual ? lastEnd - 60 : 0) : lastEnd - 40;
+  if (fuzz) lastEnd = fuzz.foldAt;
+  const fastUntil = fuzz ? fuzz.windowFrom : end === undefined ? (virtual ? lastEnd - 60 : 0) : lastEnd - 40;
   // Sampled from the turn's last calls on, so a row that changes for the turn's end before the fold is seen.
-  const sampleFrom = Math.max(0, lastEnd - 16);
+  const sampleFrom = fuzz ? fuzz.windowFrom : Math.max(0, lastEnd - 16);
   const samples: Sample[] = [];
   let sampling = false;
   let marks: { step: number; t: number; label: string }[] = [];
@@ -354,14 +447,19 @@ async function run(
       }
       if (index === sampleFrom && !sampling) {
         sampling = true;
+        window.__transcriptMotion!.start();
         requestAnimationFrame(tick);
       }
       flushSync(() => show({ rows, working: state.working, sends, look, ...options }));
-      if (step.type === "reader") {
+      if (sampling) window.__transcriptMotion!.rows?.(rows.map((row) => [row.id, JSON.stringify(row)] as const));
+      // This harness draws no "Worked for" to open: a reader's `open` step scrolls nothing here.
+      const reader = step.type === "reader" && !("open" in step.reader) ? step.reader : undefined;
+      if (reader && stray) {
+        if (sampling) window.__transcriptMotion!.mark(`input:${step.label}`);
+        await wheelScroll(reader);
+      } else if (reader) {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
-        const reader = step.reader;
-        // An `open` reader action (opening a "Worked for") does not scroll.
-        if (scroller && !("open" in reader))
+        if (scroller)
           scroller.scrollTop =
             "scrollBy" in reader
               ? scroller.scrollTop + reader.scrollBy
@@ -369,11 +467,20 @@ async function run(
                 ? 0
                 : scroller.scrollHeight;
       }
-      if (sampling) marks.push({ step: index, t: performance.now(), label: step.label });
+      if (sampling) {
+        marks.push({ step: index, t: performance.now(), label: step.label });
+        // The reader's scroll is input: the detector takes it out of the rows' moves.
+        if (!(stray && step.type === "reader"))
+          window.__transcriptMotion!.mark(step.type === "reader" ? `input:${step.label}` : step.label);
+      }
       if (index < fastUntil) {
         // fixed-wait: a yield to the event loop while fast-forwarding, so the page stays responsive.
         if (index % 50 === 0) await sleep(0);
         // fixed-wait: the gap between two steps of the chat is the timing being recorded.
+      } else if (fuzz) {
+        const next = scenario.steps[index + 1];
+        // fixed-wait: the seed's own gap to its next record is the timing being fuzzed.
+        if (next) await sleep(Math.min(FUZZ_GAP_CAP_MS, Math.max(0, next.at - step.at)));
       } else await sleep(index >= sampleFrom ? STEP_MS * 2 : STEP_MS);
       return rows.map(() => undefined);
     },
@@ -382,8 +489,21 @@ async function run(
   // fixed-wait: the frames after the turn's end are the fold being recorded, for a set time.
   await sleep(tailMs);
   sampling = false;
-  const view = document.querySelector<HTMLElement>(".acpmux-scroll")?.clientHeight ?? 0;
-  const result = { look, samples, marks, startedAt: performance.timeOrigin, view };
+  const motion = window.__transcriptMotion!.stop();
+  const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+  const view = scroller?.clientHeight ?? 0;
+  // The scroll-anchoring arm in force: the browser's own (`overflow-anchor`) or the transcript's alone.
+  const overflowAnchor = scroller ? getComputedStyle(scroller).overflowAnchor : "";
+  const result = {
+    look,
+    samples,
+    marks,
+    startedAt: performance.timeOrigin,
+    view,
+    overflowAnchor,
+    foldAt: lastEnd,
+    motion,
+  };
   marks = [];
   return result;
 }
@@ -398,4 +518,9 @@ Object.assign(root.style, {
   flexDirection: "column",
 });
 createRoot(root).render(<Pane />);
-Object.assign(window, { __fold: { run, sampleFrame } });
+defineTranscriptMotion(TRANSCRIPT_MOTION);
+/// Resizes the pane in place (the fold fuzzer reuses one page across seeds and split sizes).
+function size(width: number, height: number) {
+  Object.assign(root.style, { width: `${width}px`, height: `${height}px` });
+}
+Object.assign(window, { __fold: { run, sampleFrame, size } });

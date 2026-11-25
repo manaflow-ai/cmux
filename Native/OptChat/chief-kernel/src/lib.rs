@@ -14,6 +14,13 @@ pub mod tools;
 
 pub use record::{Record, render_record};
 
+/// What a Chief checks at the start and end of each turn (Leo, 2026-11-24: agents are not
+/// ambitious enough, patch instead of fixing the cause, don't think outside the box,
+/// "especially at the beginnings and ends of turns"). One source for every Chief: the local
+/// host puts it in each main turn's tail as a `<turn-checks>` block, after the cache marks;
+/// the Cloud Chief's worker (backend/apps/api/src/chief-brain-cc) carries the same file.
+pub const TURN_CHECKS: &str = include_str!("turn_checks.md");
+
 use prompt::{Tools, chief_system_text};
 use serde_json::Value;
 

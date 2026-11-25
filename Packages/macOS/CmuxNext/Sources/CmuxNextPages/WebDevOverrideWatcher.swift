@@ -33,6 +33,22 @@ public final class WebDevOverrideWatcher {
     /// Reloads the served views each at its own safe point (``reloadPages(live:hosting:pages:served:watcher:)``).
     let gracefulReload = WebBundleGracefulReload()
 
+    /// Told each time ``WebDevOverride/current`` changes (``whenChanged(_:)``).
+    private var changed: [@MainActor () -> Void] = []
+
+    /// Calls `body` each time ``WebDevOverride/current`` changes: a pull request's pages came on or went
+    /// off (``CustomizeExperiments``). Starts the watch, so the first read happens now.
+    func whenChanged(_ body: @escaping @MainActor () -> Void) {
+        changed.append(body)
+        start()
+    }
+
+    /// A Customization Library change ran (``SettingsCustomizeLibrary``): it can turn a pull request's
+    /// pages off without moving ``WebDevOverride/current`` (a lower PR of two), so the followers read again.
+    func libraryChanged() {
+        for body in changed { body() }
+    }
+
     /// A page or agent pane scheme handler is serving `webView`, from any of its paths (bundled
     /// file, dev server, overlay): it joins ``WebBundleServedViews`` so a change reloads it, and the
     /// first one starts the watch, so a launch that shows no page reads nothing (the first page
@@ -85,6 +101,7 @@ public final class WebDevOverrideWatcher {
         watchManifest(of: value.overlay)
         let before = WebDevOverride.current
         guard WebDevOverride.update(value) else { return }
+        for body in changed { body() }
         let after = WebDevOverride.current
         let change = WebDevOverride.describeChange(from: before, to: after)
         // Only a change of the overlay itself is its refusal's news: on 2026-11-22 06:41:33Z a dev server

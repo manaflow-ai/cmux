@@ -106,7 +106,9 @@ public final class HomeChiefConnectionsSection: NSStackView {
     private(set) var shown: [HomeChiefConnection] = []
     private var isOpen = false
     private var watch: Task<Void, Never>?
-    private var rowViews: [HomeChiefConnection.Provider: (status: ThemedLabel, link: HomeChiefLinkButton)] = [:]
+    private var rowViews: [HomeChiefConnection.Provider: (row: NSView, status: ThemedLabel, link: HomeChiefLinkButton)] = [:]
+    /// The rows' group: one fill, a hairline between rows (``HomeChiefFormGroup``).
+    private let group = HomeChiefFormGroup()
     private let failure = HomeChiefSettingsView.footnote(HomeEngineStrings.connectionFailed)
 
     public init() {
@@ -117,6 +119,7 @@ public final class HomeChiefConnectionsSection: NSStackView {
         setAccessibilityIdentifier("cmux.home.chief.connections")
         let header = HomeChiefSettingsView.sectionHeader(HomeEngineStrings.connectionsSection)
         addFull(header)
+        addFull(group)
         for provider in HomeChiefConnection.Provider.allCases {
             let title = ThemedLabel(labelWithString: HomeChiefConnection(provider: provider, state: .unavailable, canDisconnect: false, working: false).title)
             title.font = Typography.body
@@ -134,16 +137,13 @@ public final class HomeChiefConnectionsSection: NSStackView {
             row.orientation = .horizontal
             row.alignment = .firstBaseline
             row.spacing = Metrics.space2
-            addFull(row)
-            rowViews[provider] = (status, link)
+            group.add(row)
+            rowViews[provider] = (row, status, link)
         }
         failure.ink = .danger
         failure.preferredMaxLayoutWidth = HomeChiefSettingsView.width - 2 * HomeChiefSettingsView.inset
         failure.isHidden = true
         addFull(failure)
-        let note = HomeChiefSettingsView.footnote(HomeEngineStrings.connectionsNote)
-        note.preferredMaxLayoutWidth = HomeChiefSettingsView.width - 2 * HomeChiefSettingsView.inset
-        addFull(note)
         isHidden = true
     }
 
@@ -191,8 +191,15 @@ public final class HomeChiefConnectionsSection: NSStackView {
 
     func show(_ snapshot: Snapshot) {
         shown = snapshot.rows
+        var resized = false
         for row in snapshot.rows {
             guard let views = rowViews[row.provider] else { continue }
+            // A service this account cannot use here (signed out, not offered) is left out, not listed as "Not available".
+            let offered = Self.isOffered(row.state)
+            if views.row.isHidden == offered {
+                views.row.isHidden = !offered
+                resized = true
+            }
             views.status.stringValue = row.status
             views.status.toolTip = row.status
             if let action = row.action {
@@ -202,9 +209,24 @@ public final class HomeChiefConnectionsSection: NSStackView {
                 views.link.isHidden = true
             }
         }
-        let resized = failure.isHidden == snapshot.failed
+        if failure.isHidden == snapshot.failed { resized = true }
         failure.isHidden = !snapshot.failed
+        // Nothing to connect and nothing failed: no Connections section at all.
+        let empty = !snapshot.failed && !snapshot.rows.contains { Self.isOffered($0.state) }
+        group.isHidden = !snapshot.rows.contains { Self.isOffered($0.state) }
+        if isHidden != empty, source != nil {
+            isHidden = empty
+            resized = true
+        }
         if resized { onResize() }
+    }
+
+    /// Whether a row in `state` shows: the person can connect it, or it is connected or connecting.
+    static func isOffered(_ state: HomeChiefConnection.State) -> Bool {
+        switch state {
+        case .signedOut, .unavailable: false
+        case .notConnected, .pending, .connected, .needsReauth: true
+        }
     }
 
     @objc private func linked(_ sender: NSButton) {

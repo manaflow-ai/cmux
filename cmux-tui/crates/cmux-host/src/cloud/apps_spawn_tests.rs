@@ -300,30 +300,49 @@ fn loader_variables_are_refused_outright() {
 }
 
 #[test]
-fn the_root_side_exec_gets_no_asked_variable_and_no_app_directory() {
+fn the_root_side_exec_gets_no_loader_variable_and_no_app_directory() {
     let mut ask = check_spawn(&spawn_line(Path::new("/s/apps/web/v1"))).unwrap();
     // Even an ask that slipped a loader variable past the check never reaches root's exec.
     ask.env.push(("LD_PRELOAD".to_owned(), "/tmp/evil.so".to_owned()));
     let user = AppUser { name: "cmux-app".into(), uid: 990, gid: 990 };
     let run = Path::new("/var/lib/cmux-apps/1000/web/v1");
     let plan = start_plan(&user, &ask, run);
-    // Root runs setpriv with only a fixed PATH, from `/`.
-    assert_eq!(plan.root_env, [("PATH".to_owned(), "/usr/bin:/bin".to_owned())]);
+    // Root runs setpriv from `/` with exactly the app's environment (setpriv keeps it across
+    // the drop): the allowed variables, HOME and PORT, and no loader variable.
+    assert_eq!(plan.root_env, spawn_env(&ask.env, run, 41000));
+    assert!(plan.root_env.iter().all(|(k, _)| !k.starts_with("LD_")), "{:?}", plan.root_env);
+    assert!(plan.root_env.contains(&("PORT".to_owned(), "41000".to_owned())));
+    assert!(plan.root_env.contains(&("HOME".to_owned(), run.display().to_string())));
+    assert!(plan.root_env.contains(&("MODE".to_owned(), "prod".to_owned())));
     assert_eq!(plan.root_dir, PathBuf::from("/"));
     assert_eq!(plan.program, "/usr/bin/setpriv");
     let dash = plan.args.iter().position(|a| a == "--").unwrap();
-    assert!(plan.args.iter().take(dash).all(|a| !a.contains("LD_PRELOAD")));
-    // After the drop: env -i with exactly the app's variables, then the shell.
-    assert_eq!(plan.args[dash + 1..dash + 3], ["/usr/bin/env".to_owned(), "-i".to_owned()]);
-    let vars: Vec<&String> =
-        plan.args[dash + 3..].iter().take_while(|a| a.as_str() != "/bin/sh").collect();
-    assert!(vars.iter().all(|v| !v.starts_with("LD_")), "{vars:?}");
-    assert!(vars.contains(&&"PORT=41000".to_owned()));
-    assert!(vars.contains(&&format!("HOME={}", run.display())));
+    // After the drop: straight into the shell, no `env -i K=V ...` on the command line.
+    assert_eq!(plan.args[dash + 1..dash + 3], ["/bin/sh".to_owned(), "-c".to_owned()]);
+    assert!(plan.args.iter().all(|a| !a.contains("LD_PRELOAD")));
     // The chdir into src/<subdir> happens in the shell, as the app user.
     let script = plan.args.iter().skip_while(|a| a.as_str() != "-c").nth(1).unwrap();
     assert!(script.starts_with("cd -- \"$1\" ||"), "{script}");
     assert!(plan.args.contains(&run.join("src/site").display().to_string()));
+}
+
+#[test]
+fn no_variable_value_is_on_the_planned_command_line() {
+    // `/proc/<pid>/cmdline` is world-readable: an app's secrets (the platform's `process-env`)
+    // must reach it only through the environment, never as an argument.
+    let secret = "sk_live_only_for_web";
+    let mut line = spawn_line(Path::new("/s/apps/web/v1"));
+    line["env"]["STRIPE_KEY"] = json!(secret);
+    let ask = check_spawn(&line).unwrap();
+    let user = AppUser { name: "cmux-app".into(), uid: 990, gid: 990 };
+    let run = Path::new("/var/lib/cmux-apps/1000/web/v1");
+    let plan = start_plan(&user, &ask, run);
+    assert!(plan.root_env.contains(&("STRIPE_KEY".to_owned(), secret.to_owned())));
+    for arg in std::iter::once(&plan.program).chain(&plan.args) {
+        assert!(!arg.contains(secret), "a secret is in argv: {arg}");
+        assert!(!arg.contains("STRIPE_KEY"), "an app variable is in argv: {arg}");
+        assert!(!arg.contains("MODE=prod"), "an app variable is in argv: {arg}");
+    }
 }
 
 #[test]

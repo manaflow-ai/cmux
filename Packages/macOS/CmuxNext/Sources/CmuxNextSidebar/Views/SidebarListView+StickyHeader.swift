@@ -62,6 +62,36 @@ extension SidebarListViewComponents {
         stuckHeader.map { NSRect(x: 0, y: $0.frame.minY, width: bounds.width, height: $0.frame.height) }
     }
 
+    /// The y a drop at display y `y` lands at: on the stuck header (inside `stuckBand`), the middle of the header's own
+    /// place, so a drag or a tab let go on the stuck header drops into its group as a hover or a click there targets it,
+    /// never on the row its veil covers. Elsewhere `y` itself.
+    func dropY(_ y: CGFloat) -> CGFloat {
+        guard let stuck = stuckHeader, y >= stuck.frame.minY, y < stuck.frame.maxY,
+              rowViews[stuck.key] != nil, let row = displayed.row(for: stuck.key) else { return y }
+        return row.y + row.height / 2
+    }
+
+    /// The rows the stuck header covers (their middle inside `stuckBand`): out of the accessibility tree and the key view
+    /// loop while covered (`SidebarRowView.isVeiled`), so VoiceOver and the keyboard reach the header, not a row under it.
+    /// A walk over the rows that start within one header height: constant per scroll frame.
+    func updateVeiledRows() {
+        var covered: Set<SidebarRowKey> = []
+        if let stuck = stuckHeader, let band = stuckBand, var index = displayed.lastIndex(startingAtOrBefore: band.minY) {
+            let rows = displayed.rows
+            while index < rows.count, rows[index].y < band.maxY {
+                let row = rows[index]
+                if row.key != stuck.key, row.y + row.height / 2 >= band.minY, row.y + row.height / 2 < band.maxY { covered.insert(row.key) }
+                index += 1
+            }
+        }
+        // A covered row's view may be new this frame (realized under the band): set it whether or not the set changed.
+        for key in covered { rowViews[key]?.isVeiled = true }
+        guard covered != veiledRows else { return }
+        for key in veiledRows.subtracting(covered) { rowViews[key]?.isVeiled = false }
+        veiledRows = covered
+        NSAccessibility.post(element: self, notification: .layoutChanged)
+    }
+
     /// The stuck header's row when `point` (list coordinates) is on it.
     func stuckHit(at point: CGPoint) -> SidebarRow? {
         guard let stuckHeader, let band = stuckBand, band.contains(point), rowViews[stuckHeader.key] != nil else { return nil }
@@ -105,6 +135,7 @@ extension SidebarListViewComponents {
     /// (a scroll sets them, an apply moves them on its spring).
     func showStuckHeader(previous: SidebarStuckHeader?) {
         if let previous, previous.key != stuckHeader?.key { rowViews[previous.key]?.layer?.zPosition = 0 }
+        defer { updateVeiledRows() }
         let wasShown = !stuckVeil.isHidden
         guard let stuck = stuckHeader, let view = rowViews[stuck.key] else {
             if wasShown {

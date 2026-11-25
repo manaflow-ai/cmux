@@ -166,10 +166,10 @@ fn bundle(bytes: usize) -> Vec<u8> {
 /// again (`reconnect`) or not, noted in `journal`.
 async fn run_move(src: &Fake, dst: &Fake, reconnect: bool, journal: &Path) -> Result<Value> {
     let (s, d) = (Client::connect(&src.socket).await?, Client::connect(&dst.socket).await?);
-    let begun = begin_move(&s, "chat", None, (false, false), None, None).await?;
     let pick = |f: &Fake| if reconnect { f.reach() } else { None };
     let mut s_end = MoveEnd::new("source", &s, pick(src)).with_waits(SHORT, SHORT * 5);
     let mut d_end = MoveEnd::new("target", &d, pick(dst)).with_waits(SHORT, SHORT * 5);
+    let begun = begin_move(&mut s_end, "chat", None, (false, false), None).await?;
     let to = json!({"host": "target-host"});
     let moved = finish_journaled(
         &mut s_end,
@@ -376,4 +376,47 @@ fn a_journal_entry_names_only_a_plain_transfer_id() {
     assert!(journal_path(dir.path(), "../x").is_none());
     assert!(journal_path(dir.path(), "").is_none());
     assert_eq!(journal_path(dir.path(), TID), Some(dir.path().join(format!("{TID}.json"))));
+}
+
+/// A daemon swapped mid-move (its first connection drops on the first page) is reached again
+/// at the same socket, and the page is asked again there: the move goes on.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_request_whose_daemon_was_swapped_is_sent_again_to_the_new_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("d.sock");
+    let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+    let served = tokio::spawn(async move {
+        // Each daemon answers what it is asked, the old one until the page: it goes away
+        // with that unanswered.
+        let mut asked = Vec::new();
+        for old in [true, false] {
+            let (conn, _) = listener.accept().await.unwrap();
+            let (rd, mut wr) = conn.into_split();
+            let mut lines = tokio::io::BufReader::new(rd).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                let v: Value = serde_json::from_str(&line).unwrap();
+                let m = v["method"].as_str().unwrap_or_default().to_owned();
+                asked.push(m.clone());
+                if old && m == "_acpmux/transfer_read" {
+                    break;
+                }
+                let reply = json!({"jsonrpc": "2.0", "id": v["id"], "result": {"ok": true}});
+                wr.write_all(format!("{reply}\n").as_bytes()).await.unwrap();
+                if m == "_acpmux/transfer_read" {
+                    break;
+                }
+            }
+        }
+        asked
+    });
+    let first = Client::connect(&socket).await.unwrap();
+    let mut daemon = MoveEnd::new("source", &first, Some(Reach::Socket { path: socket.clone() }));
+    let page = daemon.request("_acpmux/transfer_read", json!({"offset": 0})).await.unwrap();
+    assert_eq!(page["ok"], true);
+    // A reconnect says hello twice (`Client::connect`, then `connect_reach`): once is enough here.
+    let mut asked = served.await.unwrap();
+    asked.dedup();
+    let (hello, page) = (method::INITIALIZE.to_owned(), "_acpmux/transfer_read".to_owned());
+    assert_eq!(asked, vec![hello.clone(), page.clone(), hello, page], "asked again on the new one");
 }
