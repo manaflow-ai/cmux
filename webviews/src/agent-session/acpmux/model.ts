@@ -233,6 +233,7 @@ export type AcpmuxBackgroundTurn = {
 /// that ran it when the chat did not (a subagent's or workflow agent's shell).
 export type AcpmuxBackgroundSource = {
   command?: string;
+  description?: string;
   ownerId?: string;
   ownerTitle?: string;
 };
