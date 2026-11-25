@@ -1,0 +1,80 @@
+{
+  "about": "The App Store declarations cmux makes in App Store Connect: the age rating questionnaire and App Privacy. scripts/ci/ios_asc_ops.py declarations-check diffs ageRating against ASC on every main push (ios-app-review-readiness.yml) and fails on any difference or any ASC field not declared here; App Privacy has no ASC API, so the check prints appPrivacy as the exact block to enter by hand. Change a declaration here first, then apply it: the check's result carries agePatch, the exact --attributes for age-rating-patch.",
+  "source": "cmuxterm-hq#18638 answers; cmuxterm-hq docs/handbook/ios-app-store-connect-answers.md (evidence pinned at feat-cmux-next 7c4360f0f6b7701ccbb4d6dbb3cb91cca7db42ab). Plain cmux is the App Store app: Aziz, pasted by Leo 2026-11-22 23:44Z: \"cmux (no suffix) is what goes to app store\".",
+  "apps": ["6783338052", "6791408425"],
+  "ageRating": {
+    "result": "16+ (unrestricted web access: the in-app browser; messaging and chat: Chief and teammate messages)",
+    "attributes": {
+      "advertising": false,
+      "ageAssurance": false,
+      "ageRatingOverride": "NONE",
+      "ageRatingOverrideV2": "NONE",
+      "alcoholTobaccoOrDrugUseOrReferences": "NONE",
+      "contests": "NONE",
+      "datingAndRelationships": null,
+      "developerAgeRatingInfoUrl": null,
+      "gambling": false,
+      "gamblingSimulated": "NONE",
+      "gracRatingClassificationNumber": null,
+      "gunsOrOtherWeapons": "NONE",
+      "healthOrWellnessTopics": false,
+      "horrorOrFearThemes": "NONE",
+      "kidsAgeBand": null,
+      "koreaAgeRatingOverride": "NONE",
+      "lootBox": false,
+      "matureOrSuggestiveThemes": "NONE",
+      "medicalOrTreatmentInformation": "NONE",
+      "messagingAndChat": true,
+      "parentalControls": false,
+      "profanityOrCrudeHumor": "NONE",
+      "sexualContentGraphicAndNudity": "NONE",
+      "sexualContentOrNudity": "NONE",
+      "sharedLocation": false,
+      "socialMedia": false,
+      "socialMediaAgeRestricted": false,
+      "unrestrictedWebAccess": true,
+      "userGeneratedContent": false,
+      "violenceCartoonOrFantasy": "NONE",
+      "violenceRealistic": "NONE",
+      "violenceRealisticProlongedGraphicOrSadistic": "NONE"
+    }
+  },
+  "appPrivacy": {
+    "collectsData": true,
+    "tracking": false,
+    "collected": [
+      {"type": "Contact Info > Name", "linked": true, "tracking": false, "purposes": ["App Functionality"]},
+      {"type": "Contact Info > Email Address", "linked": true, "tracking": false, "purposes": ["App Functionality"]},
+      {"type": "Contact Info > Phone Number", "linked": true, "tracking": false, "purposes": ["App Functionality"]},
+      {"type": "User Content > Photos or Videos", "linked": true, "tracking": false, "purposes": ["App Functionality"]},
+      {"type": "User Content > Audio Data", "linked": true, "tracking": false, "purposes": ["App Functionality"]},
+      {"type": "User Content > Other User Content", "linked": true, "tracking": false, "purposes": ["App Functionality"]},
+      {"type": "Identifiers > User ID", "linked": true, "tracking": false, "purposes": ["App Functionality"]},
+      {"type": "Identifiers > Device ID", "linked": true, "tracking": false, "purposes": ["App Functionality"]},
+      {"type": "Purchases > Purchase History", "linked": true, "tracking": false, "purposes": ["App Functionality", "Analytics"]}
+    ],
+    "notCollected": [
+      "Health & Fitness",
+      "Financial Info",
+      "Location",
+      "Sensitive Info",
+      "Contacts",
+      "User Content > Emails or Text Messages",
+      "User Content > Gameplay Content",
+      "User Content > Customer Support",
+      "Browsing History",
+      "Search History",
+      "Usage Data",
+      "Diagnostics",
+      "Other Data"
+    ],
+    "recipients": [
+      {"name": "Anthropic (Claude, via Amazon Bedrock)", "gets": "chat messages answered by Cloud Chief"},
+      {"name": "OpenAI", "gets": "microphone audio and chat content in Chief Calls and agent voice mode, with the user's own key"},
+      {"name": "Stack Auth", "gets": "name, email, user id (sign-in)"},
+      {"name": "Cloudflare", "gets": "stored conversations and photo attachments (cmux Cloud), TURN relay of encrypted traffic"},
+      {"name": "SendBlue", "gets": "invitee phone numbers for SMS invites"},
+      {"name": "Apple", "gets": "purchases (StoreKit), push tokens, server dictation fallback"}
+    ]
+  }
+}

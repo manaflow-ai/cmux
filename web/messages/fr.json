@@ -5778,5 +5778,13 @@
     "unavailableTitle": "Impossible de confirmer votre connexion",
     "unavailableBody": "Notre service de connexion est saturé. Patientez quelques secondes, puis rouvrez l'invitation. Vous n'avez pas besoin de vous reconnecter.",
     "retry": "Réessayer"
+  },
+  "analyticsConsent": {
+    "label": "Mesure d’audience",
+    "message": "Pouvons-nous utiliser une mesure d’audience pour voir comment le site est utilisé ? Rien n’est collecté et aucun cookie d’analyse n’est déposé sans votre accord.",
+    "privacy": "Politique de confidentialité",
+    "accept": "Autoriser",
+    "decline": "Non merci",
+    "settings": "Paramètres de mesure d’audience"
   }
 }
