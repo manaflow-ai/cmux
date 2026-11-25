@@ -1,4 +1,4 @@
-import CmuxNextControl
+@testable import CmuxNextControl
 import Darwin
 import Testing
 
@@ -15,6 +15,16 @@ import Testing
         #expect(delivered)
         #expect(SignalRelay.lastSender(of: SIGUSR2) == getpid())
         #expect(SignalRelay.senderDescription(of: SIGUSR2) == "sender pid \(getpid())")
+    }
+
+    /// One record holds the signal and its sender, so a signal never reads another's sender (an action
+    /// interrupted by a second signal's used to leave them mixed across two stores).
+    @Test func aRecordKeepsItsSignalAndSenderTogether() {
+        for (signal, sender) in [(SIGTERM, Int32(77)), (SIGINT, Int32.max), (SIGHUP, Int32(0))] {
+            let record = SignalRelay.record(signal: signal, sender: sender)
+            #expect(Int32(truncatingIfNeeded: record >> 32) == signal)
+            #expect(Int32(truncatingIfNeeded: record) == sender)
+        }
     }
 
     @Test func aSignalNobodySentNamesNobody() {
