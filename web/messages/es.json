@@ -380,6 +380,7 @@
     "typingCodingAgents": "agentes de código",
     "typingMultitasking": "multitarea",
     "subtitle": "Terminal nativa de macOS open source y gratuita basada en Ghostty. Pestañas verticales, anillos de notificación cuando los agentes necesitan atención, paneles divididos y una <cliLink>CLI</cliLink> para programabilidad.",
+    "nextCallout": "Novedad: prueba <link>cmux NEXT</link>, un adelanto del próximo cmux.",
     "features": "Características",
     "faq": "FAQ",
     "communitySection": "Comunidad",
@@ -5774,5 +5775,13 @@
     "unavailableTitle": "No pudimos confirmar tu inicio de sesión",
     "unavailableBody": "Nuestro proveedor de inicio de sesión está ocupado. Espera unos segundos y vuelve a abrir la invitación. No necesitas iniciar sesión de nuevo.",
     "retry": "Reintentar"
+  },
+  "analyticsConsent": {
+    "label": "Analítica",
+    "message": "¿Podemos usar analítica para ver cómo se usa el sitio? No se recopila nada ni se guarda ninguna cookie de analítica a menos que lo permitas.",
+    "privacy": "Política de privacidad",
+    "accept": "Permitir",
+    "decline": "No, gracias",
+    "settings": "Ajustes de analítica"
   }
 }
