@@ -115,7 +115,7 @@ pub fn surface_from_json_schema_ir(ir: &Value) -> Surface {
     for method in ir.get("methods").and_then(Value::as_array).into_iter().flatten() {
         let Some(name) = method.get("name").and_then(Value::as_str) else { continue };
         let kind = method.get("kind").and_then(Value::as_str).unwrap_or("request");
-        let params = method.get("params").map_or_else(opaque, |p| root(p));
+        let params = method.get("params").map_or_else(opaque, root);
         let result = method.get("result").map(root);
         match kind {
             "request" => {
