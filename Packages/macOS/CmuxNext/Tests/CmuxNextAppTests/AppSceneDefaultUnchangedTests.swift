@@ -97,15 +97,24 @@ import Testing
         #expect(bottom.alphaValue == 1)
     }
 
-    /// In a widget tile the exit runs, and with no screen it ends at once: the view still goes.
-    @Test func inAWidgetTileARemovedNodeStillGoesWhenItsExitEndsAtOnce() throws {
+    /// In a widget tile the exit runs, and the view still goes when it ends: at once on a host whose
+    /// test window has no screen, after the fade where it has one (a fleet host with a display gives
+    /// the never-shown window a screen, so `Motion.canAnimate` lets the fade run there).
+    @Test func inAWidgetTileARemovedNodeStillGoesWhenItsExitEndsAtOnce() async throws {
         let model = Self.column(transition: true)
         let (hosting, window) = Self.host(model, fillsBounds: true)
         defer { Self.close(window) }
         let bottom = try #require(Self.text("Bottom", in: hosting))
         model.apply([.children(id: "col", children: ["top", "gap"]), .remove(id: "bottom")])
         hosting.layoutSubtreeIfNeeded()
-        #expect(bottom.superview == nil, "an exit that ended at once removed the view")
+        if window.screen == nil {
+            #expect(bottom.superview == nil, "an exit that ended at once removed the view")
+            return
+        }
+        #expect(bottom.superview == nil || bottom.isLeaving, "the exit did not run")
+        for _ in 0..<300 where bottom.superview != nil { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(bottom.superview == nil, "the view stayed after its exit ended")
+        #expect(!bottom.isLeaving)
     }
 
     /// Before widgets a text label had no layer of its own and a new value drew at once. Red if a

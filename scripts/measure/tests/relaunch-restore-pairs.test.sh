@@ -6,12 +6,15 @@
 # did not restore fails the step while a round over the budget does not.
 set -euo pipefail
 
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../cmux-next/tests/lib/git-fixture.sh"  # drops inherited GIT_DIR/GIT_CONFIG redirects; turns off background maintenance
 measure="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-root="$(mktemp -d)"
-trap 'rm -rf "$root"' EXIT
+# The physical path: macOS's mktemp answers /var/folders/..., and the scripts name /private/var/... (pwd -P).
+root="$(cd "$(mktemp -d)" && pwd -P)"
+git_fixture_trap_exit 'rm -rf "$root"'
 repo="$root/repo"
 mkdir -p "$repo/scripts/measure" "$repo/scripts/ci" "$repo/scripts/cmux-next" "$root/bin"
-git -C "$repo" init -q
+git_fixture_init "$repo"
 git -C "$repo" config user.email test@example.com
 git -C "$repo" config user.name test
 cp "$measure/relaunch-restore.sh" "$measure/app-at-commit.sh" "$measure/relaunch-restore-pairs.py" "$repo/scripts/measure/"

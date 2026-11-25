@@ -128,6 +128,18 @@ async fn a_page_says_it_holds_to_the_log_end_only_when_it_reads_there() {
     let newest = a.request(method::MUX_ATTACH, ask(method::MUX_ATTACH, json!({})).1).await.unwrap();
     assert_eq!(newest["hasMore"], true);
     assert_eq!(newest["pageThrough"], json!(last));
+    // So does the app's tail-first ask, whose beforeSeq is a sentinel past the end, with or
+    // without its cursor: no confirming read is needed.
+    for extra in [
+        json!({"beforeSeq": 9007199254740991u64}),
+        json!({"afterSeq": 1, "beforeSeq": 9007199254740991u64}),
+    ] {
+        for m in [method::MUX_EVENTS, method::MUX_ATTACH] {
+            let params = ask(m, extra.clone()).1;
+            let page = a.request(m, params.clone()).await.unwrap();
+            assert_eq!(page["pageThrough"], json!(last), "{m} {params}: {page}");
+        }
+    }
     for (m, params) in [
         ask(method::MUX_EVENTS, json!({"afterSeq": 0, "limit": 10_000})),
         ask(method::MUX_ATTACH, json!({"afterSeq": 0, "limit": 10_000})),
@@ -516,8 +528,11 @@ async fn turn_result_carries_error_text_and_streamed_error_chunks() {
     assert_eq!(r.msg["errorText"], "Selected model is at capacity.");
     assert_eq!(r.msg["errorCode"], json!({"serverOverloaded": {}}));
     assert_eq!(r.msg["errorSource"], "codex");
+    // The log keeps `failed`; the row of a turn acpmux holds for capacity reads `capacity` (#54477).
+    // The session row reads `capacity` while acpmux holds that turn to retry it (#54477,
+    // `hub/auto_resume.rs` `row_last_turn`); the turn's own result above stays `failed`.
     let summary = hub.session_summary(&hub.resolve("errs").unwrap());
-    assert_eq!(summary["lastTurn"]["status"], "failed");
+    assert_eq!(summary["lastTurn"]["status"], "capacity");
     assert_eq!(summary["lastTurn"]["turnId"], r.msg["turnId"]);
 
     // A clean turn has no error fields.
@@ -925,7 +940,18 @@ async fn an_attach_page_names_the_prompt_of_the_turn_it_starts_inside() {
             .unwrap();
         let expected =
             read["events"].as_array().unwrap().iter().rev().find(|e| starts_turn(e)).cloned();
-        assert_eq!(page["turnOpener"], expected.unwrap(), "limit {limit}: {page}");
+        assert_eq!(page["turnOpener"], expected.clone().unwrap(), "limit {limit}: {page}");
+        let warmed = a
+            .request(
+                method::MUX_EVENTS,
+                json!({
+                    "sessionId": id, "beforeSeq": 9007199254740991u64, "limit": limit,
+                    "kinds": ["transcript"], "turnOpener": true,
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(warmed["turnOpener"], expected.unwrap(), "read-ahead: {warmed}");
     }
     // The page that starts with the prompt itself needs none.
     let at_prompt = a.request(method::MUX_ATTACH, attach(inside as u64 + 1)).await.unwrap();

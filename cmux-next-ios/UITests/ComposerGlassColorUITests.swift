@@ -2,10 +2,14 @@ import XCTest
 
 /// User report 2026-11-16 (iPhone, video): "it turns pale in the composer
 /// after 3 lines". A composer keeps its colours as its draft grows: the glass
-/// at one line and at five lines reads the same. Samples the glass inside the
-/// field's leading edge, a few points above its bottom (the bottom edge stays
-/// put as the field grows, so both samples sit over the same backdrop), in the
-/// terminal composer and the agent chat's.
+/// at one line and at five lines reads the same. Samples the card's glass on
+/// its bottom row, 40 % across: right of the draft's "one" at one line, and
+/// the empty glass between + and the trailing controls once the draft wraps
+/// above them. The card's bottom edge stays put as it grows
+/// (ComposerGrowUpUITests), so every sample sits over the same backdrop. Both
+/// composers are the one ComposerCard; the terminal's sets its theme fill,
+/// which keeps the shade (Leo, 2026-11-21: "the composer brightening up when
+/// you have >3 lines").
 final class ComposerGlassColorUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = true
@@ -23,9 +27,7 @@ final class ComposerGlassColorUITests: XCTestCase {
         let field = app.textViews["terminal.composer.field"]
         XCTAssertTrue(field.waitForExistence(timeout: 20), "composer field\n\(app.debugDescription)")
         field.tap()
-        // The field sits 14 pt inside its glass container; 7 pt in from the
-        // container's edge and 10 pt above its bottom is inside its 20 pt corner.
-        try compare(app, field, "terminal", dx: -7, dy: -10)
+        try compare(app, field, card: app.descendants(matching: .any)["terminal.composer.card"], "terminal")
     }
 
     @MainActor
@@ -39,40 +41,40 @@ final class ComposerGlassColorUITests: XCTestCase {
         if !field.waitForExistence(timeout: 30) { app.buttons["Reply to Claude"].firstMatch.tap() }
         XCTAssertTrue(field.waitForExistence(timeout: 10), "chat composer field\n\(app.debugDescription)")
         if !app.keyboards.firstMatch.exists { field.tap() }
-        // The field sits 16 pt inside the card's glass.
-        try compare(app, field, "chat", dx: -8, dy: -4)
+        try compare(app, field, card: app.descendants(matching: .any)["chat.composer.card"], "chat")
     }
 
     /// The glass colour at one line, then at three and five lines: each is
     /// within a few levels of the first.
     @MainActor
-    private func compare(_ app: XCUIApplication, _ field: XCUIElement, _ name: String, dx: CGFloat, dy: CGFloat) throws {
+    private func compare(_ app: XCUIApplication, _ field: XCUIElement, card: XCUIElement, _ name: String) throws {
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "the keyboard comes up")
+        XCTAssertTrue(card.waitForExistence(timeout: 5), "\(name) composer card\n\(app.debugDescription)")
         field.typeText("one")
-        let one = try sample(app, field, "\(name)-glass-1-line", dx: dx, dy: dy)
+        let one = try sample(app, card, "\(name)-glass-1-line")
         for count in 2...5 {
             field.typeText("\n\(Self.line) \(count)")
             guard count == 3 || count == 5 else { continue }
-            let grown = try sample(app, field, "\(name)-glass-\(count)-lines", dx: dx, dy: dy)
+            let grown = try sample(app, card, "\(name)-glass-\(count)-lines")
             print("composer-glass \(name) lines=1 rgb=\(one) lines=\(count) rgb=\(grown)")
             XCTAssertTrue(Self.near(one, grown), "\(name): the glass at \(count) lines \(grown) reads as at one line \(one)")
         }
     }
 
     /// Waits for the glass to settle, attaches a screenshot and returns the
-    /// mean colour of a 5x5 pt patch at the field's bottom-leading corner
-    /// offset by (dx, dy).
+    /// mean colour of a 5x5 pt patch on the card's bottom row (the 48 pt
+    /// one-line card's middle, 24 pt above its bottom), 40 % across.
     @MainActor
-    private func sample(_ app: XCUIApplication, _ field: XCUIElement, _ name: String, dx: CGFloat, dy: CGFloat) throws -> RGB {
+    private func sample(_ app: XCUIApplication, _ card: XCUIElement, _ name: String) throws -> RGB {
         _ = XCTWaiter().wait(for: [XCTestExpectation(description: "settle")], timeout: 1.5)
-        let frame = field.frame
+        let frame = card.frame
         let shot = app.screenshot()
         let attachment = XCTAttachment(screenshot: shot)
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
         let window = app.windows.firstMatch.frame
-        let point = CGPoint(x: frame.minX + dx, y: frame.maxY + dy)
+        let point = CGPoint(x: frame.minX + frame.width * 0.4, y: frame.maxY - 24)
         return try XCTUnwrap(Self.mean(shot.image, at: point, in: window.size), "the screenshot has pixels")
     }
 

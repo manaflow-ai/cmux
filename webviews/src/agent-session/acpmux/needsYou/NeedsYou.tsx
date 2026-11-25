@@ -22,7 +22,7 @@ import {
   type RefObject,
 } from "react";
 import { useStableCallback } from "../stableCallback";
-import { AgentMark } from "../../shared/AgentMark";
+import { SessionMark } from "../../shared/AgentMark";
 import { useLabelClock } from "../clock";
 import { agentDisplayName } from "../agents";
 import { HEADER_GLYPH } from "../header/chatHeaderToolsModel";
@@ -707,7 +707,7 @@ function Avatar({ item }: { item: NeedsYouItem }) {
     );
   return (
     <span className="acpmux-needs-you-avatar" title={item.who.harness ? agentDisplayName(item.who.harness) : undefined}>
-      <AgentMark agent={item.who.harness} size={14} reserve />
+      <SessionMark icon={item.who.icon} agent={item.who.harness} size={14} reserve />
     </span>
   );
 }

@@ -13,17 +13,31 @@ runs:
     # Hosted images ship rustup; a self-hosted image may not,
     # or may keep it in ~/.cargo/bin off the runner's PATH. Provision the same
     # way scripts/install-rust-ci.sh does, leaving the toolchain to the pinned
-    # install below.
+    # install below. A runner with a distro rustc and cargo in /usr/bin makes
+    # rustup-init print "error: cannot install while Rust is installed" before
+    # it goes on under -y; that line read as a failure in triage, so the PATH
+    # check is skipped (rustup's own switch for adopting a distro Rust).
     - name: Ensure rustup is available
       shell: bash
+      env:
+        RUSTUP_INIT_SKIP_PATH_CHECK: "yes"
       run: |
         set -euo pipefail
+        # GITHUB_PATH goes in front of everything, so writing ~/.cargo/bin there when PATH
+        # already has it moves it ahead of tools set up earlier in the job: cmux10s keeps a
+        # zig 0.16 in ~/.cargo/bin, which then hid setup-zig's 0.17 (run 44982697930).
+        case ":$PATH:" in
+          *":$HOME/.cargo/bin:"*) cargo_bin_on_path=true ;;
+          *) cargo_bin_on_path=false ;;
+        esac
         export PATH="$HOME/.cargo/bin:$PATH"
         if ! command -v rustup >/dev/null 2>&1; then
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
             | sh -s -- -y --profile minimal --default-toolchain none --no-modify-path
         fi
-        echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+        if [[ "$cargo_bin_on_path" != true ]]; then
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+        fi
         "$HOME/.cargo/bin/rustup" --version || rustup --version
     - name: Install pinned Rust toolchain
       shell: bash
@@ -45,6 +59,7 @@ runs:
         import os
         import pathlib
         import re
+        import shutil
         import subprocess
 
         contents = pathlib.Path(os.environ["TOOLCHAIN_FILE"]).read_text(encoding="utf-8")
@@ -62,32 +77,88 @@ runs:
             raise SystemExit("missing components in cmux-tui/rust-toolchain.toml")
         components = re.findall(r'"([^"]+)"', components_match.group(1))
 
-        command = ["rustup", "toolchain", "install", channel, "--profile", profile]
-        for component in components:
-            command.extend(["--component", component])
-        subprocess.run(command, check=True)
-        subprocess.run(["rustup", "default", channel], check=True)
+        # Pool hosts are reused and every runner user on one host shares the rustup
+        # home, so one half-written install ("1.95.0 unchanged - (error reading rustc
+        # version)", cmux-runner-pool-c1c-0011, jobs 137263606985, 137336474322)
+        # failed every later job there. Install, check that the pinned tools run,
+        # and reinstall once when they don't, under one lock in the rustup home so
+        # sibling runners never install or repair at the same moment.
+        rustup_home = pathlib.Path(
+            os.environ.get("RUSTUP_HOME") or pathlib.Path.home() / ".rustup"
+        )
+        lock_file = None
+        try:
+            import fcntl
 
-        cargo = subprocess.run(
-            ["rustup", "which", "cargo"],
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
+            rustup_home.mkdir(parents=True, exist_ok=True)
+            lock_fd = os.open(rustup_home / "cmux-toolchain.lock", os.O_RDWR | os.O_CREAT, 0o666)
+            lock_file = os.fdopen(lock_fd, "w")
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
+        except (ImportError, OSError) as error:
+            print(f"::warning::installing the pinned Rust toolchain without a lock: {error}")
+
+        def install():
+            command = ["rustup", "toolchain", "install", channel, "--profile", profile]
+            for component in components:
+                command.extend(["--component", component])
+            return subprocess.run(command, check=False).returncode == 0
+
+        def tool_path(tool):
+            result = subprocess.run(
+                ["rustup", "which", "--toolchain", channel, tool],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            path = result.stdout.strip()
+            if result.returncode != 0 or not path or not pathlib.Path(path).is_file():
+                return None
+            return path
+
+        def broken():
+            """Why the pinned toolchain cannot run, or None when it can."""
+            for tool in ("rustc", "cargo", "rustdoc"):
+                path = tool_path(tool)
+                if path is None:
+                    return f"rustup which {tool} found no {tool} in {channel}"
+                version = subprocess.run(
+                    ["rustup", "run", channel, tool, "--version"],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                if version.returncode != 0 or not version.stdout.strip():
+                    return f"{channel} {tool} --version failed: {version.stderr.strip()}"
+            return None
+
+        installed = install()
+        problem = None if installed else f"rustup toolchain install {channel} failed"
+        problem = problem or broken()
+        if problem is not None:
+            print(f"::warning::pinned Rust {channel} is broken ({problem}); reinstalling it")
+            if subprocess.run(["rustup", "toolchain", "uninstall", channel], check=False).returncode != 0:
+                # rustup could not read the install to remove it: drop its files, so
+                # the reinstall below does not take it for "unchanged".
+                for leftover in (rustup_home / "toolchains").glob(f"{channel}-*"):
+                    shutil.rmtree(leftover, ignore_errors=True)
+                for leftover in (rustup_home / "update-hashes").glob(f"{channel}-*"):
+                    leftover.unlink(missing_ok=True)
+            install()
+            problem = broken()
+            if problem is not None:
+                raise SystemExit(
+                    f"pinned Rust {channel} is still broken after a reinstall ({problem}); "
+                    "see cmuxterm-hq REPAIR.md for the rustup toolchain repair"
+                )
+        subprocess.run(["rustup", "default", channel], check=True)
+        if lock_file is not None:
+            lock_file.close()
+
+        cargo = tool_path("cargo")
         with open(os.environ["GITHUB_PATH"], "a", encoding="utf-8") as path_file:
             print(pathlib.Path(cargo).parent, file=path_file)
 
-        rustdoc = subprocess.run(
-            ["rustup", "which", "rustdoc"],
-            check=False,
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
-        if not rustdoc or not pathlib.Path(rustdoc).is_file():
-            raise SystemExit(
-                "pinned rustdoc is unavailable; see cmuxterm-hq REPAIR.md "
-                "for the rustup toolchain repair"
-            )
+        rustdoc = tool_path("rustdoc")
         subprocess.run([rustdoc, "--version"], check=True)
         with open(os.environ["GITHUB_PATH"], "a", encoding="utf-8") as path_file:
             print(pathlib.Path(rustdoc).parent, file=path_file)
@@ -96,6 +167,45 @@ runs:
         PY
         cargo --version
         rustc --version
+    # cargo nextest is cmux-tui's test runner: cmux-tui/.config/nextest.toml's `ci` profile,
+    # scripts/ci/cmux-tui-rust-check.sh's test mode and cmux-tui-testbox-warmup.yml all run it. So
+    # `cmux-ci test --setup rust -- '... cargo nextest run ...'` is the call an agent reaches for --
+    # and it used to dispatch a whole fleet run, wait, and die on "error: no such command: `nextest`"
+    # (runs 45086122865 and 45086659367: 175.9 s and 109.4 s of fleet time, two total losses, one
+    # hour apart). The fast-checks Rust setup now carries the repository-pinned, checksummed build
+    # (scripts/ci/install-nextest.sh, the same one the gates use), installed into the sticky
+    # fast-checks cache disk so a host fetches the 5 MB tarball once.
+    #
+    # Only the fast-checks copy of this action installs it: GITHUB_ACTION_PATH is under
+    # .fast-checks-checkout exactly when .github/workflows/fast-checks.yml's "Set up pinned Rust"
+    # step ran it (no other workflow checks the repo out under that name), so the other callers of
+    # this action get the same toolchain, the same PATH and the same timing as before. A download
+    # that fails warns and leaves nextest absent rather than failing a rust setup whose command does
+    # not need it: no fast check can go red here that was green before.
+    - name: Carry the pinned cargo-nextest for fast checks
+      shell: bash
+      run: |
+        set -uo pipefail
+        case "${GITHUB_ACTION_PATH:-}" in
+          */.fast-checks-checkout/.github/actions/setup-cmux-tui-rust*) ;;
+          *) echo "not the fast-checks checkout: cargo-nextest is left to the caller"; exit 0 ;;
+        esac
+        checkout="$(cd "$GITHUB_ACTION_PATH/../../.." && pwd -P)"
+        installer="$checkout/scripts/ci/install-nextest.sh"
+        if [[ ! -f "$installer" ]]; then
+          echo "::warning::this snapshot has no scripts/ci/install-nextest.sh; cargo nextest will not be on PATH"
+          exit 0
+        fi
+        tools="$checkout/.build/tools"
+        # The caches stickydisk, so the tarball is fetched once per host; the checkout's own
+        # .build is wiped by every `clean: true` checkout.
+        [[ -z "${RUNNER_TEMP:-}" ]] || tools="$RUNNER_TEMP/fast-checks-cache/tools"
+        if ! dir="$(CMUX_NEXTEST_TOOLS_ROOT="$tools" bash "$installer")"; then
+          echo "::warning::the pinned cargo-nextest did not install; a cargo nextest command will fail with no such command"
+          exit 0
+        fi
+        echo "$dir" >> "$GITHUB_PATH"
+        PATH="$dir:$PATH" cargo nextest --version
     # Last, so rustup installs with the host's CARGO_HOME. Every later step
     # (rust-cache restore and its post-step cleanup among them) then uses a
     # CARGO_HOME that no other runner instance on the host can delete from.

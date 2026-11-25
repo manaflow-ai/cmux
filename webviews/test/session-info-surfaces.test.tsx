@@ -28,6 +28,7 @@ import {
 import { useSessionInfo } from "../src/agent-session/acpmux/session-info/useSessionInfo";
 import { setNativeHost } from "../src/agent-session/acpmux/native";
 import { setNativeSessionInfoHost } from "../src/agent-session/acpmux/session-info/native/host";
+import { loadNativeSessionInfo } from "../src/agent-session/acpmux/session-info/native/LazyNativeSessionInfo";
 import {
   sessionInfoState,
   resetSessionInfoState,
@@ -513,6 +514,8 @@ for (const width of [370, 528, 740, 1100, 1200, 1420]) {
       return {};
     });
     setNativeSessionInfoHost(true);
+    // The App-drawn panel is its own chunk (LazyNativeSessionInfo.tsx): in before the pane mounts, as the host event makes it.
+    await loadNativeSessionInfo();
     try {
       const opened: string[] = [];
       const container = await mountFolderPane(width, opened, 960);

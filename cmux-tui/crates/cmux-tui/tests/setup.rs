@@ -727,6 +727,17 @@ fn cmux_setup_list_gives_a_chief_prompt_per_task_and_the_page_matches() {
         ),
         "{machine}"
     );
+    // A Cloud model connection is set up in Settings > Cloud, never through
+    // `cmux accounts` (CodeRouter, which Cloud chats do not use).
+    let cloud_chat =
+        list["tasks"].as_array().unwrap().iter().find(|t| t["id"] == "cloud_chat").unwrap();
+    let cloud_text =
+        format!("{} {} {}", cloud_chat["prompt"], cloud_chat["person"], cloud_chat["apply"]);
+    assert!(cloud_text.contains("cmux://settings/cloud/claude"), "{cloud_chat}");
+    assert!(
+        !cloud_text.contains("cmux accounts list") && !cloud_text.contains("cmux accounts connect"),
+        "{cloud_chat}"
+    );
 
     let output = world.run(&["setup", "list", "--prompts-md"]);
     assert_eq!(output.status.code(), Some(0), "{}", String::from_utf8_lossy(&output.stderr));
@@ -855,6 +866,13 @@ fn cmux_setup_machine_an_agent_adds_a_peer_reruns_it_and_undoes_it() {
     assert_eq!(world.take_ssh_calls(), [probe_call("box.example")], "a dry run only probes");
     assert!(daemon.peers().is_empty(), "a dry run registered a peer");
     assert!(!daemon.methods().iter().any(|m| m == "_acpmux/peer_add"));
+    // A host given by its address is named by the whole address, not its first number
+    // ("10" for every host on a 10.x network; remote e2e walk, 2026-11-10).
+    for (target, name) in [("dev@10.138.15.214", "10.138.15.214"), ("10.0.0.5", "10.0.0.5")] {
+        let planned = world.json(&["setup", "machine", target, "--dry-run"]);
+        assert_eq!(planned["name"], name, "{planned}");
+        world.take_ssh_calls();
+    }
 
     // The change: acpmux installs and registers the machine.
     let changed = world.json(&["setup", "machine", "box.example"]);
@@ -1204,8 +1222,8 @@ env_key = "CXS_UNSET_ROUTER_KEY"
     assert_eq!(World::harness_log(&codex), "", "the harness was asked");
 }
 
-/// cmux never writes an agent's own config: `cmux setup mcp` (what the onboarding step and
-/// Settings run) reports which agents get cmux's server when cmux starts them, from a shipped
+/// cmux never writes an agent's own config: `cmux setup mcp` (what Settings
+/// runs) reports which agents get cmux's server when cmux starts them, from a shipped
 /// build and a DEV build alike, whatever the answer, and names the lines a person runs themselves
 /// to use cmux's tools elsewhere. No option writes or removes a global entry.
 #[test]
@@ -1223,7 +1241,7 @@ fn cmux_setup_mcp_never_writes_an_agents_own_config() {
         }
         let cli = world.cli();
         for (answer, state, clients) in
-            [("on", "ok", "terminals"), ("off", "ok", "planned"), ("ask", "needs_user", "planned")]
+            [("on", "ok", "terminals"), ("off", "ok", "planned"), ("ask", "ok", "terminals")]
         {
             world.settings(&json!({"agents": {"cmuxMcp": answer}}));
             let report = world.json(&["setup", "mcp"]);
@@ -1604,7 +1622,8 @@ fn cmux_setup_mcp_with_neither_harness_installed_is_ok() {
     assert_eq!(check["fix"], Value::Null, "{check}");
     let result = world.json(&["setup", "mcp"]);
     assert_eq!(result["state"], "ok", "{result}");
-    assert_eq!(result["enabled"], false, "{result}");
+    // No settings file: agents.cmuxMcp is on by default, so the server is on.
+    assert_eq!(result["enabled"], true, "{result}");
     assert_eq!(result["user_action"], Value::Null, "{result}");
     let clients = result["clients"].as_array().unwrap();
     assert!(clients.iter().all(|c| c["state"] == "not_applicable"), "{result}");
@@ -1650,11 +1669,11 @@ fn serve_app(
 
 /// A fake cmux app on a socket of the world's that serves what `cmux setup
 /// computer-use` and `cmux settings set` ask: `computer_use.status` answers
-/// `status`; `settings.set computerUse.enabled` with `confirm` is the
-/// person's sheet, approved while `approve` is set (true turns Computer Use
-/// on with the grants of `on`, false turns it off) and declined otherwise,
+/// `status`; `settings.set computerUse.mode` with `confirm` is the
+/// person's sheet, approved while `approve` is set (a mode other than `off`
+/// turns Computer Use on with the grants of `on`, `off` turns it off) and declined otherwise,
 /// or left unanswered past the app's deadline (`timeout`) while `unanswered`
-/// is set; `settings.get computerUse.enabled` reads the last approved value.
+/// is set; `settings.get computerUse.mode` reads the last approved value.
 /// Every request is kept.
 struct FakeApp {
     status: Arc<Mutex<Value>>,
@@ -1681,18 +1700,20 @@ impl FakeApp {
         serve_app(listener, app.requests.clone(), move |method, params| {
             Some(match method {
                 "computer_use.status" => Ok(status.lock().unwrap().clone()),
-                "settings.get" if params["path"] == "computerUse.enabled" => {
-                    Ok(json!({"value": enabled.load(Ordering::SeqCst)}))
+                "settings.get" if params["path"] == "computerUse.mode" => {
+                    let mode = if enabled.load(Ordering::SeqCst) { "fullAccess" } else { "off" };
+                    Ok(json!({"value": mode}))
                 }
                 "settings.set"
-                    if params["path"] == "computerUse.enabled" && params["confirm"] == true =>
+                    if params["path"] == "computerUse.mode" && params["confirm"] == true =>
                 {
                     if unanswered.load(Ordering::SeqCst) {
                         Err(json!({"code": "timeout",
                         "message": "settings.set did not finish within 120000ms"}))
                     } else if approve.load(Ordering::SeqCst) {
-                        let next = if params["value"] == true { &on } else { &off };
-                        enabled.store(params["value"] == true, Ordering::SeqCst);
+                        let turned_on = params["value"] != "off";
+                        let next = if turned_on { &on } else { &off };
+                        enabled.store(turned_on, Ordering::SeqCst);
                         *status.lock().unwrap() = next.clone();
                         Ok(json!({"path": params["path"], "value": params["value"]}))
                     } else {
@@ -1701,7 +1722,7 @@ impl FakeApp {
                     }
                 }
                 "settings.set" => Err(json!({"code": "setting_user_only",
-                "message": "computerUse.enabled is the person's; pass --confirm"})),
+                "message": "computerUse.mode is the person's; pass --confirm"})),
                 _ => Err(json!({"code": "method_not_found", "message": "unknown"})),
             })
         });
@@ -1725,7 +1746,7 @@ impl FakeApp {
 /// Settings pane to open, and the `undo` turns it off on the same sheet.
 #[test]
 fn cmux_setup_computer_use_turns_it_on_with_the_persons_ok_and_names_each_grant() {
-    const UNDO: &str = "cmux settings set computerUse.enabled false --confirm";
+    const UNDO: &str = "cmux settings set computerUse.mode off --confirm";
     let mut world = World::new("cu");
     let off =
         json!({"phase": "off", "accessibility": null, "screen_recording": null, "helper": null});
@@ -1776,8 +1797,8 @@ fn cmux_setup_computer_use_turns_it_on_with_the_persons_ok_and_names_each_grant(
     assert_eq!(action["command"], format!("open '{url}'"));
     let sets = app.settings_sets();
     assert_eq!(sets.len(), 3, "{sets:?}");
-    assert_eq!(sets[2]["path"], "computerUse.enabled");
-    assert_eq!(sets[2]["value"], true);
+    assert_eq!(sets[2]["path"], "computerUse.mode");
+    assert_eq!(sets[2]["value"], "fullAccess");
     assert_eq!(sets[2]["confirm"], true);
 
     // The person turns the switch on; nothing is left and nothing is asked.
@@ -1795,7 +1816,7 @@ fn cmux_setup_computer_use_turns_it_on_with_the_persons_ok_and_names_each_grant(
     let output = world.run(&args);
     assert!(output.status.success(), "{UNDO}: {}", String::from_utf8_lossy(&output.stderr));
     let sets = app.settings_sets();
-    assert_eq!((&sets[3]["value"], &sets[3]["confirm"]), (&json!(false), &json!(true)), "{sets:?}");
+    assert_eq!((&sets[3]["value"], &sets[3]["confirm"]), (&json!("off"), &json!(true)), "{sets:?}");
     assert_eq!(world.json(&["setup", "computer-use", "--dry-run"])["state"], "planned");
 
     let output = world.run(&["setup", "computer-use", "now"]);
@@ -1835,7 +1856,7 @@ fn cmux_setup_computer_use_waits_when_the_phase_lags_the_ok() {
     let result = world.json(&["setup", "computer-use"]);
     assert_eq!(result["state"], "needs_user", "{result}");
     assert_eq!(result["user_action"]["kind"], "wait", "{result}");
-    assert_eq!(result["undo"], "cmux settings set computerUse.enabled false --confirm");
+    assert_eq!(result["undo"], "cmux settings set computerUse.mode off --confirm");
     let early = world.json(&["setup", "computer-use"]);
     assert_eq!(early["user_action"]["kind"], "wait", "{early}");
     assert_eq!(early["undo"], Value::Null, "{early}");
@@ -1874,13 +1895,11 @@ fn cmux_setup_trust_forgets_a_decision_recorded_under_another_spelling() {
     assert_eq!(world.record(), Some(json!({})));
 }
 
-/// While the person has not answered the cmux Tools question (`agents.cmuxMcp`
-/// unset or `ask`), `cmux setup mcp` writes nothing into their agents, even
-/// with `"mcp": {"enabled": true}` (which is no answer: it is not a user-only
-/// key, so an agent can write it): it plans, names the question, and runs no
-/// CLI; `setup status` reports it as waiting on the person.
+/// With `agents.cmuxMcp` unset or `ask` (on by default), agents started in cmux get cmux's
+/// tools through their launch, and `cmux setup mcp` still writes nothing into their own
+/// configs: it reports `terminals`, asks nothing, and runs no CLI.
 #[test]
-fn cmux_setup_mcp_writes_nothing_until_the_person_answers() {
+fn cmux_setup_mcp_is_on_by_default_and_writes_nothing() {
     let world = World::new("mcp-ask").with_fake_mcp_clients().with_shipped_cli();
     let claude_json = world.home.join(".claude.json");
     let codex_toml = world.home.join(".codex").join("config.toml");
@@ -1892,22 +1911,17 @@ fn cmux_setup_mcp_writes_nothing_until_the_person_answers() {
         let run = world.json(&["setup", "mcp"]);
         let states =
             run["clients"].as_array().unwrap().iter().map(|c| &c["state"]).collect::<Vec<_>>();
-        assert_eq!(states, [&json!("planned"), &json!("planned")], "{run}");
-        assert_eq!(run["state"], "needs_user", "{run}");
-        let text = run["user_action"]["text"].as_str().unwrap();
-        assert!(text.contains("agents.cmuxMcp"), "{text}");
-        assert!(!text.contains("\"mcp\": {\"enabled\": true}"), "{text}");
-        assert!(
-            world.take_mcp_calls().is_empty(),
-            "setup wrote before the person answered: {settings}"
-        );
+        assert_eq!(states, [&json!("terminals"), &json!("terminals")], "{run}");
+        assert_eq!(run["state"], "ok", "{run}");
+        assert_eq!(run["user_action"], Value::Null, "{run}");
+        assert!(world.take_mcp_calls().is_empty(), "setup ran an agent's CLI: {settings}");
         assert!(!claude_json.exists() && !codex_toml.exists());
         let status = world.json(&["setup", "status"]);
         let check =
             status["checks"].as_array().unwrap().iter().find(|c| c["task"] == "mcp").unwrap();
-        assert_eq!(check["state"], "needs_user", "{check}");
+        assert_eq!(check["state"], "ok", "{check}");
         assert!(
-            check["clients"].as_array().unwrap().iter().all(|c| c["state"] == "planned"),
+            check["clients"].as_array().unwrap().iter().all(|c| c["state"] == "terminals"),
             "{check}"
         );
     }

@@ -147,6 +147,18 @@ class Wiring(unittest.TestCase):
                     missing.append(f"{path.name}:{name}")
         self.assertEqual(missing, [])
 
+    def test_the_step_runs_in_the_workspace_root(self) -> None:
+        # It runs before checkout, so a job's `defaults.run.working-directory` (web/ in cloud-vm-image-bake.yml) does
+        # not exist yet: the runner then fails the step at start ("trying to start process '/usr/bin/bash' with
+        # working directory '.../web'. No such file or directory", roll 44760854970, 2026-11-20).
+        wrong = []
+        for path in WORKFLOWS:
+            for name, job in jobs(path).items():
+                for step in job.get("steps") or []:
+                    if step.get("name") == STEP_NAME and step.get("working-directory") != "${{ github.workspace }}":
+                        wrong.append(f"{path.name}:{name}")
+        self.assertEqual(wrong, [])
+
     def test_the_step_is_one_text_everywhere(self) -> None:
         texts = {step["run"] for path in WORKFLOWS for job in jobs(path).values()
                  for step in job.get("steps", []) if step.get("name") == STEP_NAME}

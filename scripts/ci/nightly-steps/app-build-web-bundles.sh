@@ -4,6 +4,15 @@
 # The hand-off from build-nightly-inputs first, then the bundles R2 holds for this source key
 # (RESTORED, "Restore the published web bundles (cmux-next)"), then a build here.
 set -euo pipefail
+# Every path below runs build-web-bundles.sh in-tree, which writes the App Store packages
+# (sync-app-runtime.sh --store); with the store key (STORE_SIGNING_KEY, secret CMUX_STORE_SIGNING_KEY of
+# env artifacts on nightly-next) it signs cmux's own, which then list as Verified. The key lives only in
+# a 0600 file under RUNNER_TEMP for this step and is never printed; without it the packages ship unsigned.
+scripts/ci/store-signing-key.sh start
+trap 'scripts/ci/store-signing-key.sh stop' EXIT
+if [ -s "$RUNNER_TEMP/cmux-store-signing-key/key.pem" ]; then
+  export CMUX_STORE_SIGNING_KEY_FILE="$RUNNER_TEMP/cmux-store-signing-key/key.pem"
+fi
 if python3 scripts/ci/nightly_inputs.py install-web "$RUNNER_TEMP/nightly-inputs/web"; then
   exit 0
 else

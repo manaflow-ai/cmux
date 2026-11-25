@@ -27,6 +27,9 @@
 // Test-only as the whole module is; said here too, for check-spawn-owner.py's file walk.
 #[cfg(test)]
 mod god_chat;
+#[cfg(test)]
+mod ingest;
+#[cfg(test)]
 mod outbox;
 mod reconnect;
 mod store;

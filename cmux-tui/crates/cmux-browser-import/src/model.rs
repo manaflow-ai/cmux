@@ -43,6 +43,18 @@ pub struct Extension {
     pub version: Option<String>,
     pub enabled: bool,
     pub from_web_store: bool,
+    /// An unpacked extension's folder (absolute, outside the profile): the import copies it, since
+    /// the store has no copy to reinstall. `None` for store installs.
+    pub unpacked_path: Option<String>,
+}
+
+/// An extension a profile has installed from anywhere (store, unpacked, policy, built in): what
+/// the import skips when it is already there (`crate::extension_plan`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct InstalledExtension {
+    pub id: String,
+    /// The folder of an unpacked one (absolute), so a copy loaded before is found by its path.
+    pub path: Option<String>,
 }
 
 /// A source profile's default search engine (`{searchTerms}` marks the typed text).
@@ -150,7 +162,23 @@ impl Extension {
         put(&mut map, "version", self.version.as_ref().map(|v| json!(v)));
         map.insert("enabled".into(), json!(self.enabled));
         map.insert("fromWebStore".into(), json!(self.from_web_store));
+        put(&mut map, "unpackedPath", self.unpacked_path.as_ref().map(|p| json!(p)));
         Value::Object(map)
+    }
+
+    /// Decodes the shape [`Extension::to_json`] writes (the app sends imported ones back for
+    /// [`crate::extension_plan::install_plan`]).
+    pub fn from_json(value: &Value) -> Option<Extension> {
+        let object = value.as_object()?;
+        let text = |key: &str| object.get(key).and_then(Value::as_str).map(str::to_owned);
+        Some(Extension {
+            id: text("id")?,
+            name: text("name").unwrap_or_default(),
+            version: text("version"),
+            enabled: object.get("enabled").and_then(Value::as_bool).unwrap_or(true),
+            from_web_store: object.get("fromWebStore").and_then(Value::as_bool).unwrap_or(true),
+            unpacked_path: text("unpackedPath"),
+        })
     }
 
     /// Chrome extension ids are 32 letters from a to p (`ImportedExtension.isValidID`).
