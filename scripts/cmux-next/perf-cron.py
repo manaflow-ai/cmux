@@ -221,8 +221,11 @@ PARTS = [
     # run_seconds: its first run (2026-11-19, cmux21, cold build) took 2060 s, about 1850 s of it the build.
     {"name": "idle-budget", "args": [*MEASURE, "--suite=idle-budget", "--sessions=light"],
      "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "idle-budget", "run_seconds": 2400},
+    # goal: the row behind goal typing-latency in cmuxterm-hq's NOW (chat_typing_key_to_work_p95_ms reads
+    # acp.own.typing.to_work). A part with a goal goes first once due (part_order): 20th of 22 Mac parts, it was dropped by
+    # every measurement that ended early, so the row went without a reading from 2026-11-17 to 2026-11-25.
     {"name": "chat-anim", "args": [*MEASURE, "--suite=budgets", "--only=acp,anim"],
-     "artifact": "artifacts/split-spring/report.json", "kind": "budgets"},
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "goal": "typing-latency"},
     # Tabs and terminals as they grow (Leo 2026-11-10: "opening/closing tabs was p important to lawrence ... we defo need
     # to encode and warn sometimes if those get slow"): tab switch at 2 and 30 tabs, 20 quick Cmd-W on terminal and chat
     # tabs, Cmd-T and Ctrl-` at 10 and 30 workspaces. Not timed yet: 25 minutes, as the other multi-bench parts.
@@ -1538,11 +1541,13 @@ def part_order(state, todo, t):
     # Of those, a part with no row anywhere (row_history, last, part_rows) goes first: part_stored is newer than most
     # rows, so on 2026-11-22 it named 24 of 31 parts, and terminal-scroll, with no row at all, was fifth of the Linux
     # ones (about 10 h of Linux parts at 2 h each, past ABANDON_HOURS).
+    unseen = []
     if never:
         names = set(state.get("row_history") or {}) | set((state.get("last") or {}).get("rows") or {}) \
             | set(state.get("part_rows") or {})
         seen = {part_for_row(n) for n in names}
-        never = [n for n in never if n not in seen] + [n for n in never if n in seen]
+        unseen = [n for n in never if n not in seen]
+        never = unseen + [n for n in never if n in seen]
     # A part with no stored rows that ran and failed in the newest tip measurement goes after the stale ones: it would
     # otherwise stay first in every measurement, since a failure stores nothing. On 2026-11-24 seven such Linux parts
     # (coord-sim with no shapes file, web-ui-flat timing out, ...) were ahead of web-ui-god, whose rows were 2.6 days
@@ -1550,6 +1555,12 @@ def part_order(state, todo, t):
     failing = ran_failed(state)
     stale_names = [n for _, _, n in sorted(stale)]
     first = [n for n in never if n not in failing] + stale_names + [n for n in never if n in failing]
+    # A due part that feeds an open goal's row (PARTS "goal") goes next, ahead of the other due parts, so a measurement
+    # that ends early still reads it (chat-anim, 2026-11-25: 20th of 22 Mac parts, no reading for 8 days). Only a part
+    # with no row anywhere (that did not just fail) goes before it: its row has never been read at all.
+    lead = [n for n in unseen if n not in failing and not PART_BY_NAME.get(n, {}).get("goal")]
+    goal = [n for n in first if PART_BY_NAME.get(n, {}).get("goal")]
+    first = lead + goal + [n for n in first if n not in lead and n not in goal]
     return [n for n in todo if n == "build"] + first + [n for n in todo if n != "build" and n not in first]
 
 
