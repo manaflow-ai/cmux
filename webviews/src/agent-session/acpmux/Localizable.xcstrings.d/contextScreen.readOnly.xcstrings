@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "contextScreen.readOnly" : {
+      "comment" : "Agent pane: the Context screen (Session Info's View Prompt): a chat's prompt context and the guidance new chats get",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تُحرَّر إرشادات هذه المحادثة على الحاسوب الذي يشغّلها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Smjernice ovog chata uređuju se na računaru koji ga pokreće."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Denne chats vejledning redigeres på den computer, der kører den."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Hinweise dieses Chats werden auf dem Computer bearbeitet, auf dem er läuft."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This chat's guidance is edited on the computer that runs it."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Las indicaciones de este chat se editan en el ordenador que lo ejecuta."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les consignes de ce chat se modifient sur l'ordinateur qui l'exécute."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le indicazioni di questa chat si modificano sul computer che la esegue."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このチャットのガイダンスは、実行しているコンピュータで編集します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ការណែនាំនៃការជជែកនេះត្រូវកែនៅលើកុំព្យូទ័រដែលដំណើរការវា។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 채팅의 지침은 채팅을 실행하는 컴퓨터에서 편집합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Veiledningen for denne chatten redigeres på datamaskinen som kjører den."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wskazówki tego czatu edytuje się na komputerze, który go uruchamia."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "As orientações deste chat são editadas no computador que o executa."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Указания этого чата редактируются на компьютере, где он запущен."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "คำแนะนำของแชทนี้แก้ไขได้บนคอมพิวเตอร์ที่รันแชท"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu sohbetin yönergeleri, onu çalıştıran bilgisayarda düzenlenir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вказівки цього чату редагуються на комп'ютері, де він працює."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hướng dẫn của cuộc trò chuyện này được sửa trên máy tính chạy nó."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此聊天的指引需在运行它的电脑上编辑。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此聊天的指引需在執行它的電腦上編輯。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
