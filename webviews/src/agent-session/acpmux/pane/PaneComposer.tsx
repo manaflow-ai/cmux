@@ -236,6 +236,8 @@ export type PaneComposerDeps = {
   approvedPlanNode?: React.JSX.Element | null;
   /** The approved plan sits at the hat's foot, over the composer (approvedPlan.experiment.ts). */
   approvedPlanAtFoot?: boolean;
+  /** A live customization's bar (customizeBar/CustomizeBar.tsx), right over the composer; null with none. */
+  customizeBarNode?: React.JSX.Element | null;
   hatQuestionList: readonly HatQuestion[];
   NO_HAT_QUESTIONS: readonly HatQuestion[];
   hatQuestionActions: HatQuestionActions;
@@ -492,6 +494,7 @@ export function drawPaneComposer({
   goalNode,
   approvedPlanNode = null,
   approvedPlanAtFoot = false,
+  customizeBarNode = null,
   hatQuestionList,
   NO_HAT_QUESTIONS,
   hatQuestionActions,
@@ -956,6 +959,7 @@ export function drawPaneComposer({
           ))}
         {goalAtFoot && goalNode}
         {approvedPlanAtFoot && approvedPlanNode}
+        {customizeBarNode}
         {statusCardOpen && <HarnessStatusCard summary={snapshot.summary} onDismiss={() => setStatusCardOpen(false)} />}
         {/* "1 file changed +2 -2" (session-info/EnvironmentCard.tsx), off by default: a look turns it on. */}
         {changesPillNode}
@@ -981,6 +985,7 @@ export function drawPaneComposer({
               (trayPlacement === "tray" && trayNode !== null) ||
               goalNode !== null ||
               approvedPlanNode !== null ||
+              customizeBarNode !== null ||
               statusCardOpen ||
               hatShows(hatQuestionList)
             }
