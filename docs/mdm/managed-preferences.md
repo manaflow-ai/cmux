@@ -156,6 +156,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `palette.aliases` | dictionary | `{}` |  | Command Aliases. A word for a command, such as "vs": "splitRight". |
 | `palette.pins` | array | `[]` |  | Pinned Commands. Commands shown first when the command palette opens, in this order, by action id. |
 | `palette.searchHistory` | boolean | `true` |  | Remember Palette Searches. Rows you pick and use often rank higher. Off records nothing. |
+| `customize.checklist.enabled` | boolean | `true` |  | Show the Customize cmux Checklist. Shows the steps for making cmux your own at the top of Settings, with how many are done. |
+| `customize.checklist.done` | array | `[]` |  | Checked Off Customize Steps. The checklist steps you marked done yourself. |
 | `agents.chats.enabled` | boolean | `true` |  | Enable Chats. Show chats stored on this device. Nothing is uploaded. |
 | `agents.chats.discovery` | boolean | `true` |  | Discover Chat Folders. Find harness chat folders automatically. When off, only the listed folders are used. |
 | `agents.chats.roots` | array | `[]` |  | Chat Folders. Folders agents may also use. |

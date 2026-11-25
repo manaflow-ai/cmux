@@ -3,6 +3,7 @@
  * verifier, with in-memory stores, a local JWKS, a fake team directory and a
  * fake upstream provider behind the real upstream client.
  */
+import type { ApiVersionTable } from "../../src/api-version.ts";
 import { Effect, Layer, Option, Redacted } from "effect";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { makeWebHandler } from "../../src/app.ts";
@@ -35,6 +36,8 @@ const UPSTREAM_URL = "https://upstream.test";
 const UPSTREAM_KEY = "upstream-test-key";
 
 export interface HarnessOptions {
+  /** The dated-version compat table the API serves (`Cmux-Api-Version`); default the Worker's own. */
+  readonly apiVersions?: ApiVersionTable;
   readonly limits?: Layer.Layer<TenantLimits>;
   /** The CMUX_VM_SERVICE_KEY_SCOPE_GRANTS var, applied to every service key as the Worker does. */
   readonly serviceScopeGrants?: string;
@@ -429,7 +432,10 @@ export async function makeHarness(options: HarnessOptions = {}) {
 
   const { handler, dispose, reap } = makeWebHandler(
     services,
-    options.stackWebhookSecret === undefined ? {} : { stackWebhookSecret: Redacted.make(options.stackWebhookSecret) },
+    {
+      ...(options.stackWebhookSecret === undefined ? {} : { stackWebhookSecret: Redacted.make(options.stackWebhookSecret) }),
+      ...(options.apiVersions === undefined ? {} : { apiVersions: options.apiVersions }),
+    },
   );
 
   return {
