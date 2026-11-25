@@ -332,7 +332,7 @@ pub(crate) async fn run(args: Args, json_out: bool) -> Result<()> {
             Some(e) => println!("  {} did not move: {e}", r["name"].as_str().unwrap_or("")),
         }
     }
-    if !acting && !(plan.moves.is_empty() && plan.fresh.is_empty()) && !args.dry_run {
+    if !acting && (!plan.moves.is_empty() || !plan.fresh.is_empty()) && !args.dry_run {
         println!(
             "  (planned only: lane_overflow.rebalance is off for {here} in the registry; --force \
              acts)"
