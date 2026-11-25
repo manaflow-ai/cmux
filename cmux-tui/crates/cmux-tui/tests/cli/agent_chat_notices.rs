@@ -412,6 +412,13 @@ fn a_killed_agent_posts_one_notice_and_dedupes_after_daemon_restart() {
     let mut acpmux = Acpmux::connect(&daemon, &session);
     let mut marker = Acpmux::connect(&daemon, &marker_session);
 
+    // Let the notices watch observe the target chat before its agent is killed. The marker's
+    // later notice drains all preceding session changes from the same watch.
+    marker.prompt(&marker_session, "marker before kill");
+    notice(&daemon, marker_surface, |row| {
+        row["body"].as_str().is_some_and(|body| body.contains("marker before kill"))
+    });
+
     let killed = acpmux.prompt_then_kill_agent(&session);
     assert!(killed.get("error").is_some(), "the killed turn unexpectedly answered: {killed}");
     let first = notice(&daemon, surface, |row| {

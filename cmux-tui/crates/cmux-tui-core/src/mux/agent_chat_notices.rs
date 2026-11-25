@@ -1380,7 +1380,10 @@ impl Chat {
         let below_ended = before.is_some_and(|chat| chat.works_below) && !self.works_below;
         let lost_was_notified =
             before.is_some_and(|chat| chat.indicator == "lost" && chat.notified_lost);
-        let mut failed_turn_was_notified = false;
+        let failed_turn_was_notified = self.last_turn.as_ref().is_some_and(|(turn, _)| {
+            before.is_some_and(|chat| chat.notified_turn.as_ref() == Some(turn))
+        });
+        let mut failed_turn_notice_posted = false;
         if let Some((turn, status)) = &self.last_turn
             && !self.works_below
             && (self.unread || below_ended || ended_now(turn))
@@ -1402,7 +1405,7 @@ impl Chat {
                     let text = self.last_error.as_ref().unwrap_or(&self.last_message);
                     let code = failure_code(text);
                     if !lost_was_notified {
-                        failed_turn_was_notified = true;
+                        failed_turn_notice_posted = true;
                         notices.push(Notice {
                             event: None,
                             key: format!("failed-{turn}"),
@@ -1440,7 +1443,11 @@ impl Chat {
         } else if self.indicator != "lost" {
             self.notified_lost = false;
         }
-        if self.indicator == "lost" && was != "lost" && !failed_turn_was_notified {
+        if self.indicator == "lost"
+            && was != "lost"
+            && !failed_turn_notice_posted
+            && !failed_turn_was_notified
+        {
             notices.push(Notice {
                 event: None,
                 key: format!("lost-{}", self.last_seq),
