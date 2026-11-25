@@ -29,8 +29,8 @@ mod hub;
 mod shaped;
 pub use hub::{FakeHub, FakeHubMode, FakeHubStats};
 pub use shaped::{
-    Direction, LINK_PROFILES_JSON, LinkProfile, RadioModel, radio_wakes, set_link_profile, set_radio_model,
-    shape_by_profile, shape_downlink, shape_uplink, shaped_counts,
+    Direction, LINK_PROFILES_JSON, LinkProfile, PeriodicLoss, RadioModel, radio_wakes, set_link_profile,
+    set_periodic_loss, set_radio_model, shape_by_profile, shape_downlink, shape_uplink, shaped_counts,
 };
 
 #[derive(Debug, Clone, Default)]
