@@ -167,6 +167,7 @@ fn path_name(path: LinkPath) -> &'static str {
         LinkPath::Turn => "turn",
         LinkPath::TurnTls => "turn-tls",
         LinkPath::Hop => "hop",
+        LinkPath::HttpsRelay => "https-relay",
         LinkPath::NoPath => "no-path",
     }
 }

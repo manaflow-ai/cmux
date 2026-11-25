@@ -36,7 +36,7 @@
   max-width: 320px;
   overflow-wrap: anywhere;
   color: var(--agent-muted);
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-family: var(--cv-mono, ui-monospace, "SF Mono", Menlo, monospace);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
   user-select: text;

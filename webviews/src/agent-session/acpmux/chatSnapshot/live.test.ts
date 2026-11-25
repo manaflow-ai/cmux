@@ -2,6 +2,7 @@
 // to find it changed and arm again (CMUX-571, idle wakeups: bench/chat-switch.bench.ts idle_wakeups).
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { RIDE_SLACK_MS } from "../../../pages/shared/slackTimers";
 import { noteChatTheme, watchChatSnapshot } from "./live";
 
 let clock = 0;
@@ -62,4 +63,42 @@ test("a change while the write waits moves its timer: one wakeup, then the write
   // At rest after the write: no timer is armed.
   expect(armed()).toBe(0);
   stop();
+});
+
+// The chat's copy is written again after a resize that changed no markup: a copy is drawn only at
+// the size it was written at (shared.ts `fitsDocument`), so a pane resized after the last write left
+// a copy the next launch refused, and the chat opened from nothing (relaunch-shift bench, "size
+// 868x712, drawn at 528x512"; Leo, 2026-11-14: "too much render shift when the thing restarts").
+test("a resize with no markup change writes the copy again once it rests, inside the write gap", () => {
+  noteChatTheme("light");
+  clock = 0;
+  const { win, advance } = page();
+  const writes: Record<string, unknown>[] = [];
+  const stop = watchChatSnapshot(
+    "chat",
+    async (params) => {
+      writes.push(params);
+      return { kept: true };
+    },
+    win.document,
+  );
+  // The first write, once the page has been quiet (up to a heartbeat late: it rides the page's
+  // shared timer, slackTimers.ts).
+  advance(1_500 + RIDE_SLACK_MS);
+  expect(writes).toHaveLength(1);
+  // Nothing changed: no write past the gap.
+  advance(4_000);
+  expect(writes).toHaveLength(1);
+  // A drag's resizes: one write, once they rest, though the write gap (10 s) has not passed.
+  win.dispatchEvent(new win.Event("resize"));
+  advance(4_100);
+  win.dispatchEvent(new win.Event("resize"));
+  advance(4_300);
+  expect(writes).toHaveLength(1);
+  advance(4_700);
+  expect(writes).toHaveLength(2);
+  stop();
+  win.dispatchEvent(new win.Event("resize"));
+  advance(6_000);
+  expect(writes).toHaveLength(2);
 });

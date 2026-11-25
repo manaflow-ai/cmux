@@ -114,6 +114,8 @@ class AppCrateLicenseGate(unittest.TestCase):
                     "cmux-cloud-tasks",
                     # Which imported Chrome cookie domains changed (cmux-cookie-sync).
                     "cmux-cookie-sync",
+                    # The key style and keyboard layout matcher (cmux-keymap, schemas/keymap).
+                    "cmux-keymap",
                     # The control connection rules (cmux-daemon-conn-core).
                     "cmux-daemon-conn-core",
                     # The daemon launch rules and the install-key proof they use (cmux-daemon-launch-core).
@@ -122,6 +124,8 @@ class AppCrateLicenseGate(unittest.TestCase):
                     "cmux-health-core",
                     # Each window's last frame for the launch's first frame (cmux-launch-image).
                     "cmux-launch-image",
+                    # When a hover card's live pane thumbnail is captured again (cmux-pane-pictures).
+                    "cmux-pane-pictures",
                     "cmux-local-auth",
                     "cmux-palette-ranker",
                     "cmux-remote-browser",

@@ -625,6 +625,32 @@
           }
         },
         {
+          "key": "cloud.defaultImage",
+          "name": "defaultImage",
+          "note": "The Cloud environment (image) a new Cloud chat boots from when the chat names none: `auto` (the default; cloud.startChat sends no environment and the platform derives one from the repository) or one of the account's Cloud environment ids (`cloud.environment.list`). Replaces the composer's Environment chip (PR 51769). Auto reuses the person's own Cloud machine for a new chat; a named environment makes a new machine per chat, as a machine boots in its image only when made (cmux-tui start_chat_cli.rs `reusable`). The chat page follows it (AgentPaneDisplaySetting.followedAppPaths; webviews chatCloudEnvironment.ts); Settings draws it as a menu of Auto and the environments (webviews settings editors/DefaultImageEditor.tsx).",
+          "title": {
+            "key": "settings.cloud.defaultImage",
+            "text": "Default Image"
+          },
+          "help": {
+            "key": "settings.cloud.defaultImage.help",
+            "text": "The Cloud environment new Cloud chats start from. Auto picks one from the chat's repository. Any other environment gives each new chat its own machine."
+          },
+          "kind": "text",
+          "default": "auto",
+          "keywords": [
+            "cloud",
+            "image",
+            "environment",
+            "default",
+            "auto",
+            "snapshot",
+            "vm",
+            "machine",
+            "new chat"
+          ]
+        },
+        {
           "key": "cloud.agentsStartWithoutAsking",
           "title": {
             "key": "settings.cloud.agentsStartWithoutAsking",
@@ -678,6 +704,27 @@
             "turn",
             "back",
             "machine"
+          ]
+        },
+        {
+          "key": "cloud.autoCloud",
+          "name": "autoCloud",
+          "note": "AutoCloud (Leo, 2026-11-24): the new-chat Where menu's Auto opens Auto, Cloud only and Machine…, and Auto may start a chat on a Cloud VM when this Mac has no room. A Settings switch, off by default, so a person can turn the preview on without editing cmux-next.json (Leo, 2026-11-24: \"can we put our mvp in?\"). Also the switch for keeping a chat running: with it on, a chat that starts on this Mac is copied to the Cloud, goes on there when this Mac sleeps or goes offline, and comes home (plans/cmux-next/auto-mode/DESIGN.md; the acpmux daemon reads it when a chat starts; nothing is copied where the Cloud store is not bound). The plan gate still applies.",
+          "title": {
+            "key": "settings.cloud.autoCloud",
+            "text": "Auto Places Chats in Cloud"
+          },
+          "help": {
+            "key": "settings.cloud.autoCloud.help",
+            "text": "Auto runs a new chat on this Mac when it has room, else on a Cloud machine."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "cloud",
+            "auto",
+            "place",
+            "where"
           ]
         },
         {
@@ -1172,6 +1219,62 @@
           ],
           "swift_enum": {
             "name": "UltraConnectionMode"
+          }
+        },
+        {
+          "key": "transport.tailnetCarrier",
+          "name": "tailnetCarrier",
+          "note": "Read by direct route races. When direct-only, a cached Tailscale LocalAPI view may add a peer's direct tailnet address as a candidate. DERP and peer-relay paths are excluded until their cost is measured. Off is the default.",
+          "title": {
+            "key": "settings.transport.tailnetCarrier",
+            "text": "Tailscale Carrier"
+          },
+          "help": {
+            "key": "settings.transport.tailnetCarrier.help",
+            "text": "Race a peer's direct Tailscale address with the other transports when tailscaled reports one."
+          },
+          "summary": {
+            "key": "settings.transport.tailnetCarrier.summary",
+            "text": "Use direct Tailscale paths when available"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.transport.tailnetCarrier.off",
+                "text": "Off"
+              },
+              "note": "Do not add Tailscale candidates."
+            },
+            {
+              "value": "direct-only",
+              "title": {
+                "key": "settings.transport.tailnetCarrier.directOnly",
+                "text": "Direct Only"
+              },
+              "note": "Add only paths tailscaled reports as direct."
+            },
+            {
+              "value": "on",
+              "title": {
+                "key": "settings.transport.tailnetCarrier.on",
+                "text": "On"
+              },
+              "note": "Accept the carrier policy value. Relayed paths remain excluded until their cost is measured."
+            }
+          ],
+          "default": "off",
+          "keywords": [
+            "tailscale",
+            "tailnet",
+            "wireguard",
+            "transport",
+            "direct",
+            "relay"
+          ],
+          "swift_enum": {
+            "name": "TailnetCarrierMode"
           }
         },
         {
