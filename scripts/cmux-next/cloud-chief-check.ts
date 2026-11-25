@@ -23,7 +23,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Api, directExec, Journey, listAllMachines, passwordSignIn, resolveBackend, STACK, type Exec } from "./cloud-journey";
+import { Api, directExec, Journey, listAllMachines, machineStopFields, passwordSignIn, resolveBackend, STACK, type Exec } from "./cloud-journey";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const CHIEF_DIR = path.join(ROOT, "images/cmux-vm/chief");
@@ -196,7 +196,25 @@ async function main(): Promise<number> {
       return { value: up, detail: `${name} ${machine}, image ${up?.image?.id ?? up?.image?.name ?? "?"}, daemon ${up?.image?.daemon_version ?? "?"}` };
     });
     void m;
-    const exec = directExec(api, machine, J);
+    // Run 45558916018: the machine stopped 207 s after create, between the readback's 15 s polls (exec 409
+    // vm_not_running). A fresh machine with no client is idle to the platform; turn its idle pause off, as the
+    // wake-echo journey does, so the check measures the update and not the idle policy.
+    await J.step("idle pause off", async () => {
+      await api.op("cloud.machine.idle_policy.set", { machine, idle_seconds: 0 }, `chief-check-${run}-idle`);
+      return { value: null, detail: "idle_seconds 0" };
+    });
+    const rawExec = directExec(api, machine, J);
+    // A refused exec names who stopped the machine (status, pause_reason, paused_by), not only the HTTP code.
+    const exec: Exec = async (command, timeoutMs) => {
+      try {
+        return await rawExec(command, timeoutMs);
+      } catch (e) {
+        const msg = String((e as Error)?.message ?? e);
+        if (!/409/.test(msg)) throw e;
+        const row = await api.read("cloud.machine.get", { machine }).then((v: any) => machineStopFields(v?.machine ?? v), (r) => `read failed: ${String((r as Error)?.message ?? r)}`);
+        throw new Error(`${msg}; machine row: ${JSON.stringify(row)}`);
+      }
+    };
 
     // RFD 0166 row 302: a fresh Cloud machine runs the acpmux the signed cloud-machine channel names, not the
     // image's build or main's rolling cmux-tui/latest. The image's updater reads the channel 30 s after boot and
