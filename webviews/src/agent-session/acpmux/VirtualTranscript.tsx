@@ -6186,6 +6186,11 @@ function TranscriptView({
         setJumpBackHeld(false);
       }
     }
+    // The reader's own scroll down that brings following back is a move toward the latest row, as a wheel down while
+    // following is (`cancelProgrammatic`) and a wheel at the end is (`reader-end`): it asks to follow through the input
+    // hold it leaves. Without the ask, what landed at the end inside that hold (the turn's last rows as the reader got
+    // back) stayed below the view's foot until the hold ran out, the view following 23 px short of its end.
+    if (readerReachedBottom && !followingRef.current) followRequest.current = userScrollIntent(node).request();
     queueScroll(next, scrolledTo.current.atLatest, immediate, "reader-scroll", down?.input ?? null);
     if (onAnchor) {
       clearTimeout(anchorTimer.current);
@@ -6918,6 +6923,11 @@ function TranscriptView({
     keptFrom.current = id;
     onKeepFrom(id, row?.at);
   };
+  // Set in render, as `followRef` and `motionScroll` are: the placement pass and the send effect run before any layout
+  // effect declared here and turn following on (`follow(true, "session" | "send")`), so a ref set in a layout effect
+  // still held the last render's rows and layout there (a row of the chat switched away from, or none on a first
+  // open) when the client was told the row to keep from.
+  keepFromNow.current = () => keepFromInView(ref.current);
   const checkOlder = () => {
     const node = ref.current;
     keepFromInView(node);
@@ -6971,7 +6981,6 @@ function TranscriptView({
   };
   useLayoutEffect(() => {
     checkOlderNow.current = checkOlder;
-    keepFromNow.current = () => keepFromInView(ref.current);
   });
   useLayoutEffect(() => {
     olderScrollTarget.current = undefined;
