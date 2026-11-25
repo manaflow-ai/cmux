@@ -141,6 +141,14 @@ pub fn relay_url(base_url: &str, session_id: &str, device_id: &str) -> Option<St
         .then(|| format!("{ws}/v1/relay/{session_id}?deviceId={device_id}"))
 }
 
+/// [`relay_url`] with `&netcheck=<value>` when there is one (PROTOCOL.md
+/// "Relay placement": a client may add its netcheck to a relay join).
+pub fn join_url(base_url: &str, session_id: &str, device_id: &str, netcheck: Option<&str>) -> Option<String> {
+    let mut url = relay_url(base_url, session_id, device_id)?;
+    crate::netcheck::with_value(&mut url, netcheck);
+    Some(url)
+}
+
 /// Why a join failed: what the network diagnosis tells the person.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -305,14 +313,31 @@ impl RelayCarrier {
     /// Join session `session_id`'s relay as `endpoint`'s device, with its
     /// `ticket` for the session; only frames that name `peer_device` (the
     /// relay stamps the sender) are taken.
+    ///
+    /// With netcheck on (`netcheck.rs`, off by default), the join carries
+    /// this network's cached round trips (`&netcheck=wnam:31,...`), so the
+    /// Worker places a relay the hub did not prewarm by them; a join never
+    /// waits on a measurement.
     pub async fn join(
         endpoint: &RelayEndpoint,
         session_id: &str,
         peer_device: &str,
         ticket: Option<&str>,
     ) -> Result<Self, RelayFailure> {
+        let netcheck = crate::netcheck::cached_value(&endpoint.base_url, endpoint.build_space.as_ref());
+        Self::join_with(endpoint, session_id, peer_device, ticket, netcheck.as_deref()).await
+    }
+
+    /// [`Self::join`] reporting `netcheck` (a `netcheck=` value) as given.
+    pub(crate) async fn join_with(
+        endpoint: &RelayEndpoint,
+        session_id: &str,
+        peer_device: &str,
+        ticket: Option<&str>,
+        netcheck: Option<&str>,
+    ) -> Result<Self, RelayFailure> {
         crate::install_crypto_provider();
-        let url = relay_url(&endpoint.base_url, session_id, &endpoint.device_id)
+        let url = join_url(&endpoint.base_url, session_id, &endpoint.device_id, netcheck)
             .ok_or_else(|| RelayFailure::Unreachable { detail: "not a relay URL".into() })?;
         let token = (endpoint.token)().await.ok_or(RelayFailure::NoToken)?;
         let mut request = url

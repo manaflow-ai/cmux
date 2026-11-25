@@ -16,10 +16,20 @@
 //! network goes out without it; the next one carries it. A Worker without
 //! netcheck (an older one answers `404`, the kill switch `503`) is
 //! remembered for [`TTL`] and not asked again meanwhile.
+//!
+//! Off by default: nothing is measured or sent unless [`SWITCH_ENV`] is "1"
+//! (or a host turns it on with [`set_enabled`]). With it off, the signal
+//! socket's URL and the relay join's are byte for byte what they were.
+//!
+//! Wire: `netcheck=` is an optional query parameter both routes already
+//! define (PROTOCOL.md "Relay placement"). A Worker that does not know it
+//! ignores it (it reads only `deviceId`), and a client that does not send it
+//! is placed by geography as before; no frame, header or status changes.
 
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::net::IpAddr;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{LazyLock, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -39,6 +49,34 @@ pub const PINGS: usize = 3;
 pub const TTL: Duration = Duration::from_secs(30 * 60);
 /// The longest `netcheck` value the Worker reads.
 pub const MAX_VALUE_LEN: usize = 256;
+/// The switch: "1" turns netcheck on (measure, and report on the signal
+/// socket and the relay join). Anything else, or unset, leaves it off.
+pub const SWITCH_ENV: &str = "CMUX_MOBILE_NETCHECK";
+
+/// 0: follow [`SWITCH_ENV`]; 1: off; 2: on.
+static OVERRIDE: AtomicU8 = AtomicU8::new(0);
+static FROM_ENV: LazyLock<bool> = LazyLock::new(|| std::env::var(SWITCH_ENV).is_ok_and(|v| v.trim() == "1"));
+
+/// Whether netcheck is on: [`set_enabled`] when a host set it, else [`SWITCH_ENV`].
+pub fn enabled() -> bool {
+    match OVERRIDE.load(Ordering::Relaxed) {
+        1 => false,
+        2 => true,
+        _ => *FROM_ENV,
+    }
+}
+
+/// Turn netcheck on or off for this process (`None`: back to [`SWITCH_ENV`]).
+pub fn set_enabled(on: Option<bool>) {
+    OVERRIDE.store(
+        match on {
+            None => 0,
+            Some(false) => 1,
+            Some(true) => 2,
+        },
+        Ordering::Relaxed,
+    );
+}
 
 /// One measurement: the least round trip to each region that answered.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -125,11 +163,13 @@ pub fn region_url(base_url: &str, region: &str) -> Result<String, NetcheckError>
     Ok(format!("{ws}/v1/netcheck/{region}"))
 }
 
-/// Measure every region of `base_url` at once, each within `timeout`.
+/// Measure every region of `base_url` at once, each within `timeout`,
+/// leaving this device as `egress` says (the signal socket's proxy and trust).
 pub async fn measure(
     base_url: &str,
     token: &str,
     build_space: Option<&BuildSpace>,
+    egress: &crate::egress::Egress,
     timeout: Duration,
 ) -> Result<Netcheck, NetcheckError> {
     crate::install_crypto_provider();
@@ -155,7 +195,7 @@ pub async fn measure(
         }
         probes.push(async move {
             let outcome =
-                tokio::time::timeout(timeout, probe(request)).await.unwrap_or(RegionOutcome::Failed);
+                tokio::time::timeout(timeout, probe(request, egress)).await.unwrap_or(RegionOutcome::Failed);
             (region, outcome)
         });
     }
@@ -176,10 +216,13 @@ pub async fn measure(
 }
 
 /// One region: upgrade, then [`PINGS`] pings in turn; the least round trip.
-async fn probe(request: tokio_tungstenite::tungstenite::handshake::client::Request) -> RegionOutcome {
-    let mut socket = match tokio_tungstenite::connect_async(request).await {
+async fn probe(
+    request: tokio_tungstenite::tungstenite::handshake::client::Request,
+    egress: &crate::egress::Egress,
+) -> RegionOutcome {
+    let mut socket = match crate::egress::connect_websocket(request, egress).await {
         Ok((socket, _)) => socket,
-        Err(tokio_tungstenite::tungstenite::Error::Http(response)) => {
+        Err(crate::egress::WebSocketError::Upgrade(tokio_tungstenite::tungstenite::Error::Http(response))) => {
             return RegionOutcome::Status(response.status().as_u16());
         }
         Err(_) => return RegionOutcome::Failed,
@@ -350,9 +393,10 @@ fn cache() -> std::sync::MutexGuard<'static, Cache> {
     CACHE.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// The cached `netcheck` value for `base_url` on this network, if any.
+/// The cached `netcheck` value for `base_url` on this network, if any (and
+/// none while the switch is off).
 pub fn cached_value(base_url: &str, build_space: Option<&BuildSpace>) -> Option<String> {
-    if !worth_measuring(base_url) {
+    if !enabled() || !worth_measuring(base_url) {
         return None;
     }
     let key = CacheKey::new(base_url, build_space, network_fingerprint());
@@ -368,18 +412,30 @@ pub fn cached_home(base_url: &str, build_space: Option<&BuildSpace>) -> Option<&
 /// Add `netcheck=<value>` to `url` (a signal socket or relay join URL) when
 /// this network has a cached measurement for `base_url`.
 pub fn append_query(url: &mut String, base_url: &str, build_space: Option<&BuildSpace>) {
-    if let Some(value) = cached_value(base_url, build_space) {
+    with_value(url, cached_value(base_url, build_space).as_deref());
+}
+
+/// Add `netcheck=<value>` to `url` when there is a value. The value is
+/// `region:ms` pairs only (lowercase letters, digits, `:` and `,`), so it
+/// needs no escaping.
+pub fn with_value(url: &mut String, value: Option<&str>) {
+    if let Some(value) = value.filter(|v| !v.is_empty()) {
         url.push(if url.contains('?') { '&' } else { '?' });
         url.push_str("netcheck=");
-        url.push_str(&value);
+        url.push_str(value);
     }
 }
 
 /// Start a measurement for `base_url` on this network in the background
 /// when the cache has none (or an expired or stale one) and none is
 /// running. Returns at once; never waits on the measurement.
-pub fn refresh_in_background(base_url: &str, token: &str, build_space: Option<&BuildSpace>) {
-    if !worth_measuring(base_url) {
+pub fn refresh_in_background(
+    base_url: &str,
+    token: &str,
+    build_space: Option<&BuildSpace>,
+    egress: &crate::egress::Egress,
+) {
+    if !enabled() || !worth_measuring(base_url) {
         return;
     }
     let Ok(runtime) = tokio::runtime::Handle::try_current() else {
@@ -395,8 +451,9 @@ pub fn refresh_in_background(base_url: &str, token: &str, build_space: Option<&B
     let base_url = base_url.to_owned();
     let token = token.to_owned();
     let build_space = build_space.cloned();
+    let egress = egress.clone();
     runtime.spawn(async move {
-        let result = measure(&base_url, &token, build_space.as_ref(), REGION_TIMEOUT).await;
+        let result = measure(&base_url, &token, build_space.as_ref(), &egress, REGION_TIMEOUT).await;
         match &result {
             Ok(netcheck) => tracing::debug!(home = ?netcheck.home(), value = ?netcheck.value(), "netcheck"),
             Err(error) => tracing::debug!(%error, "netcheck"),
