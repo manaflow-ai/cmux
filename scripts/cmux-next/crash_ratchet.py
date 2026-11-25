@@ -109,8 +109,10 @@ Exit 1 when a module or crate gained a hit or a waived hit; with --update-baseli
 a row stays above the baseline; with --baseline-against, when a counted row rose.
 """
 import argparse
+import functools
 import subprocess
 import json
+import multiprocessing
 import os
 import re
 import sys
@@ -620,11 +622,37 @@ RUST_PATH_ATTR = re.compile(r'#\[path\s*=\s*"(?P<path>[^"]+)"\s*\]')
 UNREACHABLE_INIT = re.compile(r"\binit\??\((coder|rootView)\b")
 
 
+@functools.lru_cache(maxsize=1 << 18)
 def swift_code(line):
     """LINE without its comments and with string literal text blanked (quotes and
     interpolated code kept), so `"Hello! world"` or `// x!` never count and
     `"\\(value!)"` still does. One line at a time: the inside of a multi-line string
-    literal is read as code."""
+    literal is read as code. Cached: several scans strip the same lines (each tree's
+    scan_swift, scan_env_writes and the declaration reads)."""
+    if '"' not in line:
+        # No string literal: only comments to drop, the same as the walk below does.
+        if "/" not in line:
+            return line
+        out, i = [], 0
+        while True:
+            line_comment, block = line.find("//", i), line.find("/*", i)
+            if line_comment < 0 and block < 0:
+                out.append(line[i:])
+                break
+            if block < 0 or 0 <= line_comment < block:
+                out.append(line[i:line_comment])
+                break
+            out.append(line[i:block])
+            end = line.find("*/", block + 2)
+            if end < 0:
+                break
+            out.append(" " * (end + 2 - block))
+            i = end + 2
+        return "".join(out)
+    return _swift_code_walk(line)
+
+
+def _swift_code_walk(line):
     out, i, n = [], 0, len(line)
     in_string, depth = False, 0  # depth > 0: inside \( ... ) of a string
     while i < n:
@@ -824,6 +852,42 @@ def swift_line_hits(lines, index, module=None, dictionaries=frozenset()):
     return hits
 
 
+def _collections_of_file(item):
+    module, path = item
+    lines = open(path, encoding="utf-8", errors="replace").read().split("\n")
+    return module, collection_kinds(lines)
+
+
+# The scan reads every Swift and Rust source file one after another in pure Python: 54 s on a 4 vCPU
+# Blacksmith runner and 108-121 s on a pool VM, the critical path of cmux-next fast gates (p90 3.5 min against its
+# 3 min budget, 2026-11-22). Files are independent and every total is a sum, so the per-file work fans out over the
+# cores (a fork pool: the workers inherit _CONTEXT) and the parent adds each file's hits in the order of the files,
+# so the counts and the lines are the serial scan's, whatever the worker count. CRASH_RATCHET_JOBS=1 scans serially.
+_CONTEXT = {}
+
+
+def _worker_count(items):
+    try:
+        wanted = int(os.environ.get("CRASH_RATCHET_JOBS") or 0)
+    except ValueError:
+        wanted = 0
+    cores = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 1)
+    return max(1, min(wanted or cores, 16, items // 8))
+
+
+def parallel_map(fn, items):
+    """[fn(item) for item in items], in order, over a fork pool when there are cores and files enough."""
+    items = list(items)
+    workers = _worker_count(len(items))
+    if workers > 1:
+        try:
+            with multiprocessing.get_context("fork").Pool(workers) as pool:
+                return pool.map(fn, items, chunksize=max(1, len(items) // (workers * 8)))
+        except Exception:  # noqa: BLE001 - a pool that cannot start: the serial scan below answers, or raises the same
+            pass
+    return [fn(item) for item in items]
+
+
 def module_dictionaries(repo, exported):
     """{index module: names it declares as dictionaries and never as arrays}."""
     return {module: d for module, (d, _) in module_collections(repo, exported).items()}
@@ -833,17 +897,19 @@ def module_collections(repo, exported):
     """{index module: (names it declares as dictionaries and never otherwise, names it declares
     as an indexable non-dictionary anywhere)}."""
     declared = {}
+    items = []
     for root in swift_source_roots(repo):
         sources = os.path.join(repo, root)
         for path in tracked_files(repo, sources, exported):
             module = os.path.relpath(path, sources).split(os.sep)[0]
             if module not in INDEX_MODULES or not path.endswith(".swift") or not os.path.isfile(path):
                 continue
-            dicts, arrays, others = collection_kinds(open(path, encoding="utf-8", errors="replace").read().split("\n"))
-            entry = declared.setdefault(module, (set(), set(), set()))
-            entry[0].update(dicts)
-            entry[1].update(arrays)
-            entry[2].update(others)
+            items.append((module, path))
+    for module, (dicts, arrays, others) in parallel_map(_collections_of_file, items):
+        entry = declared.setdefault(module, (set(), set(), set()))
+        entry[0].update(dicts)
+        entry[1].update(arrays)
+        entry[2].update(others)
     return {module: (frozenset(d - a - o), frozenset(a)) for module, (d, a, o) in declared.items()}
 
 
@@ -892,29 +958,48 @@ def scan_tree(repo, exported):
 def scan_swift(repo, scan, exported):
     """Ratchet hits per module into SCAN (counted, or waived by a crash-allow); hits of banned
     classes per file (crash-allow ignored) into its banned_files."""
-    banned = banned_kinds("swift")
-    banned_modules = banned_in("swift")
-    collections = module_collections(repo, exported)
+    _CONTEXT.update(repo=repo, banned=banned_kinds("swift"), banned_modules=banned_in("swift"),
+                    collections=module_collections(repo, exported))
+    items = []
     for root in swift_source_roots(repo):
         sources = os.path.join(repo, root)
         for path in tracked_files(repo, sources, exported):
             name = os.path.basename(path)
             if not name.endswith(".swift") or not os.path.isfile(path):
                 continue
-            rel = os.path.relpath(path, sources).split(os.sep)[0]  # the Swift module
-            lines = open(path, encoding="utf-8", errors="replace").read().split("\n")
-            module_dicts, module_arrays = collections.get(rel, (frozenset(), frozenset()))
-            file_dicts = file_dictionaries(lines, module_dicts, module_arrays) if rel in INDEX_MODULES else frozenset()
-            for index, line in enumerate(lines):
-                if line.lstrip().startswith("//"):
-                    continue
-                is_allowed = allowed(lines, index)
-                for kind, hits in swift_line_hits(lines, index, rel, file_dicts).items():
-                    if kind in banned or (kind, rel) in banned_modules:
-                        key = (kind, os.path.relpath(path, repo))
-                        scan.banned_files[key] = scan.banned_files.get(key, 0) + hits
-                        continue
-                    scan.add(is_allowed, "swift", kind, rel, line, hits)
+            items.append((path, os.path.relpath(path, sources).split(os.sep)[0]))  # the path, the Swift module
+    for events in parallel_map(_swift_file_events, items):
+        replay(scan, events)
+
+
+def replay(scan, events):
+    """Add one file's hits (from _swift_file_events or _rust_file_events) to SCAN."""
+    for event in events:
+        if event[0] == "banned":
+            scan.banned_files[event[1]] = scan.banned_files.get(event[1], 0) + event[2]
+        else:
+            scan.add(*event[1:])
+
+
+def _swift_file_events(item):
+    """One Swift file's hits: ("banned", (kind, repo-relative path), hits) or ("add", waived, "swift", kind, module,
+    line, hits), in the file's order."""
+    path, rel = item
+    banned, banned_modules = _CONTEXT["banned"], _CONTEXT["banned_modules"]
+    events = []
+    lines = open(path, encoding="utf-8", errors="replace").read().split("\n")
+    module_dicts, module_arrays = _CONTEXT["collections"].get(rel, (frozenset(), frozenset()))
+    file_dicts = file_dictionaries(lines, module_dicts, module_arrays) if rel in INDEX_MODULES else frozenset()
+    for index, line in enumerate(lines):
+        if line.lstrip().startswith("//"):
+            continue
+        is_allowed = allowed(lines, index)
+        for kind, hits in swift_line_hits(lines, index, rel, file_dicts).items():
+            if kind in banned or (kind, rel) in banned_modules:
+                events.append(("banned", (kind, os.path.relpath(path, _CONTEXT["repo"])), hits))
+                continue
+            events.append(("add", is_allowed, "swift", kind, rel, line, hits))
+    return events
 
 
 def load_allowlist():
@@ -1040,6 +1125,7 @@ def scan_rust(repo, scan, exported):
     skipped_dirs = {"target", "tests", "benches", "examples", "node_modules", "fixtures"}
     paths = tracked_files(repo, crates, exported)
     test_files, test_folders = rust_test_modules(paths)
+    items = []
     for path in paths:
         dirpath, name = os.path.split(path)
         parts = os.path.relpath(dirpath, crates).split(os.sep)
@@ -1052,22 +1138,31 @@ def scan_rust(repo, scan, exported):
         norm = os.path.normpath(path)
         if norm in test_files or any(norm.startswith(folder + os.sep) for folder in test_folders):
             continue
-        rel = os.path.relpath(path, crates).split(os.sep)[0]  # the crate
-        text = open(path, encoding="utf-8", errors="replace").read()
-        # Inline test modules (`#[cfg(test)] mod x {`) are cut; a
-        # `#[cfg(test)] mod x;` declaration is not code.
-        inline = INLINE_TESTS.search(text)
-        lines = (text if not inline else text[:inline.start()]).split("\n")
-        for index, line in enumerate(lines):
-            stripped = line.lstrip()
-            if stripped.startswith("//"):
-                continue
-            is_allowed = allowed(lines, index)
-            code = line.split("//", 1)[0] if '"' not in line else line
-            for kind, pattern in RUST.items():
-                hits = len(pattern.findall(code))
-                if hits:
-                    scan.add(is_allowed, "rust", kind, rel, line, hits)
+        items.append((path, os.path.relpath(path, crates).split(os.sep)[0]))  # the path, the crate
+    for events in parallel_map(_rust_file_events, items):
+        replay(scan, events)
+
+
+def _rust_file_events(item):
+    """One Rust file's hits, as _swift_file_events's ("add", ...) events."""
+    path, rel = item
+    events = []
+    text = open(path, encoding="utf-8", errors="replace").read()
+    # Inline test modules (`#[cfg(test)] mod x {`) are cut; a
+    # `#[cfg(test)] mod x;` declaration is not code.
+    inline = INLINE_TESTS.search(text)
+    lines = (text if not inline else text[:inline.start()]).split("\n")
+    for index, line in enumerate(lines):
+        stripped = line.lstrip()
+        if stripped.startswith("//"):
+            continue
+        is_allowed = allowed(lines, index)
+        code = line.split("//", 1)[0] if '"' not in line else line
+        for kind, pattern in RUST.items():
+            hits = len(pattern.findall(code))
+            if hits:
+                events.append(("add", is_allowed, "rust", kind, rel, line, hits))
+    return events
 
 
 # The baseline's path in a tree (a checkout, or a git archive export of a ref).

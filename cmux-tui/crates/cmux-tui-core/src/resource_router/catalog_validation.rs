@@ -27,9 +27,14 @@ pub(super) fn operation_descriptor(
     Ok((operation_name, descriptor))
 }
 
+/// Checks `params` against the operation's catalog entry and drops every parameter the
+/// catalog does not declare, so no handler (and no idempotency fingerprint) ever sees it. A
+/// newer client may send a field this daemon does not know yet: the request still runs. Only an operation whose catalog params say
+/// `"unknown_params": "refuse"` refuses one (where an ignored field would silently change
+/// what the request does, such as a guard on a destructive close).
 pub(super) fn validate_catalog_params(
     operation: ResourceOperation,
-    params: &Value,
+    params: &mut Value,
 ) -> Result<(ResourceSelectors, Map<String, Value>), ResourceError> {
     let (operation_name, descriptor) = operation_descriptor(operation)?;
     let params_descriptor = descriptor["params"].as_object().ok_or_else(|| {
@@ -39,7 +44,6 @@ pub(super) fn validate_catalog_params(
             json!({}),
         )
     })?;
-    let input = params.as_object().expect("request envelope validates params");
     let selector_descriptors = params_descriptor["selectors"]
         .as_object()
         .ok_or_else(|| malformed_catalog(&operation_name, "selectors"))?;
@@ -47,22 +51,28 @@ pub(super) fn validate_catalog_params(
         .as_object()
         .ok_or_else(|| malformed_catalog(&operation_name, "fields"))?;
 
-    let allowed = selector_descriptors
-        .keys()
-        .chain(field_descriptors.keys())
-        .map(String::as_str)
-        .collect::<HashSet<_>>();
+    let input = params.as_object_mut().expect("request envelope validates params");
     if params_descriptor["extra"] == Value::Bool(false) {
-        let mut unknown =
-            input.keys().filter(|key| !allowed.contains(key.as_str())).cloned().collect::<Vec<_>>();
-        unknown.sort();
-        if !unknown.is_empty() {
-            return Err(validation_error(
-                "request contains unknown parameters",
-                json!({"operation":operation_name,"parameters":unknown}),
-            ));
+        let declared = |key: &str| {
+            selector_descriptors.contains_key(key) || field_descriptors.contains_key(key)
+        };
+        if input.keys().any(|key| !declared(key)) {
+            let mut unknown =
+                input.keys().filter(|key| !declared(key)).cloned().collect::<Vec<_>>();
+            unknown.sort();
+            if params_descriptor.get("unknown_params").and_then(Value::as_str) == Some("refuse") {
+                return Err(validation_error(
+                    "request contains unknown parameters",
+                    json!({"operation":operation_name,"parameters":unknown}),
+                ));
+            }
+            for key in &unknown {
+                input.remove(key);
+                note_ignored_param(&operation_name, key);
+            }
         }
     }
+    let input = &*input;
 
     let mut selector_values = Map::new();
     for (name, requiredness) in selector_descriptors {
@@ -123,6 +133,18 @@ pub(super) fn validate_catalog_params(
         )
     })?;
     Ok((selectors, fields))
+}
+
+/// Logs an ignored parameter once per (operation, name) per process: its name only, never
+/// its value (a value may be a secret).
+fn note_ignored_param(operation: &str, key: &str) {
+    static SEEN: OnceLock<std::sync::Mutex<HashSet<(String, String)>>> = OnceLock::new();
+    let seen = SEEN.get_or_init(Default::default);
+    let mut seen = seen.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    // Bounded: a client that sends a new name on every request stops being logged.
+    if seen.len() < 1024 && seen.insert((operation.to_owned(), key.to_owned())) {
+        eprintln!("cmux-tui: {operation}: ignored unknown parameter {key:?} (a newer client?)");
+    }
 }
 
 pub(super) fn contract_failure(

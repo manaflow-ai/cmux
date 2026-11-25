@@ -129,7 +129,7 @@ final class CaptureSceneRegistry {
 
         // Home is native: it settles on its own conditions, and neither the
         // agent pane's readiness nor its web view is part of its picture.
-        let isHome = definition.name == Self.homeChiefScene || definition.name == Self.homeChiefLongDraftScene
+        let isHome = [Self.homeChiefScene, Self.homeChiefLongDraftScene].contains(definition.name) || Self.profileScenes[definition.name] != nil
         let readiness = await DebugAgentPane.handle(["action": .string("readiness")], services)
         guard isHome || readinessIsComplete(readiness) else {
             return .object([
@@ -140,7 +140,7 @@ final class CaptureSceneRegistry {
 
         let sceneAction = await applySceneAction(definition.name)
         let actionReadiness = isHome
-            ? await showHomeChief(windowID: targetWindowID, longDraft: definition.name == Self.homeChiefLongDraftScene) : await waitForSceneAnimation()
+            ? await showHomeChief(windowID: targetWindowID, longDraft: definition.name == Self.homeChiefLongDraftScene, profile: Self.profileScenes[definition.name]) : await waitForSceneAnimation()
         guard case .object(let actionReadinessReport) = actionReadiness,
               actionReadinessReport["error"] == nil,
               isHome || actionReadinessReport["animations_pending"]?.boolValue == false else {
@@ -291,6 +291,8 @@ final class CaptureSceneRegistry {
         CaptureSceneDefinition(name: "permission-feed-peer-resolved", description: "permission-feed-peer, then the prompt is answered elsewhere: the bridge withdraws it. Regression: cfcd0c55d64f (#41240's head) keeps it; #41295 withdraws it."),
         CaptureSceneDefinition(name: "home-chief-long-draft",
                                description: "The home-chief scene with a long draft that grows the field up into the first-run panel; the panel drops what does not fit and nothing it shows runs under the field."),
+        CaptureSceneDefinition(name: "home-chief-profile-details", description: "The home-chief scene with the Chief's profile open on Details."),
+        CaptureSceneDefinition(name: "home-chief-profile-computer", description: "The home-chief scene with the Chief's profile open on its Computer tab."),
     ]
 }
 

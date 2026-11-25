@@ -34,6 +34,9 @@ public nonisolated struct HomeChiefSnapshot: Sendable {
     var reactionsCanWake: String?
     /// A hosted cloud Chief's brain is turned off: it answers no message (``HomeChiefHostedEngine``).
     var brainOff = false
+    /// engine.json's `computer`: the Cloud machine this Chief does computer use on
+    /// (`machine:<id>`, cmux issue 36047); nil: this Mac.
+    var computer: String?
 
     /// This snapshot with `report`'s offered models and efforts and its effective engine.
     func offering(_ report: ChiefEngineReport) -> HomeChiefSnapshot {
@@ -50,6 +53,8 @@ public nonisolated struct HomeChiefSnapshot: Sendable {
             snapshot.classifierPrompt = report.choice.classifierPrompt
             snapshot.reactionsCanWake = report.choice.reactionsCanWake.map { $0 ? "true" : "false" }
         }
+        // The brain owns engine.json: its answer is the Chief's computer now.
+        snapshot.computer = report.choice.computer
         return snapshot
     }
 }
@@ -90,6 +95,7 @@ public nonisolated struct HomeChiefFiles: Sendable {
         snapshot.classifierModel = choice["classifier_model"] as? String
         snapshot.classifierPrompt = choice["classifier_prompt"] as? String
         snapshot.reactionsCanWake = (choice["reactions_can_wake"] as? Bool).map { $0 ? "true" : "false" } ?? choice["reactions_can_wake"] as? String
+        snapshot.computer = (choice["computer"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         return snapshot
     }
 

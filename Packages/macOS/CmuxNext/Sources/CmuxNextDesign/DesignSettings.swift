@@ -162,6 +162,9 @@ public final class DesignSettings {
             BackdropImageStore.shared.desktop.tintEnabled = wallpaperTint
         }
     }
+    /// `appearance.liveWallpaperFrameRate`: the most frames per second a live wallpaper draws (15, 30 or
+    /// 60; ``BackdropLiveView``). A running wallpaper reads it on its next frame; a held one when it runs again.
+    public var liveWallpaperFrameRate = 30
     /// `appearance.backgroundPlacement`: where each picture lies, by picture id; a picture with no
     /// entry is centered and fills (today's look). Every window and pane backdrop observes it
     /// (`WindowMaterialView.observePlacement`).
@@ -212,6 +215,9 @@ public final class DesignSettings {
     /// `experiments.agentBadges` and `experiments.agentBadgesBeam` (Settings > Advanced > Experiments): count pills on
     /// tabs, a status pill (and, `beam`, a running edge light) on sidebar rows; off is the shipped tabs and rows.
     public var agentBadges: AgentBadgesExperiment = .off
+    /// `experiments.terminalAgentMark` (Settings > Advanced > Experiments, off by default): an agent running in a terminal
+    /// tab draws its mark on a soft rounded square of its tint, so it is told from a GUI agent chat's bare mark.
+    public var terminalAgentMarks = false
     /// The desktop picture's color (and its bands) while the Wallpaper or Pictorial group palette is chosen; nil under
     /// any other palette or until the first sample lands. Observed, so the sidebar's groups repaint when the picture changes.
     public var groupWallpaperTint: WallpaperTint?
@@ -323,6 +329,9 @@ public final class DesignSettings {
     /// `appearance.borders`: default, or none (no border, hairline or
     /// separator anywhere; `Borders`).
     public var borders: BorderMode = .default
+    /// `sidebar.drawnMenus`: the sidebar's right-click and more-button menus open as ``GlassMenu``s, which
+    /// the menu look styles; off keeps the system menu. Read as a menu opens.
+    public var sidebarDrawnMenus = false
     /// `appearance.liquidGlass`: whether web pages draw their glass. Off (the default, Lawrence
     /// 2026-11-19), every web glass surface is solid with a hairline rim (``WebTheme/glass`` is `off`).
     public var liquidGlass = false
@@ -330,6 +339,22 @@ public final class DesignSettings {
     /// itself follows it too (``ProcessFontSmoothing/chrome``); stock AppKit text keeps the launch's
     /// value (``ProcessFontSmoothing/current``).
     public var fontSmoothing: FontSmoothing = .auto
+    /// `appearance.appFont`: the family cmux's interface draws in, nil for the system font. Every web
+    /// page takes it as its `--font-ui` live (``WebTheme/appFontStack(_:)``); native chrome text made
+    /// through ``Typography/system(_:size:weight:)`` takes it too while the `experiments.appFontChrome`
+    /// switch is on (``CheckedFont``), as each view makes its font again.
+    public var appFont: String?
+    /// `experiments.*` (Settings > Experimental > Experiments, schemas/settings/source/experiments.json):
+    /// each boolean key by its name (`menuStyleV2`), only the ones turned on. ``WebTheme`` sends it to
+    /// every cmux page (`window.cmuxExperimentSettings`; webviews/src/experiments/hostSettings.ts maps
+    /// a name to its experiment's arm); native code reads ``experiment(_:)``. A change repaints, so
+    /// every page gets its theme, and with it the switches, again.
+    public var experiments: [String: Bool] = [:] {
+        didSet { if experiments != oldValue { ThemeScope.app.store.repaintAll() } }
+    }
+
+    /// Whether the `experiments.<name>` switch is on (`DesignSettings.shared.experiment("menuStyleV2")`).
+    public func experiment(_ name: String) -> Bool { experiments[name] == true }
     /// `appearance.sidebarSurface`: the sidebar on the main pane's surface,
     /// or shaded apart from it.
     public var sidebarSurface: SidebarSurface = .same
@@ -355,6 +380,11 @@ public final class DesignSettings {
     /// Settings pick of `chrome.cornerFlush` still overrides it. A change repaints, as the tone does.
     public var cornerFlush: CornerFlush? {
         didSet { if cornerFlush != oldValue { ThemeScope.app.store.repaintAll() } }
+    }
+    /// `appearance.tabShape`: how blocky the tabs of every tab bar and the sidebar's rows are (``TabShape``): block (the
+    /// default) or rounded; a change repaints, as the tone does. The gooey look is `appearance.cornerFlush` flush-goo.
+    public var tabShape: TabShape = .block {
+        didSet { if tabShape != oldValue { ThemeScope.app.store.repaintAll() } }
     }
     /// `appearance.focusIndicator`: what marks the focused pane.
     public var focusIndicator: FocusIndicator = .tabs
