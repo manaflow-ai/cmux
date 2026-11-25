@@ -636,7 +636,8 @@ export function ComposerContext({
       ? undefined
       : cloudSide && !readOnly && !machineOnCloud && !cloudStartOut
         ? // The person's pick (here, or New Tab's last pick, `pickedBefore`) is itself: a folder of this Mac goes
-          // to Cloud as that folder, never as its GitHub origin's repository (cmux#53226).
+          // to Cloud as that folder (projected or copied), a GitHub checkout too (cmux#55104), never as its GitHub
+          // origin's repository (cmux#53226); a GitHub repository picked as one (`pickedRepo`) stays the repository.
           localOnCloud &&
             pickedFolder !== undefined &&
             pickedRepo === undefined &&

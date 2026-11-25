@@ -691,6 +691,10 @@ pub enum Command {
     /// Forum rules: announce one, list the current ones, ack one.
     #[command(subcommand)]
     Forum(crate::cli::forum::ForumCmd),
+    /// The fleet memory mount (~/.cmux/memory): sync, put, get, ls, history, status, and link a
+    /// harness's memory folder into it.
+    #[command(subcommand)]
+    Memory(crate::cli::memory::MemoryCmd),
     /// Bridge Claude Desktop, Codex Desktop and ChatGPT Desktop to each other and to cmux sessions:
     /// connect, send, inbox.
     #[command(subcommand)]
@@ -873,7 +877,16 @@ pub enum Command {
         /// Answer once the agent is ready, not when it starts.
         #[arg(long)]
         wait: bool,
+        /// A harness and model the person set up, `HARNESS[:MODEL]`, warmed beside the default
+        /// (personal spares; repeat for each, at most 4).
+        #[arg(long = "shape", value_name = "HARNESS[:MODEL]")]
+        shapes: Vec<String>,
     },
+    /// The harnesses and models this machine's person used in the last week (newest first, at
+    /// most 4), as `warm-home --shape` takes them: the Cloud app reads them on the Mac and warms
+    /// a spare of each on the person's Cloud machine.
+    #[command(name = "spare-shapes", hide = true)]
+    SpareShapes,
     #[command(hide = true)]
     Info {
         session: String,

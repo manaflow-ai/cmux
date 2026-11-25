@@ -846,8 +846,10 @@ export function NewTabScreen(props: Props) {
       ? project
       : (props.startCwd ?? (props.startPending && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
   const cloudMode = props.runMode?.mode === "cloud";
-  // A folder of this Mac the person picked here goes to Cloud as itself (copied, granted on the pick) when it is
-  // no clone of a GitHub repository; never the tab's inherited folder (cmux#53226).
+  // A folder of this Mac the person picked here goes to Cloud as itself (projected or copied, granted on the pick), a
+  // checkout of a GitHub repository too (cmux#55104); never the tab's inherited folder (cmux#53226), which goes as its
+  // GitHub repository when it is a checkout of one. A GitHub repository picked here stays that repository, its checkout
+  // on this Mac included: Cloud clones it (cmux#53226).
   // With nothing picked here, Cloud starts in the person's last pick as it was: Cloud's own last start, else the
   // folder they last started a chat in (`started`), a folder of this Mac as itself, never its GitHub origin's
   // repository and never No folder (cmux#53226). A folder no pick named (the tab's inherited one) still goes as
