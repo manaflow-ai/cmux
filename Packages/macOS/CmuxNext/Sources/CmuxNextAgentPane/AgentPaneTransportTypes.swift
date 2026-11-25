@@ -47,6 +47,9 @@ public nonisolated enum AgentPaneTransportError: String, Error, Equatable, Senda
     case inboundOverflow = "transport.inbound_overflow"
     /// The daemon did not take the page's frames; the socket was closed.
     case outboundOverflow = "transport.outbound_overflow"
+    /// A prompt the host could not put on disk (``AgentPanePromptJournal``) did not go: the page
+    /// shows it as not sent, with Retry, so it is never sent without its crash protection.
+    case promptNotKept = "transport.prompt_not_kept"
 }
 
 /// How the socket ended: the close code and reason, and the host's error when the host closed it.
