@@ -211,10 +211,17 @@ fn native_history_is_linked_by_session_id() {
     fs::write(folder.join("078eef12-cdc9-4bff-801d-fb2a04b0cb61.jsonl"), "{}\n").unwrap();
     let plan = f.plan(&clean);
     let thread = plan.projects.iter().find(|p| p.name == "app-t3-a").unwrap();
+    // The thread's session file rides in the worktree's Claude session folder.
+    let slug = laptop::claude_slug(&wt);
     assert!(
-        thread.chats.iter().any(|c| c.agent == Agent::Claude
-            && c.path.ends_with("078eef12-cdc9-4bff-801d-fb2a04b0cb61.jsonl")),
+        thread.chats.iter().any(|c| c.agent == Agent::Claude && c.path.ends_with(&slug)),
         "{:?}",
+        thread.chats
+    );
+    assert_eq!(
+        thread.chats.iter().filter(|c| c.path.contains(&slug)).count(),
+        1,
+        "the session folder and its file are one carry: {:?}",
         thread.chats
     );
     assert!(thread.notes.iter().any(|n| n.contains("4 messages")));

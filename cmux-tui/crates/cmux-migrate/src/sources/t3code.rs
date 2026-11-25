@@ -484,7 +484,7 @@ pub fn plan(home: &Path, t3_home: &Path, catalog: &Catalog, git: &dyn GitFacts) 
                 let key = root.map(|r| laptop::tilde(home, r));
                 if let Some(project) =
                     plan.projects.iter_mut().find(|p| Some(&p.key) == key.as_ref())
-                    && !project.chats.contains(&chat)
+                    && !carried(&project.chats, &chat)
                 {
                     project.chats.push(chat);
                 }
@@ -495,7 +495,7 @@ pub fn plan(home: &Path, t3_home: &Path, catalog: &Catalog, git: &dyn GitFacts) 
         project.name =
             machine_name(&format!("{project_title}-{}", t.branch.as_deref().unwrap_or(&t.title)));
         if let Some(chat) = chat
-            && !project.chats.contains(&chat)
+            && !carried(&project.chats, &chat)
         {
             project.chats.push(chat);
         }
@@ -556,3 +556,17 @@ pub fn plan(home: &Path, t3_home: &Path, catalog: &Catalog, git: &dyn GitFacts) 
 #[cfg(test)]
 #[path = "t3code_tests.rs"]
 mod tests;
+
+/// Whether `chats` already carries `chat`: the same entry, or a folder of the
+/// same agent's sessions that holds it (the laptop reader links a worktree's
+/// whole Claude session folder; the thread names one file inside it).
+fn carried(chats: &[ChatRef], chat: &ChatRef) -> bool {
+    chats.iter().any(|c| {
+        c == chat
+            || (c.agent == chat.agent
+                && chat
+                    .path
+                    .strip_prefix(c.path.as_str())
+                    .is_some_and(|rest| rest.starts_with('/')))
+    })
+}
