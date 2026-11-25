@@ -661,6 +661,7 @@ class CiWebLandTierTests(unittest.TestCase):
             block = self.TEXT[start:] if end < 0 else self.TEXT[start:end]
             self.assertIn(env, block, job)
             self.assertIn('os.environ.get("WEB_LAND_TIER")', block, job)
+            self.assertNotIn('os.environ.get("WEB_LAND_TIER") == "true"', block, job)  # an unset flag fails closed
         self.assertIn('may_skip.add("webviews-typecheck")', self.TEXT)
 
     def test_ci_yml_reruns_web_on_the_land_label(self) -> None:
