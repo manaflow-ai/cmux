@@ -23,6 +23,7 @@ cmux-tui/crates/acpmux/src/config.rs	1	keep	resolver: acpmux default home
 cmux-tui/crates/acpmux/src/config/folder_profiles.rs	1	move	unreviewed at S7 (cx-is1kf.8)
 cmux-tui/crates/acpmux/src/config/profiles.rs	1	move	unreviewed at S7 (cx-is1kf.8)
 cmux-tui/crates/acpmux/src/daemon.rs	1	move	unreviewed at S7 (cx-is1kf.8)
+cmux-tui/crates/acpmux/src/hub/prefetch.rs	1	keep	a folder-name deny list (secret-looking paths prefetch never reads), not a state root
 cmux-tui/crates/acpmux/src/hub/turns.rs	1	move	unreviewed at S7 (cx-is1kf.8)
 cmux-tui/crates/acpmux/src/peer.rs	2	keep	~/.acpmux on a remote SSH host
 cmux-tui/crates/acpmux/src/hand/policy.rs	1	keep	security classifier keyword, not a filesystem state root
