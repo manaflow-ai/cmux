@@ -434,14 +434,7 @@ function LiveWords({
   const selected = useSlotVariant(thinkingIndicatorSlot);
   const builtIn = slotVariant(thinkingIndicatorSlot, selected)?.component === DefaultThinkingIndicator;
   if (decorative && !builtIn) return <Slot slot={thinkingIndicatorSlot} props={indicator} />;
-  return (
-    <LiveShimmer
-      label={indicator.label}
-      verbs={decorative ? indicator.verbs : undefined}
-      lead={lead}
-      elapsed={indicator.elapsed}
-    />
-  );
+  return <LiveShimmer label={indicator.label} verbs={decorative ? indicator.verbs : undefined} lead={lead} />;
 }
 
 /// The one shimmer every status in the live spot draws with (conversation.css `.cv-thinking.is-shimmer`):

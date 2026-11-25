@@ -1107,6 +1107,23 @@ impl Session {
     /// addresses; `relayed_tls`: which of those ride TCP or TLS.
     /// The mapped endpoint (if any, and still among `endpoints`) is labeled
     /// so.
+    /// Announce this side's endpoints again as they stand (after a relay
+    /// join), even when none is new.
+    async fn reannounce(&self) {
+        let _one_at_a_time = self.roaming.lock().await;
+        let endpoints = lock(&self.endpoints).clone();
+        if endpoints.is_empty() || self.closed.load(Ordering::Relaxed) {
+            return;
+        }
+        let (relayed, relayed_tls) = lock(&self.relayed).clone();
+        tracing::debug!(
+            session = self.session_id,
+            count = endpoints.len(),
+            "endpoints go through cmux's relay"
+        );
+        self.announce(endpoints, relayed, relayed_tls);
+    }
+
     fn announce(&self, endpoints: Vec<String>, relayed: Vec<String>, relayed_tls: Vec<String>) {
         if !endpoints.is_empty() {
             lock(&self.endpoints).clone_from(&endpoints);
@@ -1872,6 +1889,13 @@ async fn run_relay_watch(session: Weak<Session>) {
                 // every response is refused and their fixed repeat schedule keeps them in
                 // step until the dial times out.
                 reassert_on_relay(&session, &shared).await;
+                // Disco over the relay (ledger 13h): the peer may know none of
+                // this side's direct endpoints (a signaling path that dropped
+                // them, a peer that met this one on the relay), so they go to
+                // it again through the tunnel. Its upgrade probes then find the
+                // LAN path. The message is the roam announcement older peers
+                // already take.
+                session.reannounce().await;
                 // The peer joins too unless it already does (it asked, or it said it
                 // has no other path). A plan exists only when the peer offered the
                 // relay, so `wg-relay` never reaches a build that does not know it.
