@@ -17,7 +17,7 @@ import { FailedCount } from "./FailedCount";
 import { EditDiff } from "./EditDiff";
 import { StepThought, ThoughtRow } from "./ThoughtRow";
 import { ToolRow } from "./ToolRow";
-import { ChevronRight, Magnifier, OpenBook, Pencil, TerminalSquare } from "./icons";
+import { Magnifier, OpenBook, Pencil, TerminalSquare } from "./icons";
 import { isQuietThought, isThought } from "./thoughts";
 import { countsFailed, groupCalls, isRunning, toolGroupLabel, type ToolGroupKind } from "./toolGroups";
 import { RunScroll } from "./RunScroll";
@@ -38,6 +38,7 @@ import { toolFailure } from "./toolFailure";
 import { InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 import { failureWord, InStep } from "./toolFailureCauseModel";
 import { firstStepCount, stepProbe } from "./toolGroupRowModel";
+import { DisclosureChevron } from "./DisclosureChevron";
 
 function groupIcon(kind: ToolGroupKind): ReactNode {
   switch (kind) {
@@ -495,7 +496,7 @@ export function ToolGroupRow({
             <InlineFailureCause failure={failure} />
           </span>
         )}
-        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
+        <DisclosureChevron open={open} />
       </button>
       <WrittenArtifactButtons tools={tools} />
       <ToolFailureCause failure={failure} />
