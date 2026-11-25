@@ -80,6 +80,52 @@ import Testing
         #expect(harness.intents == [.toggleAudioMute(TabID("t2"))])
     }
 
+    @Test(arguments: [TabStatus.none, .needsInput, .success, .failure])
+    func theHoverCloseReplacesThePaintedStatus(_ status: TabStatus) throws {
+        let harness = Harness()
+        defer { harness.window.closeAfterTest() }
+        let id = TabID("t1")
+        let index = try #require(harness.model.tabs.firstIndex { $0.id == id })
+        let list = harness.list
+        let row = try #require(list.listLayout.rows.first { $0.kind == .tab(id) })
+        let point = list.convert(try harness.point(row.kind), from: nil)
+        let frame = list.viewRect(row.frame)
+
+        // Compare the row with and without the mark under the same pointer. This catches a
+        // dot that moves to the favicon corner as well as one that paints behind the cross.
+        func image(marked: Bool) throws -> Data {
+            harness.model.tabs[index].isUnread = marked && status == .none
+            harness.model.tabs[index].status = marked ? status : .none
+            list.needsDisplay = true
+            list.displayIfNeeded()
+            let rep = try #require(list.bitmapImageRepForCachingDisplay(in: frame))
+            list.cacheDisplay(in: frame, to: rep)
+            return try #require(rep.representation(using: .png, properties: [:]))
+        }
+
+        for selected in [false, true] {
+            harness.model.selectedID = selected ? id : TabID("t0")
+            list.clearHover()
+            let resting = try image(marked: true)
+            let restingWithoutMark = try image(marked: false)
+            #expect(resting != restingWithoutMark)
+            list.updateHover(at: point)
+            try #require(list.closeFrame(row) != nil)
+            let hovered = try image(marked: true)
+            let hoveredWithoutMark = try image(marked: false)
+            #expect(hovered == hoveredWithoutMark)
+            list.clearHover()
+            let restored = try image(marked: true)
+            #expect(resting == restored)
+        }
+        harness.model.tabs[index].isClosable = false
+        list.updateHover(at: point)
+        #expect(list.closeFrame(row) == nil)
+        let protected = try image(marked: true)
+        let protectedWithoutMark = try image(marked: false)
+        #expect(protected != protectedWithoutMark)
+    }
+
     @Test func theHeaderCollapsesItsGroupAndNewTabOpensOne() throws {
         let harness = Harness()
         defer { harness.window.closeAfterTest() }
