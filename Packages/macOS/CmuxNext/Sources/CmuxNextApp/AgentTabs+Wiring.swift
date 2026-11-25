@@ -129,8 +129,14 @@ extension AgentTabStore {
             return await services.imessage.respond(action, view: view)
         }
         // Where the chat runs and its move's progress, for the header's `place` (``CloudPlaceFlows``).
-        tabs.placeState = { [weak services] record in
-            guard let services, let record, let session = record.session else { return nil }
+        // The session as every other reader takes it (the record's, else the one its page bound), and only for a chat
+        // the place actions move: the same rule as ``AppServices/placeChats()``, so an SSH chat or a chat started in Cloud
+        // gets no control that would answer success and move nothing.
+        tabs.placeState = { [weak services, weak tabs] tab in
+            guard let services, let tabs, let found = tabs.record(for: tab), let session = found.record.session ?? tabs.sessions[tab],
+                  let daemon = services.machines.daemons.first(where: { $0.store === found.store }),
+                  services.placeEligible(found.record, session: session, on: daemon) else { return nil }
+            let record = found.record
             return services.cloud.place.placeJSON(session: session, onCloud: record.host.hasPrefix(MachineRegistry.registryHostPrefix), cloudName: record.hostName)
         }
         tabs.evacuateState = { [weak services] in services?.cloud.placeDriver?.evacuateJSON() }
