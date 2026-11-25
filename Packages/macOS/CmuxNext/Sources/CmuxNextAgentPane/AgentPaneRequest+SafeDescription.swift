@@ -156,6 +156,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .transportOpen: "transportOpen"
         case .transportSend: "transportSend"
         case .transportClose: "transportClose"
+        case .transportAck: "transportAck"
         case .transportGesture: "transportGesture"
         case .transportGestureRelease: "transportGestureRelease"
         case .reply: "reply"

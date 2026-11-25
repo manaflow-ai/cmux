@@ -1499,6 +1499,15 @@ pub struct Untold {
     /// that saw its report has ended.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub due_ms: Option<u64>,
+    /// The host post waiting for the conversation owner to take it. Keeping
+    /// the key prevents a reconnect from posting the same report twice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub posted_key: Option<String>,
+    /// This report needs Chief judgment instead of a host-only post. This is
+    /// true for ask-floor work, failures, and reports that leave an open
+    /// question or decision.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub requires_chief: bool,
 }
 
 /// A person message of the Chief conversation that waits for a reply

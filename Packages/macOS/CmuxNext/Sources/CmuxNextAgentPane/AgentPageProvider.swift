@@ -48,7 +48,7 @@ public nonisolated struct AgentPageOps {
             "git.diff", "git.status", "git.commit", "git.push", "git.worktree.create", "git.worktree.apply", "git.worktree.remove", "git.worktree.setup", "git.worktree.setup.run", "git.githubRepository", "file.search", "git.checkpoint.diff", "turn.undo", "git.stage", "git.unstage", "git.stageHunk", "git.unstageHunk", "git.pullRequest", "project.instructions", "project.addFiles", "composer.capture",
             "externalAccess.openSettings",
             "dictation.toggle", "dictation.handoff", "dictation.sources", "dictation.start", "dictation.stop", "dictation.cancel", "dictation.openSettings", "dictation.audio", "dictation.recording.upload", "dictation.recording.cancel",
-            "transport.open", "transport.send", "transport.close", "transport.gesture", "transport.gesture.release",
+            "transport.open", "transport.send", "transport.close", "transport.ack", "transport.gesture", "transport.gesture.release",
             "chat.missing", "uiPointer.report", "designSelection.released", "acpmux.restart", "sandbox.run", "sandbox.state", "cloud.signIn", "cloud.signInCancel", "cloud.setUp", "cloud.startChat", "cloud.repickChat", "cloud.answerStart", "cloud.handoffTurn", "cloud.forkFirst",
             // The pricing card's Subscribe (cloud.plan.subscribe {plan}: pro or max), which opens that plan's checkout.
             "cloud.plan.subscribe",
