@@ -217,7 +217,7 @@ func withIdleDeadline<T: Sendable>(_ idle: Duration, label: String, progress: @e
         group.addTask { await operation() }
         group.addTask {
             var seen = progress()
-            // concurrency-allow: each pass awaits a sleep of `idle`, and cancellation ends it.
+            // wakeup-allow: one wakeup per idle window; the loop ends on cancel (child exit) or a silent window.
             while !Task.isCancelled {
                 // wakeup-allow: one idle window, cancelled when the child exits; progress permits the next.
                 try await Task.sleep(for: idle)
