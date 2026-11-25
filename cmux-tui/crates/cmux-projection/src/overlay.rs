@@ -37,7 +37,7 @@ use std::os::fd::AsRawFd as _;
 use std::os::unix::fs::{FileExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, RwLock};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard};
 use std::time::{Duration, UNIX_EPOCH};
 
 use crate::lower::Lower;
@@ -353,6 +353,67 @@ struct Handle {
     lower: Option<u32>,
 }
 
+struct MutationGate {
+    sealed: AtomicBool,
+    access: RwLock<()>,
+    #[cfg(test)]
+    pause: Mutex<Option<TestMutationPause>>,
+}
+
+#[cfg(test)]
+struct TestMutationPause {
+    entered: std::sync::mpsc::Sender<()>,
+    release: std::sync::mpsc::Receiver<()>,
+}
+
+struct MutationGuard<'a> {
+    _access: RwLockReadGuard<'a, ()>,
+}
+
+impl MutationGate {
+    fn new() -> Self {
+        Self {
+            sealed: AtomicBool::new(false),
+            access: RwLock::new(()),
+            #[cfg(test)]
+            pause: Mutex::new(None),
+        }
+    }
+
+    fn enter(&self) -> Result<MutationGuard<'_>, i32> {
+        let access = self.access.read().unwrap_or_else(PoisonError::into_inner);
+        if self.sealed.load(Ordering::SeqCst) {
+            return Err(libc::EROFS);
+        }
+        #[cfg(test)]
+        let pause = { self.pause.lock().unwrap_or_else(PoisonError::into_inner).take() };
+        #[cfg(test)]
+        if let Some(pause) = pause {
+            let _ = pause.entered.send(());
+            let _ = pause.release.recv();
+        }
+        Ok(MutationGuard { _access: access })
+    }
+
+    fn seal(&self) {
+        self.sealed.store(true, Ordering::SeqCst);
+        let _access = self.access.write().unwrap_or_else(PoisonError::into_inner);
+    }
+
+    fn is_sealed(&self) -> bool {
+        self.sealed.load(Ordering::SeqCst)
+    }
+
+    #[cfg(test)]
+    fn pause_next(&self) -> (std::sync::mpsc::Receiver<()>, std::sync::mpsc::Sender<()>) {
+        let (entered, entered_rx) = std::sync::mpsc::channel();
+        let (release_tx, release) = std::sync::mpsc::channel();
+        *self.pause.lock().unwrap_or_else(PoisonError::into_inner) =
+            Some(TestMutationPause { entered, release });
+        (entered_rx, release_tx)
+    }
+}
+
 /// One folder entry: inode, type, name, and its attributes when the manifest alone answers them.
 pub type Listed = (u64, Type, String, Option<Attr>);
 
@@ -402,9 +463,7 @@ pub struct Overlay {
     /// replaces one ([`Overlay::swap_to_link`]), so no lookup pairs the old kind with the new
     /// number.
     swap: RwLock<()>,
-    /// Set once the folder is removed from its chat ([`Overlay::seal`]): every change answers
-    /// `EROFS` from then on, so what is in the upper layer is what Bring Back gets.
-    sealed: AtomicBool,
+    mutation: MutationGate,
 }
 
 /// Keys this thread is fetching; dropping it lets others waiting on them go on.
@@ -708,7 +767,7 @@ impl Overlay {
             pins_file,
             pin_reserve: pin::DEFAULT_PIN_RESERVE,
             swap: RwLock::new(()),
-            sealed: AtomicBool::new(false),
+            mutation: MutationGate::new(),
         };
         // Pins an earlier daemon recorded hold before anything is evicted (their paths are
         // resolved in this manifest; one it no longer has pins nothing).
@@ -1747,8 +1806,8 @@ impl Overlay {
             self.refuse_kept(index)?;
         }
         let write = flags & libc::O_ACCMODE != libc::O_RDONLY || flags & libc::O_TRUNC != 0;
+        let _mutation = write.then(|| self.mutation.enter()).transpose()?;
         if write {
-            self.changeable()?;
             match self.node(&path).ok_or(ENOENT)? {
                 Node::Lower(index) if flags & libc::O_TRUNC != 0 => {
                     self.copy_up_keeping(&path, index, false)?;
@@ -1791,18 +1850,20 @@ impl Overlay {
     /// still answer, so a tool mid-read finishes; nothing more lands in the upper layer, which
     /// stays whole for Bring Back or Discard.
     pub fn seal(&self) {
-        self.sealed.store(true, Ordering::SeqCst);
+        self.mutation.seal();
     }
 
     /// Whether [`Overlay::seal`] was called.
     #[must_use]
     pub fn is_sealed(&self) -> bool {
-        self.sealed.load(Ordering::SeqCst)
+        self.mutation.is_sealed()
     }
 
-    /// `EROFS` once sealed.
-    fn changeable(&self) -> Result<(), i32> {
-        if self.is_sealed() { Err(libc::EROFS) } else { Ok(()) }
+    #[cfg(test)]
+    pub(crate) fn pause_next_mutation(
+        &self,
+    ) -> (std::sync::mpsc::Receiver<()>, std::sync::mpsc::Sender<()>) {
+        self.mutation.pause_next()
     }
 
     /// Ends open handle `handle`.
@@ -1841,20 +1902,24 @@ impl Overlay {
         offset: u64,
         data: &[u8],
     ) -> Result<u32, i32> {
-        self.changeable()?;
+        let _mutation = self.mutation.enter()?;
         match self.handle_file(handle) {
             Some(file) => {
                 file.write_all_at(data, offset).map_err(|error| io_errno(&error))?;
                 u32::try_from(data.len()).map_err(|_| EINVAL)
             }
             None if self.handles().contains_key(&handle) => Err(EBADF),
-            None => self.write(ino, offset, data),
+            None => self.write_inner(ino, offset, data),
         }
     }
 
     /// Writes `ino` by its path (no open handle), copying a lower file up first.
     pub fn write(&self, ino: u64, offset: u64, data: &[u8]) -> Result<u32, i32> {
-        self.changeable()?;
+        let _mutation = self.mutation.enter()?;
+        self.write_inner(ino, offset, data)
+    }
+
+    fn write_inner(&self, ino: u64, offset: u64, data: &[u8]) -> Result<u32, i32> {
         self.with_room(|| {
             let path = self.path_of(ino)?;
             self.ensure_upper(&path)?;
@@ -1867,7 +1932,7 @@ impl Overlay {
     /// `fallocate(2)` through open handle `handle` (Linux).
     #[cfg(target_os = "linux")]
     pub fn fallocate(&self, handle: u64, offset: i64, length: i64, mode: i32) -> Result<(), i32> {
-        self.changeable()?;
+        let _mutation = self.mutation.enter()?;
         let file = self.handle_file(handle).ok_or(EBADF)?;
         // SAFETY: the descriptor is open for the call.
         check(unsafe { libc::fallocate(file.as_raw_fd(), mode, offset, length) })
@@ -1912,7 +1977,7 @@ impl Overlay {
     /// level saved on every create after the first in a folder); an upper path already there is
     /// the disk's own `EEXIST`.
     pub fn create(&self, parent: u64, name: &str, mode: u32, who: Who) -> Result<(Attr, u64), i32> {
-        self.changeable()?;
+        let _mutation = self.mutation.enter()?;
         self.with_room(|| self.create_once(parent, name, mode, who))
     }
 
@@ -1951,7 +2016,7 @@ impl Overlay {
     }
 
     pub fn mkdir(&self, parent: u64, name: &str, mode: u32, who: Who) -> Result<Attr, i32> {
-        self.changeable()?;
+        let _mutation = self.mutation.enter()?;
         let (parent, child) = self.child(parent, name)?;
         self.make_room(&parent, &child)?;
         self.in_folder(&parent, || self.upper.mkdir(&child, 0o700))?;
@@ -1968,7 +2033,7 @@ impl Overlay {
         rdev: u64,
         who: Who,
     ) -> Result<Attr, i32> {
-        self.changeable()?;
+        let _mutation = self.mutation.enter()?;
         let (parent, child) = self.child(parent, name)?;
         self.make_room(&parent, &child)?;
         let format = mode & fmt::S_IFMT;
@@ -1992,7 +2057,7 @@ impl Overlay {
     }
 
     pub fn symlink(&self, parent: u64, name: &str, target: &Path, who: Who) -> Result<Attr, i32> {
-        self.changeable()?;
+        let _mutation = self.mutation.enter()?;
         let (parent, child) = self.child(parent, name)?;
         self.make_room(&parent, &child)?;
         let target = target.as_os_str().as_encoded_bytes();
@@ -2003,7 +2068,7 @@ impl Overlay {
 
     /// A new name `new_name` in `new_parent` for file `ino` (a hard link).
     pub fn link(&self, ino: u64, new_parent: u64, new_name: &str) -> Result<Attr, i32> {
-        self.changeable()?;
+        let _mutation = self.mutation.enter()?;
         let from = self.path_of(ino)?;
         let node = self.node(&from).ok_or(ENOENT)?;
         if Self::kind(&node, &self.manifest) == Type::Dir {
@@ -2050,7 +2115,7 @@ impl Overlay {
     }
 
     pub fn unlink(&self, parent: u64, name: &str) -> Result<(), i32> {
-        self.changeable()?;
+        let _mutation = self.mutation.enter()?;
         let (_, child) = self.child(parent, name)?;
         // The upper path first: the manifest is asked only when the disk has nothing there, and
         // the disk's refusal (EPERM in a sticky folder and the rest) is the answer as it said it.
@@ -2066,7 +2131,7 @@ impl Overlay {
     }
 
     pub fn rmdir(&self, parent: u64, name: &str) -> Result<(), i32> {
-        self.changeable()?;
+        let _mutation = self.mutation.enter()?;
         let (_, child) = self.child(parent, name)?;
         if self.lower(&child).is_none() {
             // Only in the upper layer: one rmdir, the disk checks that it is a folder and empty.
@@ -2095,7 +2160,7 @@ impl Overlay {
         new_name: &str,
         flags: u32,
     ) -> Result<(), i32> {
-        self.changeable()?;
+        let _mutation = self.mutation.enter()?;
         let (_, from) = self.child(parent, name)?;
         let (to_parent, to) = self.child(new_parent, new_name)?;
         let exchange = flags & RENAME_EXCHANGE != 0;
@@ -2222,9 +2287,7 @@ impl Overlay {
     /// setattr(2)-family changes to `ino`, through open handle `handle` when the kernel names one
     /// (an `ftruncate` of a file deleted while open).
     pub fn setattr(&self, ino: u64, handle: Option<u64>, set: Set) -> Result<Attr, i32> {
-        if set != Set::default() {
-            self.changeable()?;
-        }
+        let _mutation = (set != Set::default()).then(|| self.mutation.enter()).transpose()?;
         self.with_room(|| self.setattr_once(ino, handle, set))
     }
 

@@ -4,8 +4,9 @@
 //! brought back stay.
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, mpsc};
+use std::thread;
 use std::time::{Duration, SystemTime};
 
 use super::*;
@@ -357,4 +358,38 @@ fn a_removed_folders_edits_stay_while_its_chat_lives() {
     let report = run(&machine, &archived, Duration::ZERO);
     assert_eq!(report.reclaimed.iter().map(|r| r.why).collect::<Vec<_>>(), [Why::Archived]);
     assert!(!state.exists());
+}
+
+/// Detach drains a write that already passed admission before returning, so no admitted edit is
+/// lost between the seal and the upper-layer mark.
+#[test]
+fn seal_waits_for_an_admitted_write_before_returning() {
+    let machine = Machine::new();
+    let at = machine.chat_folder("drain");
+    let (state, overlay) = machine.project("p-drain", &at);
+    let overlay = Arc::new(overlay);
+    let root = overlay.root();
+    let src = overlay.lookup(root, "src").unwrap().ino;
+    let a = overlay.lookup(src, "a.rs").unwrap().ino;
+    let (entered, release) = overlay.pause_next_mutation();
+
+    let writer_overlay = Arc::clone(&overlay);
+    let writer = thread::spawn(move || writer_overlay.write(a, 0, b"admitted"));
+    entered.recv().unwrap();
+
+    let (sealed, sealed_rx) = mpsc::channel();
+    let sealer_overlay = Arc::clone(&overlay);
+    let sealer = thread::spawn(move || {
+        sealer_overlay.seal();
+        sealed.send(()).unwrap();
+    });
+    assert!(sealed_rx.recv_timeout(Duration::from_millis(50)).is_err());
+
+    release.send(()).unwrap();
+    assert_eq!(writer.join().unwrap(), Ok(8));
+    sealed_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    sealer.join().unwrap();
+
+    assert!(fs::read(state.join("upper/src/a.rs")).unwrap().starts_with(b"admitted"));
+    assert_eq!(overlay.write(a, 0, b"late"), Err(libc::EROFS));
 }
