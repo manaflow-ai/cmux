@@ -55,8 +55,13 @@ export const BUDGET: Record<FlowName, { stray: number; composer: number; cls: nu
 /// WebKit, send, reply: the live "Thinking" row strays when the first reply chunk replaces it, on some
 /// runs and not others (8.8 px once in 14 runs on base, 0 px in 10 runs of the flow alone); the open
 /// fixes for the answer shifting the thinking row lower this back to 1.
+/// Compaction-steer, the states Leo named ("a message sent/steered during compaction ... the next worked
+/// for + thinking"), measured in CI at 7c2f6e41 on 2026-11-25: WebKit's live "Thinking" row moves 34.8 px
+/// when the steer lands during the compaction, and Chromium's follow reverses 5.5 px on the next thinking.
 export const KNOWN: Partial<Record<string, Partial<(typeof BUDGET)[FlowName]>>> = {
   "webkit send": { stray: 12 },
+  "webkit compaction-steer": { stray: 40 },
+  "chromium compaction-steer": { stray: 8 },
 };
 /// The planted jump, px.
 const SEED_PX = 24;
@@ -596,7 +601,10 @@ await requireBrowserLane("chat-flow-shift-budget-browser.test.ts", async () => {
         });
       } else {
         await installBoxTracker(page);
-        const rowsBefore = new Set(await page.locator(TRANSCRIPT_ROW).allInnerTexts());
+        // By count, not by set: a flow can draw a row whose text an earlier flow already drew ("/compact").
+        const rowsBefore = new Map<string, number>();
+        for (const text of await page.locator(TRANSCRIPT_ROW).allInnerTexts())
+          rowsBefore.set(text, (rowsBefore.get(text) ?? 0) + 1);
         for (const [index, [step, play]] of flows(turn)[flow].entries()) {
           report.push(await measure(page, step, () => play(pane!, page), seeded && index === 1));
           if (SHOWS[step]) expect(await page.locator(".acpmux-scroll").innerText()).toMatch(SHOWS[step]!);
@@ -605,7 +613,12 @@ await requireBrowserLane("chat-flow-shift-budget-browser.test.ts", async () => {
         // not find (by text: the transcript is virtual, so a count can fall as rows grow and older ones
         // leave the window), and the flow's own text in the transcript.
         const drawn = await page.locator(TRANSCRIPT_ROW).allInnerTexts();
-        expect(drawn.filter((text) => !rowsBefore.has(text)).length).toBeGreaterThan(0);
+        const seen = new Map<string, number>();
+        const added = drawn.filter((text) => {
+          seen.set(text, (seen.get(text) ?? 0) + 1);
+          return seen.get(text)! > (rowsBefore.get(text) ?? 0);
+        });
+        expect(added.length).toBeGreaterThan(0);
         expect(drawn.join("\n")).toContain(DRAWN[flow]);
       }
       for (const entry of report)
