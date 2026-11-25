@@ -174,8 +174,14 @@ test("no section before the first background process; then running ones with ela
   ]);
   expect(rows().map((row) => row.querySelector(".acpmux-session-info-task__time")?.textContent)).toEqual([
     "1m 16s",
-    "1h 2m 3s",
+    "1h 2m",
   ]);
+  // Past an hour the time is to the minute and its box is its own digits, never "00h 00m 00s"
+  // (TaskRowReason.gallery.tsx: that reserve cut the command at 420 px).
+  const sizes = rows().map(
+    (row) => row.querySelector<HTMLElement>(".acpmux-session-info-task__time")?.dataset.clockSize,
+  );
+  expect(sizes).toEqual(["00m 00s", "0h 0m"]);
   expect(tasks.querySelector(".acpmux-session-info-section__meta")?.textContent).toBe("2");
 
   // The finished ones fold behind their count; open, each with how long it ran and how it ended.
