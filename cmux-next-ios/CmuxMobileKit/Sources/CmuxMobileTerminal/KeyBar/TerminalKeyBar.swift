@@ -228,7 +228,8 @@ struct KeyCap: View {
 
     var body: some View {
         let state = stickyState
-        let locked = state == .locked
+        // Wide shows as a locked key while it is on.
+        let locked = state == .locked || (key == .wide && model.wideOutput)
         let armed = if case .armed = state { true } else { false }
         Button {
             taps += 1
@@ -253,7 +254,7 @@ struct KeyCap: View {
         .buttonRepeatBehavior(key.repeats ? .enabled : .disabled)
         .sensoryFeedback(.impact(weight: .light, intensity: 0.6), trigger: taps)
         .accessibilityLabel(key.accessibilityLabel)
-        .accessibilityValue(locked ? "locked" : armed ? "armed" : "")
+        .accessibilityValue(key == .wide ? (model.wideOutput ? "on" : "off") : locked ? "locked" : armed ? "armed" : "")
         .accessibilityIdentifier("terminal.key.\(key.identifier)")
     }
 }
