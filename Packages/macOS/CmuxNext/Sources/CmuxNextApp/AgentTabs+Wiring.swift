@@ -2,6 +2,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextChiefPetWiring
 import CmuxNextCloud
+import CmuxNextCloudPlace
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDaemonService
