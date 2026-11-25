@@ -1281,7 +1281,11 @@ pub fn run(opts: &Opts) -> Res<()> {
         v.send_input()?;
         loop {
             v.pump(2_000_000)?;
-            if v.marker == Some(expected) {
+            // Reached or passed: after a drop, pump() resends every key the drop lost and
+            // they land together, so the marker jumps past `expected` on the first frame
+            // that shows them. Waiting for exactly `expected` then counted that frame as
+            // a lost key and added up to a second to every measured recovery.
+            if v.marker.is_some_and(|m| m.wrapping_sub(expected) < 0x8000) {
                 if let Some(from) = stall_from.take() {
                     stalls_ms.push((v.marker_at_ns - from) as f64 / 1e6);
                 }

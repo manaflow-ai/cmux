@@ -186,15 +186,18 @@ fn a_dead_path_is_current_again_within_a_fast_probe_of_the_restore() {
                 let events = pair.host.on_packet(Route::Udp(addr(VIEWER)), &t.packet, pair.now);
                 pair.note(true, events.unwrap());
             }
+            // The probe reply's PathChanged comes back from on_packet, not take_events.
+            let mut events = Vec::new();
             for t in pair.host.poll_transmit(pair.now).unwrap() {
                 if t.route == Route::Udp(addr(VIEWER)) {
-                    pair.viewer.on_packet(Route::Udp(addr(HOST)), &t.packet, pair.now).unwrap();
+                    events.extend(
+                        pair.viewer.on_packet(Route::Udp(addr(HOST)), &t.packet, pair.now).unwrap(),
+                    );
                 }
             }
-            let back = pair
-                .viewer
-                .take_events()
-                .into_iter()
+            events.extend(pair.viewer.take_events());
+            let back = events
+                .iter()
                 .any(|e| matches!(e, EndpointEvent::PathChanged { route: Some(_), .. }));
             if back {
                 break;
