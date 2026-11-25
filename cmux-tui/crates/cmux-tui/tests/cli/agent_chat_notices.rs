@@ -421,12 +421,24 @@ fn a_killed_agent_posts_one_notice_and_dedupes_after_daemon_restart() {
 
     let killed = acpmux.prompt_then_kill_agent(&session);
     assert!(killed.get("error").is_some(), "the killed turn unexpectedly answered: {killed}");
-    let first = notice(&daemon, surface, |row| {
-        row["level"] == "error"
-            && (row["title"].as_str().is_some_and(|title| title.ends_with("failed"))
-                || row["title"].as_str().is_some_and(|title| title.ends_with("stopped responding"))
-                || row["title"].as_str().is_some_and(|title| title.ends_with("crashed")))
-    });
+    let first = {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        loop {
+            if let Some(found) = all_notices(&daemon).into_iter().find(|row| {
+                tabs.contains(&row["surface"].as_u64().unwrap_or_default())
+                    && row["level"] == "error"
+                    && (row["title"].as_str().is_some_and(|title| title.ends_with("failed"))
+                        || row["title"]
+                            .as_str()
+                            .is_some_and(|title| title.ends_with("stopped responding"))
+                        || row["title"].as_str().is_some_and(|title| title.ends_with("crashed")))
+            }) {
+                break found;
+            }
+            assert!(Instant::now() < deadline, "no dead-agent notice: {:?}", all_notices(&daemon));
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    };
     let first_id = first["id"].clone();
     let target_errors = |daemon: &Daemon| -> Vec<Value> {
         all_notices(daemon)
