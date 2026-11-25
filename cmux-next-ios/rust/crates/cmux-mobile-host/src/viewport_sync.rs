@@ -84,6 +84,13 @@ pub struct Config {
     /// spare budget (it never waits for one).
     pub copies: u8,
     pub copy_spacing: Duration,
+    /// On a lossy link (round-trip loss at least this, measured) that is not jittery, a diff
+    /// still the newest and unacked `loss_copy_after` after it went goes once more. A burst's
+    /// last diff is the one no newer diff covers: lost alone it waits for the resend (more than
+    /// a round trip); with its copy both must be lost. Redraws a frame apart supersede their
+    /// diff before its copy is due, so mid-burst diffs go once.
+    pub loss_copy_above: f64,
+    pub loss_copy_after: Duration,
 }
 
 impl Default for Config {
@@ -99,6 +106,8 @@ impl Default for Config {
             burst: Duration::from_millis(50),
             copies: 2,
             copy_spacing: Duration::from_millis(4),
+            loss_copy_above: 0.02,
+            loss_copy_after: Duration::from_millis(40),
         }
     }
 }
@@ -735,11 +744,18 @@ impl ViewportSync {
             self.probe = datagrams.iter().min_by_key(|datagram| datagram.len()).cloned();
         }
         if fresh {
-            self.copy = (self.config.copies > 0 && self.jittery()).then(|| Copies {
+            self.copy = if self.config.copies > 0 && self.jittery() {
+                Some((self.config.copies, self.config.copy_spacing))
+            } else if self.lossy() {
+                Some((1, self.config.loss_copy_after))
+            } else {
+                None
+            }
+            .map(|(left, after)| Copies {
                 seq,
                 datagrams: datagrams.clone(),
-                left: self.config.copies,
-                at: now + self.config.copy_spacing,
+                left,
+                at: now + after,
             });
         }
         self.launch(&mut datagrams, now);
@@ -751,6 +767,11 @@ impl ViewportSync {
     /// beat the jitter.
     fn jittery(&self) -> bool {
         self.jitter
+    }
+
+    /// The measured round-trip loss is at least `loss_copy_above`: a burst's last diff gets a copy.
+    fn lossy(&self) -> bool {
+        self.loss().is_some_and(|loss| loss >= self.config.loss_copy_above)
     }
 
     /// The copy due now, if its diff is still the newest unacked and the pacer has budget.
@@ -1454,10 +1475,11 @@ mod tests {
 
     /// RFD 0140 §4: on a 200 ms round trip with 5% loss each way (and jitter that reorders), the
     /// phone's screen matches the host's within one round trip after a burst of output ends. A
-    /// burst's last diff lost on the way can only come back with a resend, so the target is the
-    /// 95th percentile, and the worst within three round trips (the resend at 1.25 * srtt).
-    /// (ms from each burst's end to a match, bytes sent)
-    fn lossy_link_bursts(seed: u64, bursts: usize) -> (Vec<u64>, u64) {
+    /// burst's last diff lost on the way comes back with its copy (`loss_copy_after` later) or,
+    /// both lost, the resend at 1.25 * srtt: the 95th percentile within one round trip, the worst
+    /// within three.
+    /// (ms from each burst's end to a match, bytes sent, bytes of copies)
+    fn lossy_link_bursts(seed: u64, bursts: usize) -> (Vec<u64>, u64, u64) {
         let start = Instant::now();
         let mut sync = driver(start);
         let mut link = FakeLink::new(Duration::from_millis(90), Duration::from_millis(20), 0.05);
@@ -1504,7 +1526,7 @@ mod tests {
                 ms += 1;
             }
         }
-        (took_ms, sync.bytes_sent())
+        (took_ms, sync.bytes_sent(), sync.copies_sent().1)
     }
 
     #[test]
@@ -1513,13 +1535,13 @@ mod tests {
         const RTT: u64 = 200;
         let mut all = Vec::new();
         for seed in 1..=10 {
-            let (mut took, bytes) = lossy_link_bursts(seed, 50);
+            let (mut took, bytes, copy_bytes) = lossy_link_bursts(seed, 50);
             all.extend_from_slice(&took);
             took.sort_unstable();
             let within = took.iter().filter(|&&ms| ms <= RTT).count();
             let worst = took.last().copied().unwrap_or(0);
             println!(
-                "seed {seed}: {within}/{} within {RTT} ms, worst {worst} ms, {bytes} B sent",
+                "seed {seed}: {within}/{} within {RTT} ms, worst {worst} ms, {bytes} B sent, {copy_bytes} B of copies",
                 took.len()
             );
         }
