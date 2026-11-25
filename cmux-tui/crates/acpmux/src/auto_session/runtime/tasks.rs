@@ -311,8 +311,9 @@ impl<C: AutoCloud + 'static> Ctx<C> {
                 Ok(_) => {
                     tracing::info!(session = %id, prompt = %post.id, "auto session: queued prompt sent");
                 }
-                // The store refused this one (too long, say): the ones behind it still go.
-                Err(AutoCloudError::Http { status: 400..=499, message, .. }) => {
+                // The store refused this message itself (too long, say), and would again: the
+                // ones behind it still go.
+                Err(AutoCloudError::Http { status: 400 | 413 | 422, message, .. }) => {
                     tracing::warn!(session = %id, prompt = %post.id, "auto session: queued prompt refused: {message}");
                 }
                 // The store was not reached: the import's own try comes later.
