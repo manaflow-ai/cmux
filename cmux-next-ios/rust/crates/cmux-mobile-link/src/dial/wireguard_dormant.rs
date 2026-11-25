@@ -364,6 +364,11 @@ impl Keeper {
             on_link: Some(on_link),
             reliable: self.reliable,
             tunnel_keys: Some(self.tunnel_keys.clone()),
+            overlay: self
+                .session
+                .net()
+                .ok()
+                .map(|net| super::super::Overlay { net, peer_ip: IpAddr::V4(self.peer_ip) }),
         };
         lock(waiting()).insert(ticket, dialed);
         let signaling = self.session.signaling_client();
@@ -589,6 +594,7 @@ pub async fn try_resume(
         webrtc_media: false,
         resumed: false,
         tunnel_keys: Some(keeper.tunnel_keys.clone()),
+        overlay: Some(super::super::Overlay { net, peer_ip: IpAddr::V4(keeper.peer_ip) }),
     })
 }
 
