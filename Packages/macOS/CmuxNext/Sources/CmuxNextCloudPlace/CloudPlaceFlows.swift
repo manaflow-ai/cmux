@@ -76,6 +76,9 @@ public final class CloudPlaceFlows {
     public private(set) var views: [String: Data] = [:]
     /// Each session's place mode (`local`, `cloud`, `auto`), kept across launches; none is Auto's default off.
     public private(set) var modes: [String: String] = [:]
+    /// Each session Keep Running is on for (high priority, `priority::Priority::High`), with when it was turned on (Unix ms,
+    /// the slot rule's `litAtMs`: the earliest keeps its slot), kept across launches; none is normal priority.
+    public private(set) var priorities: [String: UInt64] = [:]
     /// Sessions whose move landed and whose card has had its moment: the header leaves its `move` out, so a remounted
     /// page never shows a finished move again. The view stays for Evacuate's rows; the next move's begin shows it again.
     public private(set) var settled: Set<String> = []
@@ -122,6 +125,7 @@ public final class CloudPlaceFlows {
         if let kept = defaults.stringArray(forKey: key + ".autoMoved") { autoMoved = Set(kept) }
         if let kept = defaults.stringArray(forKey: key + ".evacuated") { evacuated = Set(kept) }
         if let data = defaults.data(forKey: key), let kept = try? JSONDecoder().decode([String: String].self, from: data) { modes = kept }
+        if let data = defaults.data(forKey: key + ".priority"), let kept = try? JSONDecoder().decode([String: UInt64].self, from: data) { priorities = kept }
         if let data = defaults.data(forKey: key + ".lastMachine"), let kept = try? JSONDecoder().decode([String: String].self, from: data) { lastMachines = kept }
     }
 
@@ -140,6 +144,19 @@ public final class CloudPlaceFlows {
         guard ["local", "cloud", "auto"].contains(mode), modes[session] != mode else { return }
         modes[session] = mode
         if let data = try? JSONEncoder().encode(modes) { defaults.set(data, forKey: modesKey) }
+    }
+
+    /// The chat's priority as the slot rule reads it: `high` with Keep Running on, else `normal`.
+    public func priority(of session: String) -> String { priorities[session] == nil ? "normal" : "high" }
+
+    /// `chatPriority.set`: Keep Running on (`high`) or off (`normal`); turning it on again keeps its first time.
+    public func setPriority(_ priority: String, of session: String, nowMs: UInt64 = UInt64(Date().timeIntervalSince1970 * 1000)) {
+        switch priority {
+        case "high" where priorities[session] == nil: priorities[session] = nowMs
+        case "normal" where priorities[session] != nil: priorities[session] = nil
+        default: return
+        }
+        if let data = try? JSONEncoder().encode(priorities) { defaults.set(data, forKey: modesKey + ".priority") }
     }
 
     // MARK: The machine a chat ran on
@@ -339,8 +356,8 @@ public final class CloudPlaceFlows {
 
     // MARK: The chat's place, for pane.tabState
 
-    /// `place: {mode, at, cloudName?, move?, blocked?, holders?, start?}` for the chat header, as JSON; nil with no session.
-    /// `blocked` and `holders` are Rust's answer (`cloud_move_place_control`, `priority::control`) to `control`'s facts.
+    /// `place: {mode, at, cloudName?, move?, blocked?, holders?, keep?, start?}` for the chat header, as JSON; nil with no session.
+    /// `blocked`, `holders` and `keep` (Keep Running's lit, used, total, waiting) are Rust's answer (`cloud_move_place_control`, `priority::control`) to `control`'s facts.
     /// `starts`: the sessions folder whose hybrid start drivers say `start` (watched from the first read on).
     public func placeJSON(session: String?, onCloud: Bool, cloudName: String?, control: ControlFacts? = nil, starts state: URL? = nil) -> Data? {
         if let state { watchStarts(state: state) }
@@ -352,6 +369,7 @@ public final class CloudPlaceFlows {
            let answer = try? JSONSerialization.jsonObject(with: reply) as? [String: Any] {
             if let blocked = answer["blocked"] { place["blocked"] = blocked }
             if let holders = answer["holders"] { place["holders"] = holders }
+            if let keep = answer["keep"] { place["keep"] = keep }
         }
         if let start = start(of: session) { place["start"] = start }
         return try? JSONSerialization.data(withJSONObject: place, options: [.sortedKeys])
@@ -362,8 +380,11 @@ public final class CloudPlaceFlows {
     public struct ControlFacts: Encodable, Sendable, Equatable {
         public struct Chat: Encodable, Sendable, Equatable {
             public var session: String, title: String, pin: String, at: String, hasWork: Bool, activeAtMs: UInt64
-            public init(session: String, title: String, pin: String, at: String, hasWork: Bool, activeAtMs: UInt64 = 0) {
+            public var priority: String, litAtMs: UInt64?
+            public init(session: String, title: String, pin: String, at: String, hasWork: Bool, activeAtMs: UInt64 = 0,
+                        priority: String = "normal", litAtMs: UInt64? = nil) {
                 (self.session, self.title, self.pin, self.at, self.hasWork, self.activeAtMs) = (session, title, pin, at, hasWork, activeAtMs)
+                (self.priority, self.litAtMs) = (priority, litAtMs)
             }
         }
         public var session = "", signedIn: Bool, restoring: Bool, planKnown: Bool, planId: String?, chats: [Chat]
@@ -373,11 +394,19 @@ public final class CloudPlaceFlows {
         func with(session: String) -> Self { var copy = self; copy.session = session; return copy }
     }
 
+    /// The header control's facts (``ControlFacts``): `planId` is nil while no read kept a plan with an id (Rust would read a
+    /// kept plan with no id as no plan at all), so a plan not read never claims No Plan or a full slot list; `chats` is read
+    /// only when Rust will count slots (signed in, plan kept): a header with no plan never walks every tab.
+    public func controlFacts(signedIn: Bool, restoring: Bool, planId: String?, chats: () -> [CloudPlaceChat]) -> ControlFacts {
+        ControlFacts(signedIn: signedIn, restoring: restoring, planKnown: planId != nil, planId: planId, chats: planId == nil ? [] : controlChats(chats()))
+    }
+
     /// ``ControlFacts/Chat`` for each chat the place controls see, pinned as the person set it here.
     public func controlChats(_ chats: [CloudPlaceChat]) -> [ControlFacts.Chat] {
         chats.map { chat in
             ControlFacts.Chat(session: chat.session, title: chat.title, pin: mode(of: chat.session, onCloud: chat.onCloud), at: chat.onCloud ? "cloud" : "local",
-                              hasWork: chat.turnRunning || chat.queued > 0, activeAtMs: chat.turnStartedAtMs.flatMap { $0.isFinite && $0 > 0 ? UInt64($0) : nil } ?? 0)
+                              hasWork: chat.turnRunning || chat.queued > 0, activeAtMs: chat.turnStartedAtMs.flatMap { $0.isFinite && $0 > 0 ? UInt64($0) : nil } ?? 0,
+                              priority: priority(of: chat.session), litAtMs: priorities[chat.session])
         }
     }
 }
