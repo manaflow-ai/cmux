@@ -148,21 +148,20 @@ fn run(words: &[String], applied: bool) -> Value {
         Ok(output) => output,
         Err(error) => return failed(&format!("cmux token did not start: {error}")),
     };
+    // `--json` prints one object on stdout either way: `{ok: true, ...}` or `{ok: false, error}`.
     let stdout = String::from_utf8_lossy(&output.stdout);
     let last =
         stdout.lines().rev().find_map(|line| serde_json::from_str::<Value>(line.trim()).ok());
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let message = stderr
-            .lines()
-            .rev()
-            .find_map(|line| serde_json::from_str::<Value>(line.trim()).ok())
-            .and_then(|v| v.pointer("/error/message").or_else(|| v.get("message")).cloned())
-            .and_then(|m| m.as_str().map(str::to_owned))
-            .unwrap_or_else(|| stderr.trim().to_owned());
-        return failed(message.trim_start_matches("cmux: "));
+    match last {
+        Some(answer) if answer.get("ok") == Some(&Value::Bool(true)) => success(answer, applied),
+        Some(answer) => failed(
+            answer.pointer("/error/message").and_then(Value::as_str).unwrap_or("cmux token failed"),
+        ),
+        None => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            failed(stderr.trim().trim_start_matches("cmux: "))
+        }
     }
-    success(last.unwrap_or_else(|| json!({"output": stdout.trim()})), applied)
 }
 
 fn failed(message: &str) -> Value {
