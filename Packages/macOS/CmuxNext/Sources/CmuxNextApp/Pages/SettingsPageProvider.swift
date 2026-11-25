@@ -20,9 +20,9 @@ final class SettingsPageProvider: PageProvider {
     private let settings: SettingsController
     /// Value domains the page offers in menus (`themes`, `font_families`, `sounds`, `recent_fonts`).
     private let domains: @MainActor () -> [String: [String]]
-    /// Live lists Settings shows beside the schema rows (spaces, machines, browser profiles); nil
-    /// in tests without an app.
-    private let hostLists: (@MainActor () -> JSONValue)?
+    /// Live lists Settings shows beside the schema rows (spaces, machines, browser profiles), by
+    /// section (``SettingsHostSection``); nil in tests without an app.
+    private let hostSections: [SettingsHostSection]?
     /// The Accounts part of the page (R82 commit 3): its state, and one gesture; nil in tests
     /// without an app.
     var accountsState: (@MainActor () -> JSONValue)?
@@ -103,10 +103,10 @@ final class SettingsPageProvider: PageProvider {
     private static let overrideRounds = 4
 
     init(settings: SettingsController, domains: @escaping @MainActor () -> [String: [String]] = { [:] },
-         hostLists: (@MainActor () -> JSONValue)? = nil, wideningGate: PageWideningGate = PageWideningGate()) {
+         hostSections: [SettingsHostSection]? = nil, wideningGate: PageWideningGate = PageWideningGate()) {
         self.settings = settings
         self.domains = domains
-        self.hostLists = hostLists
+        self.hostSections = hostSections
         self.wideningGate = wideningGate
     }
 
@@ -158,11 +158,14 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.set":
             guard let value = params["value"] else { throw PageError.invalidParams("value is required") }
             let descriptor = try descriptor(params)
+            try requirePerson(context, for: descriptor)
             return try await mutation(params) { try await self.write(descriptor, value == .null ? nil : value, by: Self.writer(context)); return [descriptor.id] }
         case "cmux.settings.reset":
             let descriptor = try descriptor(params)
+            try requirePerson(context, for: descriptor)
             return try await mutation(params) { try await self.write(descriptor, nil, by: Self.writer(context)); return [descriptor.id] }
         case "cmux.settings.reset_all":
+            try requirePerson(context) // Reset All rewrites computerUse.* too
             return try await mutation(params) {
                 let before = self.settings.snapshot.root
                 do {
@@ -173,7 +176,7 @@ final class SettingsPageProvider: PageProvider {
                 await self.settings.reload()
                 return SettingsSchema.all.filter { $0.storedValue(in: before) != $0.storedValue(in: self.settings.snapshot.root) }.map(\.id)
             }
-        case "cmux.settings.host.lists": return try Self.host(hostLists, "host lists")()
+        case "cmux.settings.host.lists": return SettingsHostSection.merged(try Self.host(hostSections, "host lists").map { $0.read() })
         case "cmux.settings.devices.remove":
             guard let id = params["id"]?.stringValue else { throw PageError.invalidParams("id is required") }
             return try await Self.host(removeDevice, "devices")(id).map { ["error": .string($0)] } ?? .object([:])
@@ -310,6 +313,7 @@ final class SettingsPageProvider: PageProvider {
             // the gesture's end writes it with cmux.settings.set, or preview.end restores.
             let descriptor = try descriptor(params)
             let value = params["value"].flatMap { $0 == .null ? nil : $0 }
+            try requirePerson(context, for: descriptor)
             if let source = settings.managedSource(for: descriptor) {
                 throw PageError(code: "cmux.settings.managed", message: "\(descriptor.id) is managed", details: source.pageInfo)
             }
@@ -363,8 +367,8 @@ final class SettingsPageProvider: PageProvider {
             return Self.watch(harnessesState, onEvent: onEvent)
         }
         if stream == "cmux.settings.models.changed", let models { return try await models.subscribe(stream, filter: filter, context: context, onEvent: onEvent) }
-        if stream == "cmux.settings.host.changed", let hostLists {
-            return Self.watch(hostLists, onEvent: onEvent)
+        if stream == "cmux.settings.host.changed", let hostSections {
+            return SettingsHostSection.watch(hostSections, onEvent: onEvent)
         }
         guard stream == "cmux.settings.changed" else { throw PageError.unknownOp(stream) }
         let settings = settings
@@ -468,6 +472,12 @@ final class SettingsPageProvider: PageProvider {
     /// their origin and are refused. Any other page writes as a page.
     static func writer(_ context: PageCallContext) -> SettingWriter {
         context.page == PageDescriptor.settings.id ? .user : .caller("page")
+    }
+
+    /// The person's own click or key here backs `context`: for any row, or for a person-only `descriptor` (``ComputerUseSettings/isPersonOnly(_:)``).
+    func requirePerson(_ context: PageCallContext, for descriptor: SettingDescriptor? = nil) throws {
+        guard descriptor.map({ ComputerUseSettings.isPersonOnly($0.path) }) ?? true else { return }
+        try context.requirePerson(on: PageDescriptor.settings.id, backs: personBacksGesture, refusal: Self.personOnly)
     }
 
     static func userOnlyError(_ refusal: SettingUserOnly) -> PageError {

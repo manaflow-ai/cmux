@@ -53,7 +53,7 @@ HUMAN_OK_LABEL = "risk:human-ok"
 WAIVED_LABEL = "risk:waived"
 # A review's verdict on the exact head, on a comment's first line: "Review (subagent, correctness first): SHIP at
 # <full head sha>", the form next_autoland.py and merge_audit.py read. This is the one copy of the grammar and of
-# when a receipt counts; defaults_guard.py imports it from here. It stays in this file because risk-tier.yml runs
+# when a receipt counts. It stays in this file because risk-tier.yml runs
 # from main and checks out only scripts/ci/risk_tier.py from the base (#36941 split it into a module and every
 # `risk evidence` run failed on the import). A SHIP from any reviewer counts, whatever its model family and
 # whoever started it, the pull request's own agent included (Leo, 2026-11-14, on "need a review from a model
@@ -121,8 +121,7 @@ def same_account(login: str | None, author: str | None) -> bool:
 
 def refusal(receipt: Receipt, same: bool, agents: set[str]) -> str | None:
     """Why `receipt` does not count, or None when it does. Always None now: a SHIP counts from any family and from
-    the pull request's own agent (Leo, 2026-11-14: "this is no longer a requirement"), and a BLOCK always counted.
-    Kept with this signature because main's defaults guard calls it on the base's copy of this file."""
+    the pull request's own agent (Leo, 2026-11-14: "this is no longer a requirement"), and a BLOCK always counted."""
     return None
 
 
@@ -139,7 +138,7 @@ TRUSTED = ("OWNER", "MEMBER", "COLLABORATOR")
 # The cmux-bot App, which posts next-review's receipts (the review service any lane can ask for: `router-review
 # OWNER/REPO N --request`). A receipt line it posts counts as one from another account: no lane holds the App's key,
 # so a lane can neither write its verdict nor forge one. Its login alone never counts, only with this immutable node
-# id, and its APPROVED reviews never do (they mirror another account's receipt). defaults_guard.py reads the same.
+# id, and its APPROVED reviews never do (they mirror another account's receipt).
 CMUX_BOT_LOGINS = frozenset(("cmux-bot", "cmux-bot[bot]"))
 CMUX_BOT_NODE_ID = "BOT_kgDOFMYsLQ"
 # A login whose author_association is not TRUSTED still counts with one of these roles on the repository.
@@ -1132,6 +1131,9 @@ def pr_mode(args: argparse.Namespace) -> int:
         print(f"::warning::risk:high: {pending}")
     if args.summary:
         Path(args.summary).open("a").write(report + "\n")
+    if args.files_out:
+        # The changed files, for the next step's UI try line (ui_review_advisory.py --add-try): no second read.
+        Path(args.files_out).write_text(json.dumps([{"filename": f} for f in files]))
     if args.github_output:
         with Path(args.github_output).open("a") as out:
             out.write(f"tier={grade.tier}\nlabel={LABELS[grade.tier]}\n")
@@ -1342,6 +1344,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--repo-dir", help="a clone holding the base commit and RECENT_DAYS of its history, "
                    "for the takeback check (skipped without it)")
     p.add_argument("--github-output")
+    p.add_argument("--files-out", help="write the changed files here as JSON [{filename}]")
     p.add_argument("--summary")
     p.add_argument("--event", help="the event payload ($GITHUB_EVENT_PATH); its pull_request saves the "
                    "GET pulls/N call")

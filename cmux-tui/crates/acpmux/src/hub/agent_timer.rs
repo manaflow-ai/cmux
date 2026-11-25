@@ -9,6 +9,10 @@
 //! Cloud paused the machine and nothing resumed it at the due time: the run came only when
 //! something else woke the machine, however late.
 //!
+//! The timers are what the live agent itself last said (`Session::loop_timers`, from its goal
+//! updates), not the chat's saved goal: a `goal_set` over an armed loop replaces the goal but not
+//! the loop, and a goal restored after a reboot names timers no process holds.
+//!
 //! Now a live agent with a timer pending is at work and never hibernated:
 //! - A one-shot wakeup is pending until [`FIRE_GRACE`] after its time: the agent is up (it was
 //!   kept), so it fires on time and its turn holds the session from then on. A wakeup that does
@@ -37,18 +41,26 @@ pub(crate) struct PendingTimer {
     pub wake_at: Option<u64>,
 }
 
-/// The pending timers in a goal (`claude_stdio/loops.rs`): one per armed loop.
-fn timers(goal: &crate::goal::GoalState) -> Vec<(Option<u64>, bool)> {
+/// The pending timers in a loop goal (`claude_stdio/loops.rs`): one per armed loop.
+fn timers(goal: &Value) -> Vec<(Option<u64>, bool)> {
     let read =
         |t: &Value| (t.get("at").and_then(Value::as_u64), t.get("recurring") == Some(&json!(true)));
-    match goal.extra.get("timers").and_then(Value::as_array) {
+    match goal.get("timers").and_then(Value::as_array) {
         Some(list) => list.iter().map(read).collect(),
-        // A loop stored before the list: its own next run, recurring when it has a schedule.
-        None => vec![(
-            goal.extra.get("nextRunAt").and_then(Value::as_u64),
-            goal.extra.contains_key("schedule"),
-        )],
+        // A loop from an agent that names no list: its own next run, recurring when it has a
+        // schedule.
+        None => vec![(goal.get("nextRunAt").and_then(Value::as_u64), goal.get("schedule").is_some())],
     }
+}
+
+/// The agent's goal update (`permissions.rs` `on_update`): a loop arms its timers, anything else
+/// it sends (a clear at its last loop's stop, a goal of its own) disarms them. Only the agent
+/// says this: `goal_set` and the hub's own clears never come through here, so a goal the chat
+/// set over an armed loop no longer hides the loop's timers.
+pub(super) fn note_agent_goal(session: &Session, goal: &Value) {
+    let looping = goal.get("kind").and_then(Value::as_str) == Some("loop");
+    *session.loop_timers.lock().unwrap_or_else(|e| e.into_inner()) =
+        looping.then(|| timers(goal));
 }
 
 impl Hub {
@@ -59,14 +71,9 @@ impl Hub {
         if !live {
             return None;
         }
-        let timers = {
-            let m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
-            let goal = m.goal.as_ref()?;
-            if goal.extra.get("kind").and_then(Value::as_str) != Some("loop") {
-                return None;
-            }
-            timers(goal)
-        };
+        // What this daemon heard from the agent, never the saved goal: a goal restored after a
+        // reboot names timers no process holds any more, and would keep the machine up forever.
+        let timers = session.loop_timers.lock().unwrap_or_else(|e| e.into_inner()).clone()?;
         let mut pending = false;
         let mut wake_at: Option<u64> = None;
         let mut unknown = false;

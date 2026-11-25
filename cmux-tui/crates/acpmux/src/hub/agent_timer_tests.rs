@@ -127,3 +127,37 @@ async fn a_pending_loop_timer_keeps_its_machine_up_until_it_fires() {
     assert!(cloud_reads(&hub, start).0);
     hub.shutdown_all().await;
 }
+
+#[tokio::test]
+async fn a_goal_set_over_an_armed_loop_keeps_its_timer() {
+    // Greptile P1 on #51753: `goal_set` replaced the loop goal and the timer went unseen, so the
+    // reaper ended Claude with its wakeup still armed.
+    let start = crate::store::now_ms();
+    let (hub, session) = chat().await;
+    set_goal(&session, wakeup(start + DELAY)).await;
+    let req = crate::generic_goal::GoalRequest {
+        objective: "Land the fix".into(),
+        done_when: "cargo test passes".into(),
+        token_budget: None,
+        time_budget_minutes: None,
+    };
+    hub.goal_set(&session, &req).unwrap();
+    assert!(hub.pending_timer(&session, start).is_some(), "goal_set hid the armed wakeup");
+    assert!(!hub.idle_eligible(&session));
+    hub.shutdown_all().await;
+}
+
+#[tokio::test]
+async fn a_saved_loop_goal_with_no_agent_to_hold_it_keeps_nothing_up() {
+    // Greptile P1 on #51753: a loop goal restored after a reboot named timers no process held,
+    // and a recurring one kept the machine up for good.
+    let start = crate::store::now_ms();
+    let (hub, session) = chat().await;
+    let cron = json!({"kind": "loop", "status": "active", "objective": "babysit",
+        "schedule": "every 5 minutes", "timers": [{"at": start + DELAY, "recurring": true}]});
+    session.meta.lock().unwrap().goal = crate::goal::GoalState::from_value(&cron, None);
+    assert_eq!(hub.pending_timer(&session, start), None, "a restored goal held the machine");
+    assert!(hub.idle_eligible(&session));
+    assert!(cloud_reads(&hub, start).0);
+    hub.shutdown_all().await;
+}

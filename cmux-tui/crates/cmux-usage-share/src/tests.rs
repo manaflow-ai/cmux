@@ -236,9 +236,22 @@ fn off_records_nothing() {
     }));
     assert!(!dir.path().join("share").exists(), "off makes no folder, salt or spool");
     assert!(!setting_enabled(&dir.path().join("missing.json")));
+    // On without the notice acknowledged is still off; both together are on.
     std::fs::write(&config, r#"{"diagnostics.usageSharing": true}"#).unwrap();
+    assert!(!setting_enabled(&config));
+    std::fs::write(&config, r#"{"diagnostics": {"usageSharingNoticeAck": true}}"#).unwrap();
+    assert!(!setting_enabled(&config));
+    std::fs::write(
+        &config,
+        r#"{"diagnostics.usageSharing": true, "diagnostics.usageSharingNoticeAck": true}"#,
+    )
+    .unwrap();
     assert!(setting_enabled(&config));
-    std::fs::write(&config, "// jsonc\n{\"diagnostics\": {\"usageSharing\": true,},}").unwrap();
+    std::fs::write(
+        &config,
+        "// jsonc\n{\"diagnostics\": {\"usageSharing\": true, \"usageSharingNoticeAck\": true,},}",
+    )
+    .unwrap();
     assert!(setting_enabled(&config));
 }
 
@@ -444,4 +457,38 @@ fn old_spool_files_are_pruned() {
     let gone = spool::prune(dir.path(), now);
     assert_eq!(gone, [spool::day_file(now - 31 * day)]);
     assert_eq!(spool::files(dir.path()), [spool::day_file(now - 29 * day)]);
+}
+
+/// A fresh install (no settings file, default settings, or the toggle on with no notice
+/// acknowledged) records nothing, creates no spool, and uploads nothing.
+#[tokio::test]
+async fn fresh_install_sends_no_usage_telemetry_until_opt_in() {
+    struct CountSends(std::sync::atomic::AtomicUsize);
+    impl Sender for CountSends {
+        fn send(&self, _body: Vec<u8>) -> impl std::future::Future<Output = Sent> + Send {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            async { Sent::Retry { why: String::new() } }
+        }
+    }
+    let sender = CountSends(std::sync::atomic::AtomicUsize::new(0));
+    let facts = TurnFacts { session_id: "x", harness: "claude", ..TurnFacts::default() };
+    let dir = tempfile::tempdir().unwrap();
+    for (name, text) in [
+        ("missing", None),
+        ("default", Some("{}")),
+        ("toggle-only", Some(r#"{"diagnostics": {"usageSharing": true}}"#)),
+        ("ack-only", Some(r#"{"diagnostics": {"usageSharingNoticeAck": true}}"#)),
+    ] {
+        let config = dir.path().join(format!("{name}.json"));
+        if let Some(text) = text {
+            std::fs::write(&config, text).unwrap();
+        }
+        let share = dir.path().join(format!("share-{name}"));
+        let s = Sharer::new(share.clone(), config, Some("host".into()));
+        assert!(!s.enabled(), "{name}");
+        assert!(!s.record_turn(&facts), "{name}");
+        assert!(s.upload_round(&sender).await.is_none(), "{name}");
+        assert!(!share.exists(), "{name}: no spool, salt or install id is made");
+    }
+    assert_eq!(sender.0.load(std::sync::atomic::Ordering::SeqCst), 0);
 }

@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextApps
 import CmuxNextCloud
 import CmuxNextCloudCredentials
+import CmuxNextCloudPlace
 import CmuxNextCloudUI
 import CmuxNextCompat
 import CmuxNextControl
@@ -58,7 +59,7 @@ final class CloudService {
     @ObservationIgnored let agentCredentials = CloudAgentCredentials()
     @ObservationIgnored let gateway: PersonalGateway // this Mac answers its person's Cloud machines' model calls (``PersonalGateway``)
     @ObservationIgnored let setup = CloudSetup() // Cloud first use: whether a connection serves the picker's model (CloudStartChat.wireSetup)
-    @ObservationIgnored private let machines: MachineRegistry
+    @ObservationIgnored let machines: MachineRegistry
     /// The plan gate for a create, from the last machine list's limits.
     var createGate: CloudMachineCreateFlow.Gate { CloudMachineCreateFlow.gate(machines.cloudLimits, makesRoom: true) }
     /// The app's `cmux-tui` (the moves', the carrier's) and its daemon's state directory (the carrier's `CMUX_TUI_STATE_DIR`).
@@ -127,6 +128,10 @@ final class CloudService {
     @ObservationIgnored let moveRetries = CloudMoveRetries(key: "cmux.cloud.moveRetries")
     /// What Retry does for each machine chat whose Bring Back Local stopped, by its tab there.
     @ObservationIgnored let bringBackRetries = CloudMoveRetries(key: "cmux.cloud.bringBackRetries")
+    /// Where each chat runs, its place mode and its move's progress (``CloudPlaceFlows``).
+    @ObservationIgnored let place = CloudPlaceFlows()
+    /// Reads this computer's signals for Auto and runs its moves (started once, with the move actions).
+    @ObservationIgnored var placeDriver: CloudPlaceDriver?
     /// The chats moved from this Mac, for Bring Back Local.
     @ObservationIgnored let movedChats = CloudMovedChats()
     /// Agents' asks to move their chats, and the cards they raise in chats.
@@ -329,11 +334,18 @@ final class CloudService {
                 await self.refresh()
             }
         })
-        // After sleep the list is stale even with cmux in front: the idle
-        // auto-pause may have parked machines while the lid was closed.
+        // After sleep the list is stale even with cmux in front: the idle auto-pause may have parked
+        // machines while the lid was closed. acpmux is told of the wake too, for its Auto chats.
         observers.append(Task { [weak self] in
             for await _ in NSWorkspace.shared.notificationCenter.notifications(named: NSWorkspace.didWakeNotification) {
-                await self?.refresh(ifOlderThan: .seconds(30))
+                self?.placeDriver?.slept(false)
+                await AcpmuxEnvironment.relaySystemWake(build: LaunchIdentity.current().build) { await self?.refresh(ifOlderThan: .seconds(30)) }
+            }
+        })
+        // Auto starts its moves as the system is about to sleep.
+        observers.append(Task { [weak self] in
+            for await _ in NSWorkspace.shared.notificationCenter.notifications(named: NSWorkspace.willSleepNotification) {
+                self?.placeDriver?.slept(true)
             }
         })
         // A sign-out or a team switch (the user signed in may stay) ends start-session asks and
@@ -513,10 +525,17 @@ final class CloudService {
                 return
             }
             guard planGeneration == generation, listAccount == account, auth.isSignedIn else { return }
-            let limits = CloudMachineLimits(nextPlan: answer)
-            machines.cloudLimits = limits
-            logger.info("plan: \(limits?.planId ?? "unreadable", privacy: .public) pays=\(limits?.paysForCloud == true, privacy: .public)")
+            planRead(answer)
         }
+    }
+
+    /// Lands one `cloud.plan.get` answer: the limits the gates read, then ``planObserved``, so a plan
+    /// that turned paid after an upgrade shows its welcome card. An answer without a plan reports none.
+    func planRead(_ answer: JSONValue) {
+        let limits = CloudMachineLimits(nextPlan: answer)
+        machines.cloudLimits = limits
+        logger.info("plan: \(limits?.planId ?? "unreadable", privacy: .public) pays=\(limits?.paysForCloud == true, privacy: .public)")
+        if let limits { planObserved(limits.planId) }
     }
 
     /// ``refresh()`` unless the list was read within `age`; true when the store then holds a list
@@ -719,7 +738,7 @@ final class CloudService {
             if again { request.idempotencyKey = UUID().uuidString }
             return try await appServerCreate(name: name, startedByPerson: startedByPerson, ownCreate: ownCreate && startedByPerson, asksFirst: asksFirst, askedBy: askedBy, environment: request.environment, creation: creation, request: request, onSent: onSent, persistSent: onAppServerSent)
         }
-        logger.info("created machine \(machine.id, privacy: .public)")
+        let answeredAt = ContinuousClock.now; logger.info("created machine \(machine.id, privacy: .public)")
         try proceed()
         // The machine exists either way: a failed write leaves its idle pause as the server says,
         // and the answer's `persistent` reads false, so the caller can run `cloud set-idle-pause`.
@@ -739,7 +758,7 @@ final class CloudService {
         }
         if let existing = machines.session(machine.id) { existing.sizePick = machine.sizePick ?? existing.sizePick; return existing }
         guard let session = addSession(machine) else { throw ActionFailure(message: CloudStrings.noClient) }
-        listedMachineIDs.insert(machine.id)
+        listedMachineIDs.insert(machine.id); session.answeredAt = answeredAt // the record the create's (or spare claim's) answer just gave
         // A list in flight was asked before this machine existed.
         listGeneration += 1
         return session

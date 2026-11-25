@@ -15,6 +15,7 @@ name = "cmux-server"
 path = "src/main.rs"
 
 [dependencies]
+cmux-egress = { workspace = true, features = ["blocking"] }
 cmux-json.workspace = true
 base64.workspace = true
 cmux-build-space.workspace = true
