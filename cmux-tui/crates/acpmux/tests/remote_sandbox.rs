@@ -733,8 +733,17 @@ async fn a_local_chat_cannot_read_credentials_write_outside_or_send_on_other_por
 }
 
 #[cfg(target_os = "macos")]
+/// The account's own home from its passwd entry, not `$HOME`: a CI step's `HOME` is a folder in
+/// its workspace under the temporary roots both profiles let an agent write, so a probe there
+/// would prove nothing about the home.
 fn dirs_home() -> PathBuf {
-    PathBuf::from(std::env::var("HOME").expect("HOME"))
+    use std::ffi::CStr;
+    use std::os::unix::ffi::OsStrExt;
+    // SAFETY: getpwuid returns a pointer into static storage or null; the test reads it at once.
+    let pw = unsafe { libc::getpwuid(libc::getuid()) };
+    assert!(!pw.is_null(), "no passwd entry for this user");
+    let dir = unsafe { CStr::from_ptr((*pw).pw_dir) };
+    PathBuf::from(std::ffi::OsStr::from_bytes(dir.to_bytes()))
 }
 
 #[cfg(target_os = "macos")]
