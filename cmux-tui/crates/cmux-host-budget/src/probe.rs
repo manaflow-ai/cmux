@@ -78,6 +78,43 @@ pub fn parse_vmstat_oom_kill(text: &str) -> Option<u64> {
     text.lines().find_map(|l| l.strip_prefix("oom_kill ")?.trim().parse().ok())
 }
 
+/// `/proc/vmstat`'s reclaim counters since boot: the memory stall the kernel counts even with
+/// PSI off (Freestyle guests boot with `CONFIG_PSI_DEFAULT_DISABLED`, cmuxterm-hq RFD 0133 and
+/// RFD 0182 B1). A task that has to free memory before it can allocate is an `allocstall_*`;
+/// the pages it scans doing so are `pgscan_direct`; a page read back soon after it was evicted
+/// is a `workingset_refault_*` (thrashing: with no swap, the binaries' own pages).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct Reclaim {
+    /// Allocations that stalled on direct reclaim (every `allocstall_*` zone).
+    pub alloc_stalls: u64,
+    /// Pages scanned by direct reclaim (`pgscan_direct`).
+    pub direct_scanned: u64,
+    /// Evicted pages read back (`workingset_refault_anon` + `_file`, or the older `workingset_refault`).
+    pub refaults: u64,
+}
+
+/// [`Reclaim`] from `/proc/vmstat`; none when the file has no `allocstall` line.
+pub fn parse_vmstat_reclaim(text: &str) -> Option<Reclaim> {
+    let mut r = Reclaim::default();
+    let mut seen = false;
+    for line in text.lines() {
+        let Some((key, value)) = line.split_once(' ') else { continue };
+        let Ok(n) = value.trim().parse::<u64>() else { continue };
+        if key.starts_with("allocstall") {
+            r.alloc_stalls = r.alloc_stalls.saturating_add(n);
+            seen = true;
+        } else if key == "pgscan_direct" {
+            r.direct_scanned = n;
+        } else if matches!(
+            key,
+            "workingset_refault" | "workingset_refault_anon" | "workingset_refault_file"
+        ) {
+            r.refaults = r.refaults.saturating_add(n);
+        }
+    }
+    seen.then_some(r)
+}
+
 /// `/proc/meminfo`: (SwapTotal - SwapFree) / SwapTotal; none without swap.
 pub fn parse_meminfo_swap_used(text: &str) -> Option<f64> {
     let kb = |key: &str| {
@@ -109,6 +146,7 @@ pub fn cpu_busy(before: (u64, u64), after: (u64, u64)) -> Option<f64> {
 /// macOS `host_cpu_load_info` ticks as `[user, system, idle, nice]`: the share busy
 /// between two readings (0..1). The counters are 32-bit and wrap, so the
 /// differences wrap too. None when no tick passed.
+#[cfg(any(target_os = "macos", test))]
 pub fn cpu_busy_ticks(before: [u32; 4], after: [u32; 4]) -> Option<f64> {
     let d: Vec<u64> =
         before.iter().zip(&after).map(|(b, a)| u64::from(a.wrapping_sub(*b))).collect();
@@ -144,6 +182,7 @@ pub fn parse_thermal_millic_max<'a>(temps: impl IntoIterator<Item = &'a str>) ->
 }
 
 /// IORegistry's `HIDIdleTime` (nanoseconds) as seconds; a negative one is none.
+#[cfg(any(target_os = "macos", test))]
 pub fn hid_idle_seconds(nanos: i64) -> Option<f64> {
     (nanos >= 0).then(|| nanos as f64 / 1e9)
 }

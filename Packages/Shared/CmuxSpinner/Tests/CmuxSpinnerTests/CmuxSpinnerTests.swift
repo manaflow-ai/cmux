@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(QuartzCore)
 import QuartzCore
+#endif
 import Testing
 @testable import CmuxSpinner
 
@@ -21,6 +23,7 @@ import Testing
         #expect(CmuxSpinnerPeriod().seconds == 2)
     }
 
+    #if canImport(QuartzCore)
     @Test func oneTurnPerPeriodClockwise() {
         let spin = CmuxSpinnerLayer.turnAnimation(period: CmuxSpinnerPeriod())
         #expect(spin.keyPath == "transform.rotation.z")
@@ -41,14 +44,15 @@ import Testing
         layer.turn(false)
         #expect(!layer.isTurning)
     }
+    #endif
 
     @Test func phaseIsUnixTimeModPeriod() {
         let period = CmuxSpinnerPeriod()
         // 1000.5 s into Unix time is 0.5 s into a 2 s turn: the turn began 0.5 s ago.
-        #expect(abs(CmuxSpinnerLayer.beginTime(period: period, mediaTime: 100, unixTime: 1000.5) - 99.5) < 1e-9)
+        #expect(abs(period.turnBegan(mediaTime: 100, unixTime: 1000.5) - 99.5) < 1e-9)
         // Two spinners started at different moments share one phase.
-        let early = CmuxSpinnerLayer.beginTime(period: period, mediaTime: 500, unixTime: 7000.25)
-        let late = CmuxSpinnerLayer.beginTime(period: period, mediaTime: 500.37, unixTime: 7000.62)
+        let early = period.turnBegan(mediaTime: 500, unixTime: 7000.25)
+        let late = period.turnBegan(mediaTime: 500.37, unixTime: 7000.62)
         #expect(abs((early - late).truncatingRemainder(dividingBy: 2)) < 1e-9)
     }
 }

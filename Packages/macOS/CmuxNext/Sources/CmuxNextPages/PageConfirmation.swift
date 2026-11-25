@@ -11,6 +11,14 @@ public nonisolated struct PageConfirmation: Sendable, Hashable {
         case install, uninstall, update, grant, delete, custom
     }
 
+    /// Why a confirmation stays (RFD 0132): before an action that can't be undone, one that spends
+    /// money, or one that exposes a machine. A confirm a person's click meets with none of these
+    /// guards nothing; it should be the default action with an undo instead
+    /// (``PageDescriptor/guardlessConfirms``; the cloud-ergonomics probe counts them as `confirms_guarding_nothing`).
+    public enum Guard: String, Sendable, Hashable, CaseIterable {
+        case irreversible, spends, exposes
+    }
+
     /// One scope the app asks for, with its class from scope-classes.json and the app's reason.
     public struct Scope: Sendable, Hashable {
         public var scope: String

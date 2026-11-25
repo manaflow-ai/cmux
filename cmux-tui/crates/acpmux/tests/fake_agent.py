@@ -110,7 +110,9 @@ call through the ACP permission flow: announced, asked, run only after an allow.
 
 CPU class (macOS, tests/cpu_class.rs; `ps -o pri=` is 4 at background class):
 FAKE_CLASS_LOG=<path>: on session/new, append {"pid", "pri", "nice"} (its own, as it starts) to <path>.
-"class-probe: <path>": start `sleep 120` (a tool its turn runs) and write {"sleeper": pid} to <path>.
+"class-probe: <path>": start `sleep 120` (a tool its turn runs) and write {"sleeper": pid, "diskio": n}
+to <path>: n is its own process's disk I/O policy (`getiopolicy_np`, macOS; the tool inherits it),
+None elsewhere.
 "class-wait: <path>": the same, then nothing until the test writes the FIFO <path>.gate; then its
 first token, and the turn ends at the next write.
 FAKE_BG_ONCE=<path>: the first agent to get `initialize` (<path> does not exist yet) creates <path>,
@@ -1574,7 +1576,7 @@ def handle_prompt(rid, params):
         sleeper = subprocess.Popen(["sleep", "120"], stdin=subprocess.DEVNULL)
         out = text[len("class-wait:"):].split("<", 1)[0].strip()
         with open(f"{out}.tmp", "w") as f:
-            f.write(json.dumps({"sleeper": sleeper.pid}))
+            f.write(json.dumps({"sleeper": sleeper.pid, "diskio": own_disk_io()}))
         os.replace(f"{out}.tmp", out)
         with open(f"{out}.gate") as gate:
             gate.read()
@@ -1589,7 +1591,7 @@ def handle_prompt(rid, params):
         sleeper = subprocess.Popen(["sleep", "120"], stdin=subprocess.DEVNULL)
         out = text[len("class-probe:"):].strip()
         with open(f"{out}.tmp", "w") as f:
-            f.write(json.dumps({"sleeper": sleeper.pid}))
+            f.write(json.dumps({"sleeper": sleeper.pid, "diskio": own_disk_io()}))
         os.replace(f"{out}.tmp", out)
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
@@ -2267,6 +2269,14 @@ def stdin_lines(early):
         import io
         yield from io.TextIOWrapper(io.BytesIO(early), encoding=sys.stdin.encoding, errors=sys.stdin.errors)
     yield from sys.stdin
+
+
+def own_disk_io():
+    """This process's disk I/O policy (`getiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_PROCESS)`)."""
+    if sys.platform != "darwin":
+        return None
+    import ctypes
+    return ctypes.CDLL(None).getiopolicy_np(0, 0)
 
 
 def own_pri():
