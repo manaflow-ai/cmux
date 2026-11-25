@@ -1,6 +1,6 @@
 //! `sidebar_automatic_plan` through the C ABI: the sidebar sends one
 //! candidate per drawn workspace row and folds the automatic ones behind
-//! "Automatic (N)" unless `sidebar.showAutomaticSessions` is on.
+//! "From scripts (N)" unless `sidebar.showAutomaticSessions` is on.
 
 use cmux_layout_reducer_ffi::{ERR_INVALID, OK, cmux_layout_reducer_json};
 use serde_json::{Value, json};

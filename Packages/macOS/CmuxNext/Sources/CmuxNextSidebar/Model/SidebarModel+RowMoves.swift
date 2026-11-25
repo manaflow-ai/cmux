@@ -4,7 +4,7 @@ extension SidebarModel {
     /// A content change that changes which rows the list draws: a folder (Group by Folder), Done (the Done fold),
     /// needing you past the row limit (it keeps a row out of "Show N more"), or, with `settles`
     /// (`sidebar.settleFinished`), a chat that settles or rises back (the "Settled (N)" fold), or, with
-    /// `automates` (`sidebar.showAutomaticSessions` off), a row that joins or leaves the "Automatic (N)" fold.
+    /// `automates` (`sidebar.showAutomaticSessions` off), a row that joins or leaves the "From scripts (N)" fold.
     static func movesRows(from old: SidebarWorkspace, to new: SidebarWorkspace, groupsByFolder: Bool, settles: Bool = false,
                           automates: Bool = false) -> Bool {
         if groupsByFolder && old.folder != new.folder { return true }
