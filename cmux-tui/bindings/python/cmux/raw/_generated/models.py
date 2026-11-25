@@ -1016,6 +1016,7 @@ class IdentifyResult:
     version: str
     workspace_revision: int
     api_revision: Union[int, None, MissingType] = field(default=MISSING)
+    api_version: Union[str, None, MissingType] = field(default=MISSING)
     build_commit: Union[str, None, MissingType] = field(default=MISSING)
     build_id: Union[str, None, MissingType] = field(default=MISSING)
     build_time: Union[int, None, MissingType] = field(default=MISSING)
@@ -1033,6 +1034,7 @@ class IdentifyResult:
     machine_platform: Union[MachinePlatform, MissingType] = field(default=MISSING)
     machine_symbol: Union[str, MissingType] = field(default=MISSING)
     min_api_revision: Union[int, None, MissingType] = field(default=MISSING)
+    min_api_version: Union[str, None, MissingType] = field(default=MISSING)
     screen_device_id: Union[str, None, MissingType] = field(default=MISSING)
     session_id: Union[str, MissingType] = field(default=MISSING)
     update_command: Union[str, None, MissingType] = field(default=MISSING)
@@ -1149,6 +1151,13 @@ class ListWorkspacesKnown:
     terminal_revision: Union[int, None, MissingType] = field(default=MISSING)
     tree_revision: Union[str, None, MissingType] = field(default=MISSING)
     workspace_revision: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ListWorkspacesSince:
+    __cmux_schema_path__: ClassVar[str] = 'types/ListWorkspacesSince'
+    epoch: str
+    seq: int
 
 
 @dataclass(frozen=True)
@@ -1895,6 +1904,13 @@ class SetCellPixelsResult:
 
 
 @dataclass(frozen=True)
+class SetClientInfoResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/SetClientInfoResult'
+    api_revision: Union[int, MissingType] = field(default=MISSING)
+    api_version: Union[str, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class SetHostSizePolicyResult:
     __cmux_schema_path__: ClassVar[str] = 'types/SetHostSizePolicyResult'
     policy: HostSizePolicy
@@ -2458,10 +2474,16 @@ class TerminalResumeCommandResult:
 class Tree:
     __cmux_schema_path__: ClassVar[str] = 'types/Tree'
     workspaces: List[Workspace]
+    changed: Union[List[Workspace], MissingType] = field(default=MISSING)
+    delta: Union[bool, MissingType] = field(default=MISSING)
+    epoch: Union[str, MissingType] = field(default=MISSING)
     generation: Union[str, MissingType] = field(default=MISSING)
     next: Union[int, MissingType] = field(default=MISSING)
+    order: Union[List[Id], MissingType] = field(default=MISSING)
     pane_revision: Union[int, MissingType] = field(default=MISSING)
     registry_id: Union[str, MissingType] = field(default=MISSING)
+    removed: Union[List[Id], MissingType] = field(default=MISSING)
+    seq: Union[int, MissingType] = field(default=MISSING)
     terminal_revision: Union[int, MissingType] = field(default=MISSING)
     total: Union[int, MissingType] = field(default=MISSING)
     tree_revision: Union[str, MissingType] = field(default=MISSING)
@@ -2591,6 +2613,7 @@ class AttachSurfaceRequest:
     replay_history_rows: Union[int, None, MissingType] = field(default=MISSING)
     replay_history_start: Union[int, None, MissingType] = field(default=MISSING)
     resume_generation: Union[str, None, MissingType] = field(default=MISSING)
+    resume_max_bytes: Union[int, None, MissingType] = field(default=MISSING)
     resume_offset: Union[int, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
     snapshot: Union[str, None, MissingType] = field(default=MISSING)
@@ -4156,6 +4179,7 @@ class ListWorkspacesRequest:
     after: Union[int, None, MissingType] = field(default=MISSING)
     known: Union[ListWorkspacesKnown, None, MissingType] = field(default=MISSING)
     limit: Union[int, None, MissingType] = field(default=MISSING)
+    since: Union[ListWorkspacesSince, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -5026,6 +5050,7 @@ class SetClientInfoRequest:
     name: Union[str, None, MissingType] = field(default=MISSING)
     kind: Union[str, None, MissingType] = field(default=MISSING)
     api_revision: Union[int, None, MissingType] = field(default=MISSING)
+    api_version: Union[str, None, MissingType] = field(default=MISSING)
     capabilities: Union[List[str], None, MissingType] = field(default=MISSING)
     device_id: Union[str, None, MissingType] = field(default=MISSING)
     device_kind: Union[str, None, MissingType] = field(default=MISSING)
@@ -6880,6 +6905,7 @@ __all__ = [
     'ListAgentsResult',
     'ListTerminalsResult',
     'ListWorkspacesKnown',
+    'ListWorkspacesSince',
     'LivePane',
     'MachineListeningTcpResult',
     'MachinePlatform',
@@ -6948,6 +6974,7 @@ __all__ = [
     'ServerStatsResult',
     'ServerStatsWritePath',
     'SetCellPixelsResult',
+    'SetClientInfoResult',
     'SetHostSizePolicyResult',
     'SetSizeCountsResult',
     'SetSizePolicyResult',

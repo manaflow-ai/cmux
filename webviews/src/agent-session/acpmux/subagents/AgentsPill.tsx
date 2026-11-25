@@ -76,8 +76,9 @@ export const AgentsPill = memo(function AgentsPill({
                 {nestAgents(section.agents).map(({ agent, depth }) => {
                   const status = subagentStatus(agent, waiting);
                   const state =
-                    (status === "running" && namedAction(t, agent.action, agent.actionShell)) ||
-                    t(subagentStatusLabel(agent, waiting));
+                    status === "running"
+                      ? (namedAction(t, agent.action, agent.actionShell) ?? "")
+                      : t(subagentStatusLabel(agent, waiting));
                   return (
                     <li key={agent.id}>
                       <button

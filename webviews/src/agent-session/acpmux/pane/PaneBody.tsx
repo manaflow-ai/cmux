@@ -71,7 +71,6 @@ import { ChatHeaderInlineStatus, ChatHeaderStatus } from "../header/ChatHeaderSt
 import { ChatHeaderTools } from "../header/ChatHeaderTools";
 import { HEADER_ACTIONS, type ChatMenuItem } from "../header/chatHeaderToolsModel";
 import { ThreadTitle } from "../header/ThreadTitle";
-import { ChatSummaryLine } from "../header/ChatSummaryLine";
 import { setHeaderState } from "../header/headerState";
 import { tabRowStyle, type TabRow } from "../header/tabRow";
 import { cloudStartFolder, newTabProjectPick, type CloudSignInRetry } from "../cloudRun";
@@ -381,6 +380,8 @@ export type PaneBodyDeps = NewTabShown &
     reconnectPeer: (peer: string) => Promise<unknown>;
     previewShown: boolean;
     computerUsePreview: ComputerUsePreview | null;
+    /// The Environment card at the chat's top right (session-info/EnvironmentCard.tsx), null when off.
+    environmentCardNode: React.JSX.Element | null;
     viewedSandbox: SandboxRun | undefined;
     pendingWake: React.RefObject<ComposerWake | undefined>;
     sandboxWake: React.RefObject<ComposerWake | undefined>;
@@ -652,6 +653,7 @@ export function drawPaneBody({
   reconnectPeer,
   previewShown,
   computerUsePreview,
+  environmentCardNode,
   viewedSandbox,
   pendingWake,
   sandboxWake,
@@ -1277,8 +1279,6 @@ export function drawPaneBody({
                           icon={snapshot.summary?.icon}
                           formerNames={snapshot.summary?.formerNames}
                         />
-                        {/* Where the chat stands and its next action (header/ChatSummaryLine.tsx). */}
-                        <ChatSummaryLine summary={snapshot.summary?.rollingSummary} />
                       </span>
                     )}
                   </ChatHeaderStatus>
@@ -1304,13 +1304,7 @@ export function drawPaneBody({
                       />
                     )}
                     {/* No title in the tab row: the pane's tab already names the chat (Leo, 2026-11-01). */}
-                    {inTabRow && (
-                      <ChatHeaderInlineStatus status={header.status} detail={header.detail}>
-                        {!showNewTab && snapshot.sessionId ? (
-                          <ChatSummaryLine summary={snapshot.summary?.rollingSummary} inline />
-                        ) : undefined}
-                      </ChatHeaderInlineStatus>
-                    )}
+                    {inTabRow && <ChatHeaderInlineStatus status={header.status} detail={header.detail} />}
                     <ChatHeaderTools
                       chat={snapshot.sessionId}
                       nativeRowTools={{
@@ -1488,6 +1482,7 @@ export function drawPaneBody({
                   preview={previewShown ? computerUsePreview : null}
                   onClose={() => ignoreFailure(callNative("chat.computerUsePreview", { action: "close" }))}
                 />
+                {environmentCardNode}
                 {underHeader.watching &&
                   snapshot.summary?.watching &&
                   // A chat its terminal drives is a live view of the same session, not View Only.
@@ -1584,6 +1579,8 @@ export function drawPaneBody({
                 ) : freshView && !premountsChatView ? (
                   <EmptyState
                     {...(projectName(composerSnapshot.summary?.cwd) && tourOffer ? { tour: tourOffer } : {})}
+                    // Once per chat: the empty state remounted by this chat (picker, reconnect) is at rest.
+                    entranceKey={snapshot.sessionId ?? "new-chat"}
                   />
                 ) : (
                   <AgentTonesContext.Provider value={chatTones}>
