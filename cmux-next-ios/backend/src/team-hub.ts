@@ -2,7 +2,7 @@ import { DurableObject } from "cloudflare:workers"
 import { primaryProject, type Caller } from "./auth.ts"
 import type { CachedIce } from "./ice.ts"
 import type { Env } from "./env.ts"
-import { MAILBOX_HOLD_BYTES, MAILBOX_HOLD_LIMIT, MAILBOX_PAGE, MAILBOX_PENDING_LIMIT, MAILBOX_TTL_MS } from "./push.ts"
+import { MAILBOX_PENDING_LIMIT, MAILBOX_TTL_MS, MAILBOX_HOLD_BYTES, MAILBOX_HOLD_LIMIT, MAILBOX_PAGE } from "./push.ts";
 import { userTeams } from "./stack.ts"
 import { relayRoomName } from "./link-relay.ts"
 import { FIRST_GRANT, MIB, MibBucket, newTicket, RELAY_CLOSE, ticketsMatch, userMibPerMinute, type BudgetAnswer, type MibBucketState } from "./relay-access.ts"
@@ -49,6 +49,8 @@ const LINK_STAT_PATHS = new Set(["direct", "turn", "turn-tls", "https-relay", "n
 const LINK_STAT_REASONS = new Set(["first", "periodic", "path", "end"])
 const LINK_STAT_ENDS = new Set(["app", "keepalive", "transport", "other"])
 const LINK_STAT_NETS = new Set(["cellular", "other"])
+/** Which protocol mapped the Mac's endpoint (PROTOCOL.md "Mapped endpoints"). */
+const LINK_STAT_PORTMAP = new Set(["pcp", "nat-pmp", "upnp", "unknown"])
 const LINK_STAT_MARKS = new Set([
   "signaling_open",
   "signaling_reused",
@@ -113,6 +115,11 @@ export function linkStatLine(f: Record<string, unknown>, kind: Attachment["kind"
   const end = reason === "end" ? word(f.end, LINK_STAT_ENDS) : undefined
   if (end) line.end = end
   if (typeof f.lib === "string" && LIB_VERSION.test(f.lib)) line.lib = f.lib
+  if (typeof f.portmap === "object" && f.portmap !== null) {
+    const p = f.portmap as Record<string, unknown>
+    const by = word(p.by, LINK_STAT_PORTMAP)
+    if (by && typeof p.used === "boolean") Object.assign(line, { portmapBy: by, portmapUsed: p.used })
+  }
   // Keystroke round trips (PROTOCOL.md "Link stats", `echo`, `ack`, `spikes`): flattened as `rtt` is.
   for (const [field, prefix] of [["echo", "echo"], ["ack", "ack"]] as const) {
     const k = f[field]
