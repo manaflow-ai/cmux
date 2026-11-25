@@ -105,9 +105,11 @@ test("a place whose slots are all held lists the holders by title; a place with 
   const name = container.querySelector<HTMLElement>(".acpmux-hybrid-tri__name, [aria-haspopup]");
   expect(name).not.toBeNull();
   await act(async () => name!.click());
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
-  const titles = [...container.ownerDocument.querySelectorAll(".acpmux-hybrid-holder__title")].map(
-    (row) => row.textContent,
-  );
+  // The popover mounts a macrotask or two after the click: yield until its rows are in the document.
+  const rows = () => [...container.ownerDocument.querySelectorAll(".acpmux-hybrid-holder__title")];
+  for (let turn = 0; turn < 200 && rows().length === 0; turn++) {
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  }
+  const titles = rows().map((row) => row.textContent);
   expect(titles).toEqual(["Port the settings page"]);
 });
