@@ -7,7 +7,7 @@
   "appearance.theme": "Builtin Dark",
   // The window, sidebar and pages take that theme too, over an App Theme of your own.
   "appearance.appTheme": "followTerminal",
-  "colors": { "background": "#120e0c", "foreground": "#f5ede6", "selection": "#2a201b", "accent": "#e0874f" },
+  "colors": { "background": "#120e0c", "foreground": "#f5ede6", "selection": "#7f736d", "accent": "#e0874f" },
   "appearance.accent": "neutral",
   // Pending cmux#46516: the selected sidebar row is a gray card, as in the reference; Send and links
   // keep the accent.

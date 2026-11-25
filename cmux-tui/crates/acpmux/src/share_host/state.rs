@@ -5,7 +5,7 @@
 use super::{NotRunning, records};
 use cmux_hub_host::hub::Hub;
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use tokio::sync::mpsc::UnboundedSender;
@@ -50,6 +50,8 @@ pub(crate) struct Shared {
     devices: Mutex<HashMap<String, String>>,
     /// The hub's other devices as screens, from the last `GET /v1/devices`; None before a read.
     screens: Mutex<Option<Vec<HubScreen>>>,
+    /// The share approval nonces this daemon took (`approval.rs`): each tap admits once.
+    seen_approvals: Mutex<HashSet<String>>,
 }
 
 /// One of the device hub's records other than this device's: a machine's screen host.
@@ -101,6 +103,7 @@ impl Shared {
             app: Mutex::new(AppNotes::default()),
             devices: Mutex::new(HashMap::new()),
             screens: Mutex::new(None),
+            seen_approvals: Mutex::new(HashSet::new()),
         })
     }
 
@@ -190,6 +193,14 @@ impl Shared {
                 "online": s.online, "screenShared": s.shared}),
             None => json!({"listed": false}),
         })
+    }
+
+    /// Runs `decide` with the taken approval nonces, one approval at a time.
+    pub(crate) fn with_seen_approvals<T>(
+        &self,
+        decide: impl FnOnce(&mut HashSet<String>) -> T,
+    ) -> T {
+        decide(&mut lock(&self.seen_approvals))
     }
 
     /// The hub's platform of device `id`, when listed.

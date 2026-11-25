@@ -26,12 +26,10 @@ struct AgentTabContent {
         let focused = pane.workspace?.focus.state.pane
         // A Mac tab that shows a Cloud chat in place (CloudFrontedChats) draws that chat's page, and its files and machine are the chat's.
         let front = services.agentTabs.frontedChats.front(of: AgentTabKey(machine: pane.daemon.machineID, key: key)), chat = front?.key ?? key, machine = front?.machine ?? pane.daemon.machineID
-        let deferred = services.agentTabs.deferAtLaunch(
+        let deferred = (services.agentTabs.existingView(chat, machine: machine) == nil && pane.defersPageUntilFrame(key)) || services.agentTabs.deferAtLaunch( // no page before the first frame: its last frame until then
             chat, machine: machine, reveal: services.launchReveal, focusedPane: focused, pane: pane.paneKey,
             focusedDraws: focused.flatMap { key in pane.workspace?.panes.values.first { $0.paneKey == key } }?.showsLiveTerminal ?? false
-        ) { [weak pane] in
-            if let pane, pane.currentTabKey == key { pane.showSelected() }
-        }
+        ) { [weak pane] in if let pane, pane.currentTabKey == key { pane.showSelected() } }
         if deferred {
             drawLastPage(key, until: nil)
             return nil
@@ -49,6 +47,7 @@ struct AgentTabContent {
             if target == .tab { return pane.services.linkOpener.openFile(url, from: pane) }
             return pane.services.registry.openAgentFile(path: url.path, target: target, pane: pane.paneKey, machineID: machine, line: line)
         }
+        view.model.onEditorsList = { [weak pane] in pane?.services.editorCatalog.pageList() ?? ["default": NSNull(), "others": [Any]()] }
         view.model.onOpenMachineFile = { [weak pane] path in guard let pane, case let tabs = pane.services.agentTabs, tabs.remoteMachineID(of: chat, machine: machine) != nil, let daemon = tabs.daemon(for: tabs.resolvedKey(tabs.tabKey(chat, machine: machine))), !daemon.isLocal, case let link = pane.services.agentGit.link(for: daemon), await !link.reachesThroughLink(path) else { return false }
             if (try? await link.stat(path))?.isFolder == true { pane.services.viewers.fileTrees.openBeside(folder: URL(fileURLWithPath: path, isDirectory: true), chat: chat, target: nil, link: link, machine: daemon); return true }
             return pane.services.linkOpener.openFile(URL(fileURLWithPath: path, isDirectory: false), on: daemon, from: pane, noFollow: true) }

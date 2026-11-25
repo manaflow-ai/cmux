@@ -6,6 +6,7 @@
 import { describe, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
 import { NEXT_STEP, turnView } from "./turns";
+import { wrapUpAsk } from "./wrapUp";
 
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow =>
@@ -118,5 +119,66 @@ describe("a running turn's card", () => {
       return reads - without;
     };
     expect(extra(200)).toBe(extra(10));
+  });
+});
+
+describe("a wrap-up after the person steered in", () => {
+  // Fold fuzz seed 59: the steers landed while the answer streamed, the card drew under them while
+  // the turn ran, and the turn's end put it under the answer, 460 px up past both steers.
+  test("draws under the reply, above the steers, where the ended turn keeps it", () => {
+    const rows = [
+      ...asked,
+      row("st1", "user", { text: "Also check the nightly.", steer: "landed" }),
+      row("st2", "user", { text: "And the docs.", steer: "landed" }),
+      wrapUp("completed"),
+    ];
+    const order = (shown: readonly AcpmuxRow[]) =>
+      shown.filter((each) => ["a1", "st1", "st2"].includes(each.id) || each.kind === NEXT_STEP).map((each) => each.id);
+    const live = order(turnView(rows, new Set(), { working: true }));
+    const ended = order(turnView([...rows, row("s1", "turnSummary", { status: "completed" })], new Set()));
+    expect(live).toEqual(["a1", `${NEXT_STEP}-p1`, "st1", "st2"]);
+    expect(ended).toEqual(live);
+  });
+});
+
+describe("a wrap-up call that names its fields otherwise", () => {
+  // cmuxterm-hq#18786: calls sent `summary` for `recap`; the tool takes it, so the card draws it.
+  test("draws summary as the recap and question/options as the ask", () => {
+    const tool = (input: unknown) =>
+      ({
+        id: "w",
+        title: "mcp__acpmux__wrap_up",
+        kind: "other",
+        status: "completed",
+        inputSummary: JSON.stringify(input),
+      }) as never;
+    expect(wrapUpAsk(tool({ summary: "The scheduler grant works end to end." }))?.recap).toBe(
+      "The scheduler grant works end to end.",
+    );
+    const ask = wrapUpAsk(tool({ recap: "Done.", summary: "Other.", question: "Open a PR?", options: ["Yes", "No"] }));
+    expect([ask?.recap, ask?.question, ask?.options.map((option) => option.label)]).toEqual([
+      "Done.",
+      "Open a PR?",
+      ["Yes", "No"],
+    ]);
+  });
+});
+
+describe("a wrap-up after the person steered in", () => {
+  // Fold fuzz seed 59: the steers landed while the answer streamed, the card drew under them while
+  // the turn ran, and the turn's end put it under the answer, 460 px up past both steers.
+  test("draws under the reply, above the steers, where the ended turn keeps it", () => {
+    const rows = [
+      ...asked,
+      row("st1", "user", { text: "Also check the nightly.", steer: "landed" }),
+      row("st2", "user", { text: "And the docs.", steer: "landed" }),
+      wrapUp("completed"),
+    ];
+    const order = (shown: readonly AcpmuxRow[]) =>
+      shown.filter((each) => ["a1", "st1", "st2"].includes(each.id) || each.kind === NEXT_STEP).map((each) => each.id);
+    const live = order(turnView(rows, new Set(), { working: true }));
+    const ended = order(turnView([...rows, row("s1", "turnSummary", { status: "completed" })], new Set()));
+    expect(live).toEqual(["a1", `${NEXT_STEP}-p1`, "st1", "st2"]);
+    expect(ended).toEqual(live);
   });
 });

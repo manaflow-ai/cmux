@@ -17,7 +17,7 @@ crate, a Swift module; any other file alone), and taking a piece out is the comm
                           web or daemon piece swaps out live; `cmux app try undo` swaps it back in)
 
 The post-merge batch (scripts/ci/post_merge_batch.py, .github/workflows/cmux-next-post-merge.yml) calls this when its
-bisect names one first-red commit. When every piece is in a class .github/piece-swap.json lists (only `drill` ships):
+bisect names one first-red commit. When every piece is in a class .github/piece-swap.json lists (`drill`, `web-ui`, `rust-core`):
   1. suspects: only pieces the red suite's own paths read (the batch calls a suite only for those paths);
   2. drill down: one probe run of the red job per step at the commit with half the suspects swapped out; green means
      the bad piece is in the half that is out. log2(pieces) runs name the one piece;

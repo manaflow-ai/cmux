@@ -9,7 +9,9 @@ public import Foundation
 /// --json`, which reads the agents' own folders (and Codex's own app-server). Edit opens the file
 /// in cmux's editor, Reveal shows it in Finder, and the switch runs `cmux agent-config skills
 /// on|off FILE`, which writes the agent's own setting. The CLI owns every read and write; this type
-/// relays. Nothing runs until the page asks, and a write runs only on the person's click. With the
+/// relays. Nothing runs until the page asks, and a write runs only on the person's click. New Command
+/// runs `cmux agent-config commands add NAME --prompt TEXT --agent A`, which saves the prompt as a
+/// slash command in the agent's own folder or cmux's saved prompts (every chat's `/` menu). With the
 /// Labs switch off the card has nothing (`enabled: false`) and no CLI runs.
 @MainActor
 public final class SettingsAgentSkills: PageProvider {
@@ -29,6 +31,10 @@ public final class SettingsAgentSkills: PageProvider {
     private var problem: String?
     /// The CLI's refusal of the last switch, in its own words, with the file it was for.
     private var refusal: (path: String, message: String)?
+    /// The command New Command last saved (`agent`, `invocation`, `path`), as the CLI printed it.
+    private var added: JSONValue = .null
+    /// The refusal path of a New Command the CLI refused (the page's `NEW_COMMAND`).
+    static let newCommandPath = "new-command"
     private var generation = 0
 
     /// `workingFolder`: the folder whose project skills count (the focused terminal's), nil for the
@@ -68,6 +74,7 @@ public final class SettingsAgentSkills: PageProvider {
             "counts": listing["counts"] ?? .null,
             "elapsedMs": listing["elapsedMs"] ?? .null,
             "refusal": refusal.map { ["path": .string($0.path), "message": .string($0.message)] } ?? .null,
+            "added": added,
         ]
     }
 
@@ -94,11 +101,38 @@ public final class SettingsAgentSkills: PageProvider {
             }
             if let folder = workingFolder() { arguments += ["--cwd", folder.path(percentEncoded: false)] }
             let path = file.path(percentEncoded: false)
-            if let reply = try? await runCLI(cli, arguments, [:]) {
+            if let reply = try? await awaitConcurrently({ [arguments] in try await runCLI(cli, arguments, [:]) }) {
                 refusal = await Self.refusal(reply).map { (path: path, message: $0) }
             } else {
                 // No answer at all is a refusal with no words of its own.
                 refusal = (path: path, message: "")
+            }
+            await refresh()
+        case "add":
+            guard context.userGesture || context.isConfirmedUser else {
+                throw PageError(code: PageNativeOp.userOnlyCode, message: "add needs a click in the page")
+            }
+            guard let agent = params["agent"]?.stringValue, ["claude", "codex", "cmux"].contains(agent),
+                  let name = params["name"]?.stringValue, !name.isEmpty,
+                  let prompt = params["prompt"]?.stringValue
+            else { throw PageError.invalidParams("add needs agent (claude, codex or cmux), name and prompt") }
+            guard let cli = await cli() else { throw PageError(code: "cmux.page.unavailable", message: "no bundled cmux CLI") }
+            // The CLI checks the name and the prompt (each flag's value is taken as is, `--json` too).
+            var arguments = ["agent-config", "commands", "add", name, "--agent", agent, "--prompt", prompt]
+            if let description = params["description"]?.stringValue, !description.isEmpty {
+                arguments += ["--description", description]
+            }
+            arguments.append("--json")
+            if let reply = try? await awaitConcurrently({ [arguments] in try await runCLI(cli, arguments, [:]) }) {
+                if let message = await Self.refusal(reply) {
+                    refusal = (path: Self.newCommandPath, message: message)
+                } else {
+                    refusal = nil
+                    let saved = await Self.lastJSON(reply.1)?["command"]
+                    added = saved.map { ["agent": $0["agent"] ?? .null, "invocation": $0["invocation"] ?? .null, "path": $0["path"] ?? .null] } ?? .null
+                }
+            } else {
+                refusal = (path: Self.newCommandPath, message: "")
             }
             await refresh()
         default:
@@ -127,7 +161,7 @@ public final class SettingsAgentSkills: PageProvider {
         loading = true
         var arguments = ["agent-config", "skills", "list", "--json"]
         if let folder = workingFolder() { arguments += ["--cwd", folder.path(percentEncoded: false)] }
-        let reply = try? await runCLI(cli, arguments, [:])
+        let reply = try? await awaitConcurrently({ [arguments] in try await runCLI(cli, arguments, [:]) })
         guard mine == generation else { return }
         loading = false
         guard let reply, reply.0 == 0, let value = await Self.lastJSON(reply.1), value["skills"]?.arrayValue != nil else {

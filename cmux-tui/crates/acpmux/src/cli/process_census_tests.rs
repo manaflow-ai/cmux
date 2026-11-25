@@ -199,3 +199,78 @@ fn a_live_process_with_no_host_nonce_names_no_host_lock() {
     assert_eq!(state, "in-use");
     assert!(!reason.contains("live lock"), "{reason}");
 }
+
+#[test]
+fn only_the_daemons_no_session_refusal_reads_gone() {
+    // A session the daemon does not hold reads `gone` in `acpmux ps --json`, as in the socket
+    // census; a name that merely contains the words, or any other failure, stays unknown.
+    assert!(is_no_session(&crate::session_name::not_found("ab12", &[])));
+    assert!(is_no_session(&crate::session_name::not_found("ab", &["ab12".to_owned()])));
+    assert!(!is_no_session(&crate::rpc::RpcError::internal("no session matches \"x\"")));
+    assert!(!is_no_session(&crate::rpc::RpcError::not_found("no prompt pending; no_session")));
+    assert!(!is_no_session(&crate::rpc::RpcError::internal("timed out")));
+}
+
+#[test]
+fn ps_and_gc_read_gone_from_the_same_refusal() {
+    // What `Client::request` returns for a daemon refusal: the one shape both `ps`
+    // (`session_info`) and `gc` (`process_owner::session_status`) read `gone` from.
+    let gone =
+        anyhow::Error::new(crate::client::DaemonError(crate::session_name::not_found("x", &[])));
+    assert!(refused_as_no_session(&gone));
+    let timeout =
+        anyhow::Error::new(crate::client::DaemonError(crate::rpc::RpcError::internal("timed out")));
+    assert!(!refused_as_no_session(&timeout));
+    assert!(!refused_as_no_session(&anyhow::anyhow!("no session matches \"x\"")));
+}
+
+fn census_with_argv(rows: usize, arg_bytes: usize) -> Value {
+    let row = |pid: usize| {
+        json!({"pid": pid, "owner": "left-behind", "state": "orphaned", "reason": "its host ended",
+            "argv": ["node", "x".repeat(arg_bytes), "--flag", "€".repeat(arg_bytes / 3)]})
+    };
+    json!({
+        "product": "acpmux",
+        "summary": {"processes": rows},
+        "processes": (0..rows).map(row).collect::<Vec<_>>(),
+        "gc": {"candidates": (0..rows).map(row).collect::<Vec<_>>(), "refused": []},
+    })
+}
+
+#[test]
+fn a_census_that_fits_goes_whole() {
+    let mut census = census_with_argv(3, 64);
+    let before = census.clone();
+    assert!(fit_census(&mut census, 1 << 20));
+    assert_eq!(census, before);
+}
+
+#[test]
+fn a_census_too_large_for_one_reply_cuts_command_lines_and_keeps_every_row() {
+    let mut census = census_with_argv(40, 64 << 10);
+    let budget = 256 << 10;
+    assert!(serde_json::to_string(&census).unwrap().len() > budget);
+    assert!(fit_census(&mut census, budget));
+    assert!(serde_json::to_string(&census).unwrap().len() <= budget);
+    let rows = census["processes"].as_array().unwrap();
+    assert_eq!(rows.len(), 40, "no row is dropped");
+    assert_eq!(census["gc"]["candidates"].as_array().unwrap().len(), 40);
+    for row in rows {
+        assert_eq!(row["state"], "orphaned");
+        assert_eq!(row["reason"], "its host ended");
+    }
+    let cut = rows.iter().find(|r| r["argv"].as_array().unwrap().len() == 5).expect("a cut row");
+    let argv = cut["argv"].as_array().unwrap();
+    assert_eq!(argv[0], "node");
+    assert!(argv[1].as_str().unwrap().len() <= 256);
+    assert!(argv[3].as_str().unwrap().len() <= 256, "cut on a char boundary");
+    assert!(argv[4].as_str().unwrap().starts_with("... ("));
+    assert_eq!(census["omitted"]["reason"], "too_large");
+    assert!(census["omitted"]["argvTrimmed"].as_u64().unwrap() > 0);
+}
+
+#[test]
+fn a_census_that_cannot_fit_even_cut_is_refused() {
+    let mut census = census_with_argv(4000, 512);
+    assert!(!fit_census(&mut census, 64 << 10));
+}

@@ -70,7 +70,7 @@ existing custom bindings before applying. A later file binding wins a collision.
 Once this branch is published, the standalone setup is installable with:
 
 ```sh
-cmux setup install github.com/manaflow-ai/cmux/examples/looks/rex/tabs@lane/rex-feature-looks
+cmux setup install github.com/manaflow-ai/cmux/examples/looks/rex/tabs@feat-cmux-next
 cmux setup remove manaflow-ai/rex-tabs
 ```
 

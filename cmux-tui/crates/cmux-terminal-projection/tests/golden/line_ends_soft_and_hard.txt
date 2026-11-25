@@ -1,0 +1,44 @@
+# line_ends_soft_and_hard: soft wraps join and re-wrap; hard line ends stay; rows exactly at the Mac's and the phone's width
+# Mac pane 120x24, phone 54x38
+
+## soft and hard line ends
+### Mac
+grid 120x24
+s   0|$ echo long|
+s   1|abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnop|↩
+s   2|qrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdef|↩
+s   3|ghijklmnop|
+s   4|XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX|
+s   5|YYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY|
+s   6|ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ|
+s   7|trailing spaces kept out|
+s   8||
+s   9|after an empty line|
+s  10|WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW|↩
+s  11|w-continues|
+s  12|$|
+  (11 blank rows)
+cursor col 2 row 12
+### phone
+grid 54x38
+s   0|$ echo long|
+s   1|abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzab|↩
+s   2|cdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcd|↩
+s   3|efghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdef|↩
+s   4|ghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyzabcdefgh|↩
+s   5|ijklmnopqrstuvwxyzabcdefghijklmnop|
+s   6|XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX|↩
+s   7|XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX|↩
+s   8|XXXXXXXXXXXX|
+s   9|YYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY|
+s  10|ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ|↩
+s  11|Z|
+s  12|trailing spaces kept out|
+s  13||
+s  14|after an empty line|
+s  15|WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW|↩
+s  16|WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW|↩
+s  17|WWWWWWWWWWWWw-continues|
+s  18|$|
+  (19 blank rows)
+cursor col 2 row 18

@@ -37,6 +37,7 @@ import argparse, fcntl, glob, json, os, shutil, signal, socket, subprocess, sys,
 import re
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import home_classic  # noqa: E402
+from state_wait import wait_until  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -263,11 +264,11 @@ def late_turn(conversation, session):
     draft("turn:late:a", 1, "Alpha streaming")
     a_shown = shown("turn:late:a", "Alpha streaming")
     snap("a-shown")
-    time.sleep(1)  # the draft gate's per-turn rate; B is a new turn
+    time.sleep(1)  # sleep-ok: rate pacing, the daemon's draft gate takes one new turn per 1 s; B is a new turn
     draft("turn:late:b", 1, "Beta streaming")
     b_shown = shown("turn:late:b", "Beta streaming")
     snap("b-shown")
-    time.sleep(1)
+    time.sleep(1)  # sleep-ok: rate pacing, the draft gate's 1 s gap before turn A's late items
     # The late items must reach Home (a refusal by the daemon's draft gate
     # would prove nothing): each is retried after the gate's gap, and the
     # outcome is recorded.
@@ -281,6 +282,7 @@ def late_turn(conversation, session):
             except RuntimeError as refusal:
                 late.append({"seq": seq, "refused": str(refusal)[:200]})
                 time.sleep(1)
+    # sleep-ok: an observation window; the pass is that nothing changes (turn A never comes back), so no event ends it
     time.sleep(3)
     snap("after-late-a")
     final = (chief_row() or {}).get("draft") or {}
@@ -498,7 +500,13 @@ def main():
         rpc("debug.home.drive", {"action": action, **extra})
     wait(lambda: any("READY" in (m.get("text") or "") and m.get("author") == "agent_mux"
                      for m in (chief_row() or {}).get("shown_tail", [])), 180, step=1)
-    time.sleep(3)
+    # The warm-up turn has ended: the Chief stopped typing and no draft or live run is left.
+    def warmup_ended():
+        row = chief_row() or {}
+        return "agent_mux" not in row.get("typing", []) and not row.get("draft") and not row.get("live")
+    if not wait_until(warmup_ended, "the warm-up turn to end (typing off, no draft, no live run)", timeout=30,
+                      raise_on_timeout=False):
+        print("the warm-up turn still shows typing, a draft or a live run; measuring anyway", flush=True)
 
     stop = threading.Event()
     t0 = time.time()
@@ -592,7 +600,7 @@ def main():
     for action, extra in (("focus", {}), ("type", {"text": PROMPT}), ("send", {})):
         rpc("debug.home.drive", {"action": action, **extra})
     wait(lambda: samples and samples[-1]["posted"] > posted_before, opts.timeout, step=0.25)
-    time.sleep(2)
+    time.sleep(2)  # sleep-ok: a recording window, 2 s of samples after the post for the hand-off's settled row
     stop.set()
     for thread in threads:
         thread.join(timeout=15)

@@ -1,0 +1,47 @@
+{
+  "caption": "Type run a pr in the Command Palette, then give it a pull request, branch or commit to swap this cmux to that build.",
+  "frameInterval": 0.25,
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2
+    },
+    {
+      "title": "Open the Command Palette",
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "palette.open",
+          "focus": true
+        }
+      },
+      "wait": 1.5,
+      "clip": true
+    },
+    {
+      "title": "Type run a pr",
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "palette.open",
+          "args": {
+            "query": "run a pr"
+          },
+          "focus": true
+        }
+      },
+      "wait": 2,
+      "clip": true
+    },
+    {
+      "title": "End",
+      "wait": 0.3
+    }
+  ],
+  "crop": [
+    0.17,
+    0.13,
+    0.66,
+    0.7
+  ]
+}
