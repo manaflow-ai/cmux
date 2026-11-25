@@ -5,46 +5,84 @@ import SwiftUI
 import Testing
 import UIKit
 
-/// Diagnostic only (#47189 r8, not for the PR): which container makes every visible Subagents
-/// row evaluate on one subagent's change. Each variant prints per-change row evaluations.
+/// Diagnostic only (#47189 r8, not for the PR), round 2: List, Button and equatable each evaluate
+/// one row per change; which part of the real SubagentsScreen makes every visible row evaluate. Each variant prints per-change row evaluations.
 @MainActor
 @Suite(.serialized, .timeLimit(.minutes(1))) struct SubagentRowDiagTests {
     init() { HostedTestWatchdog.start() }
 
-    enum Variant: String, CaseIterable, Sendable { case listButton, listPlain, lazyButton, lazyPlain, listButtonNoEquatable, listIDs }
+    enum Variant: String, CaseIterable, Sendable { case real, realNoReceiver, realNoDestination, realNoOverlay, realStructEntries, realPlainAction, realStoreAgents }
 
     struct Screen: View {
         let store: AgentChatStore
         let variant: Variant
+        @State private var selected: String?
+        @State private var order = SubagentOrderMemo()
+
+        struct Entry: Identifiable, Equatable {
+            var agent: AgentSubagent
+            var depth: Int
+            var id: String { agent.id }
+        }
+
         var body: some View {
             switch variant {
-            case .listButton:
-                List { ForEach(store.subagents) { a in Button {} label: { row(a).equatable() }.buttonStyle(.cmuxPressFill) } }.listStyle(.plain)
-            case .listPlain:
-                List { ForEach(store.subagents) { a in row(a).equatable() } }.listStyle(.plain)
-            case .lazyButton:
-                ScrollView { LazyVStack { ForEach(store.subagents) { a in Button {} label: { row(a).equatable() }.buttonStyle(.cmuxPressFill) } } }
-            case .lazyPlain:
-                ScrollView { LazyVStack { ForEach(store.subagents) { a in row(a).equatable() } } }
-            case .listButtonNoEquatable:
-                List { ForEach(store.subagents) { a in Button {} label: { row(a) }.buttonStyle(.cmuxPressFill) } }.listStyle(.plain)
-            case .listIDs:
-                List { ForEach(store.subagents.map(\.id), id: \.self) { id in Cell(store: store, id: id) } }.listStyle(.plain)
+            case .real:
+                SubagentsScreen(store: store, surface: AgentChatSurface())
+            default:
+                trimmed
             }
         }
-        func row(_ a: AgentSubagent) -> SubagentRow {
-            SubagentRow(name: a.name, subtitle: a.action ?? "", state: a.state, startedAt: a.startedAt, endedAt: a.endedAt, depth: 0)
-        }
-    }
 
-    struct Cell: View {
-        let store: AgentChatStore
-        let id: String
-        var body: some View {
-            if let a = store.subagent(id) {
-                SubagentRow(name: a.name, subtitle: a.action ?? "", state: a.state, startedAt: a.startedAt, endedAt: a.endedAt, depth: 0)
-                    .equatable()
+        @ViewBuilder private var list: some View {
+            List {
+                switch variant {
+                case .realStructEntries:
+                    ForEach(order.ordered(store.subagents).map { Entry(agent: $0.agent, depth: $0.depth) }) { entry in
+                        Button { selected = entry.agent.id } label: { row(entry.agent, entry.depth).equatable() }.buttonStyle(.cmuxPressFill)
+                    }
+                case .realPlainAction:
+                    ForEach(order.ordered(store.subagents), id: \.agent.id) { entry in
+                        Button {} label: { row(entry.agent, entry.depth).equatable() }.buttonStyle(.cmuxPressFill)
+                    }
+                case .realStoreAgents:
+                    ForEach(store.subagents) { agent in
+                        Button { selected = agent.id } label: { row(agent, 0).equatable() }.buttonStyle(.cmuxPressFill)
+                    }
+                default:
+                    ForEach(order.ordered(store.subagents), id: \.agent.id) { entry in
+                        Button { selected = entry.agent.id } label: { row(entry.agent, entry.depth).equatable() }.buttonStyle(.cmuxPressFill)
+                    }
+                }
             }
+            .listStyle(.plain)
+            .contentMargins(.top, 8, for: .scrollContent)
+        }
+
+        @ViewBuilder private var trimmed: some View {
+            switch variant {
+            case .realNoReceiver:
+                list.overlay { if store.subagents.isEmpty { Text("None") } }
+                    .navigationTitle("Subagents").navigationBarTitleDisplayMode(.inline)
+                    .navigationDestination(item: $selected) { Text($0) }
+            case .realNoDestination:
+                list.overlay { if store.subagents.isEmpty { Text("None") } }
+                    .chatDemoReceiver(store: store, surface: AgentChatSurface())
+                    .navigationTitle("Subagents").navigationBarTitleDisplayMode(.inline)
+            case .realNoOverlay:
+                list.chatDemoReceiver(store: store, surface: AgentChatSurface())
+                    .navigationTitle("Subagents").navigationBarTitleDisplayMode(.inline)
+                    .navigationDestination(item: $selected) { Text($0) }
+            default:
+                list.overlay { if store.subagents.isEmpty { Text("None") } }
+                    .chatDemoReceiver(store: store, surface: AgentChatSurface())
+                    .navigationTitle("Subagents").navigationBarTitleDisplayMode(.inline)
+                    .navigationDestination(item: $selected) { Text($0) }
+            }
+        }
+
+        func row(_ a: AgentSubagent, _ depth: Int) -> SubagentRow {
+            SubagentRow(name: a.name, subtitle: a.action ?? "", state: a.state, startedAt: a.startedAt, endedAt: a.endedAt, depth: depth)
         }
     }
 
