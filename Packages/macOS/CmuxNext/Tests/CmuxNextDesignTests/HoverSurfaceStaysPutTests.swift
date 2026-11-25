@@ -135,7 +135,7 @@ struct HoverSurfaceStaysPutTests {
 
     @Test func theHoverSurfacesDrawSolidByDefault() {
         #expect(HoverSurfaceLook.tunable.defaultValue == .hairline)
-        #expect(HoverSurfaceLook.solidLooks.allSatisfy(\.isSolid))
+        #expect(HoverSurfaceLook.solidLooks.allSatisfy { $0.isSolid })
         #expect(!HoverSurfaceLook.glass.isSolid, "the glass stays reachable as the setting's other value")
         HoverSurfacePin.with(.hairline) {
             let tooltip = Glass.makeTooltipGlass()
