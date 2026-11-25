@@ -39,6 +39,7 @@ cmux-bookmarks-ops = { workspace = true }
 cmux-unix-socket.workspace = true
 cmux-url-input.workspace = true
 cmux-pty.workspace = true
+cmux-terminal-host-protocol.workspace = true
 cmux-holder.workspace = true
 cmux-process.workspace = true
 # cmux Remote's stop intent: a person's Quit never respawns (remote_host/unix.rs, F17).
@@ -47,6 +48,7 @@ cmux-flow-trace.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-conversation.workspace = true
 cmux-git.workspace = true
+cmux-tag-cache.workspace = true
 cmux-classic-import.workspace = true
 cmux-conductor-import.workspace = true
 # Another browser's files for the app's browser import (resource_router/browser_import.rs).
