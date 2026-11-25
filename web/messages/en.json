@@ -996,7 +996,7 @@
         "subscribe": "Subscribe to {plan}",
         "upgrade": "Upgrade to {plan}",
         "comingSoon": "Coming soon",
-        "usageNote": "Included machine minutes reset each month and do not roll over. Machines pause when they run out; a paused machine costs only its disk.",
+        "usageNote": "Included machine minutes reset each month and do not roll over. Machines pause when they run out; a paused machine costs only its disk. Billing stops at the pause, to the second.",
         "machineMinuteNote": "A machine minute is one vCPU for one minute while a machine is awake: a 2 vCPU machine uses 2 a minute, an 8 vCPU machine 8. A paused machine uses none."
       }
     },
