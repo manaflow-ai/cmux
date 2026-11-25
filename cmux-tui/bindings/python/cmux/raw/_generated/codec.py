@@ -97,6 +97,7 @@ MODEL_BY_PATH = {
     'types/ListAgentsResult': models.ListAgentsResult,
     'types/ListTerminalsResult': models.ListTerminalsResult,
     'types/ListWorkspacesKnown': models.ListWorkspacesKnown,
+    'types/ListWorkspacesSince': models.ListWorkspacesSince,
     'types/LivePane': models.LivePane,
     'types/MachineListeningTcpResult': models.MachineListeningTcpResult,
     'types/MachinePlatform': models.MachinePlatform,
