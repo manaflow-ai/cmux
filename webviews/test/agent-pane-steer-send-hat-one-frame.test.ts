@@ -43,14 +43,18 @@ await requireBrowserLane("agent-pane-steer-send-hat-one-frame.test.ts", async ()
   const webviews = path.resolve(import.meta.dir, "..");
 
   const SESSION = "0190a000-0000-7000-8000-0000000000e3";
+  // CMUX_HAT_MODE=idle: the same send from an idle chat, a fresh prompt that starts the turn (the hat
+  // turns to working as the composer clears), instead of a steer into a running one.
+  const idle = process.env.CMUX_HAT_MODE === "idle";
+  let running = !idle;
   const summary = () => ({
     sessionId: SESSION,
     cwd: "/home/dev/sun",
     title: "Hat",
     harness: "claude",
     family: "claude",
-    status: "running",
-    steering: true,
+    status: running ? "running" : "idle",
+    steering: !idle,
     queuePaused: false,
     queued: 0,
     queue: [],
@@ -82,6 +86,8 @@ await requireBrowserLane("agent-pane-steer-send-hat-one-frame.test.ts", async ()
           },
         },
       });
+    if (idle) record("mux", "turn_result", { stopReason: "end_turn" });
+    running = !idle;
     opened = events.length;
   };
   history();
@@ -117,7 +123,26 @@ await requireBrowserLane("agent-pane-steer-send-hat-one-frame.test.ts", async ()
         const text = prompt.map((block) => block.text ?? "").join("");
         const meta = params?._meta as { acpmux?: { promptId?: string } } | undefined;
         const promptId = meta?.acpmux?.promptId ?? `p-${events.length}`;
-        setTimeout(() => push(record("mux", "user_message", { text, promptId, turnId: "turn-1", steer: true })), 60);
+        const echoMs = Number(process.env.CMUX_HAT_ECHO_MS ?? 60);
+        if (idle) {
+          setTimeout(() => {
+            running = true;
+            push(record("mux", "user_message", { text, promptId, turnId: "turn-2" }));
+            push(record("mux", "turn_started", { turnId: "turn-2" }));
+            socket?.send(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                method: "_acpmux/session_changed",
+                params: { sessionId: SESSION, session: summary(), kind: "status", seq: events.length },
+              }),
+            );
+          }, echoMs);
+          return new Promise(() => {});
+        }
+        setTimeout(
+          () => push(record("mux", "user_message", { text, promptId, turnId: "turn-1", steer: true })),
+          echoMs,
+        );
         return { stopReason: "steered" };
       }
       default:
@@ -139,8 +164,11 @@ await requireBrowserLane("agent-pane-steer-send-hat-one-frame.test.ts", async ()
         message(ws, raw) {
           const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, unknown> };
           if (message.method === "_acpmux/attach") socket = ws;
-          if (message.id !== undefined)
-            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params) }));
+          if (message.id !== undefined) {
+            const result = answer(message.method, message.params);
+            // An idle send's prompt runs its turn: no answer while the capture reads.
+            if (!(result instanceof Promise)) ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
+          }
         },
       },
     });
