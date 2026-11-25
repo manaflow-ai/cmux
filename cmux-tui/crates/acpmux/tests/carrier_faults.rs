@@ -1277,11 +1277,27 @@ async fn hub_outage_delivers_a_waiting_message_once_when_the_hub_returns() {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     // Each message once: the waiting one, and the outage send if A's outbox kept it.
-    assert_eq!(
-        info["turnCount"], turns,
-        "{turns} messages ran {} turns (outage send {outage_send}): {info}",
-        info["turnCount"]
-    );
+    if info["turnCount"] != turns {
+        let delivery =
+            sent.as_ref().ok().and_then(|r| r["deliveryId"].as_str()).unwrap_or_default();
+        let status = sender
+            .call(method::MUX_SEND_STATUS, json!({"deliveryId": delivery}))
+            .await
+            .map_or_else(|e| e.to_string(), |v| v.to_string());
+        let hub = {
+            let s = fake.state.lock().unwrap();
+            format!(
+                "keys={:?} waiting={} acks={:?}",
+                s.keys,
+                s.waiting.len(),
+                s.acks.iter().map(|(m, a)| format!("{m}:{a:?}")).collect::<Vec<_>>()
+            )
+        };
+        panic!(
+            "{turns} messages ran {} turns (outage send {outage_send}); A's status {status}; hub {hub}; B {info}",
+            info["turnCount"]
+        );
+    }
     let acked = fake.state.lock().unwrap().acks.iter().filter(|(m, _)| m == "msg_waiting").count();
     eprintln!(
         "carrier_faults row=hub-outage cut=Down redeliver_ms={} total_ms={} outage_send={outage_send}",
