@@ -121,6 +121,9 @@ export type ComposerBoxProps = {
   chips?: React.ReactNode;
   /// What ends the quiet row (the context ring).
   ring?: React.ReactNode;
+  /// Drawn centered in the quiet row, out of its flow (the chat's Customize button,
+  /// ComposerCustomizer.tsx); the row's fit never counts it.
+  footCenter?: React.ReactNode;
   /// The one send control (Send or Stop) before the mic, which keeps the right edge (the plain
   /// footer, in both looks); without the plain footer it is last (`trailing`).
   actionsLead?: React.ReactNode;
@@ -169,6 +172,7 @@ export function ComposerBox({
   leading,
   chips,
   ring,
+  footCenter,
   actionsLead,
   accessory,
   trailing,
@@ -313,6 +317,7 @@ export function ComposerBox({
       <ComposerFoot ref={bar} plain={plainFooter}>
         {shownChips}
         {ring}
+        {footCenter}
       </ComposerFoot>
     </ChromeArea>
   );

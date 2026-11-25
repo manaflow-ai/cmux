@@ -4375,6 +4375,13 @@ tip on a push) refuses a row the base lacks (a unit fixed in place does not free
 without `--base`, judges every unlisted offender and fails a row whose unit no longer offends, whatever file the
 change touched: whether a unit offends depends on files it does not live in (a strings map, a string table). Its own tests run in the same background check.
 
+The same step then prints `--input-block`: each place a view is disabled, loses hit testing or is grayed out on a
+link condition (connecting, reconnecting, reattaching, resuming, offline, disconnected, not attached, the hub not
+ready), on the web pages, the Mac app and the iOS apps (Leo, 2026-11-24, back in the iOS app after minutes in
+another app: "the entire thing is somehow grayed out and I can't interact with anything at all"). It is a report:
+it exits 0 whatever it finds, and the findings are the work queue for the lanes that make input accepted while the
+link comes back. A blocking rule for it needs Leo's own word.
+
 The cmux-next workflow does not run on a change that touches only the phone app, so `cmux-next-ios-kit.yml`'s
 kit-tests job runs the same check over the whole tree (no `--base`: every unlisted offender and every stale row
 fails; a new row is caught by the cmux-next run that any change to the list triggers). The legacy `ios/` app is not
