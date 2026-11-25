@@ -148,7 +148,7 @@ impl Hub {
         self.wake_start_retries();
         // Stop reconnecting at the fence, not after the session drain: otherwise a peer
         // could reopen ssh throughout the entire shutdown grace.
-        for peer in self.peers.lock().unwrap_or_else(std::sync::PoisonError::into_inner).values() {
+        for peer in self.peers.load().values() {
             peer.stop();
         }
     }

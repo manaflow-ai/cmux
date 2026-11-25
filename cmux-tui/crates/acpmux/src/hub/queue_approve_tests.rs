@@ -414,6 +414,59 @@ async fn an_approval_keeps_the_approvers_rules_across_a_restart() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Mango, 2026-11-25: 66 restored background notices went to the chat's inbox at every daemon
+/// start (their run answered `Ok`), but only a refusal took a restored entry out of the queue, so
+/// each start restored them again and the queue never drained. One taken without its turn now
+/// leaves the queue, logged, and a restart finds it gone; a refusal still says why.
+#[tokio::test]
+async fn a_restored_prompt_taken_without_its_turn_leaves_the_queue_for_good() {
+    let dir = std::env::temp_dir().join(format!("acpmux-restore-taken-{}", uuid::Uuid::now_v7()));
+    let durable = || {
+        let mut cfg: Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+            "defaultHarness": "fake"
+        }))
+        .unwrap();
+        cfg.store.mode = StoreMode::Local;
+        let store = crate::store::open(&cfg.store, &dir).unwrap();
+        Hub::new(cfg, store)
+    };
+    let hub = durable();
+    let (tx, rx) = mpsc::channel(8);
+    let (out_tx, mut out) = mpsc::channel(4096);
+    tokio::spawn(crate::server::serve_connection_with(
+        hub.clone(),
+        rx,
+        out_tx,
+        crate::server::Origin::Local,
+    ));
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": []});
+    tx.send(Message::request(1, method::SESSION_NEW, new).to_line()).await.unwrap();
+    let created = until(&mut out, |v| v["id"] == 1).await;
+    let id = created["result"]["sessionId"].as_str().unwrap().to_owned();
+    let session = hub.resolve(&id).unwrap();
+    insert(&hub, &session, "bg-done-1", None);
+    insert(&hub, &session, "bg-done-2", None);
+    let queued = session.queue().clone();
+    assert_eq!(queued.len(), 2);
+    let receipt = json!({"stopReason": "end_turn", "_meta": {"acpmux": {"inbox": true,
+                         "surgeHeld": true, "queued": false}}});
+    hub.settle_restored(&session, &queued[0], Ok(receipt));
+    hub.settle_restored(&session, &queued[1], Err(RpcError::invalid_params("its harness is gone")));
+    assert!(session.queue().is_empty(), "a restored prompt the inbox took stayed queued");
+    let logged = hub.events(&id, 0, 10_000).unwrap();
+    assert!(logged.iter().any(|e| e.kind == "prompt_refused" && e.msg["promptId"] == "bg-done-2"));
+    hub.shutdown_all().await;
+    drop((tx, out, session, hub));
+
+    let hub = durable();
+    let session = hub.resolve(&id).unwrap();
+    hub.restore_queue(&session);
+    assert!(session.queue().is_empty(), "a restart restored a prompt already taken");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A hub whose session store is memory, for tests that queue prompts directly.
 fn memory_hub() -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({

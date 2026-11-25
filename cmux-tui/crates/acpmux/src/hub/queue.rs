@@ -1671,24 +1671,50 @@ impl Hub {
                     }
                     prompt_ledger::prune(&mut ledger);
                     drop(ledger);
-                    // Refused before its turn (its harness is gone, or it may not start under
-                    // the chat's control): it leaves the queue, so the prompts behind it still
-                    // run, and its `prompt_refused` says why, so it never just disappears. Only
-                    // this copy: a turn that ran it and failed may have put it back under a new
-                    // turn id (`digest.rs` `requeue_unread`), and that one waits on.
-                    let waiting = || {
-                        let queue = session.queue.lock().unwrap_or_else(|e| e.into_inner());
-                        queue.iter().any(|w| w.turn_id == q.turn_id)
-                    };
-                    if let Err(e) = result
-                        && waiting()
-                        && hub.remove_queued(&session, &q.prompt_id)
-                    {
-                        tracing::warn!(session = %session.id, prompt = %q.prompt_id, "restored prompt refused: {}", e.message);
-                        let msg = json!({"promptId": q.prompt_id, "turnId": q.turn_id, "client": q.client, "error": e.message, "data": e.data});
-                        hub.append(&session, "mux", "prompt_refused", msg);
-                    }
+                    hub.settle_restored(&session, &q, result);
                 });
+            }
+        }
+    }
+}
+
+impl Hub {
+    /// What a restored prompt's run `result` leaves of its queue entry (`start_restored`).
+    ///
+    /// Refused before its turn (its harness is gone, or it may not start under the chat's
+    /// control): it leaves the queue, so the prompts behind it still run, and its
+    /// `prompt_refused` says why, so it never just disappears. Taken without its turn (another
+    /// agent's message the chat's inbox, its surge or a hold took): it leaves the queue too,
+    /// logged, so the next restore does not run it again. Before, only a refusal took it out:
+    /// Mango's 66 background notices went to its inbox again at every daemon start and its queue
+    /// never drained (2026-11-25). Only this copy: a turn that ran it took it out already, and
+    /// one that ran it and failed may have put it back under a new turn id (`digest.rs`
+    /// `requeue_unread`), which waits on.
+    pub(super) fn settle_restored(
+        &self,
+        session: &Arc<Session>,
+        q: &QueuedPrompt,
+        result: Result<Value, RpcError>,
+    ) {
+        let waiting = || {
+            let queue = session.queue.lock().unwrap_or_else(|e| e.into_inner());
+            queue.iter().any(|w| w.turn_id == q.turn_id)
+        };
+        if !waiting() {
+            return;
+        }
+        match result {
+            Err(e) => {
+                if self.remove_queued(session, &q.prompt_id) {
+                    tracing::warn!(session = %session.id, prompt = %q.prompt_id, "restored prompt refused: {}", e.message);
+                    let msg = json!({"promptId": q.prompt_id, "turnId": q.turn_id, "client": q.client, "error": e.message, "data": e.data});
+                    self.append(session, "mux", "prompt_refused", msg);
+                }
+            }
+            Ok(_) => {
+                if self.remove_queued_because(session, &q.prompt_id, Some("taken")) {
+                    tracing::info!(session = %session.id, prompt = %q.prompt_id, "restored prompt taken without its turn: it leaves the queue");
+                }
             }
         }
     }
