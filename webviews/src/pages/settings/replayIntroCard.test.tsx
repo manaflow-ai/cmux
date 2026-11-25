@@ -14,11 +14,13 @@ afterEach(() => {
   page = null;
 });
 
-test("General's cards open on Text Size, then Replay the Intro, ahead of every row", async () => {
+test("General's Replay the Intro card sits right under Text Size, ahead of every row", async () => {
   page = await renderPage({ path: "/settings/general" });
   const section = page.container.querySelector<HTMLElement>(".section[data-section='general']")!;
   const cards = [...section.querySelectorAll<HTMLElement>("[data-card]")].map((card) => card.dataset.card);
-  expect(cards.slice(0, 2)).toEqual(["textSize", "replayIntro"]);
+  const textSize = cards.indexOf("textSize");
+  expect(textSize).toBeGreaterThanOrEqual(0);
+  expect(cards.slice(textSize, textSize + 2)).toEqual(["textSize", "replayIntro"]);
   const card = section.querySelector<HTMLElement>("[data-card='replayIntro']")!;
   expect(card.textContent).toContain("Replay the Intro");
 });

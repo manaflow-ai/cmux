@@ -162,6 +162,40 @@ fn a_name_no_machine_has_is_made_once_and_waited_on() {
     // A session that answered no id is the name it was started with.
     assert!(answer["session_id"].as_str().unwrap().starts_with("chat-"), "{answer}");
     assert_eq!(cloud.asked.iter().filter(|a| a.starts_with("create lane-x")).count(), 1);
+    // The fake says nothing of a claim: the answer says so rather than guessing.
+    assert_eq!(answer["machine_origin"], json!({"from": "unknown"}), "{answer}");
+}
+
+#[test]
+fn an_existing_machine_answers_that_it_existed() {
+    let asked = request(&["--name", "dev"]);
+    let mut inner = Fake::new(vec![]);
+    let mut cloud = FakeCloud {
+        rows: vec![row("vm-1", "dev", "running", Some("h-1"))],
+        asked: Vec::new(),
+        execs: VecDeque::from([out("@@session s\n"), out("@@cwd\n")]),
+        commands: Vec::new(),
+    };
+    let done = run(&mut DirectRunner { inner: &mut inner, cloud: &mut cloud }, &asked);
+    let Outcome::Done(answer) = done else { panic!("{done:?}") };
+    assert_eq!(answer["machine_origin"], json!({"from": "existing"}), "{answer}");
+}
+
+#[test]
+fn spare_origin_reads_the_create_answer_claim() {
+    use super::super::direct::spare_origin;
+    let spare = json!({"machine": {}, "spare_path": "running", "spare_fallback": null,
+        "claim": {"path": "running", "fallback": null, "ms": 412}});
+    assert_eq!(spare_origin(&spare), json!({"from": "spare", "path": "running", "claim_ms": 412}));
+    let resumed = json!({"claim": {"path": "resumed", "fallback": null, "ms": 1900}});
+    assert_eq!(spare_origin(&resumed)["from"], "spare");
+    let fresh = json!({"spare_fallback": "no_spare", "claim": {"path": "created", "fallback": "no_spare", "ms": 30}});
+    assert_eq!(
+        spare_origin(&fresh),
+        json!({"from": "fresh", "path": "created", "fallback": "no_spare", "claim_ms": 30})
+    );
+    // An answer with no claim (a replay, a caller the platform hands no spare).
+    assert_eq!(spare_origin(&json!({"machine": {}})), json!({"from": "unknown"}));
 }
 
 #[test]
