@@ -110,9 +110,10 @@ const SECRET_PATHS: &[&str] = &[
     ".codex/auth.json",
     ".claude/.credentials.json",
     ".config/gh/hosts.yml",
-    ".config/cmux/auth.json",
     ".docker/config.json",
 ];
+/// cmux's sign-in, `.config/<dir>/auth.json`, never goes, in Classic's folder or NEXT's own.
+const CMUX_CONFIG_DIRS: &[&str] = &["cmux", "cmux-next"];
 /// Folders whose files never go from a shared folder.
 const SECRET_FOLDERS: &[&str] =
     &[".ssh", ".aws", ".gnupg", ".kube", ".docker", ".azure", "gcloud", ".gem", ".cargo"];
@@ -120,7 +121,10 @@ const SECRET_FOLDERS: &[&str] =
 /// Whether the file at `relative` (in a shared folder) is a secret file.
 pub(super) fn is_secret(relative: &str) -> bool {
     let folded = relative.to_ascii_lowercase();
-    if SECRET_PATHS.iter().any(|path| folded == *path || folded.ends_with(&format!("/{path}"))) {
+    let ends = |path: &str| folded == path || folded.ends_with(&format!("/{path}"));
+    if SECRET_PATHS.iter().any(|path| ends(path))
+        || CMUX_CONFIG_DIRS.iter().any(|dir| ends(&format!(".config/{dir}/auth.json")))
+    {
         return true;
     }
     let mut names = relative.split('/').peekable();

@@ -278,6 +278,9 @@ struct CloudStartSession {
         do {
             let tabs = services.agentTabs
             await Self.trust(copy, surface: opened.surface.rawValue, on: session) // before the start, as the composer's: it refuses an untrusted folder
+            let credentials = tabs.cloudCredentials, logger = services.cloud.logger, model = request.model // the start's agent warms now (its own `~/chats/<id>` with no folder), beside the tab's listing and the start's connect, after the approvals' keyed restart that would end it; the start's own values (AgentTabs.runRemoteStart), so it takes it (cmux#45953)
+            CloudAgentPrewarm.begin(cwd: cwd, harness: agent, model: model, mode: nil, supports: { daemon.supports($0) }, surface: opened.surface.rawValue, endpoint: AgentTabRemoteHost.endpoint(on: daemon), ownerLink: CloudMachineLinks(appLink: session.appLink).ownerLink,
+                                    permissionMode: tabs.startPermissionMode(), credentials: { (try? await credentials?.launchCredential(chat: opened.key, machine: id, harness: agent, model: model))?.env }) { logger.info("cloud start-session prewarm: \($0, privacy: .public)") }
             // The start reads the tab as the machine's tree lists it (`tabKey` is the store's id); a slow link lists it late, so 60 s, not 10 (a working start failed "not connected").
             let listed = await CloudWait.holds(within: .seconds(60)) { [services] in services.locateTab(tabKey, onMachine: id) != nil }
             try Self.check(account, now: services.cloud.account, request.asked(machine: name))
