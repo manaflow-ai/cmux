@@ -231,7 +231,7 @@ struct Made {
 
 impl Made {
     /// git in the store with `work` as the work tree and `index` as the index.
-    fn git(&self, work: &Path, index: &Path) -> git::Command {
+    fn git(&self, work: &Path, index: &Path) -> git::GitCommand {
         let mut command = git::bare(&self.store);
         command.arg("--work-tree").arg(work).env("GIT_INDEX_FILE", index);
         command.args(["-c", "core.untrackedCache=false", "-c", "core.bare=false"]);
@@ -528,7 +528,7 @@ impl Drop for ScratchIndex {
     }
 }
 
-fn run(command: &mut git::Command, what: &str) -> Result<(), String> {
+fn run(command: &mut git::GitCommand, what: &str) -> Result<(), String> {
     git::output(command).map(drop).map_err(|error| format!("{what}: {error}"))
 }
 
