@@ -1361,7 +1361,6 @@ impl Peer {
                 }
                 // The replacement dialed for a silent link (`replacing`) opened first.
                 opened = pending_or(&mut replacing) => {
-                    replacing = None;
                     match opened {
                         Ok(opened) => {
                             tracing::info!(peer = %self.name, via = opened.0.as_str(), "a replacement opened while the link sat silent; moving the link to it");
