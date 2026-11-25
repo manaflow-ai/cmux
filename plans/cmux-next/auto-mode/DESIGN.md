@@ -416,10 +416,14 @@ Known limits of the store's rules:
   conversation records are not in the chat: the machine never had them, and the laptop's log is replaced by the
   store's copy when the chat comes home. The exception is a prompt the person queued there that had not started:
   the laptop sends it to the chat's Cloud inbox when it learns another holder has the chat, and once more before
-  it brings the Cloud's copy in, under the prompt's own id, so the holder runs it once. Not sent: a prompt whose
-  turn had started on the laptop (its work is in the leftover patch), one with no text, one whose id the store
-  does not take, an inbox message the laptop had taken and acked moments before it dropped off, and anything
-  queued before a laptop daemon restart that no copy followed (the daemon then does not know what the store has).
+  it brings the Cloud's copy in, under the prompt's own id, so the holder runs it once. A prompt that waits
+  behind a turn that failed is sent too: a laptop with no network fails its turn, and losing the chat kills the
+  turn that ran. The holder refuses an id its log already has, so a prompt the store did have is not run twice.
+  Only the prompt's text is sent: an image or a file attached to it is not. Not sent: a prompt whose turn had
+  started on the laptop (its work is in the leftover patch), one with no text, one the store refuses (over
+  256 KiB, or an id it does not take; the prompts behind it still go), an inbox message the laptop had taken
+  and acked moments before it dropped off, and anything queued after a laptop daemon restart before the store
+  first answered it as the chat's holder (until then the daemon does not know what the store has).
 - `delivered` to a laptop holder means the store took the message for a holder whose lease is live. A laptop that
   has just gone to sleep reads it when it wakes, or the machine does after the takeover.
 

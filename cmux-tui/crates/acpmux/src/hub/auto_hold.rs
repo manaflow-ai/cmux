@@ -335,9 +335,10 @@ impl Hub {
     /// The person's prompts that wait in the chat's queue and were put there after record
     /// `after`: `(prompt id, text)`, in the queue's order. With `after` the last record of this
     /// machine's log that the store has, these are the prompts the Cloud's copy of the chat
-    /// never had. Left out: what the daemon or another agent queued, a message that came from
-    /// the Cloud inbox, a prompt that waits for its owner or behind a failed turn, and one
-    /// with no text. Blocking: it reads the log.
+    /// never had. One that waits behind a failed turn is among them: a laptop with no network
+    /// fails its turn, and losing the chat kills the turn that ran. Left out: what the daemon
+    /// or another agent queued, a message that came from the Cloud inbox, a prompt that waits
+    /// for its owner, and one with no text. Blocking: it reads the log.
     pub(crate) fn auto_unsent(&self, session: &Session, after: u64) -> Vec<(String, String)> {
         let mut late = std::collections::HashSet::new();
         let read = self.scan_events(&session.id, after, &mut |record| {
@@ -357,7 +358,6 @@ impl Hub {
                 && queued.run.agent.is_none()
                 && queued.run.provenance.is_none()
                 && !queued.awaiting_owner
-                && !queued.held
         };
         let waiting: std::collections::HashSet<String> = session
             .queue()

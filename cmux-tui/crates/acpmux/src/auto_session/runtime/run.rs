@@ -440,6 +440,13 @@ impl Tracked {
         if self.copying.is_none() {
             self.sent = view.last_seq;
         }
+        // A daemon that started with the chat its own has stored no copy yet. While it holds
+        // the chat at the store's epoch, nobody else wrote to the store's log: its last record
+        // is one of this machine's.
+        let holds = matches!(self.chat.state, State::Holding { epoch } if epoch == view.epoch);
+        if self.own.is_none() && self.copying.is_none() && holds && !view.holder.is_parked() {
+            self.own = Some(view.last_seq);
+        }
         self.view = Some(view);
     }
 }

@@ -174,7 +174,6 @@ impl<C: AutoCloud + 'static> Loop<C> {
         }
     }
 
-    /// Queues one thing in the chat's lane and starts it when the lane is free.
     /// A laptop that lost the chat, or brings its Cloud copy in, sends the Cloud inbox what
     /// the person queued here that the store never had, so the chat's holder runs it once. A
     /// takeover goes on from the store's copy, and an import replaces the chat here with it:
@@ -188,6 +187,7 @@ impl<C: AutoCloud + 'static> Loop<C> {
         }
     }
 
+    /// Queues one thing in the chat's lane and starts it when the lane is free.
     pub(super) fn lane(&mut self, id: &str, op: LaneOp) {
         let Some(tracked) = self.chats.get_mut(id) else { return };
         // One drain that waits is enough: it takes whatever the inbox holds when it runs.
