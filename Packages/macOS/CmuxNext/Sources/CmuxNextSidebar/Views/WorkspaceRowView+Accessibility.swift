@@ -118,6 +118,7 @@ extension WorkspaceRowView {
         if let s = content.badge { parts.append(s) }
         if let badge = content.pullRequests { parts.append(Strings.pullRequests(badge)) }
         if let rollUp = content.rollUp { parts.append(Strings.rollUp(rollUp)) }
+        if content.subagentsFailed > 0 { parts.append(Strings.subagentsFailed(content.subagentsFailed)) }
         if let value = content.progress?.value { parts.append(Strings.progressPercent(Int((value * 100).rounded()))) }
         if let count { parts.append(Strings.tabCount(count)) }
         switch ws.unread {
