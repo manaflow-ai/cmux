@@ -60,7 +60,11 @@ GATE_SCRIPTS = {
     "webviews checks": "scripts/ci/fast_gate_webviews_checks.py",
     "protocol skew": "scripts/ci/protocol_skew_check.py",
     "entry logs": "scripts/ci/entry_logs.py",
+    "settings catalog keys": "scripts/ci/settings_catalog_keys.py",
 }
+# Every gate starts in the first batch except webviews checks, which waits behind web lint; derived so a new gate
+# does not leave the parallel barrier one marker short.
+FIRST_BATCH_GATES = len(GATE_SCRIPTS) - 1
 CI_WEB = ROOT / ".github/workflows/ci-web.yml"
 WEBVIEWS_CHECKS = ROOT / "scripts/ci/fast_gate_webviews_checks.py"
 
@@ -410,7 +414,10 @@ class WorkflowShape(unittest.TestCase):
 
     def test_concurrency_per_pull_request(self):
         concurrency = workflow()["concurrency"]
-        self.assertEqual(concurrency["group"], "fast-gates-${{ github.event.pull_request.number || inputs.pr }}")
+        # Then the land tier's suffix (tests/test_ci_label_events_skip_full_ci.py): another label event gets its own group.
+        self.assertTrue(concurrency["group"].startswith("fast-gates-${{ github.event.pull_request.number || inputs.pr }}"),
+                        concurrency["group"])
+        self.assertIn("format('-label-{0}', github.run_id)", concurrency["group"])
         self.assertIs(concurrency["cancel-in-progress"], True)
 
     def test_permissions_are_minimal(self):
@@ -896,7 +903,7 @@ class ScriptBehavior(unittest.TestCase):
                "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
                "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"}
         if barrier is not None:
-            env.update({"FAKE_BARRIER": str(barrier), "FAKE_BARRIER_COUNT": "6"})
+            env.update({"FAKE_BARRIER": str(barrier), "FAKE_BARRIER_COUNT": str(FIRST_BATCH_GATES)})
         extra = []
         if budget is not None:
             extra += ["--budget-seconds", str(budget)]
@@ -1399,6 +1406,7 @@ class ScriptBehavior(unittest.TestCase):
         self.assertEqual(calls["webviews checks"]["argv"], ["--base", base])
         self.assertEqual(calls["protocol skew"]["argv"], ["--base", base, "--head", merge])
         self.assertEqual(calls["entry logs"]["argv"], ["check", "--base", base, "--head", merge])
+        self.assertEqual(calls["settings catalog keys"]["argv"][0], "--root")
         ratchet = calls["crash ratchet"]["argv"]
         self.assertEqual(ratchet[:2], ["--script", "scripts/cmux-next/crash_ratchet.py"])
         self.assertEqual(Path(ratchet[ratchet.index("--head") + 1]).resolve(), work.resolve())
@@ -1432,9 +1440,9 @@ class ScriptBehavior(unittest.TestCase):
         result = self.script(work, "run", "--base", self.tip, "--web", "true", "--checks", "true",
                              sleep=0.2, barrier=barrier)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        # The first batch cannot finish until all six markers exist. A serial implementation therefore fails
+        # The first batch cannot finish until every first-batch marker exists. A serial implementation therefore fails
         # deterministically at the barrier instead of relying on a wall-clock threshold that flakes on loaded hosts.
-        self.assertEqual(len(list(barrier.glob("started-*"))), 6)
+        self.assertEqual(len(list(barrier.glob("started-*"))), FIRST_BATCH_GATES)
         self.assertEqual({e["gate"] for e in self.gate_log()}, set(GATE_SCRIPTS))
 
     def test_a_zero_budget_stops_every_started_gate_and_still_names_a_critical_path_gate(self):
