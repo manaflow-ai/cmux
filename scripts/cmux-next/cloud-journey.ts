@@ -2330,7 +2330,7 @@ export function autocloudTuiChat(tui: string, cmux: string, api: Pick<Api, "orig
   const { CMUX_CLOUD_TEAM: _inherited, ...inherited } = process.env;
   const env = { ...inherited, PATH: `${bin}:${process.env.PATH ?? ""}`, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer, ...(api.team ? { CMUX_CLOUD_TEAM: api.team } : {}) };
   const started = Date.now();
-  const r = spawnSync(tui, ["--machine", machine, "-m", agent, "--plain", "--until-idle", "Reply with the single word pong."], { env, encoding: "utf8", timeout: 300_000, stdio: ["ignore", "pipe", "pipe"] });
+  const r = spawnSync(tui, ["--machine", machine, "-m", agent, "--plain", "--until-idle", "Reply with the single word pong."], { env, encoding: "utf8", timeout: 180_000, stdio: ["ignore", "pipe", "pipe"] });
   rmSync(bin, { recursive: true, force: true });
   const out = r.stdout ?? "";
   const tail = (s: string) => s.trim().split("\n").slice(-6).join(" | ").slice(0, 600);

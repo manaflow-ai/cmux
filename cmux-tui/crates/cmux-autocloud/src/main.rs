@@ -402,6 +402,10 @@ fn lost(app: &mut App, ctx: &Ctx, why: String) {
         Duration::from_millis(250u64.checked_shl(app.failures.min(5)).unwrap_or(5_000).min(5_000));
     app.link_note = if why.is_empty() { "link lost".to_owned() } else { why };
     app.link_note.push_str(&format!(", redialing in {:.1}s", wait.as_secs_f32()));
+    // Plain mode prints nothing until the chat is live, so a link that never comes up says why here.
+    if ctx.args.plain || !std::io::stdout().is_terminal() {
+        eprintln!("[{} · {}]", app.spec.describe(), app.link_note);
+    }
     app.generation = app.generation.wrapping_add(1);
     let g = app.generation;
     let tx = ctx.tx.clone();
