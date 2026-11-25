@@ -533,7 +533,8 @@
       "keys": [
         "labs.previewFeatures",
         "labs.appStore",
-        "labs.commentThreads"
+        "labs.commentThreads",
+        "labs.previousBuild"
       ]
     },
     {
@@ -565,11 +566,13 @@
         "experiments.composerHatGroups",
         "experiments.toastsV2",
         "experiments.foldSummaryCounts",
+        "experiments.cloudDiskBar",
         "experiments.terminalHistoryFind",
         "experiments.terminalHistory",
         "experiments.quietConnect",
         "experiments.threadMinimapRestReveal",
-        "experiments.forum"
+        "experiments.forum",
+        "experiments.browserProfileCard"
       ]
     },
     {
@@ -734,6 +737,7 @@
         "notifications.sounds.events.bell",
         "notifications.sounds.events.message",
         "notifications.sounds.volume",
+        "notifications.sounds.maxSeconds",
         "notifications.sounds.when",
         "notifications.sounds.cooldownSeconds",
         "notifications.sounds.workspaces",
