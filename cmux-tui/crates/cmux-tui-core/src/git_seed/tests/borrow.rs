@@ -58,7 +58,10 @@ fn a_borrowed_seed_needs_no_remote_and_tracks_the_mirrors_branch() {
 
 #[test]
 fn a_mirror_of_another_repository_clones_instead() {
-    let world = World::new("borrow-other");
+    let mut world = World::new("borrow-other");
+    // The `wt` mirror's fallback is a direct clone here, not the machine's warm mirror
+    // (`tests/mirror.rs`), whose alternates would be in the folder too.
+    world.mirrors = None;
     dirty_branch(&world);
     let snapshot = world.snapshot("one", &[&world.base]);
     let mirror = mirror(&world, "mirror.git", "https://github.com/o/other.git");
@@ -74,7 +77,10 @@ fn a_mirror_of_another_repository_clones_instead() {
 
 #[test]
 fn a_mirror_without_the_base_clones_instead() {
-    let world = World::new("borrow-stale");
+    let mut world = World::new("borrow-stale");
+    // The `wt` mirror's fallback is a direct clone here, not the machine's warm mirror
+    // (`tests/mirror.rs`), whose alternates would be in the folder too.
+    world.mirrors = None;
     let mirror = mirror(&world, "mirror.git", URL);
     write(&world.mac.join("a"), "a\nnext\n");
     git(&world.mac, &["commit", "-q", "-a", "-m", "next"]);

@@ -254,7 +254,9 @@ fn measure_add_repository_cold_and_warm() {
             Config { credentials: Some(vec![Credential::Anonymous]), mirrors, ..Config::default() };
         std::sync::Arc::new(GitSeedService::with_config(Roots::new([home.path.clone()]), config))
     };
-    let params = |folder: &Path| json!({ "folder": folder, "url": url, "repo": "measure", "ref": null, "lfs": false });
+    // `repo` is the URL's OWNER/NAME, as `check_url` requires.
+    let repo = url.trim_start_matches("https://github.com/").trim_end_matches(".git").to_owned();
+    let params = |folder: &Path| json!({ "folder": folder, "url": url, "repo": repo, "ref": null, "lfs": false });
     let finish = |service: &GitSeedService, job: &str| {
         let deadline = Instant::now() + Duration::from_secs(1800);
         loop {
@@ -280,7 +282,7 @@ fn measure_add_repository_cold_and_warm() {
         let rx = received();
         let started = Instant::now();
         let jobs: Vec<String> =
-            folders.iter().map(|f| start(&service, &params(f)).unwrap()).collect();
+            folders.iter().map(|f| start(&service, &params(f)).expect("git.seed.start")).collect();
         let states: Vec<String> = jobs
             .iter()
             .map(|job| finish(&service, job)["mirror"].as_str().unwrap_or("-").to_owned())
