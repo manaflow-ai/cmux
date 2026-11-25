@@ -9953,7 +9953,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       <ThinkingVerbsContext.Provider value={thinkingVerbs}>
         <SteerChatContext.Provider value={snapshot.sessionId ?? ""}>
           <CapacityWaitContext.Provider value={snapshot.capacityWait}>
-            <CloudAgentStartContext.Provider value={cloudAgentStart}>{transcriptContent}</CloudAgentStartContext.Provider>
+            <CloudAgentStartContext.Provider value={cloudAgentStart}>
+              {transcriptContent}
+            </CloudAgentStartContext.Provider>
           </CapacityWaitContext.Provider>
         </SteerChatContext.Provider>
       </ThinkingVerbsContext.Provider>
