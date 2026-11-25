@@ -490,6 +490,8 @@ EXCLUSIVE_EXEMPT: dict[tuple[str, str], str] = {
         "sign's Blacksmith twin (rule 3): the same steps, so the same gate, on Blacksmith labels only",
     ("cmux-tui-team-signed.yml", "sign"):
         "signs the Team-signed tree on a literal Blacksmith label only (keychain rule 7); no route reaches an owned Mac",
+    ("cmux-tui-team-signed.yml", "sign-helper"):
+        "signs the Screen Sharing helper on sign's literal Blacksmith label only (cmux#47936); no route reaches an owned Mac",
     ("release.yml", "build-sign-notarize-blacksmith"):
         "build-sign-notarize's Blacksmith twin (rule 3): the same steps, so the same gate, on Blacksmith labels only",
     # The one entry that may keep an owned route: the keychain guard's rule 7b proves it (GATED_SECRET_JOBS).

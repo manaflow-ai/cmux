@@ -47,8 +47,10 @@ import type {
   TailnetState,
   ModelsState,
   LibraryListing,
-  DoctorReport,
   HubState,
+  AutocloudState,
+  DoctorReport,
+  ConnectionsState,
 } from "../pages/settings/ops";
 import type { DoctorTreatment } from "../pages/settings/customizeDoctor";
 import type { MockData } from "../pages/passwords/mockProvider";
@@ -83,6 +85,12 @@ export type SettingsPageVariant = VariantBase & {
   keys?: KeysState;
   /** Settings > Integrations fixture state; default the mock's (a waiting Stripe refund). */
   hub?: HubState;
+  /** Settings > Automations fixture state; default the mock's (three automations, one failed run). */
+  autocloud?: AutocloudState;
+  /** Settings > Connections fixture state; default the mock's (Linear and Sentry connected). */
+  connections?: ConnectionsState;
+  /** The id of the Accounts team to mark active (Settings > Connections shows its owner menu). */
+  activeTeam?: string;
   /** Settings > Server > This Mac on Your Tailnet fixture state (null: no tailnet); default signed out. */
   tailnet?: TailnetState | null;
   /** Settings > Models fixture state (null: a host without the part); default the mock's Mac logins. */
@@ -356,6 +364,9 @@ export type DiffPageVariant = VariantBase & {
    * key (`cmux.diff.summary`, after `summaryDelayMs`), or a refusal reason `summaryCheck` answers.
    * Absent, the host serves no summary op. */
   summaries?: { sentences: Record<string, string>; delayMs?: number } | { refused: string };
+  /** Experiment arms the variant pins, by experiment id (experiments/experiment.ts), set before the
+   *  page's scripts run: a variant about one arm's look keeps it when the default moves. */
+  experiments?: Record<string, string>;
 };
 
 /** The App Store page on an in-page cmuxPage host serving its supervisor projection. */
@@ -420,6 +431,8 @@ export type CloudPageVariant = VariantBase & {
   surge?: import("../pages/cloud/ops").CloudSurge;
   /** The app's billing read: the latest payment failed (true), or the read fails ("fail"). */
   paymentPastDue?: boolean | "fail";
+  /** This month's usage (`cloud.usage.current`); "fail" fails the read, "hold" keeps it loading; absent: not served. */
+  usage?: import("../pages/cloud/ops").CloudUsage | "fail" | "hold";
   /** The plan the account panel names (`cloud.plan.get` `plan_id`), when not the sample plan's. */
   planId?: string;
   machines: CloudMachine[];

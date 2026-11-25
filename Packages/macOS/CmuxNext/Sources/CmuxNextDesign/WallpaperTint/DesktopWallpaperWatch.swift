@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextCompat
+package import CmuxNextDesignTokens
 import CmuxNextWakeups
 import Foundation
 
@@ -107,6 +108,9 @@ public final class DesktopWallpaperWatch {
     /// Bumped each time the desktop shows something new after the first reading: a view showing
     /// the Desktop Wallpaper background reloads it once per bump (``BackdropImageStore``).
     public private(set) var generation = 0
+    /// Bumped with each new reading, the first one included: observed (unlike ``generation``), so
+    /// the iPhone's copy of what a see-through window shows follows the desktop (`ThemePhone`).
+    package let revision = BackdropRevision()
     /// Samples taken (tests).
     private(set) var sampleCount = 0
     /// `appearance.wallpaperTint`: the tint leans toward the picture, and pictures are sampled,
@@ -262,7 +266,7 @@ public final class DesktopWallpaperWatch {
     }
 
     /// The picture of the last reading; nil before the first one lands (or without a screen).
-    var picture: DesktopPicture? { current?.picture }
+    package var picture: DesktopPicture? { current?.picture }
 
     /// What the desktop of `screen` shows; the main screen's when that screen has no reading yet,
     /// nil before the first reading lands.
@@ -333,6 +337,7 @@ public final class DesktopWallpaperWatch {
         if current != nil { generation += 1 }
         current = reading
         screens = next.screens
+        revision.bump()
         // The Desktop Wallpaper art reloads now, not only once the color lands.
         if !sampleIfNeeded() { refreshViews() }
     }

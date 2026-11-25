@@ -172,6 +172,9 @@ public final class DesignSettings {
             BackdropImageStore.shared.desktop.lightingEnabled = wallpaperLighting
         }
     }
+    /// `appearance.liveWallpaperFrameRate`: the most frames per second a live wallpaper draws (15, 30 or
+    /// 60; ``BackdropLiveView``). A running wallpaper reads it on its next frame; a held one when it runs again.
+    public var liveWallpaperFrameRate = 30
     /// `appearance.backgroundPlacement`: where each picture lies, by picture id; a picture with no
     /// entry is centered and fills (today's look). Every window and pane backdrop observes it
     /// (`WindowMaterialView.observePlacement`).
@@ -222,6 +225,9 @@ public final class DesignSettings {
     /// `experiments.agentBadges` and `experiments.agentBadgesBeam` (Settings > Advanced > Experiments): count pills on
     /// tabs, a status pill (and, `beam`, a running edge light) on sidebar rows; off is the shipped tabs and rows.
     public var agentBadges: AgentBadgesExperiment = .off
+    /// `experiments.terminalAgentMark` (Settings > Advanced > Experiments, off by default): an agent running in a terminal
+    /// tab draws its mark on a soft rounded square of its tint, so it is told from a GUI agent chat's bare mark.
+    public var terminalAgentMarks = false
     /// The desktop picture's color (and its bands) while the Wallpaper or Pictorial group palette is chosen; nil under
     /// any other palette or until the first sample lands. Observed, so the sidebar's groups repaint when the picture changes.
     public var groupWallpaperTint: WallpaperTint?

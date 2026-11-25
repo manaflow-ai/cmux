@@ -31,22 +31,17 @@ use tokio::net::TcpStream;
 /// When to start another socket and how many to keep (Braid's race policy, RFD 0164).
 pub type HedgePolicy = cmux_braid_path::RacePolicy;
 
-/// `addresses` IPv6 first, the two families alternating, the order within a family kept
-/// (RFC 8305). Callers hedge over this, not the resolver's order: acpmux ships as a static musl
-/// binary, and musl sorts every A record first on a host whose only IPv6 address is ULA and reads
-/// no `/etc/gai.conf`, so attempt 0 was always IPv4 and IPv6 was never used where it was the
-/// faster path. An IPv6 attempt that stalls is joined by IPv4 after [`HedgePolicy::stagger`]; one
-/// with no route fails at once. (The same order as `cmux_vault_egress::happy::v6_first`.)
-pub fn v6_first(addresses: &[SocketAddr]) -> Vec<SocketAddr> {
-    let (mut v6, mut v4): (Vec<_>, Vec<_>) =
-        addresses.iter().copied().partition(SocketAddr::is_ipv6);
-    v6.reverse();
-    v4.reverse();
-    let mut out = Vec::with_capacity(addresses.len());
-    while !v6.is_empty() || !v4.is_empty() {
-        out.extend(v6.pop());
-        out.extend(v4.pop());
-    }
+/// `addresses` IPv6 first, the two families alternating (RFC 8305): acpmux ships as a static musl
+/// binary, whose resolver puts every A record first on a host whose only IPv6 address is ULA.
+/// Shared with the phone's dials (`cmux_braid_path::v6_first`, the same order as
+/// `cmux_vault_egress::happy::v6_first`).
+pub use cmux_braid_path::v6_first;
+
+/// Keep a caller's preferred prefix ahead of RFC 8305 family ordering.
+pub fn v6_first_after_prefix(addresses: &[SocketAddr], preferred_len: usize) -> Vec<SocketAddr> {
+    let (preferred, rest) = addresses.split_at_checked(preferred_len).unwrap_or((addresses, &[]));
+    let mut out = preferred.to_vec();
+    out.extend(v6_first(rest));
     out
 }
 
@@ -77,7 +72,21 @@ pub async fn connect_tcp(
     addresses: &[SocketAddr],
     policy: HedgePolicy,
 ) -> io::Result<TcpStream> {
-    connect_remembered(&LAST_GOOD, host, port, addresses, policy, TcpStream::connect).await
+    connect_remembered(&LAST_GOOD, host, port, addresses, 0, policy, TcpStream::connect).await
+}
+
+/// [`connect_tcp`] with the first `preferred_len` addresses kept ahead of the RFC 8305 order
+/// of the rest (a direct Tailscale path, [`super::tailnet`]). The last-good route still goes
+/// first, so a preferred address races beside it at t=0 rather than displacing it.
+pub async fn connect_tcp_preferring(
+    host: &str,
+    port: u16,
+    addresses: &[SocketAddr],
+    preferred_len: usize,
+    policy: HedgePolicy,
+) -> io::Result<TcpStream> {
+    connect_remembered(&LAST_GOOD, host, port, addresses, preferred_len, policy, TcpStream::connect)
+        .await
 }
 
 async fn connect_remembered<T, F, Fut>(
@@ -85,6 +94,7 @@ async fn connect_remembered<T, F, Fut>(
     host: &str,
     port: u16,
     addresses: &[SocketAddr],
+    preferred_len: usize,
     policy: HedgePolicy,
     connect: F,
 ) -> io::Result<T>
@@ -93,19 +103,15 @@ where
     Fut: Future<Output = io::Result<T>>,
 {
     let key = (host.to_ascii_lowercase(), port);
-    let (ordered, lead) = memory.order(&key, &v6_first(addresses));
-    match cmux_braid_path::race(&ordered, policy.with_lead(lead), connect).await {
-        Ok(won) => {
-            if let Some(winner) = ordered.get(won.target_index) {
-                memory.record(key, *winner, won.connect);
-            }
-            Ok(won.value)
-        }
-        Err(error) => {
-            memory.forget(&key);
-            Err(error)
-        }
-    }
+    cmux_braid_path::race_remembered(
+        memory,
+        key,
+        &v6_first_after_prefix(addresses, preferred_len),
+        policy,
+        connect,
+    )
+    .await
+    .map(|(_, won)| won.value)
 }
 
 #[cfg(test)]
