@@ -811,7 +811,7 @@ pub enum Command {
     /// for one agent session (agent_tools.rs registers it; not for people).
     #[command(hide = true)]
     ForumMcp,
-    /// The agent's Cloud repository tools (list_repos and add_repo), only on Cloud machines.
+    /// The agent's Cloud repository tools (this_folder, list_repos and add_repo), only on Cloud machines.
     #[command(hide = true)]
     RepoMcp,
     /// cmux's hosted MCP server with the signed-in person's tools (GitHub connectors, their own

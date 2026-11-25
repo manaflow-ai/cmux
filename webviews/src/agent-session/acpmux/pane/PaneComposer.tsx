@@ -101,7 +101,7 @@ import type { ManagedBy } from "../managedBy";
 import type { SubagentTrayPlacement } from "../subagents/subagentTrayPlacement";
 import type { TrayItem } from "../subagents/runningTray";
 import type { TrayHandleSide } from "../chatDisplay";
-import type { HatPillPlace } from "../hatPillPlace.experiment";
+import { hatPillInMiddle, hatPillQuiet, type HatPillPlace } from "../hatPillPlace.experiment";
 import type { SwitchView, HarnessSwitch } from "../harnessSwitch";
 import type { CloudMachine } from "../cloudMachines";
 import type { ComposerAttachment, DroppedKind, KnownPaths } from "../attachments";
@@ -991,7 +991,7 @@ export function drawPaneComposer({
               {...pullTabCounts(trayList, waitingAgents)}
               working={hatPlan !== undefined && hatPlan.length > 0 && !hatKept}
               side={hatHandle}
-              quiet={hatPillArm === "quiet" && hatHandle !== trayHandle}
+              quiet={hatPillQuiet(hatPillArm) && (hatHandle !== trayHandle || hatPillInMiddle(hatPillArm))}
             />
           ) : (
             trayNode
