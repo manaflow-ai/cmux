@@ -1,7 +1,7 @@
 //! A turn that starts subagents posts words beside their chips (user
-//! 2026-11-05, msg 22013). A spawn turn that ends with no text gets one
-//! `[no text]` note turn naming them; a spawn turn that said something, and
-//! the note's own turn, get none.
+//! 2026-11-05, msg 22013). A spawn turn that ends with no text gets the
+//! start host-posted (`[a1] started: TITLE`, Lucas's latency plan item 3),
+//! with no extra Chief turn; a spawn turn that said something gets neither.
 
 mod common;
 
@@ -122,17 +122,28 @@ fn settle_until(h: &mut Harness, done: impl Fn(&Harness) -> bool) {
 }
 
 #[test]
-fn a_spawn_turn_with_no_text_gets_one_no_text_note_turn() {
+fn a_spawn_turn_with_no_text_gets_its_start_host_posted() {
     let mut h = Harness::new(script("", "Started a1 on the fix."));
     spawn_turn(&mut h, None);
-    settle_until(&mut h, |h| chief_prompts(h).len() >= 2);
-    let prompts = chief_prompts(&h);
-    assert_eq!(prompts.len(), 2, "{prompts:?}");
-    assert!(prompts[1].contains(NO_TEXT_TAG), "{}", prompts[1]);
-    assert!(prompts[1].contains("a1"), "{}", prompts[1]);
-    // The note's turn said its words; no third turn follows.
+    settle_until(&mut h, |h| {
+        h.log()
+            .iter()
+            .any(|(_, t)| t.starts_with("[a1] started: Fix it"))
+    });
+    let log = h.log();
+    assert!(
+        log.iter()
+            .any(|(k, t)| k == "talk" && t.starts_with("[a1] started: Fix it")),
+        "the host posted the start: {log:?}"
+    );
+    // No Chief turn was spent relaying it: no `[no text]` turn follows.
     settle_until(&mut h, |_| false);
-    assert_eq!(chief_prompts(&h).len(), 2);
+    let prompts = chief_prompts(&h);
+    assert_eq!(prompts.len(), 1, "{prompts:?}");
+    assert!(
+        prompts.iter().all(|p| !p.contains(NO_TEXT_TAG)),
+        "{prompts:?}"
+    );
 }
 
 #[test]

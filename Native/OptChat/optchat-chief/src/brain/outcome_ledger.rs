@@ -322,6 +322,13 @@ impl Brain {
         };
         u.posted_key = None;
         u.requires_chief = true;
+        // Under the loop guard a retry turn could post nothing: the outcome
+        // waits for the person's next message (budget_hold.rs).
+        if self.state.budget_hold {
+            u.due_ms = None;
+            self.save();
+            return true;
+        }
         u.due_ms = Some(now_ms());
         self.save();
         self.queue(untold_note(&[id.to_owned()]), Source::Note);
@@ -338,18 +345,22 @@ impl Brain {
         if ids.is_empty() || ids.iter().any(String::is_empty) {
             return false;
         }
-        self.queue(crate::brain::spawn_text::no_text_note(&ids), Source::Note);
+        if self.budget_held() {
+            self.hold_spawns(ids);
+        } else {
+            self.queue(crate::brain::spawn_text::no_text_note(&ids), Source::Note);
+        }
         true
     }
 
     /// Host-post an ordinary finished result once its batching window is due.
-    fn post_due_outcome(&mut self, id: &str) {
+    pub(super) fn post_due_outcome(&mut self, id: &str) -> bool {
         let Some((report, ws_id)) = self
             .state
             .sub(id)
             .map(|(_, s)| (s.report.clone().unwrap_or_default(), s.ws_id.clone()))
         else {
-            return;
+            return false;
         };
         if self
             .state
@@ -359,7 +370,7 @@ impl Brain {
             .and_then(|u| u.posted_key.as_ref())
             .is_some()
         {
-            return;
+            return false;
         }
         let key = format!("{HOST_OUTCOME_KEY}{id}");
         let mut text = format!("[{id}] {report}\n{}", crate::agent_chat::footer(id));
@@ -369,7 +380,7 @@ impl Brain {
             text.push('\n');
             text.push_str(&block);
         }
-        self.host_post(key, text, Some(id));
+        self.host_post(key, text, Some(id))
     }
 }
 

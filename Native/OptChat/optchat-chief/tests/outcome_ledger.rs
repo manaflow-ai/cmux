@@ -275,8 +275,10 @@ fn a_host_posted_result_shows_in_the_chiefs_next_turn() {
         "host-posted: nothing waits for the Chief"
     );
     assert!(
-        h.log().iter().any(|(_, t)| t.starts_with("[a1] ")),
-        "the result reached the chat: {:?}",
+        h.log()
+            .iter()
+            .any(|(k, t)| k == "talk" && t.starts_with("[a1] ")),
+        "the host posted the result to the chat: {:?}",
         h.log()
     );
     h.say("person", "what happened to the sidebar?");
@@ -300,7 +302,9 @@ fn a_judgment_report_is_not_host_posted() {
     let mut h = Harness::new(script(|_, _| None));
     report_task(&mut h, "REPORT-QUESTION fix it");
     assert!(
-        !h.log().iter().any(|(_, t)| t.starts_with("[a1] ")),
+        !h.log()
+            .iter()
+            .any(|(k, t)| k == "talk" && t.starts_with("[a1] ")),
         "no host post for a question: {:?}",
         h.log()
     );

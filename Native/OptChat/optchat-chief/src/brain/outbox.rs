@@ -223,10 +223,12 @@ impl Brain {
                 }
                 Err(OpError::Rejected(reason)) => {
                     (self.log)(&format!("dropping rejected op {key}: {reason}"));
+                    // The refusal is noted first: a loop-guard refusal holds
+                    // a host post's news for the person instead of a turn.
+                    self.note_refused(&conversation, &key, &op, &reason);
                     if self.host_post_refused(&key) || self.host_spawn_refused(&key) {
                         self.save();
                     }
-                    self.note_refused(&conversation, &key, &op, &reason);
                 }
                 Err(OpError::Transport(e)) => {
                     // Kept: retried on the next connect (the owner dedupes by key).
