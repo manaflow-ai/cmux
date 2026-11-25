@@ -1,7 +1,7 @@
 //! `browser.siteEngines`: sites that open in a set engine whatever
-//! `browser.defaultEngine` says (Spotify, Netflix and other protected-media
-//! sites open in WebKit by default, since cmux's Chromium cannot play their
-//! DRM media). This is the daemon's copy of CmuxNextSettings
+//! `browser.defaultEngine` says. The default is empty: cmux's Chromium plays
+//! Widevine media, so protected-media sites stay in it; a person can still pin
+//! a site to WebKit with a rule. This is the daemon's copy of CmuxNextSettings
 //! `BrowserSiteEngines`; both run `tests/fixtures/browser_site_engines.json`,
 //! so a tab an agent opens gets the same engine as one the person opens.
 
