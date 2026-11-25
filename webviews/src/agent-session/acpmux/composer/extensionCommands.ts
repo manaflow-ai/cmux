@@ -6,7 +6,7 @@
 import { useMemo, useSyncExternalStore } from "react";
 import type { PageClient } from "../../../pages/shared/pageClient";
 import { appPanelsDevClient } from "../../../apps/scene/panelsClient";
-import { pageHostClient } from "../pageHost";
+import { pageHostClient } from "../pageHostClient";
 import type { SlashCommand } from "../slashCommands";
 
 const EMPTY: readonly SlashCommand[] = [];

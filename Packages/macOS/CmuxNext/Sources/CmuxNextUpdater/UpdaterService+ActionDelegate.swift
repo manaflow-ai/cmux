@@ -14,6 +14,7 @@ extension UpdaterService: UpdateActionDelegate {
         #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarness.mark("will_relaunch")
         #endif
+        relaunchingForUpdate = true
         recordRelaunchFocus()
         UpdateInstallCheck.write(installingBuild.map { .init(fromBuild: identity.build, targetBuild: $0, recordedAt: now()) }, defaults: defaults)
         willRelaunch?()

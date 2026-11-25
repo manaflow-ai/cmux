@@ -1,5 +1,11 @@
 @testable import CmuxMobileSSH
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(Musl)
+import Musl
+#endif
 import Foundation
 import Testing
 
@@ -60,7 +66,7 @@ private final class BannerFirstServer: @unchecked Sendable {
     private let sawKeyExchange = DispatchSemaphore(value: 0)
 
     init() throws {
-        let listener = socket(AF_INET, SOCK_STREAM, 0)
+        let listener = socket(AF_INET, tcpStreamType, 0)
         self.listener = listener
         var address = sockaddr_in()
         address.sin_family = sa_family_t(AF_INET)
@@ -104,3 +110,10 @@ private final class BannerFirstServer: @unchecked Sendable {
         sawKeyExchange.wait(timeout: .now() + timeout) == .success
     }
 }
+
+// SOCK_STREAM is an Int32 on Darwin and an enum on Glibc.
+#if canImport(Darwin)
+private let tcpStreamType: Int32 = SOCK_STREAM
+#else
+private let tcpStreamType: Int32 = Int32(SOCK_STREAM.rawValue)
+#endif
