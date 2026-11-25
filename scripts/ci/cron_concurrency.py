@@ -101,6 +101,9 @@ PER_SOURCE_RUN: dict[str, str] = {
     "cmux-tui-artifacts-retry.yml": "each run retries the one failed artifacts run that fired it",
     "merge-group-fail-fast.yml": "each run watches the one merge-group run that fired it",
     "pr-media.yml": "each run renders media for the one pull request run that fired it; tours are per PR",
+    "red-autofix.yml": (
+        "each run fixes the one red run (and attempt) that fired it; a shared group would drop a pending red. "
+        "Same-incident runs meet in the per-key open and land groups"),
 }
 
 # workflow_run workflows whose shared group is keyed by the source run's workflow, repository or pull request:
