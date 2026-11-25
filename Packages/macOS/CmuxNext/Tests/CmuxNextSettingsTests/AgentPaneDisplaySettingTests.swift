@@ -50,7 +50,8 @@ struct AgentPaneDisplaySettingTests {
         Row(key: "agentPane.display.font.ui", fallback: .string("system-ui"),
             accepted: [.string("verdana"), .string("roboto"), .string("plex"), .string("source-sans"), .string("geist"),
                        .string("inter"), .string("inter-tuned"), .string("system-ui-tight"),
-                       .string("cmux-sans"), .string("hanken"), .string("atkinson")],
+                       .string("cmux-sans"), .string("cmux-sans-squat"), .string("cmux-sans-candy"), .string("cmux-sans-open"),
+                       .string("hanken"), .string("atkinson")],
             refused: [.string("comic"), .string("system"), .bool(true)]),
         Row(key: "agentPane.display.font.size", fallback: .number(14), accepted: [.number(10), .number(28)],
             refused: [.number(4), .number(40)]),
@@ -63,6 +64,11 @@ struct AgentPaneDisplaySettingTests {
             refused: [.string("left"), .bool(true)]),
         Row(key: "agentPane.display.environment.placement", fallback: .string("left"),
             accepted: [.string("right"), .string("off")], refused: [.string("overlay"), .bool(true)]),
+        // The Environment card and the changes pill (webviews session-info/EnvironmentCard.tsx): off by default.
+        Row(key: "agentPane.display.environmentCard", fallback: .bool(false), accepted: [.bool(true)],
+            refused: [.string("on")]),
+        Row(key: "agentPane.display.changesPill", fallback: .bool(false), accepted: [.bool(true)],
+            refused: [.string("on")]),
         Row(key: "agentPane.display.minimap", fallback: .string("compact"), accepted: [.string("off"), .string("full")],
             refused: [.bool(true), .string("left")]),
         // The transcript's view (Normal, Thinking, Verbose) of a chat without its own.

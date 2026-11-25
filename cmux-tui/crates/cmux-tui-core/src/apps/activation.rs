@@ -78,7 +78,7 @@ impl Supervisor {
         if !activation.background()
             || !package.has_runtime()
             || self.config.host_binary.is_none()
-            || inner.safe_mode.is_some()
+            || super::safe_mode_bisect::held_off(inner, app)
             || !inner.mirror.apps.get(app).is_some_and(|r| r.installed && r.enabled)
             || inner.ladders.get(app).is_some_and(|ladder| ladder.paused.is_some())
             || (!retry && inner.failed.contains_key(app))

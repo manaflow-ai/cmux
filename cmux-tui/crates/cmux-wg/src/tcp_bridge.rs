@@ -144,7 +144,7 @@ impl TcpStack {
                         };
                         let accept = accept.clone();
                         let (conn, stream) = self.bridge(handle, local, remote, peer);
-                        self.conns.push(Conn {
+                        self.admit(Conn {
                             pending_stream: Some((Handoff::Accept(accept), stream)),
                             ..conn
                         });

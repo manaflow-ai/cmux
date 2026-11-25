@@ -59,9 +59,12 @@ public struct BrowserSourceDetector: Sendable {
         let appURL = browser.bundleIDs.lazy.compactMap(environment.locateApp).first
             ?? browser.appNames.lazy.compactMap(environment.locateAppNamed).first
         let webKitCookies = browser.family.isPrivateStore ? webKitCookieFile(browser) : nil
-        guard FileManager.default.fileExists(atPath: directory.path) || webKitCookies != nil else { return nil }
+        // A folder in another app's container is never looked at by a build that may not (a try copy).
+        let mayLook = environment.mayLook(at: directory)
+        guard (mayLook && FileManager.default.fileExists(atPath: directory.path)) || webKitCookies != nil else { return nil }
         switch browser.family {
         case .chromium:
+            guard mayLook else { return nil }
             let entries = browser.profileIsDataDirectory ? Self.rootProfileEntries(directory, browser: browser) : ChromiumProfileList().entries(in: directory)
             let profiles = entries.map { entry in
                 let path = entry.directoryName.isEmpty ? directory : directory.appending(path: entry.directoryName, directoryHint: .isDirectory)
@@ -88,13 +91,15 @@ public struct BrowserSourceDetector: Sendable {
             }
             return profiles.isEmpty ? nil : BrowserSource(browser: browser, appURL: appURL, profiles: profiles)
         case .firefox:
+            guard mayLook else { return nil }
             let profiles = FirefoxProfileList().entries(in: directory).map { entry in
                 BrowserSourceProfile(browser: browser, directoryName: entry.directoryName, displayName: entry.displayName,
                                      path: entry.path, availability: Self.firefoxAvailability(entry.path, browser: browser))
             }
             return profiles.isEmpty ? nil : BrowserSource(browser: browser, appURL: appURL, profiles: profiles)
         case .safari:
-            let cookies = browser.safariCookieFile.map { environment.homeDirectory.appending(path: $0) }
+            guard mayLook else { return nil }
+            let cookies = browser.safariCookieFile.map { environment.homeDirectory.appending(path: $0) }.flatMap { environment.mayLook(at: $0) ? $0 : nil }
             let availability = Self.safariAvailability(directory, cookies: cookies)
             let blocked = availability.values.contains(.needsFullDiskAccess)
             let profile = BrowserSourceProfile(browser: browser, directoryName: "Safari", displayName: browser.displayName,
@@ -129,7 +134,7 @@ public struct BrowserSourceDetector: Sendable {
         #else
         let files = (browser.safariCookieFile.map { [$0] } ?? [])
             + browser.bundleIDs.map { "Library/HTTPStorages/\($0).binarycookies" }
-        return files.map(environment.file).first { FileManager.checked.fileExists(atPath: $0.path) }
+        return files.map(environment.file).first { environment.mayLook(at: $0) && FileManager.checked.fileExists(atPath: $0.path) }
         #endif
     }
 

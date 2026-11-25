@@ -70,9 +70,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     var chromiumDragFile: (url: URL, at: Date)?
     /// Shows the Chromium page's context menu at a point of this view (tests capture it).
     var chromiumMenuPresenter: @MainActor (NSMenu, NSPoint, NSView) -> Void = { menu, point, view in
-        // A view in no window cannot anchor a menu (AppKit raises): the page closed meanwhile.
-        guard view.window != nil else { return }
-        menu.popUp(positioning: nil, at: point, in: view)
+        menu.popUpAtPointer(point, in: view)
     }
     /// Making the Chromium page (cancelled when the view closes or falls back).
     var chromiumStart: Task<Void, Never>?
@@ -175,6 +173,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// shows a crash notice for it takes the notice away (a host route, a retarget or a WebKit
     /// fallback can load the page again without the notice's Reload).
     public var onDocumentLoaded: (@MainActor () -> Void)?
+    /// The page's document is about to be replaced or is gone (``PageDocumentChange``): a reload asked for in
+    /// either engine, the renderer ended, or a new document committed. Told before the page acts, so a host
+    /// can keep a picture of the last frame on screen until the new document paints (Leo 2026-11-22: a reload
+    /// of every chat "compLETELY blanked out this agent chat").
+    public var onDocumentWillChange: (@MainActor (PageDocumentChange) -> Void)?
     /// Why the last crash reported to ``onCrash`` ended the page's process (WebKit's reason and
     /// pid); nil before any crash.
     public internal(set) var lastTermination: PageTermination?

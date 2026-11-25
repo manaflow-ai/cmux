@@ -475,7 +475,7 @@ async fn say(
     body: Vec<u8>,
     sizes: &str,
 ) -> Result<(), (i64, String)> {
-    let client = reqwest::Client::builder()
+    let client = crate::happy_dial::http_client()
         .timeout(Duration::from_secs(120))
         .user_agent(concat!("acpmux-uniichat/", env!("CARGO_PKG_VERSION")))
         .build()

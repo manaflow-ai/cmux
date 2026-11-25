@@ -102,11 +102,10 @@ test("a steered turn is one live block at its bottom, under the steer, timed fro
 // Usage data does not add a counter to the live line.
 test("the live line keeps the turn clock without token amounts, beside a call too", () => {
   const start = 1_000_000;
-  const counts = { agents: 0, commands: 0, sessions: 0, openAgents() {}, openCommands() {}, openSessions() {} };
   const drawn = (node: ReactElement) =>
     words(
       renderToStaticMarkup(
-        <WorkingCountsContext.Provider value={{ ...counts, tokens: 2_140_000 }}>{node}</WorkingCountsContext.Provider>,
+        <WorkingCountsContext.Provider value={{ tokens: 2_140_000 }}>{node}</WorkingCountsContext.Provider>,
       ),
     );
   expect(drawn(<Thinking since={start} now={() => start + 354_000} />)).toBe("Thinking 5m 54s");
@@ -115,29 +114,10 @@ test("the live line keeps the turn clock without token amounts, beside a call to
     drawn(
       <Thinking since={start} doing="cargo test" doingShell doingAt={start + 350_000} now={() => start + 354_000} />,
     ),
-  ).toBe("Running cargo test 5m 54s");
+  ).toBe("cargo test 5m 54s");
   expect(drawn(<Thinking since={start} doing="cargo test" doingShell done now={() => start + 360_000} />)).toBe(
     "Ran cargo test 6m",
   );
-});
-
-test("with the tray off the live line counts the work still going, beside a call too", () => {
-  const start = 1_000_000;
-  const counts = {
-    agents: 2,
-    commands: 1,
-    sessions: 0,
-    tokens: 2_140_000,
-    openAgents() {},
-    openCommands() {},
-    openSessions() {},
-  };
-  const drawn = (node: ReactElement) =>
-    words(renderToStaticMarkup(<WorkingCountsContext.Provider value={counts}>{node}</WorkingCountsContext.Provider>));
-  expect(drawn(<Thinking since={start} doing="Read app.ts" doingAt={start} now={() => start + 3_000} />)).toBe(
-    "Read app.ts 3s · 2 subagents · 1 command",
-  );
-  expect(drawn(<Thinking since={start} now={() => start + 18_000} />)).toBe("Thinking 18s · 2 subagents · 1 command");
 });
 
 test("a command Claude is still writing reads Writing a command, with no Ctrl-B", () => {
@@ -212,13 +192,13 @@ test("while text streams the line waits behind it, keyed by the text's version",
   expect(shaped.at(-1)).toMatchObject({ kind: THINKING, quietKey: "a:7" });
 });
 
-test("the live line draws Running or Ran with the turn's time, or Thinking alone; all shimmer", () => {
+test("the live line draws the command or Ran with the turn's time, or Thinking alone; all shimmer", () => {
   const start = 1_000_000;
   // The call started 5s after the prompt: the line still counts from the prompt, never from 0.
   const running = renderToStaticMarkup(
     <Thinking since={start} doing="bun test" doingShell doingAt={start + 5_000} now={() => start + 13_000} />,
   );
-  expect(words(running)).toBe("Running bun test 13s");
+  expect(words(running)).toBe("bun test 13s");
   expect(running).toContain("is-shimmer");
   const ran = renderToStaticMarkup(
     <Thinking since={start} doing="grep -n x" doingShell done now={() => start + 15_000} />,
@@ -231,7 +211,7 @@ test("the live line draws Running or Ran with the turn's time, or Thinking alone
   expect(words(described)).toBe("Run the web tests 2s");
   expect(
     words(renderToStaticMarkup(<Thinking since={start} doing="" doingShell doingAt={start} now={() => start} />)),
-  ).toBe("Running a command 0s");
+  ).toBe("Thinking 0s");
   const thinking = renderToStaticMarkup(<Thinking since={start} untimed now={() => start + 9_000} />);
   expect(words(thinking)).toBe("Thinking");
   expect(thinking).toContain("is-shimmer");
