@@ -82,11 +82,8 @@ struct TerminalComposer: View {
         .fullScreenCover(isPresented: $showCamera) {
             TerminalCameraPicker { image in
                 guard let data = image.jpegData(compressionQuality: 0.85) else { return }
-                Task {
-                    let optimized = await Self.optimizeImageData(data, originalExtension: "jpg")
-                    model.addAttachment(ComposerAttachment(kind: .image, name: "Camera \(Self.stamp()).\(optimized.extensionName)",
-                                                           thumbnail: image.preparingThumbnail(of: CGSize(width: 168, height: 168)), data: optimized.data))
-                }
+                model.addAttachment(ComposerAttachment(kind: .image, name: "Camera \(Self.stamp()).jpg",
+                                                       thumbnail: image.preparingThumbnail(of: CGSize(width: 168, height: 168)), data: data))
             }
             .ignoresSafeArea()
         }
@@ -309,11 +306,13 @@ struct TerminalComposer: View {
                                              string: board.hasStrings ? board.string : nil)
         switch route {
         case .image:
-            guard let image = board.image, let data = image.pngData() else { return }
-            Task {
-                let optimized = await Self.optimizeImageData(data, originalExtension: "png")
-                model.addAttachment(ComposerAttachment(kind: .image, name: "Pasted image \(Self.stamp()).\(optimized.extensionName)",
-                                                       thumbnail: image.preparingThumbnail(of: CGSize(width: 168, height: 168)), data: optimized.data))
+            let stamp = Self.stamp()
+            for (index, item) in board.composerImages().enumerated() {
+                let ext = UTType(mimeType: item.mimeType)?.preferredFilenameExtension ?? "png"
+                let suffix = index == 0 ? "" : " \(index + 1)"
+                let thumbnail = UIImage(data: item.data)?.preparingThumbnail(of: CGSize(width: 168, height: 168))
+                model.addAttachment(ComposerAttachment(kind: .image, name: "Pasted image \(stamp)\(suffix).\(ext)",
+                                                       thumbnail: thumbnail, data: item.data))
             }
         case .file(let url):
             Task { await loadFiles([url]) }
@@ -341,27 +340,11 @@ struct TerminalComposer: View {
                 model.addAttachment(ComposerAttachment(kind: .video, name: "Video \(stamp)\(suffix).\(ext)", thumbnail: thumbnail,
                                                        byteCount: size, fileURL: movie.url))
             } else if let data = try? await item.loadTransferable(type: Data.self), let image = UIImage(data: data) {
-                let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
-                let optimized = await Self.optimizeImageData(data, originalExtension: ext)
                 let thumbnail = await image.byPreparingThumbnail(ofSize: CGSize(width: 168, height: 168))
-                model.addAttachment(ComposerAttachment(kind: .image, name: "Photo \(stamp)\(suffix).\(optimized.extensionName)", thumbnail: thumbnail, data: optimized.data))
+                let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
+                model.addAttachment(ComposerAttachment(kind: .image, name: "Photo \(stamp)\(suffix).\(ext)", thumbnail: thumbnail, data: data))
             }
         }
-    }
-
-    private static func optimizeImageData(_ data: Data, originalExtension: String) async -> (data: Data, extensionName: String) {
-        let optimized = await Task.detached(priority: .userInitiated) {
-            guard let image = UIImage(data: data) else { return data }
-            let maxDimension: CGFloat = 2048
-            let scale = min(1, maxDimension / max(image.size.width, image.size.height))
-            let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
-            let output = UIGraphicsImageRenderer(size: size).jpegData(withCompressionQuality: 0.82) { _ in
-                image.draw(in: CGRect(origin: .zero, size: size))
-            }
-            return output.count < data.count ? output : data
-        }.value
-        let isJPEG = optimized.count >= 3 && optimized.prefix(3).elementsEqual([0xFF, 0xD8, 0xFF])
-        return (optimized, isJPEG && optimized != data ? "jpg" : originalExtension)
     }
 
     /// Copied files, as Files would attach them (uploaded on send).
@@ -371,13 +354,6 @@ struct TerminalComposer: View {
         for file in pasted.files {
             let image = file.type.conforms(to: .image) ? file.data.flatMap { UIImage(data: $0) } : nil
             let kind: ComposerAttachment.Kind = image != nil ? .image : file.type.conforms(to: .movie) ? .video : .file
-            if let image, let data = file.data {
-                let ext = file.type.preferredFilenameExtension ?? "jpg"
-                let optimized = await Self.optimizeImageData(data, originalExtension: ext)
-                model.addAttachment(ComposerAttachment(kind: .image, name: URL(fileURLWithPath: file.name).deletingPathExtension().appendingPathExtension(optimized.extensionName).lastPathComponent,
-                                                       thumbnail: image.preparingThumbnail(of: CGSize(width: 168, height: 168)), byteCount: optimized.data.count, data: optimized.data, fileURL: file.fileURL))
-                continue
-            }
             model.addAttachment(ComposerAttachment(kind: kind, name: file.name,
                                                    thumbnail: image?.preparingThumbnail(of: CGSize(width: 168, height: 168)), byteCount: file.byteCount, data: file.data, fileURL: file.fileURL))
         }
