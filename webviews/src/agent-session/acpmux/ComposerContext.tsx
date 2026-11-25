@@ -168,6 +168,7 @@ export function ComposerContext({
   onCloudFolderWaiting,
   sourceRepository,
   cloningRepository,
+  pendingRepository,
   onNewProject,
   newProject = false,
   newProjectName,
@@ -243,6 +244,7 @@ export function ComposerContext({
   onCloudFolderWaiting?(waiting: boolean): void;
   sourceRepository?: { cwd: string; name: string };
   cloningRepository?: string;
+  pendingRepository?: string;
   /// A new chat's New Project (FolderPopover, newtab/newProject.ts); `newProject` while it is the choice:
   /// the strip reads New Project until the send makes the folder.
   onNewProject?(): void;
@@ -1133,6 +1135,7 @@ export function ComposerContext({
               onNoProject={chooseNoFolder}
               newProject={newProject}
               cloningRepository={cloningRepository}
+              {...(pendingRepository ? { pendingRepository } : {})}
               onNewWorktree={
                 !cloudSide && currentFolder && onNewWorktree ? () => onNewWorktree(currentFolder) : undefined
               }
