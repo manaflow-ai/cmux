@@ -15,12 +15,13 @@ const button = (container: HTMLElement) => card(container)!.querySelector<HTMLBu
 test("denied notifications show Blocked with Open System Settings, which runs allow", async () => {
   const page = await renderPage({
     path: "/settings/notifications",
-    setup: (provider) => provider.setHost({ ...provider.host, notification_permission: { authorization: "denied", sound: true } }),
+    setup: (provider) =>
+      provider.setHost({ ...provider.host, notification_permission: { authorization: "denied", sound: true } }),
   });
   await settle();
   expect(card(page.container)?.querySelector(".row-title")?.textContent).toBe("macOS Notifications");
-  expect(card(page.container)?.querySelector('[role="status"]')?.textContent).toBe("Blocked");
-  expect(card(page.container)?.querySelector('[role="status"]')?.getAttribute("data-tone")).toBe("warning");
+  expect(card(page.container)?.querySelector("output")?.textContent).toBe("Blocked");
+  expect(card(page.container)?.querySelector("output")?.getAttribute("data-tone")).toBe("warning");
   expect(button(page.container).textContent).toBe("Open System Settings");
   await click(button(page.container));
   await settle();
@@ -39,7 +40,7 @@ test("not yet asked offers Allow Notifications, and the answer shows", async () 
   await click(button(page.container));
   await settle();
   expect(card(page.container)?.getAttribute("data-authorization")).toBe("authorized");
-  expect(card(page.container)?.querySelector('[role="status"]')?.textContent).toBe("Allowed");
+  expect(card(page.container)?.querySelector("output")?.textContent).toBe("Allowed");
   page.unmount();
 });
 

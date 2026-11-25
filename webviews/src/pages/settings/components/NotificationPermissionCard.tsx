@@ -9,7 +9,10 @@ import { ActionRow } from "./ActionRow";
 
 type Tone = "success" | "warning" | "neutral";
 
-function describe(authorization: string, sound: boolean | null): { status: string; help: string; tone: Tone; action: string | null } {
+function describe(
+  authorization: string,
+  sound: boolean | null,
+): { status: string; help: string; tone: Tone; action: string | null } {
   switch (authorization) {
     case "denied":
       return {
@@ -55,9 +58,9 @@ export function NotificationPermissionCard() {
     <section className="group" data-card="notification-permission" data-authorization={permission.authorization}>
       <div className="rows">
         <ActionRow title={t("settingsWindow.notificationPermission.title")} help={help}>
-          <span className="accounts-status devices-status" data-tone={tone} role="status">
+          <output className="accounts-status devices-status" data-tone={tone}>
             {status}
-          </span>
+          </output>
           {action && (
             <Button type="button" className="button" onClick={() => void store.allowNotifications()}>
               {action}
