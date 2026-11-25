@@ -177,7 +177,6 @@ impl Hub {
         defer_finalize: bool,
         staged: Option<&transfer_out::transfer_precopy::StagedPrefix>,
     ) -> Result<Arc<Session>, RpcError> {
-        let mut steps = transfer_out::transfer_live::MoveSteps::new("import");
         self.import_into_held(
             bundle,
             name,
@@ -222,6 +221,7 @@ impl Hub {
         hold: bool,
     ) -> Result<Arc<Session>, RpcError> {
         let (live, guarded, replace_durable, defer_finalize, staged) = plain;
+        let mut steps = transfer_out::transfer_live::MoveSteps::new("import");
         let meta_text = std::fs::read_to_string(bundle.join("session.json"))
             .map_err(|e| RpcError::invalid_params(format!("read session.json: {e}")))?;
         let mut meta: SessionMeta = serde_json::from_str(&meta_text)
