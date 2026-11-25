@@ -8,6 +8,7 @@ public import CmuxNextDesignTokens
 public enum MetricKey: String, Sendable, CaseIterable, Codable {
     case sidebarWidth
     case sidebarRowHeight
+    case spaceButtonSpacing
     case tabStripHeight
     case tabMaxWidth
     /// Chrome's tab minimums (design-tokens.json `motion.tabStrip`): crowding shrinks every tab
@@ -442,6 +443,7 @@ public final class DesignSettings {
         switch key {
         case .sidebarWidth: 160...420
         case .sidebarRowHeight: 20...48
+        case .spaceButtonSpacing: 18...48
         case .tabStripHeight: 22...44
         case .tabMaxWidth: 120...320
         case .tabMinActiveWidth: 32...200

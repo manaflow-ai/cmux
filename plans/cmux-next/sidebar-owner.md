@@ -2415,6 +2415,7 @@ An empty group now keeps only its header at rest. The header's existing + appear
 
 ## Each space owns its pins and groups (2026-10-29)
 
+- A Pinned group lists its links, tabs and apps in each member’s stored Space. An unstamped member still follows its visible group. On a daemon without profiles, it lists every member. Pinning a top-level link, tab or app stores the acting Space in the same edit.
 - Leo 2026-10-29: "could u guys also now work on the per space pins and groups? rn anything u make in teh default space goes across to new ones". No visual change: rows, headers, insets and the Pinned block look the same. What changes is which space draws a group or a Pinned link, tab or app: a new group stores the acting window's space as its `profile`, a Pinned item stores it as `extra.room`, and a window on space S draws only the ones that belong to S (anything made before reads as the default space's). Commits 68c7d49b5bc and 9fcf4ab6c1c carry no trailer; reviewed and logged here as no visual change. A link, tab or app moved into Pinned from another band (the band's Move, a document drag) stores the acting window's space too, in the same change (`item.update {room}`): 4e44c4baef8 and af2b1a3f8eb, no trailer, logged here as no visual change. A machine section's group lists with its parent in every space (`SidebarDocSections.sections`). Test: `SidebarSpaceOwnsPinsAndGroupsTests`. Pending `item.update` fields and a pending New Group's space (28d1f36386e, no trailer) are logged here as no visual change. An item or group naming a space that is gone (deleted, not mirrored back yet) reads as the default space's (`SidebarDocItem.owningRoom`), so none is left in no window; Delete Space with `moveTo` and Move Group to Space move the stored space with it.
 
 ## A Cloud or remote workspace is named once, in the hover card's header (2026-11-02)
@@ -2573,8 +2574,16 @@ An empty group now keeps only its header at rest. The header's existing + appear
   target stays. A click on a ringed space opens a menu at once with Go to Window and Move Here (`space.bringHere`);
   Option-click goes straight to that window; Move Here is left out when either window is incognito. While the menu is
   open the dot stays lit and the hover chrome stays revealed. A space no other window shows still switches in place.
+  Settings > Sidebar > Space Button Spacing (`appearance.metrics.spaceButtonSpacing`) sets the distance
+  between button centers in points, at either edge of the sidebar. An explicit spacing is kept on a
+  scrolling row. If the footer has less room than an active button and the +, those targets share
+  the available width. Unset, the density and available width choose the spacing.
   Debug tunable `tunable.sidebar.spaceSwitcher` (ring, the default; glyph; menu; plain). Rules:
   `SpaceSwitcherLogic`; tests: `SpaceSwitcherWindowMarksTests`, gallery `SpaceSwitcherGalleryTests`.
+- A press that loses its original Space before the drag threshold cancels the click and drag.
+- A scrolled row only accepts clicks and draws shortcut hints on whole visible dots. The drag creates layers for
+  those dots and clips them between the leading inset and the +. Ctrl-9 hints the last Space. A keyboard switch
+  that scrolls a hovered dot out of view also clears its highlight.
 - A dot drag keeps the marks: each moving dot's snapshot draws its ring or glyph too (`ProfileBarDotDragWindowMarkTests`).
 - Commits (carried from #30817): 991f4dae1cd, a90551963f2, 6a4ba590061, d052543bd1d, d9cef9ff37d, aa68b42fc71,
   9ba13003412.
