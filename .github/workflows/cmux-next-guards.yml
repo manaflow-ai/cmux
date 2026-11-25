@@ -701,8 +701,10 @@ jobs:
     needs: coalesce
     name: cmux-next static checks (vt-link-graph, nightly static capabilities, defaults snapshot, page strings)
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
-    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
-    if: ${{ (github.event.action != 'ready_for_review') && ((!cancelled() && needs.coalesce.outputs.run != 'false') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))) }}
+    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it. A pull request into
+    # feat-cmux-next itself runs its checks as ci/steps.toml's static-notices-capabilities and
+    # static-defaults-menus-strings steps (pr-pipeline.yml), so the job skips it unless the docs-only fallback called it.
+    if: ${{ (github.event.action != 'ready_for_review') && ((!cancelled() && needs.coalesce.outputs.run != 'false') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' || github.workflow == 'docs-only fallback')) }}
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     # Each former job's 5-minute cap is split among its steps (vt-link-graph 2+1+2, nightly static capabilities 5,
@@ -1310,6 +1312,8 @@ jobs:
   # A red own-change check (the size cap, the crash ratchet) or static check (page strings among them) on a pull
   # request into feat-cmux-next gets the same "red: <check>" comment as a red web check (chief 2026-10-12): ci.yml calls
   # this workflow after `web`; both callers update one comment, recomputed from all check runs of the head commit.
+  # static-checks skips such a pull request (its checks are pr-pipeline.yml linux steps, whose red check run the
+  # comment reads like any other) unless the docs-only fallback called this workflow.
   pr-red-checks:
     needs: [own-change-checks, static-checks]
     if: ${{ (github.event.action != 'ready_for_review') && (always() && !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next') }}
@@ -1358,7 +1362,9 @@ jobs:
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER; others take the persistent cmux-linux pool.
     needs: [coalesce, tooling-tests-base-red]
     # Runs on pull requests into feat-cmux-next too (it was Tier A, skipped; scripts/ci/affected-jobs.json says why it
-    # is not now): setup-tooling-route below limits a pull request to the steps its diff can fail.
+    # is not now): setup-tooling-route below limits a pull request to the steps its diff can fail. On a pull request
+    # into feat-cmux-next (not the docs-only fallback's call) it runs only tt-remote-p10k, tt-webviews-tests-per-file,
+    # tt-web-lint-prepush and tt-tailnet; ci/steps.toml's tooling-tests-1..4 run the rest.
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((!cancelled() && needs.coalesce.outputs.run != 'false') && needs.tooling-tests-base-red.outputs.base_red != 'true') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 25
@@ -1444,7 +1450,8 @@ jobs:
       # Leo, 2026-11-19: "only meaningful tests ... not just there for ticky tack". Each selectable step below runs only
       # when this pull request's diff reaches a test it runs (scripts/ci/tooling_steps.py). A step of this job, not a
       # router job's: Linux CI is one persistent pool (hq decisions/junctions.md 2026-11-20), so no placement job is
-      # left to carry it. Fails open: a failure here leaves tooling_all empty, and every step runs.
+      # left to carry it. Fails open: a failure here leaves tooling_all empty, and every step runs (on a pull request
+      # into feat-cmux-next, as well as the table's copies).
       - name: Select the steps this diff reaches (tooling_steps.py)
         id: setup-tooling-route
         if: ${{ github.event_name == 'pull_request' }}
@@ -1460,6 +1467,18 @@ jobs:
               --github-output "$RUNNER_TEMP/tooling.out" --summary "$GITHUB_STEP_SUMMARY"; then
             echo "::warning title=tooling-tests selection::tooling_steps.py failed; tooling-tests runs every step."
             printf 'tooling_all=true\ntooling_steps=\n' > "$RUNNER_TEMP/tooling.out"
+          fi
+          # A pull request into feat-cmux-next runs every other tt- step as ci/steps.toml's tooling-tests-1..4
+          # (pr-pipeline.yml's linux job); here it keeps only the ones that job cannot run.
+          if [ "${GITHUB_BASE_REF:-}" = feat-cmux-next ] && [ "$GITHUB_WORKFLOW" != "docs-only fallback" ]; then
+            routed="$(sed -n 's/^tooling_steps=//p' "$RUNNER_TEMP/tooling.out")"
+            all=true
+            grep -qx 'tooling_all=false' "$RUNNER_TEMP/tooling.out" && all=false
+            keep=" "
+            for id in tt-remote-p10k tt-webviews-tests-per-file tt-web-lint-prepush tt-tailnet; do
+              if [ "$all" = true ] || [[ "$routed" == *" $id "* ]]; then keep="$keep$id "; fi
+            done
+            printf 'tooling_all=false\ntooling_steps=%s\n' "$keep" > "$RUNNER_TEMP/tooling.out"
           fi
           cat "$RUNNER_TEMP/tooling.out" >> "$GITHUB_OUTPUT"
 

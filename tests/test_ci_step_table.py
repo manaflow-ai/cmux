@@ -1088,6 +1088,41 @@ class PipelineTest(unittest.TestCase):
         # One failed command does not stop the others, as the job's `!cancelled()` steps did.
         self.assertEqual(holes.run.count("|| status=1"), 4)
         self.assertIn('exit "$status"', holes.run)
+        # cmux-next-guards.yml's static-checks: its checks run as two steps on feat-cmux-next pull requests; the job keeps
+        # push, workflow_call (the docs-only fallback) and stacked feat-cmux-next-* pull requests with full-ci.
+        guards = wf["jobs"]
+        self.assertTrue(guards["static-checks"]["if"].endswith(
+            "&& (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' || github.workflow == 'docs-only fallback')) }}"))
+        static_runs = {"static-notices-capabilities": (
+                           "check_ghostty_vt_notices.py --check-link-graph", "package_notices.py check-data",
+                           "test_ghostty_licenses.py", "test_check_bundle_notices.py",
+                           "test_check_ghostty_vt_notices.py", "test_cmux_next_static_capability_runtime_only.py"),
+                       "static-defaults-menus-strings": (
+                           "tests/test_defaults_guard.py", "check-group-menus.py", "check-menu-actions.py",
+                           "CMUX_STRINGS_BEST_EFFORT= node webviews/scripts/pages/gen-strings.mjs")}
+        for name, commands in static_runs.items():
+            with self.subTest(step=name):
+                self.assertEqual((steps[name].job, steps[name].inputs, steps[name].alone), ("linux", ("**",), False))
+                for command in commands:
+                    self.assertIn(command, steps[name].run)
+                self.assertTrue(ci_steps.routed(steps[name], ["a.txt"]))
+        # tooling-tests: on a feat-cmux-next pull request (not the fallback's call) the job keeps only the tt- steps the
+        # linux job cannot run; tooling-tests-1..4 carry every other tt- step's command, each behind the job's selection.
+        route = next(s for s in guards["tooling-tests"]["steps"] if s.get("id") == "setup-tooling-route")
+        staying = ("tt-remote-p10k", "tt-webviews-tests-per-file", "tt-web-lint-prepush", "tt-tailnet")
+        self.assertIn('[ "${GITHUB_BASE_REF:-}" = feat-cmux-next ] && [ "$GITHUB_WORKFLOW" != "docs-only fallback" ]',
+                      route["run"])
+        self.assertIn("for id in " + " ".join(staying) + "; do", route["run"])
+        tooling = [steps[f"tooling-tests-{i}"] for i in range(1, 5)]
+        carried = re.findall(r"^if want (tt-[\w-]+); then", "\n".join(s.run for s in tooling), re.M)
+        tt_ids = [s["id"] for s in guards["tooling-tests"]["steps"] if s.get("id", "").startswith("tt-")]
+        self.assertEqual(carried, [i for i in tt_ids if i not in staying])
+        for step in tooling:
+            with self.subTest(step=step.name):
+                self.assertEqual((step.job, step.inputs, step.alone), ("linux", ("**",), False))
+                self.assertLessEqual(step.timeout, 360)
+                self.assertIn("tooling_steps.py route --workflow .github/workflows/cmux-next-guards.yml --job tooling-tests",
+                              step.run)
         # ci-web.yml's diff-sidecar-check keeps its route and runs as the table step on feat-cmux-next pull requests,
         # while docs-only fallback still runs the reusable job directly.
         diff_wf = yaml.safe_load((ROOT / ".github/workflows/ci-web.yml").read_text())
@@ -1175,7 +1210,8 @@ class PipelineTest(unittest.TestCase):
         wants_bun = {"app-platform", "mux", "automation-bench", "cloud-vm-image-lock", "cmux-vm-sdk", "web-complexity",
                      "web-typecheck", "webviews-typecheck", "diff-sidecar-check", "web-tests-1", "web-tests-2", "web-tests-3",
                      "web-tests-4", "web-production-build"}
-        wants_node = {"ci-artifact-worker", "coderouter", "web-complexity", "webviews-typecheck"}
+        wants_node = {"ci-artifact-worker", "coderouter", "web-complexity", "webviews-typecheck",
+                      "static-defaults-menus-strings"}
         self.assertEqual(table.steps["coderouter"].needs, ("rust", "node"))
         self.assertEqual(table.steps["remote-daemon-packaging"].needs, ("go",))
         for name, step in table.steps.items():
