@@ -233,6 +233,7 @@ pub struct MailboxResult {
 /// Every JSON message on the socket.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
+#[allow(clippy::large_enum_variant)] // a few per dial; boxing buys nothing
 pub enum SignalMessage {
     Hello {
         you: String,
