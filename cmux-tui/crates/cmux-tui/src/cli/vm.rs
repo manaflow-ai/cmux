@@ -110,7 +110,7 @@ pub(super) fn split(command_args: &[String]) -> Option<(Scope, &[String])> {
     scope.owns(rest.first().map(String::as_str)).then_some((scope, rest))
 }
 
-const VERBS: &str = "run, new, show, pause, resume, start, stop, rm, exec, fork, snapshot, access, key, creation, file";
+const VERBS: &str = "run, new, show, pause, resume, start, stop, rm, exec, fork, snapshot, access, key, creation, file, tailnet";
 
 /// `cmux vm`'s usage for the VM API verbs; `cmux vm --help` adds the Cloud verbs.
 fn help() -> String {
@@ -166,6 +166,41 @@ fn sub_verb(tail: &[String], map: &[(&str, &str)]) -> Vec<String> {
         break;
     }
     words
+}
+
+/// What `cmux vm <verb> --help` prints of its own.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum HelpNote {
+    /// All of it: a verb that only redirects (`resize` is `resize-machine`).
+    Whole(String),
+    /// A line naming the verb `verb` spells, before the VM API's help of that verb (`ls` is `list`).
+    Before(String),
+}
+
+/// `-h` or `--help` among a verb's words.
+fn verb_asks_help(tail: &[String]) -> bool {
+    tail.iter().take_while(|w| *w != "--").any(|w| matches!(w.as_str(), "-h" | "--help"))
+}
+
+/// The help of a `cmux vm` verb that is another verb's spelling. Before, `vm resize --help`
+/// exited 2 with its redirect, and `vm ls --help` printed `list`'s help without naming `ls`.
+pub(super) fn verb_help_note(verb: &str, japanese: bool) -> Option<HelpNote> {
+    if verb == "resize" {
+        return super::cloud_help::verb_help(verb, japanese).map(HelpNote::Whole);
+    }
+    let long = match verb {
+        "ls" => "list",
+        "show" => "get",
+        "rm" => "delete",
+        "access" => "client-session",
+        "key" => "token",
+        _ => return None,
+    };
+    Some(HelpNote::Before(if japanese {
+        format!("`cmux vm {verb}` は `cmux vm {long}` と同じです。\n\n")
+    } else {
+        format!("`cmux vm {verb}` is `cmux vm {long}`.\n\n")
+    }))
 }
 
 /// The `cmux-vm` argument list for `cmux machine <rest>` (or `cmux vm <rest>`).
@@ -539,8 +574,19 @@ pub(super) fn vm_runs_cloud_verb(verb: &str) -> bool {
 
 /// Words `vm` answers itself that are not [`MACHINE_VERBS`]: the VM API's list, help, and the
 /// pointers of [`plan`].
-const VM_OWN_WORDS: &[&str] =
-    &["ls", "list", "help", "resize", "workspace", "start-chat", "chat", "pool", "runner", "file"];
+const VM_OWN_WORDS: &[&str] = &[
+    "ls",
+    "list",
+    "help",
+    "resize",
+    "workspace",
+    "start-chat",
+    "chat",
+    "pool",
+    "runner",
+    "file",
+    "tailnet",
+];
 
 /// `cmux cloud …` typed at a terminal: one line on stderr with its new name. A script (no
 /// terminal on stderr) and this binary's own steps read nothing new.
@@ -858,6 +904,27 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         print!("{}", vm_help(crate::localization::catalog().is_japanese()));
         return Some(0);
     }
+    // `cmux vm resize --help` and `cmux vm ls --help`: the verb's own help, exit 0 (the Cloud and
+    // remote command matrix).
+    if scope == Scope::Vm
+        && let [verb, tail @ ..] = rest
+        && verb_asks_help(tail)
+    {
+        let japanese = crate::localization::catalog().is_japanese();
+        match verb_help_note(verb, japanese) {
+            Some(HelpNote::Whole(text)) => {
+                print!("{text}");
+                return Some(0);
+            }
+            // The VM API's own help follows, from the verb it runs.
+            Some(HelpNote::Before(note)) => {
+                use std::io::Write as _;
+                print!("{note}");
+                let _ = std::io::stdout().flush();
+            }
+            None => {}
+        }
+    }
     if let Some(words) = cloud_access(rest) {
         return Some(super::cloud_client_session::run_words(&global, &words));
     }
@@ -867,6 +934,24 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
         && verb == "pool"
     {
         return Some(run_pool(tail, global.output, &env));
+    }
+    if scope == Scope::Vm
+        && let [verb, tail @ ..] = rest
+        && verb == "tailnet"
+    {
+        return Some(super::vm_tailnet::run(tail, global.output == OutputMode::Json, &env));
+    }
+    if let Some(vm_id) = super::vm_tailnet::cloned_vm(rest)
+        && let Some(refusal) = super::vm_tailnet::refuse_clone_of_joined(vm_id, &env)
+    {
+        eprintln!("{refusal}");
+        return Some(2);
+    }
+    if let [verb, vm_id, ..] = rest
+        && matches!(verb.as_str(), "rm" | "delete")
+        && !vm_id.starts_with('-')
+    {
+        super::vm_tailnet::leave_before_delete(vm_id, &env);
     }
     if scope == Scope::Vm
         && let [verb, tail @ ..] = rest

@@ -39,6 +39,7 @@ coderouter
 debug-settings
 feed
 files
+forum
 github
 group-editor
 history
@@ -46,7 +47,6 @@ home-channels
 icon-picker
 keybindings
 machines
-mobile-pairing
 onboarding
 passwords
 server-cards
@@ -58,6 +58,7 @@ glass-parity
 task-manager
 skills
 tasks
+terminal-history
 "
 # The browser chrome's pages (CmuxNextPages BrowserChromeWebHost).
 PAGES="$PAGES site-settings site-data certificate"

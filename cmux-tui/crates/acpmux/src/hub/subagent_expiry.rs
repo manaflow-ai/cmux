@@ -18,9 +18,21 @@ impl Hub {
             let records: Vec<Value> = ended
                 .into_iter()
                 .map(|end| {
-                    let mut params = json!({"sessionId": session.id,
-                        "update": {"sessionUpdate": "subagent_state_update",
-                            "subagentSessionId": end.id, "state": end.state, "reason": end.reason}});
+                    let mut update = serde_json::Map::new();
+                    update.insert("sessionUpdate".into(), json!("subagent_state_update"));
+                    update.insert("subagentSessionId".into(), json!(end.id));
+                    update.insert("state".into(), json!(end.state));
+                    update.insert("reason".into(), json!(end.reason));
+                    update.insert("recovered".into(), json!(true));
+                    // When it really ended and started (`subagents::expiry`), never the moment
+                    // this record is written: a client draws the end where it happened.
+                    if let Some(at) = end.ended_at {
+                        update.insert("endedAt".into(), json!(at));
+                    }
+                    if let Some(at) = end.started_at {
+                        update.insert("startedAt".into(), json!(at));
+                    }
+                    let mut params = json!({"sessionId": session.id, "update": update});
                     tree.annotate_live(&mut params, true);
                     json!({"jsonrpc": "2.0", "method": method::SESSION_UPDATE, "params": params})
                 })
@@ -56,7 +68,19 @@ impl Hub {
         let text = |k: &str| line.get(k).and_then(Value::as_str).filter(|v| !v.is_empty());
         let Some(task) = text("task_id") else { return };
         let status = text("status").unwrap_or("completed");
-        session.subagents.lock().unwrap_or_else(|e| e.into_inner()).note_task_ended(task, status);
+        let mut tree = session.subagents.lock().unwrap_or_else(|e| e.into_inner());
+        tree.set_clock(crate::store::now_ms());
+        tree.note_task_ended(task, status);
+    }
+
+    /// Claude Code's `system/task_started`: a task that starts again (a SendMessage resume) no
+    /// longer ends as its earlier notification said (`SubagentTree::note_task_started`).
+    pub(super) fn subagent_task_started(&self, session: &Session, line: &Value) {
+        let Some(task) = line.get("task_id").and_then(Value::as_str).filter(|v| !v.is_empty())
+        else {
+            return;
+        };
+        session.subagents.lock().unwrap_or_else(|e| e.into_inner()).note_task_started(task);
     }
 
     /// The running subagents quiet past the bound end (`aged_out`), checked at most once a minute

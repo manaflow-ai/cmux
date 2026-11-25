@@ -1,7 +1,9 @@
-//! Pins the reader surface other crates use: read a record from a path, its format version, and
-//! every window's v2 fields, front first. Only public items appear here.
+//! Pins the reader surface other crates use: read a record from a path, its format version, its
+//! write time, every window's v2 and v3 fields, front first, and the newer-of decision against
+//! the daemon launch snapshot. Only public items appear here.
 use cmux_launch_record::{
-    FORMAT_VERSION, Frame, LaunchRecord, LaunchRecordData, WindowRecord, WindowView, write_atomic,
+    FORMAT_VERSION, Frame, GeometrySource, LaunchRecord, LaunchRecordData, WindowRecord,
+    WindowView, newer_launch_geometry, unix_now_ms, write_atomic,
 };
 
 fn window(id: &str, x: f64) -> WindowRecord {
@@ -21,6 +23,7 @@ fn window(id: &str, x: f64) -> WindowRecord {
         screen_frame: Frame { x: 0.0, y: 0.0, width: 1512.0, height: 982.0 },
         visible_workspace_id: "ws".into(),
         visible_tab_ids: vec![],
+        sidebar_width: 240.0,
     }
 }
 
@@ -59,6 +62,7 @@ fn a_record_reads_from_its_path_front_first_with_v2_fields_and_v1_defaults() {
         sidebar_rows: vec![],
         session_socket_path: String::new(),
         session_registry_id: String::new(),
+        written_at_ms: 1_763_500_000_123,
     };
     write_atomic(&path, &data).unwrap();
 
@@ -67,6 +71,8 @@ fn a_record_reads_from_its_path_front_first_with_v2_fields_and_v1_defaults() {
     assert_eq!(record.version(), FORMAT_VERSION);
     assert_eq!(FORMAT_VERSION, 3);
     assert_eq!(record.session_registry_id(), "");
+    assert_eq!(record.written_at_ms(), 1_763_500_000_123);
+    assert!(unix_now_ms() > record.written_at_ms());
     let windows: Vec<WindowView<'_>> = record.windows().collect();
     assert_eq!(windows.len(), 2);
     let screen = Frame { x: 0.0, y: 0.0, width: 1512.0, height: 982.0 };
@@ -91,6 +97,8 @@ fn a_record_reads_from_its_path_front_first_with_v2_fields_and_v1_defaults() {
     let back = fields(&windows[1]);
     assert_eq!((back.0, back.1.x, back.4, back.5, back.6, back.7), ("back", 300.0, 1.0, 0, 0, 1));
     assert_eq!(record.front_window().unwrap().id, "front");
+    let widths: Vec<f64> = windows.iter().map(|w| w.sidebar_width).collect();
+    assert_eq!(widths, [240.0, 240.0]);
 
     // A v1 record (format 1: no scale, flags or screen frame) still reads; scale is 0.0.
     let mut b = b"CMUXLR01".to_vec();
@@ -115,8 +123,9 @@ fn a_record_reads_from_its_path_front_first_with_v2_fields_and_v1_defaults() {
     string(&mut b, "");
     std::fs::write(&path, b).unwrap();
     let old = LaunchRecord::read(&path).unwrap();
-    assert_eq!(old.version(), 1);
+    assert_eq!((old.version(), old.written_at_ms()), (1, 0));
     let w = old.windows().next().unwrap();
+    assert_eq!(w.sidebar_width, 0.0);
     assert_eq!(
         fields(&w),
         (
@@ -137,4 +146,12 @@ fn a_record_reads_from_its_path_front_first_with_v2_fields_and_v1_defaults() {
 
     assert!(LaunchRecord::read(dir.join("missing")).is_none());
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn the_record_wins_only_when_strictly_newer_than_the_snapshot_and_known() {
+    assert_eq!(newer_launch_geometry(2, 1), GeometrySource::Record);
+    assert_eq!(newer_launch_geometry(1, 2), GeometrySource::Snapshot);
+    assert_eq!(newer_launch_geometry(5, 5), GeometrySource::Snapshot);
+    assert_eq!(newer_launch_geometry(0, 0), GeometrySource::Snapshot);
 }

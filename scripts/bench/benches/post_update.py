@@ -20,6 +20,12 @@ One bench, one mode per harness (--arg mode=NAME); every row carries labels mode
                Rows per launch from `NFL-LAUNCH <round> <copy>` lines, label copy=fresh-copy|same-copy|warm|...:
                pre_main, to_frame, to_page, first_frame, home_first_page, home_rendered. Takes the NIGHTLY's DMG
                (--build nightly, about 4 minutes; the mode the nightly runs) or builds a feat-cmux-next commit.
+  go-back      scripts/measure/go-back-duress.sh (#41013): the update harness updates a bench app to a newer copy of
+               itself with live agent turns and running terminals (--sessions), then goes back through
+               updates.rollback; rounds alternate a quiet Mac and one loaded with stress busy loops per core
+               (default 12). Rows per go-back from `GBD <load> <round>` lines, label load=quiet|loaded:
+               click_to_window (the kept build's first window) and click_to_old_exit. It builds the step's checkout
+               (--build <sha>). One build: about 1 hour.
 
 Each mode is one entry in MODES (its fleet step and the parser for its output); a new post-update harness joins as one
 more entry, and the post-update hitch harness from the post-update-lag-spikes lane goes in as mode=lag-spikes.
@@ -51,7 +57,10 @@ SHIFT_CHAT = {"chat_shifts": "lower", "chat_scroll_jumps": "lower", "chat_appear
 NFL = re.compile(r"^(?:\[(base|head)\] )?NFL-LAUNCH (\d+) ([\w-]+) (\{.*\})\s*$")
 NFL_PHASES = {"pre_main": "pre_main", "to_frame": "to_frame", "to_page": "to_page", "frame": "first_frame",
               "page": "home_first_page", "harness": "home_rendered"}
-HOSTS = (re.compile(r'(?:NFL|L5) host (\S+) chip="([^"]*)" macOS (\S+)'), re.compile(r'UCA host chip="([^"]*)" macOS (\S+)'))
+HOSTS = (re.compile(r'(?:NFL|L5) host (\S+) chip="([^"]*)" macOS (\S+)'),
+         re.compile(r'(?:UCA|GBD) host chip="([^"]*)" macOS (\S+)'))
+GBD = re.compile(r"(?:^|\s)GBD (quiet|loaded) (\d+) (\{.*\})\s*$")
+GBD_KEYS = ("click_to_window", "click_to_old_exit")
 
 
 def _host(ctx: Context, text: str) -> None:
@@ -187,6 +196,29 @@ def fresh_copy_parse(ctx: Context, text: str, tar: tarfile.TarFile | None) -> bo
     return bool(per)
 
 
+# --- go-back -----------------------------------------------------------------------------------------------------
+def go_back_step(ctx: Context) -> tuple[list[str], str, int, str | None]:
+    args = [f"rounds={ctx.arg('rounds', '3')}"]
+    for key in ("stress", "agents", "terminals"):
+        if ctx.arg(key):
+            args.append(f"{key}={ctx.arg(key)}")
+    return args, ".build/go-back-duress/report.tgz", 7200, _head_sha(ctx, "go-back")
+
+
+def go_back_parse(ctx: Context, text: str, tar: tarfile.TarFile | None) -> bool:
+    per: dict[str, dict[str, dict]] = {}
+    for line in text.splitlines():
+        m = GBD.search(line)
+        if m:
+            per.setdefault(m.group(1), {})[m.group(2)] = json.loads(m.group(3))
+    for load, rounds in per.items():
+        labels = {"mode": "go-back", "load": load}
+        for key in GBD_KEYS:
+            ctx.row(key, unit="ms", samples=[r[key] for r in rounds.values() if isinstance(r.get(key), (int, float))],
+                    labels=labels)
+    return bool(per)
+
+
 @dataclass(frozen=True)
 class Mode:
     script: str
@@ -199,6 +231,7 @@ MODES: dict[str, Mode] = {
     "update-click": Mode("scripts/measure/update-click-ab.sh", update_click_step, update_click_parse, "UCA "),
     "shift": Mode("scripts/measure/relaunch-shift.sh", shift_step, shift_parse, "LAUNCH-SHIFT "),
     "fresh-copy": Mode("scripts/measure/nightly-fresh-launch.sh", fresh_copy_step, fresh_copy_parse, "NFL-LAUNCH "),
+    "go-back": Mode("scripts/measure/go-back-duress.sh", go_back_step, go_back_parse, "GBD "),
 }
 
 

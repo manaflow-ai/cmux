@@ -18,6 +18,8 @@
 //! The model is a filter, never an authority:
 //! - it only picks one word per message index; none of its text is kept, shown or routed.
 //!   Digest lines come from the original messages;
+//! - a program's notice that is not a FIRE is `fyi` with no model ([`Held::fyi_by_rule`]):
+//!   it never counts toward the chat's needYou;
 //! - a blocker or a question (`class` block or question) is `needs_this_session` with no model
 //!   ([`split_urgent`]);
 //! - a message the model skips, garbles or answers twice, and every message of a call that
@@ -80,18 +82,94 @@ pub struct Held {
     /// `block`, `question`, `result` or `fyi` (`prompt_class::PromptClass`).
     pub class: String,
     pub text: String,
+    /// A program sent it, no agent session ([`program_notice`]): an inbox fyi by rule.
+    #[serde(default)]
+    pub program: bool,
 }
 
 impl Held {
     /// A blocker or a question always reaches the chat.
     pub fn must_reach_this_session(&self) -> bool {
-        matches!(self.class.as_str(), "block" | "question")
+        !self.fyi_by_rule() && matches!(self.class.as_str(), "block" | "question")
+    }
+
+    /// Filed as [`Category::Fyi`] with no model: a program's notice that is not a FIRE. Leo, 2026-11-23,
+    /// about his inbox's "245 need you": the "ok this likely/definitely doesnt actually need
+    /// me" thing. hq `docs/handbook/notice-flood.md` rule 1: a program's message is an inbox fyi.
+    pub fn fyi_by_rule(&self) -> bool {
+        self.program && !fire_text(&self.text)
     }
 
     /// Whether this message needs the person, not only this chat's agent ([`needs_person`]).
+    /// A program's notice that is no FIRE never does ([`Self::fyi_by_rule`]).
     pub fn needs_person(&self, owner: &str) -> bool {
-        needs_person(&self.class, &self.text, owner)
+        !self.fyi_by_rule() && needs_person(&self.class, &self.text, owner)
     }
+}
+
+/// Whether a held `inbox` record's sender is a program: no agent session sent it. Its sender
+/// record names no session and no relayed session, the message names no `fromSession`, and
+/// its text is not an agent's report the lane-gh broker relayed ([`broker_relayed_agent`]):
+/// the broker sends every lane VM message from its host with no session, agents' and
+/// programs' alike. Read from the record alone, so messages held before this rule are judged
+/// the same.
+pub fn program_notice(msg: &Value) -> bool {
+    let named = |v: Option<&Value>| v.and_then(Value::as_str).is_some_and(|s| !s.is_empty());
+    let sender = msg.get("sender");
+    let session = named(msg.get("fromSession"))
+        || named(sender.and_then(|s| s.get("session")))
+        || named(sender.and_then(|s| s.pointer("/relay/session")));
+    let text = msg.get("text").and_then(Value::as_str).unwrap_or_default();
+    !session && !broker_relayed_agent(text)
+}
+
+/// A program's notice that is no FIRE: an inbox fyi whatever its class ([`Held::fyi_by_rule`]),
+/// for a message held before that rule filed it as one (`{fromSession, sender, text}`).
+pub fn program_fyi(msg: &Value) -> bool {
+    program_notice(msg) && !fire_text(msg.get("text").and_then(Value::as_str).unwrap_or_default())
+}
+
+/// The lane-gh broker's header on an agent's message it relays: `[message ID from HOST/NAME
+/// (an agent, not Leo), relayed by the lane-gh broker; ...]` on one of its first lines (a
+/// program's reads `(a program with no session, ...)`). Text alone, so a sender could write
+/// it; that only sends its message through the model, as before this rule.
+pub fn broker_relayed_agent(text: &str) -> bool {
+    text.lines().take(4).any(|l| {
+        let l = l.trim_start();
+        l.starts_with("[message ") && l.contains(" (an agent") && l.contains("lane-gh broker")
+    })
+}
+
+/// A FIRE keeps its waking class (notice-flood.md rule 1): the word `FIRE` in capitals,
+/// `[fire]` or `severity: fire`, as the notice's own severity: on its head (its first lines,
+/// past the lane-gh broker's relay header), as a tag (`[notice from now on HOST · FIRE]`,
+/// `[fire]`), the first word past its tags (`[asks-router] FIRE ...`) or a `severity:` line.
+/// The word elsewhere is not the notice's severity: a broker digest says it holds "none a
+/// FIRE", and a land stop quotes the alarm log it read (`"text": "FIRE land queue ..."`).
+pub fn fire_text(text: &str) -> bool {
+    let mut lines = text.lines().map(str::trim).filter(|l| !l.is_empty()).peekable();
+    if lines
+        .peek()
+        .is_some_and(|l| l.starts_with("[message ") && l.contains("relayed by the lane-gh broker"))
+    {
+        lines.next();
+    }
+    let head: Vec<&str> = lines.take(3).collect();
+    if head.iter().any(|l| l.to_ascii_lowercase().starts_with("severity: fire")) {
+        return true;
+    }
+    let Some(mut rest) = head.first().copied() else {
+        return false;
+    };
+    while let Some(tagged) = rest.strip_prefix('[') {
+        let Some((tag, after)) = tagged.split_once(']') else { break };
+        let tag = tag.trim();
+        if tag.eq_ignore_ascii_case("fire") || tag.ends_with("\u{b7} FIRE") {
+            return true;
+        }
+        rest = after.trim_start();
+    }
+    rest.split(|c: char| !c.is_ascii_alphanumeric()).next() == Some("FIRE")
 }
 
 /// Words that address the person (`owner` is the host user's name too).
@@ -155,6 +233,7 @@ pub fn held_from_inbox(msg: &Value) -> Option<Held> {
         from: s("from"),
         class: msg.get("class").and_then(Value::as_str).unwrap_or("fyi").to_owned(),
         text: s("text"),
+        program: msg.get("program").and_then(Value::as_bool) == Some(true) || program_notice(msg),
     };
     (!held.prompt_id.is_empty() && !held.thread_id.is_empty()).then_some(held)
 }
@@ -271,6 +350,8 @@ pub enum Category {
     NeedsItsOwner,
     AlreadyHandled,
     Noise,
+    /// Needs no decision by rule ([`Held::fyi_by_rule`]): stays in the archive, never counted.
+    Fyi,
 }
 
 impl Category {
@@ -361,6 +442,7 @@ pub fn decide(batch: &Batch, answer: Option<&str>, owners: &Owners) -> Vec<Optio
             let model = picked.get(&i).copied().flatten();
             let owner = owners.0.get(&m.thread_id).filter(|o| **o != batch.recipient);
             let (category, decided_by, owner) = match model {
+                _ if m.fyi_by_rule() => (Category::Fyi, DecidedBy::Rule, None),
                 _ if m.must_reach_this_session() => {
                     (Category::NeedsThisSession, DecidedBy::Rule, None)
                 }
@@ -383,10 +465,10 @@ pub fn decide(batch: &Batch, answer: Option<&str>, owners: &Owners) -> Vec<Optio
         .collect()
 }
 
-/// `held` split into the messages that reach the chat with no model (blockers and questions)
-/// and the rest, each in arrival order.
+/// `held` split into the messages decided with no model (blockers, questions and the
+/// [`Held::fyi_by_rule`] ones) and the rest, each in arrival order.
 pub fn split_urgent(held: &[Held]) -> (Vec<Held>, Vec<Held>) {
-    held.iter().cloned().partition(Held::must_reach_this_session)
+    held.iter().cloned().partition(|h| h.must_reach_this_session() || h.fyi_by_rule())
 }
 
 /// The `inbox_triaged` record for `batch`, for `Hub::persist_surge_triage`. Each item keeps
