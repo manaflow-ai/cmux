@@ -222,6 +222,9 @@ pub struct Conn {
     /// Where each attached chat's live stream stands, so a lap of the event ring is read back
     /// from the store (`stream_cursor.rs`).
     stream_cursors: stream_cursor::StreamCursors,
+    /// The rows of an attached chat's turn-opening records, held so the turn's first output is
+    /// not queued behind them (`held_rows.rs`).
+    held_rows: held_rows::HeldRows,
     /// The chats attached here that moved to a peer, or are being moved (`follow.rs`).
     follows: follow::Follows,
     /// The chats a `session/load` replayed here: their message notices go once.
@@ -254,6 +257,11 @@ pub struct Conn {
     /// (`_meta.acpmux.omitTimeBreakdown`), for none in any row: its attaches and the
     /// `session_changed` of the chats it attached (`requests/time_breakdown_gate.rs`).
     omit_time_breakdown: AtomicBool,
+    /// Other chats' `session_changed` rows left out while every chat this connection attached was
+    /// hidden from a client that draws nothing then (`SubOpts::quiet_hidden`, `leaves_out_row`).
+    /// Changed under `subs`' lock, so the show that ends it (`view.rs`) sends one `_acpmux/lagged`
+    /// with `watch: true` that covers every row left out, and the page reads the list again.
+    rows_left_out: AtomicU64,
     watch_inventory: StdMutex<bool>,
     /// The unix socket peer's audit token, read at accept (macOS); what
     /// `_acpmux/person_enroll` checks. None for WebSocket connections.
@@ -954,6 +962,30 @@ impl Conn {
             }
             _ => false,
         }
+    }
+    /// Whether another chat's `session_changed` row is left out here: every chat this connection
+    /// attached is hidden from a client that draws nothing then (`SubOpts::quiet_hidden`, the
+    /// app's pane). The app already holds every list notice from a page out of sight
+    /// (`AcpmuxPaneShedding.listNotices`, `setAsleep`), so these rows crossed the socket for
+    /// nothing: 205 kB/s with 8 chats streaming and 6 panes hidden (app-stream-bytes, stream
+    /// duress). Counted under the lock `_acpmux/view` shows a chat under (`rows_left_out`).
+    // perf-hot: 1us acpmux-row-fanout (every row change, per watching connection)
+    fn leaves_out_row(&self) -> bool {
+        let subs = self.subs.lock_or_recover();
+        let mut local = subs.values().filter(|sub| !sub.remote).peekable();
+        if local.peek().is_none() || !local.all(|sub| sub.quiet_hidden && sub.hidden) {
+            // Out of hiding by a detach or a new attach, not a show (`view.rs` covers a show):
+            // the rows left out are owed before this one.
+            let rows = self.rows_left_out.swap(0, Ordering::SeqCst);
+            if rows > 0 {
+                let notice =
+                    json!({"dropped": rows, "reason": "hidden", "watch": true, "sessionIds": []});
+                self.send(&Message::notification("_acpmux/lagged", notice));
+            }
+            return false;
+        }
+        self.rows_left_out.fetch_add(1, Ordering::SeqCst);
+        true
     }
     /// This daemon's own chats this connection is attached to.
     fn local_attached_ids(&self) -> Vec<String> {
@@ -2103,6 +2135,7 @@ async fn serve_connection_from(
         gate,
         subs: StdMutex::new(HashMap::new()),
         stream_cursors: Default::default(),
+        held_rows: Default::default(),
         follows: Default::default(),
         message_notices: StdMutex::new(MessageNoticeBook::default()),
         mailbox_bindings: StdMutex::new(HashMap::new()),
@@ -2117,6 +2150,7 @@ async fn serve_connection_from(
         session_delta: AtomicBool::new(false),
         sent_rows: StdMutex::default(),
         omit_time_breakdown: AtomicBool::new(false),
+        rows_left_out: AtomicU64::new(0),
         watch_inventory: StdMutex::new(false),
         peer,
         socket_peer,
@@ -2283,8 +2317,9 @@ async fn serve_connection_from(
                                 "retryable": true,
                             }));
                         // In the lane of its method's answer: a busy refusal of a cheap read (the
-                        // pane's liveness probe) proves the daemon alive only if it arrives.
-                        let reply_to = outbound::is_cheap_read(&m).then_some(m.as_str());
+                        // pane's liveness probe) proves the daemon alive only if it arrives, and
+                        // a tool call's refusal is its answer.
+                        let reply_to = outbound::reads_ahead(&m).then_some(m.as_str());
                         conn.send_replying(&Message::err(id, error), reply_to);
                         continue;
                     }
@@ -2362,6 +2397,9 @@ async fn serve_connection_from(
                         conn.send_replying(&dual_requests::reply(id, answer), Some(&m));
                         return;
                     }
+                    // One span per request, with the caller's end-to-end trace id
+                    // (`params._meta.traceId`), for the Perfetto trace (`perf_trace.rs`).
+                    let rpc_span = crate::perf_trace::request_span(&m, params.as_ref());
                     let route = || {
                         chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null), sender_token)
                     };
@@ -2373,6 +2411,7 @@ async fn serve_connection_from(
                         hub.request_hold(stage, &m, &id).await;
                         list_reply::scope(id.clone(), &m, claim, route).await
                     };
+                    let serve = tracing::Instrument::instrument(serve, rpc_span);
                     // A cancel of its copy on another connection stops it too (`dual_requests.rs`).
                     let also = first.as_mut().and_then(dual_requests::First::take_stop);
                     let served = crate::request_cancel::until_either(cancel, also, serve).await;
@@ -2661,6 +2700,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
     // another unlogged row change (`row_notice`). Not a logged record, so nothing but this
     // notice goes out for it.
     if ev.record.dir == crate::hub::COLD_CHANGED {
+        held_rows::flush(hub, conn);
         let attached = conn.sub_opts(&ev.session_id).is_some();
         if (attached || conn.watch_all.load(Ordering::SeqCst))
             && let Ok(s) = hub.resolve(&ev.session_id)
@@ -2855,6 +2895,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             let batched =
                 ev.peer_batch && !attached && conn.peer_row_batches.load(Ordering::SeqCst);
             if rec.dir == "peer" && !view::a_link(conn) && !batched {
+                held_rows::flush(hub, conn);
                 let sid = remote.summary.session_id().unwrap_or(&ev.session_id);
                 // The packed row, parsed for this line only (`RemoteRef::summary`).
                 let tools = attached || conn.watch_tools.load(Ordering::SeqCst);
@@ -2864,6 +2905,11 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                     requests::without_time_breakdown(&mut session);
                 }
                 let qualified = remote.qualified_id(&ev.session_id);
+                if !attached && conn.leaves_out_row() {
+                    // Read again with the list once a chat here shows (`leaves_out_row`).
+                    session_patch::forget(conn, &qualified);
+                    return;
+                }
                 if rec.kind == "purged" {
                     session_patch::forget(conn, &qualified);
                 } else if session.is_object() {
@@ -2885,7 +2931,11 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             return;
         }
         if rec.dir == "mux" && rec.kind == "purged" {
+            held_rows::flush(hub, conn);
             session_patch::forget(conn, &ev.session_id);
+            if !attached && conn.leaves_out_row() {
+                return;
+            }
             // `replaced`: the same chat came back under this id (`Session::replaced`).
             let mut params = json!({"sessionId": ev.session_id, "session": {"sessionId": ev.session_id}, "kind": "purged", "recordKind": "purged", "seq": rec.seq, "listSeq": ev.list_seq});
             if rec.msg.get("replaced") == Some(&Value::Bool(true)) {
@@ -2904,6 +2954,34 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             return;
         }
         let Some(kind) = change_kind::session_change_kind(&rec.kind) else { return };
+        // A chat's command list still wakes its read (above); its asks still go (below).
+        let row_left_out =
+            !attached && rec.kind != "available_commands_update" && conn.leaves_out_row();
+        // A watcher that is not attached still learns a permission is waiting, after the row
+        // that recorded it.
+        let ask_pending = || {
+            if is_permission_ask(&rec.kind) && !attached {
+                conn.send_row(
+                    &Message::notification(
+                        method::MUX_PERMISSION_PENDING,
+                        permission_pending(&ev.session_id, rec, "watch", ev.remote.is_none()),
+                    ),
+                    outbound::Row::After(row_key()),
+                );
+            }
+        };
+        if row_left_out {
+            session_patch::forget(conn, &ev.session_id);
+            ask_pending();
+            return;
+        }
+        // The row of a record that opens a turn waits behind the turn's first output
+        // (`held_rows.rs`); any other row goes after the ones held, in row order.
+        if attached && held_rows::opens_a_turn(&rec.kind) {
+            conn.held_rows.hold(&ev.session_id, &rec.kind, rec.seq, ev.list_seq);
+            return;
+        }
+        held_rows::flush(hub, conn);
         // Built once per record, by the first watcher that sends it, and shared by the others
         // (`HubEvent::row`): with many watchers, each built the whole row again.
         let full = attached || conn.watch_tools.load(Ordering::SeqCst);
@@ -2923,7 +3001,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         let summary = row.get_or_build(|| {
             let s = hub.resolve(&ev.session_id).ok()?;
             Some(if full {
-                let mut summary = hub.session_summary(&s);
+                let mut summary = hub.session_change_summary(&s);
                 if lean {
                     requests::without_time_breakdown(&mut summary);
                 }
@@ -2946,17 +3024,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                 );
             }
         }
-        // A watcher that is not attached still learns a permission is waiting, after the row
-        // that recorded it.
-        if is_permission_ask(&rec.kind) && !attached {
-            conn.send_row(
-                &Message::notification(
-                    method::MUX_PERMISSION_PENDING,
-                    permission_pending(&ev.session_id, rec, "watch", ev.remote.is_none()),
-                ),
-                outbound::Row::After(row_key()),
-            );
-        }
+        ask_pending();
     }
 }
 
@@ -2997,6 +3065,7 @@ pub(crate) mod computer_use_relay;
 #[path = "connection_token_tests.rs"]
 mod connection_token_tests;
 pub(crate) mod controls;
+mod held_rows;
 mod in_flight;
 mod keys_relay;
 #[cfg(test)]
@@ -3041,6 +3110,7 @@ mod media_forward;
 mod mesh_control_send;
 pub mod mesh_relay;
 pub(super) mod mesh_send;
+mod send_check;
 mod stream_cursor;
 #[cfg(test)]
 #[path = "stream_cursor_tests.rs"]
@@ -3049,6 +3119,7 @@ mod team;
 mod trigger_authority;
 mod trigger_chat;
 pub use conn_auth::ConnAuth;
+mod fill;
 mod fork_through;
 mod harness_admin;
 mod harness_enable;

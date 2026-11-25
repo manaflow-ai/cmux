@@ -79,6 +79,10 @@ install_nightly() {
 
 # CuaDriver holds the fleet Mac's Screen Recording and Accessibility grants (a scratch app copy has none); its client
 # finds the daemon under the account's own HOME, not the step's fresh one.
+memory() { # memory LABEL PID: the app's physical footprint (what Force Quit shows) and every process the copy started
+  { echo "--- memory $1"; footprint "$2" 2>&1 | grep -iE "footprint|phys" | head -3
+    ps -axo pid=,ppid=,rss=,command= | grep "/persona-walk\.[A-Za-z0-9]\{6\}/" | grep -v grep | cut -c1-220; } >>"$log" 2>&1
+  printf '{"label":"%s","footprint":"%s"}\n' "$1" "$(footprint "$2" 2>/dev/null | grep -i "footprint" | head -1 | tr -s ' ' | tr -d '"')" >>"$out/memory.jsonl"; }
 CUA=/Applications/CuaDriver.app/Contents/MacOS/cua-driver
 cua() { HOME=$(eval echo "~$(id -un)") to 30 env -u CFFIXED_USER_HOME "$CUA" call "$@"; }
 shot() { cua get_desktop_state "{\"screenshot_out_file\":\"$PWD/$out/shots/$1.png\"}" >"$out/state-$1.json" 2>&1; note "shot $1 rc=$?"; }
@@ -104,12 +108,17 @@ p0() {
     python3 -c 'import time;time.sleep(0.25)'
   done
   [ -n "$win" ] && step first_window "$t" || note "STUCK no window in 60 s (pid=$pid)"
-  # The app owns many windows (panels, menus): name the on-screen titled one, or cua refuses an ambiguous target.
-  local wid; wid=$(python3 -c 'import json,sys;w=[x for x in json.load(open(sys.argv[1])).get("windows",[]) if x.get("is_on_screen") and x.get("title") and x.get("layer",0)==0];print(w[0]["window_id"] if w else "")' "$out/cua-windows.json" 2>/dev/null)
-  note "window_id=$wid"
+  memory first-window "$pid"
   shot 01-first-window
   python3 -c 'import time;time.sleep(5)'
   shot 02-after-5s
+  memory after-5s "$pid"
+  # The app owns many windows (panels, menus) and replaces its main one after launch: re-list right before typing and
+  # name the on-screen titled one, or cua refuses the target as ambiguous or stale.
+  local wid=""
+  cua list_windows "{\"pid\":$pid}" >"$out/cua-windows-2.json" 2>&1
+  wid=$(python3 -c 'import json,sys;w=[x for x in json.load(open(sys.argv[1])).get("windows",[]) if x.get("is_on_screen") and x.get("title") and x.get("layer",0)==0];print(w[0]["window_id"] if w else "")' "$out/cua-windows-2.json" 2>/dev/null)
+  note "window_id=$wid"
   # P0 task 1: a person types their first command into whatever the app shows.
   t=$(now_ms)
   cua type_text "{\"pid\":$pid,\"window_id\":${wid:-0},\"text\":\"echo persona-ok\"}" >>"$log" 2>&1 || note "type_text rc=$?"
@@ -118,7 +127,13 @@ p0() {
   step first_command "$t"
   shot 03-first-command
   [ -n "$cli" ] && to 30 "$cli" computer-use status >"$out/cu-status.txt" 2>&1
+  memory after-walk "$pid"
   inventory after-walk
+  # What the app wrote for this fresh person (the Chief's error, daemon logs): text logs only, size-capped. The home is
+  # the run's own, so it holds no credentials.
+  ( cd "$work/home" && find . -type f \( -name '*.log' -o -name '*.jsonl' -o -name '*.txt' \) -size -2M 2>/dev/null | head -200 |
+      tar -czf "$work/home-logs.tgz" -T - 2>/dev/null ); cp "$work/home-logs.tgz" "$out/" 2>/dev/null
+  find "$work/home" -maxdepth 4 2>/dev/null | sed "s|$work/home|~|" | head -200 >"$out/home-tree.txt"
 }
 
 case "$mode" in

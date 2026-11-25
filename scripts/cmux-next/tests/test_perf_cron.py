@@ -1022,6 +1022,38 @@ class WebUiTests(unittest.TestCase):
         failed = {"sessions": {"light": {"exit": 1, "error": "RuntimeError: launch"}}}
         self.assertIn("launch", ib.cron_report(failed, budget)["incomplete"][0])
 
+    def test_the_power_user_native_part_runs_the_native_bursts_and_judges_their_rows(self):
+        """Leo, 2026-11-22: "you guys also need to be testing flicks of extremely fast input for scrolling and
+        resizing/mouse movement and typing/pasting/switching workspaces around. we need to test like power users more
+        often." The native half of the harness runs on the measure host every measured tip; its rows (frame p95/p99,
+        blank frames, flashes, lost switches, bursts a hang left unmeasured) are this part's and judged on budgets."""
+        self.assertIn("power-user-native", FLEET, "a Mac part on the measure host")
+        part = cron.PART_BY_NAME["power-user-native"]
+        self.assertIn("--suite=power-user", part["args"])
+        self.assertIn("--report-only", part["args"], "a breach still stores its rows")
+        self.assertEqual(part["kind"], "budgets")
+        for name in ("power_user.native.workspace.p95", "power_user.native.resize.lost",
+                     "power_user.native.mixed.not_measured"):
+            self.assertEqual(cron.part_for_row(name + "@cmux20-bench"), "power-user-native")
+        self.assertEqual(cron.part_for_row("power.idle.tab1.total_mw@cmux20-bench"), "power")
+        spec2 = importlib.util.spec_from_file_location(
+            "power_user_native", os.path.join(HERE, "..", "..", "perf-bench", "power_user_native.py"))
+        native = importlib.util.module_from_spec(spec2)
+        spec2.loader.exec_module(native)
+        report = {"budgets": native.BUDGETS, "bursts": [
+            {"class": "workspace", "index": 0, "refresh_ms": 8.333, "p95_ms": 9.0, "p99_ms": 30.0, "long": 0,
+             "blank_frames": 2, "flashes": 1, "shift_frames": 0, "lost": 0, "lag_run": 0, "missed": 1},
+            {"class": "workspace", "index": 1, "error": "app stopped answering"}]}
+        report["rows"] = native.cron_rows(report)
+        rows = cron.rows_of_part(part, report, budgets_mod, {})
+        self.assertEqual(rows["power_user.native.workspace.p95"]["budget"], 12.5)
+        self.assertEqual(rows["power_user.native.workspace.p99"]["p95"], 30.0)
+        self.assertEqual((rows["power_user.native.workspace.blank_frames"]["p95"],
+                          rows["power_user.native.workspace.blank_frames"]["budget"]), (2, 0))
+        self.assertEqual(rows["power_user.native.workspace.not_measured"]["p95"], 1, "a hang is a row")
+        self.assertTrue(native.incomplete(report), "a cut run is not a new last good")
+        self.assertTrue(cron.report_is_incomplete(part, {**report, "incomplete": native.incomplete(report)}))
+
     def test_the_power_part_owns_its_rows_and_judges_them_against_their_budgets(self):
         """Leo, 2026-11-19: "having those measurements in so that we're aware of things". power-cron.py stores the
         app's mW idle with a terminal (budget: standalone Ghostty idle in the same run), with one page and scrolling
@@ -4295,6 +4327,24 @@ class PartRowsStoredAtOnceTests(unittest.TestCase):
             self.assertEqual(state["part_stored"]["stress"]["sha"], "a" * 40)
             self.assertNotIn("motion", state["part_stored"])
 
+    def test_an_incomplete_part_keeps_its_finished_benches_rows(self):
+        # web-ui-god on 2026-11-24: transcript-replay-god timed out, the other benches measured (rest wakeups 0).
+        report = {"rows": [{"name": "chat_switch.god.read_ahead.rest_wakeups", "p50": 0, "p95": 0, "unit": "count",
+                            "target": 0, "floor": 0.5}],
+                  "failed": ["transcript-replay-god: timed out after 420 s"],
+                  "incomplete": [{"bench": "transcript-replay-god", "why": "timed out after 420 s"}]}
+        with tempfile.TemporaryDirectory() as d:
+            state = self.state_with(["web-ui-god", "motion"])
+            state = self.report(d, state, [self.part_dir(d, "web-ui-god",
+                                                         {"state": "done", "worker": cron.LINUX_FLEET_CLASS}, report)])
+            rows = state.get("part_rows") or {}
+            name = "webui.chat_switch.god.read_ahead.rest_wakeups@" + cron.LINUX_FLEET_CLASS
+            self.assertIn(name, rows, "a finished bench's row is stored although another bench of the part timed out")
+            self.assertEqual((rows[name]["p95"], rows[name]["sha"]), (0, "a" * 40))
+            stored = state["part_stored"]["web-ui-god"]
+            self.assertIn("transcript-replay-god", stored["incomplete"], "the store says which bench was missing")
+            self.assertFalse(state.get("row_history"), "an incomplete part is still judged only at the finish")
+
     def test_a_measurement_still_running_shows_its_finished_parts(self):
         with tempfile.TemporaryDirectory() as d:
             state = self.state_with(["stress", "motion"])
@@ -4762,6 +4812,20 @@ class UnreadPartFirstTests(unittest.TestCase):
         cron.decide(state, at(27), self.NEW, None, self.supported, None)
         order = cron.part_order(state, state["current"]["parts_todo"], at(27))
         self.assertEqual(order[:2], ["build", "chat-size"], "the unread part goes right after the build")
+
+    def test_a_tip_with_no_mac_part_done_gives_way_at_once(self):
+        # 2026-11-24: tip b76703549055 had run only Linux parts (its one Mac part yielded) 23 h in, so the hold kept
+        # nothing, while the unread web-ui-orchestrator waited for it.
+        state = cron.empty_state(T0)
+        cron.decide(state, T0, self.OLD, None, self.supported, None)
+        cur = state["current"]
+        cron.record_part(cur, "build", {"state": "done", "worker": cron.BENCH_WORKER}, "u", T0)
+        state["part_stored"] = {n: {"sha": self.OLD, "at": cron.iso(T0), "rows": 1}
+                                for n in ALL if n not in ("build", "chat-size")}
+        cron.decide(state, at(1), None, None, self.supported, None, newest=self.NEW)
+        cur = state["current"]
+        self.assertIn("superseded", cur, "no Mac part done: the hold keeps nothing")
+        self.assertFalse([n for n in cur["parts_todo"] if not cron.is_linux_part(n)], "its Mac parts gave way")
 
     def test_a_superseded_tip_stops_waiting_for_an_unanswered_linux_part(self):
         # 2026-11-23: tip 12aa19c2 gave its Mac parts up, then its web-ui-growth request went unanswered 23 h, and the
