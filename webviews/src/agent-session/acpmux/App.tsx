@@ -346,6 +346,11 @@ import { turnCounts } from "./changes/turnCheckpoint";
 import { TurnCountsContext, type TurnCountsFor } from "./changes/TurnCountsContext";
 import { shotTurnId, TurnShotCache, type TurnShotsReader } from "./turnChanges/turnShots";
 import { SessionEditsAndShots } from "./turnChanges/TurnShotsPair";
+import { setCustomizeRunner } from "./conversation/customizeRun";
+import { FramesDock } from "./liveFrames/FramesDock";
+import { framesPaneKey } from "./liveFrames/dockState";
+import { TurnFramesCache } from "./liveFrames/framesCache";
+import type { TurnFramesReader } from "./liveFrames/turnFrames";
 import { useTurnCheckpoints } from "./changes/useTurnCheckpoints";
 import { latestTurnCheckpointPair, readTurnFromRows } from "./changes/turnCheckpointSource";
 import { useComposerSettings } from "./composerSettings";
@@ -473,6 +478,12 @@ import {
   subagentTarget,
   workflowAgentTarget,
 } from "./subagents/subagentMessage";
+import { SubagentForkChips, type SubagentForkTarget } from "./subagents/SubagentForkChips";
+import { openInOwnTab } from "./conversation/openFork";
+import { subagentChipFacts } from "./subagents/subagentForkChipsModel";
+import { sessionModels } from "./modelCatalog";
+import { subagentForkChipsLook } from "./subagents/subagentForkChips.experiment";
+import { useExperimentArm } from "../../experiments/useExperimentArm";
 import { runsUnderTabRow, type UnderHeaderLines } from "./header/underHeader";
 import { AutoSessionBanner } from "./autoSession/AutoSessionBanner";
 import { autoUnderHeader } from "./autoSession/autoSession";
@@ -3991,6 +4002,43 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       },
     };
   }, [turnShotCache, latestSummary, snapshot.sessionId]);
+  // A turn's frames (liveFrames/): the strip under its edited-files card reads them once per turn;
+  // the preview window polls the newest while a turn runs. Both settle empty on an acpmux without
+  // `turn-frames-v1`, which draws nothing.
+  const [turnFramesCache] = useState(() => new TurnFramesCache());
+  const turnFrames = useMemo<TurnFramesReader>(() => {
+    const sessionId = snapshot.sessionId;
+    const turnOf = (rowId: string) => (sessionId ? shotTurnId(turnRowsRef.current, rowId) : undefined);
+    return {
+      version: latestSummary,
+      peek: (rowId) => {
+        const turnId = turnOf(rowId);
+        return turnId ? turnFramesCache.peek(`${sessionId}\u0000${turnId}`) : { frames: [] };
+      },
+      read: (rowId) => {
+        const turnId = turnOf(rowId);
+        if (!turnId) return Promise.resolve([]);
+        return turnFramesCache.read(
+          `${sessionId}\u0000${turnId}`,
+          () => directClient.current?.turnFrames(turnId) ?? Promise.resolve([]),
+        );
+      },
+    };
+  }, [turnFramesCache, latestSummary, snapshot.sessionId]);
+  const latestFrame = useCallback(
+    (since: number) => directClient.current?.latestFrame(since) ?? Promise.resolve({ seq: since }),
+    // A new identity per session restarts the preview's poll on the new chat's client.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [snapshot.sessionId],
+  );
+  // A wrap-up card's Try it on, Keep and Revert run through the chat's acpmux.
+  useEffect(() => {
+    setCustomizeRunner({
+      available: () => directClient.current?.servesCustomizeRun === true,
+      run: (run) => directClient.current?.customizeRun(run) ?? Promise.resolve({ ok: false, output: "" }),
+    });
+    return () => setCustomizeRunner(undefined);
+  }, []);
   const turnCheckpoints = useTurnCheckpoints(readTurn, snapshot.sessionId);
   const { request: requestTurnCheckpoint, get: turnCheckpoint } = turnCheckpoints;
   const turnKey = useCallback((rowId: string) => turnRows(turnRowsRef.current, rowId)[0]?.id ?? rowId, []);
@@ -4939,7 +4987,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         decideAutoSend();
         return true;
       }
-      return autoPicked && autoSend.current !== undefined;
+      if (autoPicked && autoSend.current !== undefined) return true;
+      // The send goes now. Only Auto's start here may wait for a machine being added (acpmux
+      // `autoPlace`); an explicit This Mac, machine or Cloud pick never does.
+      directClient.current?.holdAutoPlace(
+        autoPicked && autoDecided.current?.page === newTabGeneration && autoDecided.current?.landing?.went === "here",
+      );
+      return false;
     },
     cloudStart: () => {
       const decision = autoDecided.current;
@@ -5102,7 +5156,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     : undefined;
   const shownSubagentTitle =
     ownSubagentPane && subagentView && shownAgent ? subagentTabTitle(shownAgent, t("tray.kind.subagent")) : undefined;
-  // A subagent's own pane heads with the subagent, not its chat's title and summary (paneHeading).
+  // A subagent's own pane heads with the subagent, not its chat's title (paneHeading).
   const heading = paneHeading(
     ownSubagentPane && subagentView ? (shownSubagentTitle ?? t("tray.kind.subagent")) : undefined,
     { title: chatName },
@@ -9265,7 +9319,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   <NewestSteerContext.Provider value={snapshot.newestOwnSteer}>
                     <RunInBackgroundContext.Provider value={backgroundHint}>
                       <TurnCountsContext.Provider value={turnCountsFor}>
-                        <SessionEditsAndShots edits={editRows} shots={turnShots}>
+                        <SessionEditsAndShots edits={editRows} shots={turnShots} frames={turnFrames}>
                           <SessionCwdContext.Provider value={snapshot.summary?.cwd}>
                             <OfferDefaultsContext.Provider value={offerDefaultsValue}>
                               <SubagentNavContext.Provider value={navigateSubagent}>
@@ -9854,8 +9908,87 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // `relay`): its draft is the subagent's, and what is sent goes to the chat as a message its agent
   // passes on (subagentMessage.ts). The placeholder names the subagent, so a prompt never goes
   // anywhere the composer does not say.
+  // The subagent's own chips in the chat's chips' place (subagents/SubagentForkChips.tsx): the model
+  // and mode it really runs on, read-only, and Fork with <model>… / <mode>…, which forks its own
+  // context into a chat of the person's, opened in a tab of its own, while it and the chat go on
+  // (Leo 2026-11-22: "are their permissions/model locked right then and there? does it make sense
+  // to be able to reveal the fork or whatever switching model behaviour for it?"). Never a pick of
+  // the chat's model or mode: that would change the chat, not the subagent.
+  const relayedSubagent = readOnlySubagent ? freshAgents.find((entry) => entry.id === shownSubagentId) : undefined;
+  const subagentForkId = relayedSubagent?.agentId ?? relayedSubagent?.id;
+  const subagentFacts = useMemo(() => {
+    if (!readOnlySubagent || workflowRequest) return undefined;
+    const summary = snapshot.summary;
+    const models = sessionModels(snapshot.catalog, summary);
+    return subagentChipFacts(
+      {
+        family: summary?.family,
+        harness: summary?.harness,
+        chat: chatName,
+        chatModel: summary?.model,
+        ...(summary?.model ? { chatModelName: models.find((model) => model.id === summary.model)?.name } : {}),
+        modeId: summary?.modes?.currentModeId,
+        modes: (summary?.modes?.availableModes ?? []).map((mode) => ({ ...mode, name: mode.name ?? mode.id })),
+        models,
+        subagentModel: relayedSubagent?.spawnModel ?? relayedSubagent?.model,
+        canFork: snapshot.canForkSubagent === true && subagentForkId !== undefined,
+      },
+      t,
+    );
+  }, [
+    readOnlySubagent,
+    workflowRequest,
+    snapshot.summary,
+    snapshot.catalog,
+    snapshot.canForkSubagent,
+    chatName,
+    relayedSubagent?.spawnModel,
+    relayedSubagent?.model,
+    subagentForkId,
+    t,
+  ]);
+  const subagentForkIdRef = useRef(subagentForkId);
+  useLayoutEffect(() => {
+    subagentForkIdRef.current = subagentForkId;
+  });
+  const forkSubagent = useCallback(
+    (target: SubagentForkTarget) => {
+      const client = directClient.current;
+      const subagentId = subagentForkIdRef.current;
+      if (!client || !subagentId) return;
+      client
+        .forkSubagent({ subagentId, ...target })
+        // Opened as every fork opens (openFork.ts): this chat's tail handed over first, so the tab
+        // draws on its first frame.
+        .then((forked) => openInOwnTab(client, callNative, forked, "tab"))
+        .catch((error: unknown) => {
+          const reason = knownRefusalText(error);
+          if (!reason) console.warn("agent pane: subagent fork failed", error);
+          notices.failed(reason ? translate("notice.forkFailedReason", { reason }) : translate("notice.forkFailed"));
+        });
+    },
+    [notices],
+  );
+  // One component per set of facts: the composer draws it as its chips (ComposerRelay `chips`).
+  // Off by default (subagentForkChips.experiment.ts `off`): the row has no chips, as before.
+  const subagentForkArm = useExperimentArm(subagentForkChipsLook);
+  const subagentChips = useMemo(
+    () =>
+      subagentFacts && subagentForkArm !== "off"
+        ? function SubagentChips() {
+            return (
+              <SubagentForkChips
+                facts={subagentFacts}
+                {...(subagentFacts.forkModels.length || subagentFacts.forkModes.length ? { onFork: forkSubagent } : {})}
+              />
+            );
+          }
+        : undefined,
+    [subagentFacts, subagentForkArm, forkSubagent],
+  );
   const subagentRelay: ComposerRelay | undefined = readOnlySubagent
     ? {
+        ...(subagentChips && { chips: subagentChips }),
         placeholder: t("subagents.messagePlaceholder", { name: shownSubagentTarget?.name ?? t("tray.kind.subagent") }),
         handle: subagentComposer,
         initial: subagentDraft(subagentDraftKey),
@@ -10459,7 +10592,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       }}
     />
   );
+  const framesDock = quick ? undefined : (
+    <FramesDock
+      pane={framesPaneKey(snapshot.sessionId)}
+      latest={latestFrame}
+      working={snapshot.isWorking === true}
+      onOpen={openImage}
+    />
+  );
   const pane = drawPaneBody({
+    framesDock,
     knowsWhatItIs,
     shortcuts,
     setShell,

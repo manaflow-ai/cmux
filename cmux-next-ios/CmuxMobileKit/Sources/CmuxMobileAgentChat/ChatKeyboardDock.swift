@@ -886,7 +886,10 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             layout()
             return
         }
-        UIView.animate(withDuration: remaining, delay: 0, options: [.beginFromCurrentState]) { layout() }
+        // Interruptible: without `.allowUserInteraction` UIKit drops every
+        // touch on the views this pass moves (composer, transcript) until the
+        // keyboard settles: a tap inside the keyboard's animation did nothing.
+        UIView.animate(withDuration: remaining, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) { layout() }
     }
 
     /// The keyboard's top in this view from a frame notification (the
