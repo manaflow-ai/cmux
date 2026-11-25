@@ -31,6 +31,7 @@ import { headerRelevance } from "./headerRelevance";
 import { useHeaderFold } from "./headerOverflow";
 import { nativeChatMenu, nativeCustomizeMenu } from "./nativeMenuBindings";
 import { HEADER_SYMBOLS } from "./headerSymbols";
+import type { CloudSendButton } from "./cloudSendButton";
 import { useNativeRowTools, type NativeRowToolsHost } from "./useNativeRowTools";
 import type { NativeRowNeedsYou, RowToolBinding } from "./nativeRowTools";
 import type { NeedsYouItem } from "../needsYou/model";
@@ -141,6 +142,7 @@ function ChatHeaderToolsView({
   motion,
   glass,
   onSearch,
+  cloudSend,
 }: {
   /// Terminal and Browser run their split with the quick action's mode: the App opens it, or for
   /// `toggle` closes the split this button opened when it is still there.
@@ -213,6 +215,8 @@ function ChatHeaderToolsView({
   glass?: GlassToolbarLook | "off";
   /// The glass toolbar's search chip: the command palette's chats page (`agentPane.searchChats`, ⌘K).
   onSearch?: () => void;
+  /// Send to Cloud (header/cloudSendButton.ts): what it shows and the move it runs; none hides it.
+  cloudSend?: CloudSendButton & { run: () => void };
 }) {
   // Debug measurement (acpmuxPerf): the header's committed renders (perf.ts `renders`).
   useCountedRender("header");
@@ -422,10 +426,34 @@ function ChatHeaderToolsView({
           },
         ]
       : [];
+  // Send to Cloud's words: its name, and in its tooltip why it is greyed or that the move runs.
+  const cloudLabel = t("header.sendToCloud");
+  const cloudTip = cloudSend
+    ? cloudSend.state === "moving"
+      ? t("header.sendingToCloud")
+      : (cloudSend.reason ?? t("header.sendToCloudTip"))
+    : undefined;
+  const nativeCloud: RowToolBinding[] = cloudSend
+    ? [
+        {
+          tool: {
+            id: CLOUD_SEND_TOOL,
+            symbol: HEADER_SYMBOLS.cloud!,
+            // The native row's hover reads the label: a greyed button says why, a running move says so.
+            label: cloudSend.state === "ready" ? cloudLabel : (cloudTip ?? cloudLabel),
+            enabled: cloudSend.state === "ready",
+            toggled: cloudSend.state === "moving",
+            glass: glassLook !== "off",
+          },
+          run: cloudSend.run,
+        },
+      ]
+    : [];
   const native = useNativeRowTools(nativeRowTools, relevance.shown, {
     customize,
     glass: glassLook !== "off",
     extra: [
+      ...nativeCloud,
       ...nativeSearch,
       ...(chatMenu
         ? [
@@ -582,6 +610,24 @@ function ChatHeaderToolsView({
         {dormantTools}
       </div>
     ) : null;
+  // Send to Cloud, before "...": a greyed button still says why on hover, so it is never `disabled`.
+  const cloudButton =
+    !native && cloudSend ? (
+      <button
+        type="button"
+        className={glassLook !== "off" ? "acpmux-header-tool ui-glass" : "acpmux-header-tool"}
+        data-cloud-send={cloudSend.state}
+        aria-label={cloudLabel}
+        aria-disabled={cloudSend.state !== "ready" || undefined}
+        aria-busy={cloudSend.state === "moving" || undefined}
+        {...tooltipProps(cloudTip ?? cloudLabel, undefined)}
+        onClick={() => {
+          if (cloudSend.state === "ready") cloudSend.run();
+        }}
+      >
+        <HeaderIcon name="cloud" size={HEADER_GLYPH} lit={cloudSend.state === "moving"} />
+      </button>
+    ) : null;
   const chatMenuButton =
     native && glassLook !== "off" ? null : (
       <ChatMenu
@@ -629,6 +675,7 @@ function ChatHeaderToolsView({
         {webButtons && grouped.length > 0 && (
           <div className="acpmux-header-tool-group acpmux-glass-capsule ui-glass">{grouped.map(renderTool)}</div>
         )}
+        {cloudButton}
         {chatMenuButton}
         {!native && onSearch && (
           <button
@@ -658,6 +705,7 @@ function ChatHeaderToolsView({
         )}
         {/* Needs You only with open asks: an alert, not a fourth control. */}
         {inboxRelevant && inbox}
+        {cloudButton}
         {chatMenuButton}
         {sessionInfo}
         {typeof summary === "function" ? summary(false) : summary}
@@ -715,10 +763,14 @@ function ChatHeaderToolsView({
           )}
         </div>
       ) : null}
+      {cloudButton}
       {chatMenuButton}
     </div>
   );
 }
+
+/// Send to Cloud's id on the native tab row (its invocation runs `cloudSend.run`).
+const CLOUD_SEND_TOOL = "cloudSend";
 
 /// The quick actions that show whatever the chat holds (Changes and Preview need edits or a page,
 /// Files a folder on this Mac).

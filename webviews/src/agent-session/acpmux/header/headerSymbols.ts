@@ -17,6 +17,9 @@ export const HEADER_SYMBOLS: Readonly<Record<string, string>> = {
   "git.pullrequest": "arrow.triangle.pull",
   "action.share": "person.crop.circle.badge.plus",
   search: "magnifyingglass",
+  /// Send to Cloud (header/cloudSendButton.ts): a cloud with an arrow up; the pack's cloud stands in
+  /// while the template loads and where no symbol host draws it.
+  cloud: "icloud.and.arrow.up",
 };
 
 /// Symbols the app draws from the cmux pack, not as SF Symbols (the icon catalog's `overrides`): the outlined globe

@@ -465,6 +465,8 @@ import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { useStreamAppendDeclaration } from "./devMotionAudit";
 import { HEADER_ACTIONS, type ChatMenuItem } from "./header/chatHeaderToolsModel";
 import { headerBreadcrumb, setHeaderState, useHeaderState } from "./header/headerState";
+import { useStableCallback } from "./stableCallback";
+import { cloudSendButton } from "./header/cloudSendButton";
 import { useTabRow, useTabRowRoot, useTabRowTools } from "./header/tabRow";
 import {
   draftMessage as subagentDraftMessage,
@@ -8011,6 +8013,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     moveReasons,
     moveTargets,
     lit: litSplits,
+    place: headerPlace,
   } = useHeaderState();
   // The moves the chat's own right-click menu offers now: the composer's picker offers the same.
   const offloads = useMemo(
@@ -8038,6 +8041,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   }, [autoCloudStartKey, cloudRouteHostKind, newTabGeneration, snapshot.sessionId]);
   // Why each offered move would refuse now: the picker greys its row and says it.
   const offloadReasons = useMemo(() => offloadReasonsOf(offloads, moveReasons), [offloads, moveReasons]);
+  // The header's Send to Cloud (header/cloudSendButton.ts, cmux#55788): the title menu's Move to Cloud,
+  // bound to the chat shown when it is clicked, as a button.
+  const sendChatToCloud = useStableCallback(() => offloadChat("move", snapshot.sessionId));
+  const cloudSend = useMemo(() => {
+    const button = cloudSendButton({
+      session: snapshot.sessionId,
+      offloads,
+      reasons: offloadReasons,
+      place: headerPlace,
+    });
+    return button ? { ...button, run: sendChatToCloud } : undefined;
+  }, [snapshot.sessionId, offloads, offloadReasons, headerPlace, sendChatToCloud]);
   const toggleSideTabs = () =>
     ignoreFailure(
       callNative<{ shown?: boolean }>("pane.action", { id: "sideTabs" }).then((result) =>
@@ -10794,6 +10809,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     toggleSideTabs,
     sideChat,
     canMove,
+    cloudSend,
     newTerminal,
     newBrowser,
     chatMenu,

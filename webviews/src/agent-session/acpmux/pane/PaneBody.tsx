@@ -368,6 +368,8 @@ export type PaneBodyDeps = NewTabShown &
     toggleSideTabs: () => undefined;
     sideChat: ReturnType<typeof sideChatRow>;
     canMove: boolean;
+    /// The header's Send to Cloud (header/cloudSendButton.ts); none hides it.
+    cloudSend: React.ComponentProps<typeof ChatHeaderTools>["cloudSend"];
     newTerminal: () => void;
     newBrowser: () => void;
     chatMenu: () => ChatMenuItem[];
@@ -651,6 +653,7 @@ export function drawPaneBody({
   toggleSideTabs,
   sideChat,
   canMove,
+  cloudSend,
   newTerminal,
   newBrowser,
   chatMenu,
@@ -1411,6 +1414,8 @@ export function drawPaneBody({
                       }
                       // The glass toolbar's search chip (Settings > Advanced > Experiments): the palette's chats page.
                       onSearch={showAllChats}
+                      // Send to Cloud: the floating chat has no tab to move.
+                      cloudSend={quick ? undefined : cloudSend}
                       onTerminal={(mode) => runSplitAction(HEADER_ACTIONS.terminal, localCwd, mode)}
                       onSplitDown={(mode) => runSplitAction(HEADER_ACTIONS.splitDown, localCwd, mode)}
                       onBrowser={(mode) => runSplitAction(HEADER_ACTIONS.browser, undefined, mode)}
