@@ -127,9 +127,10 @@ BOUND_COPIES: tuple[tuple[str, str, int], ...] = (
      r"threshold: Duration = \.seconds\(([0-9_]+)\)", 1000),
 )
 
-# A person action on the same unit.
+# A person action on the same unit. `<\w*Button` takes a web button component the unit draws
+# (`<ConnectButton onConnect={...}>` in GitHubConnectCard.tsx), not just `<Button`.
 PERSON_ACTIONS = re.compile(
-    r"(\bonClick\s*=|\bonPress\s*=|<Button\b|<button\b|\bonAction\b|\bprimaryAction\b"  # web
+    r"(\bonClick\s*=|\bonPress\s*=|<\w*Button\b|<button\b|\bonAction\b|\bprimaryAction\b"  # web
     r"|\bButton\s*[({]|\bNSButton\b|\.onTapGesture\b|\baddAction\b|#selector\(|\bUIAction\b|\.swipeActions\b"  # Swift
     r"|\baction:\s*\{|\bactions:\s*\[|\baction:\s*\."
     # A Swift model that names the person's action for its state (`var action: Action?`), drawn by a view.

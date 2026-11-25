@@ -284,6 +284,16 @@ class WebShapes(unittest.TestCase):
         code, out = tree.check()
         self.assertEqual(code, 0, out)
 
+    def test_retry_line_with_a_button_component_passes(self):
+        """A unit that draws its own button component (`<ConnectButton onConnect={...}>` in
+        GitHubConnectCard.tsx) carries the person's action, as a bare `<button>` does."""
+        tree = Tree(self)
+        tree.write(f"{WEB}/retryState.ts", RETRY_LABEL)
+        tree.write(f"{WEB}/AutoResumeNotice.tsx", ACTION_NOTICE.replace(
+            '<button type="button" onClick={onRetry}>{t("page.retry")}</button>', "<RetryButton onRetry={onRetry} />"))
+        code, out = tree.check()
+        self.assertEqual(code, 0, out)
+
     def test_a_literal_grace_under_the_bound_is_no_bound(self):
         tree = Tree(self)
         tree.write("schemas/notice-timing/notice-timing.json", json.dumps({"connectionQuietMs": 10000}))
