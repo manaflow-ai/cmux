@@ -148,7 +148,7 @@ public final class CloudSetup {
     /// carries it (``Refusal/gateway``), so a refused start says which team's gateway it read and why it counted none (hq#19758).
     public var gatewayRead: GatewayRead?
 
-    /// One `cmux inference gateway status --team` read (``CloudMoveCLI/inferenceGatewayStatus(team:token:apiOrigin:)``).
+    /// One `cmux inference gateway status --team` read (``CloudMoveCLI/inferenceGatewayStatus(team:held:)``).
     public struct GatewayRead: Equatable, Sendable {
         /// The CLI ran past its bound (the read's 10 s).
         public static let timedOut = "timed_out"
@@ -171,18 +171,18 @@ public final class CloudSetup {
             let log = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud") // the app's cloud log, where the gate's other lines go
             var installRead = GatewayRead(team: nil, errorCode: noInstallToken), asked: Set<String> = [], serves: Set<String>?
             for team in [install?.team, personal].compactMap({ $0 }) where asked.insert(team).inserted {
-                let read: (serves: Set<String>?, why: String?)
+                let read: GatewayRead
                 if let install, team == install.team {
-                    installRead = await cli.inferenceGatewayStatus(team: team, token: install.token, apiOrigin: apiOrigin)
-                    read = (installRead.serves, installRead.errorCode)
+                    read = await cli.inferenceGatewayStatus(team: team, held: (install.token, apiOrigin))
+                    installRead = read
                 } else {
-                    read = await cli.inferenceGatewayRead(team: team)
+                    read = await cli.inferenceGatewayStatus(team: team)
                 }
                 if let answer = read.serves {
                     log.info("cloud start gate: team \(team, privacy: .public) gateway serves [\(answer.sorted().joined(separator: ","), privacy: .public)]")
                     serves = (serves ?? []).union(answer)
                 } else {
-                    log.error("cloud start gate: team \(team, privacy: .public) gateway unread: \(read.why ?? "-", privacy: .public)")
+                    log.error("cloud start gate: team \(team, privacy: .public) gateway unread: \(read.errorCode ?? "-", privacy: .public)")
                 }
             }
             if asked.isEmpty { log.error("cloud start gate: gateway unread: no team to ask") }

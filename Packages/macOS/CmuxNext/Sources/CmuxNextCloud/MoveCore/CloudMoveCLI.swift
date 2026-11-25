@@ -310,6 +310,27 @@ public nonisolated struct CloudMoveCLI: Sendable {
     /// `cmux link machine pin`: its output, the Linux build this client pins (``CloudLegacyPin/pin(answer:)``).
     public func machinePin() async -> Data? { try? await output(["verb": "machine-pin"]).stdout }
 
+    /// `cmux inference gateway status --json --team <team>`'s `serves` (Rust `status_answer`): the agents `team`'s gateway serves
+    /// now, empty when off or offline; nil `serves` when unread, with the CLI's `error.code` (or ``badAnswer``,
+    /// ``CloudSetup/GatewayRead/timedOut``) (hq#15762). `team` is the backend team the start's machines are made in: a team's
+    /// gateway serves only its own machines. `held`: the install token the app holds and the API that issued it, on stdin, so
+    /// the CLI mints none (its `cmux auth token --team`, up to 25 s, overran this read's 10 s bound: hq#19758); nil for a team
+    /// whose token the app does not hold (the person's own team), whose token the CLI mints (#51322).
+    public func inferenceGatewayStatus(team: String, held: (token: String, apiOrigin: URL)? = nil) async -> CloudSetup.GatewayRead {
+        struct Call: Encodable { var verb = "inference-gateway-status"; var team: String; var held: Bool }
+        let stdin = held.flatMap { try? JSONSerialization.data(withJSONObject: ["access_token": $0.token, "api_origin": $0.apiOrigin.absoluteString]) }
+        let out: Data
+        do { out = try await output(Call(team: team, held: held != nil), stdin: stdin).stdout }
+        catch DaemonError.timedOut { return CloudSetup.GatewayRead(team: team, errorCode: CloudSetup.GatewayRead.timedOut) }
+        catch { return CloudSetup.GatewayRead(team: team, errorCode: Self.badAnswer) }
+        let answer = (try? JSONSerialization.jsonObject(with: out)) as? [String: Any]
+        guard let answer, answer["ok"] as? Bool == true, let serves = answer["serves"] as? [String] else {
+            let code = ((answer?["error"] as? [String: Any])?["code"] as? String) ?? (answer?["error_code"] as? String)
+            return CloudSetup.GatewayRead(team: team, errorCode: code ?? Self.badAnswer)
+        }
+        return CloudSetup.GatewayRead(team: team, serves: Set(serves))
+    }
+
     /// Rust validates reservation fields; the native app supplies only its trusted origin/team.
     /// `install`: the install token, whose team Rust names the reservation in (the spare warm's, `install_team`).
     public func startChatReservation(release: Bool, request: String, access: String, install: String? = nil) async throws -> Data {
@@ -609,8 +630,8 @@ public nonisolated struct CloudMoveCLI: Sendable {
     private struct Invocation: Decodable { var args: [String], timeoutSeconds: Int?, minTimeoutSeconds: Int? }
 
     /// `bound`: a caller's shorter limit for this one run (``machineUpdate(socket:toBundled:ifOlder:within:)``).
-    func output<Call: Encodable>(_ call: Call, stdin: Data? = nil, stderrLine: (@Sendable (String) -> Void)? = nil,
-                                 bound: Duration? = nil) async throws -> ProcessResult {
+    private func output<Call: Encodable>(_ call: Call, stdin: Data? = nil, stderrLine: (@Sendable (String) -> Void)? = nil,
+                                         bound: Duration? = nil) async throws -> ProcessResult {
         guard let invocation = CloudMoveCore().call("cli_invocation", call, as: Invocation.self) else { throw CloudMoveCLIUnanswered() }
         let own = invocation.timeoutSeconds.map { Duration.seconds($0) } ?? max(timeout, .seconds(invocation.minTimeoutSeconds ?? 0))
         let limit = bound.map { min($0, own) } ?? own
