@@ -5235,6 +5235,12 @@
       "title" : "Claude Code and Codex Customization",
       "type" : "boolean"
     },
+    "labs.automations" : {
+      "default" : false,
+      "description" : "Show the cloud automations and webhook editor in Settings. Still being shaped.",
+      "title" : "Automations",
+      "type" : "boolean"
+    },
     "labs.appStore" : {
       "default" : false,
       "description" : "Browse, install and update apps for cmux. Still being shaped.",

@@ -858,6 +858,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `labs.commentThreads` | boolean | `false` |  | Comment Threads in Browser and Terminal. Send browser and terminal comments to the chat as threads that show the agent's reply. |
 | `labs.previousBuild` | boolean | `false` |  | Go Back to Previous Build. Show the build cmux kept before the last update on the Updates card, with a button to go back to it. |
 | `labs.teamCompute` | boolean | `false` |  | Team Compute. Show your team's compute allotment and each member's use in Settings > Cloud. |
+| `labs.automations` | boolean | `false` |  | Automations. Show the cloud automations and webhook editor in Settings. Still being shaped. |
 | `labs.hostsSidebar` | boolean | `false` |  | Hosts Sidebar. Shows your machines in the sidebar with Add Host and per-host terminal actions. |
 | `labs.connectionsUpcoming` | boolean | `false` |  | Upcoming Connections. Lists Slack and Google in Connections before they can be connected. |
 | `experiments.appFontChrome` | boolean | `false` |  | App Font in Native Chrome. The sidebar, tabs and titlebar draw in the App Font too. Some text changes after cmux restarts. |

@@ -1,0 +1,4 @@
+{
+  "agent": "userOnly",
+  "why": "Turning on cloud automations can start agents, send webhooks and spend the owner's AutoCloud minutes, so only the person turns it on."
+}

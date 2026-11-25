@@ -300,6 +300,31 @@
           ]
         },
         {
+          "key": "labs.automations",
+          "note": "Settings > Automations: the cloud automation list, condition and action editor, preview, and run log. Off by default while the automations and webhooks surface is being shaped.",
+          "title": {
+            "key": "settings.labs.automations",
+            "text": "Automations"
+          },
+          "help": {
+            "key": "settings.labs.automations.help",
+            "text": "Show the cloud automations and webhook editor in Settings. Still being shaped."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "automations",
+            "automation",
+            "webhooks",
+            "webhook",
+            "schedule",
+            "conditions",
+            "autocloud",
+            "triggers"
+          ]
+        },
+        {
           "key": "labs.commentThreads",
           "name": "commentThreads",
           "note": "Opt-in comment threads from the browser pane and terminal selections (goal all-surface-comments-round-trip): a design mode card's Send, and Comment… on a terminal selection, save the comment on the session host and send it in a threaded diff.comments.send (diff-comments-threads-v1), so the agent's reply comes back into the same thread. Off by default: the browser card sends as a chip and Comment… on a terminal selection stays unavailable, as before. Off while Leo's UI merge hold stands (2026-11-24, ask-82b08b7ed7).",
