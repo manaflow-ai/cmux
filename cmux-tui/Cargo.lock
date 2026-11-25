@@ -3222,6 +3222,7 @@ dependencies = [
  "cmux-lifeline",
  "cmux-link",
  "cmux-migrate",
+ "cmux-palette-ranker",
  "cmux-panic-log",
  "cmux-process",
  "cmux-projection",
