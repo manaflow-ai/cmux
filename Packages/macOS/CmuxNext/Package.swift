@@ -3019,12 +3019,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
 // The Linux shape: the Linux package jobs (scripts/ci/swift-linux-packages.txt) set
 // CMUX_SWIFTPM_TARGET_LINUX and get only the targets below, which build without Apple
 // frameworks or binaries (no CCmuxAppFFI, GhosttyKit, Sparkle, Sentry or WebRTC); ChromiumRuntime
-// hashes with its PortableSHA256 where CryptoKit is missing. A build for an Apple platform, on any host, keeps every target.
-#if os(Linux)
+// hashes with its PortableSHA256 where CryptoKit is missing. Only those Linux jobs set the variable; every
+// other build keeps every target. A runtime read, not a compile-time branch: scripts/ci/app_ffi_pin.py
+// refuses conditional compilation in this manifest.
 let targetsLinux = ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1"
-#else
-let targetsLinux = false
-#endif
 
 /// Targets in the Linux shape, each with every dependency it names also in it.
 let linuxTargetNames: Set<String> = [
