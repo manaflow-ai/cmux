@@ -71,13 +71,24 @@ printf '{{"websocket":{{"token":"dash"}}}}\0{PEER_TOKEN}'
         let log = std::fs::read_to_string(&self.log).unwrap_or_default();
         (log.lines().filter(|l| *l == "login").count(), log.lines().count())
     }
+
+    /// Until `total` ssh spawns have logged (a tunnel ended at once may not have yet), at most 5 s.
+    async fn settle(&self, total: usize) {
+        for _ in 0..200 {
+            if self.count().1 >= total {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+    }
 }
 
 /// A first connect as `open_ssh` runs it: the tunnel, and the token read beside it.
-async fn first_connect(peer: &Peer) {
+async fn first_connect(fake: &Fake, peer: &Peer) {
     let _tunnel = peer.open_tunnel().await.unwrap();
     let ((token, peer_token), kept) = peer.connect_tokens_after(true).await.unwrap();
     assert_eq!((token.as_str(), peer_token.as_deref(), kept), ("dash", Some(PEER_TOKEN), false));
+    fake.settle(2).await;
     peer.end_tunnel().await;
 }
 
@@ -134,21 +145,23 @@ async fn a_first_connect_is_one_login_and_a_restarted_daemon_logs_in_none() {
     // Before: no master options. Two logins on a first connect, one more for each restart.
     let before = Fake::new();
     let peer = before.peer("sm-before", "box-before", before.plain());
-    first_connect(&peer).await;
+    first_connect(&before, &peer).await;
     assert_eq!(before.count(), (2, 2), "before: the tunnel and the read each log in");
     let restarted = before.peer("sm-before-2", "box-before", before.plain());
     let _tunnel = restarted.open_tunnel().await.unwrap();
+    before.settle(3).await;
     restarted.end_tunnel().await;
     assert_eq!(before.count(), (3, 3), "before: a restart logs in again");
 
     // After: the read rides the tunnel's master, and the next run finds it.
     let after = Fake::new();
     let peer = after.peer("sm-after", "box-after", after.mux());
-    first_connect(&peer).await;
+    first_connect(&after, &peer).await;
     assert_eq!(after.count(), (1, 2), "one login; the read is a mux client of its master");
     // A new daemon (a restart, an update, a handoff): new peers, the same home.
     let restarted = after.peer("sm-after-2", "box-after", after.mux());
     let _tunnel = restarted.open_tunnel().await.unwrap();
+    after.settle(3).await;
     restarted.end_tunnel().await;
     let tokens = restarted.connect_tokens_after(false).await.unwrap();
     assert_eq!(tokens.0.1.as_deref(), Some(PEER_TOKEN));
