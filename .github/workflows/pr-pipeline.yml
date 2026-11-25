@@ -41,7 +41,7 @@ jobs:
     # shards 6 min each, the cmux_next_ daemon tests 65 min, the iOS matrix protocol 45 min, the acpmux instruction
     # counts 40 min): 331 min with 32 shared steps (16 waves), plus room for the checkout, so a slow step is reported
     # by the runner, not cut here.
-    timeout-minutes: 334
+    timeout-minutes: 349
     permissions:
       contents: read
       # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.
