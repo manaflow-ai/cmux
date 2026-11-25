@@ -1514,7 +1514,7 @@ impl Hub {
                     *tr.session_id.lock().await = Some(sid);
                 }
                 let program = plan.program.clone();
-                ChildAgent::spawn_with(
+                ChildAgent::spawn_with_codex(
                     &meta.harness,
                     &profile,
                     &meta.cwd,
@@ -1523,6 +1523,7 @@ impl Hub {
                     Some((plan.program, plan.args)),
                     Some(tr),
                     Some((&session.id, &meta.name)),
+                    for_person,
                 )
                 .await
                 .map_err(|e| {
@@ -1534,7 +1535,7 @@ impl Hub {
         } else if self.agent_hosts_enabled() {
             self.spawn_hosted_child(session, profile, &meta, None, None, tap).await?
         } else {
-            ChildAgent::spawn_with(
+            ChildAgent::spawn_with_codex(
                 &meta.harness,
                 profile,
                 &meta.cwd,
@@ -1543,6 +1544,7 @@ impl Hub {
                 None,
                 None,
                 Some((&session.id, &meta.name)),
+                for_person,
             )
             .await
             .map_err(|e| {

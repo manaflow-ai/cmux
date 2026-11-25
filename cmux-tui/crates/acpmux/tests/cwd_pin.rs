@@ -94,6 +94,7 @@ async fn a_pinned_hosted_harness_never_execs_in_a_swapped_folder() {
         cwd: at.clone(),
         translator: None,
         codex_bridge: false,
+        codex_prompt_suggestions: false,
         socket: agent_host::socket_path(&hosts, "pinned"),
         hosts_dir: hosts,
         buffer_cap: agent_host::DEFAULT_BUFFER_CAP,

@@ -255,6 +255,10 @@ pub struct SpawnSpec {
     /// before its CODEX_PATH picks the binary, whatever that binary is named.
     #[serde(default)]
     pub codex_bridge: bool,
+    /// Whether a Codex bridge was started for a person's chat. Agent lanes
+    /// keep this false so prompt suggestions are absent by default.
+    #[serde(default)]
+    pub codex_prompt_suggestions: bool,
     /// Directory for the record, socket fallback aside.
     pub hosts_dir: PathBuf,
     pub socket: PathBuf,

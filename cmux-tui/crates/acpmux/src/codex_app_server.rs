@@ -496,6 +496,12 @@ pub fn translator() -> Arc<Translator> {
     translator_with(crate::claude_stdio::prompt_suggestions::enabled_in_settings())
 }
 
+/// A Codex bridge started for an agent lane never spends an extra model call on
+/// a predicted person prompt. Person-started chats retain the global setting.
+pub fn translator_for_person(for_person: bool) -> Arc<Translator> {
+    translator_with(for_person && crate::claude_stdio::prompt_suggestions::enabled_in_settings())
+}
+
 fn translator_with(prompt_suggestions: bool) -> Arc<Translator> {
     Arc::new(Translator {
         inner: cmux_codex_acp::Translator::new(Options {
@@ -678,8 +684,7 @@ mod tests {
 
     /// A Codex chat after one completed turn, with the global switch `on`: its
     /// session options, and what the app-server was asked after the turn.
-    fn chat_after_a_turn(on: bool) -> (Value, Vec<Value>) {
-        let tr = translator_with(on);
+    fn chat_after_a_turn_with(tr: Arc<Translator>) -> (Value, Vec<Value>) {
         let start = split(tr.start());
         let init = start.server[0]["id"].clone();
         let list = split(tr.from_server(
@@ -708,6 +713,10 @@ mod tests {
         let done = split(tr.from_server(&json!({"method": "turn/completed",
             "params": {"threadId": "t", "turn": {"id": "turn-1", "status": "completed", "items": []}}})));
         (options, done.server)
+    }
+
+    fn chat_after_a_turn(on: bool) -> (Value, Vec<Value>) {
+        chat_after_a_turn_with(translator_with(on))
     }
 
     /// A chat reopened after its app-server restarted (Retry, a later message) runs on the
@@ -759,6 +768,13 @@ mod tests {
         assert!(asked.iter().any(|m| m["method"] == "thread/prediction/request"), "{asked:?}");
         let (options, asked) = chat_after_a_turn(false);
         assert!(!has_option(&options));
+        assert!(asked.iter().all(|m| m["method"] != "thread/prediction/request"), "{asked:?}");
+    }
+
+    #[test]
+    fn an_agent_codex_bridge_starts_without_prompt_suggestions() {
+        let (options, asked) = chat_after_a_turn_with(translator_for_person(false));
+        assert!(!options.as_array().unwrap().iter().any(|o| o["id"] == "prompt-suggestions"));
         assert!(asked.iter().all(|m| m["method"] != "thread/prediction/request"), "{asked:?}");
     }
 

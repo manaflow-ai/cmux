@@ -1691,6 +1691,7 @@ impl Hub {
             env,
             cwd: meta.cwd.clone(),
             codex_bridge,
+            codex_prompt_suggestions: codex_bridge && self.for_a_person(session),
             translator,
             socket: crate::agent_host::socket_path(&hosts, &session.id),
             hosts_dir: hosts,

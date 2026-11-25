@@ -128,6 +128,7 @@ impl Hub {
             env,
             cwd: draft.cwd.clone(),
             codex_bridge: !claude && crate::codex_app_server::is_profile_launch(&profile.argv),
+            codex_prompt_suggestions: false,
             translator,
             socket: agent_host::socket_path(&dir, &session_id),
             hosts_dir: dir,
