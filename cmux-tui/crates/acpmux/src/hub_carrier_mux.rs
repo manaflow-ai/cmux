@@ -795,7 +795,7 @@ impl KeptCircuits {
     }
 
     /// Every machine's slot whose kept circuit ended under it and wants opening again.
-    pub(crate) fn to_reopen(&self) -> Vec<(String, Arc<tokio::sync::Mutex<Kept>>)> {
+    pub(crate) fn to_reopen(&self) -> Vec<(String, Lane, Arc<tokio::sync::Mutex<Kept>>)> {
         let by_machine = self.by_machine.lock().unwrap_or_else(|e| e.into_inner());
         by_machine
             .iter()
@@ -803,7 +803,7 @@ impl KeptCircuits {
                 slot.try_lock()
                     .is_ok_and(|kept| kept.live.as_ref().is_some_and(|mux| mux.wants_reopen()))
             })
-            .map(|((daemon, _), slot)| (daemon.clone(), slot.clone()))
+            .map(|((daemon, lane), slot)| (daemon.clone(), *lane, slot.clone()))
             .collect()
     }
 
