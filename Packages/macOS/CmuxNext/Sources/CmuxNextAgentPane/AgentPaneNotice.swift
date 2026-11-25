@@ -61,7 +61,7 @@ extension AgentPaneModel {
 
 extension AgentPaneView {
     /// The native notices shown now, in the order the page draws them.
-    var paneNotices: [AgentPaneNotice] { [otherInstallNotice, remoteApprovalsNotice].compactMap { $0 } }
+    var paneNotices: [AgentPaneNotice] { [cloudChatEndedNotice, otherInstallNotice, remoteApprovalsNotice].compactMap { $0 } }
 
     /// Pushes the shown notices to the page, and takes their buttons' clicks.
     func pushPaneNotices() {
