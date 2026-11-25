@@ -64,8 +64,8 @@ export const SEND_PAINT_MAX_MS = 5_000;
 /** A send with no first token this long after its start goes out without one. */
 export const SEND_TOKEN_MAX_MS = 120_000;
 /** A send's shifts are counted until this long after its first token, and at least SEND_SHIFT_MIN_MS from its start. */
-export const SEND_SHIFT_AFTER_TOKEN_MS = 1_000;
-export const SEND_SHIFT_MIN_MS = 5_000;
+export const SEND_SHIFT_AFTER_TOKEN_MS = 1_000; // motion-allow: a measurement window, not an animation
+export const SEND_SHIFT_MIN_MS = 5_000; // motion-allow: a measurement window, not an animation
 /** Sends timed at once, at most (the oldest goes out as it is). */
 const SENDS_CAP = 8;
 /** A chat switch whose rows are not painted this long after the pick is reported unpainted. */
