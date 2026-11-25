@@ -273,7 +273,7 @@ const ACPMUX_MAX_MESSAGE_BYTES: usize = 64 << 20;
 /// `mailbox-send-v1`: the mailbox takes `send` and `compose` items, held up to 24 hours and
 /// applied once in each phone's `seq` order (`mailbox.rs`, PROTOCOL.md "Store and forward").
 /// The names are declared once in `cmux_mobile_link::names`.
-pub const CAPABILITIES: [&str; 11] = [
+pub const CAPABILITIES: [&str; 12] = [
     names::REMOVAL,
     names::FILE_PREVIEW,
     names::LOCALHOST_FORWARD,
