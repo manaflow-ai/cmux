@@ -3484,9 +3484,25 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
         for tier in ("swift", "daemon", "generated"):
             only_fast[f"needs.path_route.outputs.{tier}"] = "false"
         self.assertFalse(evaluate(self.jobs()["web-bundles"]["if"], only_fast))
-        for tier in ("swift", "daemon", "generated"):
-            with self.subTest(tier=tier):
-                self.assertTrue(evaluate(self.jobs()["web-bundles"]["if"], dict(only_fast, **{f"needs.path_route.outputs.{tier}": "true"})))
+        # A tier alone wakes the bundles only when the job that restores them will run.
+        bundles = self.jobs()["web-bundles"]["if"]
+        cases = (
+            ({"swift": "true"}, (), False),  # swift-test is off a feat-cmux-next PR without full-ci
+            ({"swift": "true"}, ("full-ci",), True),
+            ({"daemon": "true"}, (), True),  # the context's tree is ready
+            ({"daemon": "true", "tree_state": "pending"}, (), False),
+            ({"generated": "true", "generated_host": "generated-files"}, (), True),
+            ({"generated": "true", "generated_host": "swift-test"}, (), False),
+        )
+        for outputs, labels, expected in cases:
+            with self.subTest(outputs=outputs, labels=labels):
+                context = dict(self.context(labels=labels), **{f"needs.path_route.outputs.{tier}": "false"
+                                                                for tier in ("swift", "daemon", "generated")})
+                context.update({f"needs.path_route.outputs.{key}": value for key, value in outputs.items()})
+                self.assertEqual(evaluate(bundles, context), expected)
+                consumers = [name for name in ("swift-test", "daemon-test", "generated-files")
+                             if evaluate(self.jobs()[name]["if"], {**context, "needs.generated-files-base-red.outputs.base_red": "false"})]
+                self.assertEqual(bool(consumers), expected, consumers)
         # A push and a dispatch fill the cache whatever the route.
         push = self.context("push", ref="refs/heads/feat-cmux-next")
         self.assertTrue(evaluate(self.jobs()["web-bundles"]["if"], push))
