@@ -783,7 +783,7 @@ fn place_run(
     let unpin_to: HashMap<ItemId, Value> = moved
         .iter()
         .filter_map(|id| tx.doc.item(id))
-        .filter(|item| enters_band && item.section != PINNED_SECTION_ID)
+        .filter(|item| enters_band && (item.section != PINNED_SECTION_ID || item.parent.is_some()))
         .map(|item| {
             let after =
                 tx.doc.list_entries(&item.section, item.parent.as_deref()).and_then(|set| {
@@ -812,7 +812,7 @@ fn place_run(
                 if item.parent != to.parent {
                     item.extra.remove(PINNED_IN_GROUP_KEY);
                 }
-                if to.section != PINNED_SECTION_ID {
+                if to.section != PINNED_SECTION_ID || to.parent.is_some() {
                     item.extra.remove(UNPIN_TO_KEY);
                 }
                 if let Some(place) = remembered {
@@ -871,15 +871,15 @@ fn ensure_pinned_section(tx: &mut Tx) {
 /// group and neighbor) for Unpin. Leo 2026-11-23 (ask-b5d3e0efb6): "you pin and
 /// it sends it to the fucking top. ok." and "these aren't pinned. they're in a
 /// fucking group": a pinned member that stayed in its group read as a grouped
-/// row with an Unpin on it. A member of a pinned tree (already in the band) is
-/// pinned with its top group: nothing moves.
+/// row with an Unpin on it. A member of a pinned group also moves out of its
+/// group into the band's top-level rows.
 fn pin(tx: &mut Tx, ids: &[ItemId]) -> Result<(), Refusal> {
     // A pin is not archived: it comes back first.
     unarchive(tx, ids)?;
     let mut moving = Vec::new();
     for id in ids {
         let item = tx.doc.item(id).ok_or(Refusal::UnknownItem)?;
-        if item.section != PINNED_SECTION_ID {
+        if item.section != PINNED_SECTION_ID || item.parent.is_some() {
             moving.push(id.clone());
         }
     }
@@ -977,15 +977,12 @@ fn pinned_members(doc: &Doc, section: &str, group: &str, except: &str) -> i64 {
 }
 
 /// Where Unpin puts `item` back: its `extra.unpin_to` place, while that
-/// section is `machine`'s own, the group it was pinned from (`parent`) is
+/// section is `machine`'s own or holds its pinned group, the group (`parent`) is
 /// still there in that section, and the neighbor it sat after still sits in
 /// that same list. Nil: no place is remembered, or it is gone.
 fn remembered_place(doc: &Doc, item: &Item, machine: &str) -> Option<Target> {
     let remembered = item.extra.get(UNPIN_TO_KEY)?;
     let section = remembered.get("section")?.as_str()?;
-    if doc.section(section)?.kind.machine() != Some(machine) {
-        return None;
-    }
     let parent = match remembered.get("parent").and_then(Value::as_str) {
         None => None,
         Some(group) => {
@@ -996,6 +993,11 @@ fn remembered_place(doc: &Doc, item: &Item, machine: &str) -> Option<Target> {
             Some(group.id.clone())
         }
     };
+    if doc.section(section)?.kind.machine() != Some(machine)
+        && !(section == PINNED_SECTION_ID && parent.is_some())
+    {
+        return None;
+    }
     match remembered.get("after").and_then(Value::as_str) {
         None => {
             Some(Target { section: section.into(), parent, index: Some(0), ..Target::default() })

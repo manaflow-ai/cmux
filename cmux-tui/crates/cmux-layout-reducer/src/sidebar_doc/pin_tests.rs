@@ -240,6 +240,36 @@ fn a_pinned_group_unpins_back_to_its_place() {
     assert_eq!(list(&doc, &machine(), None), ["w4", "g1", "w5"]);
 }
 
+#[test]
+fn pinning_a_member_of_a_pinned_group_moves_it_out_and_unpin_restores_it() {
+    let mut doc = fixture();
+    run(&mut doc, vec![Op::Pin { items: vec!["g1".into()] }]);
+    run(&mut doc, vec![Op::Pin { items: vec![item_id("w2")] }]);
+    assert_eq!(list(&doc, PINNED_SECTION_ID, None), ["g1", "w2"]);
+    assert_eq!(list(&doc, PINNED_SECTION_ID, Some("g1")), ["w1", "w3"]);
+    assert_eq!(doc.item(&item_id("w2")).unwrap().parent, None);
+
+    run(&mut doc, vec![Op::Unpin { items: vec![item_id("w2")] }]);
+    assert_eq!(list(&doc, PINNED_SECTION_ID, None), ["g1"]);
+    assert_eq!(list(&doc, PINNED_SECTION_ID, Some("g1")), ["w1", "w2", "w3"]);
+    let item = doc.item(&item_id("w2")).unwrap();
+    assert_eq!(item.parent.as_deref(), Some("g1"));
+    assert!(!item.pinned_in_group());
+    assert!(item.extra.get(UNPIN_TO_KEY).is_none(), "the remembered place is spent");
+}
+
+#[test]
+fn undo_of_pinning_a_member_of_a_pinned_group_restores_its_place() {
+    let mut doc = fixture();
+    run(&mut doc, vec![Op::Pin { items: vec!["g1".into()] }]);
+    let inverse = run(&mut doc, vec![Op::Pin { items: vec![item_id("w2")] }]);
+    assert_eq!(list(&doc, PINNED_SECTION_ID, None), ["g1", "w2"]);
+    apply_rows(&mut doc, &inverse);
+    assert_eq!(list(&doc, PINNED_SECTION_ID, None), ["g1"]);
+    assert_eq!(list(&doc, PINNED_SECTION_ID, Some("g1")), ["w1", "w2", "w3"]);
+    assert!(doc.item(&item_id("w2")).unwrap().extra.get(UNPIN_TO_KEY).is_none());
+}
+
 /// An empty group (a saved group kept when its workspaces closed) has no
 /// workspace to name its machine: Unpin was refused (`no_machine`), so an
 /// empty pinned group stayed in Pinned for good (#22259).
