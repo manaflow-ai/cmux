@@ -16,7 +16,7 @@ extension TabIcon {
         case .icon(let name): TabPackIconCache.shared.image(name: name, tint: tint, size: size, scale: scale)
         case .agentMark(let brand): TabAgentMarkCache.shared.image(brand: brand, tint: tint, size: size, scale: scale)
         case .terminalAgentMark(let brand):
-            TabAgentMarkCache.shared.image(brand: brand, tint: tint, size: size, scale: scale, terminal: true)
+            TabAgentMarkCache.shared.image(brand: brand, tint: tint, size: size, scale: scale, terminal: DesignSettings.shared.terminalAgentMarks)
         }
     }
 }

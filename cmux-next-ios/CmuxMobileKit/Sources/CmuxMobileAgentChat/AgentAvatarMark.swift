@@ -21,6 +21,10 @@ public enum AgentAvatarMark {
     /// A terminal avatar's corner radius as a share of its side (the continuous curve of an app icon).
     public static let tileCornerShare = AgentBrandCatalog.terminalTileCornerShare
 
+    /// `experiments.terminalAgentMark` (off by default, as on the Mac): whether a terminal agent's avatar takes the rounded
+    /// square. Off, every avatar keeps its circle; the gallery (`AgentAvatarHostGallery`) passes its host directly.
+    public static var terminalShapeEnabled: Bool { UserDefaults.standard.bool(forKey: "experiments.terminalAgentMark") }
+
     /// The corner radius of an avatar `side` points across: a circle's for a chat, a tile's for a terminal.
     public static func cornerRadius(side: CGFloat, host: AgentAvatarHost) -> CGFloat {
         host == .terminal ? side * tileCornerShare : side / 2

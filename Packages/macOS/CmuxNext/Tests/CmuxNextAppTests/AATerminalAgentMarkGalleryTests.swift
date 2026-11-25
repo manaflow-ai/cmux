@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 @testable import CmuxNextTabs
 import Foundation
 import Testing
@@ -63,10 +64,17 @@ import Testing
         let out = packageRoot.appending(path: "terminal-agent-mark-gallery")
         try? FileManager.default.removeItem(at: out)
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
-        for dark in [false, true] {
-            for selected in ["chat-claude", "term-claude"] {
-                let image = try Self.render(dark: dark, selected: selected)
-                try AAGroupHeaderDensityGalleryTests.write(image, to: out.appending(path: "strip-\(selected)-\(dark ? "dark" : "light").png"))
+        // `experiments.terminalAgentMark` off (the default: every agent's bare mark) and on (the rounded square).
+        let before = DesignSettings.shared.terminalAgentMarks
+        defer { DesignSettings.shared.terminalAgentMarks = before }
+        for on in [false, true] {
+            DesignSettings.shared.terminalAgentMarks = on
+            for dark in [false, true] {
+                for selected in ["chat-claude", "term-claude"] {
+                    let image = try Self.render(dark: dark, selected: selected)
+                    let name = "strip-\(on ? "on" : "off")-\(selected)-\(dark ? "dark" : "light").png"
+                    try AAGroupHeaderDensityGalleryTests.write(image, to: out.appending(path: name))
+                }
             }
         }
         let tar = Process()

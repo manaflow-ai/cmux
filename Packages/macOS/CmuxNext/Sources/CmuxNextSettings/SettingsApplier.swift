@@ -70,6 +70,8 @@ public final class SettingsApplier {
         if design.sidebarSections != snapshot.sidebarSections { design.sidebarSections = snapshot.sidebarSections }
         let agentBadges = AgentBadgesExperiment(switches: snapshot.experimentSwitches)
         if design.agentBadges != agentBadges { design.agentBadges = agentBadges }
+        let terminalAgentMarks = snapshot.experimentSwitches["terminalAgentMark"] == true
+        if design.terminalAgentMarks != terminalAgentMarks { design.terminalAgentMarks = terminalAgentMarks }
         if design.hoverCardsEnabled != snapshot.hoverCards.enabled { design.hoverCardsEnabled = snapshot.hoverCards.enabled }
         let pageDeveloperTools = AppPageDevToolsSetting().value(in: snapshot.root)
         if design.pageDeveloperTools != pageDeveloperTools { design.pageDeveloperTools = pageDeveloperTools }

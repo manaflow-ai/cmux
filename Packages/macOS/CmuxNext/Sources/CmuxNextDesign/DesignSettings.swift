@@ -212,6 +212,9 @@ public final class DesignSettings {
     /// `experiments.agentBadges` and `experiments.agentBadgesBeam` (Settings > Advanced > Experiments): count pills on
     /// tabs, a status pill (and, `beam`, a running edge light) on sidebar rows; off is the shipped tabs and rows.
     public var agentBadges: AgentBadgesExperiment = .off
+    /// `experiments.terminalAgentMark` (Settings > Advanced > Experiments, off by default): an agent running in a terminal
+    /// tab draws its mark on a soft rounded square of its tint, so it is told from a GUI agent chat's bare mark.
+    public var terminalAgentMarks = false
     /// The desktop picture's color (and its bands) while the Wallpaper or Pictorial group palette is chosen; nil under
     /// any other palette or until the first sample lands. Observed, so the sidebar's groups repaint when the picture changes.
     public var groupWallpaperTint: WallpaperTint?

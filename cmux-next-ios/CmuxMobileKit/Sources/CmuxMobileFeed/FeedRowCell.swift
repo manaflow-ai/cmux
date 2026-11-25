@@ -268,7 +268,7 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
         FeedRowCell.drawAsync(contentView)
         registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (cell: FeedRowCell, _: UITraitCollection) in
             cell.unread.layer.borderColor = UIColor.cmuxMobileBackground.resolvedColor(with: cell.traitCollection).cgColor
-            if let current = cell.current { cell.applyAvatar(current.harness, host: current.opensTerminal ? .terminal : .chat) }
+            if let current = cell.current { cell.applyAvatar(current.harness, host: current.opensTerminal && AgentAvatarMark.terminalShapeEnabled ? .terminal : .chat) }
         }
     }
 
@@ -330,7 +330,7 @@ final class FeedRowCell: UITableViewCell, UITextViewDelegate, UITextFieldDelegat
 
         avatar.frame = layout.avatar
         avatarGlyph.frame = avatar.bounds
-        applyAvatar(item.harness, host: item.opensTerminal ? .terminal : .chat)
+        applyAvatar(item.harness, host: item.opensTerminal && AgentAvatarMark.terminalShapeEnabled ? .terminal : .chat)
         unread.isHidden = item.isRead
         unread.accessibilityElementsHidden = item.isRead
         unread.frame = CGRect(x: layout.avatar.maxX - 9 + 2, y: layout.avatar.minY - 2, width: 9, height: 9)
