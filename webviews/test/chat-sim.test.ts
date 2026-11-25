@@ -20,16 +20,25 @@ const broken = (result: SimResult, prefix: string) =>
     .filter((violation) => violation.rule.startsWith(prefix))
     .map((violation) => `${violation.label}: ${violation.detail}`);
 
-// Rules (a), (b) and (d) hold in every scenario: a turn's first rows keep their gaps, nothing folds
-// before its turn ends, and another agent's line among tool rows sits on their pitch.
-describe("chat simulator: (a) a turn's first rows keep their gaps, (b) nothing folds before its turn ends, (d) received lines on the tool rows' pitch", () => {
+// Rules (a) and (b) hold in every scenario: a turn's first rows keep their gaps, and nothing folds
+// before its turn ends.
+describe("chat simulator: (a) a turn's first rows keep their gaps, (b) nothing folds before its turn ends", () => {
   for (const [name, make] of Object.entries(SCENARIOS)) {
-    // (d) here is the received-gap rule; the burst rules d-blank, d-shift and the rest hold in the burst replay below.
-    for (const rule of ["a-", "b-", "d-received"]) {
+    for (const rule of ["a-", "b-"]) {
       test(`${name}: rule ${rule.slice(0, 1)}`, () => {
         expect(broken(runSimulation(make()), rule)).toEqual([]);
       });
     }
+  }
+});
+
+// Rule (d) holds in every scenario: another agent's line among tool rows sits on their pitch. (d) here is
+// the received-gap rule; the burst rules d-blank, d-shift and the rest hold in the burst replay below.
+describe("chat simulator: (d) received lines on the tool rows' pitch", () => {
+  for (const [name, make] of Object.entries(SCENARIOS)) {
+    test(`${name}: rule d`, () => {
+      expect(broken(runSimulation(make()), "d-received")).toEqual([]);
+    });
   }
 });
 

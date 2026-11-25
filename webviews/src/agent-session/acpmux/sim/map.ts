@@ -148,6 +148,7 @@ export const EVERYWHERE: {
     check: (run) => landed(landings(run).filter((each) => !isHeader(each.kind))),
     known: {
       "received-sent-as-activity": "received-drawn-late",
+      "messages-mid-turn": "received-drawn-late",
       "steer-mid-turn": "cut-reply-footer-late",
       "permission-wait": "denial-receipt-order",
     },
@@ -200,6 +201,14 @@ export const MAP: MapEntry[] = [
     wrong: 'Leo, 2026-11-22: "an unnecessary gap due to being a recieved message".',
     expected: "Received and Sent to rows stand exactly a tool row's gap, at every step.",
     scenario: "received-sent-as-activity",
+  },
+  {
+    id: "messages-steer-mid-turn",
+    when: "Other agents' messages steer into a running turn between its commands, two back to back.",
+    wrong:
+      'Leo, 2026-11-22: "sometimes you get these way-too-big gaps. i think it\'s the message recieving not properly getting treated like the tool call ish thing it should be".',
+    expected: "Rule d: each received line sits on the tool rows' pitch, at most a step's gap from its neighbours.",
+    scenario: "messages-mid-turn",
   },
   {
     id: "background-shell",
