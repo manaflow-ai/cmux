@@ -12021,7 +12021,7 @@ export class AcpmuxDirectClient {
   private handoffTurnsSent = new Map<string, number>();
   /// The claim of a started chat's first prompt, made before its ask answered (sendNow): that ask
   /// gives the claim back when it names no turn, unless another prompt claimed a turn since.
-  private handoffPresumed?: { sessionId: string };
+  private handoffPresumed = new Map<string, object>();
   /// A New Tab start suspended for Trust settles when its selection or client goes away.
   private cancelTrustStart?: () => void;
 
@@ -12461,7 +12461,7 @@ export class AcpmuxDirectClient {
       const generation = this.selectionGeneration;
       let named: number | undefined;
       /// Set when this prompt names its turn ahead of the ask's answer (`handoffPresumed`).
-      let presumed: { sessionId: string } | undefined;
+      let presumed: object | undefined;
       const asking = this.handoffAsks.get(sessionId);
       if (asking?.generation === generation) await asking.ask;
       else if (!(shown === sessionId && (this.turnOpen || this.queue.length > 0))) {
@@ -12491,12 +12491,12 @@ export class AcpmuxDirectClient {
           // starts a turn names the turn the app opens then; with no hand-off the reports go nowhere,
           // as an unnamed prompt's do.
           named = FIRST_HANDOFF_TURN;
-          presumed = { sessionId };
+          presumed = {};
           const mine = presumed;
           const answered = (turn: number | undefined) => {
             asked();
-            if (this.handoffPresumed !== mine) return;
-            this.handoffPresumed = undefined;
+            if (this.handoffPresumed.get(sessionId) !== mine) return;
+            this.handoffPresumed.delete(sessionId);
             if (turn === undefined && this.handoffTurnsSent.get(sessionId) === FIRST_HANDOFF_TURN)
               this.handoffTurnsSent.delete(sessionId);
           };
@@ -12520,7 +12520,8 @@ export class AcpmuxDirectClient {
         claim = { turn: named, before: this.handoffTurnsSent.get(sessionId) };
         this.handoffTurnsSent.set(sessionId, named);
         // Only the newest claim made ahead of its ask is given back by that ask.
-        this.handoffPresumed = presumed;
+        if (presumed) this.handoffPresumed.set(sessionId, presumed);
+        else this.handoffPresumed.delete(sessionId);
         promptId = handoffPromptId(named, promptId);
       }
     }

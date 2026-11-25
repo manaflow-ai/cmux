@@ -935,6 +935,14 @@ impl<I: Io> Reporter<I> {
                 if let Some(wait) = UNMADE_AFTER.get(unmade.tries + 1) {
                     let at = tokio::time::Instant::now() + *wait;
                     track.unmade = Some(Unmade { tries: unmade.tries + 1, at, ..unmade });
+                } else if answer == Outcome::Unsent && matches!(unmade.status, "done" | "failed") {
+                    // An end the agent never took is sent again as any other end is (`LATER`).
+                    let at = tokio::time::Instant::now();
+                    let Unmade { status, note, .. } = unmade;
+                    self.send_later(
+                        session,
+                        Later { turn: FIRST_TURN, status, note, tries: 0, at },
+                    );
                 }
             }
             Outcome::Refused | Outcome::Closed => {}
@@ -993,9 +1001,15 @@ impl<I: Io> Reporter<I> {
 
     /// A turn began: reported on the turn its prompt names, or not at all.
     async fn begin(&mut self, session: &str, turn: Option<u64>) {
-        // Another prompt's report of the first turn no longer waits: this begin is the newer.
+        // Another prompt's report of the first turn no longer waits when this begin names a turn:
+        // it is the newer. A begin that names none (a prompt queued behind the first turn) keeps
+        // that turn's waiting end, or the store never hears the turn ran and names it for ever.
         if let Some(track) = self.tracks.get_mut(session) {
-            track.unmade = None;
+            let ended =
+                track.unmade.as_ref().is_some_and(|u| matches!(u.status, "done" | "failed"));
+            if turn.is_some() || !ended {
+                track.unmade = None;
+            }
         }
         let answer = match turn {
             Some(turn) => Some((turn, self.report(session, turn, "running", None).await)),

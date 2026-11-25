@@ -556,6 +556,24 @@ async fn a_waiting_first_turn_report_is_dropped_by_the_next_prompts_begin() {
     assert_eq!(r.next_deadline(), None);
 }
 
+#[tokio::test(start_paused = true)]
+async fn a_waiting_first_turn_end_outlasts_a_queued_prompts_unnamed_begin() {
+    let (mut r, fake) = reporter();
+    fake.answer([not_found(), not_found()]);
+    r.step(S, began(1)).await;
+    r.step(S, done(1, "First.")).await;
+    fake.take();
+    // A prompt queued behind the first turn begins and names no turn: the first turn's end still
+    // waits, or the store never hears that turn ran.
+    r.step(S, Step::Began(None)).await;
+    assert!(fake.take().is_empty());
+    tokio::time::advance(UNMADE_AFTER[0]).await;
+    fake.answer([ok(1, "done")]);
+    r.expire().await;
+    assert_eq!(fake.take(), [s(1, "done", Some("First."))]);
+    assert_eq!(r.next_deadline(), None);
+}
+
 #[tokio::test]
 async fn a_closed_hand_off_gets_no_more_reports() {
     let (mut r, fake) = reporter();
