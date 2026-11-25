@@ -1418,14 +1418,19 @@ class NetCut:
     """A Mac that lost its network: every non-loopback socket of the target Mac app's process tree is dropped by a pf
     anchor on this throwaway VM, matched by the socket's local port (pf cannot match a pid, and the phone simulator's
     traffic shares this host's address and user, so nothing broader than the app's own ports may be blocked). The
-    sockets are polled while the cut holds, so a reconnect on a new port is dropped too. Nothing is reset: the service
-    sees the Mac go quiet, as it does when a laptop sleeps, and marks it offline on its own timeout."""
+    sockets are polled while the cut holds. Polling alone races a reconnect (the app's handshake on a new port can
+    finish inside one poll, and the service then hears a fresh connection, cmux#52200), so a new outbound TCP
+    connection is dropped by default too, and only the local ports of other processes' sockets (the phone simulator,
+    the runner) are let through as the poll sees them: their first SYN is lost and the retry a second later passes.
+    Nothing is reset: the service sees the Mac go quiet, as it does when a laptop sleeps, and marks it offline on its
+    own timeout."""
     ANCHOR = "com.apple/cmux.offline-p0"  # under com.apple/*, which the default /etc/pf.conf evaluates
     SOCK = re.compile(r"\b(?:TCP|UDP)\s+(\S+?):(\d+)(?:->(\S+?):(\d+))?(?:\s|$)")
 
     def __init__(self, pids_fn, log):
         self.pids_fn, self.log = pids_fn, log
         self.ports, self.token, self.stop_ev, self.thread = set(), None, threading.Event(), None
+        self.others = set()
         self.sudo = [] if os.geteuid() == 0 else ["sudo", "-n"]
 
     def _pf(self, *args, stdin=None):
@@ -1444,9 +1449,27 @@ class NetCut:
             ports.add(int(m.group(2)))
         return ports
 
+    def _other_ports(self):
+        """Local ports of every non-loopback TCP socket of a process outside the cut (every user's: the runner's too)."""
+        cut = set(self.pids_fn())
+        out = subprocess.run(self.sudo + ["lsof", "-nP", "-iTCP"], capture_output=True, text=True, timeout=30).stdout
+        ports = set()
+        for line in out.splitlines()[1:]:
+            fields = line.split()
+            if len(fields) < 2 or not fields[1].isdigit() or int(fields[1]) in cut:
+                continue
+            m = self.SOCK.search(line)
+            if m:
+                ports.add(int(m.group(2)))
+        return ports - self.ports
+
     def _load(self):
         rules = "".join(f"block drop quick proto {{ tcp udp }} from any port {p} to any\n"
                         f"block drop quick proto {{ tcp udp }} from any to any port {p}\n" for p in sorted(self.ports))
+        rules += "".join(f"pass out quick proto tcp from any port {p} to any flags S/SA keep state\n"
+                         for p in sorted(self.others))
+        rules += "block drop out quick proto tcp from any to ! 127.0.0.0/8 flags S/SA\n"
+        rules += "block drop out quick inet6 proto tcp from any to ! ::1 flags S/SA\n"
         r = self._pf("-a", self.ANCHOR, "-f", "-", stdin=rules or "\n")
         if r.returncode != 0:
             raise RuntimeError(f"pfctl anchor load failed: {r.stderr[-300:]}")
@@ -1458,8 +1481,9 @@ class NetCut:
         m = re.search(r"Token : (\d+)", r.stderr)
         self.token = m.group(1) if m else None
         self.ports = self._local_ports()
+        self.others = self._other_ports()
         self._load()
-        self.log("netcut", ports=sorted(self.ports))
+        self.log("netcut", ports=sorted(self.ports), others=len(self.others))
         self.thread = threading.Thread(target=self._watch, daemon=True)
         self.thread.start()
         time.sleep(settle)
@@ -1469,9 +1493,12 @@ class NetCut:
         while not self.stop_ev.wait(0.7):
             try:
                 new = self._local_ports() - self.ports
-                if new:
+                others = self._other_ports() - self.others
+                if new or others:
                     self.ports |= new
+                    self.others |= others
                     self._load()
+                if new:
                     self.log("netcut-more", ports=sorted(new))
             except Exception as error:  # noqa: BLE001  keep cutting
                 self.log("netcut-error", error=str(error)[:200])
@@ -1485,6 +1512,7 @@ class NetCut:
             self._pf("-X", self.token)
         self.log("netcut-off")
         self.stop_ev, self.thread, self.ports, self.token = threading.Event(), None, set(), None
+        self.others = set()
 
 
 def png_width(path):
