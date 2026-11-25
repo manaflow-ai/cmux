@@ -435,6 +435,15 @@ pub const ACTIONS: &[ActionDef] = &[
         group: "editing",
         args: "",
     },
+    ActionDef {
+        action: Action::Find,
+        name: "find",
+        aliases: &["search"],
+        label: "find in this chat",
+        keys: "Cmd-f  Ctrl-f (transcript)",
+        group: "reading",
+        args: "[text]",
+    },
 ];
 
 /// Keys that are not actions but belong in the help dialog.

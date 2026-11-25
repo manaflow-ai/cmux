@@ -1,6 +1,9 @@
 import CmuxEgress
 import CMUXMobileCore
 public import Foundation
+#if canImport(FoundationNetworking)
+public import FoundationNetworking
+#endif
 
 /// Persisted control-plane sync position: the highest account route revision
 /// this device has fully received. Sent as `haveRev` on reconnect so the
