@@ -35,5 +35,5 @@ test("the host lets every param of the plain attach and the view through", () =>
   const params = plainAttach("chat-1", { settled: true, visible: true, attending: true, local: true, maxBytes: 1 });
   const allowed = new Set(hostParams("_acpmux/attach"));
   for (const key of Object.keys(params)) expect(allowed.has(key)).toBe(true);
-  expect(hostParams("_acpmux/view")).toEqual(["sessionId", "visible", "attending"]);
+  expect(hostParams("_acpmux/view")).toEqual(["sessionId", "visible", "attending", "seenSeq"]);
 });
