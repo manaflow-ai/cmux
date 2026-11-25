@@ -1585,7 +1585,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const heldRuns = useRef<{ session?: string; keys: ReadonlySet<string>; asked?: true }>({ keys: new Set() });
   /// The ended turn's "Worked for" over rows a reader scrolled up had in view: open until the view
   /// follows again, then closed (conversation/turnEndHold.ts `foldsToHold`; cmux#24569's turn_end rows).
-  const heldWorked = useRef<{ session?: string; keys: ReadonlySet<string>; letGo?: true }>({ keys: new Set() });
+  const heldWorked = useRef<{ session?: string; keys: ReadonlySet<string>; letGo?: ReadonlySet<string> }>({
+    keys: new Set(),
+  });
   /// Set when the rows next shaped close that Worked for, the view back at the latest row: the
   /// transcript folds it in the turn's end motion (VirtualTranscript `heldWorkedClosing`).
   const heldWorkedClosing = useRef(false);
@@ -9008,11 +9010,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const view = chatViewRef.current;
     // A Worked for the turn's end left open over what the reader reads (`heldWorked`) is closed by
     // their click: it was never their open fold. The pass the click asks for is the reader's own
-    // (`letGo`), so it does not hold the fold open again over the work leaving the view.
+    // (`letGo`), so it does not hold this fold open again over the work leaving the view.
     if (heldWorked.current.keys.has(id)) {
       const keys = new Set(heldWorked.current.keys);
       keys.delete(id);
-      heldWorked.current = { ...heldWorked.current, keys, letGo: true };
+      const letGo = new Set(heldWorked.current.letGo).add(id);
+      heldWorked.current = { ...heldWorked.current, keys, letGo };
       releaseCalls();
       return;
     }
