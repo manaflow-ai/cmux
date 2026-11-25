@@ -858,14 +858,14 @@ class RecentRevertTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as repo:
             self.git(repo, "init", "-q")
             path = os.path.join(repo, "policy.json")
-            open(path, "w").write('{"keys": [\n"a"\n]}\n')
+            open(path, "w").write('"a": 1\n')
             self.git(repo, "add", ".")
             self.git(repo, "commit", "-qm", "feat: old (#100)", when=now - 30 * 86400)
-            open(path, "w").write('{"keys": [\n"a",\n"b"\n]}\n')
+            open(path, "w").write('"a": 1\n"b": 2\n')
             self.git(repo, "commit", "-qam", "feat: add b (#200)", when=now - 86400)
             base = self.git(repo, "rev-parse", "HEAD").strip()
             removed = {"filename": "policy.json", "status": "removed",
-                       "patch": '@@ -1,4 +0,0 @@\n-{"keys": [\n-"a",\n-"b"\n-]}'}
+                       "patch": '@@ -1,2 +0,0 @@\n-"a": 1\n-"b": 2'}
             split = [removed, {"filename": "policy/a.json", "status": "added", "patch": "@@ -0,0 +1 @@\n+{}"},
                      {"filename": "policy/b.json", "status": "added", "patch": "@@ -0,0 +1 @@\n+{}"}]
             self.assertEqual(risk.recent_reverts(split, repo, base, own=300, now=now), {})
