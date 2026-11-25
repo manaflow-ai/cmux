@@ -675,6 +675,27 @@ fn notifications_clears_table_and_sound_cooldown() {
 }
 
 #[test]
+fn notifications_sound_choice_and_event() {
+    let (code, body) = call_json(
+        c"window_notifications_sound_choice",
+        &json!({"sounds": {"volume": 0.5, "groups": {"Ops": {"sound": "Tink"}}}, "event": "finished",
+                "scope": {"groups": [{"id": "g1", "name": "Ops"}]}, "fallback": "Glass"}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"choice": {"name": "Tink", "volume": 0.5, "level": "group:Ops"}}));
+    let (_, body) = call_json(
+        c"window_notifications_sound_choice",
+        &json!({"event": "bell", "fallback": "none"}),
+    );
+    assert_eq!(body, json!({"choice": null}));
+    let (_, body) = call_json(
+        c"window_notifications_sound_event",
+        &json!({"source": "cli", "level": "warning"}),
+    );
+    assert_eq!(body, json!({"event": "needsInput"}));
+}
+
+#[test]
 fn history_actions_and_layout_undo() {
     let (code, body) = call_json(c"window_history_actions", &json!({}));
     assert_eq!(code, OK);

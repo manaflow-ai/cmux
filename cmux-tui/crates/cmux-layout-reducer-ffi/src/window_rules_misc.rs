@@ -48,6 +48,27 @@ struct SoundAdmit {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct SoundChoosing {
+    #[serde(default)]
+    sounds: notification_policy::SoundPrefs,
+    event: notification_policy::SoundEvent,
+    #[serde(default)]
+    scope: notification_policy::SoundScope,
+    #[serde(default)]
+    fallback: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SoundOf {
+    #[serde(default)]
+    source: notification_policy::Source,
+    #[serde(default)]
+    level: notification_policy::Level,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct Prompts {
     #[serde(default)]
     prompts: Vec<u64>,
@@ -232,6 +253,16 @@ pub(crate) fn respond_misc(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, 
                 Some(last) => json!({ "admitted": true, "last": last }),
                 None => json!({ "admitted": false }),
             }
+        }
+        // The sound an event plays in a scope, and the level that chose it (none: silent).
+        b"window_notifications_sound_choice" => {
+            let request: SoundChoosing = read(request)?;
+            json!({ "choice": request.sounds.choice(request.event, &request.scope, &request.fallback) })
+        }
+        // What a notification from a source at a level is about, for its sound.
+        b"window_notifications_sound_event" => {
+            let request: SoundOf = read(request)?;
+            json!({ "event": notification_policy::SoundEvent::of(request.source, request.level) })
         }
         b"window_notifications_toggle_mute" => {
             let request: Mute = read(request)?;
