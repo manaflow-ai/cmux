@@ -119,17 +119,19 @@ import CmuxNextCompat
 }
 
 /// A unix socket that answers `identify` with `capabilities` and every other command `ok`, and
-/// records each request.
+/// records each request. A command in `replyDelays` is answered that many seconds late.
 nonisolated final class PresenceDaemon: @unchecked Sendable {  // the fd is written once in init and closed once in stop
     let path: String
     private let descriptor: Int32
     private let recorded = Mutex<[Data]>([])
     private let clients = Mutex<[Int32]>([])
+    private let replyDelays: [String: TimeInterval]
     var frames: [[String: Any]] {
         recorded.withLock { $0 }.compactMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
     }
 
-    init(capabilities: [String]) throws {
+    init(capabilities: [String], replyDelays: [String: TimeInterval] = [:]) throws {
+        self.replyDelays = replyDelays
         path = FileManager.default.temporaryDirectory
             .appendingPathComponent("asp-\(UUID().uuidString.prefix(8)).sock").path
         descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -168,6 +170,7 @@ nonisolated final class PresenceDaemon: @unchecked Sendable {  // the fd is writ
                 buffer.removeSubrange(buffer.startIndex...newline)
                 guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any], let id = object["id"] else { continue }
                 recorded.withLock { $0.append(line) }
+                if let cmd = object["cmd"] as? String, let delay = replyDelays[cmd] { Thread.sleep(forTimeInterval: delay) }
                 let data: [String: Any] = object["cmd"] as? String == "identify" ? identity : [:]
                 guard var reply = try? JSONSerialization.data(withJSONObject: ["id": id, "ok": true, "data": data]) else { continue }
                 reply.append(0x0A)

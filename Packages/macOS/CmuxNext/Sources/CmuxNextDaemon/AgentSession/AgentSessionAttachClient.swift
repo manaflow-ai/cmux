@@ -642,7 +642,7 @@ public actor AgentSessionAttachClient {
         let (transport, served) = try await liveConnection()
         var params: [String: any Sendable] = ["prompt_id": id, "text": text]
         if steer, served.steer { params["steer"] = true }
-        return try await call("agent-session-prompt", params, on: transport)
+        return try await call("agent-session-prompt", params, timeout: promptCallTimeout, on: transport)
     }
 
     /// `agent-session-queue-approve`: the owner runs the held prompt `promptID` (its `turnID` and
@@ -680,11 +680,11 @@ public actor AgentSessionAttachClient {
             let text = blocks.compactMap { $0["text"] as? String }.joined(separator: "\n\n")
             var params: [String: any Sendable] = ["prompt_id": id, "text": text]
             if steered { params["steer"] = true }
-            return try await call("agent-session-prompt", params, on: transport)
+            return try await call("agent-session-prompt", params, timeout: promptCallTimeout, on: transport)
         }
         var params: [String: any Sendable] = ["prompt_id": id]
         if steered { params["steer"] = true }
-        return try await call("agent-session-prompt", params, json: ["content": content], on: transport)
+        return try await call("agent-session-prompt", params, json: ["content": content], timeout: promptCallTimeout, on: transport)
     }
 
     public func cancel() async throws {
@@ -884,6 +884,16 @@ public actor AgentSessionAttachClient {
     /// link that drops fails the start at once, as before. Was the client's 75 s, which a harness starting in
     /// a big folder on a busy machine passed (cmux#40385's matrix).
     static let startTimeout: Duration = .seconds(16 * 60)
+
+    /// How long a prompt may wait for its machine: the daemon there answers it once acpmux took it, or
+    /// itself with `agent_session.timeout` after `PROMPT_ACCEPT_TIMEOUT` (30 s, agent_session_attach.rs:
+    /// a fresh or just-resumed Cloud machine's acpmux took over 5 s to adopt the chat), so this is that
+    /// wait plus the carrier. The client's 10 s gave up first and said "Not sent" for a prompt that
+    /// then ran (cmux#55671); the remote wire sends one the daemon did not take yet again under its id.
+    static let promptTimeout: Duration = .seconds(45)
+
+    /// ``promptTimeout``, or a client's own longer bound.
+    private var promptCallTimeout: Duration { max(requestTimeout, Self.promptTimeout) }
 
     /// How long each login step may wait, past the daemon's own wait for it: start waits for the
     /// CLI's sign-in page (30 s), saving a key for its CLI (75 s), and finish for the person's

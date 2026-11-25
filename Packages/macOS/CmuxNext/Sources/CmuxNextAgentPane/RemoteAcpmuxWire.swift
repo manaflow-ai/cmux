@@ -1,6 +1,7 @@
 public import Foundation
 import CmuxNextCompat
 import CmuxNextWakeups
+import CmuxNextDaemon
 import os
 
 /// The wire of a chat whose acpmux runs on another machine: it answers the page's acpmux
@@ -102,6 +103,9 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         var told: Set<String> = []
         /// The latest ``noteChat(_:)``: an older note whose owner check answered later is dropped, never written over it.
         var noted = 0
+        /// Each prompt on its way to the daemon, by prompt id (``deliver(_:_:)``): a resend of the
+        /// same id (the page's Retry) joins it instead of racing it.
+        var deliveries: [String: Task<Data, any Error>] = [:]
     }
 
     /// A new chat's first prompt out (`prompt`), its start answered (`start`) and its agent's first text
@@ -300,14 +304,17 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             let steer = meta?["steer"] as? Bool == true
             let session = state.withLock { $0.session } ?? ""
             run(id) { [weak self] client in
-                let accepted = if let text { try await client.prompt(id: prompt, text: text, steer: steer) }
+                guard let self else { throw AgentSessionRemoteError(code: Self.unsupported, message: "closed") }
+                let accepted = try await self.deliver(prompt) {
+                    if let text { try await client.prompt(id: prompt, text: text, steer: steer) }
                     else { try await client.prompt(id: prompt, content: content, steer: steer) }
+                }
                 let object = (try? JSONSerialization.jsonObject(with: accepted)) as? [String: Any] ?? [:]
                 let turn = object["turn_id"] ?? NSNull()
                 var notice: [String: Any] = ["sessionId": session, "promptId": prompt, "turnId": turn, "queued": object["queued"] ?? false]
                 if let state = object["state"] as? String { notice["state"] = state }
                 if object["awaiting_owner"] as? Bool == true { notice["awaitingOwner"] = true }
-                self?.notify("_acpmux/prompt_accepted", notice)
+                self.notify("_acpmux/prompt_accepted", notice)
                 return Self.json(["_meta": ["acpmux": ["promptId": prompt, "turnId": turn]]])
             }
         case "_acpmux/queue_approve", "_acpmux/queue_decline":
@@ -800,6 +807,56 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             Task { await client.close() }
             state.withLock { $0.onClose }?(1012, reason)
         }
+    }
+
+    // MARK: Prompt delivery
+
+    /// How long a prompt the daemon did not take yet waits before it goes again (``deliver(_:_:)``).
+    static let unansweredPromptRetry: Duration = .seconds(1)
+
+    /// `send` (the prompt `promptID` to the daemon) until the daemon answers it: its acceptance, or a
+    /// refusal of the prompt itself. A prompt that got no answer yet goes again under the same id,
+    /// which that machine's acpmux runs at most once, for as long as the wire is open: a busy or
+    /// just-resumed Cloud machine takes longer than any fixed wait, as a local chat's acpmux does,
+    /// and its late acceptance must still land. Before, the first call's 10 s deadline answered
+    /// "Not sent: timed out: agent-session-prompt" while the daemon still waited for acpmux (30 s,
+    /// `PROMPT_ACCEPT_TIMEOUT`), the prompt then ran anyway, and its Retry was refused or hung
+    /// (cmux#55671). The page's own delivery deadline still says when it has been slow.
+    /// A second send of an id still on its way joins it.
+    func deliver(_ promptID: String, _ send: @escaping @Sendable () async throws -> Data) async throws -> Data {
+        let task = state.withLock { state -> Task<Data, any Error> in
+            if let running = state.deliveries[promptID] { return running }
+            // task-owner: this prompt's delivery; every send of its id awaits it, the first to finish removes it
+            let task = Task { [weak self] () async throws -> Data in
+                var attempt = 0
+                while true {
+                    attempt += 1
+                    do {
+                        return try await send()
+                    } catch {
+                        guard let self, Self.unanswered(error), !self.state.withLock({ $0.closed }) else { throw error }
+                        Self.logger.info("prompt not answered yet; sending it again (try \(attempt, privacy: .public))")
+                        try await Task.sleep(for: Self.unansweredPromptRetry)
+                        guard !self.state.withLock({ $0.closed }) else { throw error }
+                    }
+                }
+            }
+            state.deliveries[promptID] = task
+            return task
+        }
+        defer { state.withLock { if $0.deliveries[promptID] == task { $0.deliveries[promptID] = nil } } }
+        return try await task.value
+    }
+
+    /// Whether a prompt's failure means only that the daemon did not take it yet, so the same id may
+    /// go again: the app's own deadline on the call, the daemon's wait for acpmux running out
+    /// (`agent_session.timeout`; the prompt may well be there), its call slots full or a copy of the
+    /// id still waiting there (`agent_session.limit`), or acpmux restarting on that machine
+    /// (`agent_session.acpmux_unavailable`). A refusal of the prompt itself is answered as it is.
+    static func unanswered(_ error: any Error) -> Bool {
+        if case DaemonError.timedOut = error { return true }
+        guard let refused = error as? AgentSessionRemoteError else { return false }
+        return ["agent_session.timeout", "agent_session.limit", "agent_session.acpmux_unavailable"].contains(refused.code)
     }
 
     // MARK: Helpers
