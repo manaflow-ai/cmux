@@ -3946,6 +3946,18 @@ class FloatPaneRequest:
 
 
 @dataclass(frozen=True)
+class FlushLaunchSnapshotRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/flush-launch-snapshot/request'
+    pass
+
+
+@dataclass(frozen=True)
+class FlushLaunchSnapshotResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/flush-launch-snapshot/result'
+    flushed: bool
+
+
+@dataclass(frozen=True)
 class FocusDirectionRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/focus-direction/request'
     dir: PaneDirection
@@ -7235,6 +7247,8 @@ __all__ = [
     'FeedLocalListRequest',
     'FeedLocalReadRequest',
     'FloatPaneRequest',
+    'FlushLaunchSnapshotRequest',
+    'FlushLaunchSnapshotResult',
     'FocusDirectionRequest',
     'FocusPaneRequest',
     'ForgetSessionRequest',
