@@ -56,6 +56,10 @@ env:
   # 1: a pull request push is fast (docs or comments only: shard 1's checks, no test file), sampled (shard 1, the
   # touched tests, and two head-sampled shards where it would have run every shard) or full (every shard).
   CI_WEBVIEWS_PUSH_CLASSES: ${{ vars.CI_WEBVIEWS_PUSH_CLASSES || '1' }}
+  # 0 lets apt's needrestart restart the runner's services after `playwright install --with-deps` again; 1 lists them
+  # instead (scripts/ci/apt-no-service-restarts.sh): restarting cmux-git-mirror.service held 6 of 17 react-apps-check (1)
+  # pull request jobs 900 s (2026-11-25).
+  CI_APT_NO_SERVICE_RESTARTS: ${{ vars.CI_APT_NO_SERVICE_RESTARTS || '1' }}
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
@@ -693,7 +697,7 @@ jobs:
 
       - name: Install headless engines
         working-directory: webviews
-        run: ./node_modules/.bin/playwright install --with-deps webkit && bash "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
+        run: bash "$(git rev-parse --show-toplevel)/scripts/ci/apt-no-service-restarts.sh" && ./node_modules/.bin/playwright install --with-deps webkit && bash "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh"
 
       - name: Run the real-daemon pane checks
         working-directory: webviews
@@ -1135,27 +1139,42 @@ jobs:
         if: ${{ steps.receipt.outputs.hit != 'true' }}
         continue-on-error: true
         working-directory: webviews
-        run: ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$(git rev-parse --show-toplevel)/scripts/ci/pin-browser-test-font.sh"
+        run: bash "$(git rev-parse --show-toplevel)/scripts/ci/apt-no-service-restarts.sh" && ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$(git rev-parse --show-toplevel)/scripts/ci/pin-browser-test-font.sh"
 
       # The fixture copies the real webviews tree, so a finding already on the base fails it too: #48230's experiment
       # id agent-pane.high-contrast-look made it red on feat-cmux-next, and every web-view pull request's shard 1 went
       # red with it and skipped its tests (#49118). On a pull request, a red one is run again on the merge parent's
       # copy (a worktree of HEAD^1), and only a test red here and not there fails (guards_new_reds.py), as the tests do.
       # Leo, 2026-11-21: "these sorts of things probably shouldn't happen". A push keeps every red.
+      # The base run starts beside the head's, not after a red one: head then base, one after the other, was 320-416 s
+      # of shard 1's 16 min in 17 pull request jobs on 2026-11-25 (about 170 s each). A green head stops the base run
+      # and charges nothing. CI_PR_SCOPED_BASE_BESIDE=0 runs the base only after a red head again.
       - name: Check PR-scoped webview rules
         id: pr-scoped-rules
         if: ${{ matrix.shard == 1 && steps.receipt.outputs.hit != 'true' }}
         continue-on-error: true
+        env:
+          CI_PR_SCOPED_BASE_BESIDE: ${{ vars.CI_PR_SCOPED_BASE_BESIDE || '1' }}
         run: |
           check=scripts/tests/test_pr_scoped_webviews_checks.py
           if [ "$GITHUB_EVENT_NAME" != pull_request ]; then exec python3 "$check"; fi
-          python3 scripts/ci/unittest_results.py "$check" "$RUNNER_TEMP/pr-scoped-head.json" && exit 0
           base="$RUNNER_TEMP/pr-scoped-base"
-          git worktree add --detach "$base" HEAD^1
-          ln -s "$PWD/webviews/node_modules" "$base/webviews/node_modules"
-          if [ -f "$base/$check" ]; then
-            python3 scripts/ci/unittest_results.py "$base/$check" "$RUNNER_TEMP/pr-scoped-base.json" || true
+          base_run() {
+            git worktree add -q --detach "$base" HEAD^1 &&
+              ln -s "$PWD/webviews/node_modules" "$base/webviews/node_modules" &&
+              if [ -f "$base/$check" ]; then
+                python3 scripts/ci/unittest_results.py "$base/$check" "$RUNNER_TEMP/pr-scoped-base.json" >"$RUNNER_TEMP/pr-scoped-base.log" 2>&1 || true
+              fi
+          }
+          pid=
+          # Its own process group (set -m), so a green head stops the whole base run, the fixture's children too.
+          if [ "$CI_PR_SCOPED_BASE_BESIDE" != 0 ]; then set -m; base_run & pid=$!; set +m; fi
+          if python3 scripts/ci/unittest_results.py "$check" "$RUNNER_TEMP/pr-scoped-head.json"; then
+            [ -z "$pid" ] || { kill -TERM -- "-$pid" 2>/dev/null; wait "$pid" 2>/dev/null; } || true
+            exit 0
           fi
+          if [ -n "$pid" ]; then wait "$pid" || true; else base_run || true; fi
+          [ ! -f "$RUNNER_TEMP/pr-scoped-base.log" ] || { echo "::group::base run"; cat "$RUNNER_TEMP/pr-scoped-base.log"; echo "::endgroup::"; }
           python3 scripts/ci/guards_new_reds.py --label "PR-scoped webview rule" \
             "$RUNNER_TEMP/pr-scoped-head.json" "$RUNNER_TEMP/pr-scoped-base.json"
 
@@ -1552,7 +1571,7 @@ jobs:
           mkdir -p "$runner"
           cp scripts/ci/run-webviews-tests.sh scripts/ci/timeout.sh scripts/ci/webviews_test_results.py scripts/ci/webviews_test_shards.py \
             scripts/ci/guards_new_reds.py scripts/ci/webviews_test_history.py scripts/ci/test_reds.py "$runner/"
-          cp scripts/ci/pin-browser-test-font.sh "$RUNNER_TEMP/pin-browser-test-font.sh"
+          cp scripts/ci/pin-browser-test-font.sh scripts/ci/apt-no-service-restarts.sh "$RUNNER_TEMP/"
           # The head shards run only the change's affected files (empty: every file), so only those can be red there.
           only=()
           if [ "$FULL_CI" != true ]; then
@@ -1646,7 +1665,7 @@ jobs:
       - name: Install headless engines
         if: ${{ steps.pick.outputs.files != '0' }}
         working-directory: webviews
-        run: ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$RUNNER_TEMP/pin-browser-test-font.sh"
+        run: bash "$RUNNER_TEMP/apt-no-service-restarts.sh" && ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$RUNNER_TEMP/pin-browser-test-font.sh"
 
       # The base check's replay with the head's runner and no retry, at the head shards' widths (the base check
       # replays one at a time; one at a time here, shard 1's 600 s file plus the others ran past the head shards).
@@ -1757,7 +1776,7 @@ jobs:
           date +%s > "$RUNNER_TEMP/job-started"
           # The head's font pin, kept for the base's engines: a base from before it has no such script, and the
           # comparison has to draw the same face as the head did (pin-browser-test-font.sh needs no checkout).
-          cp scripts/ci/pin-browser-test-font.sh "$RUNNER_TEMP/pin-browser-test-font.sh"
+          cp scripts/ci/pin-browser-test-font.sh scripts/ci/apt-no-service-restarts.sh "$RUNNER_TEMP/"
           git checkout -q --detach HEAD^1
           if failed="$(python3 scripts/ci/webviews_test_results.py --failed-files "$RUNNER_TEMP/head-results/webviews-head-results.json")"; then
             reds="$(printf '%s' "$failed" | grep -c . || true)"
@@ -1903,7 +1922,7 @@ jobs:
       - name: Install headless engines
         if: ${{ steps.head.outputs.reds != '0' && steps.history.outputs.replay != '0' }}
         working-directory: webviews
-        run: ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$RUNNER_TEMP/pin-browser-test-font.sh"
+        run: bash "$RUNNER_TEMP/apt-no-service-restarts.sh" && ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$RUNNER_TEMP/pin-browser-test-font.sh"
 
       # Its compare exits red on the change's reds and lists their files for the head re-run below;
       # the job's verdict is the last step's. A red the base passed is replayed there again, at most
@@ -2101,7 +2120,7 @@ jobs:
       - name: Install head headless engines
         if: ${{ steps.base.outputs.rerun == 'true' }}
         working-directory: webviews
-        run: ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$(git rev-parse --show-toplevel)/scripts/ci/pin-browser-test-font.sh"
+        run: bash "$(git rev-parse --show-toplevel)/scripts/ci/apt-no-service-restarts.sh" && ./node_modules/.bin/playwright install --with-deps webkit && "$(git rev-parse --show-toplevel)/scripts/ci/ensure-system-chrome.sh" && "$(git rev-parse --show-toplevel)/scripts/ci/pin-browser-test-font.sh"
 
       - name: Re-run the change's reds alone on the head
         id: rerun

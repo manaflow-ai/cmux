@@ -1586,6 +1586,7 @@ CARGO_INCREMENTAL=0 cargo build --locked -p acpmux --bin acpmux
 target_dir="$(cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
 export ACPMUX_BIN="$target_dir/debug/acpmux"
 cd "$root/webviews"
+"$root/scripts/ci/apt-no-service-restarts.sh"
 ./node_modules/.bin/playwright install --with-deps webkit
 log="$(mktemp)"
 bash "$root/scripts/ci/ensure-system-chrome.sh" | tee "$log"
