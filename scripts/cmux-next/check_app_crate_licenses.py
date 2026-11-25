@@ -63,6 +63,7 @@ FIRST_PARTY_GPL = {
     "cmux-cookie-sync",
     "cmux-daemon-conn-core",
     "cmux-daemon-launch-core",
+    "cmux-update-prewarm-core",
     "cmux-health-core",
     "cmux-keymap",
     "cmux-launch-image",
