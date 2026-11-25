@@ -198,7 +198,7 @@ public final class TerminalSession {
                 blankClock: any Clock<Duration> = ContinuousClock(), historyFind: (any TerminalFindHistory)? = nil) {
         self.io = io
         predictsLocalEcho = localEcho?.predicts ?? true
-        // Settings > Experiments > Terminal History Find, off by default (Leo's UI hold, 2026-11-24): off keeps Ghostty's screen search.
+        // Settings > Experiments > Terminal History Find, on by default (Leo's ask, cmux#53180): turned off keeps Ghostty's screen search.
         self.historyFind = DesignSettings.shared.experiment("terminalHistoryFind") ? historyFind : nil
         blankWatch = TerminalBlankWatch(clock: blankClock)
         self.ownsGeometry = ownsGeometry
