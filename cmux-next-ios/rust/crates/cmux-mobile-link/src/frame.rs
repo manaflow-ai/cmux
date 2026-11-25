@@ -21,16 +21,20 @@ pub enum FrameType {
     Ping = 3,
     Pong = 4,
     DeflatedData = 5,
+    /// A chunk of a numbered message on a channel whose messages also travel
+    /// as datagrams (`crate::classes`): sent only to a peer that listed
+    /// [`crate::classes::CLASSES_LANE`].
+    Sequenced = 6,
     /// A sequenced channel frame (reliable links only, both sides offered
     /// `reliable`): `u64 seq | u8 inner type | inner payload`.
-    Seq = 6,
+    Seq = 7,
     /// Channel 0, reliable links only: `u32 count | (u32 channel, u64 seq)*`.
-    Ack = 7,
+    Ack = 8,
     /// Channel 0, reliable links only: a carrier's opening (new or resume).
-    Hello = 8,
+    Hello = 9,
     /// Channel 0, reliable links only: the link ends on purpose (a carrier
     /// that just drops is resumed instead).
-    Bye = 9,
+    Bye = 10,
 }
 
 impl FrameType {
@@ -42,10 +46,11 @@ impl FrameType {
             3 => Self::Ping,
             4 => Self::Pong,
             5 => Self::DeflatedData,
-            6 => Self::Seq,
-            7 => Self::Ack,
-            8 => Self::Hello,
-            9 => Self::Bye,
+            6 => Self::Sequenced,
+            7 => Self::Seq,
+            8 => Self::Ack,
+            9 => Self::Hello,
+            10 => Self::Bye,
             _ => return None,
         })
     }

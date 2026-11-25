@@ -65,3 +65,24 @@ test("the staged update offers one Restart to Update, which sends install", asyn
   expect(page.provider.log).toContainEqual({ op: "cmux.settings.app_update.run", params: { action: "install" } });
   page.unmount();
 });
+
+test("the schedule shows Last Updated and Next Check under the status", async () => {
+  const page = await show({
+    ...ready,
+    schedule: [
+      { id: "lastUpdated", label: "Last Updated", value: "Today at 9:12 PM" },
+      { id: "nextCheck", label: "Next Check", value: "Soon" },
+    ],
+  });
+  const element = card(page.container)!;
+  expect(element.querySelector('[data-app-update-schedule="lastUpdated"]')?.textContent).toBe("Today at 9:12 PM");
+  expect(element.querySelector('[data-app-update-schedule="nextCheck"]')?.textContent).toBe("Soon");
+  expect(element.textContent).toContain("Last Updated");
+  page.unmount();
+});
+
+test("no schedule: no schedule rows", async () => {
+  const page = await show(ready);
+  expect(card(page.container)!.querySelector("[data-app-update-schedule]")).toBeNull();
+  page.unmount();
+});

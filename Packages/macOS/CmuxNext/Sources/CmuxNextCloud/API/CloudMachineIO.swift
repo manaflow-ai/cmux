@@ -219,6 +219,7 @@ private final class Child: Sendable {
             if state.killed { return false }
             state.process.terminationHandler = { exited($0.terminationStatus) }
             do {
+                OpenDescriptors.noteBudgetSoon()  // every child launch: a leak shows in the log as it passes the bound
                 try state.process.run()
             } catch {
                 state.process.terminationHandler = nil
@@ -280,13 +281,6 @@ extension CloudDaemon {
         do { access = try await tokens().access } catch { throw CloudAPIError.notSignedIn }
         var request: [String: any Sendable] = ["call": call, "api": baseURL.absoluteString, "auth": "owner", "credential": access,
                                                "app_version": appVersion, "args": args]
-        if let classicRuns {
-            if let c = try? await classicRuns() {
-                request["classic"] = ["api": c.api.absoluteString, "access": c.access, "refresh": c.refresh, "team": c.team ?? ""] as [String: any Sendable]
-            } else {
-                request["classic_unread"] = true
-            }
-        }
         if let team = await teamID() { request["team"] = team }
         let output: Data
         do {

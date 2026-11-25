@@ -13,11 +13,11 @@
 //! The bookkeeping is `cmux_remote_protocol::reliable` (the core the
 //! Mac-to-remote link's lanes share), keyed here by channel.
 //!
-//! Wire (types 6 to 9 of [`crate::frame::FrameType`]; type 5 is the parked
-//! link's `deflated data`. Never sent to a peer that did not offer
+//! Wire (types 7 to 10 of [`crate::frame::FrameType`]; type 5 is the parked
+//! link's `deflated data`, type 6 a `sequenced` chunk. Never sent to a peer that did not offer
 //! `reliable`):
 //! - `seq` (channel `c`): `u64 seq | u8 inner type | inner payload`, for every
-//!   open, data (plain or deflated) and close of channel `c`. Sequences start at 1 per channel and
+//!   open, data (plain, deflated or sequenced) and close of channel `c`. Sequences start at 1 per channel and
 //!   per direction.
 //! - `ack` (channel 0): `u32 n | n x (u32 channel, u64 seq)`: everything of
 //!   those channels through `seq` arrived.
@@ -197,7 +197,10 @@ pub(crate) fn open_seq(mut payload: Bytes) -> Option<(u64, FrameType, Bytes)> {
     let sequence = payload.get_u64();
     let kind = FrameType::from_u8(payload.get_u8())?;
     // A parked Mac's deflated data is a channel frame like any other.
-    matches!(kind, FrameType::Open | FrameType::Data | FrameType::DeflatedData | FrameType::Close)
+    matches!(
+        kind,
+        FrameType::Open | FrameType::Data | FrameType::DeflatedData | FrameType::Sequenced | FrameType::Close
+    )
         .then_some((sequence, kind, payload))
 }
 

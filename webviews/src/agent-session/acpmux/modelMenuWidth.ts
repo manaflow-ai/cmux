@@ -9,8 +9,9 @@
 import { useSyncExternalStore } from "react";
 import { sizeStore } from "../../ui/popupResizeDrag";
 
-/// The narrowest a drag makes the menu, in px. The default width still follows its text size.
-export const MODEL_MENU_MIN_WIDTH = 270;
+/// The narrowest a drag makes the menu, in px: both columns still read at it (Lucas 2026-11-24: 315,
+/// "318px just to be safe"). The default width still follows its text size.
+export const MODEL_MENU_MIN_WIDTH = 318;
 /// The shortest a drag makes the menu, in px: the search row and a few rows under it.
 export const MODEL_MENU_MIN_HEIGHT = 160;
 

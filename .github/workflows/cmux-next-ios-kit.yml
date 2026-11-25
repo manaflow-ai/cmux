@@ -27,6 +27,7 @@ name: cmux-next-ios kit tests
 # (#43476).
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [feat-cmux-next]
     paths:
       - "cmux-next-ios/**"
@@ -61,8 +62,12 @@ on:
       - ".xcode-version"
       - ".github/workflows/cmux-next-ios-kit.yml"
       - "scripts/ci/ios_app_package_paths.py"
+      - "scripts/ci/ios_link_ffi_key.py"
       - "!**/*.md"
       - "!cmux-next-ios/verify/**"
+      # Except the fixtures the kit's own tests read (AgentCLIHybridProofSupport, AgentCLIHybridFrameTests):
+      # #51565 regenerated them with no kit run, and feat-cmux-next went red on AgentCLIHybridProofTests.
+      - "cmux-next-ios/verify/agent-cli-hybrid/**"
       # Agent tools beside the app (review.sh, try.sh, the hand-off host) and the mobile Worker (its own deploy
       # workflows) build nothing in the iPhone app: no kit run and no iPhone try build-ahead for them
       # (scripts/cmux-next/build_select.py reads this filter). The scripts the kit or the app build reads stay in.
@@ -110,8 +115,12 @@ on:
       - ".xcode-version"
       - ".github/workflows/cmux-next-ios-kit.yml"
       - "scripts/ci/ios_app_package_paths.py"
+      - "scripts/ci/ios_link_ffi_key.py"
       - "!**/*.md"
       - "!cmux-next-ios/verify/**"
+      # Except the fixtures the kit's own tests read (AgentCLIHybridProofSupport, AgentCLIHybridFrameTests):
+      # #51565 regenerated them with no kit run, and feat-cmux-next went red on AgentCLIHybridProofTests.
+      - "cmux-next-ios/verify/agent-cli-hybrid/**"
       # Agent tools beside the app (review.sh, try.sh, the hand-off host) and the mobile Worker (its own deploy
       # workflows) build nothing in the iPhone app: no kit run and no iPhone try build-ahead for them
       # (scripts/cmux-next/build_select.py reads this filter). The scripts the kit or the app build reads stay in.
@@ -147,6 +156,7 @@ jobs:
   # on retries. Keeping this picker ahead of the test job lets the rescue
   # sweeper re-admit a job that stalls on a dead owned label.
   runner:
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') }}
     environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 5
@@ -201,6 +211,8 @@ jobs:
       - name: Pick the macOS pool
         id: pool
         env:
+          # The overflow switch the granted default reads (ios_runner_pool.py granted_default()).
+          CI_OVERFLOW_MAC: ${{ vars.CI_OVERFLOW_MAC }}
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -288,14 +300,35 @@ jobs:
           python3 scripts/ci/same_tree_reuse.py decide --keys "$KEYS" --hits "$HITS" \
             --receipts .same-tree --audit-percent "$AUDIT_PERCENT" >> "$GITHUB_OUTPUT"
 
+  # Run the source-only lint on Linux when the Mac kit needs a fresh verdict.
+  # Keep its exit status on the public kit check and let the advisory benches run after a failure.
+  connection-notices:
+    needs: runner
+    if: ${{ !fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].reuse }}
+    timeout-minutes: 10
+    outputs:
+      lint_result: ${{ steps.scan.outcome }}
+    permissions:
+      contents: read
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Connection notices
+        id: scan
+        # The kit check below publishes the lint failure after its advisory benches run.
+        continue-on-error: true
+        run: python3 -I scripts/cmux-next/check-connection-notices.py --root "$GITHUB_WORKSPACE"
+
   kit-tests:
-    needs: [runner]
+    needs: [runner, connection-notices]
     name: CmuxMobileKit tests (macOS swift test, iOS simulator)
     # Runs on every pull request this workflow's paths match (cmux-next-ios/**, the packages CmuxMobileKit links), with
     # no full-ci label: as a Tier B skip, iOS PRs merged untested and were fixed forward over days (Leo, 2026-11-22:
     # "if 80% of code doesn't have a way of having a proper pr in the hour, then our fucking codebase is not good enough").
     # Also skipped before it takes a Mac when it already passed on this tree (the runner job's same-tree decision).
-    if: ${{ !fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].reuse }}
+    if: ${{ !cancelled() && needs.runner.result == 'success' && (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && !fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].reuse }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
     timeout-minutes: 60
     env:
@@ -305,11 +338,10 @@ jobs:
         with:
           persist-credentials: false
 
-      # A phone connection state waits QuietStatusGate's 10 s or carries an action (cmux-next.yml's checks job runs
-      # the same check with its shrink-only --base ratchet; that workflow does not run on a phone-only change).
-      # Why: docs/ci/cmux-next-workflow-notes.md#note-366
       - name: Connection notices
-        run: python3 -I scripts/cmux-next/check-connection-notices.py --root "$GITHUB_WORKSPACE"
+        env:
+          LINT_RESULT: ${{ needs.connection-notices.outputs.lint_result }}
+        run: test "$LINT_RESULT" = success
 
       # These four steps are what the Instant list bench below builds with, so they run after a red
       # step too, as the bench does: a red Connection notices skipped them, and the bench then printed
@@ -329,14 +361,40 @@ jobs:
         if: ${{ !cancelled() }}
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
           add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-next-ios/rust
           key: cmux-next-ios-kit
 
-      - name: Build CmuxMobileLinkFFI.xcframework
+      # The xcframework is reused when nothing it is built from changed: the key is the git tree ids of every package
+      # the FFI library compiles (its path dependencies into cmux-tui included), the lock, the toolchain, the build
+      # script and the checked-in bindings (scripts/ci/ios_link_ffi_key.py), plus the selected Xcode. Only a build
+      # whose bindings matched the checked-in ones saves it, so a hit has passed that check on the same inputs. The
+      # build took 3.3-4.4 min of every kit run (2026-11-24); the key changed 5 times over 150 feat-cmux-next commits.
+      # A key that cannot be read (no Python 3.11 tomllib, a missing manifest) builds, as before.
+      - name: CmuxMobileLinkFFI.xcframework key
+        id: xcf-key
         if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          inputs="$(python3 scripts/ci/ios_link_ffi_key.py)"
+          xcode="$(xcodebuild -version | tr -cs 'A-Za-z0-9.' '-')"
+          echo "key=cmux-next-ios-link-ffi-xcf-${RUNNER_OS}-${RUNNER_ARCH}-${xcode}-${inputs}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore CmuxMobileLinkFFI.xcframework
+        id: xcf-restore
+        if: ${{ !cancelled() && steps.xcf-key.outputs.key != '' }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+          key: ${{ steps.xcf-key.outputs.key }}
+
+      - name: Build CmuxMobileLinkFFI.xcframework
+        if: ${{ !cancelled() && steps.xcf-restore.outputs.cache-hit != 'true' }}
         env:
           JOBS: "8"
         run: bash cmux-next-ios/rust/scripts/build-xcframework.sh
@@ -351,12 +409,22 @@ jobs:
             exit 1
           fi
 
+      - name: Save CmuxMobileLinkFFI.xcframework
+        if: ${{ success() && steps.xcf-key.outputs.key != '' && steps.xcf-restore.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+          key: ${{ steps.xcf-key.outputs.key }}
+
       # The instant-list bench runs on its own below (no other suite on the cores). So do the suites
       # that bound wall-clock time or the process footprint: among 2580 parallel tests in one process
       # they measured their neighbours (reattach 1839 ms < 1000, 5194 ms < 5000, footprint 79 MB < 40 MB
       # on base runs 45081481908 and 45081946888), each run a different one.
       - name: swift test (macOS)
-        run: swift test --package-path cmux-next-ios/CmuxMobileKit --skip CmuxMobileInstantPerfTests --skip TerminalSelfRecoveryTests --skip MockTerminalStreamMemoryTests
+      # CmuxMobileModelTests, CmuxMobileRealtimeTests and CmuxMobileTransportTests run on Linux (swift-linux-packages.yml, group
+      # ios-kit); the simulator run below skips Realtime and Transport too, and keeps Model for the one test Linux disables.
+        run: swift test --package-path cmux-next-ios/CmuxMobileKit --skip CmuxMobileInstantPerfTests --skip TerminalSelfRecoveryTests --skip MockTerminalStreamMemoryTests --skip CmuxMobileModelTests --skip CmuxMobileRealtimeTests --skip CmuxMobileTransportTests
 
       - name: swift test (macOS, measured suites alone)
         run: swift test --package-path cmux-next-ios/CmuxMobileKit --no-parallel --filter TerminalSelfRecoveryTests --filter MockTerminalStreamMemoryTests
@@ -367,6 +435,10 @@ jobs:
       # the xcframework has.
       - name: xcodebuild test (iOS simulator)
         id: ios-sim
+        # A pull request that fell back to a Blacksmith Mac runs the macOS swift test only (about 1 min); the
+        # simulator half ran 6 to 17 min there and was red on 8 tests of the base on 1,100+ runs (2026-11-24).
+        # It still runs on an owned Mac, and on every feat-cmux-next push and dispatch, so the check moves, not goes.
+        if: ${{ !(github.event_name == 'pull_request' && startsWith(runner.name, 'blacksmith')) }}
         # About 3x its usual 10 min: a hung simulator ends the step, not the job's
         # 60 min with a macOS runner held (run 43604565423, 2026-11-14).
         timeout-minutes: 30
@@ -397,6 +469,8 @@ jobs:
           xcodebuild test -scheme CmuxMobileKit-Package -destination "id=$udid,arch=arm64" \
             -enableCodeCoverage NO -derivedDataPath "${CMUX_DERIVED_DATA_SLOT:-$RUNNER_TEMP/dd-ios-sim}" CODE_SIGNING_ALLOWED=NO -quiet \
             -skip-testing:CmuxMobileInstantPerfTests \
+            -skip-testing:CmuxMobileRealtimeTests \
+            -skip-testing:CmuxMobileTransportTests \
             -resultBundlePath "$RUNNER_TEMP/ios-sim.xcresult" && status=0 || status=$?
           # -quiet drops Swift Testing's output: report from the result bundle (counts,
           # suites that did not pass, #23829's banner suite, and every failure).
@@ -432,9 +506,14 @@ jobs:
       # the same runner class), plus chat_reconnect_catch_up and terminal_chat_swap_to_terminal swinging 2-5x on
       # some runners. The numbers stay in the report below, the job summary and the instant-perf-* artifact,
       # and the report step names each bench step that missed as a warning.
+      # On a pull request, a red step before the bench is already the verdict: the bench there is advisory, so it is
+      # skipped rather than holding the red PR check longer (2026-11-24: all 7 readable kit jobs of Aziz's newest iOS
+      # heads were red before the bench, at Connection notices or swift test, and then ran it for 3.3-10.3 min more;
+      # goal ios-ci-under-5min in cmuxterm-hq). Base pushes and dispatches still bench after a red step, so base's numbers
+      # never go missing (tests/test_ios_kit_bench_runs_after_red_step.py).
       - name: Instant list bench (macOS swift test)
         id: bench-macos
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && (github.event_name != 'pull_request' || success()) }}
         continue-on-error: true
         env:
           CMUX_INSTANT_PERF_OUT: ${{ runner.temp }}/instant-perf/macos.jsonl
@@ -444,7 +523,7 @@ jobs:
       # variable through to the test process).
       - name: Instant list bench (iOS simulator)
         id: bench-ios
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && (github.event_name != 'pull_request' || success()) && !(github.event_name == 'pull_request' && startsWith(runner.name, 'blacksmith')) }}
         # Advisory, as the macOS bench above.
         continue-on-error: true
         # The same bound as the test step above: a hung simulator ends the step.

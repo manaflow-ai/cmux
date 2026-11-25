@@ -70,6 +70,28 @@ class BaseRedSkip(unittest.TestCase):
         env = dict(PR, GITHUB_EVENT_NAME="push")
         self.assertEqual(brs.decide(args(), env, now=NOW, read=reader([(3, [("kit", "failure")])])), ["base_red=false"])
 
+    def test_dispatch_runs_count_when_asked(self):
+        def read(path):
+            if "/workflows/" in path:
+                if "event=workflow_dispatch" in path:
+                    return {"workflow_runs": [
+                        {"id": 10, "created_at": "2026-11-23T22:40:00Z", "display_title": "cmux NEXT DEV daily · a"},
+                        {"id": 9, "created_at": "2026-11-23T22:30:00Z", "display_title": "cmux-next base tier · b"}]}
+                return {"workflow_runs": [{"id": 8, "created_at": "2026-11-23T22:45:00Z"},
+                                          {"id": 7, "created_at": "2026-11-23T22:00:00Z"}]}
+            rid = int(path.split("/runs/")[1].split("/")[0])
+            verdict = {8: "skipped", 9: "failure", 7: "success", 10: "success"}[rid]
+            return {"jobs": [{"name": "kit", "conclusion": verdict, "html_url": f"job/{rid}"}]}
+        self.assertEqual(brs.decide(args(), PR, now=NOW, read=read), ["base_red=false"])
+        self.assertEqual(brs.decide(args(events="push,workflow_dispatch"), PR, now=NOW, read=read),
+                         ["base_red=false"])  # the DEV daily run's green is newest
+        out = brs.decide(args(events="push,workflow_dispatch", dispatch_title="cmux-next base tier"), PR, now=NOW,
+                         read=read)
+        self.assertEqual(out, ["base_red=true", "base_run=job/9"])
+        # Two newer push runs that skip the job do not crowd out the dispatch under --runs 1.
+        self.assertEqual(brs.decide(args(events="push,workflow_dispatch", dispatch_title="cmux-next base tier",
+                                         runs=1), PR, now=NOW, read=read)[0], "base_red=true")
+
     def test_audit_runs_in_full(self):
         self.assertTrue(any(brs.audited(10, str(i), "1", "kit") for i in range(100)))
         self.assertFalse(brs.audited(0, "7", "1", "kit"))
@@ -80,6 +102,7 @@ class BaseRedSkip(unittest.TestCase):
         wired = {
             "cmux-next-guards.yml": "tooling-tests",
             "cloud-journey-pr.yml": "journey-staging",
+            "cmux-next.yml": "cmux-next generated files",
         }
         for name, job in wired.items():
             with open(os.path.join(WORKFLOWS, name), encoding="utf-8") as fh:

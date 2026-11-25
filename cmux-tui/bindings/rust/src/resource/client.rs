@@ -964,11 +964,7 @@ fn decode_request_cancel_result(result: Value) -> Result<bool> {
     let object = result.as_object().ok_or_else(|| {
         Error::UnexpectedEnvelope("request cancel result must be an object".to_string())
     })?;
-    if object.len() != 1 || !object.contains_key("canceled") {
-        return Err(Error::UnexpectedEnvelope(
-            "request cancel result must contain only canceled".to_string(),
-        ));
-    }
+    // Fields a newer daemon adds beside `canceled` are ignored, not refused.
     object.get("canceled").and_then(Value::as_bool).ok_or_else(|| {
         Error::UnexpectedEnvelope("request cancel result canceled must be a boolean".to_string())
     })
@@ -1018,21 +1014,7 @@ fn validate_stream_open_ack(
     } else {
         None
     };
-    let mut unknown = object
-        .keys()
-        .filter(|field| {
-            !(matches!(field.as_str(), "stream_id" | "cursor")
-                || is_view_attachment && field.as_str() == "attachment_lease")
-        })
-        .cloned()
-        .collect::<Vec<_>>();
-    unknown.sort();
-    if !unknown.is_empty() {
-        return Err(Error::UnexpectedEnvelope(format!(
-            "stream open result contains unknown fields: {}",
-            unknown.join(", ")
-        )));
-    }
+    // Fields a newer daemon adds are ignored, not refused.
     Ok(attachment_lease)
 }
 
@@ -1068,21 +1050,7 @@ pub(crate) fn decode_response(response: Value, expected_id: &str) -> Result<Valu
             if ok { "successful" } else { "failed" }
         )));
     }
-    let mut unknown = object
-        .keys()
-        .filter(|field| {
-            !matches!(field.as_str(), "protocol" | "type" | "id" | "ok")
-                && field.as_str() != variant_field
-        })
-        .cloned()
-        .collect::<Vec<_>>();
-    unknown.sort();
-    if !unknown.is_empty() {
-        return Err(Error::UnexpectedEnvelope(format!(
-            "response contains unknown fields: {}",
-            unknown.join(", ")
-        )));
-    }
+    // Fields a newer daemon adds are ignored, not refused.
     if ok { Ok(object["result"].clone()) } else { Err(decode_protocol_error(&object["error"])?) }
 }
 
@@ -1090,18 +1058,7 @@ pub(crate) fn decode_protocol_error(value: &Value) -> Result<Error> {
     let object = value
         .as_object()
         .ok_or_else(|| Error::UnexpectedEnvelope("protocol error must be an object".to_string()))?;
-    let mut unknown = object
-        .keys()
-        .filter(|field| !matches!(field.as_str(), "code" | "message" | "details" | "retryable"))
-        .cloned()
-        .collect::<Vec<_>>();
-    unknown.sort();
-    if !unknown.is_empty() {
-        return Err(Error::UnexpectedEnvelope(format!(
-            "protocol error contains unknown fields: {}",
-            unknown.join(", ")
-        )));
-    }
+    // Fields a newer daemon adds are ignored, not refused.
     let code = object
         .get("code")
         .and_then(Value::as_str)

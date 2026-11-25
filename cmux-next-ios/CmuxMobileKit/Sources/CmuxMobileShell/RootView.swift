@@ -203,6 +203,9 @@ public struct RootView: View {
             if phase == .active {
                 keyboard.dropKeyboardWithoutOwner()
                 HomeNewMessage.appActiveChanged()
+            } else if phase == .background {
+                // Where the person was is on disk before the app may be killed.
+                LastPlaceMemory.shared.flush()
             }
         }
         // A fold or unfold resizes the window with no rotation: the app's orientations follow it.
@@ -665,6 +668,12 @@ struct ShellView: View {
         #endif
         .cmuxMobileToast($shell.toast)
         .modifier(LiveCallHost(shell: shell))
+        #if canImport(CmuxMobileLinkFFI)
+        // Another device waiting for a linked Mac's Allow: answered here (ask-45c37458ea).
+        .overlay(alignment: .top) {
+            if let requests = live?.pairRequests { PairRequestsOverlay(requests: requests) }
+        }
+        #endif
         .sheet(item: $shell.shareURL) { item in
             ShareSheet(url: item.url).presentationDetents([.medium, .large])
         }
@@ -755,6 +764,8 @@ struct ShellView: View {
         // the shared store from each one: an endless update loop at launch.
         // A tapped notification decides where the app opens instead.
         .onAppear {
+            // The last place's one small file, read now, before the restored chat's first frame.
+            _ = LastPlaceMemory.shared
             if options.restoresLastLocation, NotificationRouter.shared.pending == nil { shell.beginRestore() }
         }
         .onChange(of: shell.lastOpenLocation) { _, location in
@@ -794,6 +805,7 @@ struct ShellView: View {
                 LaunchMarks.shared.markWhenStill("demo_done")
             }
             await ListStressRig.runIfConfigured(shell: shell)
+            Task { await HostLoadDriver.runIfConfigured(store: shell.store) }
             await DebugLaunch.run(selectTab: { shell.tab = $0 })
             #endif
         }
