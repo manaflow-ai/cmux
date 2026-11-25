@@ -1,0 +1,605 @@
+{
+ "store-teammate": {
+  "normal-dark": {
+   "h": 721,
+   "w": 948,
+   "issues": []
+  },
+  "narrow-dark": {
+   "h": 1021,
+   "w": 688,
+   "issues": []
+  },
+  "wide-dark": {
+   "h": 626,
+   "w": 1248,
+   "issues": []
+  },
+  "tiny-dark": {
+   "h": 1605,
+   "w": 448,
+   "issues": []
+  },
+  "normal-light": {
+   "h": 721,
+   "w": 948,
+   "issues": []
+  },
+  "flickToggle": {
+   "heights": [
+    721
+   ],
+   "moved": [],
+   "frames": 55,
+   "longFrames": 7
+  },
+  "flickSetup": {
+   "heights": [
+    721
+   ],
+   "moved": [],
+   "frames": 21,
+   "longFrames": 2
+  },
+  "flickHover": {
+   "heights": [
+    721
+   ],
+   "moved": [],
+   "frames": 172,
+   "longFrames": 8
+  },
+  "flickScroll": {
+   "heights": [
+    1021
+   ],
+   "moved": [],
+   "frames": 134,
+   "longFrames": 3,
+   "scrollH": [
+    1053,
+    520,
+    720,
+    720
+   ]
+  }
+ },
+ "store-trying-leo": {
+  "normal-dark": {
+   "h": 721,
+   "w": 948,
+   "issues": []
+  },
+  "narrow-dark": {
+   "h": 1021,
+   "w": 688,
+   "issues": []
+  },
+  "wide-dark": {
+   "h": 626,
+   "w": 1248,
+   "issues": []
+  },
+  "tiny-dark": {
+   "h": 1605,
+   "w": 448,
+   "issues": []
+  },
+  "normal-light": {
+   "h": 721,
+   "w": 948,
+   "issues": []
+  },
+  "flickToggle": {
+   "heights": [
+    721
+   ],
+   "moved": [],
+   "frames": 10,
+   "longFrames": 1
+  },
+  "flickSetup": {
+   "heights": [
+    721
+   ],
+   "moved": [],
+   "frames": 10,
+   "longFrames": 0
+  },
+  "flickHover": {
+   "heights": [
+    721
+   ],
+   "moved": [],
+   "frames": 142,
+   "longFrames": 3
+  },
+  "flickScroll": {
+   "heights": [
+    1021
+   ],
+   "moved": [],
+   "frames": 131,
+   "longFrames": 4,
+   "scrollH": [
+    1053,
+    520,
+    720,
+    720
+   ]
+  }
+ },
+ "store-leo": {
+  "normal-dark": {
+   "h": 721,
+   "w": 948,
+   "issues": []
+  },
+  "narrow-dark": {
+   "h": 1021,
+   "w": 688,
+   "issues": []
+  },
+  "wide-dark": {
+   "h": 626,
+   "w": 1248,
+   "issues": []
+  },
+  "tiny-dark": {
+   "h": 1605,
+   "w": 448,
+   "issues": []
+  },
+  "normal-light": {
+   "h": 721,
+   "w": 948,
+   "issues": []
+  },
+  "flickToggle": {
+   "heights": [
+    721
+   ],
+   "moved": [],
+   "frames": 19,
+   "longFrames": 3
+  },
+  "flickSetup": {
+   "heights": [
+    721
+   ],
+   "moved": [],
+   "frames": 15,
+   "longFrames": 3
+  },
+  "flickHover": {
+   "heights": [
+    721
+   ],
+   "moved": [],
+   "frames": 142,
+   "longFrames": 1
+  },
+  "flickScroll": {
+   "heights": [
+    1021
+   ],
+   "moved": [],
+   "frames": 134,
+   "longFrames": 7,
+   "scrollH": [
+    1053,
+    520,
+    720,
+    720
+   ]
+  }
+ },
+ "manager-teammate": {
+  "normal-dark": {
+   "h": 509,
+   "w": 948,
+   "issues": []
+  },
+  "narrow-dark": {
+   "h": 488,
+   "w": 688,
+   "issues": [
+    "clipped-text studio-card-line \"Narrower sidebar, tighter rows\""
+   ]
+  },
+  "wide-dark": {
+   "h": 637,
+   "w": 1248,
+   "issues": []
+  },
+  "tiny-dark": {
+   "h": 780,
+   "w": 448,
+   "issues": []
+  },
+  "normal-light": {
+   "h": 509,
+   "w": 948,
+   "issues": []
+  },
+  "flickToggle": {
+   "heights": [
+    509
+   ],
+   "moved": [],
+   "frames": 42,
+   "longFrames": 3
+  },
+  "flickSetup": {
+   "heights": [
+    509
+   ],
+   "moved": [],
+   "frames": 10,
+   "longFrames": 0
+  },
+  "flickHover": {
+   "heights": [
+    509
+   ],
+   "moved": [],
+   "frames": 139,
+   "longFrames": 0
+  },
+  "flickScroll": {
+   "heights": [
+    488
+   ],
+   "moved": [],
+   "frames": 68,
+   "longFrames": 2,
+   "scrollH": [
+    520,
+    520,
+    720,
+    720
+   ]
+  }
+ },
+ "manager-trying-leo": {
+  "normal-dark": {
+   "h": 509,
+   "w": 948,
+   "issues": []
+  },
+  "narrow-dark": {
+   "h": 488,
+   "w": 688,
+   "issues": []
+  },
+  "wide-dark": {
+   "h": 637,
+   "w": 1248,
+   "issues": []
+  },
+  "tiny-dark": {
+   "h": 780,
+   "w": 448,
+   "issues": []
+  },
+  "normal-light": {
+   "h": 509,
+   "w": 948,
+   "issues": []
+  },
+  "flickToggle": {
+   "heights": [
+    509
+   ],
+   "moved": [],
+   "frames": 49,
+   "longFrames": 11
+  },
+  "flickSetup": {
+   "heights": [
+    509
+   ],
+   "moved": [],
+   "frames": 11,
+   "longFrames": 0
+  },
+  "flickHover": {
+   "heights": [
+    509
+   ],
+   "moved": [],
+   "frames": 142,
+   "longFrames": 0
+  },
+  "flickScroll": {
+   "heights": [
+    488
+   ],
+   "moved": [],
+   "frames": 125,
+   "longFrames": 0,
+   "scrollH": [
+    520,
+    520,
+    720,
+    720
+   ]
+  }
+ },
+ "manager-leo": {
+  "normal-dark": {
+   "h": 509,
+   "w": 948,
+   "issues": []
+  },
+  "narrow-dark": {
+   "h": 488,
+   "w": 688,
+   "issues": []
+  },
+  "wide-dark": {
+   "h": 637,
+   "w": 1248,
+   "issues": []
+  },
+  "tiny-dark": {
+   "h": 780,
+   "w": 448,
+   "issues": []
+  },
+  "normal-light": {
+   "h": 509,
+   "w": 948,
+   "issues": []
+  },
+  "flickToggle": {
+   "heights": [
+    509
+   ],
+   "moved": [],
+   "frames": 44,
+   "longFrames": 5
+  },
+  "flickSetup": {
+   "heights": [
+    509
+   ],
+   "moved": [],
+   "frames": 10,
+   "longFrames": 0
+  },
+  "flickHover": {
+   "heights": [
+    509
+   ],
+   "moved": [],
+   "frames": 147,
+   "longFrames": 5
+  },
+  "flickScroll": {
+   "heights": [
+    488
+   ],
+   "moved": [],
+   "frames": 127,
+   "longFrames": 1,
+   "scrollH": [
+    520,
+    520,
+    720,
+    720
+   ]
+  }
+ },
+ "setups-teammate": {
+  "normal-dark": {
+   "h": 601,
+   "w": 948,
+   "issues": []
+  },
+  "narrow-dark": {
+   "h": 601,
+   "w": 688,
+   "issues": [
+    "clipped-text studio-card-line \"Narrower sidebar, tighter rows\""
+   ]
+  },
+  "wide-dark": {
+   "h": 601,
+   "w": 1248,
+   "issues": []
+  },
+  "tiny-dark": {
+   "h": 1065,
+   "w": 448,
+   "issues": []
+  },
+  "normal-light": {
+   "h": 601,
+   "w": 948,
+   "issues": []
+  },
+  "flickToggle": {
+   "heights": [
+    601
+   ],
+   "moved": [],
+   "frames": 18,
+   "longFrames": 0
+  },
+  "flickSetup": {
+   "heights": [
+    424,
+    457
+   ],
+   "moved": [],
+   "frames": 5,
+   "longFrames": 0
+  },
+  "flickHover": {
+   "heights": [
+    601
+   ],
+   "moved": [],
+   "frames": 139,
+   "longFrames": 0
+  },
+  "flickScroll": {
+   "heights": [
+    601
+   ],
+   "moved": [],
+   "frames": 122,
+   "longFrames": 1,
+   "scrollH": [
+    633,
+    520,
+    720,
+    720
+   ]
+  }
+ },
+ "setups-trying-leo": {
+  "normal-dark": {
+   "h": 601,
+   "w": 948,
+   "issues": []
+  },
+  "narrow-dark": {
+   "h": 601,
+   "w": 688,
+   "issues": [
+    "clipped-text studio-card-line \"Narrower sidebar, tighter rows\""
+   ]
+  },
+  "wide-dark": {
+   "h": 601,
+   "w": 1248,
+   "issues": []
+  },
+  "tiny-dark": {
+   "h": 1065,
+   "w": 448,
+   "issues": []
+  },
+  "normal-light": {
+   "h": 601,
+   "w": 948,
+   "issues": []
+  },
+  "flickToggle": {
+   "heights": [
+    601
+   ],
+   "moved": [],
+   "frames": 16,
+   "longFrames": 0
+  },
+  "flickSetup": {
+   "heights": [
+    601,
+    424,
+    457
+   ],
+   "moved": [
+    "motion: x2",
+    "ember: x2",
+    "compact: x2",
+    "round: x2",
+    "blocks: x2",
+    "yours: x2",
+    "standup: x2"
+   ],
+   "frames": 256,
+   "longFrames": 0
+  },
+  "flickHover": {
+   "heights": [
+    601
+   ],
+   "moved": [],
+   "frames": 140,
+   "longFrames": 1
+  },
+  "flickScroll": {
+   "heights": [
+    601
+   ],
+   "moved": [],
+   "frames": 127,
+   "longFrames": 1,
+   "scrollH": [
+    633,
+    520,
+    720,
+    720
+   ]
+  }
+ },
+ "setups-leo": {
+  "normal-dark": {
+   "h": 424,
+   "w": 948,
+   "issues": []
+  },
+  "narrow-dark": {
+   "h": 350,
+   "w": 688,
+   "issues": []
+  },
+  "wide-dark": {
+   "h": 509,
+   "w": 1248,
+   "issues": []
+  },
+  "tiny-dark": {
+   "h": 731,
+   "w": 448,
+   "issues": []
+  },
+  "normal-light": {
+   "h": 424,
+   "w": 948,
+   "issues": []
+  },
+  "flickToggle": {
+   "heights": [
+    424
+   ],
+   "moved": [],
+   "frames": 3,
+   "longFrames": 0
+  },
+  "flickSetup": {
+   "heights": [
+    424,
+    457
+   ],
+   "moved": [],
+   "frames": 17,
+   "longFrames": 2
+  },
+  "flickHover": {
+   "heights": [
+    424
+   ],
+   "moved": [],
+   "frames": 15,
+   "longFrames": 0
+  },
+  "flickScroll": {
+   "heights": [
+    350
+   ],
+   "moved": [],
+   "frames": 126,
+   "longFrames": 0,
+   "scrollH": [
+    520,
+    520,
+    720,
+    720
+   ]
+  }
+ }
+}
