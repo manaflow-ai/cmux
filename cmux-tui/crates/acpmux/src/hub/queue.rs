@@ -1356,7 +1356,7 @@ impl Hub {
         if session.moving().is_some() {
             return Err(moving_error(session));
         }
-        self.remove_queued_by(session, prompt_id, None, editor, from_agents_only)
+        self.remove_queued_by(session, prompt_id, None, editor, from_agents_only, None)
     }
 
     /// Takes a waiting prompt out of the queue before its turn starts; its `session/prompt` then
@@ -1373,12 +1373,13 @@ impl Hub {
         prompt_id: &str,
         reason: Option<&str>,
     ) -> bool {
-        self.remove_queued_by(session, prompt_id, reason, None, false)
+        self.remove_queued_by(session, prompt_id, reason, None, false, None)
             .is_ok_and(|w| w == Withdrawn::Removed)
     }
 
     /// `remove_queued_because`, only when `editor` sent it (`author.rs`; `None`: the hub's own)
-    /// and, with `from_agents_only`, only another agent's message.
+    /// and, with `from_agents_only`, only another agent's message. A restored run supplies
+    /// `expected_turn_id` so its completion cannot remove a newer copy of the same prompt.
     fn remove_queued_by(
         &self,
         session: &Arc<Session>,
@@ -1386,11 +1387,14 @@ impl Hub {
         reason: Option<&str>,
         editor: crate::author::Editor<'_>,
         from_agents_only: bool,
+        expected_turn_id: Option<&str>,
     ) -> Result<Withdrawn, RpcError> {
         // Taken out and logged under one lock (`QUEUE_KINDS`): a change and its record are one
         // step, so nothing rebuilt from the log between them loses it (`log_load.rs`).
         let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let Some(i) = queue.iter().position(|q| q.prompt_id == prompt_id) else {
+        let Some(i) = queue.iter().position(|q| {
+            q.prompt_id == prompt_id && expected_turn_id.is_none_or(|turn| q.turn_id == turn)
+        }) else {
             return Ok(Withdrawn::NotWaiting);
         };
         let Some(item) = queue.get(i) else { return Ok(Withdrawn::NotWaiting) };
@@ -1696,23 +1700,22 @@ impl Hub {
         q: &QueuedPrompt,
         result: Result<Value, RpcError>,
     ) {
-        let waiting = || {
-            let queue = session.queue.lock().unwrap_or_else(|e| e.into_inner());
-            queue.iter().any(|w| w.turn_id == q.turn_id)
+        // Check the restored run's identity under the same lock that removes it: an unread
+        // turn can requeue this prompt with a new turn id while its old run is settling.
+        let remove = |reason| {
+            self.remove_queued_by(session, &q.prompt_id, reason, None, false, Some(&q.turn_id))
+                .is_ok_and(|w| w == Withdrawn::Removed)
         };
-        if !waiting() {
-            return;
-        }
         match result {
             Err(e) => {
-                if self.remove_queued(session, &q.prompt_id) {
+                if remove(None) {
                     tracing::warn!(session = %session.id, prompt = %q.prompt_id, "restored prompt refused: {}", e.message);
                     let msg = json!({"promptId": q.prompt_id, "turnId": q.turn_id, "client": q.client, "error": e.message, "data": e.data});
                     self.append(session, "mux", "prompt_refused", msg);
                 }
             }
             Ok(_) => {
-                if self.remove_queued_because(session, &q.prompt_id, Some("taken")) {
+                if remove(Some("taken")) {
                     tracing::info!(session = %session.id, prompt = %q.prompt_id, "restored prompt taken without its turn: it leaves the queue");
                 }
             }
