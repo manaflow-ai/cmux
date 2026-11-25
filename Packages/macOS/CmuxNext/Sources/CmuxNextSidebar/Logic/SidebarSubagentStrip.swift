@@ -31,7 +31,8 @@ public nonisolated struct SidebarSubagentStrip: Hashable, Sendable {
     /// Rows mode: the rows drawn, oldest first, each with its depth under the chat (1, or 2 under
     /// another listed subagent).
     public var rows: [Row]
-    /// Rows mode: the subagents past `rows` ("N more", which opens the chat).
+    /// Rows mode: the listed (recent) subagents past `rows` ("N more", which opens the chat). Never the chat's
+    /// lifetime count (`SidebarSubagents.total`): a coordinator's thousands of finished helpers are not news.
     public var more: Int
     /// Stack mode: the marks drawn, at most `stackMarks`, running ones first.
     public var marks: [SidebarSubagent.State]
@@ -74,7 +75,7 @@ public nonisolated struct SidebarSubagentStrip: Hashable, Sendable {
             let shown = Array(items.suffix(visibleRows))
             let ids = Set(shown.map(\.id))
             let rows = shown.map { Row(subagent: $0, depth: $0.parent.map(ids.contains) == true ? 2 : 1) }
-            return SidebarSubagentStrip(mode: .rows, rows: rows, more: max(0, subagents.total - shown.count), marks: [],
+            return SidebarSubagentStrip(mode: .rows, rows: rows, more: max(0, items.count - shown.count), marks: [],
                                         running: subagents.running, done: 0, failed: failed, tab: shown.first?.tab ?? subagents.chat)
         }
         // Folded, or off the tree: no line under the row. Leo 2026-11-23 on "◇◇◇◇◇ 4 running · 3 failed" there: "this is
@@ -87,7 +88,8 @@ public nonisolated struct SidebarSubagentStrip: Hashable, Sendable {
             .prefix(stackMarks).map(\.state)
         // Stopped ones (cancelled, disconnected) are not done: a chat whose subagents were all stopped never reads "N done".
         let stopped = items.filter { $0.state == .stopped }.count
-        let done = max(0, subagents.total - subagents.running - failed - stopped)
+        // Done counts the listed (recent) ones, not every subagent the chat ever started.
+        let done = items.filter { $0.state == .done }.count
         return SidebarSubagentStrip(mode: .stack, rows: [], more: 0,
                                     marks: marks.isEmpty ? [.running] : Array(marks),
                                     running: subagents.running, done: done, failed: failed,
