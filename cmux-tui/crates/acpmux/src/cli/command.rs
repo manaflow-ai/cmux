@@ -1073,6 +1073,9 @@ pub enum Command {
     /// `daemon felt`: the felt-latency histograms (the net graph).
     #[command(hide = true)]
     DaemonFelt,
+    /// `daemon placement`: one tailnet placement update.
+    #[command(hide = true)]
+    DaemonPlacement { message: String },
     /// `daemon prune`: clear dead daemons' records (a dry run unless `apply`).
     #[command(hide = true)]
     DaemonPrune {
@@ -1889,6 +1892,13 @@ pub enum DaemonCmd {
     /// person feels (a prompt's send to ack, a typed key's echo) over the last minute and since
     /// start. Numbers and names only.
     Felt,
+    /// Tell the stable tailnet node's front where a workspace runs now: one placement message as
+    /// JSON (`{"kind":"moved","workspace":"default","placement":{"ssh":"10.0.0.5:22"}}`; kinds
+    /// set, moved, removed). Open connections keep their target; new ones go to the new place.
+    Placement {
+        /// The placement message (JSON).
+        message: String,
+    },
     /// Restart the daemon, preserving hosted sessions so they resume on startup.
     Restart,
     /// Clear what dead daemons left: for the shared home and each per-build home, the socket and
@@ -2135,6 +2145,7 @@ pub fn flatten(c: Command) -> Command {
             DaemonCmd::Restart => Command::DaemonRestart,
             DaemonCmd::Stats { by, since, top } => Command::DaemonStats { by, since, top },
             DaemonCmd::Felt => Command::DaemonFelt,
+            DaemonCmd::Placement { message } => Command::DaemonPlacement { message },
             DaemonCmd::Prune { apply } => Command::DaemonPrune { apply },
             DaemonCmd::Service { action } => Command::DaemonService { action },
             DaemonCmd::Config { show_token, set } => Command::Config { show_token, set },
