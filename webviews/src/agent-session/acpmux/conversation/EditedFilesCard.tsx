@@ -192,7 +192,7 @@ function Card({
       {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
       <div
         className="acpmux-edited-head"
-        ref={fold.headerRef}
+        ref={(node) => fold.headerRef(node)}
         {...(headClick ? { [HEADER_TOGGLE_ATTRIBUTE]: "" } : {})}
         // A control of its own for the transcript's gap selection (#26704), as the title was.
         data-interactive={headClick ? "" : undefined}
