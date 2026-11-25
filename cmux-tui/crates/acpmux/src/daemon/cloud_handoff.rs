@@ -1099,7 +1099,8 @@ pub(super) async fn handoff_loop(hub: Arc<Hub>) {
     let losses = Arc::new(AtomicU64::new(0));
     let mut reporter = Reporter::new(AgentSocket { path: path.clone() });
     let (lost, reader) = (losses.clone(), hub.clone());
-    tokio::spawn(async move {
+    // Its panic is this loop's (below), so the loop's supervisor starts both again (`daemon.rs`).
+    let worker = tokio::spawn(async move {
         let mut seen = 0;
         loop {
             let deadline = reporter.next_deadline();
@@ -1113,6 +1114,7 @@ pub(super) async fn handoff_loop(hub: Arc<Hub>) {
                 }
             };
             let Some(mut queued) = next else { break };
+            crate::supervise::panic_point("hand-off reporter", &queued.session);
             let now = lost.load(Ordering::SeqCst);
             if now != seen {
                 reporter.forget_turns();
@@ -1219,7 +1221,16 @@ pub(super) async fn handoff_loop(hub: Arc<Hub>) {
                 tracing::warn!(session = %ev.session_id, "hand-off reports: queue full, a step dropped");
                 losses.fetch_add(1, Ordering::SeqCst);
             }
-            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => break,
+            // The worker ended: a panic ends this loop too, so its supervisor starts both again.
+            // Before, the loop ended quietly and no hand-off was reported until a restart.
+            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                if let Err(e) = worker.await
+                    && e.is_panic()
+                {
+                    std::panic::resume_unwind(e.into_panic());
+                }
+                break;
+            }
         }
     }
 }

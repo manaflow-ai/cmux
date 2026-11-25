@@ -34,6 +34,7 @@ mod agent_pairs;
 pub(crate) mod agent_vm;
 mod away_recap;
 mod memory_inbox;
+pub(crate) mod pool_pressure;
 mod prompt_coach;
 // The person's prompts to a held chat wait to go in together (`person_hold.rs`).
 mod person_hold;
@@ -55,6 +56,8 @@ mod bg_folder;
 mod bg_folder_bench;
 mod bg_notify;
 mod bg_tasks;
+/// A chat waiting for capacity: the one calm state every client draws.
+pub(crate) mod capacity_wait;
 #[cfg(test)]
 mod wait_reason_tests;
 #[cfg(test)]
@@ -101,6 +104,7 @@ mod ephemeral;
 #[cfg(test)]
 mod first_work_tests;
 mod fork;
+mod forward_wait;
 #[cfg(test)]
 mod title_log_tests;
 pub use fork::Retarget;
@@ -466,7 +470,7 @@ mod hunk_summary;
 pub mod person;
 pub mod presence;
 mod processes;
-mod pull_requests;
+pub(crate) mod pull_requests;
 pub(crate) mod purge_tombstones;
 pub(crate) use crate::questions;
 mod remote_cwd;
@@ -504,6 +508,8 @@ mod outbox_open_tests;
 #[cfg(test)]
 pub(crate) mod outbox_oracle;
 pub(crate) mod pause;
+/// Paused (acpmux continues it) or stranded (nothing will): a row's reading.
+pub(crate) mod pause_state;
 pub mod plan_build;
 #[cfg(test)]
 mod refused_append_tests;
@@ -922,6 +928,9 @@ pub struct PromptOptions {
     /// An automatic continuation (`auto_resume.rs`): runs only while the chat still ends on
     /// this turn, checked again once it holds the turn lock, else refused unrecorded.
     pub after_turn: Option<String>,
+    /// A fired continuation's generation (`auto_resume.rs` `Pending::generation`): its turn
+    /// starts only while no Stop came since its fire, even once its mark is gone.
+    pub fired: Option<u64>,
     /// `_meta.acpmux.supersede` (`supersede.rs`): the same sender's prompts still queued under
     /// this key leave the queue, replaced by this one.
     pub supersede: Option<String>,
@@ -2031,6 +2040,28 @@ impl Hub {
         );
         let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         sessions.values().filter(|s| s.turn().is_none()).cloned().collect()
+    }
+
+    /// Tests only: `session`'s record of `kind`, heard as the hub's own event.
+    #[cfg(test)]
+    pub(crate) fn emit_for_test(&self, session: &str, kind: &str, msg: Value) {
+        let record = EventRecord {
+            seq: 1,
+            at: 0,
+            dir: "mux".into(),
+            kind: kind.into(),
+            msg,
+            host_seq: None,
+        };
+        let _ = self.events.send(HubEvent {
+            session_id: session.into(),
+            record: Arc::new(record),
+            remote: None,
+            update_line: Default::default(),
+            row: Default::default(),
+            list_seq: 0,
+            peer_batch: false,
+        });
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<HubEvent> {
