@@ -37,7 +37,7 @@ describe("a gone GitHub installation (cmux#55104)", { timeout: 60_000 }, () => {
       }
       // Before the fix, status kept naming the cached page, the app opened it, and GitHub answered 404.
       const after = await status(a.session, a.team)
-      expect(after, how).toMatchObject({ status: "needs_reauth", configure_url: null })
+      expect(after, how).toMatchObject({ status: "needs_reauth", configure_url: null, status_detail: how === "webhook" ? "the GitHub App was uninstalled" : "the GitHub App installation is gone" })
       // Connect for one of the account's repositories opens the App's install page, not the deleted installation.
       gh.routes["https://api.github.com/users/acme/installation"] = () => ok({ message: "Not Found" }, 404)
       gh.routes["https://api.github.com/orgs/acme/installation"] = () => ok({ message: "Not Found" }, 404)
@@ -57,7 +57,7 @@ describe("a gone GitHub installation (cmux#55104)", { timeout: 60_000 }, () => {
     gh.routes["https://api.github.com/app/installations/99"] = () => ok({ message: "Not Found" }, 404)
     await ageConfigurePages(a.team)
     const after = await status(a.session, a.team)
-    expect(after).toMatchObject({ status: "needs_reauth", configure_url: null })
+    expect(after).toMatchObject({ status: "needs_reauth", configure_url: null, status_detail: "the GitHub App installation is gone" })
     // Reconciled: the row is gone for good, so later reads ask GitHub nothing more and still name no page.
     const asked = gh.calls.filter((c) => c.url === "https://api.github.com/app/installations/99").length
     gh.routes["https://api.github.com/app/installations/99"] = () => ok({ id: 99, account: { login: "acme", type: "User" } })
