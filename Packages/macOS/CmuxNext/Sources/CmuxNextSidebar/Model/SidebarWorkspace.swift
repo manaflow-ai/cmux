@@ -119,6 +119,9 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var activity: StatusIndicatorState
     /// The winning report's style hint (`cmux status set --style`).
     public var activityStyle: StatusIndicatorStyle?
+    /// A look's particles glyph played in place of the loading indicator while the row works
+    /// (`cmux.sidebar.rows/1` `indicator: {choreography, trigger}` or `"glyph"`); nil by default.
+    public var activityGlyph: SidebarRowGlyph?
     /// The winning report is an OSC 7501 program status record: the program opted in to the
     /// finer row icons (a shield for permission, each pending item), with
     /// `sidebar.detailedStatusIcons` off (Lawrence msg 1351).

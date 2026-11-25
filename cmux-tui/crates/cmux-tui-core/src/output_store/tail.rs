@@ -39,8 +39,6 @@ const MAX_FRAME_RAW_BYTES: u32 = 64 * 1024 * 1024;
 /// `CAN` (aborts a control string) and a final Kitty chunk (ends a chunked
 /// upload): what a restore writes when its screen ends inside an upload.
 const UNFINISHED_UPLOAD_END: &[u8] = b"\x18\x1b_Gm=0;\x1b\\";
-/// Scrollback of the scratch terminal a restore rebuilds in.
-const REBUILD_SCROLLBACK_BYTES: usize = 10_000_000;
 
 pub(super) fn path(directory: &Path, terminal_id: &TerminalPublicId) -> PathBuf {
     directory.join(format!("{}.{SUFFIX}", terminal_id.as_str()))
@@ -256,26 +254,24 @@ fn header_extent(file: &Path) -> Option<(String, u64, u64)> {
 /// ([`bytes_after`]): the screen the terminal had at the end of its tail, as
 /// a bounded replay that fits a respawn seed. The snapshot alone when no tail
 /// continues it.
-pub(super) fn restore(snapshot: TerminalReplay, tail: &[u8]) -> TerminalReplay {
+///
+/// `scrollback` is the respawned terminal's own scrollback limit: the
+/// scratch terminal keeps as much history as the terminal it seeds will, no
+/// less (it was a fixed 10 MB, below a larger configured `scrollback`).
+pub(super) fn restore(snapshot: TerminalReplay, tail: &[u8], scrollback: usize) -> TerminalReplay {
     if tail.is_empty() {
         return snapshot;
     }
-    rebuild(&snapshot, tail).unwrap_or(snapshot)
+    rebuild(&snapshot, tail, scrollback).unwrap_or(snapshot)
 }
 
-fn rebuild(snapshot: &TerminalReplay, tail: &[u8]) -> Option<TerminalReplay> {
+fn rebuild(snapshot: &TerminalReplay, tail: &[u8], scrollback: usize) -> Option<TerminalReplay> {
     let (cols, rows) = (snapshot.cols.max(1), snapshot.rows.max(1));
-    let mut terminal = ghostty_vt::Terminal::new(
-        cols,
-        rows,
-        REBUILD_SCROLLBACK_BYTES,
-        ghostty_vt::Callbacks::default(),
-    )
-    .ok()?;
+    let mut terminal =
+        ghostty_vt::Terminal::new(cols, rows, scrollback, ghostty_vt::Callbacks::default()).ok()?;
     terminal.vt_write(&snapshot.bytes);
     terminal.vt_write(tail);
-    // Room for the respawn's marker line and mode reset.
-    let budget = crate::surface::VT_REPLAY_MAX_BYTES.saturating_sub(64 * 1024);
+    let budget = crate::surface::SEED_REPLAY_MAX_BYTES;
     let replay = match terminal.vt_replay_bounded(budget) {
         Ok(replay) => replay,
         Err(_) => {
