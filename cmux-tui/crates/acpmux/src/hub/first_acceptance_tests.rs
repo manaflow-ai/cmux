@@ -68,6 +68,17 @@ async fn a_pending_inbox_receipt_survives_a_513_acceptance_burst() {
         keep_acceptance(&session, &id, &json!({"promptId": id, "queued": true}));
     }
 
+    assert_eq!(
+        session.accepted_prompts.lock().unwrap().len(),
+        KEPT_ACCEPTS,
+        "the public acceptance ring grew past its bound"
+    );
+    assert_eq!(
+        session.pending_acceptances.lock().unwrap().len(),
+        KEPT_ACCEPTS + 1,
+        "the live overflow receipts were not retained"
+    );
+
     let mut first = outcome.subscribe();
     let kept = tokio::time::timeout(
         Duration::from_secs(2),
@@ -77,6 +88,8 @@ async fn a_pending_inbox_receipt_survives_a_513_acceptance_burst() {
     .expect("the pending acceptance was evicted by the burst")
     .expect("the pending acceptance remains available");
     assert_eq!(kept["inbox"], true, "{kept}");
+    release_acceptance(&session, "msg_pending", &outcome);
+    assert!(!session.pending_acceptances.lock().unwrap().contains_key("msg_pending"));
     hub.shutdown_all().await;
 }
 

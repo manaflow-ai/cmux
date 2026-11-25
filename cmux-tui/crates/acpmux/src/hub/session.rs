@@ -498,6 +498,11 @@ pub struct Session {
     /// the first run's end: every redelivery of an inbox message timed out, forever (2026-11-25).
     pub(super) accepted_prompts:
         StdMutex<std::collections::VecDeque<(String, usize, serde_json::Value)>>,
+    /// Pending first-run acceptances that fell out of the bounded receipt ring. They live only
+    /// while the matching prompt outcome is pending, so a burst cannot evict a live inbox receipt
+    /// and cannot grow this map after the prompt settles (`turns.rs`).
+    pub(super) pending_acceptances:
+        StdMutex<std::collections::HashMap<String, (usize, serde_json::Value)>>,
     /// Bumped as a first run is accepted, for a resend waiting on it.
     pub(super) accepted_seq: tokio::sync::watch::Sender<u64>,
     /// Bumped when a record failed to reach the store; an agent host entry
