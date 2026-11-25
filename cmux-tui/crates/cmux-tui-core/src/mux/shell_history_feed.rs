@@ -17,30 +17,23 @@ impl Mux {
         &self,
         flush: Option<Arc<crate::server::LaunchSnapshotFlush>>,
     ) {
-        *self.launch_snapshot_flush.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
-            flush;
+        *self.launch_snapshot_flush.lock().unwrap_or_else(PoisonError::into_inner) = flush;
     }
 
     /// Writes the launch snapshot now (`flush-launch-snapshot`) and waits up
     /// to `wait` for it: true once the file holds the current state, false
     /// without a writer (no durable registry) or when it did not land in time.
     pub(crate) fn flush_launch_snapshot(&self, wait: Duration) -> bool {
-        let flush = self
-            .launch_snapshot_flush
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone();
+        let flush =
+            self.launch_snapshot_flush.lock().unwrap_or_else(PoisonError::into_inner).clone();
         flush.is_some_and(|flush| flush.flush(wait))
     }
 
     /// `client` wrote a native frontend projection: its close writes the
     /// launch snapshot at once (`LaunchSnapshotFlush::client_left`).
     pub(crate) fn launch_snapshot_projection_writer(&self, client: u64) {
-        let flush = self
-            .launch_snapshot_flush
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone();
+        let flush =
+            self.launch_snapshot_flush.lock().unwrap_or_else(PoisonError::into_inner).clone();
         if let Some(flush) = flush {
             flush.projection_writer(client);
         }
@@ -48,11 +41,8 @@ impl Mux {
 
     /// A control connection closed (`disconnect_client`).
     pub(crate) fn launch_snapshot_client_left(&self, client: u64) {
-        let flush = self
-            .launch_snapshot_flush
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone();
+        let flush =
+            self.launch_snapshot_flush.lock().unwrap_or_else(PoisonError::into_inner).clone();
         if let Some(flush) = flush {
             flush.client_left(client);
         }
