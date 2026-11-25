@@ -601,6 +601,10 @@ interface CmuxFetchResponse { status: number; ok: boolean; headers: Record<strin
 type CmuxActionId = string
 
 interface CmuxAppContext { readonly [key: string]: unknown }
+/** What `cmux.app.openPane` resolves with: the pane's `ctx.close(result)` value, or `dismissed` when the person closed the pane first or a newer open replaced this one. */
+interface CmuxPaneResult<T = unknown> { result: T | null; dismissed: boolean }
+/** A `cmux.pane/1` mount's context: `args` are the open's arguments (`cmux.app.openPane`), null when the person opened the pane themselves. `close(result)` answers the opener (the tab stays open: closing it is the person's); `onOpen(fn)` runs after the render with the arguments of an open; `onClose(fn)` runs when this mount ends (the tab closed, a newer open, a reload). */
+interface CmuxPaneContext extends CmuxAppContext { readonly args: Record<string, unknown> | null; close(result?: unknown): Promise<{ closed: boolean }>; onOpen(fn: (args: Record<string, unknown>) => void): void; onClose(fn: () => void): void }
 
 /** One block of a page's main text (`page.read`): a heading has `level` (1-6), an image `src` and its alt text. */
 interface CmuxPageBlock { kind: "heading" | "paragraph" | "list_item" | "quote" | "code" | "image"; text: string; level?: number; src?: string }
@@ -943,6 +947,10 @@ interface CmuxGlobal {
       event: {
         /** `cloud.vm.event.emit` (mutation, scope `cloud:execute`): Send one event to the team's subscribers as the ephemeral team event cloud.machine.event (never stored). v1 kinds only; data per kind, at most 4 KB, URL query strings and fragments removed; 10/s, burst 50 per install. No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine). */
         emit: CmuxOp<{ machine: Cmux.MachineId; kind: "agent.started" | "agent.finished" | "agent.needs_input" | "notification" | "browser.lease.changed" | "cua.session.started" | "cua.session.ended" | "service.port.opened" | "service.port.closed"; at: number; data: string }, Cmux.MutationResult<{ delivered: boolean }>>
+      }
+      machine: {
+        /** `cloud.vm.machine.request` (mutation, scope `cloud:execute`): Ask for more capacity for the work this machine runs: grows it live within the creator's plan, or says what it takes (over the plan, a kind not offered); past one machine, makes a fan-out of K machines and answers its handle (each machine's id). Never waits for a machine to be ready. No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine). */
+        request: CmuxOp<{ machine: Cmux.MachineId; vcpu: number; mem_gib?: number; fanout?: number; kind?: "linux" | "mac" | "gpu"; for: string; until?: string }, Cmux.MutationResult<{ outcome: "fits" | "grow" | "over_plan" | "fanout" | "unavailable" | "refused"; message: string; machine: string; size?: { name?: string; vcpu: unknown; mem_gib: unknown }; code?: string; fanout?: { handle: string; width: unknown; each: { name?: string; vcpu: unknown; mem_gib: unknown }; slots: Array<{ index: unknown; status: "created" | "refused" | "unconfirmed"; machine?: string; code?: string; message?: string }> }; upgrade_plan?: string }>>
       }
       /** `cloud.vm.network_policy` (read, scope `cloud:read`): Read the bound VM's current receiving identities and daemon/SSH permissions, joined to original live install grants, team policy and Native service rules. The lease is at most 120 seconds and never outlives an included grant; admit_until, when present, lets the receiver keep this policy through a failed renewal for at most one hour after checked_at. This hidden VM-only read does not activate a listener or mint a dial credential. VM installs only (kind vm, grant vm-self, its own bound machine). */
       network_policy: CmuxOp<{ machine: Cmux.MachineId }, Cmux.CloudVmNetworkPolicyView>
@@ -2004,7 +2012,7 @@ interface CmuxGlobal {
   timer: { after(ms: number, fn: () => void): number; every(ms: number, fn: () => void): number; clear(id: number): void }
   /** Time zones. The sandbox has no Intl and `toLocaleString` ignores `timeZone`: `zone(name, at?)` gives an IANA zone's offset (minutes east of UTC) and short name at `at` (epoch ms, default now). An unknown name throws CmuxError `zone.unknown`. Local time is `new Date(utcMs + offsetMinutes * 60000)` read with the getUTC* methods. */
   time: { zone(name: string, at?: number): { zone: string; offsetMinutes: number; abbreviation: string } }
-  app: { readonly id: string; readonly version: string; readonly apiVersion: string; readonly locale: string; settings: { (): Record<string, unknown>; set(values: Record<string, unknown>): Promise<unknown> }; context(): CmuxAppContext }
+  app: { readonly id: string; readonly version: string; readonly apiVersion: string; readonly locale: string; settings: { (): Record<string, unknown>; set(values: Record<string, unknown>): Promise<unknown> }; context(): CmuxAppContext; openPane<T = unknown>(args?: Record<string, unknown>, options?: CmuxCallOptions): Promise<CmuxPaneResult<T>> }
   /** The current user-gesture token, else null. On a command's ctx.cmux: the invocation's token while the command runs. On the global: the event token, only inside a user event handler before its first await; pass it as options.gesture later. */
   gesture(): string | null
   /** The app's string for key in the user's locale, else fallback; {name} placeholders. */
