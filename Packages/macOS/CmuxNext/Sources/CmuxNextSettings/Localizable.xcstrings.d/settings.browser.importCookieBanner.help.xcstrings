@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.browser.importCookieBanner.help" : {
+      "comment" : "Settings > Browser > Import: help under Offer to Import Cookies.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Browser tabs offer to import cookies from your other browsers."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تعرض علامات تبويب المتصفح استيراد ملفات تعريف الارتباط من متصفحاتك الأخرى."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kartice preglednika nude uvoz kolačića iz vaših drugih preglednika."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Browserfaner tilbyder at importere cookies fra dine andre browsere."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Browser-Tabs bieten an, Cookies aus deinen anderen Browsern zu importieren."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Las pestañas del navegador ofrecen importar cookies de tus otros navegadores."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Les onglets du navigateur proposent d’importer les cookies de vos autres navigateurs."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le schede del browser propongono di importare i cookie dagli altri browser."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ブラウザタブで、他のブラウザから Cookie を読み込むよう提案します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ផ្ទាំងកម្មវិធីរុករកផ្ដល់ជូនការនាំចូលខូគីពីកម្មវិធីរុករកផ្សេងទៀតរបស់អ្នក។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "브라우저 탭에서 다른 브라우저의 쿠키를 가져오도록 제안합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nettleserfaner tilbyr å importere informasjonskapsler fra de andre nettleserne dine."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Karty przeglądarki proponują import plików cookie z innych przeglądarek."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "As abas do navegador oferecem importar cookies dos seus outros navegadores."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Вкладки браузера предлагают импортировать файлы cookie из других браузеров."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แท็บเบราว์เซอร์จะเสนอให้นำเข้าคุกกี้จากเบราว์เซอร์อื่นของคุณ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tarayıcı sekmeleri, diğer tarayıcılarınızdan çerezleri içe aktarmayı önerir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Вкладки браузера пропонують імпортувати файли cookie з інших браузерів."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Các tab trình duyệt đề xuất nhập cookie từ các trình duyệt khác."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "浏览器标签页会提示从你的其他浏览器导入 Cookie。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "瀏覽器標籤頁會提示從你的其他瀏覽器匯入 Cookie。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
