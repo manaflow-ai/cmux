@@ -1,4 +1,4 @@
-# cmux-next sidebar: owner note
+# cmux-next sidebar: owner note (frozen log: a new entry is its own file in [`plans/cmux-next/sidebar-owner/`](sidebar-owner/README.md))
 
 - 2026-11-17 (wallpaper-lighting): Sidebar-Look: Leo, 2026-11-17: "what if you almost treat the background wallpaper like a light source? lighting inside cmux!?". Under `appearance.wallpaperLighting` (off by default) the sidebar's edge line catches the wallpaper's key light: a `WallpaperRimLayer` along the line, brightest where it faces the light, hidden while the setting is off. Nothing else in the sidebar moves or changes color. Regression: `WallpaperLightTests`.
 
