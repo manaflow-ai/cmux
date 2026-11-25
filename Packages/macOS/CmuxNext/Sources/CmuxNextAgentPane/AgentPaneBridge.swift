@@ -22,6 +22,12 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
 
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage,
                                replyHandler: @escaping @MainActor @Sendable (Any?, String?) -> Void) {
+        // The page's `ready` reached the main thread: with `agent_pane.handshake_task_start`, `handshake_start` and
+        // `handshake_end` it splits the page's handshake wait (page.handshakeStart to page.handshakeReady, 133-537 ms
+        // in bench fc27ac4f) into the trip here, the main actor's queue, the setup pushes and the reply itself.
+        if (message.body as? [String: Any])?["method"] as? String == "ready" {
+            AgentPaneLaunchTimings.shared.mark("agent_pane.ready_received")
+        }
         guard isTrusted(message) else {
             logger.error("agent pane message rejected as untrusted name=\(message.name, privacy: .public) url=\(message.frameInfo.request.url?.absoluteString ?? "", privacy: .public)")
             return replyHandler(AgentPaneReply.failure(code: "untrusted_frame", message: "Untrusted frame"), nil)
@@ -108,6 +114,7 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
 
     /// The reply for a request from the pane's trusted page.
     func reply(to request: AgentPaneRequest) async -> [String: Any] {
+        if request == .ready { AgentPaneLaunchTimings.shared.mark("agent_pane.handshake_task_start") }
         guard let model = prepare(for: request) else { return AgentPaneReply.failure(code: "closed", message: "Closed") }
         // The handshake can wait up to 20 seconds for acpmux to start. Only
         // the model is held across it, so closing the tab frees the view and

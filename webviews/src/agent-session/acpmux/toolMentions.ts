@@ -10,7 +10,13 @@
 //
 // l10n-allow-file: the notes are text for the agent, not the person, so they are not localized.
 import type { StringKey, Translate } from "./i18n";
+import computerUseTile from "./icons/computerUseTile.png";
 import { codeSpans, type SlashCommand } from "./slashCommands";
+
+/// Computer Use's tile (the midnight cursor): the composer's @computer-use and the setup window's head.
+/// Imported, not `new URL(..., import.meta.url)`: the shipped pages inline each PNG as a data URL, and a
+/// classic (non-module) script that bundles this file cannot parse `import.meta`.
+export const COMPUTER_USE_TILE: string = computerUseTile;
 
 export type ToolMentionId = "computer-use" | "browser-use";
 
@@ -20,6 +26,8 @@ export type ToolMention = {
   label: StringKey;
   hint: StringKey;
   icon: string;
+  /** A full-color picture drawn in place of `icon` (the menus' rows and both badges), when it has one. */
+  image?: string;
   /** What a typed word may start to name it (`@comp`, `@brow`, `@cu`). */
   words: readonly string[];
 };
@@ -30,6 +38,8 @@ export const TOOL_MENTIONS: readonly ToolMention[] = [
     label: "mention.computerUse",
     hint: "mention.computerUseHint",
     icon: "computeruse.observe",
+    // Lucas 2026-11-23: "lets use this icon here for computer use" (the midnight cursor tile).
+    image: COMPUTER_USE_TILE,
     words: ["computer-use", "computer use", "cu"],
   },
   {
@@ -84,6 +94,7 @@ export function toolSlashCommands(t: Translate): SlashCommand[] {
     description: t(tool.hint),
     source: "extension",
     icon: tool.icon,
+    image: tool.image,
     label: t(tool.label),
   }));
 }

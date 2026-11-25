@@ -651,12 +651,22 @@ struct Row {
 
 /// A row's times: the cut noticed, the link ready again after it left `connected`, and the
 /// whole outage from the cut.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct Times {
     detect: Duration,
     failover: Duration,
     total: Duration,
+    /// The row's `downReason` once the link was back: why the route went down.
+    down_reason: Option<String>,
 }
+
+/// A's `downReason` for `b` now (`_acpmux/peers`), if it names one.
+fn down_reason(a: &Hub) -> Option<String> {
+    a.peers().into_iter().next().and_then(|p| p["downReason"].as_str().map(str::to_owned))
+}
+
+/// Every word `downReason` may take (`DialFail`).
+const DOWN_REASONS: [&str; 5] = ["timeout", "refused", "auth", "pathChanged", "unreachable"];
 
 async fn run(row: Row) -> Times {
     let w = world(row.tag, row.route).await;
@@ -696,6 +706,21 @@ async fn run(row: Row) -> Times {
         )
         .await;
     let early = cc.reply(outage, OUTAGE_HOLD).await;
+    // A black hole lifts once A's link gave up on it (`downReason` names why), so the row
+    // redials, as its name says. Lifted before acpmux's own deadline, a WireGuard tunnel's TCP
+    // can retransmit and the link heal in place from `degraded`: then nothing redialed, and
+    // whether it did was a race between the retransmit and the request probe (#56198).
+    if matches!(row.cut, Cut::BlackHole) && row.restore {
+        let deadline = Instant::now() + DETECT_BOUND + STEP;
+        while down_reason(&w.a).is_none() {
+            assert!(
+                Instant::now() < deadline,
+                "{}: the black hole never took the link down",
+                row.tag
+            );
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
     let restored_at = Instant::now();
     if row.restore {
         w.carrier.restore();
@@ -839,8 +864,14 @@ async fn run(row: Row) -> Times {
     // From the drop (else from leaving `connected`) to ready again: the redial, without the
     // time the silence budget takes to find a black hole.
     let failover = back.saturating_duration_since(dropped.unwrap_or(left));
+    let why = down_reason(&w.a);
+    assert!(
+        why.as_deref().is_none_or(|why| DOWN_REASONS.contains(&why)),
+        "{}: downReason {why:?} is not a DialFail word",
+        row.tag
+    );
     eprintln!(
-        "carrier_faults row={} cut={:?} detect_ms={} redial_ms={} failover_ms={} total_ms={} states={} ask={ask_seen} outage_prompt={}",
+        "carrier_faults row={} cut={:?} detect_ms={} redial_ms={} failover_ms={} total_ms={} states={} ask={ask_seen} outage_prompt={} down_reason={}",
         row.tag,
         row.cut,
         detect.as_millis(),
@@ -848,11 +879,21 @@ async fn run(row: Row) -> Times {
         failover.as_millis(),
         (back - cut_at).as_millis(),
         states.join(">"),
-        outcome
+        outcome,
+        why.as_deref().unwrap_or("null")
     );
+    // A black hole ends on acpmux's own deadline: the link says `timeout`, or `pathChanged`
+    // when it moved to another carrier.
+    if matches!(row.cut, Cut::BlackHole) {
+        assert!(
+            matches!(why.as_deref(), Some("timeout" | "pathChanged")),
+            "{}: a black hole read downReason {why:?}",
+            row.tag
+        );
+    }
     assert!(detect <= DETECT_BOUND, "{}: the cut took {detect:?} to notice", row.tag);
     assert!(redial <= REDIAL_BOUND, "{}: the redial took {redial:?}", row.tag);
-    Times { detect, failover, total: back - cut_at }
+    Times { detect, failover, total: back - cut_at, down_reason: why }
 }
 
 // ------------------------------------------------------------------ rows that pass today
@@ -931,6 +972,7 @@ async fn wireguard_dies_mid_turn_and_the_link_moves_to_ssh() {
         reshow_required: false,
     })
     .await;
+    assert_eq!(times.down_reason.as_deref(), Some("pathChanged"), "wg-to-ssh: downReason");
     assert!(
         times.failover <= WG_TO_SSH_FAILOVER,
         "wg-to-ssh: the link took {:?} to move to ssh (cut noticed after {:?}, {:?} in all)",
@@ -938,6 +980,33 @@ async fn wireguard_dies_mid_turn_and_the_link_moves_to_ssh() {
         times.detect,
         times.total
     );
+}
+
+/// A peer whose port refuses: the dial's `ConnectionRefused` reads as `downReason: "refused"`
+/// in its `_acpmux/peers` row (typed from the I/O error, not its text), and `cause` still says
+/// the peer is down.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_peer_whose_port_refuses_reads_down_reason_refused() {
+    let scratch = std::env::temp_dir().join(format!("acf-refused-{}", std::process::id()));
+    setup(&scratch);
+    // A port nothing listens on: bound, then let go.
+    let port = TcpListener::bind("127.0.0.1:0").await.unwrap().local_addr().unwrap().port();
+    let cfg = config();
+    let a = Hub::new(cfg.clone(), store(&cfg));
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, false)
+        .await
+        .unwrap();
+    let deadline = Instant::now() + STEP;
+    let row = loop {
+        let row = a.peers().into_iter().next().expect("peer b listed");
+        if row["downReason"].is_string() || Instant::now() >= deadline {
+            break row;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    };
+    assert_eq!(row["downReason"], json!("refused"), "{row}");
+    assert_eq!(row["cause"], json!("peerDown"), "{row}");
+    assert_eq!(row["connected"], json!(false), "{row}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1223,11 +1292,31 @@ async fn hub_outage_delivers_a_waiting_message_once_when_the_hub_returns() {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     // Each message once: the waiting one, and the outage send if A's outbox kept it.
-    assert_eq!(
-        info["turnCount"], turns,
-        "{turns} messages ran {} turns: {info}",
-        info["turnCount"]
-    );
+    if info["turnCount"] != turns {
+        let delivery =
+            sent.as_ref().ok().and_then(|r| r["deliveryId"].as_str()).unwrap_or_default();
+        let status = sender
+            .call(method::MUX_SEND_STATUS, json!({"deliveryId": delivery}))
+            .await
+            .map_or_else(|e| e.to_string(), |v| v.to_string());
+        let hub = {
+            let s = fake.state.lock().unwrap();
+            format!(
+                "keys={:?} waiting={} acks={:?}",
+                s.keys,
+                s.waiting.len(),
+                s.acks.iter().map(|(m, a)| format!("{m}:{a:?}")).collect::<Vec<_>>()
+            )
+        };
+        let events = on_b
+            .call(method::MUX_EVENTS, json!({"sessionId": session, "afterSeq": 0, "limit": 1000}))
+            .await
+            .map_or_else(|e| e.to_string(), |v| v.to_string());
+        panic!(
+            "{turns} messages ran {} turns (outage send {outage_send}); A's status {status}; hub {hub}; B's events {events}; B {info}",
+            info["turnCount"]
+        );
+    }
     let acked = fake.state.lock().unwrap().acks.iter().filter(|(m, _)| m == "msg_waiting").count();
     eprintln!(
         "carrier_faults row=hub-outage cut=Down redeliver_ms={} total_ms={} outage_send={outage_send}",

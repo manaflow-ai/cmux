@@ -590,7 +590,7 @@ print("typed", text.count, "front:", NSWorkspace.shared.frontmostApplication?.pr
         children = [p for p in panes_now if p not in before]
         for child in children:
             cs = pane("chat_state", pane=child)
-            say("SP child", child, "subagentOf:", (cs or {}).get("subagentOf"), "card:", json.dumps((cs or {}).get("summaryCard"))[:300])
+            say("SP child", child, "subagentCorner:", (cs or {}).get("subagentCorner"), "card:", json.dumps((cs or {}).get("summaryCard"))[:300])
         live = wait(lambda: (lambda c: c if c and len(c.get("agents", [])) >= 2 else None)(card()), 60, 1)
         say("SP card lists:", json.dumps(live))
         shot("spawned")
@@ -629,7 +629,7 @@ print("typed", text.count, "front:", NSWorkspace.shared.frontmostApplication?.pr
         say("SP second row", json.dumps(r2)[:200], "focus:", focus_row2, "first:", focus_row, "distinct:", focus_row2 != focus_row and focus_row2 in children)
         report["rows_focus_distinct"] = focus_row2 != focus_row and focus_row2 in children
         if focused_child:
-            say("SP focused child shows:", (pane("chat_state", pane=focused_child) or {}).get("subagentOf"))
+            say("SP focused child shows:", (pane("chat_state", pane=focused_child) or {}).get("subagentCorner"))
         say("SP focused child after row click:", focused_child)
         shot("row-click")
         done = wait(lambda: (lambda c: c if c and c.get("agents") and all(a.get("status") == "done" for a in c["agents"]) else None)(card()), 240, 2)

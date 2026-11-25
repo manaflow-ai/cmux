@@ -784,6 +784,26 @@ async fn download(payload: &PublishedPayload) -> Result<PathBuf, String> {
                 }),
             }
         }
+        // files.cmux.com down (a Cloudflare outage, cmuxterm-hq
+        // docs/rfd/0146-distribute-every-service/cloudflare-down-3h.md step 4):
+        // the same immutable, hash-named object from each mirror in
+        // CMUX_TUI_PAYLOAD_MIRRORS, in order. Unset (the default), nothing
+        // changes. The pin below still checks whatever a mirror served.
+        if !errors.is_empty() {
+            let mirrors =
+                mirror_urls(&payload.url, std::env::var(PAYLOAD_MIRRORS_ENV).ok().as_deref());
+            let last = mirrors.len().saturating_sub(1);
+            for (index, url) in mirrors.into_iter().enumerate() {
+                let mirrored = PublishedPayload { url: url.clone(), ..payload.clone() };
+                match run_curl(&mirrored, &partial, None, index < last).await {
+                    Ok(()) => {
+                        errors.clear();
+                        break;
+                    }
+                    Err(error) => errors.push(format!("from mirror {url}: {error}")),
+                }
+            }
+        }
         if !errors.is_empty() {
             return Err(errors.join("; ").chars().take(800).collect());
         }
@@ -805,6 +825,28 @@ async fn download(payload: &PublishedPayload) -> Result<PathBuf, String> {
     std::fs::rename(&partial, &payload.cache_path).map_err(|error| error.to_string())?;
     prune_cache(&directory, &file_name);
     Ok(payload.cache_path.clone())
+}
+
+/// Comma-separated https base URLs that mirror [`PUBLISHED_BASE_URL`]
+/// object for object (a second bucket off Cloudflare). Empty or unset: off.
+const PAYLOAD_MIRRORS_ENV: &str = "CMUX_TUI_PAYLOAD_MIRRORS";
+
+/// `url` under each mirror base in `mirrors`, when `url` is under
+/// [`PUBLISHED_BASE_URL`]. Only https mirrors count: the download's own
+/// protocol pin would refuse anything else on a redirect anyway.
+fn mirror_urls(url: &str, mirrors: Option<&str>) -> Vec<String> {
+    let Some(rest) = url.strip_prefix(PUBLISHED_BASE_URL) else { return Vec::new() };
+    if !rest.starts_with('/') {
+        return Vec::new();
+    }
+    mirrors
+        .unwrap_or_default()
+        .split(',')
+        .map(|base| base.trim().trim_end_matches('/'))
+        .filter(|base| base.starts_with("https://") && base.len() > "https://".len())
+        .map(|base| format!("{base}{rest}"))
+        .filter(|mirrored| mirrored != url)
+        .collect()
 }
 
 /// Appends `payload` to `partial` with curl, through `route` when given.
@@ -1128,5 +1170,31 @@ mod published_release_tests {
         assert!(!is_commit(&COMMIT.to_ascii_uppercase()));
         assert!(!is_commit(&format!("{COMMIT}-dirty")));
         assert!(!is_commit("local"));
+    }
+
+    #[test]
+    fn mirror_urls_map_published_objects_onto_each_https_mirror() {
+        let url = format!("{PUBLISHED_BASE_URL}/abc123/cmux-tui-x86_64-unknown-linux-musl");
+        assert_eq!(mirror_urls(&url, None), Vec::<String>::new());
+        assert_eq!(mirror_urls(&url, Some("")), Vec::<String>::new());
+        assert_eq!(
+            mirror_urls(
+                &url,
+                Some(" https://storage.googleapis.com/m/cmux-tui/ ,http://plain.invalid,https://,https://b.invalid/x")
+            ),
+            vec![
+                "https://storage.googleapis.com/m/cmux-tui/abc123/cmux-tui-x86_64-unknown-linux-musl".to_string(),
+                "https://b.invalid/x/abc123/cmux-tui-x86_64-unknown-linux-musl".to_string(),
+            ]
+        );
+        assert_eq!(
+            mirror_urls("https://other.invalid/cmux-tui/a", Some("https://b.invalid")),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            mirror_urls(&format!("{PUBLISHED_BASE_URL}x/a"), Some("https://b.invalid")),
+            Vec::<String>::new()
+        );
+        assert_eq!(mirror_urls(&url, Some(PUBLISHED_BASE_URL)), Vec::<String>::new());
     }
 }

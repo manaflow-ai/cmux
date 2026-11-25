@@ -1,4 +1,4 @@
-import AppKit
+import CmuxEgress; import AppKit
 import CmuxNextActions
 import CmuxNextCloud
 import CmuxNextDesign
@@ -91,7 +91,7 @@ final class AccountAvatarImages {
     }
 
     private static func fetch(_ remote: URL) async -> Data? {
-        guard let (bytes, response) = try? await URLSession.shared.data(from: remote),
+        guard let (bytes, response) = try? await CmuxEgress.shared(site: "CmuxNextApp.SidebarAccount").data(from: remote),
               (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
         return isPicture(bytes) ? bytes : nil
     }

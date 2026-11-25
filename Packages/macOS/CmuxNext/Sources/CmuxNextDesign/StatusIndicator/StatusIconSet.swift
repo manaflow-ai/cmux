@@ -50,11 +50,22 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
     /// chat bubble with dots, a padlock, a check, a warning triangle. Debug only; never the default.
     case stillPictograms
 
-    /// The Debug Settings switch (the Debug menu writes the same value).
+    /// The Debug Settings switch (the Debug menu writes the same value). Its override wins over
+    /// the user setting `appearance.statusIndicator.iconSet`; its default is that setting's default.
     public static let tunable = Tunable<StatusIconSet>.choice(
         "status.iconSet", .status, "Status icons",
-        help: "The marks for agent working, blocked (permission, question, auth), done and error everywhere. Codex-like is the default; Dots is the original drawing.",
+        help: "The marks for agent working, blocked (permission, question, auth), done and error everywhere. Overrides the Status Icons setting; Dots is the original drawing.",
         default: .codex, code: "StatusIconSet.tunable")
+
+    /// The set every indicator draws: a Debug override of `tunable`, else `setting` (the raw value
+    /// of `appearance.statusIndicator.iconSet`, `StatusIndicatorSettings.iconSet`), else the default.
+    public static func resolved(setting: String?, in store: TunableStore = .shared) -> StatusIconSet {
+        tunable.override(in: store) ?? setting.flatMap(Self.init(rawValue:)) ?? tunable.defaultValue
+    }
+
+    /// A Debug-only candidate (`stillDots`, `stillPictograms`): the Debug switch offers it, the
+    /// user setting does not.
+    public var isDebugOnly: Bool { self == .stillDots || self == .stillPictograms }
 
     public var tunableTitle: String {
         switch self {

@@ -4,7 +4,20 @@
 // (pageDrawsHover, read by ui/glass/hostGlass.ts) so the page's own paint is what shows.
 import { experimentArm } from "../experiments/experiment";
 import { experimentSwitchOn, subscribeExperimentSwitches } from "../experiments/switches";
-import { HOVER_LOOK_ATTRIBUTE, HOVER_LOOK_SURFACES, HOVER_LOOK_SWITCH, hoverLook } from "./hoverLook.experiment";
+import {
+  HOVER_LOOK_ATTRIBUTE,
+  HOVER_LOOK_ONE,
+  HOVER_LOOK_SURFACES,
+  HOVER_LOOK_SWITCH,
+  hoverLook,
+} from "./hoverLook.experiment";
+
+/// Whether the page runs the One arm now (`data-hover-look="one"` on `<html>`): every hover surface
+/// blurs what it covers and only one is open at a time. Off (or another arm), every hover surface
+/// behaves as today.
+export function oneHoverSurface(doc: Document): boolean {
+  return doc.documentElement.getAttribute(HOVER_LOOK_ATTRIBUTE) === HOVER_LOOK_ONE;
+}
 
 /// Sets or clears the root attribute from the switch now.
 export function applyHoverLook(doc: Document, on: boolean = experimentSwitchOn(HOVER_LOOK_SWITCH)): void {

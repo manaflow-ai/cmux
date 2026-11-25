@@ -21,7 +21,7 @@ import type { AcpmuxSnapshot } from "../acpmux/model";
 import type { GuestFeed } from "./GuestTranscript";
 import { Face, PresenceStack } from "../acpmux/multiplayer/Faces";
 import { displayName, participant, type Participant } from "../acpmux/multiplayer/participants";
-import { GuestComposer, GuestMessages } from "./GuestComposer";
+import { GuestComposer, GuestMessages, GuestQueue, runsAfterTurn } from "./GuestComposer";
 import { GuestPrompts } from "./guestPrompts";
 import { GuestSendQueue } from "./guestSendQueue";
 import {
@@ -460,7 +460,11 @@ export function LiveChat({
       client?.dispose();
     };
     const room = new ShareSocket(
-      { url: socketUrl, unresolved: () => prompts.held(), ...(openSocket ? { open: openSocket } : {}) },
+      {
+        url: socketUrl,
+        unresolved: () => prompts.held(),
+        ...(openSocket ? { open: openSocket } : {}),
+      },
       {
         snapshot: (next) => {
           setChat(next.chat);
@@ -539,6 +543,10 @@ export function LiveChat({
   const viewing = people
     .filter((person) => person.viewing !== false && !isMe(person.id, guestId))
     .flatMap((person) => participant(person.id, person.name) ?? []);
+  // This guest's own approved message is the "Sent" line below already.
+  const waiting = (snapshot?.queue ?? []).filter(
+    (entry) => runsAfterTurn(entry) && !(entry.author && isMe(entry.author.id, guestId)),
+  );
   return (
     // Faces and chips ask no owner's avatar service (GuestTranscript's boundary does the same).
     <AvatarContext.Provider value={undefined}>
@@ -590,6 +598,7 @@ export function LiveChat({
           </output>
         )}
         <div className="guest-live__dock">
+          <GuestQueue queue={waiting} owner={owner} />
           <GuestMessages prompts={mine} me={me} owner={ownerName} />
           {/* Only a `talk` guest sends; no role (an answer that named none) or `view` watches. */}
           {role === "talk" ? (
