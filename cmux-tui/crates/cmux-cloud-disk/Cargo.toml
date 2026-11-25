@@ -1,0 +1,15 @@
+[package]
+name = "cmux-cloud-disk"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "A Cloud machine's disk bar (used over allocated, split system / project / caches): the view the Cloud page draws and the CLI prints (pure)"
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true
