@@ -134,8 +134,8 @@ struct ChatComposer: View {
             Task { await loadPhotos(items) }
         }
         .cmuxMobileSensoryFeedback(.impact(weight: .light), trigger: sendCount)
-        .onChange(of: focus.wrappedValue) { _, focused in
-            if focused { expandRequested = false }
+        .onChange(of: expandRequested && focus.wrappedValue) { _, expansionFocused in
+            if expansionFocused { expandRequested = false }
         }
         .onAppear {
             if expandOnAppear { expand() }

@@ -210,6 +210,32 @@
           ]
         },
         {
+          "key": "experiments.terminalAgentMark",
+          "note": "Leo 2026-11-24 (\"terminal agent chats. can they be demarcated a bit differently/should they? than gui agent chats\"): an agent running in a terminal tab (Claude Code, Codex as a CLI) draws its mark on a soft rounded square of its tint (CmuxNextTabs TabAgentMarkCache terminal:, TabStripMetrics.terminalAgentMarks; DesignSettings.terminalAgentMarks; iPhone AgentAvatarMark.terminalShapeEnabled reads the same key from UserDefaults). A GUI agent chat keeps its bare mark (Mac) or circle (iPhone). Picked from a 4-variant gallery (cmux#53018: cut-out badge, dark tile, label, rounded square). Off by default; off keeps today's marks.",
+          "title": {
+            "key": "settings.experiments.terminalAgentMark",
+            "text": "Terminal Agent Marks"
+          },
+          "help": {
+            "key": "settings.experiments.terminalAgentMark.help",
+            "text": "An agent running in a terminal tab shows its icon on a rounded square, so it stands apart from an agent chat."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "agent",
+            "terminal",
+            "icon",
+            "mark",
+            "claude",
+            "codex",
+            "tab"
+          ]
+        },
+        {
           "key": "experiments.menuStyleV2",
           "note": "Menu Style v2: the restyled menus (webviews experiment menu-style-v2, arm v2; the native popup reads DesignSettings.shared.experiment(\"menuStyleV2\")). Off by default.",
           "title": {
@@ -452,6 +478,33 @@
             "questions",
             "agents",
             "team"
+          ]
+        },
+        {
+          "key": "experiments.foldSummaryCounts",
+          "note": "Fold summary: duration only (off, today's line) or with counts (on). A finished turn's closed \"Worked for\" names the work it hides after its time, as the tool runs name theirs: \"Worked for 36s · ran 4 commands, edited 2 files\", failed calls as the runs' \"(1 failed)\" in the failure tone (webviews conversation/turns.ts workedCountsText, useExperimentSwitch(\"foldSummaryCounts\")). Off by default until Leo picks; off keeps today's duration-only line.",
+          "title": {
+            "key": "settings.experiments.foldSummaryCounts",
+            "text": "Fold Summary Counts"
+          },
+          "help": {
+            "key": "settings.experiments.foldSummaryCounts.help",
+            "text": "A finished turn's Worked for line also says what it hides, such as ran 4 commands, edited 2 files."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "chat",
+            "worked for",
+            "fold",
+            "summary",
+            "counts",
+            "commands",
+            "edited",
+            "files"
           ]
         }
       ]

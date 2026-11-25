@@ -275,7 +275,8 @@ extension WorkspaceRowView {
         // Where the row runs is a status mark like the bell-slash: a Cloud row's small muted cloud sits in the trailing
         // cluster, never in the leading slot or against the name (Leo 2026-11-22).
         if !cloudMark.isHidden {
-            cloudMark.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: ind, height: ind))
+            let side = Self.cloudMarkSide
+            cloudMark.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: side, height: side))
             trailing = columns.trailingEdge(before: cloudMark.frame)
         }
         if !usageWarningMark.isHidden {

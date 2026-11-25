@@ -150,7 +150,13 @@ async fn auto_adds_nothing_on_a_clean_link() {
     let (clean_auto, stats) = download(UltraChoice::AUTO, None).await;
     eprintln!("clean 1 MiB at 300 ms: off {clean_off:?}, auto {clean_auto:?}, auto {stats:?}");
     assert_eq!(stats.auto_on, 0, "Auto stays off on a clean link: {stats:?}");
-    assert_eq!(stats.overhead_bytes, 0, "and sends no extra bytes: {stats:?}");
+    // The floor protects only small interactive datagrams (acks, keystrokes),
+    // so a bulk download pays well under 1 % extra on a clean link.
+    assert!(
+        stats.overhead_bytes * 100 < stats.data_bytes,
+        "and sends almost no extra bytes: {stats:?}"
+    );
+    assert_eq!(stats.copies_sent, 0, "no duplicate copies: {stats:?}");
     // Scheduling under a busy test run moves a simulated finish by a few
     // milliseconds either way.
     let slack = Duration::from_millis(50);
@@ -246,7 +252,9 @@ async fn probes_on_a_dead_candidate_leave_auto_off() {
     assert!(dead_sent >= 20, "the dead candidate was probed throughout: {dead_sent}");
     for stats in [client, server] {
         assert_eq!(stats.auto_on, 0, "Auto stays off beside a dead candidate: {stats:?}");
-        assert_eq!(stats.overhead_bytes, 0, "and sends no repair bytes: {stats:?}");
+        // The floor's parity for small datagrams (acks) is all it may send.
+        assert!(stats.overhead_bytes <= stats.data_bytes, "and sends only floor parity: {stats:?}");
+        assert_eq!(stats.copies_sent, 0, "no duplicate copies: {stats:?}");
     }
 }
 
