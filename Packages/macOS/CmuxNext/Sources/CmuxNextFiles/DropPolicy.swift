@@ -1,7 +1,9 @@
 public import Foundation
 
-/// Finder's rule for what a drop does: on the same volume it moves, onto
-/// another it copies; holding Option copies, holding Command moves.
+/// Finder's rule for what a drop does (on the same volume it moves, onto
+/// another it copies; holding Option copies, holding Command moves), asked of
+/// Rust (cmux-layout-reducer `drop_rules`, op `drop_transfer_mode`). This
+/// reads the volumes; Rust decides.
 public struct DropPolicy: Sendable {
     private let volumeOf: @Sendable (URL) -> Int?
 
@@ -19,9 +21,7 @@ public struct DropPolicy: Sendable {
     ///   - option: Option is held (copy).
     ///   - command: Command is held (move).
     public func mode(for sources: [URL], into destination: URL, option: Bool, command: Bool) -> TransferMode {
-        if option { return .copy }
-        if command { return .move }
-        guard let target = volumeOf(destination) else { return .copy }
-        return sources.allSatisfy({ volumeOf($0) == target }) ? .move : .copy
+        let request = DropTransferWire.Request(sources: sources.map(volumeOf), destination: volumeOf(destination), option: option, command: command)
+        return DropTransferWire.ask(request).flatMap { TransferMode(rawValue: $0.mode) } ?? .copy
     }
 }
