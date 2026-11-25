@@ -207,7 +207,10 @@ fn a_late_empty_report_after_a_told_outcome_does_not_reopen_it() {
             .then_some("a1 landed the sidebar fix.")
     }));
     report_and_settle(&mut h);
-    assert!(h.brain.untold_outcomes().is_empty(), "the first outcome was told");
+    assert!(
+        h.brain.untold_outcomes().is_empty(),
+        "the first outcome was told"
+    );
     let session = sub_session(&h).expect("the subagent session");
     let before = h.brain.state().sub("a1").unwrap().1.clone();
     assert!(
@@ -233,7 +236,10 @@ fn a_late_empty_report_after_a_told_outcome_does_not_reopen_it() {
     );
     let after = h.brain.state().sub("a1").unwrap().1;
     assert_eq!(after.report, before.report, "keep the told report");
-    assert_eq!(after.reported_ms, before.reported_ms, "keep its report time");
+    assert_eq!(
+        after.reported_ms, before.reported_ms,
+        "keep its report time"
+    );
     assert!(after.told_ms >= after.reported_ms, "the outcome stays told");
 }
 
@@ -247,7 +253,10 @@ fn a_late_retry_exhaustion_notice_after_a_told_outcome_does_not_reopen_it() {
     report_and_settle(&mut h);
     let session = sub_session(&h).expect("the subagent session");
     let before = h.brain.state().sub("a1").unwrap().1.clone();
-    assert!(before.told_ms >= before.reported_ms, "the setup must record a told outcome");
+    assert!(
+        before.told_ms >= before.reported_ms,
+        "the setup must record a told outcome"
+    );
     h.brain.set_auto_resume(
         Some(ResumePolicy {
             max_attempts: 0,
@@ -278,7 +287,10 @@ fn a_late_retry_exhaustion_notice_after_a_told_outcome_does_not_reopen_it() {
     );
     let after = h.brain.state().sub("a1").unwrap().1;
     assert_eq!(after.report, before.report, "keep the told report");
-    assert_eq!(after.reported_ms, before.reported_ms, "keep its report time");
+    assert_eq!(
+        after.reported_ms, before.reported_ms,
+        "keep its report time"
+    );
     assert!(after.told_ms >= after.reported_ms, "the outcome stays told");
 }
 

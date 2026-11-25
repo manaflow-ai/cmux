@@ -72,10 +72,7 @@ impl Brain {
     pub(super) fn outcome_resumed(&mut self, id: &str) {
         // Nor does the running turn owe it now (landed_told.rs).
         self.turn_landed.retain(|(i, _)| i != id);
-        let was_told = self
-            .state
-            .sub(id)
-            .is_some_and(|(_, sub)| sub.told_ms != 0);
+        let was_told = self.state.sub(id).is_some_and(|(_, sub)| sub.told_ms != 0);
         if let Some(sub) = self.state.sub_mut(id) {
             sub.told_ms = 0;
         }
@@ -129,10 +126,10 @@ impl Brain {
             if told {
                 self.save();
             }
-            if let Some(note) = host_spawn_note {
-                if let Err(e) = self.chat.append(Kind::Note, note) {
-                    (self.log)(&format!("logging host subagent start failed: {e}"));
-                }
+            if let Some(note) = host_spawn_note
+                && let Err(e) = self.chat.append(Kind::Note, note)
+            {
+                (self.log)(&format!("logging host subagent start failed: {e}"));
             }
             return;
         }
@@ -147,10 +144,10 @@ impl Brain {
                     (self.log)(&format!("logging host outcome {id} failed: {e}"));
                 }
             }
-            if let Some(note) = host_spawn_note {
-                if let Err(e) = self.chat.append(Kind::Note, note) {
-                    (self.log)(&format!("logging host subagent start failed: {e}"));
-                }
+            if let Some(note) = host_spawn_note
+                && let Err(e) = self.chat.append(Kind::Note, note)
+            {
+                (self.log)(&format!("logging host subagent start failed: {e}"));
             }
             self.save();
         }

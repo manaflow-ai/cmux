@@ -1483,9 +1483,10 @@ impl Brain {
                 }
             }
         }
-        let previously_told = self.state.sub(id).is_some_and(|(_, sub)| {
-            sub.reported_ms > 0 && sub.told_ms >= sub.reported_ms
-        });
+        let previously_told = self
+            .state
+            .sub(id)
+            .is_some_and(|(_, sub)| sub.reported_ms > 0 && sub.told_ms >= sub.reported_ms);
         // A stale idle turn can arrive after the real outcome was already
         // told. It has no report text, so it must not replace that report or
         // reopen the outcome ledger.
@@ -1505,8 +1506,7 @@ impl Brain {
         let late_terminal_notice = !held
             && previously_told
             && planned.as_ref().is_some_and(|(note, quiet)| {
-                !quiet
-                    && note.starts_with(crate::auto_resume::RETRYABLE_STOP_NOTICE_PREFIX)
+                !quiet && note.starts_with(crate::auto_resume::RETRYABLE_STOP_NOTICE_PREFIX)
             });
         if late_terminal_notice {
             self.discard_late_report(
