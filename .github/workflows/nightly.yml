@@ -202,7 +202,7 @@ jobs:
     permissions:
       issues: write # a failure opens or updates the nightly's failure incident (notify() in the script)
     if: github.event_name != 'workflow_dispatch' || ((inputs.probe_mode || 'off') == 'off' && inputs.promote_nightly_next_sha == '' && inputs.nightly_next_post_publish == '')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 123 || 3 }}
     steps:
       - name: Check out the preflight
@@ -237,8 +237,8 @@ jobs:
       checks: read # Read authenticated controller receipts; no App or secret expansion.
       contents: read
     if: github.event_name != 'workflow_dispatch' || ((inputs.probe_mode || 'off') == 'off' && inputs.promote_nightly_next_sha == '' && inputs.nightly_next_post_publish == '')
-    # Routing bootstrap: nothing places it first, so it takes the nightly-only pool (glaeda's light class).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    # Portable tooling runs on the Linux pool, including reruns.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 50
     outputs:
       should_build: ${{ steps.decide.outputs.should_build }}
@@ -1074,7 +1074,7 @@ jobs:
     # if: (needs.promote-nightly-next.outputs.action == 'needs-ack' || needs.promote-nightly-next.outputs.action == 'promote') && needs.promote-nightly-next.outputs.dry_run != 'true'
     if: false
     environment: ${{ needs.promote-nightly-next.outputs.action == 'needs-ack' && 'release-surface-ack' || '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 125 || 5 }}
     permissions: {}
     concurrency:
@@ -1703,7 +1703,7 @@ jobs:
     name: build nightly inputs
     needs: [decide, resolve-nightly-cmux-tui-client]
     if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.continue_only != 'true' && inputs.nightly_next_unsigned_run == '' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.one_job != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     permissions:
       contents: read
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 150 || 30 }}
@@ -1825,8 +1825,8 @@ jobs:
     needs: [decide]
     if: ${{ !cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.one_job != 'true' }}
     continue-on-error: true
-    # It reads the routing App key, so it stays on the nightly-only pool, whose minis run only nightly.yml.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    # Portable tooling runs on the Linux pool, including reruns.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     environment:
       name: ci-routing-agent
       deployment: false
@@ -2876,7 +2876,7 @@ jobs:
     needs: [decide, resolve-nightly-cmux-tui-client, pick-nightly-build-runner]
     # A timed-out pick-nightly-build-runner must not skip this job (see build-nightly-app's `if`).
     if: "!cancelled() && needs.decide.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true' && needs.decide.outputs.one_job != 'true' && needs.decide.outputs.build_only != 'true'"
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.ref == 'refs/heads/nightly-next' && needs.pick-nightly-build-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-build-runner.outputs.helper != needs.pick-nightly-build-runner.outputs.dedicated && needs.pick-nightly-build-runner.outputs.helper || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     permissions:
       contents: read
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 140 || 20 }}
@@ -2943,10 +2943,8 @@ jobs:
     needs: [decide, build-nightly-app, build-nightly-remote-daemon, nightly-next-one]
     # A timed-out pick-nightly-build-runner must not skip this job (see build-nightly-app's `if`).
     if: "!cancelled() && needs.decide.result == 'success' && (needs.build-nightly-app.result == 'success' && needs.build-nightly-remote-daemon.result == 'success' || needs.nightly-next-one.result == 'success' && needs.nightly-next-one.outputs.left != 'true') && inputs.nightly_next_unsigned_run == ''"
-    # The owned nightly-only Mac pool first (the all-nightly reservation, as route-visual-gate-nightly),
-    # then the nightly-only pool variable or label, never Blacksmith (nightlies never use Blacksmith). Its OIDC token only
-    # writes provenance for these assets; the pool already builds the nightly app those assets ship in.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    # Portable tooling runs on the Linux pool, including reruns.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     permissions:
       contents: read
       attestations: write
@@ -3157,8 +3155,8 @@ jobs:
     name: nightly webview checks
     needs: [decide, resolve-nightly-cmux-tui-client]
     if: needs.decide.outputs.track == 'nightly-next' && needs.resolve-nightly-cmux-tui-client.outputs.build_sha != '' && needs.decide.outputs.one_job != 'true'
-    # route-visual-gate-nightly's route: the all-nightly reservation, then the Linux pool, then Blacksmith.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    # Portable tooling runs on the Linux pool, including reruns.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 140 || 20 }}
     permissions:
       contents: read
@@ -3244,8 +3242,8 @@ jobs:
     name: nightly webview checks before the signer
     needs: decide
     if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.one_job == 'true' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.head_sha != ''
-    # check-nightly-webviews' route: no secret, never the signing Mac.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    # Portable tooling runs on the Linux pool, including reruns.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 140 || 15 }}
     permissions:
       contents: read
@@ -3667,8 +3665,8 @@ jobs:
     if: ${{ !cancelled() && needs.prepare-nightly-variant.result == 'success' }}
     # A failed pick reads as success to the signing jobs, which then take the nightly pools.
     continue-on-error: true
-    # The picker has no signing key: the nightly-only pool (tests/test_nightly_owned_minis_only.py).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    # Portable tooling runs on the Linux pool, including reruns.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     # The owned pick mints the routing token (GLAEDA_ROUTE_APP_KEY), so the key is read in the
     # routing environment, as pick-nightly-build-runner does (tests/test_supplychain_security.py).
     environment:
@@ -4722,8 +4720,8 @@ jobs:
   find-nightly-next-recovery:
     needs: [decide]
     if: needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.republish_run == '' && needs.decide.outputs.one_job != 'true'
-    # It reads the routing App key, so it stays on the nightly-only pool, whose minis run only nightly.yml.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    # Portable tooling runs on the Linux pool, including reruns.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 190 || 70 }}
     # The owned pick mints the routing token (GLAEDA_ROUTE_APP_KEY), so the key is read in the
     # routing environment, as pick-nightly-sign-runner does.
@@ -4981,7 +4979,7 @@ jobs:
   republish-nightly-next:
     needs: [decide]
     if: needs.decide.outputs.republish_run != '' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 160 || 40 }}
     permissions:
       actions: read
@@ -5100,8 +5098,8 @@ jobs:
   route-visual-gate-nightly:
     needs: [decide, resolve-nightly-cmux-tui-client]
     if: github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.build_only != 'true' && needs.decide.outputs.continue_only != 'true' && needs.decide.outputs.no_publish != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && vars.NIGHTLY_NEXT_VISUAL_GATE != '' && vars.NIGHTLY_NEXT_VISUAL_GATE != 'off' && vars.CI_NIGHTLY_MINI == '' && needs.decide.outputs.one_job != 'true'
-    # Credentials stay on the validated ephemeral set until exclusive owned-Mac admission exists.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    # Portable tooling runs on the Linux pool, including reruns.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 125 || 5 }}
     # GLAEDA_ROUTE_APP_KEY lives in the routing environment, like every other route job's.
     environment:
@@ -5309,9 +5307,8 @@ jobs:
     needs: [decide, resolve-nightly-cmux-tui-client, route-visual-gate-nightly, verify-final-dmg-nightly]
     # A skipped signing path must not skip this job (implicit success()).
     if: "!cancelled() && needs.verify-final-dmg-nightly.result == 'success' && needs.route-visual-gate-nightly.outputs.runs_on != '' && needs.route-visual-gate-nightly.outputs.mode != 'off' && needs.route-visual-gate-nightly.outputs.mode != 'invalid' && needs.route-visual-gate-nightly.outputs.mode != ''"
-    # The declared nightly-only mini is enabled after live admission is verified.
-    # Keep the existing fallback; never reuse the stale builder-only placement.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    # Portable tooling runs on the Linux pool, including reruns.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     # A re-run's 15 + 75 min, plus slack; attempt 1 waits at most 10.
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 220 || 100 }}
     permissions:
@@ -5346,9 +5343,8 @@ jobs:
   report-visual-gate-nightly:
     needs: [decide, resolve-nightly-cmux-tui-client, route-visual-gate-nightly, visual-gate-nightly, visual-gate-nightly-verdict]
     if: always() && (needs.visual-gate-nightly.outputs.verdict == 'fail' || needs.visual-gate-nightly.outputs.verdict == 'pass')
-    # The declared nightly-only mini is enabled after live admission is verified.
-    # Keep the existing fallback; never reuse the stale builder-only placement.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    # Portable tooling runs on the Linux pool, including reruns.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 125 || 5 }}
     permissions:
       issues: write # the nightly-next visual gate issue
@@ -5382,7 +5378,7 @@ jobs:
   report-nightly-fix-forward:
     needs: [decide, resolve-nightly-cmux-tui-client, check-nightly-webviews, nightly-next-one]
     if: "!cancelled() && (needs.check-nightly-webviews.outputs.lint_report != '' || needs.nightly-next-one.outputs.lint_report != '')"
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 125 || 5 }}
     permissions:
       contents: read
@@ -6776,8 +6772,8 @@ jobs:
     if: "!cancelled() && github.repository == 'manaflow-ai/cmux' && vars.NIGHTLY_NEXT_SLOTS == '2' && vars.CI_NIGHTLY_MINI == '' && github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' || inputs.nightly_next_loop_retry != '') && needs.decide.result == 'success' && needs.decide.outputs.one_job == 'true' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true'"
     # Any failure leaves the outputs empty: nightly-next-one then takes the signer label alone and cmux15's group.
     continue-on-error: true
-    # No secret and no signing key: decide's runner.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    # Portable tooling runs on the Linux pool, including reruns.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 3
     permissions:
       actions: read
@@ -7458,7 +7454,7 @@ jobs:
   wake-nightly-next-tick:
     needs: [decide, resolve-nightly-cmux-tui-client, nightly-next-one, early-nightly-webviews]
     if: "always() && github.ref == 'refs/heads/nightly-next' && needs.decide.outputs.one_job == 'true' && (needs.nightly-next-one.result != 'skipped' || needs.early-nightly-webviews.outputs.red_sha != '')"
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     # Room for gh_budget_wait.sh's wait through a rate limit, and for glaeda's capacity wait on the mini.
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 190 || 70 }}
     continue-on-error: true
@@ -7709,7 +7705,7 @@ jobs:
     # The build jobs too: the record says whether any of them failed (push_clean).
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, build-sign-notarize-nightly, resolve-nightly-cmux-tui-client, publish-nightly, published-build, publish-nightly-next-github, nightly-next-one]
     if: "!cancelled() && (needs.publish-nightly.result == 'success' || needs.nightly-next-one.result == 'success') && needs.published-build.result == 'success' && needs.published-build.outputs.run_tail != 'true'"
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     # Room for gh_budget_wait.sh's wait through a rate limit, and for glaeda's capacity wait on the mini.
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 190 || 70 }}
     permissions:
@@ -7767,8 +7763,8 @@ jobs:
   published-in:
     needs: [published-build, publish-nightly-next-github, generate-nightly-deltas, republish-nightly-deltas]
     if: "!cancelled() && github.ref == 'refs/heads/nightly-next' && needs.published-build.outputs.comment == 'true' && needs.published-build.outputs.run_tail == 'true'"
-    # A paced job of up to five hours, on the nightly mini like the rest of the nightly. Never Blacksmith.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    # Portable tooling runs on the Linux pool, including reruns.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     # Each write is paced at 7.5 s under GitHub's hourly content limit.
     # A shared edit plus a legacy deletion for all 1,000 allowed PRs takes
     # 250 min; leave room for reads. This runs after publication.
@@ -7994,7 +7990,7 @@ jobs:
   retry-nightly-next:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, publish-nightly, resolve-nightly-cmux-tui-client, nightly-next-one, early-nightly-webviews]
     if: "always() && !cancelled() && github.ref == 'refs/heads/nightly-next' && (github.event_name == 'push' || inputs.nightly_next_loop_retry != '') && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.should_build == 'true' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.no_publish != 'true' && needs.publish-nightly.result != 'success' && needs.nightly-next-one.result != 'success' && needs.nightly-next-one.outputs.webview_red != 'true' && (needs.early-nightly-webviews.outputs.red_sha == '' || needs.early-nightly-webviews.outputs.red_sha != needs.resolve-nightly-cmux-tui-client.outputs.build_sha)"
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     # Room for gh_budget_wait.sh's wait through a rate limit, and for glaeda's capacity wait on the mini.
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 190 || 70 }}
     permissions:
@@ -8024,7 +8020,7 @@ jobs:
   fixit-handoff:
     needs: [resolve-nightly-cmux-tui-client, check-nightly-webviews, nightly-next-one]
     if: ${{ !cancelled() && vars.FIXIT_HANDOFF != '0' && (needs.check-nightly-webviews.outputs.fixit_nofix == 'true' || needs.nightly-next-one.outputs.fixit_nofix == 'true') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
       actions: write
@@ -8049,9 +8045,8 @@ jobs:
     # Twice on nightly-next: the loop run reports its build, feed and dispatch, the dispatched run (cross_run) the
     # rest. A dispatched run whose published-build fails has no record, so it reports under nightly-next's names.
     if: always() && (needs.decide.outputs.should_publish == 'true' || needs.published-build.outputs.cross_run == 'true' || inputs.nightly_next_post_publish != '' && needs.published-build.result == 'failure') && needs.decide.outputs.notary_test != 'true' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || needs.publish-nightly.outputs.feed_check == 'failure' || needs.publish-nightly.outputs.tag_status == 'stale' || needs.publish-nightly.outputs.refusal_reason != '' || needs.nightly-next-one.outputs.feed_check == 'failure' || needs.nightly-next-one.outputs.tag_status == 'stale' || needs.nightly-next-one.outputs.refusal_reason != '' || (needs.published-build.result == 'success' && needs.published-build.outputs.run_tail == 'true' && needs.published-build.outputs.track == 'nightly-next' && needs.published-build.outputs.publish_result == 'success' && needs.published-build.outputs.publish_already_published != 'true' && needs.published-build.outputs.publish_refused != 'true' && needs.published-build.outputs.publish_source != 'recovered' && (needs.sign-release-notes.result != 'success' || needs.publish-release-notes.result != 'success')))
-    # The declared nightly-only mini is enabled after live admission is verified.
-    # Keep the existing fallback; never reuse the stale builder-only placement.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    # Portable tooling runs on the Linux pool, including reruns.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 55
     permissions:
       contents: read
@@ -8156,9 +8151,8 @@ jobs:
     # It closes in the run that ran the notes and deltas (run_tail): on nightly-next, the dispatched one. There
     # it cannot see the run that published, so push_clean says none of that run's jobs failed.
     if: always() && needs.published-build.result == 'success' && needs.published-build.outputs.run_tail == 'true' && needs.published-build.outputs.should_publish == 'true' && needs.published-build.outputs.push_clean == 'true' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && needs.published-build.outputs.publish_result == 'success' && needs.published-build.outputs.publish_refused != 'true' && needs.published-build.outputs.publish_tag_status == 'updated' && (needs.generate-nightly-deltas.result == 'success' || needs.generate-nightly-deltas.result == 'skipped') && (needs.republish-nightly-deltas.result == 'success' || needs.republish-nightly-deltas.result == 'skipped') && (needs.published-build.outputs.track != 'nightly-next' || needs.published-build.outputs.publish_source == 'recovered' || (needs.sign-release-notes.result == 'success' && needs.publish-release-notes.result == 'success'))
-    # The declared nightly-only mini is enabled after live admission is verified.
-    # Keep the existing fallback; never reuse the stale builder-only placement.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || github.repository == 'manaflow-ai/cmux' && needs.decide.outputs.track == 'nightly-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_ONLY_RUNNER == 'glaeda-nightly-only-m4pro' && vars.CI_NIGHTLY_ONLY_RUNNER || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
+    # Portable tooling runs on the Linux pool, including reruns.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 15
     permissions:
       contents: read
