@@ -398,7 +398,14 @@ const ListboxRow = memo(
  * what it draws changed (renderItem takes `selected`, so the same item and callback count as the same
  * content only at the same highlight). */
 const ListboxRowContent = memo(
-  function ListboxRowContent({ content }: { item: unknown; renderItem: unknown; selected: boolean; content: ReactNode }) {
+  function ListboxRowContent({
+    content,
+  }: {
+    item: unknown;
+    renderItem: unknown;
+    selected: boolean;
+    content: ReactNode;
+  }) {
     return content;
   },
   (previous, next) =>
