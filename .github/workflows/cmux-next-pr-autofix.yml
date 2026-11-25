@@ -158,6 +158,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           filter: blob:none
+          sparse-checkout-cone-mode: false
           sparse-checkout: |
             scripts/cmux-next
             scripts/ci/cargo_affected.py
@@ -169,7 +170,6 @@ jobs:
             scripts/ci/fast-check-inputs.json
             scripts/ci/generated-files.json
             scripts/ci/generated-files-baseline.txt
-            scripts/ci/generated_outputs.py
             scripts/ci/affected-jobs.json
             scripts/ci/pr_router.json
             scripts/ci/job-inputs-always.json
@@ -235,7 +235,6 @@ jobs:
             scripts/ci/fast-check-inputs.json
             scripts/ci/generated-files.json
             scripts/ci/generated-files-baseline.txt
-            scripts/ci/generated_outputs.py
             scripts/ci/affected-jobs.json
             scripts/ci/pr_router.json
             scripts/ci/job-inputs-always.json
@@ -321,7 +320,6 @@ jobs:
             scripts/ci/fast-check-inputs.json
             scripts/ci/generated-files.json
             scripts/ci/generated-files-baseline.txt
-            scripts/ci/generated_outputs.py
             scripts/ci/affected-jobs.json
             scripts/ci/pr_router.json
             scripts/ci/job-inputs-always.json
@@ -1095,7 +1093,7 @@ jobs:
             artifact_paths="$RUNNER_TEMP/autofix-artifact-paths"
             (
               cd "$RUNNER_TEMP/pr-autofix-context"
-              find scripts/cmux-next scripts/ci -type f ! -name .gitignore -printf '%P\n' | sort
+              find scripts/cmux-next scripts/ci -type f ! -name .gitignore -print | sort
             ) > "$artifact_paths"
             required_paths="$RUNNER_TEMP/autofix-required-paths"
             ci_helpers=(
@@ -1108,7 +1106,6 @@ jobs:
               scripts/ci/fast-check-inputs.json
               scripts/ci/generated-files.json
               scripts/ci/generated-files-baseline.txt
-              scripts/ci/generated_outputs.py
               scripts/ci/affected-jobs.json
               scripts/ci/pr_router.json
               scripts/ci/job-inputs-always.json
