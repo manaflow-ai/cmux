@@ -51,12 +51,6 @@ async fn a_move_whose_target_is_known_deleted_is_given_back_with_no_offer() {
                        "to": {"socket": "/tmp/acpmux-deleted-target.sock"}});
     let bundle = hub.transfer_request("_acpmux/transfer_begin", &begin).await.unwrap();
     let transfer_id = bundle["transferId"].as_str().unwrap().to_owned();
-    // The target read the whole bundle before it was deleted: only then is it asked whether the
-    // chat landed (a bundle not read to its end is ended as `stalled` with no ask).
-    let dir = transfers_dir().join(&transfer_id);
-    for file in bundle["files"].as_array().unwrap() {
-        note_activity(&dir, file["path"].as_str());
-    }
     // The target read the whole bundle before it was deleted: a move whose bundle was never
     // read whole ends as `stalled` before any ask (`end_stalled_move`), so only a fully read
     // one reaches the question the hub answers with "deleted".
