@@ -74,3 +74,41 @@ fn nothing_moves_without_a_regular_legacy_file_or_on_the_legacy_dir() {
     assert!(!migrate_legacy_file(&home, "cmux").unwrap());
     std::fs::remove_dir_all(&home).unwrap();
 }
+
+#[test]
+fn state_items_move_once_and_never_over_the_new_ones() {
+    let state = temp_home("state");
+    let old = state.join(LEGACY_DIR);
+    std::fs::create_dir_all(old.join("customize")).unwrap();
+    std::fs::write(old.join("customize/drafts.json"), "old").unwrap();
+    std::fs::write(old.join("last-chat.json"), "old-chat").unwrap();
+    std::fs::write(old.join("cmux.sock.lock"), "classic").unwrap();
+    assert_eq!(migrate_legacy_state(&state, LEGACY_DIR).unwrap(), Vec::<&str>::new());
+    assert_eq!(migrate_legacy_state(&state, "next").unwrap(), vec!["customize", "last-chat.json"]);
+    let new = state.join("next");
+    assert_eq!(std::fs::read_to_string(new.join("customize/drafts.json")).unwrap(), "old");
+    assert_eq!(std::fs::read_to_string(new.join("last-chat.json")).unwrap(), "old-chat");
+    assert!(old.join("cmux.sock.lock").exists(), "only NEXT's items move");
+    assert!(!old.join("customize").exists() && !old.join("last-chat.json").exists());
+    assert_eq!(migrate_legacy_state(&state, "next").unwrap(), Vec::<&str>::new());
+
+    // Something already at the new name is never replaced; the old one stays.
+    std::fs::create_dir_all(old.join("customize")).unwrap();
+    std::fs::write(old.join("last-chat.json"), "stale").unwrap();
+    assert_eq!(migrate_legacy_state(&state, "next").unwrap(), Vec::<&str>::new());
+    assert_eq!(std::fs::read_to_string(new.join("last-chat.json")).unwrap(), "old-chat");
+    assert!(old.join("last-chat.json").exists() && old.join("customize").exists());
+    std::fs::remove_dir_all(&state).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn a_linked_state_item_never_moves() {
+    let state = temp_home("state-link");
+    let old = state.join(LEGACY_DIR);
+    std::fs::create_dir_all(&old).unwrap();
+    std::os::unix::fs::symlink("/nowhere", old.join("last-chat.json")).unwrap();
+    assert_eq!(migrate_legacy_state(&state, "next").unwrap(), Vec::<&str>::new());
+    assert!(!state.join("next").exists());
+    std::fs::remove_dir_all(&state).unwrap();
+}
