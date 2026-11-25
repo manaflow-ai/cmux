@@ -250,9 +250,9 @@ import {
   ARRIVAL_PASS_MS,
   arrivedAtTail,
   TokenRows,
-  newestPromptId,
   noReplyCame,
   broughtSentPrompt,
+  newestPromptIndex,
 } from "./transcript/arrivals";
 import {
   scrollRangeIn,
@@ -1639,11 +1639,17 @@ function TranscriptView({
         ? (dock.querySelector(`:scope > .acpmux-running-tray:not(.${TRAY_GHOST})`)?.getBoundingClientRect().height ?? 0)
         : 0;
     // The stack's notices (the host's line, an app notice, Retrying…: noticeSlotModel.ts DOCK_NOTICE),
-    // while the stack reaches over the view.
+    // while the stack reaches over the view: each one's box and its vertical margins, the room it takes.
     const notice = (space: number) => {
       if (space <= 0) return 0;
       let height = 0;
-      for (const line of dock.querySelectorAll(DOCK_NOTICE)) height += line.getBoundingClientRect().height;
+      for (const line of dock.querySelectorAll(DOCK_NOTICE)) {
+        const style = getComputedStyle(line);
+        height +=
+          line.getBoundingClientRect().height +
+          (parseFloat(style.marginTop) || 0) +
+          (parseFloat(style.marginBottom) || 0);
+      }
       return height;
     };
     // A click on one of its disclosures (the header, View all, a command's line) is the reader's.
@@ -4000,6 +4006,7 @@ function TranscriptView({
   // (https://github.com/manaflow-ai/cmux/pull/47801) scrolled the whole history out of view on send.
   // The last pass's rows (its layout effect writes them), read once for this pass.
   const placedRows = previousRows.current;
+  const keptAt = following && !sessionSwitched ? newestPromptIndex(rows) : -1;
   const under = roomUnder({
     following,
     sessionSwitched,
@@ -4020,7 +4027,10 @@ function TranscriptView({
     liftedBefore: liftedBefore.current,
     deadband: FOLLOW_BOTTOM_DEADBAND_PX,
     held: heldRoom.current,
-    prompt: following && !sessionSwitched ? newestPromptId(rows) : undefined,
+    prompt: keptAt >= 0 ? rows[keptAt]!.id : undefined,
+    // From the prompt's top, so a page of older history landing above it takes none of the room.
+    promptTail: () =>
+      measured.layout.totalHeight - (keptAt >= 0 ? layoutGeometry(measured.layout).topAt(keptAt) : 0) + tailGap,
     foldRoom,
     newerRoom,
     dragged: draggedHeight,
@@ -7167,11 +7177,13 @@ function TranscriptView({
   // A running turn's own rows are not news, nor a turn that ended with the reader at its bottom
   // (sinceNews.ts `SinceTurnHold`; Leo, 2026-11-25: "dont mark it as new if it's still going").
   const sinceHeld =
-    sinceRow !== undefined ? sinceHold.spans(rows, sinceIndex, sinceKey, working, renderFollowing) : NO_HELD;
+    sinceRow !== undefined
+      ? sinceHold.spans(rows, sinceIndex, sinceKey, working, renderFollowing && !sessionSwitched)
+      : NO_HELD;
   const sinceHasNews = sinceRow !== undefined && sinceNews(rows, sinceIndex, sinceHeld);
   // "157 new messages" (sinceNews.ts `sinceCount`): the news under the line, read from the end back
   // to it, bounded; only when the rows change, never per scroll frame.
-  const sinceHeldKey = sinceHeld.map((span) => `${span.from}-${span.to}`).join(",");
+  const sinceHeldKey = sinceHeld.map((span) => `${span.from}-${span.to}${span.seen ? "s" : ""}`).join(",");
   const sinceMessages = useMemo(
     () => (sinceHasNews ? sinceCount(rows, sinceIndex, undefined, sinceHeld) : undefined),
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- the spans are new each render; their key is what changes
