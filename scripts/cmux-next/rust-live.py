@@ -659,7 +659,8 @@ class Swapper:
         dest.unlink(missing_ok=True)
         try:
             os.link(source, dest)
-        except OSError:
+        except OSError as error:
+            print(f"rust-live: place copies {source} -> {dest} ({error})", file=sys.stderr)
             shutil.copy2(source, dest)
 
     @staticmethod
@@ -683,8 +684,11 @@ class Swapper:
                 marker.write_text(json.dumps({"selector": self.selector, "file": str(target), "copy": str(keep)}) + "\n")
         before = target.with_name(f".{target.name}.rust-live-before")
         staged = target.with_name(f".{target.name}.rust-live")
+        self.marks["keep"] = time.monotonic()
         self.place(target, before)
+        self.marks["before_placed"] = time.monotonic()
         self.place(new, staged)
+        self.marks["staged_placed"] = time.monotonic()
         staged.chmod(0o755)
         os.replace(staged, target)  # the running owner keeps the file it mapped
         self.marks["linked"] = time.monotonic()
