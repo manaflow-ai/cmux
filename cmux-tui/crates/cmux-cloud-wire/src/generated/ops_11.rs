@@ -125,6 +125,114 @@ pub struct TeamDirectoryResult {
 }
 
 wire_errors! {
+    /// The error codes team.device.policy declares.
+    TeamDevicePolicyError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Stop managing an install: team admins for any install; the install's user only for an install they accepted (not one enrolled by an MDM token). Agents never.
+    TeamDeviceReleaseOp {
+        name: "team.device.release",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: TeamDeviceReleaseParams,
+        result: TeamDeviceReleaseResult,
+        error: TeamDeviceReleaseError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamDeviceReleaseParams {
+    pub install: InstallId,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamDeviceReleaseResult {
+    pub install: InstallId,
+}
+
+wire_errors! {
+    /// The error codes team.device.release declares.
+    TeamDeviceReleaseError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Report what this install applied (policy version, MDM key names, conflicts). Send when it changes; the latest report replaces the previous one.
+    TeamDeviceReportStatusOp {
+        name: "team.device.report_status",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-own",
+        principals: [Install],
+        params: TeamDeviceReportStatusParams,
+        result: DeviceStatus,
+        error: TeamDeviceReportStatusError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamDeviceReportStatusParams {
+    pub policy_version: i64,
+    pub app_version: String,
+    pub mdm_keys: Vec<String>,
+    pub conflicts: Vec<String>,
+}
+
+wire_errors! {
+    /// The error codes team.device.report_status declares.
+    TeamDeviceReportStatusError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Read a team's directory: the first 200 members and hosts (U2). Page larger teams with team.members.list and team.hosts.list.
+    TeamDirectoryOp {
+        name: "team.directory",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:TeamDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: TeamDirectoryParams,
+        result: TeamDirectoryResult,
+        error: TeamDirectoryError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamDirectoryParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<TeamId>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamDirectoryResult {
+    pub team: TeamId,
+    pub members: Vec<TeamMember>,
+    pub hosts: Vec<Host>,
+    pub revision: String,
+}
+
+wire_errors! {
     /// The error codes team.directory declares.
     TeamDirectoryError {
         AuthForbidden = "auth.forbidden",
