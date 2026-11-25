@@ -575,6 +575,7 @@
         "experiments.menuRowStates",
         "experiments.composerHatGroups",
         "experiments.toastsV2",
+        "experiments.toastGlass",
         "experiments.foldSummaryCounts",
         "experiments.cloudDiskBar",
         "experiments.terminalHistoryFind",
