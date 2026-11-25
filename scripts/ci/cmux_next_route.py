@@ -170,6 +170,7 @@ SWIFT_JOB_INPUTS = (
     "cmux-tui/crates/cmux-tab-discard/",
     "cmux-tui/crates/cmux-cloud-config/",
     "cmux-tui/crates/cmux-cloud-environment/",
+    "cmux-tui/crates/cmux-build-space/",
     "cmux-tui/crates/cmux-cloud-handlers/",
     "cmux-tui/crates/cmux-cloud-machine/",
     "cmux-tui/crates/cmux-cloud-tasks/",

@@ -802,6 +802,15 @@ pub(super) fn run_action(
             "yes" if super::action_hint::action_takes_argument(action, "confirm") => {
                 arguments.insert("confirm".into(), value);
             }
+            // `--contents-file FILE` (`cloud file-write`): the text read here, so it never sits in
+            // this process's argv where `ps` shows it (`cmux migrate` carries files this way).
+            "contents-file" if super::action_hint::action_takes_argument(action, "contents") => {
+                let path = caller_path(value);
+                let path = path.as_str().unwrap_or_default();
+                let text = std::fs::read_to_string(path)
+                    .map_err(|error| UsageError::new(format!("--contents-file {path}: {error}")))?;
+                arguments.insert("contents".into(), json!(text));
+            }
             _ => {
                 let key = argument_name(&name);
                 // A file or folder of the caller's working directory, for an app that runs elsewhere.

@@ -18,7 +18,7 @@ async fn cancelled_hub_dial_releases_the_pending_tcp_socket() {
     )
     .unwrap();
     let (reply, pending) = oneshot::channel();
-    driver.begin_connect(SocketAddr::new(pair.server_v6, 1337), reply);
+    driver.connect_now(SocketAddr::new(pair.server_v6, 1337), reply);
     assert_eq!(driver.stack.conns.len(), 1);
     assert_eq!(driver.stack.sockets.iter().count(), 1);
 
@@ -27,6 +27,16 @@ async fn cancelled_hub_dial_releases_the_pending_tcp_socket() {
 
     assert!(driver.stack.conns.is_empty(), "a cancelled dial must not wait for TCP_TIMEOUT");
     assert_eq!(driver.stack.sockets.iter().count(), 0);
+
+    // With no session yet the dial waits for one, holding no socket; cancelled,
+    // it leaves at the next pass.
+    let (reply, pending) = oneshot::channel();
+    driver.begin_connect(SocketAddr::new(pair.server_v6, 1337), reply);
+    assert_eq!(driver.held_connects.len(), 1, "a dial with no session waits for one");
+    assert_eq!(driver.stack.sockets.iter().count(), 0);
+    drop(pending);
+    driver.release_held_connects();
+    assert!(driver.held_connects.is_empty(), "a cancelled held dial must not wait for a session");
 }
 
 /// Past this side's handshake rate its session answers a handshake with a
@@ -139,7 +149,7 @@ async fn crossed_initiations_with_queued_data_bring_up_a_session() {
     let mut client = loopback_driver(pair.client, pair.client_socket, server_addr);
     let mut server = loopback_driver(pair.server, pair.server_socket, client_addr);
 
-    // Each side listens and dials the other: a SYN waits in each pacer.
+    // Each side listens and dials the other: each dial waits for a session.
     let mut client_incoming = client.stack.begin_listen(2001).unwrap();
     let mut server_incoming = server.stack.begin_listen(2002).unwrap();
     let (client_reply, mut client_dial) = oneshot::channel();
@@ -151,7 +161,10 @@ async fn crossed_initiations_with_queued_data_bring_up_a_session() {
         driver.initiate_handshake();
         send(driver).await;
     }
-    assert!(client.pacer.has_queued() && server.pacer.has_queued(), "no data was queued");
+    assert!(
+        !client.held_connects.is_empty() && !server.held_connects.is_empty(),
+        "no dial waits for a session"
+    );
 
     // Well inside REKEY_TIMEOUT (5 s): no retry timer may be what rescues it.
     let deadline = Instant::now() + Duration::from_secs(3);
@@ -184,4 +197,30 @@ async fn crossed_initiations_with_queued_data_bring_up_a_session() {
     // The first crossed pair is what completes: a fresh initiation in
     // between would leave both responses unexpected, costing another round.
     assert_eq!((client_initiations, server_initiations), (1, 1), "initiations each side answered");
+}
+
+/// Data with the given receiver index, as a WireGuard data message.
+fn data_to(index: u32) -> Vec<u8> {
+    let mut message = vec![0u8; 32];
+    message[0] = 4;
+    message[4..8].copy_from_slice(&index.to_le_bytes());
+    message
+}
+
+#[test]
+fn responder_sample_waits_for_data_on_the_answered_session() {
+    let answered = Instant::now() - Duration::from_millis(400);
+    let mut responded_at = Some((answered, 7));
+    let mut handshake_rtt = None;
+    // Data on the session the peer initiated (crossed handshakes) is not
+    // an answer to this side's response.
+    note_answered(&data_to(9), &mut responded_at, &mut handshake_rtt);
+    assert_eq!(handshake_rtt, None, "sampled data on another session");
+    assert!(responded_at.is_some(), "dropped the pending sample");
+    note_answered(&data_to(7), &mut responded_at, &mut handshake_rtt);
+    assert!(
+        handshake_rtt.is_some_and(|rtt| rtt >= Duration::from_millis(400)),
+        "answered session's data gave {handshake_rtt:?}"
+    );
+    assert!(responded_at.is_none());
 }

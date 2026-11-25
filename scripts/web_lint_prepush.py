@@ -268,14 +268,24 @@ class Plan:
     trusted: Path | None = None  # the reviewed copy trusted_pieces run from
 
 
-def git(repo: Path, *args: str, check: bool = True) -> str:
-    result = subprocess.run(["git", "-C", str(repo), *args], text=True, capture_output=True)
+def git(repo: Path, *args: str, check: bool = True, lazy: bool = True) -> str:
+    """LAZY=False for a read of refs and commits only: see no_lazy_fetch()."""
+    result = subprocess.run(["git", "-C", str(repo), *args], text=True, capture_output=True,
+                            env=None if lazy else no_lazy_fetch())
     if check and result.returncode != 0:
         raise SystemExit(f"web-lint: git {' '.join(args)} failed: {result.stderr.strip()}")
     return result.stdout
 
 
 PUSH_RANGE = "push_range.py"
+
+# trust_base() reads the reviewed branches' refs on every push. In a worktree of a blobless mirror a ref whose commit
+# the mirror lacks made `rev-parse ref^{commit}` lazy-fetch that commit's whole history, and pushes sat in this hook
+# 526 to 1436 s with no violation named (hq handbook blobless-mirror-hangs-in-a-lazy-fetch-of-history, 2026-11-18).
+# Its ref and commit reads run with lazy fetch off, so such a ref reads as absent (a full clone ignores the
+# variable). Reads that may need file contents keep lazy fetch.
+def no_lazy_fetch() -> dict[str, str]:
+    return {**os.environ, "GIT_NO_LAZY_FETCH": "1"}
 
 
 def load_push_range(trusted_scripts: Path | None):
@@ -513,12 +523,12 @@ def trust_base(repo: Path, head: str) -> str | None:
         for remote in reviewed_remotes(repo):
             ref = f"refs/remotes/{remote}/{branch}"
             if subprocess.run(["git", "-C", str(repo), "rev-parse", "-q", "--verify", f"{ref}^{{commit}}"],
-                              capture_output=True).returncode != 0:
+                              capture_output=True, env=no_lazy_fetch()).returncode != 0:
                 continue
-            base = git(repo, "merge-base", head, ref, check=False).strip()
+            base = git(repo, "merge-base", head, ref, check=False, lazy=False).strip()
             if not base:
                 continue
-            distance = len(git(repo, "rev-list", f"--max-count={FAR}", f"{base}..{head}").split())
+            distance = len(git(repo, "rev-list", f"--max-count={FAR}", f"{base}..{head}", lazy=False).split())
             if distance < FAR:
                 return base
             found.append((distance, base))

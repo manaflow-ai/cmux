@@ -30,7 +30,23 @@
     {
       "agent": "settable",
       "keys": [
+        "customize.checklist.done",
+        "customize.checklist.enabled"
+      ]
+    },
+    {
+      "agent": "settable",
+      "keys": [
         "shortcuts.showModifierHoldHints"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Which keys lists and the code editor answer to and how shortcuts find their key: the person's keyboard habits, nothing private or destructive, and `cmux settings set app.keyStyle vim` is the documented way to set it.",
+      "keys": [
+        "app.keyStyle",
+        "app.shortcutLayout",
+        "editor.vimMode"
       ]
     },
     {
@@ -285,6 +301,7 @@
         "appearance.backgroundBlur",
         "appearance.inactiveWindowDim",
         "appearance.wallpaperTint",
+        "appearance.liveWallpaperFrameRate",
         "appearance.terminalCellBackgrounds",
         "appearance.background",
         "appearance.backgroundRotation",
@@ -428,6 +445,8 @@
         "sidebar.showSpaces",
         "sidebar.showProfileControl",
         "sidebar.showSearchButton",
+        "sidebar.showLiveToggle",
+        "presence.live",
         "sidebar.showNewWorkspaceChooser",
         "sidebar.workspacesAsTabs",
         "sidebar.chromeGroups",
@@ -527,11 +546,18 @@
         "experiments.hoverLook",
         "experiments.seeThroughDock",
         "experiments.attachmentTypeIcons",
+        "experiments.composerCustomizer",
         "experiments.agentBadges",
         "experiments.agentBadgesBeam",
+        "experiments.terminalAgentMark",
         "experiments.menuStyleV2",
         "experiments.menuRowStates",
-        "experiments.toastsV2"
+        "experiments.toastsV2",
+        "experiments.terminalHistoryFind",
+        "experiments.terminalHistory",
+        "experiments.quietConnect",
+        "experiments.threadMinimapRestReveal",
+        "experiments.forum"
       ]
     },
     {
@@ -1552,6 +1578,13 @@
     },
     {
       "agent": "privacy",
+      "why": "Whether this Mac sends crash reports and anonymous analytics: the person's choice only.",
+      "keys": [
+        "app.sendAnonymousTelemetry"
+      ]
+    },
+    {
+      "agent": "privacy",
       "why": "Whether this computer counts how the person uses cmux: the person's choice only.",
       "keys": [
         "diagnostics.usagePatterns"
@@ -1642,6 +1675,13 @@
     },
     {
       "agent": "userOnly",
+      "why": "Whether a locked Mac stays up on battery for agents is the person's call too.",
+      "keys": [
+        "sessions.keepAwakeWhenLocked"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "Whether agents start again by themselves after a restart is the person's call.",
       "keys": [
         "sessions.resumeAgents"
@@ -1701,7 +1741,8 @@
       "keys": [
         "agents.autoRetry.enabled",
         "agents.autoRetry.intervalSeconds",
-        "agents.autoRetry.attempts"
+        "agents.autoRetry.attempts",
+        "agents.autoRetry.capacityFallbackAfter"
       ]
     },
     {
@@ -1713,10 +1754,13 @@
     },
     {
       "agent": "userOnly",
-      "why": "Compacting on a timer spends the person's usage (one model call each): their call.",
+      "why": "Compacting on a timer or before a cold wake, and batching the person's chats' wakes, spends their usage (one model call each) and delays delivery: their call.",
       "keys": [
         "agents.cacheCompact.enabled",
-        "agents.cacheCompact.minContextPercent"
+        "agents.cacheCompact.minContextPercent",
+        "agents.coldWake.enabled",
+        "agents.coldWake.compact",
+        "agents.coldWake.compactAboveTokens"
       ]
     },
     {
@@ -1953,6 +1997,20 @@
       "why": "Saved prompts are the person's own words, sent to agents as prompts; an agent does not write them.",
       "keys": [
         "agentPane.savedPrompts"
+      ]
+    },
+    {
+      "agent": "settable",
+      "why": "Tailnet join preferences are user-controlled and exposed through Settings, CLI and MCP. Authentication keys are entered only for a join action and are never stored here.",
+      "keys": [
+        "tailnet.join.enabled",
+        "tailnet.join.loginServer",
+        "tailnet.join.hostname",
+        "tailnet.join.tags",
+        "tailnet.join.ssh",
+        "tailnet.join.ephemeral",
+        "tailnet.join.servePorts",
+        "tailnet.join.autoJoinNewVMs"
       ]
     }
   ]

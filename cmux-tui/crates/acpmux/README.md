@@ -407,6 +407,7 @@ cmux agent session tail NAME --since <sessionId>:<seq> --follow   # raw events a
 acpmux compare -m claude -m codex/gpt-5.5 "prompt"                    # one temporary session per harness, run one after another
 # Race CLI commands run inside an authenticated acpmux agent session:
 acpmux race new -m codex/gpt-6.1-sol -m codex/gpt-6-astra --reviewer claude/opus --reviewer-effort medium "task"
+acpmux race new -n 3 -m claude/haiku --hint "" --hint "write the failing test first" --hint "read the code path first" --reviewer claude/sonnet "task"  # attempts that diverge on purpose: one plan hint per candidate, in order ("" = the task alone)
 acpmux race show RACE                                          # candidate replies, worktrees and reviewer choice
 acpmux race stats                                              # each model's wins / completed races
 acpmux race stop RACE                                          # cancel this race's work, retain its record
@@ -455,8 +456,20 @@ off) the chat gets one prompt telling the agent to check what finished and conti
 id `<promptId>~resume-<n>` and `_meta.provenance.kind` `auto_resume`. Stop, closing the chat, or
 anything else run in it meanwhile cancels it, and a continuation that completes resumes the
 prompts the cut turn held (`hub/auto_resume.rs`). While it waits the session row's `retry` is
-`{attempt, of, reason, nextAt, promptId, turnId}` (`reason` `capacity`, `rate_limit`, `transport` or
-`agent_exited`), null otherwise. Sign-in failures never retry this way. An account's usage or
+`{attempt, of, reason, nextAt, promptId, turnId}` (`reason` `capacity`, `rate_limit`, `transport`,
+`agent_exited` or `disk`), null otherwise. A capacity error, a rate limit and a refused connection
+(`ECONNREFUSED`: the inference gateway is down) never run out of attempts (`untilCapacity: true`
+on their `auto_resume_scheduled`): a capacity error's or a refused connection's waits are the
+configured ones, then the last one doubling, each at most 5 min; a rate limit's are the chat's
+backoff below. Any other connection error stops after the configured attempts
+(`auto_resume_exhausted`). A turn a full disk cut ("No space left on device")
+waits past its delay until the chat's folder has `autoResumeDiskFreeBytes` free (default 16 MiB,
+re-checked every 15 s), then goes on the same way. From the `capacityFallbackAfter`th capacity attempt of one prompt
+on (default 1, `0` never; Settings' `agents.autoRetry.capacityFallbackAfter` when config.json has
+none), a chat on Opus or Fable continues on the catalog's newest Sonnet, with one
+`capacity_failover {from, to, attempt, promptId, text}` notice row and log line; the first turn
+that ends well there puts its own model back (`capacity_restored`), and the chat's meta keeps
+that model across a daemon restart (`hub/auto_resume/capacity_failover.rs`). Sign-in failures never retry this way. An account's usage or
 rate limit (HTTP 429, `rate_limit`) holds the whole chat until its reset (`hub/rate_hold.rs`): no
 turn starts, what comes in queues and goes in as one turn at the reset with the continuation's
 words (a context past 200K tokens compacts first), the row's `rateLimitedUntil` says until when,
@@ -1338,7 +1351,7 @@ own environment lacks. Every child: PATH (login PATH first), MISE_*, ASDF_*, NVM
 BUN_INSTALL, HTTPS_PROXY, HTTP_PROXY, ALL_PROXY, NO_PROXY (both cases),
 NODE_EXTRA_CA_CERTS, SSL_CERT_FILE, SSL_CERT_DIR. Claude harnesses also: ANTHROPIC_*, CLAUDE_*,
 DISABLE_*, *_TELEMETRY; AWS_* only with the person's own CLAUDE_CODE_USE_BEDROCK (a profile's switch unlocks only AWS_PROFILE, AWS_REGION, AWS_DEFAULT_REGION, AWS_CONFIG_FILE, AWS_SHARED_CREDENTIALS_FILE); GOOGLE_*, CLOUDSDK_*, GCLOUD_*, CLOUD_ML_REGION, VERTEX_REGION_* (non-secret ones only from a profile's switch) only
-with CLAUDE_CODE_USE_VERTEX. Codex harnesses also: OPENAI_*, CODEX_*, AZURE_OPENAI_API_KEY. Gemini: GEMINI_*, GOOGLE_*.
+with CLAUDE_CODE_USE_VERTEX; AZURE_* but AZURE_OPENAI_API_KEY (Foundry's Entra ID sign-in) only with the person's own CLAUDE_CODE_USE_FOUNDRY (a profile's switch unlocks only AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_AUTHORITY_HOST, AZURE_CONFIG_DIR). Codex harnesses also: OPENAI_*, CODEX_*, AZURE_OPENAI_API_KEY. Gemini: GEMINI_*, GOOGLE_*.
 Grok: XAI_API_KEY. DeepSeek Harness: DEEPSEEK_API_KEY.
 Muse: MUSE_*, META_*. OpenCode, OpenCode v2, pi, omp, Prime, cmux Harness and Hermes also: a fixed
 list of provider keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY, GROQ_API_KEY,
@@ -1521,6 +1534,30 @@ Everything after `claude` in `argv` is passed through, so `--settings`, `--mcp-c
 picks this backend automatically when `claude` is on PATH. Interrupt uses Claude's
 `control_request` `interrupt`; the interrupted turn ends with `stopReason: cancelled` and the
 process keeps running.
+
+### Tuning compaction
+
+acpmux compacts an idle Claude Code chat in two places: before its prompt cache expires (warm,
+`hub/cache_compact.rs`) and before a batch of messages wakes a chat whose cache already lapsed
+(cold, `hub/cold_wake.rs`, which tries context surgery before `/compact`). Every knob is a
+setting in the cmux settings file (`~/.config/cmux/cmux-next.json`, or `CMUX_NEXT_CONFIG_FILE`;
+Settings > General > Prompt Cache, or `cmux settings set KEY VALUE`) and an environment variable
+of the acpmux daemon. The variable wins over the file; a value outside the range is clamped to
+it, and one that does not parse is ignored. Both are read each time a timer arms or a batch
+opens, so a change applies without a restart (the variable needs the daemon restarted with it).
+
+| Knob | Setting | Environment variable | Default | Range |
+|---|---|---|---|---|
+| Compact before the cache expires | `agents.cacheCompact.enabled` | `ACPMUX_CACHE_COMPACT=0\|1` | on | on, off |
+| Only above context used (%) | `agents.cacheCompact.minContextPercent` | `ACPMUX_CACHE_COMPACT_MIN_CONTEXT_PERCENT=N` | 30 | 10-95 |
+| Batch wakes of cold chats | `agents.coldWake.enabled` | `ACPMUX_COLD_WAKE=0\|1` | on | on, off |
+| Compact cold chats before waking (needs batching on) | `agents.coldWake.compact` | `ACPMUX_COLD_WAKE_COMPACT=0\|1` | on | on, off |
+| Compact cold chats above (tokens) | `agents.coldWake.compactAboveTokens` | `ACPMUX_COLD_COMPACT_ABOVE_TOKENS=N` | 50000 | 10000-500000 |
+
+On/off variables take `1`, `true`, `on` or `0`, `false`, `off`. Context surgery itself (masking old
+tool output instead of `/compact`) is `agents.harnessMagic.surgery.enabled`, off with
+`ACPMUX_HM_SURGERY=0`. The daemon logs each decision under `acpmux::hub::cold_wake` and
+`acpmux::hub::idle::cache_compact`.
 
 ### cmux tools in every session
 
