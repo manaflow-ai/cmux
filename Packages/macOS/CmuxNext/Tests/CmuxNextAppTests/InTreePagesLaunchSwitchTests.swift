@@ -29,6 +29,18 @@ struct InTreePagesLaunchSwitchTests {
             .contains("CMUX_CEF_RESIZE_FENCE_MS"), "another cmux's override reached this app")
     }
 
+    /// The page presentation mode (`CMUX_PAGE_PRESENTATION=presented|inTree|childWindow`) reaches the latch too.
+    @Test func thePresentationModeSurvivesTheLaunchStrip() {
+        #expect(LaunchIdentity.pagePresentationKey == InTreePages.presentationEnvironmentKey)
+        let launch = [InTreePages.presentationEnvironmentKey: "presented"]
+        #expect(!LaunchIdentity.inheritedKeys(processEnvironment: launch, bundledEnvironment: [:])
+            .contains(InTreePages.presentationEnvironmentKey), "the launch strip took CMUX_PAGE_PRESENTATION")
+        #expect(InTreePages.decide(fileOverride: nil, tag: nil, environment: launch) == (.presented, "environment"))
+        let foreign = launch.merging(["CMUX_BUNDLE_ID": "com.cmuxterm.app.nightly"]) { a, _ in a }
+        #expect(LaunchIdentity.inheritedKeys(processEnvironment: foreign, bundledEnvironment: [:])
+            .contains(InTreePages.presentationEnvironmentKey), "another cmux's mode reached this app")
+    }
+
     /// One that another cmux's terminal passed on is that cmux's, and goes, like every other launch switch.
     @Test func aSwitchAnotherCmuxSetGoes() {
         let foreign = [InTreePages.environmentKey: "1", "CMUX_BUNDLE_ID": "com.cmuxterm.app.nightly"]

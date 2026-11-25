@@ -12,33 +12,33 @@ import Testing
         InTreePages.shared.setForTesting(requested: nil)
         InTreePages.shared.latch(fileOverride: nil, tag: "in-tree-pages-fix", environment: [:])
         #expect(InTreePages.shared.isRequested)
-        #expect(InTreePages.tunable.descriptor.defaultValue == .bool(true), "a tag-default build: the switch's default is On")
+        #expect(InTreePages.tunable.descriptor.defaultValue == .choice("inTree"), "a tag-default build: the row's default is in tree")
     }
 
     @Test func anUntaggedBuildShowsTheSwitchOff() {
         defer { InTreePages.shared.setForTesting(requested: false) }
         InTreePages.shared.setForTesting(requested: nil)
         InTreePages.shared.latch(fileOverride: nil, tag: "other", environment: [:])
-        #expect(InTreePages.tunable.descriptor.defaultValue == .bool(false))
+        #expect(InTreePages.tunable.descriptor.defaultValue == .choice("childWindow"))
     }
 
     /// The file's Off still turns a tag-default build off, and its default stays the build's On.
     @Test func theFileOverrideStillDecidesAndDiffersFromTheBuildDefault() {
         defer { InTreePages.shared.setForTesting(requested: false) }
         InTreePages.shared.setForTesting(requested: nil)
-        InTreePages.shared.latch(fileOverride: false, tag: "in-tree-pages-fix", environment: [:])
+        InTreePages.shared.latch(fileOverride: .childWindow, tag: "in-tree-pages-fix", environment: [:])
         #expect(!InTreePages.shared.isRequested)
         #expect(InTreePages.shared.source == "file")
-        #expect(InTreePages.tunable.descriptor.defaultValue == .bool(true))
+        #expect(InTreePages.tunable.descriptor.defaultValue == .choice("inTree"))
     }
 
     /// The environment decides before the file and the tag: the row's default follows it.
     @Test func theEnvironmentDecidesTheDefault() {
         defer { InTreePages.shared.setForTesting(requested: false) }
         InTreePages.shared.setForTesting(requested: nil)
-        InTreePages.shared.latch(fileOverride: true, tag: "in-tree-pages-fix", environment: [InTreePages.environmentKey: "0"])
+        InTreePages.shared.latch(fileOverride: .inTree, tag: "in-tree-pages-fix", environment: [InTreePages.environmentKey: "0"])
         #expect(!InTreePages.shared.isRequested)
         #expect(InTreePages.shared.source == "environment")
-        #expect(InTreePages.tunable.descriptor.defaultValue == .bool(false))
+        #expect(InTreePages.tunable.descriptor.defaultValue == .choice("childWindow"))
     }
 }

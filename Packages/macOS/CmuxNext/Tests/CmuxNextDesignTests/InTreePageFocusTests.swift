@@ -139,12 +139,12 @@ import Testing
     }
 
     @Test func theSwitchFollowsEnvironmentThenFileThenTag() {
-        #expect(InTreePages.decide(fileOverride: false, tag: "in-tree-pages", environment: ["CMUX_IN_TREE_PAGES": "1"]) == (true, "environment"))
-        #expect(InTreePages.decide(fileOverride: true, tag: nil, environment: ["CMUX_IN_TREE_PAGES": "0"]) == (false, "environment"))
-        #expect(InTreePages.decide(fileOverride: false, tag: "in-tree-pages", environment: [:]) == (false, "file"))
-        #expect(InTreePages.decide(fileOverride: nil, tag: "in-tree-pages-2", environment: [:]) == (true, "tag"))
-        #expect(InTreePages.decide(fileOverride: nil, tag: "other", environment: [:]) == (false, "default"))
-        #expect(InTreePages.decide(fileOverride: nil, tag: nil, environment: [:]) == (false, "default"))
+        #expect(InTreePages.decide(fileOverride: .childWindow, tag: "in-tree-pages", environment: ["CMUX_IN_TREE_PAGES": "1"]) == (.inTree, "environment"))
+        #expect(InTreePages.decide(fileOverride: .inTree, tag: nil, environment: ["CMUX_IN_TREE_PAGES": "0"]) == (.childWindow, "environment"))
+        #expect(InTreePages.decide(fileOverride: .childWindow, tag: "in-tree-pages", environment: [:]) == (.childWindow, "file"))
+        #expect(InTreePages.decide(fileOverride: nil, tag: "in-tree-pages-2", environment: [:]) == (.inTree, "tag"))
+        #expect(InTreePages.decide(fileOverride: nil, tag: "other", environment: [:]) == (.childWindow, "default"))
+        #expect(InTreePages.decide(fileOverride: nil, tag: nil, environment: [:]) == (.childWindow, "default"))
     }
 
     @Test func anEngineWithoutTheCallsTurnsTheModeOff() {
