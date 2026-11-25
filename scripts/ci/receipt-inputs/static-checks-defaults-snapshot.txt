@@ -1,0 +1,13 @@
+# Traced inputs of static-checks-defaults-snapshot (scripts/ci/traced_inputs.py; cmuxterm-hq RFD 0148 rows 9, 34). Generated:
+# python3 scripts/ci/traced_inputs.py export --check static-checks-defaults-snapshot --manifest M --out THIS; do not edit.
+# 6 files read, 2 directories listed, 2 paths probed absent; traced at fda4b173fff8.
+* blob scripts/ci/defaults_guard.py
+* blob scripts/ci/pr_status.py
+* blob scripts/ci/receipt-inputs/static-checks-defaults-snapshot.txt
+* blob scripts/ci/risk_tier.py
+* blob tests/fleet_test_host.py
+* blob tests/git_fixture_env.py
+* blob tests/test_defaults_guard.py
+* exists scripts
+* names scripts/ci
+* names tests
