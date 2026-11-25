@@ -279,9 +279,9 @@ public final class SidebarModel {
     public var showsTimestamps = false
     /// Seen, finished agent chats fold behind a "Settled (N)" row (`sidebar.settleFinished`, off by default).
     public var settlesFinished = false
-    /// Sessions no person started and no chat's subagent draw in place (`sidebar.showAutomaticSessions`, off by
-    /// default: they fold behind an "Automatic (N)" row).
-    public var showsAutomaticSessions = false
+    /// Sessions no person started and no chat's subagent draw in place (`sidebar.showAutomaticSessions`, on by
+    /// default; off folds them behind an "Automatic (N)" row).
+    public var showsAutomaticSessions = true
     /// `sidebar.showColors` (off: no workspace or group color) and `workspaceColors.indicatorStyle`.
     public var showsColors = true
     public var colorIndicator: WorkspaceColorIndicatorStyle = .leftRail

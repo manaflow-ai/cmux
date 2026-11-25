@@ -142,9 +142,9 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// `cmux-layout-reducer` `settle`). Off by default; the Studio look turns it on.
     public var settleFinished = false
     /// `sidebar.showAutomaticSessions`: sessions no person started and no chat's subagent (a script, an automation, a
-    /// launcher; the daemon records `created_by` kind `script`) draw in place. Off by default: they fold into an
+    /// launcher; the daemon records `created_by` kind `script`) draw in place. On by default; off folds them into an
     /// "Automatic (N)" row at the end of their list (the rule is Rust's, `cmux-layout-reducer` `automatic`).
-    public var showAutomaticSessions = false
+    public var showAutomaticSessions = true
     /// `sidebar.showColors`: the sidebar draws workspace and group colors. Off draws none (a
     /// workspace's swatch goes, its symbol or emoji stays; a group draws as one with no color)
     /// and keeps every stored color (Lawrence 2026-10-22: "need to be able to remove all

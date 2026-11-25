@@ -115,8 +115,10 @@ import Testing
         #expect(Self.model().movesRows(from: cron, to: Self.row("cron", by: .script, chip: .needsYou)))
     }
 
-    @Test func theSettingDefaultsToHidden() {
-        #expect(SidebarSectionsPreferences().showAutomaticSessions == false)
-        #expect(SidebarSectionsSetting.showAutomaticSessionsDefault == false)
+    /// Leo, 2026-11-25: the "Automatic" row with a chevron is not supposed to be a sidebar control. By default every
+    /// row draws in place and no fold row shows; the fold stays behind the setting in Settings.
+    @Test func theSettingDefaultsToShownInPlace() {
+        #expect(SidebarSectionsPreferences().showAutomaticSessions == true)
+        #expect(SidebarSectionsSetting.showAutomaticSessionsDefault == true)
     }
 }
