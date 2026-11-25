@@ -173,6 +173,7 @@ a stated limit), **missing** (not on the phone yet), **not from a phone**
 
 | Mac action | Phone | State | Notes |
 | --- | --- | --- | --- |
+| Earlier history — open as chat (Claude Code and Codex terminal panes) | — | missing | The Mac opens an app-local, read-only transcript tab. The phone’s terminal find searches the terminal buffer. Its agent chat history currently requires a linked agent session. |
 | Type, paste, keys, Ctrl-C | composer, direct typing, key bar, paste | works | |
 | Glass refraction over live content (`ask-d547ac77f0`) | native iOS 26 composer glass; terminal scrollback draws above its theme backing | partial | Terminal backing order corrected; fleet visual verification and iPhone handoff pending. Chat, Chief and TabsKit already use native glass. See [refraction verification](glass-refraction.md). |
 | Run a command | type it | works | The phone never starts a program by argv (`run` refused). |

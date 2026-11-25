@@ -3185,6 +3185,7 @@ async fn dispatch_request_with_identity(
             context::handle(hub, conn, m, &params).await
         }
         method::MUX_INFO => info::info(hub, conn, &params).await,
+        method::MUX_SESSION_RESYNC => super::session_patch::resync(hub, conn, &params),
         method::MUX_SESSION_FILES => {
             super::session_files::require_local(conn.origin)?;
             let s = hub.resolve(session_key(&params)?)?;
@@ -3764,9 +3765,11 @@ async fn dispatch_request_with_identity(
                 anyhow::Ok((page, opener))
             })
             .map_err(|e| RpcError::internal(e.to_string()))?;
-            // The newest page holds to the log's end; a page of older records, or a forward one
-            // with more to read, only to its own last record.
-            let through = if before.is_none() && (after.is_none() || !page.has_more) {
+            // The newest page holds to the log's end, whether it was asked with no beforeSeq or
+            // with one past the end (the app's tail-first attach sends a sentinel): the records
+            // after its newest are of kinds it did not ask for. A page of older records, or a
+            // forward one with more to read, holds only to its own last record.
+            let through = if events::reads_to_end(after.is_some(), before, last, page.has_more) {
                 last
             } else {
                 events::newest_seq(&page.events)
@@ -4684,11 +4687,9 @@ pub(super) fn note_initialize(conn: &Conn, params: &Value) {
     // A peer's link reads text masked (`peer_text.rs`), so it is never sent the compact form.
     let deltas = params.pointer("/_meta/acpmux/chunkDeltas").and_then(Value::as_bool);
     conn.chunk_deltas.set_enabled(deltas == Some(true) && conn.raw_text);
-    // Opt-in too: a client that does not ask hears each change as the whole row, as before.
-    // Only a raw-text connection may: a patch is diffed from the raw row, and the peer masker
-    // (`peer_text.rs`) knows a summary only whole, so a masked peer always gets whole rows.
-    conn.session_delta
-        .store(super::session_patch::allowed(params, conn.raw_text), Ordering::SeqCst);
+    // Opt-in too: a client that does not ask hears each change as the whole row, as before. A
+    // masked connection (a peer's link) gets patches of the masked row (`session_patch.rs`).
+    conn.session_delta.store(super::session_patch::allowed(params), Ordering::SeqCst);
     // Opt-in too (`time_breakdown_gate.rs`): a client that does not ask keeps every breakdown.
     let omit = params.pointer("/_meta/acpmux/omitTimeBreakdown").and_then(Value::as_bool);
     conn.omit_time_breakdown.store(omit == Some(true), Ordering::SeqCst);
