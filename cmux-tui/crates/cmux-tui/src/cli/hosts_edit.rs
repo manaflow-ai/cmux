@@ -80,8 +80,7 @@ pub(super) fn run(output: OutputMode, edit: &HostEdit) -> i32 {
         return 1;
     }
     let config = cmux_config::config_path();
-    let seed = cmux_config::location::seed_path();
-    let hosts = match hosts_edit::edit_file(&config, seed.as_deref(), edit) {
+    let hosts = match hosts_edit::edit_file(&config, None, edit) {
         Ok(hosts) => hosts,
         Err(error) => {
             eprintln!("cmux hosts: {error}");
