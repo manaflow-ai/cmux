@@ -22,7 +22,7 @@ struct PageChromeInsetsTests {
     /// Expanded, the page starts 8 pt under the bar's row (portrait iPhone, 62 pt status bar).
     @Test func restingTopIsUnderTheExpandedBar() {
         let r = resting(safeTop: 62, safeBottom: 34)
-        #expect(r.top == 62 + 2 + 48 + 8)
+        #expect(r.top == CGFloat(62 + 2 + 48 + 8))
         #expect(r.bottom == 34)
         #expect(PageChromeInsets.live(edge: .top, collapsed: false, resting: r, safeTop: 62, pillHeight: pill) == r)
     }
@@ -44,7 +44,7 @@ struct PageChromeInsetsTests {
     /// Landscape (no status bar): the bar sits 20 pt down; collapsed, the page reaches the pill.
     @Test func landscapeCollapsedTopBar() {
         let r = resting(safeTop: 0, safeBottom: 21)
-        #expect(r.top == 20 + 2 + 48 + 8)
+        #expect(r.top == CGFloat(20 + 2 + 48 + 8))
         let live = PageChromeInsets.live(edge: .top, collapsed: true, resting: r, safeTop: 0, pillHeight: pill)
         #expect(live.top == 0 + pill + 8)
         #expect(live.bottom == 21)
