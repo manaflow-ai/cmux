@@ -33,6 +33,11 @@ nonisolated enum AgentPanePolicyFFI {
         return String(decoding: UnsafeBufferPointer(start: bytes, count: out.len), as: UTF8.self)
     }
 
+    /// The `text` of a pane-free op's reply (the `prompt_*` text ops); nil when it could not run.
+    static func text(_ op: String, _ request: [String: Any]) -> String? {
+        call(op, request)?["text"] as? String
+    }
+
     /// One JSON op that needs no pane (`cmux_agent_pane_policy_call` with no handle); nil when the
     /// request is not JSON or Rust refused it.
     static func call(_ op: String, _ request: [String: Any]) -> [String: Any]? {
