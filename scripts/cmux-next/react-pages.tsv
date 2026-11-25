@@ -39,4 +39,5 @@ site-settings	page	a full tab page
 stash	page	a full tab page
 stats	page	a full tab page
 task-manager	page	a full tab page
+terminal-history	page	read-only transcript viewer for terminal agents
 tasks	page	a full tab page

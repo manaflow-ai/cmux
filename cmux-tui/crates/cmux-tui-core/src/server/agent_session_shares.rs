@@ -75,6 +75,7 @@ const MAX_LINK_USES: u32 = 1000;
 pub(super) const MAX_AVATAR_BYTES: usize = 1024;
 /// Records kept at once (an ended one goes when room is needed), so the file stays far below
 /// `state_file`'s 64 KiB read bound.
+/// Measured: the share file is read only up to 64 KiB (`state_file.rs` MAX_FILE_BYTES).
 const MAX_SHARES: usize = 16;
 /// A guest's `client_id` or a redeem's `attempt_id`, in bytes.
 const MAX_ID_BYTES: usize = 128;
