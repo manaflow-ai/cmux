@@ -18,7 +18,20 @@ let dom: JSDOM | undefined;
 let root: Root | undefined;
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
-const GLOBALS = ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"];
+const GLOBALS = [
+  "window",
+  "document",
+  "navigator",
+  "Node",
+  "HTMLElement",
+  "Element",
+  "customElements",
+  "MutationObserver",
+  "ResizeObserver",
+  "requestAnimationFrame",
+  "cancelAnimationFrame",
+  "IS_REACT_ACT_ENVIRONMENT",
+];
 
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
@@ -35,7 +48,10 @@ afterEach(async () => {
 });
 
 async function render(node: ReactNode): Promise<HTMLElement> {
-  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
+  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
+    url: "http://localhost/",
+    pretendToBeVisual: true,
+  });
   for (const key of GLOBALS) if (!saved.has(key)) saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
@@ -44,13 +60,36 @@ async function render(node: ReactNode): Promise<HTMLElement> {
     Node: dom.window.Node,
     HTMLElement: dom.window.HTMLElement,
     Element: dom.window.Element,
+    // The opened card draws each file with the diff renderer (@pierre/diffs), a custom element.
+    customElements: dom.window.customElements,
+    MutationObserver: dom.window.MutationObserver,
+    ResizeObserver: class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+    requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0),
+    cancelAnimationFrame: (handle: number) => clearTimeout(handle),
     IS_REACT_ACT_ENVIRONMENT: true,
   });
+  for (const key of Object.getOwnPropertyNames(dom.window))
+    if (/^(HTML|SVG|CSS|Shadow|Document)/.test(key) && !saved.has(key)) {
+      saved.set(key, scope[key]);
+      scope[key] = (dom.window as unknown as Record<string, unknown>)[key];
+    }
   const container = dom.window.document.getElementById("root")!;
   await act(async () => {
     root = createRoot(container);
     root.render(node);
   });
+  return container;
+}
+
+/// Opens the card's one row, as a reader clicks it: its files stack under it.
+async function opened(node: ReactNode): Promise<HTMLElement> {
+  const container = await render(node);
+  const head = container.querySelector(".acpmux-edited-head")!;
+  await act(async () => head.dispatchEvent(new dom!.window.MouseEvent("click", { bubbles: true })));
   return container;
 }
 
@@ -74,7 +113,10 @@ const turn = (items: AcpmuxActivity[]): AcpmuxRow =>
   ({ id: `edits-${++ids}`, version: 1, at: 0, kind: "activity", ended: true, items }) as AcpmuxRow;
 
 const PLAN = "/home/dev/atlas/docs/plan.md";
-const opens = (container: HTMLElement) => [...container.querySelectorAll<HTMLButtonElement>(".acpmux-edited-open")];
+/// The Open buttons for Markdown files (the opened card also has an Open in Changes per file).
+const opens = (container: HTMLElement) => [
+  ...container.querySelectorAll<HTMLButtonElement>(".acpmux-review-changes.acpmux-edited-open"),
+];
 const card = (row: AcpmuxRow) => <EditedFilesCard row={row} onOpenDiff={() => {}} />;
 
 test("Markdown paths are the ones cmux's Markdown page reads", () => {
@@ -99,8 +141,8 @@ test("a card for one Markdown file has Open beside View changes, which opens the
   expect(calls).toEqual([["link.openPath", { path: PLAN }]]);
 });
 
-test("among several files only the Markdown row has Open, at the end of that row", async () => {
-  const container = await render(
+test("among several files only the Markdown file has Open, on its name line", async () => {
+  const container = await opened(
     card(
       turn([
         write("/home/dev/atlas/src/retry.ts", "export const tries = 3;\n", "export const tries = 1;\n"),
@@ -111,13 +153,13 @@ test("among several files only the Markdown row has Open, at the end of that row
   );
   const found = opens(container);
   expect(found).toHaveLength(1);
-  const line = found[0]!.closest(".acpmux-edited-line");
-  expect(line?.querySelector(".acpmux-edited-path")?.getAttribute("data-path")).toBe(PLAN);
+  expect(found[0]!.closest(".cv-edit-diff__header")).not.toBeNull();
+  expect(found[0]!.closest(".acpmux-edited-section")?.getAttribute("data-path")).toBe(PLAN);
   expect(container.querySelector(".acpmux-edited-actions .acpmux-edited-open")).toBeNull();
 });
 
-test("a Markdown file written twice in a turn is one row with one Open", async () => {
-  const container = await render(
+test("a Markdown file written twice in a turn is one file with one Open", async () => {
+  const container = await opened(
     card(
       turn([
         write(PLAN, "# Plan\n"),
@@ -127,10 +169,10 @@ test("a Markdown file written twice in a turn is one row with one Open", async (
     ),
   );
   expect(opens(container)).toHaveLength(1);
-  expect(container.querySelectorAll(`[data-path="${PLAN}"]`)).toHaveLength(1);
+  expect(container.querySelectorAll(`.acpmux-edited-section[data-path="${PLAN}"]`)).toHaveLength(1);
 });
 
-test("a Markdown Write with no diff opens from its plain row", async () => {
+test("a Markdown Write with no diff opens from its plain line", async () => {
   const row = turn([
     {
       kind: "tool",
@@ -145,7 +187,7 @@ test("a Markdown Write with no diff opens from its plain row", async () => {
     },
     write("/home/dev/atlas/src/retry.ts", "export const tries = 3;\n", "export const tries = 1;\n"),
   ]);
-  const container = await render(card(row));
+  const container = await opened(card(row));
   const found = opens(container);
   expect(found).toHaveLength(1);
   expect(found[0]!.title).toBe(PLAN);
