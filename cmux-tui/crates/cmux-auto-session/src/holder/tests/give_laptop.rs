@@ -19,7 +19,7 @@ fn give_failed(why: GiveFailure) -> Event {
 }
 
 /// The store's "holder" at epoch 1 to the renewal among `effects`, with the person's wish.
-fn held(effects: &[Effect], wish: Option<MoveTo>) -> Event {
+pub(super) fn held(effects: &[Effect], wish: Option<MoveTo>) -> Event {
     let answer = answer(Verdict::Holder, 1, 1).wishing(wish);
     Event::Answered { request: request(effects), answer }
 }
@@ -36,7 +36,7 @@ fn renewal(request: u64) -> [Effect; 1] {
 }
 
 /// The chat's next tick: (the chat, its effects, when).
-fn tick(chat: Chat) -> (Chat, Vec<Effect>, u64) {
+pub(super) fn tick(chat: Chat) -> (Chat, Vec<Effect>, u64) {
     let now = chat.wake_at().expect("a next tick");
     let (chat, effects) = step(chat, Event::Tick, now);
     (chat, effects, now)
@@ -44,7 +44,7 @@ fn tick(chat: Chat) -> (Chat, Vec<Effect>, u64) {
 
 /// A laptop that holds the chat at epoch 1 and whose renewal was answered with the wish to
 /// move it to the Cloud: its give as far as `until`. Answers the chat and the time.
-fn give_until(until: GiveStep) -> (Chat, u64) {
+pub(super) fn give_until(until: GiveStep) -> (Chat, u64) {
     let (chat, effects, now) = tick(holding(0));
     let (chat, effects) = step(chat, held(&effects, Some(CLOUD)), now);
     assert_eq!(effects, [Effect::StopTurn]);
@@ -89,11 +89,11 @@ fn a_wish_stops_the_turn_copies_then_gives_and_the_laptop_stands_by() {
 
 #[test]
 fn the_daemons_own_move_starts_the_give_without_waiting_for_a_renewal() {
-    let (chat, effects) = step(holding(0), Event::Wished { to: CLOUD }, 100);
+    let (chat, effects) = step(holding(0), Event::Wished { to: CLOUD, at: None }, 100);
     assert_eq!(effects, [Effect::StopTurn]);
     assert_eq!(chat.state, giving(GiveStep::Stopping));
     // A second word of the same wish changes nothing.
-    let (chat, effects) = step(chat, Event::Wished { to: CLOUD }, 200);
+    let (chat, effects) = step(chat, Event::Wished { to: CLOUD, at: None }, 200);
     assert!(effects.is_empty(), "{effects:?}");
     assert_eq!(chat.state, giving(GiveStep::Stopping));
 }
@@ -264,7 +264,7 @@ fn a_chat_too_large_to_copy_is_not_given_and_says_so_once() {
     let (chat, effects) = step(chat, held(&effects, Some(CLOUD)), now);
     assert!(effects.is_empty(), "{effects:?}");
     // The person asks again from this laptop: told again, and still not given.
-    let (chat, effects) = step(chat, Event::Wished { to: CLOUD }, now + 1);
+    let (chat, effects) = step(chat, Event::Wished { to: CLOUD, at: None }, now + 1);
     assert_eq!(effects, [told]);
     assert_eq!(chat.state, HOLDING);
 }
@@ -289,14 +289,13 @@ fn a_laptop_that_cannot_reach_the_cloud_stops_its_give_too() {
     assert!(has(&effects, "stay"), "{effects:?}");
     assert!(!chat.may_run() && chat.moving().is_none());
 
-    // The store answers again, still with the wish: the tree goes on first, and the renewal
-    // sent with it starts the give on a chat that runs.
+    // The store answers again, still with the wish: the tree goes on and the give begins
+    // again in the same step, so the turn the first give stopped does not go on here between
+    // the two.
     let (chat, effects) = step(chat, held(&effects, Some(CLOUD)), now + SELF_STOP_MS);
-    assert_eq!(chat.state, HOLDING);
-    assert_eq!(acts(&effects), ["continue_tree", "renew"]);
-    let (chat, effects) = step(chat, held(&effects, Some(CLOUD)), now + SELF_STOP_MS + 1);
-    assert_eq!(acts(&effects), ["stop_turn"]);
+    assert_eq!(acts(&effects), ["continue_tree", "stop_turn"]);
     assert_eq!(chat.state, giving(GiveStep::Stopping));
+    assert!(!chat.may_run());
 }
 
 #[test]
@@ -325,22 +324,54 @@ fn a_wish_the_store_tells_differently_mid_give_goes_on_as_it_says_now() {
 }
 
 #[test]
-fn a_wake_mid_give_stops_the_chat_and_asks() {
+fn a_wake_before_the_store_was_asked_stops_the_chat_and_asks() {
+    for until in [GiveStep::Stopping, GiveStep::Copying] {
+        let (chat, now) = give_until(until);
+        let (chat, effects) = step(chat, Event::Wake, now + 1);
+        assert_eq!(chat.state, State::Stopped { epoch: 1, why: Stop::Wake }, "{until:?}");
+        assert_eq!(acts(&effects), ["stop_tree", "stay", "renew"], "{until:?}");
+        // Another holder has the chat by now.
+        let (chat, effects) = step(chat, taken(&effects, Verdict::Lost), now + 2);
+        assert_eq!(chat.state, State::Standby { epoch: 2 }, "{until:?}");
+        assert_eq!(acts(&effects), ["kill_tree", "write_leftover_patch", "renew"], "{until:?}");
+    }
+}
+
+#[test]
+fn a_wake_while_the_store_is_asked_keeps_the_chat_frozen_until_an_answer() {
+    let asking = State::Giving { epoch: 1, step: GiveStep::Asking, to: CLOUD };
     let (chat, now) = give_until(GiveStep::Asking);
-    let (chat, effects) = step(chat, Event::Wake, now + 1);
-    assert_eq!(chat.state, State::Stopped { epoch: 1, why: Stop::Wake });
-    assert_eq!(acts(&effects), ["stop_tree", "stay", "renew"]);
-    // The store took the give meanwhile.
-    let (chat, effects) = step(chat, taken(&effects, Verdict::Lost), now + 2);
-    assert_eq!(chat.state, State::Standby { epoch: 2 });
-    assert_eq!(acts(&effects), ["kill_tree", "write_leftover_patch", "renew"]);
+    // The network changed with the give on its way: nothing of the chat starts here.
+    let (woke, effects) = step(chat, Event::Wake, now + 1);
+    assert_eq!(woke.state, asking);
+    assert_eq!(acts(&effects), ["renew"]);
+    assert!(!woke.may_run());
+    // The renewal overtakes the give: this laptop still holds the chat and the wish stands.
+    // The turn the give stopped does not go on here.
+    let (chat, after) = step(woke, held(&effects, Some(CLOUD)), now + 2);
+    assert_eq!(chat.state, asking);
+    assert!(after.is_empty(), "{after:?}");
+    assert!(!chat.may_run());
+    // The give lands: the chat is the machine's, and this laptop ran none of it since.
+    let (gone, after) = step(chat, Event::Gave { epoch: 2 }, now + 3);
+    assert_eq!(gone.state, State::Standby { epoch: 2 });
+    assert_eq!(acts(&after), ["kill_tree", "write_leftover_patch", "renew"]);
+    // Or the store took the give before the renewal reached it.
+    let (gone, after) = step(woke, taken(&effects, Verdict::Lost), now + 2);
+    assert_eq!(gone.state, State::Standby { epoch: 2 });
+    assert_eq!(acts(&after), ["kill_tree", "write_leftover_patch", "renew"]);
+    // Or the person took the move back: the turn goes on here, once.
+    let (stays, after) = step(woke, held(&effects, None), now + 2);
+    assert_eq!(stays.state, State::Holding { epoch: 1 });
+    assert_eq!(after, [Effect::Stay]);
 }
 
 #[test]
 fn a_laptop_that_does_not_hold_the_chat_gives_nothing() {
     let (chat, now) = give_until(GiveStep::Asking);
     let (standby, _) = step(chat, Event::Gave { epoch: 2 }, now + 1);
-    let events = [Event::Wished { to: CLOUD }, Event::TurnStopped, Event::Gave { epoch: 3 }];
+    let events =
+        [Event::Wished { to: CLOUD, at: None }, Event::TurnStopped, Event::Gave { epoch: 3 }];
     for event in events {
         let (after, effects) = step(standby, event, now + 2);
         assert_eq!(after.state, State::Standby { epoch: 2 }, "{event:?}");

@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "message.heldByStop" : {
+      "comment" : "Agent pane: quiet note at the end of other agents' message lines while the person's Stop holds them in the chat's queue; Continue, or the person's next message, lets them in",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Held: you stopped this chat. Continue or send a message to let them in."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "محتجزة: أوقفت هذه المحادثة. تابع أو أرسل رسالة لإدخالها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zadržano: zaustavili ste ovaj chat. Nastavite ili pošaljite poruku da ih pustite."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Holdt tilbage: du stoppede denne chat. Fortsæt, eller send en besked for at lukke dem ind."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zurückgehalten: Du hast diesen Chat gestoppt. Fortfahren oder eine Nachricht senden, um sie durchzulassen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Retenidos: detuviste este chat. Continúa o envía un mensaje para dejarlos pasar."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En attente : vous avez arrêté ce chat. Continuez ou envoyez un message pour les laisser passer."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Trattenuti: hai fermato questa chat. Continua o invia un messaggio per farli entrare."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "保留中: このチャットを停止しました。続行するかメッセージを送ると届きます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បានរក្សាទុក៖ អ្នកបានបញ្ឈប់ការជជែកនេះ។ បន្ត ឬផ្ញើសារដើម្បីឲ្យវាចូល។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "보류됨: 이 채팅을 중지했습니다. 계속하거나 메시지를 보내면 전달됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Holdt tilbake: du stoppet denne chatten. Fortsett eller send en melding for å slippe dem inn."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wstrzymane: zatrzymano ten czat. Kontynuuj lub wyślij wiadomość, aby je wpuścić."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Retidas: você parou este chat. Continue ou envie uma mensagem para liberá-las."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Задержаны: вы остановили этот чат. Продолжите или отправьте сообщение, чтобы пропустить их."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ถูกพักไว้: คุณหยุดแชตนี้ ดำเนินการต่อหรือส่งข้อความเพื่อให้เข้ามา"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bekletiliyor: bu sohbeti durdurdunuz. İçeri almak için devam edin veya mesaj gönderin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Затримано: ви зупинили цей чат. Продовжте або надішліть повідомлення, щоб пропустити їх."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đang giữ: bạn đã dừng cuộc trò chuyện này. Tiếp tục hoặc gửi tin nhắn để cho chúng vào."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "已暂留：你停止了此聊天。继续或发送消息即可放行。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "已暫留：你停止了此聊天。繼續或傳送訊息即可放行。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
