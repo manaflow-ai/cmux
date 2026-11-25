@@ -128,6 +128,8 @@ public final class SettingsApplier {
         if design.sidebarDrawnMenus != drawnMenus { design.sidebarDrawnMenus = drawnMenus }
         if design.liquidGlass != snapshot.liquidGlass { design.liquidGlass = snapshot.liquidGlass }
         if design.fontSmoothing != snapshot.fontSmoothing { design.fontSmoothing = snapshot.fontSmoothing }
+        let appFont = AppFontSetting().value(in: snapshot.root)
+        if design.appFont != appFont { design.appFont = appFont }
         // `experiments.*`: every switch that is on, by name (CmuxConfigSnapshot+Experiments.swift), for
         // every page's theme and the native menus.
         let experiments = snapshot.experimentSwitches.filter(\.value)

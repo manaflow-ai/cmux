@@ -411,6 +411,8 @@ export type PaneBodyDeps = NewTabShown &
     tourHere: boolean;
     startTourTask: (task: TourTask) => Promise<string>;
     transcript: React.JSX.Element;
+    /// The floating preview window of the chat's newest frame (liveFrames/FramesDock.tsx).
+    framesDock?: React.JSX.Element;
     displayAnchor: HTMLElement | null;
     setDisplayAnchor: React.Dispatch<React.SetStateAction<HTMLElement | null>>;
     closeInspector: () => void;
@@ -687,6 +689,7 @@ export function drawPaneBody({
   tourHere,
   startTourTask,
   transcript,
+  framesDock,
   displayAnchor,
   setDisplayAnchor,
   closeInspector,
@@ -809,7 +812,9 @@ export function drawPaneBody({
           }
           // The transcript runs the pane's height under the bottom stack (bottomStack.css) while the
           // stage shows it; a new chat's hero, a handoff review, the diff and the inspector keep it in flow.
-          data-dock={!reviewing && !freshView && !inspectorOpen ? "float" : undefined}
+          // An open chat's stack in flow is `flow`: its composer keeps the floating one's place
+          // (composerLocation.css), so it does not move as the stage over it switches.
+          data-dock={!reviewing && !freshView && !inspectorOpen ? "float" : !freshView ? "flow" : undefined}
           data-summary={summaryCard.column ? "inline" : "popover"}
           data-cu-preview={previewBeside ? "" : undefined}
           // The jump stack's place and side (jumpPlace.css): the whole stack moves together.
@@ -824,6 +829,7 @@ export function drawPaneBody({
           ref={setPaneMain}
         >
           <div ref={setToastTop} className="acpmux-toasts-top" />
+          {framesDock}
           {!harnessesOpen && showNewTab && !newTab.history && pageStyle(shownTemplate(newTab)) !== "minimal" && (
             <StyleSwitch
               current={pageStyle(shownTemplate(newTab))}
@@ -1268,6 +1274,9 @@ export function drawPaneBody({
               <div
                 className={`acpmux-stage${inspectorOpen ? " acpmux-inspecting" : ""}`}
                 data-solo-tab={soloUnder ? "" : undefined}
+                // The stack under it ends in the quiet row (the dock's `data-foot`): in flow the stage
+                // keeps the floating stack's floor for it (bottomStack.css), so the composer keeps its height.
+                data-foot={dockFoot ? "" : undefined}
                 style={parkStyle ?? (inTabRow ? tabRowStyle(tabRow) : undefined)}
                 inert={parkedVisible || undefined}
               >

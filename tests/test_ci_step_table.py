@@ -258,6 +258,202 @@ class RunnerTest(unittest.TestCase):
 PR_CHECKS_STEPS = ("pr-size", "ui-review", "split-plan", "swift-logic", "review-link")
 
 
+
+class FakeStore:
+    """The controller's step-result store, in memory."""
+
+    def __init__(self, write: bool = True) -> None:
+        self.passes: dict[str, dict] = {}
+        self.posts: list[tuple[str, str, str, bool]] = []
+        self.lookups: list[tuple[str, str, bool]] = []
+        self.write = write
+
+    def lookup(self, key: str, step: str, audit: bool = False) -> dict | None:
+        self.lookups.append((key, step, audit))
+        return self.passes.get(key)
+
+    def post(self, key: str, step: str, outcome: str, seconds: float, audit: bool = False) -> None:
+        if not self.write:
+            return
+        self.posts.append((key, step, outcome, audit))
+        if outcome == "pass":
+            self.passes[key] = {"key": key, "step": step, "run_url": "https://example/run/1", "at": "t", "runner": "r"}
+        else:
+            self.passes.pop(key, None)
+
+
+class StepResultsTest(unittest.TestCase):
+    """Step results by input hash: a step whose inputs passed before is reused, not run again."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True)
+        (self.root / "a").mkdir()
+        (self.root / "a" / "x.txt").write_text("one\n")
+        (self.root / "b.txt").write_text("other\n")
+        self.commit()
+        self.marker = self.root.parent / f"{self.root.name}-ran"
+        self.table = table(f'''
+            [setup]
+            linux = "echo setup >> {self.marker}"
+            [step.a]
+            job = "linux"
+            inputs = ["a/**"]
+            run = "echo a >> {self.marker}"
+            [step.event]
+            job = "linux"
+            inputs = ["a/**"]
+            run = "echo ${{HEAD_SHA:-event}} >> {self.marker}"
+        ''')
+
+    def tearDown(self) -> None:
+        self.marker.unlink(missing_ok=True)
+        self.tmp.cleanup()
+
+    def commit(self) -> None:
+        git = ["git", "-C", str(self.root), "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+        subprocess.run([*git, "add", "-A"], check=True)
+        subprocess.run([*git, "commit", "-q", "--allow-empty", "-m", "c"], check=True)
+
+    def run_job(self, store, paths=None, env_extra=None) -> tuple[int, str, list[str]]:
+        self.marker.unlink(missing_ok=True)
+        out = io.StringIO()
+        env = {k: v for k, v in os.environ.items() if k != "GITHUB_STEP_SUMMARY"}
+        env.update(env_extra or {})
+        old = os.environ
+        os.environ = env
+        try:
+            code = ci_steps.run_job(self.table, "linux", paths, None, out, store=store, root=self.root)
+        finally:
+            os.environ = old
+        ran = self.marker.read_text().split() if self.marker.exists() else []
+        return code, out.getvalue(), ran
+
+    def key(self, name: str, paths=None) -> str:
+        files = ci_steps.tracked_files(self.root)
+        return ci_steps.step_key(self.table.steps[name], self.table, files, ci_steps.head_tree(self.root), paths, {})
+
+    def test_reusable_excludes_event_readers_advisory_labels_and_opt_out(self) -> None:
+        t = table('''
+            [step.plain]
+            job = "linux"
+            run = "python3 tests/x.py"
+            [step.reads]
+            job = "linux"
+            run = "echo ${PR}"
+            [step.off]
+            job = "linux"
+            reuse = false
+            run = "true"
+            [step.labeled]
+            job = "linux"
+            labels = ["perf"]
+            run = "true"
+            [step.adv]
+            job = "advisory"
+            blocks = false
+            class = "idle"
+            run = "true"
+        ''')
+        self.assertEqual([n for n, s in t.steps.items() if ci_steps.reusable(s)], ["plain"])
+
+    def test_the_key_follows_input_contents_only(self) -> None:
+        before = self.key("a")
+        (self.root / "b.txt").write_text("changed outside the inputs\n")
+        self.commit()
+        self.assertEqual(self.key("a"), before, "a path outside the inputs leaves the key")
+        (self.root / "a" / "x.txt").write_text("two\n")
+        self.commit()
+        self.assertNotEqual(self.key("a"), before, "an input's content moves the key")
+        self.assertNotEqual(self.key("a", ["a/x.txt"]), self.key("a", ["a/y.txt"]),
+                            "the changed inputs are part of the key (a step's own router reads them)")
+        self.assertEqual(self.key("a", ["a/x.txt", "b.txt"]), self.key("a", ["a/x.txt"]))
+
+    def test_a_pass_is_stored_then_reused_and_the_setup_skipped(self) -> None:
+        store = FakeStore()
+        code, out, ran = self.run_job(store)
+        self.assertEqual(code, 0, out)
+        self.assertIn("a", ran)
+        self.assertIn("setup", ran)
+        self.assertEqual([(s, o) for _k, s, o, _a in store.posts], [("a", "pass")], "only the reusable step posts")
+        with mock.patch.object(ci_steps, "audited", return_value=False):
+            code, out, ran = self.run_job(store)
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("a", ran, "the reused step did not run")
+        self.assertIn("setup", ran, "the event step still runs, so the setup does")
+        self.assertIn("Reused: this step's inputs", out)
+        summary = ci_steps.report([ci_steps.Result(self.table.steps["a"], 0, 0.0, "", reused="u")], "linux",
+                                  io.StringIO(), logs=False)
+        self.assertIn("| a | yes | pr | reused |", summary)
+        self.assertIn("1 of 2 routed steps reused", out)
+
+    def test_every_step_reused_skips_setup(self) -> None:
+        self.table.steps.pop("event")
+        store = FakeStore()
+        self.run_job(store)
+        with mock.patch.object(ci_steps, "audited", return_value=False):
+            code, out, ran = self.run_job(store)
+        self.assertEqual((code, ran), (0, []), out)
+
+    def test_an_audit_runs_the_hit_and_a_fail_evicts(self) -> None:
+        self.table.steps.pop("event")
+        store = FakeStore()
+        self.run_job(store)
+        key = self.key("a")
+        self.table.steps["a"] = ci_steps.Step(name="a", job="linux", inputs=("a/**",), run="exit 4")
+        # A changed run is a new key: no hit. Store a pass under the new key to stand for a flaky pass.
+        new_key = self.key("a")
+        store.passes[new_key] = {"key": new_key, "run_url": "u"}
+        with mock.patch.object(ci_steps, "audited", return_value=True):
+            code, out, _ran = self.run_job(store)
+        self.assertEqual(code, 1, out)
+        self.assertIn("failed its audit", out)
+        self.assertNotIn(new_key, store.passes)
+        self.assertIn((new_key, "a", "fail", True), store.posts)
+        self.assertIn(key, store.passes, "the other key stays")
+
+    def test_a_failure_is_never_stored(self) -> None:
+        self.table.steps["a"] = ci_steps.Step(name="a", job="linux", inputs=("a/**",), run="false")
+        store = FakeStore()
+        code, _out, _ran = self.run_job(store)
+        self.assertEqual(code, 1)
+        self.assertEqual(store.posts, [])
+
+    def test_from_env(self) -> None:
+        self.assertIsNone(ci_steps.StepResults.from_env({}), "outside Actions: off")
+        on = {"GITHUB_ACTIONS": "true", "GITHUB_REPOSITORY": "o/r", "GITHUB_RUN_ID": "9", "GITHUB_RUN_ATTEMPT": "2",
+              "GITHUB_EVENT_NAME": "push"}
+        s = ci_steps.StepResults.from_env(on)
+        self.assertTrue(s.write)
+        self.assertEqual(s.meta["run_url"], "https://github.com/o/r/actions/runs/9/attempts/2")
+        self.assertIsNone(ci_steps.StepResults.from_env({**on, "CI_STEP_RESULTS": "off"}))
+        self.assertIsNone(ci_steps.StepResults.from_env({**on, "RUNNER_ENVIRONMENT": "github-hosted"}))
+        event = self.root / "event.json"
+        event.write_text(json.dumps({"pull_request": {"head": {"repo": {"full_name": "fork/r"}}}}))
+        fork = ci_steps.StepResults.from_env({**on, "GITHUB_EVENT_NAME": "pull_request", "GITHUB_EVENT_PATH": str(event)})
+        self.assertFalse(fork.write, "a fork's pull request never writes")
+        event.write_text(json.dumps({"pull_request": {"head": {"repo": {"full_name": "o/r"}}}}))
+        same = ci_steps.StepResults.from_env({**on, "GITHUB_EVENT_NAME": "pull_request", "GITHUB_EVENT_PATH": str(event)})
+        self.assertTrue(same.write)
+
+    def test_an_unreachable_controller_is_a_miss(self) -> None:
+        s = ci_steps.StepResults("http://127.0.0.1:9", True, {}, timeout=1)
+        self.assertIsNone(s.lookup("0" * 64, "a"))
+        s.post("0" * 64, "a", "pass", 1.0)  # no raise
+
+    def test_the_real_table_keys_its_reusable_steps(self) -> None:
+        real = ci_steps.load()
+        names = [n for n, s in real.steps.items() if ci_steps.reusable(s)]
+        self.assertIn("cmux-next-daemon-tests", names)
+        self.assertNotIn("ui-review", names)
+        files = ci_steps.tracked_files(ROOT)
+        tree = ci_steps.head_tree(ROOT)
+        if files and tree:
+            keys = {ci_steps.step_key(real.steps[n], real, files, tree, None, {}) for n in names}
+            self.assertEqual(len(keys), len(names), "every step has its own key")
+
+
 class SetupTest(unittest.TestCase):
     """A job's `[setup]` runs once before its steps, fills $CI_TOOLS, and fails the job when it fails."""
 

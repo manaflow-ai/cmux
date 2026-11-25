@@ -357,6 +357,9 @@ class ActivitySnapshot:
     last_agent_action_at_ms: Union[int, None]
     last_user_input_at_ms: Union[int, None]
     live_agents: int
+    echo_at_ms: Union[int, None, MissingType] = field(default=MISSING)
+    echo_input_at_ms: Union[int, None, MissingType] = field(default=MISSING)
+    last_person_attach_at_ms: Union[int, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -3428,6 +3431,7 @@ class ConversationInboxOpRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-inbox-op/request'
     conversation: str
     op: Union[JsonValue, None]
+    op_id: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
