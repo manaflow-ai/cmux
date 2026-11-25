@@ -237,46 +237,21 @@ fn keys_our_own_tools_read_are_not_unknown() {
 }
 
 #[test]
-fn a_retired_key_is_listed_but_never_announced() {
-    let home = Home::new();
-    home.write("cmux-next.json", "{ \"appearance\": { \"tabBarBackground\": \"#000000\" } }\n");
-    let report = home.customize().doctor_announce(&at(NOW)).unwrap();
-    let retired = find(&report, "unknown-key:appearance.tabBarBackground");
-    assert!(retired.quiet, "{retired:?}");
-    assert_eq!(report.announce, None, "a retired key is dropped without a word");
-}
-
-#[test]
-fn the_notice_counts_unknown_keys_in_plain_words_and_names_none() {
-    let home = Home::new();
-    home.write(
-        "cmux-next.json",
-        "{\n  \"mystery\": true,\n  \"status\": { \"working\": \"spinner\" }\n}\n",
-    );
-    let customize = home.customize();
-    let report = customize.doctor_announce(&at(NOW)).unwrap();
-    assert_eq!(report.announce.as_deref(), Some("2 settings in cmux-next.json aren't recognized"));
-
-    let home2 = Home::new();
-    home2.write("cmux-next.json", "{ \"mystery\": true }\n");
-    let one = home2.customize().doctor_announce(&at(NOW)).unwrap();
-    assert_eq!(one.announce.as_deref(), Some("1 setting in cmux-next.json isn't recognized"));
-}
-
-#[test]
-fn an_edit_above_an_unknown_key_does_not_announce_it_again() {
-    // The toast came back because three keys' lines moved when an agent edited above them.
+fn an_edit_above_a_dismissed_key_keeps_it_dismissed() {
+    // A finding's line is not in its fingerprint: an agent's edit above a key moves it, and
+    // what the person dismissed stays dismissed (it came back when three keys' lines moved).
     let home = Home::new();
     home.write("cmux-next.json", "{\n  \"mystery\": true\n}\n");
     let customize = home.customize();
-    assert!(customize.doctor_announce(&at(NOW)).unwrap().announce.is_some());
+    customize.doctor_dismiss("unknown-key:mystery", &at(NOW)).unwrap();
     home.write(
         "cmux-next.json",
         "{\n  \"appearance\": {\n    \"density\": \"compact\"\n  },\n  \"mystery\": true\n}\n",
     );
-    let moved = customize.doctor_announce(&at(NOW)).unwrap();
-    assert_eq!(find(&moved, "unknown-key:mystery").line, Some(5));
-    assert_eq!(moved.announce, None, "the same key on another line is not new");
+    let moved = customize.doctor(&at(NOW));
+    let mystery = find(&moved, "unknown-key:mystery");
+    assert_eq!(mystery.line, Some(5));
+    assert!(mystery.dismissed, "the same key on another line is not new");
 }
 
 #[test]

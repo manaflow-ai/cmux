@@ -145,9 +145,6 @@ pub struct Finding {
     /// Its line is not in it: moving the finding is not changing it.
     pub fingerprint: String,
     pub dismissed: bool,
-    /// Listed, never announced: a retired key cmux already drops without a word.
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub quiet: bool,
 }
 
 /// What the doctor found.
@@ -227,10 +224,8 @@ impl Customize {
             }
             state.version = STATE_VERSION;
         }
-        report.announce = announce_line(report.findings.iter().filter(|finding| {
-            !finding.dismissed
-                && !finding.quiet
-                && state.announced.get(&finding.id) != Some(&finding.fingerprint)
+        report.announce = line_of(report.findings.iter().filter(|finding| {
+            !finding.dismissed && state.announced.get(&finding.id) != Some(&finding.fingerprint)
         }));
         let announced: BTreeMap<String, String> = report
             .findings
@@ -655,7 +650,6 @@ impl Customize {
             let file = &roots.settings_file;
             for (key, retired) in unknown {
                 let line = line_of_key(text, &key);
-                let quiet = retired.is_some();
                 let (title, detail) = match retired {
                     Some(why) => (
                         format!("{key} is a retired setting"),
@@ -680,9 +674,6 @@ impl Customize {
                     line,
                     vec![Fix::open(false)],
                 );
-                if quiet && let Some(finding) = out.0.last_mut() {
-                    finding.quiet = true;
-                }
             }
         }
         // The theme the settings name: missing, keys it may not set, and keys
@@ -898,7 +889,6 @@ impl Found {
             fixes,
             fingerprint,
             dismissed: false,
-            quiet: false,
         });
     }
 }
@@ -937,28 +927,6 @@ pub fn fix_kind(word: &str) -> Option<FixKind> {
         "restore" => Some(FixKind::Restore),
         "default" | "follow-default" => Some(FixKind::FollowDefault),
         _ => None,
-    }
-}
-
-/// The notice for findings not announced before: one short line in plain words. Settings keys
-/// cmux does not know are counted, never listed (Leo, 2026-11-25, of `3 things change your
-/// customization: agents.desktopBridge is not a setting; status.working is not a setting and 1
-/// more`: "will this be fixed soon?"); the rest read as [`line_of`] says them.
-fn announce_line<'a>(findings: impl Iterator<Item = &'a Finding>) -> Option<String> {
-    let (keys, others): (Vec<&Finding>, Vec<&Finding>) =
-        findings.partition(|finding| finding.kind == FindingKind::UnknownKey);
-    let file = keys.first().map(|finding| match finding.place.split_once(':') {
-        Some((file, _)) => file.to_owned(),
-        None => finding.place.clone(),
-    });
-    let keys = match (keys.len(), file) {
-        (0, _) | (_, None) => None,
-        (1, Some(file)) => Some(format!("1 setting in {file} isn't recognized")),
-        (n, Some(file)) => Some(format!("{n} settings in {file} aren't recognized")),
-    };
-    match (line_of(others.into_iter()), keys) {
-        (Some(others), Some(keys)) => Some(format!("{others}; {keys}")),
-        (others, keys) => others.or(keys),
     }
 }
 

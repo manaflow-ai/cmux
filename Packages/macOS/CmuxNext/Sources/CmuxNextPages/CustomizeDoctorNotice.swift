@@ -108,10 +108,8 @@ public final class CustomizeDoctorNotice {
     public static func toast(review: @escaping @MainActor () -> Void) -> @MainActor (String) -> Void {
         { line in
             guard let window = NSApp?.keyWindow ?? NSApp?.mainWindow ?? NSApp?.orderedWindows.first(where: { $0.isVisible }) else { return }
-            // The design system's toast at its own size and place, timing out as every toast does:
-            // the line is one short sentence (`announce_line` in the Rust doctor), and nothing
-            // here needs an answer, so it never stays (Leo 2026-11-25: "the toast is kinda wack").
-            let toast = CmuxToast(id: CustomizeDoctorNotice.toastID, message: line, action: CmuxToast.Action(title: CustomizeDoctorStrings.review))
+            let toast = CmuxToast(id: CustomizeDoctorNotice.toastID, message: line, action: CmuxToast.Action(title: CustomizeDoctorStrings.review),
+                                  duration: .seconds(12))
             let handle = CmuxToastCenter.shared.show(toast, in: window)
             handle.onAction = { review() } // toast-target-allow: the toast names customization problems; Review opens the Settings card that lists them
         }
