@@ -224,7 +224,11 @@ final class WorkspaceHoverCardController: HoverCardSource {
                                                      looked: looked, pullRequests: SidebarSessionTree.shared.pullRequests[ws])
         body.configure(content)
         body.configureTabs(title: ws.rawValue, tabs: workspace.tabs, machine: machine)
-        body.configurePaneShape(workspace.paneShape)
+        // No split miniature: its tiles hold no picture of the pane, only a kind glyph in an empty box, and the tab
+        // list under it already names every tab. Leo 2026-11-23 on the three empty tiles: "this idk when we started
+        // doing this but"; earlier: "if the previews dont show up, what's the point?" It returns once a pane carries a
+        // real snapshot to draw in its tile.
+        body.configurePaneShape(nil)
         return content
     }
 
