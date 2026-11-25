@@ -36,6 +36,7 @@ import {
   groupUnavailableRows,
   type UnavailableGroup,
   useMachineRefresh,
+  autoCloudCapLabels,
 } from "./environmentPickerModel";
 import { WithFacts } from "./chips/FactsHoverCard";
 import { AutoIcon } from "./AutoWhere";
@@ -1107,6 +1108,12 @@ export function EnvironmentPicker({
               </span>
               {listRows === "run" && runDetails && isLocal(environment) && (
                 <span className="acpmux-menu-description">{runDetails.local}</span>
+              )}
+              {/* An AutoCloud Mac says what it can build (RFD 0172 caps). */}
+              {list !== "devices" && environment.autoCloud && autoCloudCapLabels(environment).length > 0 && (
+                <span className="acpmux-menu-description" data-autocloud-caps="">
+                  {autoCloudCapLabels(environment).join(" · ")}
+                </span>
               )}
               {/* Other devices' rows say how each connects, in the words the search matches. */}
               {list === "devices" && (

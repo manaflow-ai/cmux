@@ -5,6 +5,7 @@ import { type HostRestoring, hostRecoveryLine } from "./hostRetry";
 import { useNow } from "./subagents/subagentGroupModel";
 import { useT } from "./i18n";
 import { waitedText } from "./hostErrorModel";
+import { useDotSaysRecovery } from "./composerStatusStore";
 import { Icon } from "./icons/Icon";
 import "./conversation/cardFit.css";
 
@@ -217,13 +218,17 @@ export function HostRecoveringLine({
   now?: number;
 }) {
   const t = useT();
+  // The composer's status dot, once mounted, says this recovery instead (ComposerStatusDot.tsx), so
+  // the words never draw over the transcript (Leo, 2026-11-22); the line still yields to `otherwise`.
+  const dotSays = useDotSaysRecovery();
   // Only the restore's m:ss needs the clock; "Reconnecting…" is state, not time.
-  const ticking = useNow(fixedNow === undefined && linkDown === true && restoring !== undefined);
+  const ticking = useNow(fixedNow === undefined && !dotSays && linkDown === true && restoring !== undefined);
   const line = hostRecoveryLine({ linkDown, restoring, failureShown, now: fixedNow ?? ticking });
   // A lost connection coming back shows nothing: the transcript and the composer stay live and a
   // prompt sent meanwhile goes once it is back (Leo, 2026-11-24: "let's just keep optimistically
-  // connecting and reinforcing the connection"). Only a restore acpmux reports keeps its chip.
-  if (!line || line.kind !== "restoring") return otherwise;
+  // connecting and reinforcing the connection"). Only a restore acpmux reports keeps its chip, and
+  // the composer's status dot says even that once it is mounted.
+  if (!line || dotSays || line.kind !== "restoring") return otherwise;
   return (
     <ConnectionChip
       kind="restoring"
