@@ -38,6 +38,7 @@ extension NSView {
             let popup = tokens.opaqueOverlayFill(lift: lift)
             return [popup, popup, popup]
         }
+        if surface.tone.style == .prompt { return CmuxDialogButtonLook.promptCardSurfaces(tokens, lift: lift) }
         return surface.tintLevel == .menu
             ? CmuxDialogButtonLook.menuCardSurfaces(tokens, lift: lift)
             : CmuxDialogButtonLook.cardSurfaces(tokens, lift: lift)
