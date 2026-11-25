@@ -1401,17 +1401,21 @@ def with_build(parts):
 
 
 def unread_parts(state):
-    """The Mac parts (build aside) that never produced a reading in the state (pure): no stored rows
-    (state['part_stored'], store_part_rows) and no row of theirs in state['part_rows'] or state['row_history']."""
+    """The parts (build aside), Mac and Linux, that never produced a reading in the state (pure): no stored rows
+    (state['part_stored'], store_part_rows) and no row of theirs in state['part_rows'] or state['row_history'].
+
+    Linux parts count too (2026-11-24: web-ui-orchestrator, cmux#54205, merged after tip b76703549055, which had
+    measured 13 of its 45 parts in 229 h; a Linux part runs only in a measurement whose commit has its bench, so NOW's
+    competitive.orchestrator.p99_frame_ms_16_children read unknown until that tip ended)."""
     read = set(state.get("part_stored") or {}) if isinstance(state.get("part_stored"), dict) else set()
     for key in ("part_rows", "row_history"):
         if isinstance(state.get(key), dict):
             read |= {part_for_row(name) for name in state[key] if isinstance(name, str)}
-    return [p["name"] for p in PARTS if p["name"] != "build" and not is_linux_part(p["name"]) and p["name"] not in read]
+    return [p["name"] for p in PARTS if p["name"] != "build" and p["name"] not in read]
 
 
 def unread_missing(state, cur):
-    """The unread Mac parts (unread_parts) the tip measurement in flight cannot run: its commit predates them (pure).
+    """The unread parts (unread_parts) the tip measurement in flight cannot run: its commit predates them (pure).
     Empty unless it still has a Mac part to do."""
     if not cur or cur.get("kind") != "tip" or not needs_mac(cur):
         return []
@@ -4106,7 +4110,11 @@ LINUX_RUN_SECONDS = 1800
 # three idle and three streaming windows) were still in long_x20 when the suite's 1200 s timeout killed it, so
 # web-ui-flat stored no chat_100k_flat row after 2026-11-17 (Actions run 45422305557); its 20 chats grown live to
 # 100k rows timed out at 1770 s in two cron ticks running. The suite's own timeoutMs for each sits 5 minutes under.
-LINUX_RUN_SECONDS_BY_PART = {"web-ui-flat": 2700, "web-ui-flat-grown": 3300}
+# web-ui: since the part's runner job takes the mixed cmux-linux pool (2026-11-23), a small runner built the agent pane
+# in 81 s, and seven benches, each building its page cold inside its own timeout, were killed with exit 137 (Actions
+# run 45457645242, 2026-11-24): no web-ui row stored. The suite now makes those builds once before the benches, within
+# its SHARED_BUILDS_CAP_MS, and the sum of its timeouts and that (SUITE_CAP_MS) sits 30 s under this cap.
+LINUX_RUN_SECONDS_BY_PART = {"web-ui": 3000, "web-ui-flat": 2700, "web-ui-flat-grown": 3300}
 LINUX_SETUP_MINUTES = 10
 LINUX_JOB_MIN_MINUTES = 40
 

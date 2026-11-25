@@ -1291,7 +1291,8 @@ pub fn rehome(client: &SignalingClient) -> usize {
 
 /// The marks of session `session_id`'s latest roam.
 pub fn roam_timeline(session_id: &str) -> Option<Timeline> {
-    live().into_iter().find(|s| s.session_id == session_id).and_then(|s| lock(&s.last_roam).clone())
+    // Both sides of a session run in one process in tests: the side that roamed.
+    live().into_iter().filter(|s| s.session_id == session_id).find_map(|s| lock(&s.last_roam).clone())
 }
 
 /// The phone is back from the background with a parked link: move its
