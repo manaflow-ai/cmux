@@ -39,7 +39,7 @@ class Schema:
         self.catalog = swift_data.Catalog(root, CATALOG)
         self.sections = load(root, SRC + "/sections.json")["sections"]
         self.layout = load(root, SRC + "/page-layout.json")
-        self.policy = load(root, SRC + "/agent-policy.json")
+        self.policy = self._policy(root)
         self.facts = load(root, SRC + "/row-facts.json")
         self.samples = load(root, SRC + "/samples.json")
         self.missing = set()
@@ -159,14 +159,22 @@ class Schema:
 
     # Export -----------------------------------------------------------------------------------
 
+    @staticmethod
+    def _policy(root):
+        """The agent policy as {key: agent}: one <key>.json ({agent, why?}) per setting in
+        source/agent-policy/, beside _refusals.json (#56291; gen-settings-sources.py reads the same)."""
+        folder = SRC + "/agent-policy"
+        names = sorted(os.listdir(os.path.join(root, folder)))
+        return {name[: -len(".json")]: load(root, folder + "/" + name)["agent"]
+                for name in names if name.endswith(".json") and name != "_refusals.json"}
+
     def agent_tables(self):
         settable, refused = set(), {}
-        for group in self.policy["groups"]:
-            for key in group["keys"]:
-                if group["agent"] == "settable":
-                    settable.add(key)
-                else:
-                    refused[key] = group["agent"]
+        for key, agent in self.policy.items():
+            if agent == "settable":
+                settable.add(key)
+            else:
+                refused[key] = agent
         return settable, refused
 
     def json(self, strict=True):
