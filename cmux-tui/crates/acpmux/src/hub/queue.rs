@@ -370,7 +370,16 @@ impl Hub {
                     tokio::pin!(done);
                     done.as_mut().enable();
                     if session.restoring.load(Ordering::SeqCst) {
-                        done.await;
+                        // Restore can hold the chat before the turn-lock loop. Keep the
+                        // prompt's acceptance deadline across this first wait as well.
+                        match p.answer_due {
+                            Some(due) => {
+                                if tokio::time::timeout_at(due, done).await.is_err() {
+                                    break None;
+                                }
+                            }
+                            None => done.await,
+                        }
                         continue;
                     }
                     let _admit = session.admit.lock().unwrap_or_else(|e| e.into_inner());
