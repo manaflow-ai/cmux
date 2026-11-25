@@ -592,7 +592,13 @@ impl Supervisor {
         let apps: Vec<Value> = ids
             .into_iter()
             .map(|id| {
-                let mut row = entry(id, inner.catalog.packages.get(id), inner.mirror.apps.get(id));
+                let keys = self.page_key_overrides(&inner, id);
+                let mut row = entry(
+                    id,
+                    inner.catalog.packages.get(id),
+                    inner.mirror.apps.get(id),
+                    keys.as_ref(),
+                );
                 row.set("instance", self.instance_json(id));
                 let (run_state, can_rollback) = Self::run_facts(&inner, id);
                 if let Some(run_state) = run_state {
@@ -667,8 +673,13 @@ impl Supervisor {
                     }
                 })
                 .map(|()| {
-                    let mut record =
-                        entry(&app, inner.catalog.packages.get(&app), inner.mirror.apps.get(&app));
+                    let keys = self.page_key_overrides(&inner, &app);
+                    let mut record = entry(
+                        &app,
+                        inner.catalog.packages.get(&app),
+                        inner.mirror.apps.get(&app),
+                        keys.as_ref(),
+                    );
                     // Lets a client drop list replies older than this commit.
                     record.set("revision", json!(inner.mirror.revision));
                     record
@@ -909,6 +920,33 @@ impl Supervisor {
         guard
     }
 
+    /// Read an installed app's `cmux.keys` overrides only when its catalog
+    /// actually declares page keys. Other apps never open storage on list.
+    fn page_key_overrides(&self, inner: &Inner, app: &str) -> Option<Value> {
+        let installed = inner.mirror.apps.get(app).is_some_and(|r| r.installed);
+        if !installed || !inner.catalog.packages.get(app).is_some_and(Package::has_page_keys) {
+            return None;
+        }
+        let storage = self.storage();
+        let value = storage
+            .as_ref()?
+            .call(app, "app.storage.get", &json!({ "key": super::page_keys::OVERRIDES_KEY }))
+            .ok()?;
+        value.is_object().then_some(value)
+    }
+
+    /// Refresh every client after an app changes its page-key overrides.
+    pub(super) fn page_keys_changed(&self, app: &str) {
+        let revision =
+            self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner).mirror.revision;
+        self.emit(vec![Out::Broadcast(json!({
+            "event": "apps-changed",
+            "revision": revision,
+            "transaction": "page-keys",
+            "app": app,
+        }))]);
+    }
+
     /// Writes `apps.json` durably: temp file, fsync, rename.
     pub(super) fn persist(&self, mirror: &Mirror) -> std::io::Result<()> {
         use std::io::Write as _;
@@ -1053,7 +1091,12 @@ fn scope_classes(facts: &mirror::Facts) -> serde_json::Map<String, Value> {
 }
 
 /// One `apps-list` entry.
-pub(super) fn entry(id: &str, package: Option<&Package>, record: Option<&Record>) -> Value {
+pub(super) fn entry(
+    id: &str,
+    package: Option<&Package>,
+    record: Option<&Record>,
+    key_overrides: Option<&Value>,
+) -> Value {
     let facts = package.map(Package::facts);
     let source =
         record.map(|r| r.source).or(package.map(|p| p.source)).unwrap_or(mirror::Source::User);
@@ -1080,7 +1123,7 @@ pub(super) fn entry(id: &str, package: Option<&Package>, record: Option<&Record>
         // client may read icons and images straight from the package.
         "bundle_dir": package.map(|p| p.dir.to_string_lossy().into_owned()),
         // Palette entries (`apps-run {app, op}` runs them).
-        "commands": package.map(Package::palette_commands).unwrap_or_default(),
+        "commands": package.map(|p| p.palette_commands(key_overrides)).unwrap_or_default(),
         "manifest": package.map(|p| p.manifest.clone()).unwrap_or(Value::Null),
         // The web panes the client may host (`render: web`): each page's
         // file root inside `bundle_dir` and its entry file, as the manifest

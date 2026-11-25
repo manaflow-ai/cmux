@@ -462,6 +462,80 @@ test("Connect to GitHub that ends unconnected leaves Add project closed", async 
   }
 });
 
+test("Connect remembers the typed repository and picks it once GitHub shares it (Leo 2026-11-25)", async () => {
+  const gh = host({ "github.status": status("not_connected"), "github.connect": { opened: true } });
+  const { root, picked } = await renderTray({}, gh.store);
+  try {
+    await openFolderMenu();
+    await openSources();
+    await press(gitHubRow());
+    await type("acme/web");
+    await press(option("Connect to GitHub")!);
+    // GitHub's page opens for the wanted repository's owner.
+    expect(gh.calls.at(-1)).toEqual(["github.connect", { repo: "acme/web" }]);
+    gh.answers["github.status"] = ready;
+    gh.answers["github.repos.list"] = installed;
+    await act(async () => dom.window.dispatchEvent(new dom.window.Event("cmux-github-changed")));
+    await settle();
+    await settle();
+    expect(picked).toContainEqual(["github:acme/web", undefined]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("a repository still not shared after Connect says how to add it", async () => {
+  const gh = host({ "github.status": status("not_connected"), "github.connect": { opened: true } });
+  const { root, picked } = await renderTray({}, gh.store);
+  try {
+    await openFolderMenu();
+    await openSources();
+    await press(gitHubRow());
+    await type("acme/billing");
+    await press(option("Connect to GitHub")!);
+    gh.answers["github.status"] = ready;
+    gh.answers["github.repos.list"] = installed;
+    await act(async () => dom.window.dispatchEvent(new dom.window.Event("cmux-github-changed")));
+    await settle();
+    await settle();
+    expect(picked).toEqual([]);
+    await key("Escape");
+    await press(gitHubRow());
+    expect(message()).toBe("acme/billing isn’t shared with cmux yet. Add it on GitHub with the option above.");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("a typed owner/name the app can't see says how to add it", async () => {
+  const gh = host({ "github.status": ready, "github.repos.list": installed });
+  const { root } = await renderTray({}, gh.store);
+  try {
+    await openFolderMenu();
+    await openSources();
+    await press(gitHubRow());
+    await type("acme/billing");
+    expect(message()).toBe("acme/billing isn’t shared with cmux yet. Add it on GitHub with the option above.");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("pending approval says what happens next", async () => {
+  const gh = host({ "github.status": status("not_connected", { pending_approval: true }) });
+  const { root } = await renderTray({}, gh.store);
+  try {
+    await openFolderMenu();
+    await openSources();
+    await press(gitHubRow());
+    expect(message()).toBe(
+      "An organization owner needs to approve cmux. Once they do, your repositories show up here.",
+    );
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 test.each([
   [{ code: "github.unavailable" }, "Offline", "Couldn't load repositories"],
   [{ code: "github.rate_limited" }, "Busy", "GitHub is busy"],

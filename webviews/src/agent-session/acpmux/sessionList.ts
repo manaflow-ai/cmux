@@ -606,8 +606,6 @@ export function mostRecentProject(
 /// not read again. A session added, removed or moved in the list counts as a change.
 export class SessionsBy {
   private kept: readonly AcpmuxSessionEntry[] | undefined;
-  private seen = new Map<string, { entry: AcpmuxSessionEntry; key: string; at: number }>();
-  private count = -1;
   /// The list `of` was last given, which a list made from it in place (sessionIndex.ts
   /// `noteReplaced`) is compared with at the replaced entries only.
   private last: readonly AcpmuxSessionEntry[] | undefined;
@@ -615,46 +613,26 @@ export class SessionsBy {
   constructor(private readonly fields: (entry: AcpmuxSessionEntry) => readonly unknown[]) {}
 
   of(sessions: readonly AcpmuxSessionEntry[]): readonly AcpmuxSessionEntry[] {
-    if (sessions === this.kept) return (this.last = sessions);
-    const replaced = this.kept === undefined ? undefined : replacedSince(this.last, sessions);
+    const previous = this.last;
+    if (sessions === previous) return this.kept!;
     this.last = sessions;
-    let moved = replaced === undefined && (this.kept === undefined || sessions.length !== this.count);
-    // Same length: updated in place, as an id not seen before marks the list moved. Another length
-    // starts again, so a session no longer listed leaves nothing behind.
-    if (moved) this.seen = new Map();
-    const positions = replaced ?? sessions.keys();
-    // A full pass also counts the ids listed: one listed twice changes what the list holds without
-    // changing its length. A list made in place swaps an entry for its own id, so it adds none.
-    const listedIds = replaced ? undefined : new Set<string>();
-    for (const at of positions) {
-      const entry = sessions[at]!;
-      if (listedIds?.has(entry.sessionId)) moved = true;
-      listedIds?.add(entry.sessionId);
-      const before = this.seen.get(entry.sessionId);
-      if (before?.entry === entry) {
-        if (before.at !== at) {
-          before.at = at;
-          moved = true;
-        }
-        continue;
+    if (previous && previous.length === sessions.length) {
+      // Both immutable lists already hold the entries. Compare only the ones that changed,
+      // without keeping a serialized key and a bookkeeping object for every session.
+      const positions = replacedSince(previous, sessions) ?? sessions.keys();
+      for (const at of positions) {
+        const entry = sessions[at]!;
+        const before = previous[at]!;
+        if (before === entry) continue;
+        if (
+          before.sessionId !== entry.sessionId ||
+          JSON.stringify(this.fields(before)) !== JSON.stringify(this.fields(entry))
+        )
+          return (this.kept = sessions);
       }
-      const key = JSON.stringify(this.fields(entry));
-      if (key !== before?.key || at !== before.at) moved = true;
-      if (before) {
-        before.entry = entry;
-        before.key = key;
-        before.at = at;
-      } else this.seen.set(entry.sessionId, { entry, key, at });
+      return this.kept!;
     }
-    // A session that left while another came, or another listed twice, keeps the same length: drop
-    // what it left behind, so it is new again when it comes back.
-    const listed =
-      listedIds ?? (this.seen.size > sessions.length ? new Set(sessions.map((entry) => entry.sessionId)) : undefined);
-    if (listed && this.seen.size !== listed.size)
-      for (const id of this.seen.keys()) if (!listed.has(id)) this.seen.delete(id);
-    this.count = sessions.length;
-    if (moved) this.kept = sessions;
-    return this.kept!;
+    return (this.kept = sessions);
   }
 }
 
@@ -738,13 +716,14 @@ export class FolderRecency {
   private last: readonly AcpmuxSessionEntry[] | undefined;
   private order: string[] = [];
   private newest = new Map<string, number>();
-  private seen = new Map<string, { folder: string | undefined; at: number }>();
 
   of(sessions: readonly AcpmuxSessionEntry[]): readonly string[] {
     if (sessions === this.last) return this.order;
-    const replaced = this.last === undefined ? undefined : replacedSince(this.last, sessions);
+    const previous = this.last;
+    const replaced = replacedSince(previous, sessions);
     this.last = sessions;
-    if (!replaced || !replaced.every((at) => this.moved(sessions[at]!))) this.build(sessions);
+    if (!previous || !replaced || !replaced.every((at) => this.moved(sessions[at]!, previous[at]!)))
+      this.build(sessions);
     return this.order;
   }
 
@@ -756,23 +735,22 @@ export class FolderRecency {
   private build(sessions: readonly AcpmuxSessionEntry[]) {
     this.order = recentFolders(sessions, this.folderOf);
     this.newest = new Map();
-    this.seen = new Map();
     for (const session of sessions) {
       const folder = this.folderOf(session);
       const at = activityTime(session) ?? 0;
-      this.seen.set(session.sessionId, { folder, at });
       if (folder !== undefined && at > (this.newest.get(folder) ?? -Infinity)) this.newest.set(folder, at);
     }
   }
 
   /// Applies one replaced session; false when the whole list must be read again.
-  private moved(session: AcpmuxSessionEntry): boolean {
-    const before = this.seen.get(session.sessionId);
+  private moved(session: AcpmuxSessionEntry, before: AcpmuxSessionEntry): boolean {
+    if (before.sessionId !== session.sessionId) return false;
+    const beforeFolder = this.folderOf(before);
+    const beforeAt = activityTime(before) ?? 0;
     const folder = this.folderOf(session);
     const at = activityTime(session) ?? 0;
-    if (!before || before.folder !== folder || at < before.at) return false;
-    this.seen.set(session.sessionId, { folder, at });
-    if (folder === undefined || at === before.at) return true;
+    if (beforeFolder !== folder || at < beforeAt) return false;
+    if (folder === undefined || at === beforeAt) return true;
     const newest = this.newest.get(folder)!;
     if (at < newest) return true;
     // Its folder's newest time again, from another chat: a tie with another folder may order otherwise.
