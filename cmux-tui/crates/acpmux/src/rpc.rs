@@ -1022,10 +1022,6 @@ pub mod method {
     /// Context surgery (`hub/surgery.rs`): mask a Claude chat's old tool output and resume it
     /// on the masked copy, with no model call.
     pub const MUX_SURGERY: &str = "_acpmux/surgery";
-    /// A chat's task list across its turns (`server/task_list.rs`, `task_list.rs`): kept by its
-    /// agent or its Chief when the harness writes no plan of its own, and read back.
-    pub const MUX_TASK_LIST_SET: &str = "_acpmux/task_list/set";
-    pub const MUX_TASK_LIST_GET: &str = "_acpmux/task_list/get";
     /// Building an approved plan here, in a new worktree, or on two agents to compare
     /// (`server/plan_build.rs`, `hub/plan_build.rs`).
     pub const MUX_PLAN_BUILD: &str = "_acpmux/plan/build";

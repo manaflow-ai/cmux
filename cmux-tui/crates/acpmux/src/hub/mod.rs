@@ -365,15 +365,8 @@ mod stalled_turn;
 pub(crate) mod auto_evacuate;
 mod start_retry;
 mod start_watch;
-pub(crate) mod task_list;
 pub(crate) mod tasks;
 pub use session::{Session, live_tags};
-/// A line of session text as every view may show it: masked (`secret_scan`), then cut to `max`
-/// characters (`task_list.rs`'s steps).
-pub(crate) fn masked_step(s: &str, max: usize) -> String {
-    session::masked_preview(s, max)
-}
-
 /// [`Hub::withdraws`]: each withdraw's answer once its notice is accepted or refused.
 type WithdrawsInFlight =
     HashMap<(String, String), tokio::sync::watch::Receiver<Option<Result<Value, RpcError>>>>;
@@ -1018,12 +1011,7 @@ pub(super) struct StreamState {
     /// The turn `reply_segments` counts in, and the `messageId` of the segment streaming now.
     pub(super) segment_turn: Option<String>,
     pub(super) segment_message: Option<String>,
-    /// The turn `plan_shown` is of, and whether that turn has drawn a checklist in the pane (a
-    /// plan with entries, not cleared since): its first plan or TodoWrite call cuts a reply's row
-    /// there, a later one does not (`stream.rs` `cuts_reply`). A prompt starts a new checklist.
-    pub(super) plan_turn: Option<String>,
-    pub(super) plan_shown: bool,
-    /// This turn's agent thought, planned or called a tool (`stream.rs`), and how much reply
+    /// This turn's agent thought or called a tool (`stream.rs`), and how much reply
     /// text it streamed (`after_agent_update`): what `unstored_turn_worked` reads.
     pub(super) agent_worked: bool,
     pub(super) reply_chars: usize,
@@ -3098,10 +3086,6 @@ impl Hub {
         at: Option<u64>,
     ) -> (EventRecord, bool) {
         let mut msg = msg;
-        // A prompt (a steer too) starts a new checklist in the pane (`stream.rs` `cuts_reply`).
-        if dir == "mux" && kind == "user_message" {
-            session.stream.lock().unwrap_or_else(|e| e.into_inner()).plan_shown = false;
-        }
         // Off the append lock: it reads the disk.
         tool_paths::add_canonical_paths(session, kind, &mut msg);
         let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
