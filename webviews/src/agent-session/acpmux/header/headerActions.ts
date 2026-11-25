@@ -17,3 +17,10 @@ export const HEADER_ACTIONS = {
   floatingChat: "floatingChat",
   close: "closeTab",
 } as const;
+
+/// The folder the header's Files opens (cmux#55413): the chat's folder on whichever machine runs it, since the App
+/// reads a Cloud or SSH chat's tree through that machine's daemon (CmuxNextApp CloudFrontedChats.filesPlace), never
+/// this Mac's. None for a chat with no absolute folder.
+export function filesFolder(chatCwd: string | undefined): string | undefined {
+  return chatCwd?.startsWith("/") ? chatCwd : undefined;
+}
