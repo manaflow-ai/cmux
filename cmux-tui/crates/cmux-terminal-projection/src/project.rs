@@ -262,7 +262,7 @@ fn compact_anchored(
     }
     let spare: usize = runs.iter().map(|&(_, len, keep)| len - keep).sum();
     if spare < need {
-        right_part_on_its_own_row(&runs, cols, units);
+        right_part_on_its_own_row(&runs, cols, margin, units);
         return false;
     }
     // The rightmost run shrinks first, down to what it keeps, then the one
@@ -362,6 +362,7 @@ fn recenter(host_cols: usize, cols: usize, end: usize, units: &mut Vec<(usize, C
 fn right_part_on_its_own_row(
     runs: &[(usize, usize, usize)],
     cols: usize,
+    margin: usize,
     units: &mut Vec<(usize, Cell)>,
 ) {
     let Some(&(start, len, _)) = runs
@@ -374,9 +375,11 @@ fn right_part_on_its_own_row(
     let width = |part: &[(usize, Cell)]| part.iter().map(|(_, c)| c.width()).sum::<usize>();
     let left = width(units.get(..start).unwrap_or_default());
     let right = width(units.get(start + len..).unwrap_or_default());
-    if right == 0 || right > cols {
+    if right == 0 || right + margin > cols {
         return;
     }
+    // The host's right margin stays past the right part.
+    let right = right + margin;
     // Where the left part ends on its last phone row (0: it fills it).
     let rem = if left == 0 { 0 } else { (left - 1) % cols + 1 };
     let rem = if rem == cols { 0 } else { rem };

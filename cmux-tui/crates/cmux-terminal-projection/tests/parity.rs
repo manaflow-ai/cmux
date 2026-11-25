@@ -2201,3 +2201,65 @@ fn phone_width_matches_the_program_drawn_at_the_phones_width() {
         );
     }
 }
+
+/// The duress row in real time: the same 400 KB build log streamed above
+/// Claude Code's box while the person types, fed in 4 KB network reads paced
+/// at 400 KB/s by the wall clock (the phone-width table replays the same
+/// bytes as fast as it can). Reports the projection's time per read (p50,
+/// p99, max) on the phone's side, the stream's wall time against its
+/// 1-second budget, and the compact parity at the end of each step.
+#[test]
+fn duress_wall_clock_400kb_per_second_while_typing() {
+    const RATE: f64 = 400.0 * 1024.0;
+    const CHUNK: usize = 4096;
+    let log = duress_log();
+    let typed: Vec<&str> = "typing while the build streams".split_inclusive(' ').collect();
+    let grid = (43, 33);
+    let mac_steps = claude_code_pane(MAC_GRID.0, MAC_GRID.1, &typed, &log);
+    let phone_steps = claude_code_pane(grid.0, grid.1, &typed, &log);
+    let mut run = Run::new(MAC_GRID, grid, true);
+    let mut target = vt(grid.0, grid.1);
+    let mut per_read: Vec<f64> = Vec::new();
+    let mut mismatched = 0;
+    let mut sent = 0usize;
+    let began = std::time::Instant::now();
+    for (mac, phone) in mac_steps.iter().zip(&phone_steps) {
+        for part in mac.chunks(CHUNK) {
+            // The read arrives when the stream has produced it.
+            let due = std::time::Duration::from_secs_f64(sent as f64 / RATE);
+            if let Some(wait) = due.checked_sub(began.elapsed()) {
+                std::thread::sleep(wait);
+            }
+            sent += part.len();
+            let start = std::time::Instant::now();
+            let segments = run.projection.feed(part, true);
+            per_read.push(start.elapsed().as_secs_f64() * 1000.0);
+            run.mac.vt_write(part);
+            run.apply(segments);
+            let _ = run.projection.take_replies();
+        }
+        target.vt_write(phone);
+        run.load_all();
+        let score = compare_grid(&snapshot(&target), &snapshot(&run.phone));
+        mismatched += score.mismatched + score.cursor_mismatches;
+    }
+    let wall = began.elapsed().as_secs_f64();
+    per_read.sort_by(|a, b| a.total_cmp(b));
+    let at = |q: f64| per_read[((per_read.len() - 1) as f64 * q).round() as usize];
+    println!(
+        "Duress, wall clock: {} KB at 400 KB/s in {} reads to a {}x{} phone: wall {:.3} s (budget {:.3} s), projection per read p50 {:.3} ms, p99 {:.3} ms, max {:.3} ms; compact mismatches {}",
+        sent / 1024,
+        per_read.len(),
+        grid.0,
+        grid.1,
+        wall,
+        sent as f64 / RATE,
+        at(0.5),
+        at(0.99),
+        per_read.last().copied().unwrap_or(0.0),
+        mismatched
+    );
+    if std::env::var("PARITY_REPORT_ONLY").is_err() {
+        assert_eq!(mismatched, 0, "the phone differs from Claude Code drawn at its width");
+    }
+}
