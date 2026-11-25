@@ -99,7 +99,7 @@ await requireBrowserLane("chat-card-fit.test.ts", async () => {
 
   /** At most `limit` pages at a time. */
   async function pool<T, R>(items: T[], limit: number, run: (item: T) => Promise<R>): Promise<R[]> {
-    const out: R[] = new Array(items.length);
+    const out: R[] = [];
     let next = 0;
     await Promise.all(
       Array.from({ length: Math.min(limit, items.length) }, async () => {

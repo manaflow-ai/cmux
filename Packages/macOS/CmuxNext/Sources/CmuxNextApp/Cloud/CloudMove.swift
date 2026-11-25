@@ -189,6 +189,7 @@ struct CloudMove {
         guard let chat = try await chatFolder(tab: tab, workspace: workspace, session: session, invocation: invocation),
               let folder = CloudMoveFolder(chat: chat) else { throw Failure(message: CloudMoveStrings.noFolder) }
         guard !folder.isTooBroad else { throw Failure(message: CloudMoveStrings.homeFolder) }
+        progress.enter(.folder) // the toast names a step from here on, not just its headline
         _ = await cli.startChatPreflight(local: folder.root) // the copy's estimate and decision (whole, first pass, seed) before any machine is picked or made; never refuses (cmux-tui sync_cli/estimate.rs)
         let machine = try await self.machine(invocation, progress: progress) { await CloudChatPick(services: services).read(folder: chat, tab: tab) }
         let name = machine.machine.title, again = CloudMoveRetries.Retry.move(machineID: machine.machineID)

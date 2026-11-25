@@ -54,6 +54,7 @@ pub fn table() -> Vec<(&'static str, Ask)> {
             method::MUX_GITHUB_APP_LEASE,
             Any(json!({}), "a connection that is not the person is refused"),
         ),
+        (method::MUX_GITHUB_REST, Any(json!({}), "a connection that is not the person is refused")),
         (
             method::MUX_GITHUB_ACTION,
             Any(
@@ -121,6 +122,13 @@ pub fn table() -> Vec<(&'static str, Ask)> {
             ),
         ),
         (
+            method::MUX_MACHINE_FILES_CALL,
+            Any(
+                json!({"machine": "nowhere", "action": "fs.read", "params": {"path": "/tmp/x"}}),
+                "the hub's book lists no signed-in machine of that name (unknown_machine)",
+            ),
+        ),
+        (
             method::MUX_KEYS_MINT,
             Any(
                 json!({"machine": "nowhere", "kind": "cloudflare-r2", "bucket": "bucket", "access": "ro"}),
@@ -157,6 +165,13 @@ pub fn table() -> Vec<(&'static str, Ask)> {
             Skip("starts the embedded tailnet node (network, a real account)"),
         ),
         (
+            method::MUX_TAILNET_JOIN,
+            Any(
+                json!({"key": "tskey-auth-x"}),
+                "the person check refuses this connection before any tailnet work",
+            ),
+        ),
+        (
             method::MUX_TAILNET_LOGIN,
             Skip("signs the embedded tailnet in (network, a real account)"),
         ),
@@ -164,6 +179,12 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (
             method::MUX_TAILNET_LOGOUT,
             Any(json!({}), "the person check refuses this connection before any tailnet work"),
+        ),
+        (
+            method::MUX_TAILNET_PLACEMENT,
+            Run(
+                json!({"kind": "set", "v": 1, "workspace": "w", "placement": {"ssh": "127.0.0.1:1"}}),
+            ),
         ),
         (method::MUX_STATUS, Run(json!({}))),
         (method::MUX_SESSIONS, Run(json!({"usage": true}))),

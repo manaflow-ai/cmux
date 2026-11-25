@@ -29,7 +29,7 @@ import { messagePreview, type IncomingMessage } from "./incomingMessage";
 import { MessageFooterRow } from "./MessageActions";
 import { TurnActionsContext } from "./turnActions";
 import { heldLook, heldFiles } from "./queuedMessageCardModel";
-import { sentVideosOf } from "./sentVideos";
+import { sentVideosOf, sentVideoFor } from "./sentVideos";
 import { withoutVideoFrames } from "../composer/videoPrompt";
 
 /// What the ⋯ menu does (App.tsx, through TurnActions `queuedMessages`); each is false once the
@@ -174,9 +174,7 @@ function PersonMessageCard({ row, act }: { row: AcpmuxRow; act?: QueuedMessageAc
   // A video is its tile, as in a sent prompt (UserBubble.tsx): not also a chip, nor its frames.
   const { videos, files, images } = useMemo(() => {
     const videos = sentVideosOf(row);
-    const files = heldFiles(row.inlineParts).filter(
-      (file) => !videos.some((video) => video.name === file.name && video.path === file.path),
-    );
+    const files = heldFiles(row.inlineParts).filter((file) => !sentVideoFor(file, videos));
     return { videos, files, images: withoutVideoFrames(row).images };
   }, [row]);
   // Words shrink to icons in a narrow card (cardFit.css); the name stays on the button.
