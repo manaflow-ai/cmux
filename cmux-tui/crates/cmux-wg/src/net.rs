@@ -33,7 +33,7 @@ use crate::pacing::{DropCounters, Pacer, Priority};
 use crate::probing;
 use crate::stream::WgStream;
 use crate::tcp_stack::{Accepted, TcpStack, user_timeout};
-use crate::timers::{QuietKeepalive, TimerSchedule};
+use crate::timers::{AirGap, QuietKeepalive, TimerSchedule};
 use crate::ultra::{UltraCounters, UltraMode, UltraStats, UltraUnderlay};
 use crate::ultra_auto::{self, AutoUltra, UltraChoice};
 use crate::ultra_hello::{self, Negotiation};
@@ -286,6 +286,39 @@ impl WgNet {
         reply_rx.await.map_err(|_| WgError::Shutdown)
     }
 
+    /// The shortest gap between two of the tunnel's own unsolicited sends
+    /// (routine path probes and their off-path notes) while no data flows,
+    /// or `None` (the default) to probe on schedule. Probes due inside the
+    /// gap wait for its end, or go at once with the session's next send.
+    /// A path that went quiet, a new or suspect path, and a ping
+    /// `probe_now` asked for never wait. The link sets it from its idle
+    /// air budget (a phone's radio stays asleep between wakes).
+    pub async fn set_idle_air_gap(&self, gap: Option<Duration>) -> Result<(), WgError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.commands
+            .send(Command::IdleAirGap { gap, reply: reply_tx })
+            .await
+            .map_err(|_| WgError::Shutdown)?;
+        reply_rx.await.map_err(|_| WgError::Shutdown)
+    }
+
+    /// The longest the tunnel stays silent while it has a session: with
+    /// `Some(floor)`, an empty keepalive goes once `floor` passed with
+    /// nothing sent, sooner than the persistent keepalive would. A phone's
+    /// radio that hears nothing for its inactivity timer (5 to 12 s on LTE
+    /// carriers) sleeps, and the next key then waits for its promotion and
+    /// paging slot; the link sets a floor below that timer while the person
+    /// looks at the app. `None` (the default): only the persistent
+    /// keepalive. Not while held.
+    pub async fn set_air_floor(&self, floor: Option<Duration>) -> Result<(), WgError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.commands
+            .send(Command::AirFloor { floor, reply: reply_tx })
+            .await
+            .map_err(|_| WgError::Shutdown)?;
+        reply_rx.await.map_err(|_| WgError::Shutdown)
+    }
+
     async fn send_rebind(&self, rebind: Rebind) -> Result<(), WgError> {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.commands
@@ -371,6 +404,8 @@ enum Command {
     Listen { port: u16, reply: oneshot::Sender<Result<WgListener, WgError>> },
     LastHandshake { reply: oneshot::Sender<Option<Duration>> },
     Hold { hold: Option<Duration>, reply: oneshot::Sender<()> },
+    IdleAirGap { gap: Option<Duration>, reply: oneshot::Sender<()> },
+    AirFloor { floor: Option<Duration>, reply: oneshot::Sender<()> },
     BindDatagram { port: u16, reply: oneshot::Sender<Result<mpsc::Receiver<Datagram>, WgError>> },
     UnbindDatagram { port: u16 },
     SendDatagram { from_port: u16, to: SocketAddr, payload: Vec<u8>, priority: Priority },
@@ -401,6 +436,8 @@ struct Driver {
     /// a probe sent or judged.
     probe_route: Option<(IpAddr, IpAddr)>,
     probe_deadline: Option<Instant>,
+    /// The link's idle air gap for routine probes (`WgNet::set_idle_air_gap`).
+    air_gap: AirGap,
     /// Per-connection pacing of the stack's output, and when it next lets
     /// a queued packet leave.
     pacer: Pacer,
@@ -423,6 +460,8 @@ struct Driver {
     wakeups: Arc<AtomicU64>,
     /// A rebind while held owes the peer its reassertion at the release.
     reassert_at_release: bool,
+    /// When a cookie reply last had this side send a handshake at once.
+    cookie_retry_at: Option<Instant>,
     /// When this side last sent a handshake initiation of its own (see
     /// [`INITIATION_PENDING`]).
     initiated_at: Option<Instant>,
@@ -585,6 +624,7 @@ impl Driver {
             quiet_keepalive,
             probe_route,
             probe_deadline: None,
+            air_gap: AirGap::default(),
             pacer: Pacer::default(),
             pace_deadline: None,
             negotiation,
@@ -597,6 +637,7 @@ impl Driver {
             resumed: false,
             wakeups: Arc::new(AtomicU64::new(0)),
             reassert_at_release: false,
+            cookie_retry_at: None,
             initiated_at: None,
             handshake_rtt: None,
             responded_at: None,
@@ -666,6 +707,7 @@ impl Driver {
                 () = stack_deadline => Event::StackDeadline,
             };
             self.wakeups.fetch_add(1, Ordering::Relaxed);
+            self.tap_parity();
             self.catch_up_timers();
             self.run_watchdog();
             self.run_handshake_retry();
@@ -704,6 +746,18 @@ impl Driver {
         }
     }
 
+    /// Measurement only: reports the parity datagrams the repair layer
+    /// consumed before the driver saw them.
+    fn tap_parity(&mut self) {
+        if !crate::testing::tapping() {
+            return;
+        }
+        let local = self.config.addresses.first().map(|address| address.address);
+        for wire_bytes in self.underlay.take_tapped_parity() {
+            crate::testing::tap_received(local, crate::testing::Received::Parity, wire_bytes);
+        }
+    }
+
     fn handle_datagram(&mut self, datagram: &[u8], origin: Origin) {
         let mut input = datagram;
         let source = origin.addr.map(|addr| addr.ip());
@@ -713,13 +767,14 @@ impl Driver {
             DatagramClass::WireGuardInitiation | DatagramClass::WireGuardResponse
         );
         let mut replay = Vec::new();
+        let mut cookie_taken = false;
         // Measurement only (`testing::set_receive_tap`): off, one atomic load.
         let local = crate::testing::tapping()
             .then(|| self.config.addresses.first().map(|address| address.address))
             .flatten();
         let wire_bytes = datagram.len();
         let tap = |received: crate::testing::Received<'_>| {
-            crate::testing::tap_received(local, received, wire_bytes)
+            crate::testing::tap_received(local, received, wire_bytes);
         };
         loop {
             match self.tunn.decapsulate(source, input, &mut self.scratch) {
@@ -744,6 +799,10 @@ impl Driver {
                         );
                         note_answered(datagram, &mut self.responded_at, &mut self.handshake_rtt);
                     }
+                    // Done for a cookie reply: boringtun took the cookie
+                    // (it answered this side's latest handshake message).
+                    cookie_taken =
+                        !input.is_empty() && classify(input) == DatagramClass::WireGuardCookieReply;
                     break;
                 }
                 TunnResult::Err(_) => {
@@ -848,6 +907,9 @@ impl Driver {
                     break;
                 }
             }
+        }
+        if cookie_taken {
+            self.answer_cookie(Instant::now());
         }
         self.replay(replay);
     }
@@ -975,11 +1037,19 @@ impl Driver {
             }
             Command::Hold { hold, reply } => {
                 self.stack.set_hold(hold);
-                let keepalive = self.config.persistent_keepalive.is_some_and(|seconds| seconds > 0);
-                self.schedule.set_persistent_keepalive(keepalive && hold.is_none());
+                self.schedule
+                    .set_persistent_keepalive(self.quiet_keepalive.is_some() && hold.is_none());
                 if hold.is_none() && std::mem::take(&mut self.reassert_at_release) {
                     self.reassert();
                 }
+                let _ = reply.send(());
+            }
+            Command::IdleAirGap { gap, reply } => {
+                self.air_gap.set(gap);
+                let _ = reply.send(());
+            }
+            Command::AirFloor { floor, reply } => {
+                self.set_air_floor(floor);
                 let _ = reply.send(());
             }
             Command::BindDatagram { port, reply } => {

@@ -37,41 +37,17 @@ struct TerminalComposer: View {
         // The before rows: the body read the draft (onChange, the send button), as on base.
         let _ = ComposerReturnTextView.measuresWholeDraft ? model.composerText.isEmpty : false
         #endif
+        // The notice, the held-keys row and the attachment error float over the terminal just above the row and take
+        // no height: a card that grew for them moved `bottomStack`, and with it the terminal's bottom inset, the
+        // prompt and the grid (Leo 2026-11-24: "this thing's shifting affects the composer at the bottom ... we need
+        // to have more things decoupled from possible shifts"; same rule as the connection chip, #49316).
+        // No connection line here: a reattach takes no row (Leo, 2026-11-17: "The reconnect takes an extra line").
+        // The state is the title pill's subtitle and Reconnect is in the page menu, both only past the quiet bound
+        // (`TerminalModel.connectionLine`).
         VStack(alignment: .leading, spacing: 6) {
-            if let notice = model.composerNotice {
-                Label(notice, systemImage: "exclamationmark.arrow.circlepath")
-                    .font(.footnote)
-                    .foregroundStyle(.orange)
-                    .padding(.leading, ComposerCardMetrics.rowInset + 8)
-                    .accessibilityIdentifier("terminal.composer.notSent")
-            } else if model.heldKeyBytes > 0 {
-                // Keys typed before the attach go into whatever the terminal shows after it:
-                // the not-sent row's place says they are pending, with Discard. Gone at the
-                // attach, or when they are dropped (the not-sent notice then).
-                HStack(spacing: 8) {
-                    Label(TerminalConnectionState.inputHeldNotice, systemImage: "clock.arrow.circlepath")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                    Button("Discard") { model.discardHeldKeys() }
-                        .font(.footnote.weight(.semibold))
-                        .accessibilityIdentifier("terminal.composer.heldKeys.discard")
-                }
-                .padding(.leading, ComposerCardMetrics.rowInset + 8)
-                .accessibilityIdentifier("terminal.composer.heldKeys")
-            }
-            // No connection line here: a reattach takes no row (Leo,
-            // 2026-11-17: "The reconnect takes an extra line"). The state is
-            // the title pill's subtitle and Reconnect is in the page menu,
-            // both only past the quiet bound (`TerminalModel.connectionLine`).
-            if let error = model.attachmentError {
-                Label(error, systemImage: "exclamationmark.circle")
-                    .font(.footnote)
-                    .foregroundStyle(.red)
-                    .padding(.leading, ComposerCardMetrics.rowInset + 8)
-                    .accessibilityIdentifier("terminal.composer.attachmentError")
-            }
             card
         }
+        .overlay(alignment: .topLeading) { floatingNotes }
         .padding(.horizontal, ComposerCardMetrics.horizontalInset)
         // Always its own height, never the hosting view's current one (kept
         // from #41900): the hosting view takes a taller row's height a pass
@@ -115,6 +91,44 @@ struct TerminalComposer: View {
             guard case .success(let urls) = result else { return }
             Task { await loadFiles(urls) }
         }
+    }
+
+    /// The not-sent notice and the attachment error, drawn over the terminal above the card (its top edge is their
+    /// bottom edge), never in the card's stack: they take no height and move nothing.
+    @ViewBuilder private var floatingNotes: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            if let notice = model.composerNotice {
+                Label(notice, systemImage: "exclamationmark.arrow.circlepath")
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+                    .allowsHitTesting(false)
+                    .accessibilityIdentifier("terminal.composer.notSent")
+            } else if model.heldKeyBytes > 0 {
+                // Keys typed before the attach go into whatever the terminal shows after it: this row says they are
+                // pending, with Discard (the one tappable note). Gone at the attach, or when they are dropped.
+                HStack(spacing: 8) {
+                    Label(TerminalConnectionState.inputHeldNotice, systemImage: "clock.arrow.circlepath")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .allowsHitTesting(false)
+                    Button("Discard") { model.discardHeldKeys() }
+                        .font(.footnote.weight(.semibold))
+                        .accessibilityIdentifier("terminal.composer.heldKeys.discard")
+                }
+                .accessibilityIdentifier("terminal.composer.heldKeys")
+            }
+            if let error = model.attachmentError {
+                Label(error, systemImage: "exclamationmark.circle")
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+                    .allowsHitTesting(false)
+                    .accessibilityIdentifier("terminal.composer.attachmentError")
+            }
+        }
+        .padding(.leading, ComposerCardMetrics.rowInset + 8)
+        .padding(.bottom, 4)
+        .fixedSize(horizontal: false, vertical: true)
+        .alignmentGuide(.top) { $0[.bottom] }
     }
 
     /// The terminal's agent, when voice mode can run on it.
