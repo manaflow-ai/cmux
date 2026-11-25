@@ -15,7 +15,6 @@ import { createElement, Fragment, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { chromium } from "./browsers";
 import * as Host from "../src/agent-session/acpmux/HostError";
-import { RECONNECT_LINE_AFTER_MS } from "../src/agent-session/acpmux/hostRetry";
 
 const css = readFileSync(new URL("../src/agent-session/acpmux/styles.css", import.meta.url), "utf8");
 /** Every row chat-sim drew, in first-drawn order, each at its last text. */
@@ -38,29 +37,19 @@ function simRows(): string[] {
   return Array.from({ length: 4_659 }, (_, index) => drawn[index % drawn.length]!);
 }
 const rows = simRows();
-const LONG = RECONNECT_LINE_AFTER_MS + 2_000;
+const LONG = 60_000;
 const noop = () => undefined;
 const Slot: (props: { children?: ReactNode }) => ReactNode =
   (Host as { HostLineSlot?: (props: { children?: ReactNode }) => ReactNode }).HostLineSlot ??
   (({ children }) => createElement(Fragment, null, children));
 const states: Record<string, ReactNode> = {
   connected: createElement(Host.HostRecoveringLine, {}),
-  "reconnecting under 10 s": createElement(Host.HostRecoveringLine, {
-    relinkingSince: 0,
-    now: RECONNECT_LINE_AFTER_MS - 1,
-  }),
-  "reconnecting past 10 s": createElement(Host.HostRecoveringLine, {
-    relinkingSince: 0,
-    now: LONG,
-  }),
+  "dropped, reconnect in flight": createElement(Host.HostRecoveringLine, { linkDown: false, now: LONG }),
+  "link down": createElement(Host.HostRecoveringLine, { linkDown: true, now: LONG }),
   restoring: createElement(Host.HostRecoveringLine, {
+    linkDown: true,
     restoring: { waitedMs: LONG, at: 0 },
     now: 0,
-  }),
-  "waiting for the service": createElement(Host.HostWaitingLine, {
-    since: 0,
-    now: 60_000,
-    onRestart: noop,
   }),
   "failed, self-retrying": createElement(Host.HostUnavailableLine, {
     message: "Can't connect.",

@@ -75,7 +75,9 @@ export function TasksSection({
   const row = (command: BackgroundCommand, time: string | undefined, state?: string, enters = false) => {
     const toolCallId = command.toolCallId;
     // What a click opens: the terminal on this Mac (else the call, when the host refuses), the call
-    // elsewhere; with neither, the row is not a button and says why as text.
+    // elsewhere; with neither, the row is not a button and says why in its tooltip and to VoiceOver,
+    // so the command keeps the row (as text the reason squeezed "bun test …" to "bun t…",
+    // cmuxterm-hq#19495).
     const shows = !!toolCallId && !!onShowCall && (calls?.has(toolCallId) ?? false);
     const why: StringKey | undefined = !toolCallId
       ? "sessionInfo.tasks.noTerminal.noCall"
@@ -90,6 +92,9 @@ export function TasksSection({
         key={arrivalKey(command)}
         className="acpmux-session-info-task acpmux-session-info-task--command"
         data-state={command.state}
+        data-closed={why !== undefined ? "" : undefined}
+        // On the row, not the button: a disabled button takes no hover, so its own tooltip never shows.
+        title={why && t(why)}
         data-enter={enters ? "top" : undefined}
         onAnimationEnd={
           enters ? (event) => event.target === event.currentTarget && played(arrivalKey(command)) : undefined
@@ -99,6 +104,7 @@ export function TasksSection({
           type="button"
           className="acpmux-session-info-task__open"
           disabled={why !== undefined}
+          aria-description={why && t(why)}
           onClick={() => {
             if (local && openTasks && toolCallId) openTasks(toolCallId);
             else void openCommand(toolCallId, { local, showCall: onShowCall });
@@ -108,8 +114,6 @@ export function TasksSection({
           <span className="acpmux-session-info-task__command">{sendLabel(t, command) ?? command.command}</span>
           {time !== undefined && <Clock className="acpmux-session-info-task__time" text={time} />}
           {state !== undefined && <span className="acpmux-session-info-task__state">{state}</span>}
-          {/* Why it does not open, as text: a disabled row gets no hover (Chief, 2026-11-21). */}
-          {why && <span className="acpmux-session-info-task__state acpmux-session-info-task__why">{t(why)}</span>}
         </button>
         {command.state === "running" && command.processId && onStop && (
           <StopButton id={command.processId} name={command.command} stop={onStop} solid />

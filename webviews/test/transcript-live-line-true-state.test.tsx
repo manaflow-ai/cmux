@@ -164,7 +164,7 @@ test("before the turn's first output it stays Thinking, however long the model t
 
 test("a call that runs long is never called Waiting", () => {
   const running = liveLine([prompt, activity("run", T0 + 1_000, [shell("bun test", "in_progress", T0 + 1_000)])]);
-  expect(drawn(running, T0 + 120_000)).toStartWith("Running bun test");
+  expect(drawn(running, T0 + 120_000)).toStartWith("Running tests");
 });
 
 test("the label changes when a tool starts", () => {
@@ -172,8 +172,8 @@ test("the label changes when a tool starts", () => {
   expect(drawn(before, T0 + 34_000)).toStartWith("Thinking");
   const started = activity("next", T0 + 34_000, [shell("cargo check", "in_progress", T0 + 34_000)]);
   const after = liveLine([prompt, ran, thinking, started]);
-  expect(after.doing).toBe("cargo check");
-  expect(drawn(after, T0 + 35_000)).toBe("Running cargo check 35s");
+  expect(after.doing).toBe("Building");
+  expect(drawn(after, T0 + 35_000)).toBe("Building 35s");
 });
 
 test("with the default arms (one clock, the turn's over the work) the line still says Waiting, with how long", () => {
