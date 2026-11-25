@@ -5,13 +5,14 @@
     python3 cmux-tui/bindings/codegen/swift_app/generate.py --check
 
 The files are build output, never committed (scripts/ci/generated_files_guard.py). The SwiftPM build tool
-plugin Packages/macOS/CmuxNext/Plugins/DaemonWireTypes runs `--out <its work folder>` before every build of
+plugin Packages/macOS/CmuxNext/Plugins/DaemonWireTypesPlugin runs `--out <its work folder>` before every build of
 the CmuxNextDaemon target, and SwiftPM compiles what it writes there. It is the only writer: SwiftPM compiles
 every .swift file under a target's folder, so a second copy there would fail with "invalid redeclaration".
 `--out` therefore refuses a folder inside `sources_root` (the target's folder) or anywhere under a package's
 `Sources`.
 
---out DIR  write every generated file under DIR and delete the files in DIR an earlier run wrote that are no
+--out DIR  write every generated file directly in DIR (flat: SwiftPM compiles only the top level of a prebuild
+           command's output folder, so a Layout/ subfolder would never build) and delete the files in DIR an earlier run wrote that are no
            longer generated (a file is ours when its first line is emit.HEADER_MARK).
 --check    render every family in a temporary folder (so a schema or bindings change that cannot generate
            fails here, not in the build), and refuse a generated type that a hand-written file under
@@ -129,6 +130,17 @@ def write(files: dict[str, str], out: Path) -> None:
             parent = parent.parent
 
 
+def flat(files: dict[str, str]) -> dict[str, str]:
+    """FILES keyed by file name alone: a prebuild command's output folder is read one level deep by SwiftPM."""
+    named: dict[str, str] = {}
+    for relative, content in files.items():
+        name = PurePosixPath(relative).name
+        if name in named:
+            raise BindingError(f"two families generate {name}; type names must be unique across families")
+        named[name] = content
+    return named
+
+
 def run(*, mode: str, schema: Path, bindings: Path, repo_root: Path, out: Path | None = None) -> list[str]:
     """--out writes and returns []; --check returns the problems (empty when the families generate cleanly)."""
     loaded = load_bindings(bindings)
@@ -137,7 +149,7 @@ def run(*, mode: str, schema: Path, bindings: Path, repo_root: Path, out: Path |
         if out is None:
             raise ValueError("--out needs a folder")
         check_out_folder(out, Path(repo_root), loaded)
-        write(files, out)
+        write(flat(files), out)
         return []
     if mode != "check":
         raise ValueError(f"unknown mode {mode!r}")
