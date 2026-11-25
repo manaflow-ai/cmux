@@ -40,6 +40,11 @@ extension CloudDaemon {
 
     /// Carries this Mac's own gh login to machine `id` (Leo, 2026-11-25: "Convienient beats all. Just make good
     /// ui for it so people flow."). Bounded by `deadline`: a start never waits on it longer.
+    /// nil, with nothing sent, when `on` is false (`cloud.useMyGitHubLogin` off).
+    public func carryGitHubLogin(_ id: String, if on: Bool, deadline: Duration = .seconds(25)) async -> GitHubLoginCarry? {
+        on ? await carryGitHubLogin(id, deadline: deadline) : nil
+    }
+
     public func carryGitHubLogin(_ id: String, deadline: Duration = .seconds(25)) async -> GitHubLoginCarry {
         let answer: [String: Any]
         do { answer = try await sealedLine(id, ["op": "use-github-login"], deadline: deadline) } catch {
