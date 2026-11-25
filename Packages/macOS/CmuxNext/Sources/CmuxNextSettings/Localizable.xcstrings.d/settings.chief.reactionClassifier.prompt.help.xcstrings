@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.chief.reactionClassifier.prompt.help" : {
+      "comment" : "Chief reaction classifier (a416).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "What the classifier is told when it decides. Empty uses the built-in instructions."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "分類モデルが判断するときに与える指示。空欄なら組み込みの指示を使います。"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ما يُقال للمصنِّف عندما يقرر. الفراغ يستخدم التعليمات المضمَّنة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Šta se klasifikatoru kaže kada odlučuje. Prazno koristi ugrađene upute."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hvad klassifikatoren får at vide, når den afgør. Tom bruger de indbyggede instruktioner."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Was dem Klassifikator bei der Entscheidung gesagt wird. Leer nutzt die eingebauten Anweisungen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lo que se le dice al clasificador cuando decide. Vacío usa las instrucciones integradas."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ce qu’on dit au classificateur quand il décide. Vide utilise les instructions intégrées."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cosa viene detto al classificatore quando decide. Vuoto usa le istruzioni integrate."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "អ្វីដែលប្រាប់ចំណាត់ថ្នាក់ពេលវាសម្រេច។ ទទេប្រើសេចក្ដីណែនាំដែលមានស្រាប់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "분류기가 판단할 때 받는 지침. 비워 두면 기본 지침을 사용합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hva klassifisereren får beskjed om når den avgjør. Tom bruker de innebygde instruksjonene."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Co klasyfikator otrzymuje przy decyzji. Puste używa wbudowanych instrukcji."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O que o classificador recebe ao decidir. Vazio usa as instruções embutidas."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Что говорят классификатору при решении. Пусто: встроенные инструкции."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "สิ่งที่บอกตัวจำแนกเมื่อตัดสิน ว่างไว้จะใช้คำสั่งในตัว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sınıflandırıcıya karar verirken söylenen. Boş bırakılırsa yerleşik talimatlar kullanılır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Що кажуть класифікатору під час рішення. Порожньо: вбудовані інструкції."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Những gì được nói với bộ phân loại khi nó quyết định. Để trống dùng hướng dẫn có sẵn."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "分类器判断时收到的指令。留空则使用内置指令。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "分類器判斷時收到的指示。留空則使用內建指示。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
