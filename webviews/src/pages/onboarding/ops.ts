@@ -216,8 +216,15 @@ export interface ComputerUseState {
 /** GUI-first (recommended: chats, browsers and terminals side by side, Cmd-T the New Tab page) or
  * terminal-first (Cmd-T opens a terminal). */
 export type WorkStyle = "gui" | "terminal";
-/** Three of the five `appearance.density` levels: compact, standard (the default) and comfortable. */
-export type DensityChoice = "compact" | "standard" | "comfortable";
+/** A density offered: an `appearance.density` preset id (`cozy` is Settings' Default) and its name as
+ * Settings shows it. Every density Settings has (cmux#49636). */
+export interface MakeItYoursDensity {
+  id: string;
+  name: string;
+}
+
+/** The window's material under a background (`appearance.backgroundBlur`), as Settings offers it. */
+export type MakeItYoursMaterial = "none" | "frosted" | "glass" | "glass-clear";
 
 /** A background offered: Shuffle Paintings (`daily`, no name: the page names it) or a built-in work. */
 export interface MakeItYoursBackground {
@@ -229,10 +236,19 @@ export interface MakeItYoursBackground {
 
 export interface MakeItYoursState {
   workStyle: WorkStyle;
-  density: DensityChoice;
+  /** The density's preset id. */
+  density: string;
+  densities: MakeItYoursDensity[];
   /** The background's id; null: none. */
   background: string | null;
   backgrounds: MakeItYoursBackground[];
+  /** The Opacity slider's value, 0 to 1: the one set, else what the window shows; null: unknown. */
+  opacity: number | null;
+  /** The person's settings set the Opacity (else it is the theme's). */
+  opacitySet: boolean;
+  /** `appearance.backgroundBlur`; null: unset (the theme's). */
+  material: MakeItYoursMaterial | null;
+  materials: MakeItYoursMaterial[];
   /** The backgrounds' previews were read. */
   loaded: boolean;
 }
@@ -304,9 +320,12 @@ export interface OnboardingOps {
   "cmux.onboarding.computerUse.restart": [Record<string, never>, unknown];
   /** Make cmux Yours: each pick is written at once, so the window behind shows it. */
   "cmux.onboarding.makeItYours.workStyle": [{ value: WorkStyle }, unknown];
-  "cmux.onboarding.makeItYours.density": [{ value: DensityChoice }, unknown];
+  "cmux.onboarding.makeItYours.density": [{ value: string }, unknown];
   /** `id` null: no background. */
   "cmux.onboarding.makeItYours.background": [{ id: string | null }, unknown];
+  /** The window's Opacity, 0 to 1 (Settings > Appearance's own row). */
+  "cmux.onboarding.makeItYours.opacity": [{ value: number }, unknown];
+  "cmux.onboarding.makeItYours.material": [{ value: MakeItYoursMaterial }, unknown];
 }
 
 export interface OnboardingEvents {
@@ -336,5 +355,7 @@ export const OPS = {
   workStyle: "cmux.onboarding.makeItYours.workStyle",
   density: "cmux.onboarding.makeItYours.density",
   background: "cmux.onboarding.makeItYours.background",
+  opacity: "cmux.onboarding.makeItYours.opacity",
+  material: "cmux.onboarding.makeItYours.material",
   changed: "cmux.onboarding.changed",
 } as const satisfies Record<string, keyof OnboardingOps | keyof OnboardingEvents>;
