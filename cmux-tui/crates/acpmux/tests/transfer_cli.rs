@@ -119,19 +119,6 @@ impl Daemon {
         Self::spawn_inner(tag, peer, agent_env, "fake", linked, None).await
     }
 
-    /// [`Daemon::spawn`], and with `link` (this daemon's WebSocket port, the peer's, a one-way
-    /// delay in milliseconds) the daemon listens there and its own peer link to `target` runs
-    /// over the stand-in `ssh -W`, so a chat on the peer is reached from this daemon as the app
-    /// reaches it.
-    async fn spawn_linked(
-        tag: &str,
-        peer: Option<(PathBuf, PathBuf)>,
-        agent_env: Value,
-        link: Option<(u16, u16, u64)>,
-    ) -> Self {
-        Self::spawn_inner(tag, peer, agent_env, "fake", false, link).await
-    }
-
     async fn spawn_inner(
         tag: &str,
         peer: Option<(PathBuf, PathBuf)>,
