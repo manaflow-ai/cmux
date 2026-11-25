@@ -65,13 +65,15 @@ public struct CloudOwnerAPIClient: Sendable {
     }
 
     /// `cloud.<call>` with `args` on the daemon, as this person (`auth: owner`) in ``teamID``'s team: its body as JSON,
-    /// or its failure as a ``CloudAPIError`` (``CloudDaemon/daemon(_:_:timeout:)``). `timeout` bounds the child.
+    /// or its failure as a ``CloudAPIError`` (``CloudDaemon/daemon(_:_:timeout:)``). `timeout` bounds the child; a
+    /// misconfigured dev build refuses before anything runs.
     func daemon(_ call: String, _ args: [String: any Sendable], timeout: Duration) async throws -> Data {
+        try buildSpace.check()
         let accessToken = accessToken
         var client = CloudDaemon.workerMachines(baseURL: baseURL, accessToken: { try await accessToken() }, teamID: teamID,
                                                    machineIO: machineIO, buildSpace: buildSpace)
-        client.daemonCall = daemonCall
-        return try await client.daemon(call, args, timeout: timeout)
+        client.daemon.daemonCall = daemonCall
+        return try await client.daemon.daemon(call, args, timeout: timeout)
     }
 
     /// The daemon's bound for a call whose own deadline (Rust's) is `deadline`: its answer comes back before the child is killed.

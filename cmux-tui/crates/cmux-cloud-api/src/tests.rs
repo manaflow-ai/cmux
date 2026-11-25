@@ -1055,6 +1055,34 @@ fn connect_github_sends_the_apps_return_link_and_key_in_the_requests_team() {
 }
 
 #[test]
+fn connect_github_for_a_repository_sends_it_and_answers_connected_when_a_connection_covers_it() {
+    let (origin, seen) = fake(|_| {
+        ok(
+            r#"{"ok":true,"value":{"connection":{"id":"conn_1","status":"active"},"connected":true}}"#,
+        )
+    });
+    let args = json!({ "idempotencyKey": "key-1", "repo": "manaflow-ai/cmux" });
+    let answer = go(&request(&origin, Auth::Owner, "owner.github_connect", args)).unwrap();
+    assert_eq!(answer, json!({ "connected": true, "connection": "conn_1" }));
+    for repo in ["manaflow-ai", "a/b/c", "../x"] {
+        let args = json!({ "idempotencyKey": "key-1", "repo": repo });
+        let refused = go(&request(&origin, Auth::Owner, "owner.github_connect", args));
+        assert!(matches!(refused, Err(Failure::Transport(_))), "{repo}");
+    }
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.len(), 1);
+    assert_eq!(
+        seen[0].json(),
+        json!({ "op": "integration.connect", "params": { "provider": "github", "repo": "manaflow-ai/cmux" }, "origin": "user", "idempotency_key": "key-1" })
+    );
+
+    let (origin, _) = fake(|_| ok(r#"{"ok":true,"value":{"connected":true}}"#));
+    let args = json!({ "idempotencyKey": "key-1", "repo": "manaflow-ai/cmux" });
+    let refused = go(&request(&origin, Auth::Owner, "owner.github_connect", args));
+    assert!(matches!(refused, Err(Failure::Decoding(_))), "connected names no connection");
+}
+
+#[test]
 fn completing_github_posts_integration_complete_and_answers_the_routes_status_and_body() {
     let (origin, seen) = fake(|_| {
         Some((403, r#"{"ok":false,"error":{"code":"forbidden","message":"not yours"}}"#.into()))
