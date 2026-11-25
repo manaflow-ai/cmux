@@ -397,27 +397,12 @@ extension OnboardingPageState {
     /// The footer's quiet button: Skip Importing over the Keychain explainer.
     @MainActor
     static func skip(_ model: OnboardingModel) -> String {
-        switch model.step {
-        case .importData where model.importer.isConfirmingPasswords: "skipImporting"
-        default: "skip"
-        }
+        model.footer.skipImporting ? "skipImporting" : "skip"
     }
 
-    /// `OnboardingModel.primaryTitle`, as the page's label key.
+    /// The footer's primary title key, from Rust (`OnboardingModel.footer`).
     @MainActor
-    static func primary(_ model: OnboardingModel) -> String {
-        let importer = model.importer
-        switch model.step {
-        case .agents, .makeItYours: return "continue"
-        case .computerUse: return "done"
-        case .importData:
-            if importer.phase == .detecting { return "detecting" }
-            if importer.phase == .idle { return "findBrowsers" }
-            if importer.explainingAccess != nil { return "continue" }
-            if importer.isConfirmingPasswords { return "beginImporting" }
-            return importer.canStart ? "import" : "done"
-        }
-    }
+    static func primary(_ model: OnboardingModel) -> String { model.footer.primaryTitle }
 
     @MainActor
     private static func agents(_ model: AgentsStepModel, _ images: OnboardingPageImages) -> Agents {

@@ -44,90 +44,60 @@ public final class OnboardingModel {
         computerUse.onFinished = { [weak self] in self?.finish(completed: true) }
     }
 
-    /// The primary button: Find Browsers on the import step before a person
-    /// asked for them, Import while it has a checked choice it has not run,
-    /// else Done.
+    /// The primary button's title: Rust names it (`footer.primaryTitle`), the app localizes it.
     public var primaryTitle: String {
-        if step == .importData, importer.phase == .detecting { return OnboardingStrings.detecting }
-        if step == .importData, importer.phase == .idle { return OnboardingStrings.findBrowsers }
-        if step == .importData, importer.explainingAccess != nil { return OnboardingStrings.continueTitle }
-        if step == .importData, importer.isConfirmingPasswords { return OnboardingStrings.beginImporting }
-        if step == .importData, importer.canStart { return OnboardingStrings.importButton }
-        if step == .agents || step == .makeItYours { return OnboardingStrings.continueTitle }
-        return OnboardingStrings.done
+        switch footer.primaryTitle {
+        case "detecting": OnboardingStrings.detecting
+        case "findBrowsers": OnboardingStrings.findBrowsers
+        case "continue": OnboardingStrings.continueTitle
+        case "beginImporting": OnboardingStrings.beginImporting
+        case "import": OnboardingStrings.importButton
+        default: OnboardingStrings.done
+        }
     }
 
-    /// The primary button. On the import step with a choice to run it
-    /// starts the import and stays, so the rows show it; otherwise it ends
-    /// the window (a running import keeps going in the background).
+    /// The primary button: Rust says what it does, this runs it.
     public func next() {
-        switch step {
-        case .importData where importer.justStarted:
-            return
-        case .importData where importer.phase == .idle:
-            importer.detect()
-            return
-        case .importData where importer.phase == .detecting:
-            // Detection is already in flight. Do not let a slow privacy or
-            // filesystem probe turn Return into an accidental Done action.
-            return
-        case .importData where importer.explainingAccess != nil:
-            importer.continueAccess()
-            return
-        // Begin Importing; while Touch ID is up it waits, never ends the window.
-        case .importData where importer.isConfirmingPasswords:
-            if importer.canStart { importer.start() }
-            return
-        case .importData where importer.canStart:
-            importer.start()
-            return
-        // Computer Use: Return is the window's one primary action: the next
-        // row's Allow, Restart for a helper that did not answer, or Done.
-        case .computerUse where !computerUse.allGranted:
-            if computerUse.permissions.helperFailed { computerUse.restart() } else { computerUse.allowNext() }
-            return
-        default:
-            finish(completed: true)
+        switch footer.primary {
+        case "none": return
+        case "detect": importer.detect()
+        case "continueAccess": importer.continueAccess()
+        case "startImport": importer.start()
+        case "restartHelper": computerUse.restart()
+        case "allowNext": computerUse.allowNext()
+        default: finish(completed: true)
         }
     }
 
     /// The footer's Skip: Skip Importing on the Keychain explainer, where it
     /// leaves without reading anything.
-    public var skipTitle: String {
-        step == .importData && importer.isConfirmingPasswords ? OnboardingStrings.skipImporting : OnboardingStrings.skip
-    }
+    public var skipTitle: String { footer.skipImporting ? OnboardingStrings.skipImporting : OnboardingStrings.skip }
 
     /// The footer's Back: shown on the folder and Keychain explainers, off
     /// while the open panel or the Touch ID sheet is up.
-    public var canGoBack: Bool {
-        guard step == .importData else { return false }
-        if importer.explainingAccess != nil { return !importer.requestingAccess }
-        return importer.isConfirmingPasswords && !importer.authorizing
-    }
+    public var canGoBack: Bool { footer.back != nil }
 
-    /// Whether the footer's primary action can run now. Browser detection is
-    /// started as soon as the import tool opens, so its transient state must
-    /// not offer a misleading Done action while the scan is still running.
-    public var canAdvance: Bool {
-        !(step == .importData && importer.phase == .detecting)
-    }
+    /// Whether the footer's primary action can run now.
+    public var canAdvance: Bool { footer.canAdvance }
 
     /// Back: from either explainer to the list, nothing read.
     public func goBack() {
-        guard canGoBack else { return }
-        if importer.explainingAccess != nil { importer.cancelAccess() } else { importer.backFromConsent() }
+        switch footer.back {
+        case "cancelAccess": importer.cancelAccess()
+        case "backFromConsent": importer.backFromConsent()
+        default: return
+        }
     }
 
-    /// The bar over the explainers (`ImportStepModel.explainerProgress`); nil elsewhere.
-    public var flowProgress: Double? { step == .importData ? importer.explainerProgress : nil }
+    /// The bar over the explainers; nil elsewhere.
+    public var flowProgress: Double? { footer.flowProgress }
 
-    /// Skip (Escape): ends the window; a running import finishes. Skip
-    /// Importing on the Keychain explainer reads nothing, even when Touch ID
-    /// answers after the window is gone.
+    /// Skip (Escape): ends the window; a running import finishes.
     public func skipStep() {
-        if step == .importData, importer.isConfirmingPasswords { importer.backFromConsent() }
+        let footer = footer
+        if footer.skipLeavesConsent { importer.backFromConsent() }
         // Make cmux Yours' Skip keeps the person's settings: the picks it made live are put back.
-        if step == .makeItYours { makeItYours.revert() }
+        if footer.skipRevertsChoices { makeItYours.revert() }
         finish(completed: false)
     }
 

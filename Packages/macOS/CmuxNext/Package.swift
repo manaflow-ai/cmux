@@ -44,7 +44,7 @@ import PackageDescription
 //     Chromium page draws through; plans/cmux-next/cef-layer-hosting-DESIGN.md)
 //   CmuxNextBrowserImport -> CCmuxAppFFI (imported cookies' sync), system frameworks (browser detection, parsers, importer; no UI)
 //   CmuxNextBrowserHistory -> Browser, Daemon, Compat (a browser tab's saved history across relaunches; no UI)
-//   CmuxNextOnboarding -> Design, Icons, BrowserImport (first-run window; the App supplies OnboardingServices)
+//   CmuxNextOnboarding -> Design, Icons, BrowserImport, WindowRules (first-run window; the App supplies OnboardingServices)
 //   CmuxNextHomeModel -> DesignTokens, Icons, CmuxHomeCore, CmuxHomeRender (the Home models, tunables and their
 //     strings that code outside the Home views reads: Chief roster, avatars and engines, contacts, group and invite
 //     outcomes, pins, dock mode, chat colours; no views, no MessagesLab, no daemon)
@@ -925,6 +925,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextPages",
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
+                "CmuxNextWindowRules",
             ],
             resources: [
                 .process("Resources"),

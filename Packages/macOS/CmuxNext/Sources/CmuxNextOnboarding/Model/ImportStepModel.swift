@@ -53,8 +53,7 @@ public final class ImportStepModel {
     /// Selected profile ids (`BrowserSourceProfile.id`).
     public private(set) var selectedProfiles: Set<String> = []
     /// What to bring from every selected profile.
-    public private(set) var kinds: Set<ImportDataKind> = Set(ImportStepModel.offeredKinds)
-        .subtracting(ImportStepModel.optInKinds)
+    public private(set) var kinds: Set<ImportDataKind> = Set(OnboardingRules.kinds(passwordStore: false).defaults)
     /// The kinds a caller opened the step on (the cookie import card: cookies
     /// only); detection then leaves passwords unchecked unless they are among them.
     @ObservationIgnored private var presetKinds: Set<ImportDataKind>?
@@ -102,12 +101,8 @@ public final class ImportStepModel {
     /// Where Cancel on the explainer returns: the list, or a finished import's summary.
     private var accessReturnPhase: Phase = .ready
 
-    /// The progress bar over the explainers: allow access is half way, the
-    /// Keychain explainer three quarters (find browsers, then import, around them).
-    public var explainerProgress: Double? {
-        if explainingAccess != nil { return 0.5 }
-        return isConfirmingPasswords ? 0.75 : nil
-    }
+    /// The progress bar over the explainers, from Rust.
+    public var explainerProgress: Double? { OnboardingRules.importRules(facts).explainerProgress }
 
     /// Cancel on the explainer: back to the list, or to the finished import it came from.
     public func cancelAccess() {
@@ -151,33 +146,19 @@ public final class ImportStepModel {
         if case .finished = phase { true } else { false }
     }
 
-    /// Import Passwords from CSV…: shown when a listed profile has saved
-    /// passwords this build cannot read (export only), the Keychain
-    /// confirmation did not finish, or an import could not read them. The
-    /// CSV is the browser's own export and needs no Keychain.
-    public var offersPasswordCSV: Bool {
-        let exportOnly = profiles.contains {
-            if case .unsupported = $0.availability(of: .passwords) { true } else { false }
-        }
-        switch phase {
-        case .idle, .detecting, .importing, .explainingAccess: return false
-        case .confirmingPasswords: return authorizationDenied
-        case .finished(let summary): return exportOnly || summary.batches.contains { $0.passwordError != nil }
-        case .ready, .cancelled, .failed: return exportOnly
-        }
-    }
+    /// Import Passwords from CSV…, from Rust: an export-only profile, a Keychain
+    /// confirmation that did not finish, or an import that could not read them.
+    public var offersPasswordCSV: Bool { OnboardingRules.importRules(facts).offersPasswordCsv }
 
     public func importPasswordsFromCSV() { services.importPasswordsFromCSV(into: mergeTarget) }
 
-    /// The kinds every profile row is shown for.
-    public static let offeredKinds: [ImportDataKind] = [.bookmarks, .history, .openTabs, .extensions, .cookies, .searchEngines]
-    /// Offered unchecked: the search engine is one setting for every profile, and open tabs and
-    /// extensions open a workspace per profile (its pages, its extensions' store pages), so each
-    /// happens only when asked.
-    public static let optInKinds: Set<ImportDataKind> = [.openTabs, .extensions, .searchEngines]
+    /// The kinds every profile row is shown for (Rust's list).
+    public static let offeredKinds: [ImportDataKind] = OnboardingRules.kinds(passwordStore: false).choices
+    /// Offered unchecked (Rust's list: the rest of `offeredKinds` is checked at first).
+    public static let optInKinds: Set<ImportDataKind> = Set(offeredKinds).subtracting(OnboardingRules.kinds(passwordStore: false).defaults)
 
     /// The one line of checkboxes: passwords too when this build can save them.
-    public var kindChoices: [ImportDataKind] { passwordStore ? Self.offeredKinds + [.passwords] : Self.offeredKinds }
+    public var kindChoices: [ImportDataKind] { OnboardingRules.kinds(passwordStore: passwordStore).choices }
 
     init(services: any OnboardingServices) {
         self.services = services
@@ -242,7 +223,7 @@ public final class ImportStepModel {
             targetChoices = choices
             // A source imported into another profile before goes there again, if that profile is still here.
             targets = earlier.filter { _, id in choices.contains { $0.id == id } }
-            sources = Self.edgeFirst(found)
+            sources = OnboardingRules.edgeFirst(found)
             awaitingAccess = awaiting
             // Checked like the rest the first time it is offered; Import asks before anything is read.
             if store, !passwordStore, presetKinds?.contains(.passwords) ?? true { kinds.insert(.passwords) }
@@ -252,15 +233,6 @@ public final class ImportStepModel {
             selectedProfiles = Set(profiles.map(\.id))
             phase = .ready
         }
-    }
-
-    /// Edge leads, stable before its channels (the browser people most
-    /// often come from on a work Mac); the rest keep detection order.
-    nonisolated static func edgeFirst(_ sources: [BrowserSource]) -> [BrowserSource] {
-        let edge: [ImportBrowser] = [.edge, .edgeBeta, .edgeDev, .edgeCanary]
-        let edges = sources.filter { edge.contains($0.browser) }
-            .sorted { (edge.firstIndex(of: $0.browser) ?? 0) < (edge.firstIndex(of: $1.browser) ?? 0) }
-        return edges + sources.filter { !edge.contains($0.browser) }
     }
 
     public func isSelected(_ profile: BrowserSourceProfile) -> Bool { selectedProfiles.contains(profile.id) }
@@ -300,7 +272,7 @@ public final class ImportStepModel {
     public func preset(kinds preset: Set<ImportDataKind>, into target: String? = nil) {
         guard !isImporting, !isConfirmingPasswords else { return }
         presetKinds = preset
-        kinds = preset.filter { $0 != .passwords || passwordStore }
+        kinds = Set(OnboardingRules.kinds(passwordStore: passwordStore, preset: Array(preset)).preset)
         mergeTarget = target
     }
 
@@ -336,12 +308,7 @@ public final class ImportStepModel {
         if kinds.remove(kind) == nil { kinds.insert(kind) }
     }
 
-    public var canEditSelection: Bool {
-        switch phase {
-        case .ready, .cancelled, .failed: true
-        default: false
-        }
-    }
+    public var canEditSelection: Bool { OnboardingRules.importRules(facts).canEditSelection }
 
     /// The checked profiles and kinds; passwords only from profiles the
     /// user agreed to on the consent screen.
@@ -372,9 +339,7 @@ public final class ImportStepModel {
 
     public var isConfirmingPasswords: Bool { phase == .confirmingPasswords }
 
-    public var canStart: Bool {
-        (canEditSelection && !plan.items.isEmpty) || (isConfirmingPasswords && !authorizing)
-    }
+    public var canStart: Bool { OnboardingRules.importRules(facts).canStart }
 
     /// Touch ID (or the Mac's password) is up, before any Keychain read.
     public private(set) var authorizing = false
