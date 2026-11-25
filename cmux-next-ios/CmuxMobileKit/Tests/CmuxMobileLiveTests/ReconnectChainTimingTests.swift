@@ -232,6 +232,7 @@ private final class FakeMac: @unchecked Sendable {
 
     private var dialCount = 0
     private var keyArrival: ContinuousClock.Instant?
+    private var keyOnLink: ContinuousClock.Instant?
     private weak var latestLink: ChainLink?
 
     init(macID: String) { self.macID = macID }
@@ -243,8 +244,12 @@ private final class FakeMac: @unchecked Sendable {
 
     /// When the Mac's daemon first served a `send` (a typed key) since `resetKey`.
     var keyArrived: ContinuousClock.Instant? { lock.withLock { keyArrival } }
-    func resetKey() { lock.withLock { keyArrival = nil } }
+    /// When the phone first put a `send` (a typed key) on the link since `resetKey`: its bytes
+    /// left the app, before the fake wire's one-way delay.
+    var keyLeft: ContinuousClock.Instant? { lock.withLock { keyOnLink } }
+    func resetKey() { lock.withLock { keyArrival = nil; keyOnLink = nil } }
     func keyServed() { lock.withLock { if keyArrival == nil { keyArrival = .now } } }
+    func keySent() { lock.withLock { if keyOnLink == nil { keyOnLink = .now } } }
 
     var oneWay: Duration {
         get { lock.withLock { oneWayLatency } }
@@ -419,6 +424,8 @@ private final class ChainLink: ParkableMacLink, @unchecked Sendable {
                 if let id = object["id"] { lock.withLock { methods["\(id)"] = method } }
                 mac.marks.mark("\(Self.short(method))_out", link: self)
             }
+        case "daemon":
+            if Self.objects(data).contains(where: { $0["cmd"] as? String == "send" }) { mac.keySent() }
         default:
             break
         }
@@ -922,9 +929,12 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
 /// The live resume bench, on the chain suite's rig and fake Mac; its own suite for a longer time limit.
 @MainActor
 // Runs alone: its wall-time loop holds the main actor for minutes, which starves the timing tests
-// beside it. The fleet script turns it on when an only= filter names this suite.
+// beside it. On with CMUX_RESUME_LIVE_BENCH=1, or CMUX_TICK_HARNESS=1 (the fleet script sets that
+// when its only= filter names TickHarnessCellsTests; name this suite beside it, and -only-testing
+// keeps every other kit suite out of the run).
 @Suite(.serialized, .timeLimit(.minutes(20)),
-       .enabled(if: ProcessInfo.processInfo.environment["CMUX_RESUME_LIVE_BENCH"] == "1",
+       .enabled(if: ProcessInfo.processInfo.environment["CMUX_RESUME_LIVE_BENCH"] == "1"
+                    || ProcessInfo.processInfo.environment["CMUX_TICK_HARNESS"] == "1",
                 "runs alone: CMUX_RESUME_LIVE_BENCH=1")) struct ResumeLiveBenchTests {
     /// Leo, 2026-11-22: "me swiping up to go to another app then back to the ios cmux internal
     /// app... there's lag when coming back. lag to interaction." Free-running, in wall time, with
@@ -935,6 +945,11 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
     /// decides on it alone. Each row runs twice in the same process: `base` is the pre-fix return
     /// (`foreground(after: nil)` sends `.resume`, which redials every link, the path every return took
     /// before), `after` is the return with its away time. Asserts only that the key lands.
+    ///
+    /// Two clocks per key: `first_key_*` to the Mac's daemon (it includes the fake wire's 40 ms
+    /// one way, a fixed floor no app change moves), and `key_on_link_*` to the key's bytes on the
+    /// link (the ledger row ios-resume-tti-1s: "key stamped in app to bytes on the link"), which is
+    /// the app's own time.
     @Test func resumeLiveBench() async throws {
         let chain = ReconnectChainTimingTests()
         let rig = try await chain.rig()
@@ -956,6 +971,7 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
         let rows: [(away: Int, duress: Bool)] = [(1, false), (5, false), (30, false), (300, false), (1, true), (30, true)]
         for mode in ["base", "after"] { for row in rows {
             var keyMillis: [Double] = []
+            var linkMillis: [Double] = []
             var roundTrips: [Double] = []
             var kept = 0
             var reconnects = 0
@@ -997,13 +1013,14 @@ private final class ChainDialer: MacLinkDialer, @unchecked Sendable {
                 let landed = try #require(mac.keyArrived, "the first key never reached the Mac within 10 s (away \(row.away) s)")
                 let ms = millis(landed - start)
                 keyMillis.append(ms)
+                linkMillis.append(millis((mac.keyLeft ?? landed) - start))
                 // Serial round trips the key waited for: its time on the wire past the one way it travels, in RTTs.
                 roundTrips.append(max(0, ((ms - oneWayMillis) / (2 * oneWayMillis)).rounded()))
                 if contentKept { kept += 1 }
                 try await chain.waitFor("the link to settle after the key") { settled() }
                 reconnects += mac.dials - dialsBefore
             }
-            let line = #"RESUME_LIVE {"mode":"\#(mode)","away_s":\#(row.away),"n":20,"duress":\#(row.duress),"content_kept":\#(kept),"first_key_p50_ms":\#(ReconnectChainTimingTests.fmt(ReconnectChainTimingTests.percentile(keyMillis, 0.5))),"first_key_p95_ms":\#(ReconnectChainTimingTests.fmt(ReconnectChainTimingTests.percentile(keyMillis, 0.95))),"round_trips_p95":\#(Int(ReconnectChainTimingTests.percentile(roundTrips, 0.95))),"reconnects":\#(reconnects),"rtt_ms":80,"away":"injected, not slept"}"#
+            let line = #"RESUME_LIVE {"mode":"\#(mode)","away_s":\#(row.away),"n":20,"duress":\#(row.duress),"content_kept":\#(kept),"first_key_p50_ms":\#(ReconnectChainTimingTests.fmt(ReconnectChainTimingTests.percentile(keyMillis, 0.5))),"first_key_p95_ms":\#(ReconnectChainTimingTests.fmt(ReconnectChainTimingTests.percentile(keyMillis, 0.95))),"key_on_link_p50_ms":\#(ReconnectChainTimingTests.fmt(ReconnectChainTimingTests.percentile(linkMillis, 0.5))),"key_on_link_p95_ms":\#(ReconnectChainTimingTests.fmt(ReconnectChainTimingTests.percentile(linkMillis, 0.95))),"key_on_link_max_ms":\#(ReconnectChainTimingTests.fmt(linkMillis.max() ?? -1)),"wire_one_way_ms":40,"round_trips_p95":\#(Int(ReconnectChainTimingTests.percentile(roundTrips, 0.95))),"reconnects":\#(reconnects),"rtt_ms":80,"away":"injected, not slept"}"#
             print(line)
             report.append(line)
         } }

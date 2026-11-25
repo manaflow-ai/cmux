@@ -1,13 +1,15 @@
 import { env } from "cloudflare:workers"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import vectors from "../../../cmux-tui/crates/cmux-transport/tests/vectors/relay-frames.json"
 import { checkFrame } from "../src/relay-frame.ts"
-import { linkStatLine, uuidToBytes } from "../src/team-hub.ts"
+import { linkStatLine, userHubName, uuidToBytes } from "../src/team-hub.ts"
+import type { Env } from "../src/env.ts"
 import { connect, register, sockOf, token, worker, type Sock } from "./helpers.ts"
 
 // PROTOCOL.md "WebSocket relay": the last way a WireGuard link reaches its peer, WireGuard datagrams in relay
 // frames over a real HTTP/1.1 WebSocket upgrade on the Worker's own host. Only the two devices the owner's hub
-// bound to a session at its first signal can join that session's relay.
+// bound to a session at its first signal can join that session's relay, each with the ticket the hub stamped on
+// the signals it forwarded to that device's own signaling socket (`relayTicket`).
 
 const hex = (text: string): Uint8Array => Uint8Array.from(text.match(/../g) ?? [], (h) => Number.parseInt(h, 16))
 const toHex = (bytes: Uint8Array) => Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")
@@ -18,10 +20,39 @@ const frame = (datagrams: Uint8Array[], peer = new Uint8Array(16).fill(0xee), ki
   return new Uint8Array([1, kind, ...peer, ...records])
 }
 
-const join = (tok: string, sessionId: string, deviceId: string, extra: Record<string, string> = {}) =>
-  worker.fetch(`https://api.test/v1/relay/${sessionId}?deviceId=${deviceId}`, { headers: { Upgrade: "websocket", authorization: `Bearer ${tok}`, ...extra } })
+/** Each device's relay ticket per session, as its signaling socket received it (`relayTicket`). */
+const tickets = new Map<string, string>()
+const TICKET = "x-cmux-relay-ticket"
 
-const joined = async (tok: string, sessionId: string, deviceId: string, extra: Record<string, string> = {}): Promise<Sock> => {
+/** A join as `deviceId`, with that device's own ticket unless `extra` names another (or `null`: none). */
+const join = (tok: string, sessionId: string, deviceId: string, extra: Record<string, string | null> = {}) => {
+  const headers: Record<string, string> = { Upgrade: "websocket", authorization: `Bearer ${tok}` }
+  const own = tickets.get(`${sessionId}|${deviceId}`)
+  if (own) headers[TICKET] = own
+  for (const [k, v] of Object.entries(extra)) {
+    if (v === null) delete headers[k]
+    else headers[k] = v
+  }
+  return worker.fetch(`https://api.test/v1/relay/${sessionId}?deviceId=${deviceId}`, { headers })
+}
+
+/** The ticket stamped on the last signal of `sessionId` that `sock` (device `deviceId`) received, recorded. */
+const recordTicket = (sock: Sock, sessionId: string, deviceId: string) => {
+  const signal = sock.frames.filter((f) => f.type === "signal" && f.sessionId === sessionId).at(-1)
+  expect(typeof signal?.relayTicket, JSON.stringify(signal)).toBe("string")
+  tickets.set(`${sessionId}|${deviceId}`, signal.relayTicket)
+  return signal.relayTicket as string
+}
+
+/** The Mac answers the phone's `wg-init` with `wg-resp`; both devices' tickets are then recorded. */
+const exchange = async (p: Sock, phone: string, m: Sock, mac: string, sessionId: string) => {
+  const macTicket = recordTicket(m, sessionId, mac)
+  m.send({ type: "signal", to: phone, from: mac, sessionId, payload: { kind: "wg-resp", publicKey: "k", endpoints: [], overlayIP: "10.77.0.1" } })
+  await p.until((x) => x.frames.some((f) => f.type === "signal" && f.sessionId === sessionId && f.payload?.kind === "wg-resp"))
+  return { macTicket, phoneTicket: recordTicket(p, sessionId, phone) }
+}
+
+const joined = async (tok: string, sessionId: string, deviceId: string, extra: Record<string, string | null> = {}): Promise<Sock> => {
   const res = await join(tok, sessionId, deviceId, extra)
   expect(res.status, await (res.status === 101 ? Promise.resolve("") : res.text())).toBe(101)
   const s = sockOf(res.webSocket!)
@@ -40,7 +71,8 @@ const session = async (user = "alice", team = "team-a") => {
   const sessionId = crypto.randomUUID()
   p.send({ type: "signal", to: mac, from: phone, sessionId, payload: { kind: "wg-init", publicKey: "k", endpoints: [], overlayIP: "10.77.0.2" } })
   await m.until((x) => x.frames.some((f) => f.type === "signal" && f.sessionId === sessionId))
-  return { tok, phone, mac, p, m, sessionId }
+  const { macTicket, phoneTicket } = await exchange(p, phone, m, mac, sessionId)
+  return { tok, phone, mac, p, m, sessionId, macTicket, phoneTicket }
 }
 
 describe("link relay: who may join", () => {
@@ -70,6 +102,34 @@ describe("link relay: who may join", () => {
     const b = await joined(tok, sessionId, mac)
     a.ws.close()
     b.ws.close()
+  })
+
+  it("admits a device only with its own ticket: another device of the same user cannot pass the phone's id", async () => {
+    const { tok, phone, mac, sessionId, macTicket, phoneTicket } = await session()
+    // The same user's token, the phone's id: without the phone's ticket it is refused, whatever it sends instead.
+    for (const ticket of [null, "", "not-a-ticket", macTicket, phoneTicket.slice(0, -2) + (phoneTicket.endsWith("A") ? "BB" : "AA")]) {
+      const res = await join(tok, sessionId, phone, { [TICKET]: ticket })
+      expect(res.status, `ticket ${ticket}`).toBe(403)
+    }
+    // A ticket is bound to its device and its session.
+    expect((await join(tok, sessionId, mac, { [TICKET]: phoneTicket })).status).toBe(403)
+    const other = await session()
+    expect((await join(other.tok, other.sessionId, other.phone, { [TICKET]: phoneTicket })).status).toBe(403)
+    expect((await join(tok, sessionId, phone)).status).toBe(101)
+  })
+
+  it("stamps each device's own ticket on what it receives: distinct per device and per session, and stable", async () => {
+    const { phone, mac, p, m, sessionId, macTicket, phoneTicket } = await session()
+    expect(macTicket).not.toBe(phoneTicket)
+    expect(phoneTicket.length).toBeGreaterThanOrEqual(43)
+    // A later signal of the same session carries the same ticket.
+    p.send({ type: "signal", to: mac, from: phone, sessionId, payload: { kind: "wg-endpoints", generation: 1, endpoints: [] } })
+    await m.until((x) => x.frames.filter((f) => f.type === "signal" && f.sessionId === sessionId).length === 2)
+    expect(m.frames.filter((f) => f.type === "signal").at(-1).relayTicket).toBe(macTicket)
+    // A client cannot plant a ticket: the hub drops whatever the sender wrote.
+    m.send({ type: "signal", to: phone, from: mac, sessionId, relayTicket: "planted", payload: { kind: "wg-relay" } })
+    await p.until((x) => x.frames.some((f) => f.type === "signal" && f.payload?.kind === "wg-relay"))
+    expect(p.frames.find((f) => f.payload?.kind === "wg-relay").relayTicket).toBe(phoneTicket)
   })
 
   it("a session ended by bye takes no new joins", async () => {
@@ -102,6 +162,7 @@ describe("link relay: who may join", () => {
     const sessionId = crypto.randomUUID()
     p.send({ type: "signal", to: mac, from: phone, sessionId, payload: { kind: "wg-init", publicKey: "k", endpoints: [], overlayIP: "10.77.0.2" } })
     await m.until((x) => x.frames.some((f) => f.type === "signal"))
+    await exchange(p, phone, m, mac, sessionId)
     // Without the space the stable hub has no such session.
     expect((await join(tok, sessionId, phone)).status).toBe(403)
     const a = await joined(tok, sessionId, phone, space)
@@ -209,6 +270,198 @@ describe("link relay: what it carries", () => {
     a.ws.send("ping")
     expect(await pong).toBe("pong")
     a.ws.close()
+  })
+})
+
+describe("link relay: live sockets end with their session", () => {
+  const closedWith = async (s: Sock, code: number) => {
+    await s.until((x) => x.closed)
+    expect(s.closeCode).toBe(code)
+  }
+
+  it("bye closes both live sockets of the session (4001), and nothing crosses after it", async () => {
+    const { tok, phone, mac, p, m, sessionId } = await session()
+    const a = await joined(tok, sessionId, phone)
+    const b = await joined(tok, sessionId, mac)
+    p.send({ type: "signal", to: mac, from: phone, sessionId, payload: { kind: "bye", reason: "closed" } })
+    await closedWith(a, 4001)
+    await closedWith(b, 4001)
+    await m.until((x) => x.frames.some((f) => f.payload?.kind === "bye"))
+    expect((await join(tok, sessionId, phone)).status).toBe(403)
+  })
+
+  it("removing a device closes the live sockets of its sessions (4002)", async () => {
+    const { tok, phone, mac, sessionId } = await session()
+    const a = await joined(tok, sessionId, phone)
+    const b = await joined(tok, sessionId, mac)
+    const removed = await worker.fetch(`https://api.test/v1/devices/${phone}`, { method: "DELETE", headers: { authorization: `Bearer ${tok}` } })
+    expect(removed.status).toBe(200)
+    await closedWith(a, 4002)
+    await closedWith(b, 4002)
+  })
+
+  it("the kill switch closes live sockets at their next frame (4003), not only new joins", async () => {
+    const { tok, phone, mac, sessionId } = await session()
+    const a = await joined(tok, sessionId, phone)
+    const b = await joined(tok, sessionId, mac)
+    a.ws.send(frame([new Uint8Array([4, 0, 0, 0, 1])]))
+    await b.until((x) => x.binary.length === 1)
+    const vars = env as unknown as { LINK_RELAY_MODE?: string }
+    vars.LINK_RELAY_MODE = "off"
+    try {
+      a.ws.send(frame([new Uint8Array([4, 0, 0, 0, 2])]))
+      await closedWith(a, 4003)
+      await closedWith(b, 4003)
+      expect(b.binary.length).toBe(1)
+    } finally {
+      delete vars.LINK_RELAY_MODE
+    }
+  })
+})
+
+describe("link relay: a per-user byte budget", () => {
+  // vitest.config.ts sets LINK_RELAY_USER_MIB_PER_MIN to 2 for the tests (production: 480).
+  const big = () => frame([new Uint8Array(16380).fill(7)])
+
+  it("caps what one user relays per minute across its sessions, and says so; another user is unaffected", async () => {
+    const carol = await session("carol", "team-c")
+    const a = await joined(carol.tok, carol.sessionId, carol.phone)
+    const b = await joined(carol.tok, carol.sessionId, carol.mac)
+    for (let i = 0; i < 200; i++) a.ws.send(big())
+    await a.until((x) => x.frames.some((f) => f.type === "error" && f.code === "rate_limited"))
+    await new Promise((r) => setTimeout(r, 300))
+    // About 2 MiB of the 3.2 MiB sent got through: grants of 64 KiB doubling to 1 MiB, until the budget ran out.
+    expect(b.binary.length).toBeGreaterThanOrEqual(100)
+    expect(b.binary.length).toBeLessThanOrEqual(140)
+    // The budget is the user's, not the session's: a second session of the same user is held too.
+    const again = await session("carol", "team-c")
+    const c = await joined(carol.tok, again.sessionId, again.phone)
+    const d = await joined(carol.tok, again.sessionId, again.mac)
+    for (let i = 0; i < 80; i++) c.ws.send(big())
+    await c.until((x) => x.frames.some((f) => f.type === "error" && f.code === "rate_limited"))
+    await new Promise((r) => setTimeout(r, 200))
+    expect(d.binary.length).toBeLessThan(80)
+    // Another user's relay goes on.
+    const dave = await session("dave", "team-c")
+    const e = await joined(dave.tok, dave.sessionId, dave.phone)
+    const f = await joined(dave.tok, dave.sessionId, dave.mac)
+    for (let i = 0; i < 20; i++) e.ws.send(big())
+    await f.until((x) => x.binary.length === 20)
+    for (const sock of [a, b, c, d, e, f]) sock.ws.close()
+  })
+})
+
+describe("link relay: the budget holds under load and when the hub fails", () => {
+  const big = () => frame([new Uint8Array(16380).fill(7)])
+  /** The hub's count of budget calls for `user` (primary project: the owner key is the user id). */
+  const hubs = (env as unknown as Env).TEAM_HUB
+  const budgetCalls = (user: string) => hubs.get(hubs.idFromName(userHubName(user))).relayBudgetCalls({ ownerKey: user, space: "" })
+
+  it("over budget, frames are dropped without asking the hub for each one", async () => {
+    const erin = await session("erin", "team-e")
+    const a = await joined(erin.tok, erin.sessionId, erin.phone)
+    const b = await joined(erin.tok, erin.sessionId, erin.mac)
+    for (let i = 0; i < 200; i++) a.ws.send(big())
+    await a.until((x) => x.frames.some((f) => f.type === "error" && f.code === "rate_limited"))
+    await new Promise((r) => setTimeout(r, 300))
+    const delivered = b.binary.length
+    const before = await budgetCalls("erin")
+    for (let i = 0; i < 100; i++) a.ws.send(big())
+    await new Promise((r) => setTimeout(r, 500))
+    // Only what the bucket refilled crosses (2 MiB/min: well under 128 KiB in this second), not the 1.6 MiB sent.
+    expect(b.binary.length - delivered).toBeLessThanOrEqual(8)
+    // Review of #53240: 100 frames past the budget made 100 hub calls.
+    expect((await budgetCalls("erin")) - before).toBeLessThanOrEqual(3)
+    a.ws.close()
+    b.ws.close()
+  })
+
+  it("a hub that fails grants nothing: no frames cross, and it is not asked per frame", async () => {
+    const vars = env as unknown as { LINK_RELAY_TEST_BUDGET_ERROR?: string }
+    const m = await session("mallory", "team-m")
+    const a = await joined(m.tok, m.sessionId, m.phone)
+    const b = await joined(m.tok, m.sessionId, m.mac)
+    vars.LINK_RELAY_TEST_BUDGET_ERROR = "1"
+    try {
+      const before = await budgetCalls("mallory")
+      for (let i = 0; i < 100; i++) a.ws.send(big())
+      await a.until((x) => x.frames.some((f) => f.type === "error" && f.code === "rate_limited"))
+      await new Promise((r) => setTimeout(r, 300))
+      // Review of #53240: an erroring hub let 1.6 MiB cross a spent budget.
+      expect(b.binary.length).toBe(0)
+      expect((await budgetCalls("mallory")) - before).toBeLessThanOrEqual(2)
+    } finally {
+      delete vars.LINK_RELAY_TEST_BUDGET_ERROR
+    }
+    // The hub answers again: after its backoff the relay carries frames again.
+    await new Promise((r) => setTimeout(r, 1200))
+    a.ws.send(frame([new Uint8Array([4, 0, 0, 0, 1])]))
+    await b.until((x) => x.binary.length === 1)
+    a.ws.close()
+    b.ws.close()
+  })
+})
+
+describe("link relay: sockets end with every way a session ends", () => {
+  const closedWith = async (s: Sock, code: number) => {
+    await s.until((x) => x.closed)
+    expect(s.closeCode).toBe(code)
+  }
+
+  it("a session pruned past its 24 h closes its relay, and a later device delete leaves nothing relaying", async () => {
+    const { tok, phone, mac, p, sessionId } = await session("uma", "team-u")
+    const a = await joined(tok, sessionId, phone)
+    const b = await joined(tok, sessionId, mac)
+    a.ws.send(frame([new Uint8Array([4, 0, 0, 0, 1])]))
+    await b.until((x) => x.binary.length === 1)
+    vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + 25 * 3600_000, shouldAdvanceTime: true })
+    try {
+      // A newer session prunes the expired one (review of #53240: its relay stayed open).
+      const newer = crypto.randomUUID()
+      p.send({ type: "signal", to: mac, from: phone, sessionId: newer, payload: { kind: "wg-init", publicKey: "k", endpoints: [], overlayIP: "10.77.0.2" } })
+      await closedWith(a, 4001)
+      await closedWith(b, 4001)
+      const removed = await worker.fetch(`https://api.test/v1/devices/${phone}`, { method: "DELETE", headers: { authorization: `Bearer ${await token("uma")}` } })
+      expect(removed.status).toBe(200)
+    } finally {
+      vi.useRealTimers()
+    }
+    expect(b.binary.length).toBe(1)
+    expect((await join(tok, sessionId, phone)).status).toBe(403)
+  })
+
+  it("bye ends the session and its relay even when the peer's signaling socket is closed", async () => {
+    const { tok, phone, mac, p, m, sessionId } = await session()
+    const a = await joined(tok, sessionId, phone)
+    const b = await joined(tok, sessionId, mac)
+    m.ws.close(1000, "mac asleep")
+    await new Promise((r) => setTimeout(r, 100))
+    p.send({ type: "signal", to: mac, from: phone, sessionId, payload: { kind: "bye", reason: "closed" } })
+    await closedWith(a, 4001)
+    await closedWith(b, 4001)
+  })
+
+  it("deleting the account closes the relay sockets (4002)", async () => {
+    const { tok, phone, mac, sessionId } = await session("vic", "team-u")
+    const a = await joined(tok, sessionId, phone)
+    const b = await joined(tok, sessionId, mac)
+    const gone = await worker.fetch("https://api.test/v1/me", { method: "DELETE", headers: { authorization: `Bearer ${tok}` } })
+    expect(gone.status).toBe(200)
+    await closedWith(a, 4002)
+    await closedWith(b, 4002)
+  })
+})
+
+describe("link relay: malformed requests", () => {
+  it("answers a malformed % escape in the path with 400, here and on team routes", async () => {
+    const { tok, phone } = await session()
+    const relay = await worker.fetch(`https://api.test/v1/relay/%zz?deviceId=${phone}`, { headers: { Upgrade: "websocket", authorization: `Bearer ${tok}` } })
+    expect(relay.status).toBe(400)
+    expect(JSON.stringify(await relay.json())).toContain("bad_request")
+    const team = await worker.fetch("https://api.test/v1/teams/%E0%A4%A/macs", { headers: { authorization: `Bearer ${tok}` } })
+    expect(team.status).toBe(400)
+    const device = await worker.fetch("https://api.test/v1/devices/%zz", { method: "DELETE", headers: { authorization: `Bearer ${tok}` } })
+    expect(device.status).toBe(400)
   })
 })
 

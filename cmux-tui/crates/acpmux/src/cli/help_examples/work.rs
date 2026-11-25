@@ -496,6 +496,13 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             ),
         ],
     ),
+    (
+        "run-ask",
+        &[
+            ("Run an accepted run ask saved to a file", "acpmux run-ask ask.json"),
+            ("Run one piped in on stdin", "cat ask.json | acpmux run-ask -"),
+        ],
+    ),
     ("forum rules", &[("List the current rules, newest per key", "acpmux forum rules")]),
     (
         "forum ack",
