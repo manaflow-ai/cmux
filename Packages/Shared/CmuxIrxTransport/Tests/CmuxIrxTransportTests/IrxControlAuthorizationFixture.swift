@@ -1,3 +1,4 @@
+#if canImport(IrohLib)
 import Foundation
 import IrohLib
 import Testing
@@ -85,3 +86,4 @@ struct IrxControlAuthorizationFixture: Sendable {
         try? await client.close()
     }
 }
+#endif

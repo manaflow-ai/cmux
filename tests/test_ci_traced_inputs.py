@@ -144,6 +144,62 @@ class TraceTest(unittest.TestCase):
             self.write(rel, text)
             self.assertNotEqual(self.key(self.commit()), before, f"changing {rel} did not move the key")
 
+    def test_a_probed_directory_exports_as_exists(self):
+        # A stat of `inputs` on the way to inputs/read.txt keys, in states(), on its being a directory. A blob row
+        # was its whole tree: every edit under it changed the receipt key (RFD 0148 row 34).
+        man = {**self.man, "entries": {**self.man["entries"], "inputs": "E", "other": "E", "nowhere": "E"}}
+        idx = ti.tree_index(self.repo, "HEAD")
+        rows = ti.export_rows(man, [], idx)
+        self.assertIn("* exists inputs", rows)
+        self.assertIn("* exists other", rows)
+        self.assertIn("* blob nowhere", rows, "an absent path keys on appearing")
+        self.assertIn("* names listed", rows, "a listed directory still keys on its names")
+        self.assertIn("* blob inputs/read.txt", rows)
+        inputs = Path(self.tmp.name) / "probed.txt"
+        inputs.write_text("\n".join(rows) + "\n")
+        probed = Path(self.tmp.name) / "probed.json"
+        probed.write_text(json.dumps(man))
+        audit = lambda: subprocess.run([sys.executable, str(HERE.parent / "scripts/ci/traced_inputs.py"), "audit",  # noqa: E731
+                                        "--manifest", str(probed), "--inputs", str(inputs), "--strict"],
+                                       capture_output=True, text=True)
+        self.assertEqual(audit().returncode, 0, "an exists row covers the probe")
+        inputs.write_text("\n".join("* exists listed" if r == "* names listed" else r for r in rows) + "\n")
+        out = audit()
+        self.assertEqual(out.returncode, 1, "an exists row does not cover a listing")
+        self.assertIn("N listed", out.stdout)
+
+    def test_trace_job_steps_each_against_its_own_list(self):
+        workflow = Path(self.tmp.name) / "w.yml"
+        workflow.write_text(
+            "jobs:\n  j:\n    steps:\n      - uses: actions/checkout@v6\n"
+            "      - id: one\n        name: One\n        run: cat inputs/read.txt\n"
+            "      - name: Unnamed\n        run: cat other/x.txt\n"
+            "      - id: two\n        name: Two\n        run: cat shown.txt\n")
+        self.assertEqual([(sid, name) for sid, name, _run, _env in ti.job_steps_with_ids(workflow, "j")],
+                         [("one", "One"), ("", "Unnamed"), ("two", "Two")])
+        self.assertEqual([name for name, _run, _env in ti.job_steps(workflow, "j")], ["One", "Unnamed", "Two"])
+        one, two = Path(self.tmp.name) / "one.txt", Path(self.tmp.name) / "two.txt"
+        one.write_text("* blob inputs/read.txt\n")
+        two.write_text("* blob other/x.txt\n")  # not what step two reads
+        out = subprocess.run([sys.executable, str(HERE.parent / "scripts/ci/traced_inputs.py"), "trace-job",
+                              "--workflow", str(workflow), "--job", "j", "--root", str(self.repo), "--out",
+                              str(Path(self.tmp.name) / "steps.json"), "--step", f"one={one}", "--step", f"two={two}"],
+                             cwd=self.repo, env=ENV, capture_output=True, text=True)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        audits = {line.split("=", 1)[0]: json.loads(line.split("=", 1)[1]) for line in out.stdout.splitlines()
+                  if line.startswith("audit ")}
+        self.assertEqual(sorted(audits), ["audit one", "audit two"], out.stdout)
+        self.assertEqual(audits["audit one"]["missed"], 0)
+        self.assertEqual(audits["audit two"]["examples"], ["F shown.txt"], "each step is audited against its own list")
+        self.assertNotIn("Unnamed", out.stdout, "a step with no list of its own is not traced")
+        for step in ("one", "two"):
+            self.assertTrue((Path(self.tmp.name) / f"steps.{step}.json").exists())
+        bad = subprocess.run([sys.executable, str(HERE.parent / "scripts/ci/traced_inputs.py"), "trace-job",
+                              "--workflow", str(workflow), "--job", "j", "--root", str(self.repo), "--out",
+                              str(Path(self.tmp.name) / "steps.json"), "--step", f"gone={one}"],
+                             cwd=self.repo, env=ENV, capture_output=True, text=True)
+        self.assertEqual(bad.returncode, 2, "a step id the job does not have is an error, not a silent no-op")
+
     def test_export_matches_receipt_input_key_and_audit(self):
         rows = Path(self.tmp.name) / "inputs.txt"
         ti.main(["export", "--check", "t", "--root", str(self.repo), "--manifest", str(self.manifest), "--out", str(rows)])

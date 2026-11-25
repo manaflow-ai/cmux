@@ -45,35 +45,14 @@ struct HomeSearchGlassTests {
         #expect(home.filterGlass.isHidden && home.filterDisc.isHidden, "the filter sits on a circle at \(width)")
     }
 
-    /// The avatar-only list: the search and the filter as circles in the field's look, under
-    /// their buttons.
-    @Test func theAvatarListShowsTwoCirclesInTheFieldsLook() throws {
+    /// The avatar-only list is Messages' strip: no search or filter circle (the user's recording, 2026-11-24:
+    /// "lets jus copy how apple does it").
+    @Test func theAvatarListShowsNoCircles() {
         let home = Self.home(width: 90)
         home.applyColors()
-        #expect(!home.unreadToggle.isHidden && !home.searchButton.isHidden)
-        #expect(home.filterGlass.isHidden && home.searchGlass.isHidden)
-        for (disc, button) in [(home.filterDisc, home.unreadToggle), (home.searchDisc, home.searchButton as NSView)] {
-            #expect(!disc.isHidden && disc.frame == button.frame)
-            let layer = try #require(disc.layer)
-            #expect(layer.cornerRadius == button.frame.height / 2)
-            #expect(layer.backgroundColor == home.searchCapsule.layer?.backgroundColor)
-            #expect(layer.borderColor == home.searchCapsule.layer?.borderColor && layer.borderWidth > 0)
-            let siblings = try #require(button.superview?.subviews)
-            #expect(try #require(siblings.firstIndex(of: disc)) < (try #require(siblings.firstIndex(of: button))))
-        }
-    }
-
-    /// The search circle opens the search, which then takes the band.
-    @Test func theSearchCircleOpensTheSearch() {
-        let home = Self.home(width: 90)
-        let window = NSWindow(contentRect: home.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        defer { window.close() }
-        window.contentView = home
-        home.searchButton.performClick(nil)
-        home.list.headerView.layoutSubtreeIfNeeded()
-        #expect(home.list.searchField.isEditing)
-        #expect(home.header.buttonsCovered && home.searchButton.isHidden && home.unreadToggle.isHidden)
+        #expect(home.unreadToggle.isHidden && home.searchButton.isHidden)
+        #expect(home.filterDisc.isHidden && home.searchDisc.isHidden && home.filterGlass.isHidden && home.searchGlass.isHidden)
+        #expect(home.searchCapsule.isHidden || home.searchCapsule.frame.width == 0)
     }
 
     /// Messages' filter glyph: three lines, no ring, in the text colour (white on dark), in light

@@ -81,7 +81,8 @@ what to fetch), sorted by the same rules as the diff below. When both the app's 
 them, `plan` compares the keys and nothing else (`via: published keys`): no fetch of SHA, no diff,
 no tree or web key computed here, and no checkout needed past resolving a short CMUXCommit. Equal
 `shell` and `ffi` digests mean the two commits differ only in what a hot apply swaps, in either
-direction, so an older SHA with the app's shell takes too. Otherwise (a commit from before the
+direction, so an older SHA with the app's shell takes too. The record names the rules that sorted it
+(`rules`, live_apply.py's sha256): keys sorted by other rules do not compare, so that pair is diffed. Otherwise (a commit from before the
 keys, a branch) `plan` diffs the two commits as it always has.
 
 --branch takes a branch head instead (try-pr.sh passes a pull request's): one branched before the
@@ -650,7 +651,15 @@ def hot_keys(repo: Path, sha: str, web: str | None = None) -> dict:
             "web_key": web or _web_key(repo, sha), "web_abi": abi, "shell": set_digest(blobs, shell),
             # The app links the FFI release named by its pin, not the current FFI sources. Keep source-only
             # FFI edits out of this key; a repin changes the pin source and therefore the linked library.
-            "ffi": ffi_digest(repo, sha, blobs, daemon), "helpers": set_digest(blobs, helper_rust(repo, daemon))}
+            "ffi": ffi_digest(repo, sha, blobs, daemon), "helpers": set_digest(blobs, helper_rust(repo, daemon)),
+            "rules": rules_digest()}
+
+
+def rules_digest() -> str:
+    """live_apply.py's own sha256: the rules that sorted SHA's files into the digests above. Two commits' keys
+    compare only under the same rules; a rule change (design/ became no-app) would otherwise differ every
+    `shell` digest across it and leave a whole NIGHTLY's applies as "Swift, resources and manifests"."""
+    return hashlib.sha256(Path(live_apply.__file__).read_bytes()).hexdigest()
 
 
 def valid_keys(keys, sha: str) -> bool:
@@ -719,6 +728,8 @@ def keys_plan(app: Path, sha: str, base: str, given_base: bool, unsigned: bool =
     have, want = published_keys(base), published_keys(sha)
     if not have or not want:
         return None
+    if have.get("rules") != want.get("rules"):
+        return None  # sorted by different live_apply.py rules: the digests do not compare, so the diff plans this pair
     out = {"sha": sha, "base": base, "app": str(app), "parts": [], "left": {}, "notes": [], "via": "published keys"}
     note_refused(out, app, given_base)
     if want["shell"] != have["shell"]:

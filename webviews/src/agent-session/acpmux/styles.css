@@ -395,11 +395,13 @@
 /* One compact muted line per queued prompt, as ChatGPT and Codex draw them (Leo, 2026-10-21): no header and no number; a hairline between rows. */
 .acpmux-queued{position:relative;grid-column:1/-1;display:grid;grid-template-columns:subgrid;align-items:start;min-width:0;min-height:24px;padding:3px 6px 3px 12px;box-sizing:border-box;color:var(--agent-text)}
 .acpmux-composer-queue>li+li{box-shadow:inset 0 var(--cmux-hairline,.5px) 0 var(--acpmux-composer-edge)}
-.acpmux-queued-text{display:block;min-width:0;margin:0;padding:0;border:0;background:none;color:inherit;font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height);text-align:left;white-space:pre-wrap;overflow-wrap:anywhere}
-/* One line, cut with an ellipsis, until the row is opened; the cut sits on the button's text, as WebKit lays a button out as its own box. */
-.acpmux-queued-clamp{display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.acpmux-queued-text[data-open] .acpmux-queued-clamp{white-space:pre-wrap;overflow-wrap:anywhere}
+.acpmux-queued-text{grid-row:1;grid-column:1/-1;display:block;min-width:0;margin:0;padding:0;border:0;background:none;color:inherit;font:inherit;font-size:var(--text-content);line-height:var(--text-content--line-height);text-align:left;white-space:pre-wrap;overflow-wrap:anywhere}
+/* One line across the whole row until the row is opened (.ui-reveal-text, ui/motion/motion.css): the actions lie over its end only while they show, and its end fades as they come in, in the same motion (Leo, 2026-11-24). The cut sits on the button's text, as WebKit lays a button out as its own box. Opened, its lines wrap clear of the actions. */
+.acpmux-queued-clamp{display:block}.acpmux-queued-text[data-open] .acpmux-queued-clamp{white-space:pre-wrap;overflow-wrap:anywhere;-webkit-mask-image:none;mask-image:none;padding-inline-end:var(--ui-reveal-controls-w,0px)}
+.acpmux-queued:is(:hover,:has([data-popup-open])) .acpmux-queued-clamp,:root:not([data-page-inactive]) .acpmux-queued:is(:focus-visible,:has(:focus-visible)) .acpmux-queued-clamp{--ui-reveal-ms:var(--cmux-hover-reveal-in);--ui-reveal-ease:var(--cmux-hover-reveal-in-ease);--ui-reveal-cover:var(--ui-reveal-controls-w,0px)}
+.acpmux-queued:is(:focus-visible,:has(:focus-visible)) .acpmux-queued-clamp{--ui-reveal-ms:0s}
 /* The actions show on the row's hover, while the keyboard's focus is in it (a key on the row, Tab to a button), while the ⋯ menu or the right-click menu is open, and while its edit field is typed in. Keyboard focus counts only while the page is the key one (pageKey.ts marks the root data-page-inactive otherwise; the build leaves opacity reveals ungated by FOCUS-RING, so it is this rule that drops them). A click's focus, a row opened to its whole text, or another pane or app taking the keyboard keeps none of them: they fade away (Leo, 2026-11-12: "if i click into the app or click into you for the workspace like focus anything the composer just the window the pane it should fade away"). A pointer that cannot hover sees them always. The 22px actions center on the text's first line (its height follows the chat font size, #26523) and the row takes no more height from them than that line. */
-.acpmux-queued-actions{grid-column:2;display:flex;align-items:center;gap:2px;height:var(--text-content--line-height);opacity:0;transition:var(--cmux-hover-reveal-out-transition)}
+.acpmux-queued-actions{grid-row:1;grid-column:2;justify-self:end;position:relative;z-index:var(--layer-raised);display:flex;align-items:center;gap:2px;height:var(--text-content--line-height);opacity:0;transition:var(--cmux-hover-reveal-out-transition)}
 .acpmux-queued:hover .acpmux-queued-actions,.acpmux-queued:has([data-popup-open]) .acpmux-queued-actions,:root:not([data-page-inactive]) .acpmux-queued:has(:focus-visible) .acpmux-queued-actions{opacity:1;transition:var(--cmux-hover-reveal-in-transition)}
 /* It follows the pointer's dwell (pages/shared/desktop.css --cmux-hover-reveal-*): in for as long as the pointer stays, out a little faster, at once from the keyboard. */
 .acpmux-queued:is(:focus-visible,:has(:focus-visible)) .acpmux-queued-actions{transition:none}
@@ -426,8 +428,14 @@
    under it and one quiet button. */
 .acpmux-unavailable{gap:10px}
 /* Loading has no transcript under the dock. Keep the existing dock height/shrink rules, but let
-   its actual height reserve the stage's room (including a growing draft in a short pane). */
-.acpmux-main[data-dock="float"]:has(>.acpmux-stage>.acpmux-unavailable[data-unavailable="connecting"])>.acpmux-dock{position:relative;flex:none;max-height:calc(100% - 44px - var(--acpmux-transcript-min,96px))}
+   its actual height reserve the stage's room (including a growing draft in a short pane). The dock keeps
+   the floating stack's own max-height (bottomStack.css, the quiet row's `data-foot` one too) and the stage
+   gives up its floor, so the composer is the same size and in the same place loading as open: a second
+   max-height here clamped a tall draft 32 px shorter (and 32 px lower) while the chat connected, and the
+   stage's floor pushed the dock past the pane's bottom in a short pane (Leo, 2026-11-24: "we need to have
+   more things decoupled from posisble shifts"; test/agent-pane-composer-anchored-above.test.ts). */
+.acpmux-main[data-dock="float"]:has(>.acpmux-stage>.acpmux-unavailable[data-unavailable="connecting"])>.acpmux-dock{position:relative;flex:none}
+.acpmux-main[data-dock="float"]:has(>.acpmux-stage>.acpmux-unavailable[data-unavailable="connecting"])>.acpmux-stage{min-height:0}
 /* Its notices (noticeSlotModel.ts DOCK_NOTICE) take none of that height: in flow they shrank the stage, so
    the spinner and its words moved up as one came (a reload's connect, PaneBoundary's Try again) and down as
    it went. They lie over the stage's empty foot instead, just above the stack (Leo, 2026-11-22: "that
@@ -449,8 +457,10 @@
 /* A host failure above the composer (HostError.tsx HostUnavailableLine): one muted line cut to the
    width, and one small quiet button. Nothing shows while the host is still recovering. */
 .acpmux-host-line{display:flex;align-items:center;gap:8px;min-width:0;margin:0 calc(var(--cv-inset-end,var(--cv-inset,max(18px,calc((100% - 760px)/2)))) - var(--acpmux-stack-outset,0px)) 0 calc(var(--cv-inset,max(18px,calc((100% - 760px)/2))) - var(--acpmux-stack-outset,0px));padding-bottom:8px;color:var(--agent-muted);font-size:var(--text-caption);line-height:var(--text-caption--line-height);letter-spacing:var(--text-caption--letter-spacing)}
-.acpmux-host-line-message{flex:0 1 auto;min-width:0;margin:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;user-select:text;-webkit-user-select:text}
-.acpmux-host-line button{flex:none;height:24px;padding:0 8px;border:0;border-radius:var(--ds-radius-control);background:var(--ds-surface-inset);color:var(--agent-text);font:inherit}
+/* Its message is the fit text (cardFit.css, HostError.tsx): it takes the line, and in a narrow pane
+   its buttons move under it, Restart and Retry down to their icons. */
+.acpmux-host-line-message{min-width:0;margin:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;user-select:text;-webkit-user-select:text}
+.acpmux-host-line button{flex:none;display:inline-flex;align-items:center;gap:var(--ds-space-1);height:24px;padding:0 8px;border:0;border-radius:var(--ds-radius-control);background:var(--ds-surface-inset);color:var(--agent-text);font:inherit}
 .acpmux-host-line button:hover:not(:disabled){background:color-mix(in srgb,var(--agent-text) 13%,transparent)}
 .acpmux-host-line button:disabled{opacity:.6}
 .acpmux-host-line button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
@@ -512,7 +522,7 @@
 }
 /* Context (ComposerContext.tsx): composerLocation.css. */
 /* The folder trust ask (TrustAsk.tsx): one quiet line among the chat's permission asks, its actions text buttons that step on hover and press. */
-.acpmux-trust-ask{display:flex;align-items:center;gap:4px;min-height:34px;margin-bottom:8px;padding:4px 4px 4px 12px;box-sizing:border-box;border-radius:var(--acpmux-composer-radius,12px);background:var(--acpmux-composer-tray);color:var(--acpmux-composer-dim);font-size:13px}.acpmux-trust-ask-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.acpmux-tool-card .acpmux-trust-ask-text{padding:4px 0;white-space:normal;overflow-wrap:anywhere}.acpmux-tool-card-input{flex:0 1 220px;min-width:80px;height:26px;padding:0 8px;box-sizing:border-box;border:1px solid var(--acpmux-composer-hover);border-radius:6px;background:var(--agent-page-bg,var(--acpmux-base));color:var(--agent-text);font:inherit}.acpmux-tool-card-input:focus{outline:none}.acpmux-tool-card:is(:focus-visible, :has(:focus-visible)) .acpmux-tool-card-input{border-color:var(--agent-text)}.acpmux-trust-ask-action:disabled{opacity:.5;cursor:default}.acpmux-trust-ask-action{flex:none;height:26px;padding:0 10px;border:0;border-radius:calc(var(--acpmux-composer-radius,12px) - 4px) /* radius-allow: concentric child of the 4px-padded composer-radius strip */;background:none;color:var(--agent-text);font:inherit;cursor:default}.acpmux-trust-ask-action:hover{background:var(--acpmux-composer-hover)}.acpmux-trust-ask-action:active{background:color-mix(in srgb,var(--agent-text) 20%,var(--agent-page-bg,var(--acpmux-base)))}.acpmux-trust-ask-action:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}@media (prefers-reduced-motion:no-preference){.acpmux-trust-ask-action{transition:background-color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}}
+.acpmux-trust-ask{display:flex;align-items:center;gap:4px;min-height:34px;margin-bottom:8px;padding:4px 4px 4px 12px;box-sizing:border-box;border-radius:var(--acpmux-composer-radius,12px);background:var(--acpmux-composer-tray);color:var(--acpmux-composer-dim);font-size:13px}.acpmux-trust-ask-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.acpmux-tool-card .acpmux-trust-ask-text{padding:4px 0;white-space:normal;overflow-wrap:anywhere}.acpmux-tool-card-input{flex:0 1 220px;min-width:80px;height:26px;padding:0 8px;box-sizing:border-box;border:1px solid var(--acpmux-composer-hover);border-radius:6px;background:var(--agent-page-bg,var(--acpmux-base));color:var(--agent-text);font:inherit}.acpmux-tool-card-input:focus{outline:none}.acpmux-tool-card:is(:focus-visible, :has(:focus-visible)) .acpmux-tool-card-input{border-color:var(--agent-text)}.acpmux-trust-ask-action:disabled{opacity:.5;cursor:default}.acpmux-trust-ask-action{flex:none;display:inline-flex;align-items:center;justify-content:center;gap:var(--ds-space-1);height:26px;padding:0 10px;border:0;border-radius:calc(var(--acpmux-composer-radius,12px) - 4px) /* radius-allow: concentric child of the 4px-padded composer-radius strip */;background:none;color:var(--agent-text);font:inherit;cursor:default}.acpmux-trust-ask-action:hover{background:var(--acpmux-composer-hover)}.acpmux-trust-ask-action:active{background:color-mix(in srgb,var(--agent-text) 20%,var(--agent-page-bg,var(--acpmux-base)))}.acpmux-trust-ask-action:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}@media (prefers-reduced-motion:no-preference){.acpmux-trust-ask-action{transition:background-color var(--agent-motion-hover,80ms) var(--agent-ease-out,ease-out)}}
 /* Search files: a quick-open palette, centered over the transcript's upper part (main column). */
 /* Quick open drops from the top as it opens (ui-enter, ui/popupSurface.css). */
 .acpmux-file-search{--ui-enter-y:-8px;animation:ui-enter var(--ui-enter-duration) var(--ui-enter-ease) both}
@@ -658,7 +668,7 @@
 .acpmux-home-inbox-answers button[data-recommended]{gap:var(--ds-space-2);background:color-mix(in srgb,var(--agent-text) 14%,transparent)}
 .acpmux-home-inbox-recommended{color:var(--agent-muted);font-size:var(--text-caption)}
 .acpmux-home-inbox-row[data-question] .acpmux-home-inbox-ask{display:-webkit-box;white-space:normal;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow-wrap:anywhere}
-.acpmux-home-inbox .acpmux-permission-action-shortcut{align-self:baseline;margin:0 0 0 var(--ds-space-1);padding:0;opacity:1;color:color-mix(in srgb,currentColor 62%,transparent);font:var(--text-caption)/1 var(--font-ui);letter-spacing:var(--text-caption--letter-spacing)}
+.acpmux-home-inbox .acpmux-permission-action-shortcut{align-self:baseline;margin:0 0 0 var(--ds-space-1);padding:0;opacity:1;color:color-mix(in srgb,currentColor var(--instrument-ink-shortcut, 62%),transparent);font:var(--text-caption)/1 var(--font-ui);letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-home-inbox .acpmux-permission-action-modifiers{opacity:.7}
 .acpmux-home-inbox-error{margin:0;padding:0 var(--ds-space-2) 0 var(--ds-space-6);color:var(--agent-danger,var(--agent-text));font-size:var(--text-caption);line-height:1.3;letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-home-inbox[data-look=compact] .acpmux-home-inbox-row{flex-direction:row;align-items:center;flex-wrap:wrap;padding:0}
@@ -691,7 +701,7 @@
 .acpmux-diff-tool{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:0;border-radius:6px;background:none;color:var(--agent-muted);cursor:default}
 .acpmux-diff-tool:hover{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 10%,transparent));color:var(--agent-text)}
 .acpmux-diff-tool[aria-pressed=true]{background:var(--ds-color-selection);color:var(--agent-text)}
-.acpmux-diff-back:focus-visible,.acpmux-diff-tool:focus-visible,.acpmux-fh-name:focus-visible,.acpmux-fh-btn:focus-visible,.acpmux-review-changes:focus-visible,.acpmux-edited-file:focus-visible,.acpmux-edited-more:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
+.acpmux-diff-back:focus-visible,.acpmux-diff-tool:focus-visible,.acpmux-fh-name:focus-visible,.acpmux-fh-btn:focus-visible,.acpmux-review-changes:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
 .acpmux-diff-tree{flex:0 0 250px;min-width:0;display:flex;flex-direction:column;border-left:1px solid var(--agent-border);overflow:hidden}
 .acpmux-diff-tree-host{display:block;flex:1;min-height:0}
 /* changes/ChangedFilesTree.tsx: the motion layer's element around the tree host; no box of its own. */
@@ -721,7 +731,7 @@
 @media (max-width:620px){.acpmux-diff-tree{display:none}.acpmux-fh-dir{display:none}}
 /* The panel can be half a pane (beside the transcript), so the tree also gives way to the diff by the panel's own width, not only the window's. */
 @container acpmux-diff-panel (max-width:620px){.acpmux-diff-tree{display:none}.acpmux-fh-dir{display:none}}
-/* The edited-files card as the Codex app draws it (Lucas, 2026-11-12): a 64px head with a 40px glyph tile, the title over its counts, 36px file rows in the chat's font and a tinted "Show N more" row. model.ts editedCardHeight measures these. */
+/* The edited-files card as the Codex app draws it (Lucas, 2026-11-12): a 64px head with a 40px glyph tile, the title over its counts; opened, every file's diff stacked under it (EditedFilesCard.css, Leo 2026-11-25). model.ts editedCardHeight measures these. */
 .acpmux-edited{position:relative;margin-bottom:6px;border-radius:var(--cv-card-radius,var(--grid-cards-radius));overflow:hidden;background:var(--ds-surface-card)}
 .acpmux-edited::after{content:"";position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 0 0 1px var(--ds-surface-card-line);pointer-events:none}
 .acpmux-edited-head{display:flex;align-items:center;gap:var(--ds-space-3);min-height:calc(16 * var(--grid-base));box-sizing:border-box;padding:var(--ds-space-3)}
@@ -738,14 +748,9 @@
 .acpmux-edited-undo:hover:not(:disabled){background:var(--ds-surface-hover);color:var(--agent-text)}
 .acpmux-edited-undo:disabled{color:var(--agent-muted);cursor:default}
 .acpmux-edited-undo:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
-.acpmux-edited-file{display:flex;align-items:center;gap:var(--ds-space-3);width:100%;height:calc(9 * var(--grid-base));box-sizing:border-box;padding:0 var(--ds-space-3);border:0;background:none;color:var(--agent-text);font:inherit;font-size:var(--text-detail);line-height:16px;text-align:left;letter-spacing:var(--text-detail--letter-spacing)}
-button.acpmux-edited-file{cursor:default}
-button.acpmux-edited-file:hover{background:var(--ds-surface-hover)}
 .acpmux-edited-path{flex:1;min-width:0;display:flex;white-space:nowrap;overflow:hidden}
 .acpmux-edited-dir{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--agent-muted)}
 .acpmux-edited-base{flex:none}
-.acpmux-edited-more{display:flex;align-items:center;gap:var(--ds-space-1);width:100%;height:calc(9 * var(--grid-base));box-sizing:border-box;padding:0 var(--ds-space-3);border:0;background:var(--ds-surface-card);color:var(--agent-text);font:inherit;font-size:var(--text-detail);cursor:default;letter-spacing:var(--text-detail--letter-spacing)}
-.acpmux-edited-more:hover{background-image:var(--ds-surface-hover-layer)}
 
 .acpmux-permission-panel{display:flex;flex-direction:column;gap:var(--acp-row-gap,8px);flex-shrink:0;min-height:0;max-height:45vh;overflow:auto;padding-bottom:0;font-size:var(--acp-font-size,13px);line-height:var(--acp-line-height,1.5)}
 .acpmux-asks-stack>.acpmux-permission-panel{padding-left:0;padding-right:0}
@@ -1019,6 +1024,8 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-secret-card-reason{overflow-wrap:anywhere}
 .acpmux-secret-card-private{font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-secret-card-row{display:flex;align-items:center;gap:4px}
+.acpmux-secret-card-keep{display:flex;align-items:center;gap:var(--ds-space-2);color:var(--acpmux-composer-dim);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-secret-card-keep input{margin:0}
 .acpmux-secret-card-field{flex:1;min-width:0;height:28px;padding:0 8px;box-sizing:border-box;border:0;border-radius:6px;background:var(--agent-page-bg,var(--acpmux-base));box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);color:var(--agent-text);font:inherit;outline:none}
 .acpmux-secret-card-field::placeholder{color:var(--acpmux-composer-dim)}
 .acpmux-secret-card-action{flex:none;height:var(--ds-control-row);padding:0 var(--ds-space-3);border:0;border-radius:var(--ds-radius-control);background:none;color:var(--agent-text);font:inherit;font-size:var(--text-control);cursor:default}
@@ -1077,7 +1084,7 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-permission-ask .acpmux-permission-keys-or{color:color-mix(in srgb,currentColor 75%,transparent);font:var(--text-caption)/1 var(--font-ui)}
 .acpmux-permission-ask .acpmux-permission-keys .acpmux-permission-action-shortcut{margin:0}
 /* The key hint (KeyHint): smaller and fainter than the label, on its baseline, a fixed step after it. */
-.acpmux-permission-ask .acpmux-permission-action-shortcut{flex-shrink:0;align-self:center;margin:0 0 0 var(--ds-space-2);padding:0;border-radius:0;background:none;color:color-mix(in srgb,currentColor 62%,transparent);font:var(--text-caption)/1 var(--font-ui);font-variant-numeric:tabular-nums;letter-spacing:.02em;opacity:1}
+.acpmux-permission-ask .acpmux-permission-action-shortcut{flex-shrink:0;align-self:center;margin:0 0 0 var(--ds-space-2);padding:0;border-radius:0;background:none;color:color-mix(in srgb,currentColor var(--instrument-ink-shortcut, 62%),transparent);font:var(--text-caption)/1 var(--font-ui);font-variant-numeric:tabular-nums;letter-spacing:.02em;opacity:1}
 .acpmux-permission-ask .acpmux-permission-action-modifiers{opacity:.7}
 .acpmux-permission-ask .acpmux-permission-action-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* An option beyond the three answers keeps a short label: a long agent name is cut, so one option never widens them all. */
@@ -1121,6 +1128,11 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-display-reset:hover { background: var(--ds-surface-hover); }
 .acpmux-trust-ask[data-asking]{color:var(--agent-text);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--agent-accent) 45%,transparent)}.acpmux-trust-ask-action.acpmux-trust-ask-primary{background:color-mix(in srgb,var(--agent-accent) 14%,transparent);font-weight:500}.acpmux-trust-ask-action.acpmux-trust-ask-primary:hover{background:color-mix(in srgb,var(--agent-accent) 22%,transparent)}
 .acpmux-trust-ask[data-asking],.acpmux-trust-ask[data-recovery]{flex-wrap:wrap;row-gap:6px;padding-top:7px;padding-bottom:7px}.acpmux-trust-ask-body{flex:1 1 240px;min-width:0;display:flex;flex-direction:column;gap:2px}.acpmux-trust-ask-body .acpmux-trust-ask-text{white-space:normal;overflow-wrap:anywhere;font-weight:500}.acpmux-trust-ask-detail{color:var(--acpmux-composer-dim);font-size:var(--text-detail);line-height:1.35;overflow-wrap:anywhere;letter-spacing:var(--text-detail--letter-spacing)}.acpmux-trust-ask-actions{display:flex;flex-wrap:wrap;gap:4px;margin-left:auto}
+/* The trust line is a fit card (cardFit.css, TrustAsk.tsx): in a narrow pane its answers take the line
+   under the words, and Undo shrinks to its icon. A receipt's words keep to their line; an open
+   question's body wraps as before. It takes its row's whole width: the stack around it sizes a child
+   to its content, which inline-size containment collapses to nothing. */
+.acpmux-trust-ask.cv-fit-row{column-gap:4px}.acpmux-trust-ask.cv-fit-row>.cv-fit-text{flex:1 1 12em}
 
 /* The composer's + palette is a command surface: searchable, compact and immediately interactive.
    A column: the search field, then the list, which is the scroller, so the field never scrolls away

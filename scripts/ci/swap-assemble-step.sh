@@ -16,8 +16,16 @@ base_job=$1 sha=$2 tag=$3
 [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "SHA must be 40 lowercase hex" >&2; exit 2; }
 [[ -z "$tag" || "$tag" =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]] || { echo "bad TAG" >&2; exit 2; }
 root=$(cd "$(dirname "$0")/../.." && pwd)
-client=$(readlink -f "$(command -v cmux-ci)")
-tools=$(dirname "$client")
+# The fleet client's install (client_install.py ships swap_assemble.py beside ci-client.py). A step's launchd domain
+# need not have cmux-ci on PATH, so the installed default is tried too; a miss says so instead of exiting silently.
+client=${CMUX_CI_CLIENT:-$(command -v cmux-ci || true)}
+[[ -n "$client" ]] || client="$HOME/.local/bin/cmux-ci"
+client=$(readlink -f "$client" 2>/dev/null || true)
+tools=$(dirname "${client:-/nonexistent/x}")
+[[ -f "$tools/swap_assemble.py" ]] || {
+  echo "swap-assemble: no swap_assemble.py beside the fleet client (${client:-none found}); update the client" >&2
+  exit 1
+}
 out=${CMUX_CI_ARTIFACT_DIR:-$(mktemp -d)}
 CMUX_HOT_APPLY="$root/scripts/cmux-next/hot-apply.py" \
   python3 "$tools/swap_assemble.py" step --base-job "$base_job" --sha "$sha" --out "$out"
