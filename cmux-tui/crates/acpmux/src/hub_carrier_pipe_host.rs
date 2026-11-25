@@ -233,12 +233,9 @@ where
     if !header.target.ip().is_loopback() {
         return Err(format!("{} is not a loopback target", header.target));
     }
-    // The reader holds no bytes past the header: the daemon sends the handshake only after it,
-    // and nothing comes before the host's answer.
-    if !conn.buffer().is_empty() {
-        return Err("bytes came before the header was read".into());
-    }
-    let conn = conn.into_inner();
+    // The daemon bridges the dialer's resume handshake right behind the header, so the reader
+    // may already hold its first bytes: the pipe is served from the reader, never its inner
+    // stream, or those bytes are lost and the dialer reads EOF.
     let target = header.target;
     let connect = || async move {
         let local = TcpStream::connect(target).await?;
