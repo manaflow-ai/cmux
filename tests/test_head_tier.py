@@ -122,17 +122,45 @@ class IdleTests(unittest.TestCase):
 
     def test_two_base_merges_on_a_branch_idle_three_days_run_nothing(self) -> None:
         facts = head_tier.head_facts(self.event(self.head))
-        self.assertEqual(facts, {"base_merge_only": True, "own_last": self.now - 3 * DAY})
+        self.assertEqual(facts, {"base_merge_only": True, "own_last": self.now - 3 * DAY, "by_github": False})
         self.assertEqual(head_tier.tier("pull_request", self.event(self.head), facts=facts, now=self.now)[0], "none")
 
     def test_a_recent_own_commit_is_not_idle(self) -> None:
         facts = head_tier.head_facts(self.event(self.head))
         self.assertEqual(head_tier.tier("pull_request", self.event(self.head), facts=facts,
-                                        now=self.now - 2 * DAY - 60)[0], "full")
+                                        now=self.now - 2 * DAY - 60, sync_switch="0")[0], "full")
+
+    def test_a_local_base_merge_on_an_active_branch_runs_the_cheap_tier(self) -> None:
+        facts = head_tier.head_facts(self.event(self.head))
+        fresh = self.now - 3 * DAY + 3600  # the branch's own last commit is an hour old: not idle
+        got = head_tier.tier("pull_request", self.event(self.head), facts=facts, now=fresh)
+        self.assertEqual(got[0], "cheap", got)
+        self.assertEqual(head_tier.tier("pull_request", self.event(self.head), facts=facts, now=fresh,
+                                        sync_switch="0")[0], "full")
+        self.assertEqual(head_tier.tier("pull_request", self.event(self.head, labels=("full-ci",)), facts=facts,
+                                        now=fresh)[0], "full")
+        self.assertEqual(head_tier.tier("pull_request", self.event(self.head, "ready_for_review"), facts=facts,
+                                        now=fresh)[0], "full")
+
+    def test_a_merge_github_made_keeps_the_full_tier(self) -> None:
+        self.git("checkout", "-q", "feat-cmux-next")
+        self.git("commit", "-q", "--allow-empty", "-m", "base moves a third time", when=self.now - 20)
+        self.git("checkout", "-q", "lane/x")
+        env = git_fixture_env.fixture_env()
+        env.update(GIT_COMMITTER_NAME="GitHub", GIT_COMMITTER_EMAIL="noreply@github.com",
+                   GIT_COMMITTER_DATE=f"{self.now - 10} +0000", GIT_AUTHOR_DATE=f"{self.now - 10} +0000")
+        subprocess.run(["git", "-c", "commit.gpgsign=false", "merge", "-q", "--no-ff", "-m",
+                        "Merge branch 'feat-cmux-next' into lane/x", "feat-cmux-next"],
+                       cwd=self.dir, env=env, check=True, capture_output=True)
+        head = self.git("rev-parse", "HEAD")
+        facts = head_tier.head_facts(self.event(head))
+        self.assertEqual(facts, {"base_merge_only": True, "own_last": self.now - 3 * DAY, "by_github": True})
+        self.assertEqual(head_tier.tier("pull_request", self.event(head), facts=facts,
+                                        now=self.now - 3 * DAY + 3600)[0], "full")
 
     def test_an_own_commit_head_is_full(self) -> None:
         facts = head_tier.head_facts(self.event(self.own))
-        self.assertEqual(facts, {"base_merge_only": False, "own_last": None})
+        self.assertEqual(facts, {"base_merge_only": False, "own_last": None, "by_github": False})
         self.assertEqual(head_tier.tier("pull_request", self.event(self.own), facts=facts, now=self.now)[0], "full")
 
     def test_full_ci_the_switch_and_other_actions_override(self) -> None:
@@ -140,8 +168,8 @@ class IdleTests(unittest.TestCase):
         tier = head_tier.tier
         self.assertEqual(tier("pull_request", self.event(self.head, labels=("full-ci",)), facts=facts,
                               now=self.now)[0], "full")
-        self.assertEqual(tier("pull_request", self.event(self.head), facts=facts, now=self.now, idle_switch="0")[0],
-                         "full")
+        self.assertEqual(tier("pull_request", self.event(self.head), facts=facts, now=self.now, idle_switch="0",
+                              sync_switch="0")[0], "full")
         self.assertEqual(tier("pull_request", self.event(self.head, "ready_for_review"), facts=facts,
                               now=self.now)[0], "full")
         self.assertIsNone(head_tier.head_facts(self.event(self.head, "opened")))

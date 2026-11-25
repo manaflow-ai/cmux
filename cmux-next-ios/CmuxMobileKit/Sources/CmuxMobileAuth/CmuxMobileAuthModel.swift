@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxEgress
 import AuthenticationServices
 import CMUXAuthCore
 import CmuxAuthRuntime
@@ -526,7 +527,7 @@ public final class CmuxMobileAuthModel {
         case .mobileService(let apiBase):
             let creation = ServiceTeamCreation(apiBase: apiBase, buildSpace: buildSpace)
             let tokens = try await coordinator.currentTokens()
-            let (data, response) = try await URLSession.shared.data(for: creation.request(accessToken: tokens.accessToken, name: name))
+            let (data, response) = try await CmuxEgress.shared(site: "CmuxMobileAuth.CmuxMobileAuthModel").data(for: creation.request(accessToken: tokens.accessToken, name: name))
             team = try creation.team(from: data, status: (response as? HTTPURLResponse)?.statusCode ?? 0)
         case .unavailable:
             throw ServiceTeamCreation.Failure.unavailable
@@ -580,7 +581,7 @@ public final class CmuxMobileAuthModel {
         guard let apiBase, let coordinator else { throw InviteError.serviceUnavailable }
         let tokens = try await coordinator.currentTokens()
         let request = try Self.inviteRequest(apiBase: apiBase, teamID: teamID, accessToken: tokens.accessToken, buildSpace: buildSpace)
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await CmuxEgress.shared(site: "CmuxMobileAuth.CmuxMobileAuthModel").data(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200,
               let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let string = object["url"] as? String, let url = URL(string: string) else {
@@ -627,7 +628,7 @@ public final class CmuxMobileAuthModel {
                 }
             },
             storeKitEnvironment: { await LiveStoreKitClient.appStoreEnvironment() },
-            session: URLSession(configuration: .default)
+            session: CmuxEgress.session(site: "CmuxMobileAuth.CmuxMobileAuthModel", configuration: .default)
         )
         return BillingModel(api: api, store: LiveStoreKitClient(), analytics: nil, bundleIdentifier: bundleIdentifier)
     }
