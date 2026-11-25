@@ -16,7 +16,10 @@ fn home_and_override_resolve_as_cmux_config_does() {
         PathBuf::from("/h/.config").join(cmux_config::NEXT_DIR).join("cmux-next.json")
     );
     let fallback = path_from(|_| None, || Some(PathBuf::from("/d")));
-    assert_eq!(fallback, PathBuf::from("/d/.config").join(cmux_config::NEXT_DIR).join("cmux-next.json"));
+    assert_eq!(
+        fallback,
+        PathBuf::from("/d/.config").join(cmux_config::NEXT_DIR).join("cmux-next.json")
+    );
     let over = |name: &str| match name {
         "HOME" => Some(OsString::from("/h")),
         CONFIG_OVERRIDE => Some(OsString::from("~/t.json")),
