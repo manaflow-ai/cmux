@@ -161,7 +161,7 @@ import {
 } from "./conversation/incomingMessage";
 import { noticeRowText } from "./conversation/agentNotice";
 import { inboxMessages, inboxText, type InboxMessage, type InboxNotice } from "./conversation/inboxNotice";
-import { newerSurge, surgeCounts, surgeOfEvent, type SurgeHold } from "./conversation/surgeHold";
+import { newerSurge, surgeOfEvent, type SurgeHold } from "./conversation/surgeHold";
 import { recapDismissed, rememberRecapDismissed } from "./conversation/recapDismissed";
 import { startedCardsShown } from "./started/startedSessions";
 import { PLAN_BUILD_KIND } from "./planBuild/planBuild";
@@ -13389,22 +13389,6 @@ export class AcpmuxDirectClient {
       messages?: unknown;
     } | null;
     return inboxMessages(Array.isArray(reply?.messages) ? reply.messages : []).reverse();
-  }
-  /// The chat's inbox threads (acpmux `_acpmux/inbox_threads`), as acpmux sent them, for the held
-  /// surge's panel (SurgeHoldRow.tsx). A reply that carries the surge's snapshot is as new as every
-  /// event the page has heard, so it takes the row's place until a later event moves it.
-  async inboxThreads(): Promise<unknown> {
-    const sessionId = this.selectedSessionId;
-    if (!sessionId) throw new Error(translate("error.notOpen"));
-    const reply = (await this.request("_acpmux/inbox_threads", { sessionId }, 15_000)) as {
-      surge?: unknown;
-    } | null;
-    const counts = surgeCounts(reply?.surge);
-    if (counts && this.selectedSessionId === sessionId) {
-      this.surge = newerSurge(this.surge, { ...counts, seq: this.lastSeq });
-      this.emit();
-    }
-    return reply;
   }
   /// An offer the reducer draws: offers of one group share one card, in the order they came.
   private addOffer(offer: AcpmuxSessionOffer, at: number): void {
