@@ -25,6 +25,8 @@ acpmux-client = { path = "../acpmux-client" }
 cmux-rd-ffi = { path = "../cmux-rd-ffi" }
 cmux-layout-reducer-ffi = { path = "../cmux-layout-reducer-ffi" }
 cmux-palette-ranker = { path = "../cmux-palette-ranker" }
+# The keymap layer of app.keyStyle and app.shortcutLayout (cmux-keymap src/ffi.rs, include/cmux_keymap.h).
+cmux-keymap = { path = "../cmux-keymap" }
 # The action catalog (descriptors, titles in every app language, default bindings), read at launch.
 cmux-action-catalog = { path = "../cmux-action-catalog" }
 # cmux-next.json's reads for the app (src/settings.rs: cmux-config's app_ops).

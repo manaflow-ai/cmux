@@ -183,6 +183,7 @@ dependencies = [
  "cmux-daemon-launch-core",
  "cmux-health-core",
  "cmux-interactivity",
+ "cmux-keymap",
  "cmux-launch-image",
  "cmux-launch-record",
  "cmux-launch-shell",
@@ -199,6 +200,17 @@ dependencies = [
  "serde",
  "serde_json",
  "unicode-segmentation",
+]
+
+[[package]]
+name = "cmux-app-host"
+version = "0.1.0"
+dependencies = [
+ "cmux-embed",
+ "cmux-json",
+ "libc",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -278,6 +290,7 @@ name = "cmux-config"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-app-host",
  "cmux-embed",
  "cmux-json",
  "cmux-layout-reducer",
@@ -392,6 +405,14 @@ dependencies = [
 name = "cmux-json"
 version = "0.1.0"
 dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-keymap"
+version = "0.1.0"
+dependencies = [
+ "serde",
  "serde_json",
 ]
 

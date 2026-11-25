@@ -36,6 +36,9 @@ The gates, each the same invocation as its push-time job:
                   ci-web's webview suite, which runs them too). A merger
                   dispatches when a check path (scripts/ci/check-paths.txt) changed on the base after the
                   pull request's last fast-gates base, so a check that landed since runs before the merge.
+  protocol skew   scripts/ci/protocol_skew_check.py --base BASE --head MERGE: the merge's chat page, relay and
+                  decoders against the base's and the shipped nightly's, both directions; fails on a refusal
+                  that would stop a chat from opening (cmux#46563) and on a new decoder that refuses unknown fields
 
 The panic ratchet is the workflow's own job (panic-ratchet: it needs Rust and a cmux-tui build, so it is
 not a gate here). cmux-tui-spec.yml's clippy job judges a pull request's Rust against the
@@ -339,8 +342,10 @@ def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool,
                            "--head", str(repo), "--base", str(base_tree)] if ratchet else None),
         # --advisory: the hook-only layers as ::warning annotations, never this gate's result (prepush-gate.py).
         ("prepush gate", [py, "-I", "scripts/cmux-next/prepush-gate.py", "--base", base, "--head", merge, "--advisory"]),
-        ("crash-class rules", [py, "scripts/ci/crash_class_fast_gate.py", "--base", str(base_tree)]),
+        ("crash-class rules", [py, "scripts/ci/crash_class_fast_gate.py", "--base", str(base_tree), "--base-rev", base]),
         ("webviews checks", [py, "scripts/ci/fast_gate_webviews_checks.py", "--base", base] if checks else None),
+        # Every pull request: a page-only change can refuse an older relay as surely as a relay change (cmux#46563).
+        ("protocol skew", [py, "scripts/ci/protocol_skew_check.py", "--base", base, "--head", merge]),
     ]
 
 
