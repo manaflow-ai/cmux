@@ -29,6 +29,9 @@
 //!   null when it is no background; missing, the op answers `{need: {selection: VALUE}}`.
 //! - `schema.palette_rows` `{developer_tools}` answers `{keys}`: the rows the Command Palette
 //!   lists, in schema order.
+//! - `schema.rows` answers the reads above for many rows in one call ([`rows`]).
+//! - `schema.json_text`, `schema.surfaces` and `schema.export` write the settings schema export
+//!   (`schemas/settings/settings-schema.json`) ([`export`]).
 
 use std::sync::OnceLock;
 
