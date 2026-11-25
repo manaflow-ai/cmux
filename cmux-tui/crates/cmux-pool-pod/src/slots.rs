@@ -247,7 +247,8 @@ impl<X: HostRunner> PodSlots<X> {
         self.ok(&argv(&["systemctl", "--user", verb, unit]), &[])
     }
 
-    /// The slot's state, or `None` when this pods dir has no root for it.
+    /// The slot's state, or `None` when this pods dir has no root for it. Liveness is the
+    /// holder's (a slice stays active after its init dies); the pause is the slice's freezer.
     pub fn state(&self, slot: &Slot) -> Result<Option<SlotState>, String> {
         let out = self.ok(
             &argv(&[
@@ -255,13 +256,17 @@ impl<X: HostRunner> PodSlots<X> {
                 "--user",
                 "show",
                 "--property=ActiveState,FreezerState",
+                &slot.holder(),
                 &slot.slice(),
             ]),
             &[],
         )?;
         let text = out.text();
-        let prop = |name: &str| {
-            text.lines()
+        let mut blocks = text.split("\n\n");
+        let (holder, slice) = (blocks.next().unwrap_or(""), blocks.next().unwrap_or(""));
+        let prop = |block: &str, name: &str| {
+            block
+                .lines()
                 .find_map(|l| l.strip_prefix(name).and_then(|v| v.strip_prefix('=')))
                 .unwrap_or("")
                 .to_owned()
@@ -270,8 +275,8 @@ impl<X: HostRunner> PodSlots<X> {
         if !exists {
             return Ok(None);
         }
-        if prop("ActiveState") == "active" {
-            return Ok(Some(if prop("FreezerState").starts_with("frozen") {
+        if prop(holder, "ActiveState") == "active" {
+            return Ok(Some(if prop(slice, "FreezerState").starts_with("frozen") {
                 SlotState::Paused
             } else {
                 SlotState::Running
@@ -408,12 +413,13 @@ mod tests {
                     self.slices.borrow_mut().insert(slice.to_owned(), false);
                     ok(String::new())
                 }
-                ["systemctl", "--user", "show", _, unit] => {
-                    ok(match self.slices.borrow().get(*unit) {
-                        Some(true) => "ActiveState=active\nFreezerState=frozen\n".into(),
-                        Some(false) => "ActiveState=active\nFreezerState=running\n".into(),
-                        None => "ActiveState=inactive\nFreezerState=running\n".into(),
-                    })
+                ["systemctl", "--user", "show", _, _holder, unit] => {
+                    let block = match self.slices.borrow().get(*unit) {
+                        Some(true) => "ActiveState=active\nFreezerState=frozen\n",
+                        Some(false) => "ActiveState=active\nFreezerState=running\n",
+                        None => "ActiveState=inactive\nFreezerState=running\n",
+                    };
+                    ok(format!("{block}\n{block}"))
                 }
                 ["systemctl", "--user", "freeze", unit] => {
                     self.slices.borrow_mut().get_mut(*unit).map(|f| *f = true);
@@ -488,6 +494,26 @@ mod tests {
                 _ => ProcessRunner.run(argv, stdin),
             }
         }
+    }
+
+    #[test]
+    fn a_dead_init_reads_stopped_though_its_slice_stays_active() {
+        // systemd keeps a slice active after its holder exits; `ls` must not say Running.
+        struct DeadInit;
+        impl HostRunner for DeadInit {
+            fn run(&self, argv: &[String], _stdin: &[u8]) -> Result<Output, String> {
+                let stdout = match argv.first().map(String::as_str) {
+                    Some("systemctl") => {
+                        "ActiveState=failed\nFreezerState=running\n\nActiveState=active\nFreezerState=running\n"
+                    }
+                    _ => "",
+                };
+                Ok(Output { code: 0, stdout: stdout.into(), stderr: Vec::new() })
+            }
+        }
+        let pods = PodSlots::new(DeadInit, "/srv/pods");
+        let slot = Slot::parse("a").unwrap();
+        assert_eq!(pods.state(&slot).unwrap(), Some(SlotState::Stopped));
     }
 
     #[test]

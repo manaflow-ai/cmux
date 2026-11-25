@@ -96,12 +96,13 @@ mod tests {
                     self.slices.borrow_mut().insert(slice.to_owned(), false);
                     ok(String::new())
                 }
-                ["systemctl", "--user", "show", _, unit] => {
-                    ok(match self.slices.borrow().get(*unit) {
-                        Some(true) => "ActiveState=active\nFreezerState=frozen\n".into(),
-                        Some(false) => "ActiveState=active\nFreezerState=running\n".into(),
-                        None => "ActiveState=inactive\n".into(),
-                    })
+                ["systemctl", "--user", "show", _, _holder, unit] => {
+                    let block = match self.slices.borrow().get(*unit) {
+                        Some(true) => "ActiveState=active\nFreezerState=frozen\n",
+                        Some(false) => "ActiveState=active\nFreezerState=running\n",
+                        None => "ActiveState=inactive\n",
+                    };
+                    ok(format!("{block}\n{block}"))
                 }
                 ["systemctl", "--user", "freeze", unit] => {
                     set(unit, true);
