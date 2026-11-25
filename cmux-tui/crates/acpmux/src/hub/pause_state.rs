@@ -42,7 +42,9 @@ pub(crate) fn cause(error: &str) -> &'static str {
 }
 
 /// Whether a stranded row's cause is an outage acpmux means to ride out (overload, the
-/// connection, a dead agent): such a strand is acpmux's own gap, not the chat's.
+/// connection, a dead agent): such a strand is acpmux's own gap, not the chat's. Only the
+/// tests read it since #55073 (no caller in the daemon).
+#[cfg(test)]
 pub(crate) fn is_outage(cause: &str) -> bool {
     matches!(cause, "capacity" | "rate_limit" | "transport" | "agent_exited" | "disk")
 }

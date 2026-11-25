@@ -17,6 +17,7 @@ export type RowProps = {
   replyActions?: boolean;
   sessionId?: string;
   onToggleActivity: (id: string) => void;
+  onLoadFold?: (fold: number) => Promise<void>;
   expanded: boolean;
   controls?: string;
   onOpenDiff?: OpenDiff;
