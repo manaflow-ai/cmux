@@ -227,10 +227,10 @@ jobs:
           test "$("$zig_path" version)" = "$want"
           zig_lib_dir="$(dirname "$zig_path")/lib"
           cat > "$install_root/zig" <<EOF
-#!/usr/bin/env bash
-export ZIG_LIB_DIR=$(printf '%q' "$zig_lib_dir")
-exec $(printf '%q' "$zig_path") "\$@"
-EOF
+          #!/usr/bin/env bash
+          export ZIG_LIB_DIR=$(printf '%q' "$zig_lib_dir")
+          exec $(printf '%q' "$zig_path") "\$@"
+          EOF
           chmod 0755 "$install_root/zig"
           test "$("$install_root/zig" version)" = "$want"
           echo "CMUX_ZIG=$install_root/zig" >> "$GITHUB_ENV"
