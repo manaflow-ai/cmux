@@ -4,34 +4,43 @@
 
 use cmux_cas::dedup::{Options, measure};
 use std::path::PathBuf;
+use std::process::ExitCode;
 
-fn main() {
+const USAGE: &str =
+    "usage: cas-dedup --root LABEL=PATH [--root ...] [--sample-every K] [--level N] [--threads T]";
+
+fn main() -> ExitCode {
+    match run() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(bad) => {
+            eprintln!("cas-dedup: bad argument {bad}\n{USAGE}");
+            ExitCode::from(2)
+        }
+    }
+}
+
+fn run() -> Result<(), String> {
     let mut roots = Vec::new();
     let mut opts = Options::default();
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
-        let v = args.next().unwrap_or_else(|| usage(&a));
+        let v = args.next().ok_or_else(|| a.clone())?;
+        let num = |v: &str| v.parse::<u64>().map_err(|_| v.to_string());
         match a.as_str() {
             "--root" => {
-                let (l, p) = v.split_once('=').unwrap_or_else(|| usage(&v));
+                let (l, p) = v.split_once('=').ok_or_else(|| v.clone())?;
                 roots.push((l.to_string(), PathBuf::from(p)));
             }
-            "--sample-every" => opts.sample_every = v.parse().unwrap_or_else(|_| usage(&v)),
-            "--level" => opts.zstd_level = v.parse().unwrap_or_else(|_| usage(&v)),
-            "--threads" => opts.threads = v.parse().unwrap_or_else(|_| usage(&v)),
-            _ => usage(&a),
+            "--sample-every" => opts.sample_every = num(&v)?,
+            "--level" => opts.zstd_level = v.parse().map_err(|_| v.clone())?,
+            "--threads" => opts.threads = usize::try_from(num(&v)?).map_err(|_| v.clone())?,
+            _ => return Err(a),
         }
     }
     if roots.is_empty() || roots.len() > 64 {
-        usage("--root (1 to 64)");
+        return Err("--root (1 to 64)".into());
     }
     let report = measure(&roots, &opts);
-    println!("{}", serde_json::to_string_pretty(&report).unwrap_or_default());
-}
-
-fn usage(bad: &str) -> ! {
-    eprintln!(
-        "cas-dedup: bad argument {bad}\nusage: cas-dedup --root LABEL=PATH [--root ...] [--sample-every K] [--level N] [--threads T]"
-    );
-    std::process::exit(2)
+    println!("{}", serde_json::to_string_pretty(&report).map_err(|e| e.to_string())?);
+    Ok(())
 }
