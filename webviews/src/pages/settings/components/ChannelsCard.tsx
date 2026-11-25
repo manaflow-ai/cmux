@@ -12,9 +12,11 @@
 // runs under its row, and every other Switch and Go Back waits (Leo 2026-11-11: "reverting the app
 // to previous nightly is really slow/doesn't work very well sometimes?/needs less shitty ui").
 import { Button } from "../../../ui/Button";
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
+import { useStableHandlers } from "../../../agent-session/acpmux/stableHandlers";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { useSettingsState, useStore } from "../context";
+import { useSettingsSelector, useStore } from "../context";
+import type { SettingsState } from "../store";
 import { channelsQuery } from "../sectionQueries";
 import type {
   ChannelBuild,
@@ -26,6 +28,7 @@ import type {
 } from "../ops";
 import { LOAD_FADE_CLASS, useLoadFade } from "../../../agent-session/shared/loadFade";
 import { Spinner } from "../../../agent-session/acpmux/conversation/icons";
+import { WithFacts } from "../../../agent-session/acpmux/chips/FactsHoverCard";
 
 /** One of the card's restart controls: a track's Switch or the way back's Go Back. */
 type Target = { kind: "switch" | "go_back"; ring: string; build: string };
@@ -69,20 +72,30 @@ function RunBar({ progress }: { progress: ChannelsProgress | null }) {
   );
 }
 
-function BuildRow({
+/** One build, a memo row: its build (a read that did not change it keeps the object), whether its
+ * Switch runs (with the host's stage only then), its refusal, whether another switch runs, and one
+ * stable `onStart`, so a stage of a running switch draws that row alone and a new read only the rows
+ * it changed. */
+const BuildRow = memo(function BuildRow({
   build,
   ring,
   labels,
-  run,
+  running,
+  progress,
+  failure,
+  waiting,
+  onStart,
 }: {
   build: ChannelBuild;
   ring: string;
   labels: ChannelsState["labels"];
-  run: Run;
+  running: boolean;
+  progress: ChannelsProgress | null;
+  failure: string | null;
+  waiting: boolean;
+  onStart: (target: Target) => void;
 }) {
   const target: Target = { kind: "switch", ring, build: build.build };
-  const running = same(run.active, target);
-  const failure = same(run.failure?.target, target) ? run.failure!.message : null;
   return (
     <div
       className="row channel-build"
@@ -98,9 +111,13 @@ function BuildRow({
             {build.commit && build.commit_url && (
               <>
                 {" · "}
-                <a href={build.commit_url} title={labels.commit} className="channel-link font-mono">
-                  {build.commit}
-                </a>
+                <WithFacts facts={[{ value: labels.commit ?? "" }]}>
+                  {(facts) => (
+                    <a {...facts} href={build.commit_url ?? undefined} className="channel-link font-mono">
+                      {build.commit}
+                    </a>
+                  )}
+                </WithFacts>
               </>
             )}
             {build.prs.map((pr) => (
@@ -132,10 +149,10 @@ function BuildRow({
               data-channel-switch-build={build.build}
               data-busy={running ? "" : undefined}
               aria-busy={running || undefined}
-              disabled={run.active !== null}
-              onClick={() => run.start(target)}
+              disabled={waiting}
+              onClick={() => onStart(target)}
             >
-              {running ? <RunLabel progress={run.progress} idle={labels.switch} /> : labels.switch}
+              {running ? <RunLabel progress={progress} idle={labels.switch} /> : labels.switch}
             </Button>
           )}
           {build.installed && (
@@ -151,21 +168,28 @@ function BuildRow({
           )}
         </div>
       </div>
-      {running && <RunBar progress={run.progress} />}
+      {running && <RunBar progress={progress} />}
     </div>
   );
-}
+});
 
-function Track({
+/** A channel and its builds; each build gets only its own part of the card's one running switch. */
+const Track = memo(function Track({
   track,
   followed,
   labels,
-  run,
+  active,
+  progress,
+  failure,
+  onStart,
 }: {
   track: ChannelTrack;
   followed: boolean;
   labels: ChannelsState["labels"];
-  run: Run;
+  active: Target | null;
+  progress: ChannelsProgress | null;
+  failure: Run["failure"];
+  onStart: (target: Target) => void;
 }) {
   return (
     <div className="rows" data-channel={track.ring}>
@@ -189,12 +213,26 @@ function Track({
           </div>
         </div>
       </div>
-      {track.builds.map((build) => (
-        <BuildRow key={build.build} build={build} ring={track.ring} labels={labels} run={run} />
-      ))}
+      {track.builds.map((build) => {
+        const target: Target = { kind: "switch", ring: track.ring, build: build.build };
+        const running = same(active, target);
+        return (
+          <BuildRow
+            key={build.build}
+            build={build}
+            ring={track.ring}
+            labels={labels}
+            running={running}
+            progress={running ? progress : null}
+            failure={same(failure?.target, target) ? failure!.message : null}
+            waiting={active !== null}
+            onStart={onStart}
+          />
+        );
+      })}
     </div>
   );
-}
+});
 
 function SwitchRow({ way, run }: { way: ChannelSwitch; run: Run }) {
   const target: Target | null = way.build ? { kind: "go_back", ring: way.ring, build: way.build } : null;
@@ -300,6 +338,8 @@ function runningTarget(
   return { kind: "switch", ring: track?.ring ?? "", build };
 }
 
+const channelValue = (state: SettingsState) => state.rows.get("updates.channel")?.value;
+
 /** The `?focus=` value that scrolls to this card: the palette's Install an Earlier Nightly… opens
  * `#/settings/updates?focus=channels:N`, a new N each time, so a second open scrolls back to it. */
 export const CHANNELS_FOCUS = "channels";
@@ -309,8 +349,9 @@ const revealsCard = (focus: string | null) =>
 
 export function ChannelsCard({ focus = null }: { focus?: string | null }) {
   const store = useStore();
-  // The row's value moves before the host has the write, so the card marks it, not a re-read.
-  const ring = useSettingsState().rows.get("updates.channel")?.value;
+  // The row's value moves before the host has the write, so the card marks it, not a re-read. Only
+  // that value: another setting's write, or the host's lists, does not draw the card.
+  const ring = useSettingsSelector(channelValue);
   const shown = typeof ring === "string" ? ring : undefined;
   // One read per picked channel (the way back depends on it); the route's loader read the current
   // one, and the last answer stays while a new pick's read is out.
@@ -329,6 +370,21 @@ export function ChannelsCard({ focus = null }: { focus?: string | null }) {
   const [clicked, setClicked] = useState<Target | null>(null);
   const [waiting, setWaiting] = useState(false);
   const [failure, setFailure] = useState<Run["failure"]>(null);
+  const { onStart } = useStableHandlers({
+    onStart: (target: Target) => {
+      setClicked(target);
+      setWaiting(true);
+      setFailure(null);
+      const reply =
+        target.kind === "go_back"
+          ? store.channelsGoBack(target.ring, target.build)
+          : store.channelsSwitchBuild(target.build);
+      void reply.then((why) => {
+        setWaiting(false);
+        setFailure(why ? { target, message: why } : null);
+      });
+    },
+  });
   if (!state) return null;
   const progress = state.progress ?? null;
   const followedRing = typeof ring === "string" ? ring : state.tracks.find((track) => track.followed)?.ring;
@@ -345,19 +401,7 @@ export function ChannelsCard({ focus = null }: { focus?: string | null }) {
     active,
     progress: progress && active?.build === progress.build ? progress : null,
     failure,
-    start: (target) => {
-      setClicked(target);
-      setWaiting(true);
-      setFailure(null);
-      const reply =
-        target.kind === "go_back"
-          ? store.channelsGoBack(target.ring, target.build)
-          : store.channelsSwitchBuild(target.build);
-      void reply.then((why) => {
-        setWaiting(false);
-        setFailure(why ? { target, message: why } : null);
-      });
-    },
+    start: onStart,
   };
   return (
     <section className={fade ? `group ${LOAD_FADE_CLASS}` : "group"} data-card="channels" ref={card}>
@@ -387,7 +431,10 @@ export function ChannelsCard({ focus = null }: { focus?: string | null }) {
           track={track}
           followed={typeof ring === "string" ? track.ring === ring : track.followed}
           labels={state.labels}
-          run={run}
+          active={run.active}
+          progress={run.progress}
+          failure={run.failure}
+          onStart={onStart}
         />
       ))}
     </section>

@@ -51,11 +51,17 @@ public final class WebKitSpareTab {
 
     /// - Parameters: nil `activity` and `isTrackingMenu` read the app's input count and the main run
     ///   loop's menu tracking (a test passes its own).
-    public init(policy: Policy = Policy(), clock: any Clock<Duration> = ContinuousClock(),
-                activity: (() -> UInt64)? = nil, isTrackingMenu: (() -> Bool)? = nil,
-                memoryPressure: MemoryPressureEvents? = nil) {
+    public convenience init(policy: Policy = Policy(), clock: any Clock<Duration> = ContinuousClock(),
+                            activity: (() -> UInt64)? = nil, isTrackingMenu: (() -> Bool)? = nil,
+                            memoryPressure: MemoryPressureEvents? = nil) {
+        self.init(policy: policy, clock: clock, activities: .shared, activity: activity, isTrackingMenu: isTrackingMenu, memoryPressure: memoryPressure)
+    }
+
+    /// `activities`: the counters a nil `activity` reads (the app's; a test passes its own).
+    init(policy: Policy, clock: any Clock<Duration>, activities: ExpectedActivity, activity: (() -> UInt64)?,
+         isTrackingMenu: (() -> Bool)?, memoryPressure: MemoryPressureEvents?) {
         self.policy = policy
-        self.activity = activity ?? { ExpectedActivity.shared.total }
+        self.activity = activity ?? { activities.count(.input) } // the person's input only: terminal output and animation frames are no input (an agent printing never let a spare be made)
         self.isTrackingMenu = isTrackingMenu ?? { RunLoop.main.currentMode == .eventTracking }
         timer = DemandTimer(owner: "WebKitSpareTab.build", clock: clock)
         if let memoryPressure { watch(memoryPressure) }

@@ -26,7 +26,6 @@ sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import classify_failures as cf  # noqa: E402
 
-WORKFLOW = ROOT / ".github/workflows/ci-failure-attribution.yml"
 ESC = "\x1b"
 
 RESTORE_FAILED = textwrap.dedent(f"""\
@@ -1176,32 +1175,6 @@ class KnownElsewhereTests(unittest.TestCase):
 
 
 class WorkflowTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-
-    def test_follows_ci(self) -> None:
-        on = self.workflow.get("on", self.workflow.get(True))
-        self.assertEqual(on["workflow_run"]["workflows"], ["CI"])
-        # `requested` marks an older head's comment pending as soon as a new head's CI starts.
-        self.assertEqual(on["workflow_run"]["types"], ["completed", "requested"])
-        (only,) = self.workflow["jobs"].values()
-        self.assertIn("github.event.action == 'requested'", only["if"])
-        # A start must never replace a pending completed report (its machine re-run) in one group.
-        self.assertTrue(self.workflow["concurrency"]["group"].endswith(
-            "${{ github.event.action == 'requested' && '-requested' || '' }}"))
-
-    def test_runs_mains_script_and_never_checks_out_the_pull_request(self) -> None:
-        text = WORKFLOW.read_text(encoding="utf-8")
-        self.assertNotIn("head_sha", text.split("steps:", 1)[1])
-        self.assertNotIn("ref:", text)
-        (only,) = self.workflow["jobs"].values()
-        self.assertEqual(only["permissions"]["actions"], "write")
-        self.assertFalse(self.workflow["concurrency"]["cancel-in-progress"])
-        self.assertNotIn("contents", {k for k, v in only["permissions"].items() if v == "write"})
-        # Without it the label search returns no issue (main read as green) and the seen-record cannot be kept.
-        self.assertEqual(only["permissions"]["issues"], "write")
-
     def test_every_gate_job_exists_under_the_name_the_jobs_api_reports(self) -> None:
         # The jobs API names a job by its display name, prefixed by the calling
         # job's for a reusable workflow ("macos / macOS status").

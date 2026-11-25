@@ -20,3 +20,22 @@ type Call = (method: string, params: Record<string, unknown>) => Promise<unknown
 /// Asks the app to open (or focus) the chat's Background tasks tab on its right, its tab named
 /// `title`; false when the host opened none.
 export const openBackgroundPane = (call: Call, title: string) => openSubagentPane(call, BACKGROUND_PANE, true, title);
+
+/// The Background tasks panel's state in a chat pane: the chat it is open on, whether it is expanded,
+/// and the ended groups Clear finished cleared.
+export type BackgroundPanel = { sessionId?: string; expanded: boolean; dismissed: ReadonlySet<string> };
+
+/// What the panel should be for chat `sessionId`: it stays while it is that chat's; another chat
+/// closes it, except in the chat's own Background tasks tab (`ownPane`), where it is always open on
+/// the chat shown. One step reaches the answer (`backgroundPanelFor` of its own result returns that
+/// result), so a pane that applies it during render sets state at most once: two guarded sets that
+/// undo each other can keep a render loop going.
+export function backgroundPanelFor(
+  panel: BackgroundPanel | undefined,
+  sessionId: string | undefined,
+  ownPane: boolean,
+): BackgroundPanel | undefined {
+  if (panel && panel.sessionId === sessionId) return panel;
+  if (ownPane && sessionId) return { sessionId, expanded: false, dismissed: new Set<string>() };
+  return undefined;
+}

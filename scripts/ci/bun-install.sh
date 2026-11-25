@@ -5,7 +5,7 @@
 # Why (2026-11-09): from about 14:50Z the package registry stopped answering some connections from the hosted
 # Linux runners. Bun waits on a hung connection with no idle timeout of its own, so `bun install --frozen-lockfile`
 # printed "Resolved, downloaded and extracted [3]" and then nothing until web-complexity.yml's 10-minute limit
-# cancelled the job, which merge_hold then refused. The same registry answered in under a second from another network.
+# cancelled the job, which land-judge then refused. The same registry answered in under a second from another network.
 #
 # Usage, in the package's folder: bash scripts/ci/bun-install.sh [bun install args...]
 #   (default args: --frozen-lockfile)

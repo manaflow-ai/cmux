@@ -274,6 +274,10 @@
       "bead": "cx-0op",
       "reason": "planned in cx-0op"
     },
+    "authenticate_tailscale": {
+      "status": "denied",
+      "reason": "Provider-managed Tailscale authentication is not exposed by cmux VM tenants."
+    },
     "list_verifications": {
       "status": "planned",
       "bead": "cx-b4h.6",
@@ -1062,6 +1066,106 @@
       "operations": [
         "delete_vpc"
       ]
+    },
+    "SecurityKey.info": {
+      "status": "denied",
+      "reason": "Provider security-key management is not exposed by cmux VM tenants."
+    },
+    "SecurityKey.update": {
+      "status": "denied",
+      "reason": "Provider security-key management is not exposed by cmux VM tenants."
+    },
+    "SecurityKey.attach": {
+      "status": "denied",
+      "reason": "Provider security-key management is not exposed by cmux VM tenants."
+    },
+    "SecurityKey.detach": {
+      "status": "denied",
+      "reason": "Provider security-key management is not exposed by cmux VM tenants."
+    },
+    "SecurityKey.grant": {
+      "status": "denied",
+      "reason": "Provider security-key management is not exposed by cmux VM tenants."
+    },
+    "SecurityKey.revoke": {
+      "status": "denied",
+      "reason": "Provider security-key management is not exposed by cmux VM tenants."
+    },
+    "SecurityKey.delete": {
+      "status": "denied",
+      "reason": "Provider security-key management is not exposed by cmux VM tenants."
+    },
+    "SecurityKey.createSession": {
+      "status": "denied",
+      "reason": "Provider security-key management is not exposed by cmux VM tenants."
+    },
+    "SecurityKeysNamespace.get": {
+      "status": "denied",
+      "reason": "Provider security-key management is not exposed by cmux VM tenants."
+    },
+    "SecurityKeysNamespace.list": {
+      "status": "denied",
+      "reason": "Provider security-key management is not exposed by cmux VM tenants."
+    },
+    "SecurityKeysNamespace.create": {
+      "status": "denied",
+      "reason": "Provider security-key management is not exposed by cmux VM tenants."
+    },
+    "SecurityKeysNamespace.watch": {
+      "status": "denied",
+      "reason": "Provider security-key management is not exposed by cmux VM tenants."
+    },
+    "SecurityKeysNamespace.respond": {
+      "status": "denied",
+      "reason": "Provider security-key management is not exposed by cmux VM tenants."
+    },
+    "TunnelsNamespace.authenticateTailscale": {
+      "status": "denied",
+      "reason": "Provider-managed Tailscale authentication is not exposed by cmux VM tenants."
+    },
+    "VmDisplays.list": {
+      "status": "denied",
+      "reason": "Provider experimental VM displays are not exposed by cmux VM tenants."
+    },
+    "VmDisplays.create": {
+      "status": "denied",
+      "reason": "Provider experimental VM displays are not exposed by cmux VM tenants."
+    },
+    "VmDisplays.delete": {
+      "status": "denied",
+      "reason": "Provider experimental VM displays are not exposed by cmux VM tenants."
+    },
+    "VmDisplays.resize": {
+      "status": "denied",
+      "reason": "Provider experimental VM displays are not exposed by cmux VM tenants."
+    },
+    "VmDisplays.frame": {
+      "status": "denied",
+      "reason": "Provider experimental VM displays are not exposed by cmux VM tenants."
+    },
+    "VmDisplays.input": {
+      "status": "denied",
+      "reason": "Provider experimental VM displays are not exposed by cmux VM tenants."
+    },
+    "Vm.currentMemoryStart": {
+      "status": "denied",
+      "reason": "Provider experimental memory resume controls are not exposed by cmux VM tenants."
+    },
+    "Vm.discardMemoryStart": {
+      "status": "denied",
+      "reason": "Provider experimental memory resume controls are not exposed by cmux VM tenants."
+    },
+    "Vm.stop": {
+      "status": "denied",
+      "reason": "Provider experimental VM lifecycle controls are not exposed by cmux VM tenants."
+    },
+    "Vm.boot": {
+      "status": "denied",
+      "reason": "Provider experimental VM lifecycle controls are not exposed by cmux VM tenants."
+    },
+    "Vm.revert": {
+      "status": "denied",
+      "reason": "Provider experimental VM lifecycle controls are not exposed by cmux VM tenants."
     }
   },
   "cli": {

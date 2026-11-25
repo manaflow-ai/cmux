@@ -47,6 +47,7 @@ function BookmarksGallery({ layout, listing, options, folder, text, select = [],
       }
       if (setup.text) {
         store.setText(setup.text);
+        // gallery-capture: a 0 ms yield in the fixture's setup, before the stage can be ready.
         await new Promise((done) => setTimeout(done, 0));
       }
       for (const [index, title] of setup.select.entries()) {

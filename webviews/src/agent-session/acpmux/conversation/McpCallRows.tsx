@@ -52,6 +52,7 @@ import { InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 import { failureWord } from "./toolFailureCauseModel";
 import { useRevealPins, useStepWindow, windowedSteps } from "./stepWindow";
 import { sameList } from "./toolGroupRowModel";
+import { RunningTime } from "./RunningTime";
 
 /// Memoized on its calls (the same objects unless a chunk changed one, direct.ts), so a chunk
 /// streamed to another group in the row draws this one again never.
@@ -271,10 +272,13 @@ export const McpCallRow = memo(function McpCallRow({ item }: { item: AcpmuxActiv
             {summary && <span className="cv-tool__detail">{`  ${summary}`}</span>}
             <InlineFailureCause failure={failure} />
           </span>
+          {/* How long a running call (a wait, a long fetch) has run, from a few seconds on (RunningTime.tsx). */}
+          {running && !tool.approved && <RunningTime startedAt={tool.startedAt} meta />}
           {/* The person approved this call's ask: it says so on its row (ApprovedMark.tsx). */}
           {tool.approved && (
             <span className="cv-command__meta cv-tool__meta">
               <ApprovedMark />
+              {running && <RunningTime startedAt={tool.startedAt} />}
             </span>
           )}
           {expandable && (

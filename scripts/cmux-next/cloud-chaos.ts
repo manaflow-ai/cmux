@@ -63,6 +63,12 @@ export type ChaosContext = {
   session: string;
   /** The harness the client's chat runs (`agent-session-start`), as the journey's `--agent`. */
   harness?: string;
+  /**
+   * The person's model connection, which the app gives each chat's agent at its start (`agent-session-start`'s
+   * `credentials`, cmux#40159: the machine holds no login). The journey's launch credential; none when the machine has
+   * a login of its own.
+   */
+  credentials?: { env: Record<string, string> };
   tag: string;
   log?: (line: string) => void;
 };
@@ -89,7 +95,7 @@ export const FAULTS: Array<{ name: string; secs: number; command: string }> = [
   {
     name: "agent daemon restart",
     secs: 0,
-    command: 'p=$("$c" acp --json daemon status 2>/dev/null | sed -n \'s/.*"pid": *\\([0-9]*\\).*/\\1/p\' | head -1); [ -n "$p" ] && kill -KILL "$p" && echo "@@ok $p"',
+    command: `p=$("$c" acp --json daemon status 2>/dev/null | sed -n 's/.*"pid": *\\([0-9]*\\).*/\\1/p' | head -1); [ -n "$p" ] && kill -KILL "$p" && echo "@@ok $p" && ${restartStatusSampler()}`,
   },
 ];
 
@@ -263,6 +269,10 @@ export type DialLike = {
   start(): void;
   request(frame: Record<string, unknown>, timeoutMs?: number): Promise<any>;
   stop(): void;
+  /** Ends the dial without dialing again until `resume` (a machine about to pause: no redial reaches it while paused). */
+  suspend?(): void;
+  /** Dials again after `suspend`, as the app reconnects after a wake. */
+  resume?(): void;
 };
 
 /**
@@ -270,7 +280,7 @@ export type DialLike = {
  * `onLine`. A dial that ends rejects what it still owed and is dialed again, and `onDial` runs once each new dial
  * says it connected, so the client can attach again as the app does after its redial.
  */
-class ClientDial implements DialLike {
+export class ClientDial implements DialLike {
   dials = 0;
   /**
    * The dial's own story, oldest first: each `cloud.connect` route line (a resume, a fresh session) and each exit, with
@@ -283,7 +293,7 @@ class ClientDial implements DialLike {
   private n = 0;
   private stopped = false;
 
-  constructor(private ctx: ChaosContext, private onLine: (msg: any) => void, private onDial: () => void) {}
+  constructor(private ctx: Pick<ChaosContext, "cmux" | "machine" | "team" | "env">, private onLine: (msg: any) => void, private onDial: () => void) {}
 
   start(): void {
     this.dial();
@@ -369,6 +379,17 @@ class ClientDial implements DialLike {
     this.child?.stdin?.end();
     this.child?.kill("SIGTERM");
   }
+
+  suspend(): void {
+    this.stop();
+    this.note("suspended");
+  }
+
+  resume(): void {
+    if (!this.stopped) return;
+    this.stopped = false;
+    this.dial();
+  }
 }
 
 /**
@@ -437,6 +458,8 @@ export class ChatClient {
   }
   private stopped = false;
   private reattaching = false;
+  /** Each re-attach's tries: when each failed (and why) and when one took, epoch ms, for a fault's timeline. */
+  reattachLog: { at: number; text: string }[] = [];
   readonly dial: DialLike;
   private ready: Promise<void>;
   private readyNow!: () => void;
@@ -476,7 +499,8 @@ export class ChatClient {
    */
   async start(harness: string): Promise<any> {
     if (this.surface === null) throw new Error("start before openTab");
-    return this.dial.request({ cmd: "agent-session-start", surface: this.surface, harness, vm_kind: "owner" }, 120_000);
+    const credentials = this.ctx.credentials ? { credentials: this.ctx.credentials } : {};
+    return this.dial.request({ cmd: "agent-session-start", surface: this.surface, harness, vm_kind: "owner", ...credentials }, 120_000);
   }
 
   /**
@@ -579,11 +603,14 @@ export class ChatClient {
     this.reattaching = true;
     try {
       while (!this.stopped && !this.attached) {
+        const tried = Date.now();
         try {
           await this.resolveSurface();
           await this.attach(this.held);
+          this.reattachLog.push({ at: Date.now(), text: `attached (try of ${Date.now() - tried} ms)` });
         } catch (e) {
           this.lastError = (e as Error).message;
+          this.reattachLog.push({ at: Date.now(), text: `${this.lastError.slice(0, 120)} (try of ${Date.now() - tried} ms)` });
           await sleep(1_000);
         }
       }
@@ -645,6 +672,36 @@ export class ChatClient {
   stop(): void {
     this.stopped = true;
     this.dial.stop();
+  }
+
+  /** Whether the chat is attached on the current dial. */
+  get isAttached(): boolean {
+    return this.attached;
+  }
+
+  /**
+   * Before a pause: the dial ends and stays down, so the client neither holds a connection the pause freezes nor
+   * redials (which may wake the machine) while it is paused. `wake` dials again.
+   */
+  suspend(): void {
+    if (!this.dial.suspend) return;
+    this.suspended = true;
+    this.attached = false;
+    this.dial.suspend();
+  }
+
+  /** After a wake: a new dial, and the chat attached again on it from the newest seq held, as the app reconnects. */
+  wake(): void {
+    if (!this.suspended) return;
+    this.suspended = false;
+    this.dial.resume?.();
+  }
+  private suspended = false;
+
+  /** Until the chat is attached on the current dial (true) or `until` (epoch ms) passes (false). */
+  async waitAttached(until: number): Promise<boolean> {
+    while (!this.attached && !this.stopped && Date.now() < until) await sleep(100);
+    return this.attached;
   }
 }
 
@@ -735,7 +792,22 @@ export function isReply(record: any): boolean {
 /** The felt chat's prompt marker: a prompt the stub answers with its short reply, never the counting turn. */
 export const feltMarker = (tag: string) => `[chaos-felt ${tag}]`;
 
-export type Felt = { felt_ms: number | null; ack_ms: number | null; tries: number; error: string };
+export type Felt = { felt_ms: number | null; ack_ms: number | null; tries: number; error: string; trail?: string };
+
+/**
+ * Each refusal a send met, in order, as `first-last ms: text (n)` runs of the same text: where a slow take spent its
+ * time (the daemon down, the session not restored, the agent not started), not only the last refusal's text.
+ */
+export function refusalTrail(refusals: { at: number; text: string }[]): string {
+  const runs: { from: number; to: number; text: string; n: number }[] = [];
+  for (const r of refusals) {
+    const text = r.text.replace(/\s+/g, " ").slice(0, 160);
+    const last = runs[runs.length - 1];
+    if (last && last.text === text) { last.to = r.at; last.n += 1; }
+    else runs.push({ from: r.at, to: r.at, text, n: 1 });
+  }
+  return runs.map((r) => `${r.from === r.to ? `${r.from}` : `${r.from}-${r.to}`} ms: ${r.text} (${r.n})`).join("; ");
+}
 
 /**
  * The person's felt time: `text` sent on `chat` now, and the time until the client receives the first record of the
@@ -747,19 +819,22 @@ export type Felt = { felt_ms: number | null; ack_ms: number | null; tries: numbe
  * the send is this send's reply: a late or replayed record of an earlier turn never stops the clock. A try never
  * waits past the deadline, and a reply received after it does not count.
  */
-export async function feltAfterSend(chat: ChatClient, text: string, deadlineMs: number, afterSeq = 0): Promise<Felt> {
-  const sentAt = Date.now();
+export async function feltAfterSend(chat: ChatClient, text: string, deadlineMs: number, afterSeq = 0, startedAt = Date.now()): Promise<Felt> {
+  // `startedAt`: the person's send, when the client first waited for something else (a reattach after a wake).
+  const sentAt = startedAt;
   const from = chat.received.length;
   const held = Math.max(chat.held, afterSeq);
   const promptId = `chaos-felt-${sentAt.toString(36)}`;
   let ack: number | null = null;
   let tries = 0;
   let error = "";
+  const refusals: { at: number; text: string }[] = [];
+  const done = (felt_ms: number | null): Felt => ({ felt_ms, ack_ms: ack, tries, error, ...(refusals.length ? { trail: refusalTrail(refusals) } : {}) });
   for (const until = sentAt + deadlineMs; ;) {
     // The earliest arrival of any reply record, a live push still held behind a loading page included.
     const times = chat.arrivals(from).filter((r) => r.seq > held && r.at >= sentAt && r.at <= until && isReply(r.record)).map((r) => r.at);
-    if (times.length) return { felt_ms: Math.min(...times) - sentAt, ack_ms: ack, tries, error };
-    if (Date.now() > until) return { felt_ms: null, ack_ms: ack, tries, error };
+    if (times.length) return done(Math.min(...times) - sentAt);
+    if (Date.now() > until) return done(null);
     if (ack === null) {
       tries += 1;
       try {
@@ -767,6 +842,7 @@ export async function feltAfterSend(chat: ChatClient, text: string, deadlineMs: 
         ack = Date.now() - sentAt;
       } catch (e) {
         error = (e as Error).message;
+        refusals.push({ at: Date.now() - sentAt, text: error });
         await sleep(500);
       }
       continue;
@@ -793,7 +869,7 @@ async function turnState(ctx: ChaosContext, marker: string, session = ctx.sessio
   };
 }
 
-async function turnOutcome(ctx: ChaosContext, marker: string, session = ctx.session): Promise<{ ok: boolean; text: string; interrupted?: boolean }> {
+export async function turnOutcome(ctx: ChaosContext, marker: string, session = ctx.session): Promise<{ ok: boolean; text: string; interrupted?: boolean }> {
   const until = Date.now() + TURN_DEADLINE_MS;
   let last = { started: 0, running: false, status: "", detail: "" };
   while (Date.now() < until) {
@@ -883,7 +959,7 @@ export function journalNotesText(notes: JournalNotes): string {
  * (`ended`), so no record of that turn can stop the next clock. Null when that end is not verified (the turn did not
  * end, or the journal could not be read): the next felt send is then not measured.
  */
-async function feltBoundary(ctx: ChaosContext, session: string, after: number, ended: boolean): Promise<number | null> {
+export async function feltBoundary(ctx: ChaosContext, session: string, after: number, ended: boolean): Promise<number | null> {
   if (!ended) return null;
   const journal = await readJournal(ctx, "", session, after);
   return typeof journal === "string" ? null : Math.max(after, ...journal.map((e) => e.seq));
@@ -929,6 +1005,75 @@ export const STALL_FACTS_COMMAND = [
   `for u in acpmux.service cmux-host.service; do echo "@@$u"; { sudo -n journalctl -u "$u" --since '5 min ago' --no-pager -o cat 2>/dev/null || journalctl -u "$u" --since '5 min ago' --no-pager -o cat 2>/dev/null; } | grep -iE 'warn|error|lag|overrun|overflow|attach|subscri|peer|fanout|closed|too.slow' | tail -n 15 | cut -c1-300; done`,
   `echo "@@daemon.log"; tail -n 400 "$HOME"/.acpmux/daemon.log "$HOME"/.cmux/acpmux/daemon.log 2>/dev/null | grep -iE 'warn|error|lag|overrun|attach|subscri|peer|fanout|too.slow' | tail -n 15 | cut -c1-300`,
 ].join("; ");
+
+/** Where the restart fault's status sampler writes on the machine (a function: the fault list reads it first). */
+export function restartStatusFile(): string {
+  return "/tmp/crn-restart-status.txt";
+}
+
+/**
+ * Started right after the kill, in the background: asks the restarted acpmux for its status every 250 ms for 30 s
+ * and writes one `unix.secs status ...` line each time the answer changes (no answer, then each loading phase, then
+ * ready), so the restart timeline shows how long each startup phase held the chat.
+ */
+export function restartStatusSampler(): string {
+  const file = restartStatusFile();
+  const ask = `timeout 2 "$c" acp --json daemon status 2>&1 | tr -d '\\n' | grep -oE '"(phase|state|ready|loading)": *("[^"]*"|true|false|null|[0-9]+)' | tr '\\n' ' '`;
+  return `( s=""; for i in $(seq 120); do t=$(${ask}); [ -n "$t" ] || t="no answer"; [ "$t" = "$s" ] || echo "$(date +%s.%N) sampler status: $t"; s=$t; sleep 0.25; done ) </dev/null >${file} 2>&1 &`;
+}
+
+/**
+ * acpmux's own record of a restart from `sinceMs` (epoch ms): systemd's lines for the user unit acpmux.service (the
+ * kill, the restart) and the daemon's own `daemon.log` lines (each with its time: the lock, the ready line, "agents
+ * may start", "startup complete", a host replay that stalled, each warning). acpmux.service is a user unit, so the
+ * journal is read with `--user`; a machine whose user journal is off still has the daemon's file.
+ */
+export function restartTimelineCommand(sinceMs: number): string {
+  const since = `@${Math.floor(sinceMs / 1000) - 1}`;
+  const journal = `journalctl --user -u acpmux.service --since ${since} --no-pager -o short-unix 2>/dev/null | grep -vE ' (DEBUG|TRACE) ' | grep -viE 'model probe failed' | head -n 60`;
+  const kept = `tail -n 600 "$HOME"/.acpmux/daemon.log "$HOME"/.cmux/acpmux/daemon.log 2>/dev/null | grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}T' | grep -vE ' (DEBUG|TRACE) '`;
+  return `echo "@@now $(date +%s%3N)"; ${journal}; ${kept}; cat ${restartStatusFile()} 2>/dev/null; ${startupPhasesCommand()}`;
+}
+
+/**
+ * The new daemon's startup phases (`gauges.startup` in its status: each phase's start from the daemon's birth, and how
+ * long it took), each as a timeline line at the time it started: which phase held "startup complete" back.
+ */
+export function startupPhasesCommand(): string {
+  const py = [
+    "import json,sys,time",
+    "d=json.load(sys.stdin)",
+    "f=lambda v:v if isinstance(v,dict) and isinstance(v.get(\"startup\"),list) and \"uptimeMs\" in v else next((r for x in (v.values() if isinstance(v,dict) else v if isinstance(v,list) else []) for r in [f(x)] if r),None)",
+    "g=f(d)",
+    "b=time.time()-g[\"uptimeMs\"]/1000 if g else 0",
+    "[print(\"%.3f startup phase: %s %sms\"%(b+p[\"atMs\"]/1000,p[\"name\"],p.get(\"ms\"))) for p in (g or {}).get(\"startup\",[])]",
+  ].join("; ");
+  return `timeout 5 "$c" acp --json daemon status 2>/dev/null | python3 -c '${py}' 2>/dev/null`;
+}
+
+/**
+ * The timeline's lines as `+ms text`, from `zeroMs` (the kill, on this runner's clock), in time order, at most `max`
+ * of them: the journal's `short-unix` lines and daemon.log's RFC 3339 ones. The machine's `@@now` against `readAtMs`
+ * (when this runner got the answer) corrects for the two clocks' skew.
+ */
+export function restartTimeline(stdout: string, zeroMs: number, readAtMs = Number.NaN, max = 90): string {
+  const now = Number(/@@now (\d+)/.exec(stdout)?.[1]);
+  const skew = Number.isFinite(now) && Number.isFinite(readAtMs) ? now - readAtMs : 0;
+  zeroMs += skew;
+  const rows: { at: number; text: string }[] = [];
+  for (const raw of stdout.split("\n")) {
+    const line = raw.replace(/\x1b\[[0-9;]*m/g, "").trim();
+    const unix = /^(\d+\.\d+)\s+\S+\s+(.*)$/.exec(line);
+    const iso = unix ? null : /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)\s+(.*)$/.exec(line);
+    const ms = unix ? Number(unix[1]) * 1000 : iso ? Date.parse(iso[1]) : Number.NaN;
+    if (!Number.isFinite(ms)) continue;
+    const at = Math.round(ms - zeroMs);
+    if (at < -1000 || at > 120_000) continue;
+    rows.push({ at, text: (unix ?? iso)![2].replace(/\s+/g, " ").slice(0, 200) });
+  }
+  rows.sort((a, b) => a.at - b.at);
+  return rows.slice(0, max).map((r) => `+${r.at} ms ${r.text}`).join(" | ");
+}
 
 async function machineAtStall(ctx: ChaosContext): Promise<string> {
   const r = await ctx.exec(`${ctx.guest}${STALL_FACTS_COMMAND}`, 45_000).catch((e: Error) => ({ code: 1, stdout: e.message, stderr: "" }));
@@ -1077,7 +1222,7 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
       const ok = feel.felt_ms !== null && feltTurn.ok && recover !== null && turn.ok && loss.ok && terminal.ok;
       const feltText = feel.felt_ms === null
         ? `no reply within ${RECOVER_DEADLINE_MS / 1000} s of a send at the cause's end (${feel.tries} tries${feel.error ? `; last error ${feel.error}` : ""})`
-        : `the reply began ${feel.felt_ms} ms after a send at the cause's end (taken at ${feel.ack_ms} ms, ${feel.tries} ${feel.tries === 1 ? "try" : "tries"})`;
+        : `the reply began ${feel.felt_ms} ms after a send at the cause's end (taken at ${feel.ack_ms} ms, ${feel.tries} ${feel.tries === 1 ? "try" : "tries"}${feel.trail ? `; refused ${feel.trail}` : ""})`;
       const result: ChaosResult = {
         fault: f.name,
         outcome: ok ? "ok" : "fail",
@@ -1087,6 +1232,13 @@ export async function runChaos(ctx: ChaosContext): Promise<ChaosResult[]> {
         turn: turn.text,
         detail: `injected ${when}; ${feltText}, its turn ${feltTurn.text}; ${recover === null ? `the carrier gave no answer within ${RECOVER_DEADLINE_MS / 1000} s` : `the carrier answered ${recover} ms after the cause ended`}; carrier ${how}; turn ${turn.text}; ${loss.text}${chat.surfaceMoves > movesBefore ? ` (the chat's tab came back on a new surface)` : ""}; ${terminal.text}`,
       };
+      // A daemon restart: where the time to the take went, from the machine's own journal.
+      if (f.name === "agent daemon restart") {
+        const tl = await ctx.exec(`${ctx.guest}${restartTimelineCommand(injectedAt)}`, 45_000).catch((e: Error) => ({ code: 1, stdout: e.message, stderr: "" }));
+        const tries = felt.reattachLog.filter((r) => r.at >= injectedAt).map((r) => ({ at: r.at - injectedAt, text: r.text.replace(/ \(try of \d+ ms\)$/, "") }));
+        ctx.log?.(`chaos: ${f.name}: the felt chat's re-attach from the kill: ${tries.length ? refusalTrail(tries) : "none"}; tries: ${felt.reattachLog.filter((r) => r.at >= injectedAt).map((r) => `+${r.at - injectedAt} ${/try of (\d+) ms/.exec(r.text)?.[1] ?? "?"} ms`).join(", ")}`);
+        ctx.log?.(`chaos: ${f.name}: the machine's acpmux journal from the kill: ${restartTimeline(tl.stdout, injectedAt, Date.now()) || `nothing read (${tl.stdout.trim().slice(-200)})`}`);
+      }
       ctx.log?.(`chaos: ${f.name}: ${result.detail}`);
       out.push(result);
       // Let the carrier settle before the next fault.

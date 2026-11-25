@@ -1,13 +1,22 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ComputerUsePreviewCard } from "./ComputerUsePreviewCard";
-import type { ComputerUsePreview } from "./computerUsePreview";
+import { setComputerUsePreviewControls, type ComputerUsePreview } from "./computerUsePreview";
 
 const frame = "data:image/jpeg;base64,AA==";
 const icon = "data:image/png;base64,AA==";
 const running: ComputerUsePreview = { session: "cua_t1", app: "Calculator", done: false, frame };
 const markup = (preview: ComputerUsePreview) =>
-  renderToStaticMarkup(<ComputerUsePreviewCard preview={preview} onOpen={() => undefined} onClose={() => undefined} />);
+  renderToStaticMarkup(<ComputerUsePreviewCard preview={preview} onClose={() => undefined} />);
+/// The markup with the card's moving, full size and chip on (Labs > Show Preview Features).
+const movableMarkup = (preview: ComputerUsePreview) => {
+  setComputerUsePreviewControls(true);
+  try {
+    return markup(preview);
+  } finally {
+    setComputerUsePreviewControls(false);
+  }
+};
 
 test("a running card is only the frame, with no live dot and the app's name in its label", () => {
   const html = markup(running);
@@ -16,7 +25,7 @@ test("a running card is only the frame, with no live dot and the app's name in i
   expect(html).not.toContain("ui-glass");
   expect(html).not.toContain("acpmux-cu-preview__title");
   expect(html).not.toContain(">Calculator<");
-  expect(html).toContain('aria-label="Calculator, live. Open in Agent Activity"');
+  expect(html).toContain('aria-label="Calculator, live" aria-expanded="false"');
   expect(html).toMatch(/class="acpmux-cu-preview__frame"><img [^>]*\/><\/span>/);
   expect(html).not.toContain("acpmux-cu-preview__live");
   expect(html).not.toContain("acpmux-cu-preview__badge");
@@ -30,12 +39,12 @@ test("the close button is there and labelled, with no glass", () => {
 test("with no name the label names no app and never says Unknown app", () => {
   const html = markup({ ...running, app: "" });
   expect(html).not.toContain("Unknown app");
-  expect(html).toContain('aria-label="Live app preview. Open in Agent Activity"');
+  expect(html).toContain('aria-label="Live app preview"');
 });
 
 test("done keeps the app's name in its label and drops the live dot", () => {
   const html = markup({ ...running, done: true });
-  expect(html).toContain('aria-label="Calculator, done. Open in Agent Activity"');
+  expect(html).toContain('aria-label="Calculator, done"');
   expect(html).not.toContain("acpmux-cu-preview__live");
   expect(html).not.toContain(">Calculator<");
 });
@@ -102,4 +111,40 @@ test("an agent telepointer with no pointer draws the agent's cursor with no clic
   expect(html).not.toContain("acpmux-cu-preview__ripple");
   const hidden = markup({ ...running, telepointers: { agent: { x: 0.4, y: 0.6, visible: false, idle: false } } });
   expect(hidden).not.toContain("acpmux-cu-preview__arrow");
+});
+
+test("a card at its first place sits beside the column, with the full size button on its top right", () => {
+  const html = movableMarkup({ ...running, place: { x: 1, y: 0, size: "small" } });
+  expect(html).toMatch(/^<div class="acpmux-cu-preview">/);
+  expect(html).toContain('class="acpmux-cu-preview__full" aria-label="Full Size" aria-pressed="false"');
+});
+
+test("a moved card draws at its place, as fractions of the pane's room", () => {
+  const html = movableMarkup({ ...running, place: { x: 0.25, y: 0.5, size: "small" } });
+  expect(html).toMatch(/^<div class="acpmux-cu-preview" data-placed="" style="--cu-x:0.25;--cu-y:0.5">/);
+});
+
+test("an enlarged card says so, and a full size one fills the pane with no place of its own", () => {
+  expect(movableMarkup({ ...running, place: { x: 1, y: 0, size: "large" } })).toContain("data-expanded");
+  const full = movableMarkup({ ...running, place: { x: 0.25, y: 0.5, size: "full" } });
+  expect(full).toMatch(/^<div class="acpmux-cu-preview" data-full="">/);
+  expect(full).toContain('aria-label="Exit Full Size" aria-pressed="true"');
+  expect(full).toContain('aria-expanded="true"');
+});
+
+test("a hidden card is only the Show Preview chip, at the card's place", () => {
+  const html = movableMarkup({ ...running, hidden: true, place: { x: 0, y: 1, size: "small" } });
+  expect(html).toMatch(/^<div class="acpmux-cu-preview" data-hidden="" data-placed="" style="--cu-x:0;--cu-y:1">/);
+  expect(html).toContain('class="acpmux-cu-preview__chip"');
+  expect(html).toContain("<span>Show Preview</span>");
+  expect(html).not.toContain("acpmux-cu-preview__frame");
+  expect(html).not.toContain("acpmux-cu-preview__close");
+});
+
+test("with the Labs controls off the card stays the top right one: no place, no full size, no chip", () => {
+  const moved = markup({ ...running, place: { x: 0.25, y: 0.5, size: "full" } });
+  expect(moved).toMatch(/^<div class="acpmux-cu-preview">/);
+  expect(moved).not.toContain("acpmux-cu-preview__full");
+  expect(markup({ ...running, place: { x: 0, y: 1, size: "large" } })).toContain("data-expanded");
+  expect(markup({ ...running, hidden: true })).toBe("");
 });

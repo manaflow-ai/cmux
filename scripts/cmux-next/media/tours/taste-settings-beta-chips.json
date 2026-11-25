@@ -1,0 +1,65 @@
+{
+  "title": "Taste prototype: Beta chips in Settings (appearance.settingsBetaChips, off by default): experimental rows and the Experimental sidebar entry get a small Beta chip",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 3,
+      "shot": false
+    },
+    {
+      "title": "Settings > Experimental, opt-in off: the page as today, no chips",
+      "cmux": [
+        "action",
+        "run",
+        "openSettings",
+        "--arg",
+        "setting=appearance.settingsBetaChips"
+      ],
+      "wait": 4
+    },
+    {
+      "title": "Turn the opt-in on: cmux settings set appearance.settingsBetaChips true",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.settingsBetaChips",
+        "true"
+      ],
+      "wait": 3
+    },
+    {
+      "title": "On: each experimental row's title and the Experimental sidebar entry carry a Beta chip",
+      "cmux": [
+        "action",
+        "run",
+        "openSettings",
+        "--arg",
+        "setting=labs.previewFeatures"
+      ],
+      "wait": 4,
+      "optional": "Settings may open on another row"
+    },
+    {
+      "title": "An everyday page: no row chip; only the Experimental sidebar entry keeps one",
+      "cmux": [
+        "action",
+        "run",
+        "openSettings",
+        "--arg",
+        "setting=updates.channel"
+      ],
+      "wait": 4,
+      "optional": "Settings may open on another section"
+    },
+    {
+      "title": "Off again: the chips go away",
+      "cmux": [
+        "settings",
+        "set",
+        "appearance.settingsBetaChips",
+        "false"
+      ],
+      "wait": 3
+    }
+  ]
+}

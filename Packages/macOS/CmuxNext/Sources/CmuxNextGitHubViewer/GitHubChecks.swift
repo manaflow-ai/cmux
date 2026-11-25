@@ -64,14 +64,16 @@ public nonisolated struct GitHubChecks: Equatable, Sendable {
                 name conclusion startedAt completedAt } } } } } } } } } }
         """
 
-    static func arguments(for link: GitHubLink) -> [String] {
+    /// The query's variables for `link`.
+    static func variables(for link: GitHubLink) -> [String: any Sendable] {
         let parts = link.repository.split(separator: "/").map(String.init)
-        return ["api", "graphql", "--hostname", "github.com", "-f", "owner=\(parts.first ?? "")", "-f", "name=\(parts.last ?? "")",
-                "-F", "number=\(link.number)", "-f", "query=\(query)"]
+        return ["owner": parts.first ?? "", "name": parts.last ?? "", "number": link.number]
     }
 
+    /// Reads `link`'s checks through acpmux (the cmux GitHub App, or the person's gh).
     @concurrent public static func read(_ link: GitHubLink) async -> GitHubChecks? {
-        guard let data = await AgentPaneGitPullRequest.pageRead(arguments(for: link)) else { return nil }
+        guard let data = await AgentPaneGitPullRequest.pageRead(link.repository, query: query, variables: variables(for: link),
+                                                                scope: "checks") else { return nil }
         return parse(data)
     }
 
@@ -194,20 +196,17 @@ public nonisolated struct GitHubJobFailure: Equatable, Sendable {
 
     @concurrent static func read(repository: String, job: Int) async -> GitHubJobFailure? {
         guard job > 0, repository.split(separator: "/").count == 2 else { return nil }
-        let detail = await AgentPaneGitPullRequest.pageRead(["api", "repos/\(repository)/actions/jobs/\(job)"])
-        var log = await AgentPaneGitPullRequest.pageRead(logArguments(repository: repository, job: job, tail: true))
-        if log == nil { log = await AgentPaneGitPullRequest.pageRead(logArguments(repository: repository, job: job, tail: false)) }
+        let detail = await AgentPaneGitPullRequest.pageGet(repository, "actions/jobs/\(job)")
+        var log = await AgentPaneGitPullRequest.pageGet(repository, logPath(job: job), tail: maximumLog)
+        if log == nil { log = await AgentPaneGitPullRequest.pageGet(repository, logPath(job: job)) }
         guard detail != nil || log != nil else { return nil }
         return GitHubJobFailure(step: detail.flatMap(failingStep), excerpt: log.map { excerpt(of: $0) } ?? "")
     }
 
-    /// The log read. `tail`: only its end, a Range for the last ``maximumLog`` bytes, which rides gh's
-    /// redirect to the log's storage; a store that refuses it gets the whole log once, and
-    /// ``excerpt(of:)`` keeps the end either way.
-    static func logArguments(repository: String, job: Int, tail: Bool) -> [String] {
-        let logs = "repos/\(repository)/actions/jobs/\(job)/logs"
-        return tail ? ["api", "-H", "Range: bytes=-\(maximumLog)", logs] : ["api", logs]
-    }
+    /// The log's path. The first read asks only its end (a Range for the last ``maximumLog`` bytes,
+    /// which rides the redirect to the log's storage); a store that refuses it gets the whole log
+    /// once, and ``excerpt(of:)`` keeps the end either way.
+    static func logPath(job: Int) -> String { "actions/jobs/\(job)/logs" }
 
     /// The first step whose conclusion is a failure, in a `GET actions/jobs/:id` answer.
     static func failingStep(_ data: Data) -> String? {

@@ -189,7 +189,7 @@ done
   echo
   echo "| lane | step | time | notes |"
   echo "|---|---|---|---|"
-  printf '%s\n' "${rows[@]}"
+  printf '%s\n' ${rows[@]+"${rows[@]}"}
   echo
   echo '```'
   cat "$work/git-checks.txt" 2>/dev/null
