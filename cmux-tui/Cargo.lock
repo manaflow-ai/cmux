@@ -24,6 +24,7 @@ dependencies = [
  "clap",
  "cmux-agent-customize",
  "cmux-agent-pane-policy",
+ "cmux-api-compat",
  "cmux-auto-session",
  "cmux-bounded",
  "cmux-build-space",
