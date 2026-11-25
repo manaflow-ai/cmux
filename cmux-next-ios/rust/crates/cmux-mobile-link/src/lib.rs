@@ -50,6 +50,7 @@ pub mod path_report;
 pub mod reconnect;
 pub mod relay_cache;
 pub mod relay_hold;
+pub mod relay_tail;
 pub mod reliable;
 mod send_queue;
 pub mod signal_dial;
