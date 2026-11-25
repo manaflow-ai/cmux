@@ -307,6 +307,8 @@ pub(super) struct Inner {
     pub widgets: super::widgets::WidgetState,
     /// Extension signal sources' last values and floors (`signal_sources.rs`).
     pub signal_sources: super::signal_sources::SignalSources,
+    /// `cmux.pane/1` opens with arguments, waiting for the pane's result (`pane_flow.rs`).
+    pub pane_opens: super::pane_flow::PaneOpens,
 }
 
 /// Work to do after the lock is released. Messages to hosts are not in this
@@ -514,6 +516,7 @@ impl Supervisor {
                 pages: Default::default(),
                 widgets: Default::default(),
                 signal_sources: Default::default(),
+                pane_opens: Default::default(),
             }),
             config,
             router,
