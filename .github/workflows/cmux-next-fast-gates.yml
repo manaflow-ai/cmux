@@ -21,8 +21,8 @@ name: cmux-next fast gates
 # they also run (cmux#49052, cmuxterm-hq#19108). No paths filter: every pull request gets a
 # status; a draft gets it when it is marked ready (a draft cannot merge, and a
 # merger that finds no status dispatches the gates). About two minutes on Linux.
-# A pull request that touches no gate input (fast-check-route) gets its success
-# status with no gates run.
+# A pull request that touches no gate input (resolve's route step) gets its
+# success status with no gates run.
 #
 # A dispatch also reruns the Rust panic ratchet (panic-ratchet) when the tip
 # lowered a rust-panic-baseline.json row of a crate the PR changes since its
@@ -32,7 +32,8 @@ name: cmux-next fast gates
 # on counts over the tip's row that the tip does not already reach.
 #
 # Pull request code never runs next to a write token: `resolve` names the head
-# and base without running any checked-out code (a dispatch refuses a fork head
+# and base and routes the change without running any code the pull request
+# changed (its route runs the router only when its blobs are the base's; a dispatch refuses a fork head
 # or another base before anything is fetched), `fast-gates` and `panic-ratchet`
 # run the PR's code with contents: read only, and `post` writes the status from
 # resolve's outputs and those jobs' results, never from anything they wrote.
@@ -79,6 +80,7 @@ jobs:
       post: ${{ steps.resolve.outputs.post }}
       head_tree: ${{ steps.resolve.outputs.head_tree }}
       merge_tree: ${{ steps.resolve.outputs.merge_tree }}
+      fast_gates: ${{ steps.route.outputs.fast_gates }}
     steps:
       # A pull request's merge commit and both parents; only git reads it here.
       - name: Checkout the merge ref
@@ -87,13 +89,15 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 2
-          # Only the commits matter here (git rev-parse HEAD^1 and HEAD^2): no blobs and one small file in the
-          # work tree. The full tree took 44 s of this job's 48 s p50 (2026-11-07..11 timing records), on the
-          # fast gate's critical path ahead of the gates themselves.
+          # Only the commits matter here (git rev-parse HEAD^1 and HEAD^2, and the route's diff of their trees): no
+          # blobs but the router's two files in the work tree. The full tree took 44 s of this job's 48 s p50
+          # (2026-11-07..11 timing records), on the fast gate's critical path ahead of the gates themselves.
           filter: blob:none
           sparse-checkout-cone-mode: false
           sparse-checkout: &resolve-sparse |
             /.github/runners.json
+            /scripts/ci/fast_check_route.py
+            /scripts/ci/fast-check-inputs.json
 
       - name: "Pool mirror: checkout the merge ref"
         if: ${{ github.event_name == 'pull_request' && startsWith(runner.name, 'cmux-runner-pool-') }}
@@ -226,46 +230,33 @@ jobs:
           { echo "head_sha=$head"; echo "base=$base"; echo "post=$post"; } >> "$GITHUB_OUTPUT"
           echo "head $head, base $base"
 
-  # Whether this pull request touches an input of any gate (scripts/ci/fast-check-inputs.json). One that touches none
-  # skips the gates job before it takes a 16 vCPU runner, and post writes success at its base: every gate judges only
-  # what the change adds in its inputs, so it would have passed. A dispatch (a merger's fresh gate) skips this job and
-  # runs every gate; the push-time jobs each gate copies (push_cover in the map) run on the feat-cmux-next push, so a
-  # miss is a fix-forward on base.
-  fast-check-route:
-    name: fast check route
-    if: ${{ github.event_name == 'pull_request' && !github.event.pull_request.draft }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    timeout-minutes: 5
-    permissions:
-      contents: read
-    outputs:
-      fast_gates: ${{ steps.route.outputs.fast_gates }}
-    steps:
-      - name: Checkout the merge commit's router (trees only)
-        if: ${{ !startsWith(runner.name, 'cmux-runner-pool-') }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          fetch-depth: 2
-          filter: blob:none
-          sparse-checkout-cone-mode: false
-          sparse-checkout: &route-sparse |
-            /scripts/ci/
-
-      - name: "Pool mirror: checkout the merge commit's router (trees only)"
-        if: ${{ startsWith(runner.name, 'cmux-runner-pool-') }}
-        env:
-          SHA: ${{ github.sha }}
-          TOKEN: ${{ github.token }}
-          SPARSE: *route-sparse
-        run: *pool-checkout
-      # A router failure leaves the output empty, and the gates run.
+      # Whether this pull request touches an input of any gate (scripts/ci/fast-check-inputs.json). One that touches
+      # none skips the gates job before it takes a 16 vCPU runner, and post writes success at its base: every gate
+      # judges only what the change adds in its inputs, so it would have passed. A dispatch (a merger's fresh gate)
+      # skips this step and runs every gate; the push-time jobs each gate copies (push_cover in the map) run on the
+      # feat-cmux-next push, so a miss is a fix-forward on base.
+      #
+      # A step here, not a job of its own: the fast-check-route job was a second runner and a second fetch of the
+      # merge ref for every pull request event, about 3,600 a day at a 64 s median (2026-11-24 12-16Z timing records),
+      # to write one line. Only the base's code runs: the router and its map run when their blobs are the base's
+      # (a change to either routes every gate anyway, the router's SELF rule, so this step then writes nothing and
+      # the gates run), and python3 -I keeps every other checked-out file off sys.path. A failure leaves the output
+      # empty, and the gates run.
       - name: Route the pull request (scripts/ci/fast_check_route.py)
         id: route
+        if: ${{ github.event_name == 'pull_request' }}
         continue-on-error: true
         env:
           LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
-        run: python3 scripts/ci/fast_check_route.py route --workflow .github/workflows/cmux-next-fast-gates.yml --labels "$LABELS"
+        run: |
+          set -euo pipefail
+          for file in scripts/ci/fast_check_route.py scripts/ci/fast-check-inputs.json; do
+            if [[ "$(git rev-parse "HEAD:$file")" != "$(git rev-parse "HEAD^1:$file")" ]]; then
+              echo "::notice title=fast check route::the change touches $file, so every gate runs"
+              exit 0
+            fi
+          done
+          python3 -I scripts/ci/fast_check_route.py route --workflow .github/workflows/cmux-next-fast-gates.yml --labels "$LABELS"
 
   # A local test receipt (scripts/ci/ci_receipt.py): a change tested locally counts as a CI pass, and the job is
   # skipped. Only for a same-repository pull request whose body names
@@ -277,13 +268,13 @@ jobs:
   # full, and a red there posts failure naming the receipt and its producer. A rejected receipt runs everything.
   receipt:
     name: local test receipt
-    needs: [resolve, fast-check-route]
+    needs: [resolve]
     # The body line is optional: with none, the verifier finds the passing Fast checks run of one of this pull request's
     # commits itself (ci_receipt.py discover), so a lane's green `cmux-ci test -- python3 scripts/ci/ci_receipt.py
     # produce fast-gates` counts with no one writing a pointer. It runs only where the gates would run (the route) and
     # on a `lane/` branch (the lanes are who run cmux-ci; a human's PR spends no runner on a search),
     # and vars.CI_RECEIPT_DISCOVER=0 returns to the body line alone.
-    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.fast-check-route.outputs.fast_gates != 'false' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (contains(github.event.pull_request.body, 'CI-Receipt:') || (startsWith(github.event.pull_request.head.ref, 'lane/') && (vars.CI_RECEIPT_DISCOVER || '1') != '0')) }}
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.fast_gates != 'false' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (contains(github.event.pull_request.body, 'CI-Receipt:') || (startsWith(github.event.pull_request.head.ref, 'lane/') && (vars.CI_RECEIPT_DISCOVER || '1') != '0')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
@@ -351,11 +342,11 @@ jobs:
 
   fast-gates:
     name: fast gates
-    needs: [resolve, fast-check-route, receipt]
-    # Skipped before it takes a runner when the change touches no gate input (fast-check-route), or when a valid
+    needs: [resolve, receipt]
+    # Skipped before it takes a runner when the change touches no gate input (resolve's route), or when a valid
     # local test receipt covers it and the receipt job posted its status (a receipt job that failed, the status
     # post included, runs everything), unless audited.
-    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.fast-check-route.outputs.fast_gates != 'false' && (needs.receipt.result != 'success' || needs.receipt.outputs.valid != 'true' || needs.receipt.outputs.audit == 'true') }}
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.fast_gates != 'false' && (needs.receipt.result != 'success' || needs.receipt.outputs.valid != 'true' || needs.receipt.outputs.audit == 'true') }}
     outputs:
       ratchet: ${{ steps.prepare.outputs.ratchet }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
@@ -457,7 +448,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
       # Restore only, on pull requests and dispatches alike: cmux-next-web-lint.yml's web-lint job saves this key on
       # each feat-cmux-next push. A pull request's own save was a copy of about 1.2 GB in that pull request's scope,
@@ -635,7 +626,7 @@ jobs:
   # panic-ratchet (nothing to rejudge) does not fail it.
   post:
     name: post cmux-next/fast-gates
-    needs: [resolve, fast-check-route, receipt, fast-gates, panic-ratchet]
+    needs: [resolve, receipt, fast-gates, panic-ratchet]
     # A valid receipt posted the status itself; an audited one is judged here again by the gates.
     if: ${{ always() && !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.post == 'true' && (needs.receipt.result != 'success' || needs.receipt.outputs.valid != 'true' || needs.receipt.outputs.audit == 'true') }}
     # A light job that holds a write token (statuses), so the ephemeral-only linux_4 pool on every attempt, never
@@ -653,8 +644,8 @@ jobs:
           BASE: ${{ needs.resolve.outputs.base }}
           GATES: ${{ needs.fast-gates.result }}
           RATCHET: ${{ needs.panic-ratchet.result }}
-          # The route skipped the gates: the pull request touches none of their inputs.
-          ROUTED_OUT: ${{ needs.fast-check-route.outputs.fast_gates == 'false' }}
+          # The route (resolve) skipped the gates: the pull request touches none of their inputs.
+          ROUTED_OUT: ${{ needs.resolve.outputs.fast_gates == 'false' }}
           RECEIPT_AUDIT: ${{ needs.receipt.outputs.audit }}
           RECEIPT_RUN: ${{ needs.receipt.outputs.run_url }}
           RECEIPT_PRODUCER: ${{ needs.receipt.outputs.producer }}
@@ -664,7 +655,7 @@ jobs:
           [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ && "$BASE" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::no head or base sha to report"; exit 1; }
           if [[ "$ROUTED_OUT" == true && "$GATES" == skipped ]]; then
             # A verdict at this base, as a passing run would give: each gate judges only what the change adds in its
-            # inputs, and the change touches none (fast-check-route's summary names them). Same description, so a
+            # inputs, and the change touches none (resolve's route step summary names them). Same description, so a
             # merger judges its freshness as it does any success.
             GATES=success
             RATCHET=skipped
