@@ -40,7 +40,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 # The app's settings file, whose folder holds web-dev.json: a DEV build's own (its CMUX_NEXT_CONFIG_FILE,
 # which `cmux live` passes on), else NEXT's ~/.config/cmux-next since #53567 (BuildStatePaths.configDirectory).
-# Writing the old ~/.config/cmux/web-dev.json pointed no release or nightly app anywhere (#56156).
+# Writing web-dev.json into the Classic config folder pointed no release or nightly app anywhere (#56156).
 config_file="${CMUX_NEXT_CONFIG_FILE:-$HOME/.config/cmux-next/cmux-next.json}"
 config_dir="$(dirname "$config_file")"
 web_dev="$config_dir/web-dev.json"
@@ -660,7 +660,7 @@ print(token)
 PY
 )"
             if [[ ${#remote_token} -lt 32 ]]; then
-              echo "warning: $host has no token in its web-dev.json (~/.config/cmux-next, or ~/.config/cmux before #53567); start its server with CMUX_WEB_DEV_TOKEN set to the \"token\" in $web_dev, or the app keeps the bundled pages" >&2
+              echo "warning: $host has no token in its web-dev.json (~/.config/cmux-next, or the Classic config folder before #53567); start its server with CMUX_WEB_DEV_TOKEN set to the \"token\" in $web_dev, or the app keeps the bundled pages" >&2
             fi
             point_at "$port" "$remote_token"; exit 0
           fi
