@@ -8,7 +8,7 @@ import { ensureBenchCommand, ensureBenchMarkdown, parseEnsureBench } from "./clo
 import { execProbe, execProbeCommand, execProbeHop, execProbeMarkdown, machineStopFields, markRanOnGuest, EXEC_PROBE_NONCES, type ExecProbeRun } from "./cloud-journey";
 import { Api, clientPlatformOrigin, Journey, preclaimDeployFields, preclaimGuestFacts, preclaimHoldMinutes, preclaimMetMarkdown, preclaimRefillImage, preclaimRefillToReady, runPreclaimBurst, runPreclaimChat, warmSpareRefusal } from "./cloud-journey";
 import { saveSendTrace, SEND_TRACE_SETTLE_MS } from "./cloud-journey";
-import { claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPathAfterClaim, loginPrograms, MODEL_PLANE_PLACEHOLDER, startsOnLaunchCredential, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY, newReds, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
+import { claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPathAfterClaim, loginPrograms, MODEL_PLANE_PLACEHOLDER, startsOnLaunchCredential, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, journeyReadFileCommand, journeyReadPrompt, MODEL_STUB_PY, newReds, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
 import { oidcSignIn, waitOwnerKind, waitPreflight, CODEX_STUB_CONFIG, OWNER_KIND_PROGRAM, PREFLIGHT_PROBE } from "./cloud-journey";
 import { directExec, settleBackground, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
@@ -17,9 +17,20 @@ import { sessionModelVerdict } from "./cloud-journey";
 import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS, LONG_JOURNEY_MS, autoMachineName } from "./cloud-journey";
 import { http as journeyHttp, socketDropped } from "./cloud-journey";
 import { sameSurgeSlots, surgeMachineIds, SURGE_PROOF_REQUEST } from "./cloud-journey";
+import { idleHeldBy } from "./cloud-journey";
 import { parseClaimedMarkers, parseWarmHomeAnswer } from "./cloud-journey";
 
 describe("cloud journey", () => {
+  test("a missed idle pause names what held the machine", async () => {
+    const api = (row: unknown) => ({ read: async () => row }) as unknown as Api;
+    expect(await idleHeldBy(api({ status: "running", last_active_at: null, idle_policy: { idle_seconds: 120 } }), "vm_x", 1_000_000))
+      .toBe("idle clock not running (last_active_at null: no report speaks for its activity); idle policy 120 s");
+    expect(await idleHeldBy(api({ status: "running", last_active_at: 940_000, idle_policy: { idle_seconds: 120 }, activity: { active_sessions: 1 } }), "vm_x", 1_000_000))
+      .toBe('idle clock started 60 s ago; idle policy 120 s; activity {"active_sessions":1}');
+    const failing = { read: async () => { throw new Error("HTTP 503"); } } as unknown as Api;
+    expect(await idleHeldBy(failing, "vm_x")).toBe("idle facts unreadable: HTTP 503");
+  });
+
   test("parses claimed reserved-home markers", () => {
     expect(parseClaimedMarkers(".claimed-surface-2\nnoise\n.claimed-surface-1\n.claimed-surface-2\n")).toEqual([".claimed-surface-1", ".claimed-surface-2"]);
     expect(parseClaimedMarkers("\nno marker\n")).toEqual([]);
@@ -356,6 +367,13 @@ describe("cloud journey", () => {
     expect(out).not.toContain("hunter22");
     expect(out).not.toMatch(/Bearer abc/);
   });
+
+  test("scrub keeps serialized JSON parseable: a 401's \"bearer token\" eats no quote (run 45510772491)", () => {
+    const cycle = { error: `cloud.machine.start: HTTP 401 ${JSON.stringify({ code: "auth.unauthenticated", message: "missing or invalid bearer token" })}`, at: "x" };
+    const out = scrub(JSON.stringify({ cycles: [cycle] }, null, 2));
+    expect(JSON.parse(out).cycles[0].at).toBe("x");
+    expect(scrub(JSON.stringify({ h: "Bearer abc.def-ghi" }))).toBe('{"h":"[secret]"}');
+  });
   test("env files and the summary table", () => {
     expect(readEnvFile("export A='1'\nB=\"two\"\n# c\n")).toEqual({ A: "1", B: "two" });
     const md = summaryMarkdown(resolveBackend("staging"), [
@@ -424,6 +442,41 @@ describe("cloud journey", () => {
     expect(JOURNEY_STUB_SCRIPT.turns).toEqual(expect.arrayContaining([
       { match: "\\[chaos-felt \\S+\\]", steps: [{ text: "Felt reply {{prompt}}." }] },
     ]));
+  });
+  test("the reserved home chat's stub turn is a Read in the chat's folder, never a shell call (policy ask holds shell)", () => {
+    // Prod run 45585084079: the reserved chat runs under policy `ask`, the default turn's shell call waited on a permission.
+    const dir = mkdtempSync(join(tmpdir(), "journey-read-"));
+    try {
+      const w = spawnSync("bash", ["-c", journeyReadFileCommand(dir, "3bde18dfd6b9")], { encoding: "utf8" });
+      const file = /@@file (\S+)/.exec(w.stdout)?.[1] ?? "";
+      expect(file).toBe(`${dir}/.journey-3bde18dfd6b9.txt`);
+      expect(readFileSync(file, "utf8")).toBe("3bde18dfd6b9-tool\n");
+      const script = join(dir, "script.json");
+      writeFileSync(script, JSON.stringify(JOURNEY_STUB_SCRIPT));
+      // The shared stub itself plays the turn: Claude Code's Read result numbers its lines.
+      const play = `
+import json, sys, urllib.request
+sys.path.insert(0, sys.argv[1])
+import model_stub
+server, _ = model_stub.serve(json.load(open(sys.argv[2])), "3bde18dfd6b9")
+base = f"http://127.0.0.1:{server.server_address[1]}/v1/messages"
+ask = lambda msgs: json.loads(urllib.request.urlopen(urllib.request.Request(base, data=json.dumps({"messages": msgs, "tools": [{"name": "Bash"}, {"name": "Read"}]}).encode(), headers={"content-type": "application/json"})).read())["content"][0]
+turn = [{"role": "user", "content": sys.argv[3]}]
+call = ask(turn)
+reply = ask([*turn, {"role": "assistant", "content": [call]}, {"role": "user", "content": [{"type": "tool_result", "tool_use_id": call["id"], "content": "     1\\u21923bde18dfd6b9-tool\\n"}]}])
+print(json.dumps({"call": call, "reply": reply}))
+server.shutdown()
+`;
+      const r = spawnSync("python3", ["-I", "-c", play, dirname(MODEL_STUB_PY), script, journeyReadPrompt("Name the planet.", file)], { encoding: "utf8" });
+      expect(r.stderr).toBe("");
+      const { call, reply } = JSON.parse(r.stdout);
+      expect(call).toMatchObject({ type: "tool_use", name: "Read", input: { file_path: file } });
+      expect(reply.text).toBe("Stub reply 3bde18dfd6b9. The tool printed 3bde18dfd6b9-tool.");
+      // The person's own prompt, with no marker, still gets the default turn (its shell call) elsewhere.
+      expect(JOURNEY_STUB_SCRIPT.steps[0]).toHaveProperty("shell");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
   test("a team machine gets the DEV creator allowance, as a nightly build copies", () => {
     const team = claudeLoginPrograms(readFileSync(INSTALLER_SWIFT, "utf8"), true);
