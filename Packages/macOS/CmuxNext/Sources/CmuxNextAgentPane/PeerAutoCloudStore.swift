@@ -15,9 +15,6 @@ public final class PeerAutoCloudStore {
     @ObservationIgnored private var reading: Task<Void, Never>?
     static let refreshAfter: Duration = .seconds(60)
 
-    /// The app's one store (Settings > Machines reads it).
-    public static let shared = PeerAutoCloudStore()
-
     public init() {}
 
     /// The report for the machine reached at `host` (an SSH destination's host, or a peer name),
