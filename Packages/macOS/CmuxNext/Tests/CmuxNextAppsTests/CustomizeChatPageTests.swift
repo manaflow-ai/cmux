@@ -1,5 +1,7 @@
 @testable import CmuxNextApps
 import CmuxNextPages
+// The page's JSONValue (CmuxNextSettings'), the one CustomizeChatPage speaks since #55333.
+import CmuxNextSettings
 import Foundation
 import Testing
 
