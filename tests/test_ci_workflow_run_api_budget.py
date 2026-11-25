@@ -88,6 +88,10 @@ class CountingGitHub:
             return []
         if "pulls?state=" in path:
             return []
+        if "/check-runs?" in path:
+            return {"check_runs": []}
+        if "/status?" in path:
+            return {"statuses": []}
         raise AssertionError(f"unexpected read {path}")
 
     def request(self, method: str, path: str, body: object = None) -> dict:
@@ -141,7 +145,11 @@ class FailureAttributionCalls(unittest.TestCase):
         act(gh, report([], conclusion="success"))
         # The comments are read once before the write, and once after it: the status comment's
         # other lines belong to other jobs, so a write is checked (scripts/ci/pr_status.py).
-        self.assertEqual(gh.reads, ["comments 7", "pull 7", "comments 7"])
+        # Before "passes", a green run reads the head's other checks (one page of check runs and the
+        # combined status): #50275's green ci.yml stood over a red cmux-next/compile.
+        self.assertEqual(gh.reads, ["comments 7", "pull 7",
+                                    f"repos/{REPO}/commits/{HEAD}/check-runs?filter=latest&per_page=100&page=1",
+                                    f"repos/{REPO}/commits/{HEAD}/status?per_page=100", "comments 7"])
         self.assertEqual(gh.writes, [("PATCH", f"repos/{REPO}/issues/comments/99")])
 
     def test_a_green_run_with_a_comment_on_a_moved_head_marks_it_pending(self) -> None:
@@ -744,7 +752,8 @@ class RiskTierCalls(unittest.TestCase):
         for name in ("Grade the pull request", "Set the risk label"):
             with self.subTest(step=name):
                 _, step = workflow_step("risk-tier.yml", "evidence", name)
-                self.assertEqual(step["env"]["READ_TOKEN"], "${{ steps.glaeda-token.outputs.token }}")
+                self.assertEqual(step["env"]["READ_TOKEN"],
+                                 "${{ (steps.glaeda-token-bot.outputs.token || steps.glaeda-token.outputs.token) }}")
                 self.assertEqual(step["env"]["GH_TOKEN"], "${{ github.token }}")
         _, mint = workflow_step("risk-tier.yml", "evidence", "Mint the glaeda-route token")
         self.assertTrue(mint["continue-on-error"])
