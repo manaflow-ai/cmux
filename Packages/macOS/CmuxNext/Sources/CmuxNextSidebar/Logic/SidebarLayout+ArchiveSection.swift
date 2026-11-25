@@ -1,114 +1,64 @@
 import CoreGraphics
 
-// The Archive section (Lawrence 19197: "i see a ton of archived ... this doesnt look very clean ... maybe we can move
-// completely archived groups into archive as well"): every archived workspace, and every group that is archived or
-// whose workspaces are all archived, leaves its list for one "Archive (N)" row at the bottom of the sidebar, closed by
-// default. Opened, the row lists them under it, dimmed: whole groups and loose archived workspaces in document order,
-// then archived members of groups that stay. No list draws an "Archived (N)" row of its own. The active
-// workspace keeps its place (a click moves no row); a filter and Group by Status list every row in place, as before.
-// With the session tree (lineage nesting is on by default, #28103) a row whose parent moved to the archive draws as a
-// root of its list, and the archive's rows nest among themselves.
+// Archived rows leave the sidebar (cmux#51635, after Lawrence 19197): every archived workspace, archived link, tab or
+// app row, and every group that is archived or whose workspaces are all archived, is drawn by no list. They live in
+// Settings > Sidebar > Archived Workspaces, where a person opens, restores or deletes them, as ChatGPT keeps
+// archived chats in Settings > Data controls > Archived chats. Before, they folded under an "Archive (N)" row at the
+// bottom of the sidebar that, opened, listed them dimmed among the live rows.
+// The active workspace keeps its place (Open from the list shows it; a click moves no row); a filter lists every
+// match in place, archived ones too. With the session tree a row whose parent was archived draws as a root of its list.
 nonisolated extension SidebarLayout {
-    /// The sidebar split for the Archive section: what the lists draw, what the archive holds, and its count.
-    struct ArchiveSplit {
-        /// The sections without their archived rows and archived groups (their order and ids unchanged).
-        var live: [SidebarSection]
-        /// Per section with archived rows, a copy holding only them: whole groups and loose workspaces in document
-        /// order, then archived members of groups that stay, as loose rows.
-        var archived: [SidebarSection]
-        /// The archived workspaces the archive holds (members of archived groups included).
-        var count: Int
+    /// Whether this layout leaves archived rows out: on, and no filter (a search lists its archived matches in place).
+    static func hidesArchived(_ o: SidebarLayoutOptions) -> Bool {
+        o.archiveSection && o.filterMatches == nil
     }
 
-    /// Whether this layout draws the Archive section: on, and no filter or Group by Status.
-    static func drawsArchiveSection(_ o: SidebarLayoutOptions) -> Bool {
-        o.archiveSection && o.filterMatches == nil && !o.grouping.byStatus
-    }
-
-    /// Splits `sections` for the Archive section; `active` keeps its place in its list.
-    static func splittingArchive(_ sections: [SidebarSection], keeping active: WorkspaceID?) -> ArchiveSplit {
-        var split = ArchiveSplit(live: [], archived: [], count: 0)
-        for section in sections {
+    /// `sections` without their archived rows and archived groups (their order and ids unchanged); `active` keeps its
+    /// place in its list, with every group above it.
+    ///
+    /// A group leaves when it is archived, when its parent leaves, or when it holds rows and none of them is live (its
+    /// workspaces, its link, tab and app rows and its subgroups' rows, all archived). A group that holds a live row at
+    /// any depth stays, so no live row is lost with its folder (the reducer archives a group only when all of it is).
+    static func withoutArchived(_ sections: [SidebarSection], keeping active: WorkspaceID?) -> [SidebarSection] {
+        sections.map { section in
             // Pinned holds no groups and its rows are the person's picks: it keeps them.
-            guard section.id != .pinned, section.id != .custom(SidebarDocStore.pinnedSection) else {
-                split.live.append(section)
-                continue
+            guard section.id != .pinned, section.id != .custom(SidebarDocStore.pinnedSection) else { return section }
+            // Bottom up (a section lists a group before its subgroups): what each group holds, its subgroups' too; a
+            // group passes what it holds up to its parent.
+            var holdsActive: Set<GroupID> = [], holdsLive: Set<GroupID> = [], holdsRows: Set<GroupID> = []
+            for node in section.nodes.reversed() {
+                guard case let .group(group) = node else { continue }
+                let id = group.id
+                if let active, group.workspaces.contains(where: { $0.id == active }) { holdsActive.insert(id) }
+                if !group.workspaces.isEmpty || !group.items.isEmpty { holdsRows.insert(id) }
+                let ownLive = group.workspaces.contains { !$0.isArchived } || group.items.contains { !$0.item.isArchived }
+                if ownLive { holdsLive.insert(id) }
+                if group.isArchived { holdsLive.remove(id) }
+                guard let parent = group.parent else { continue }
+                if holdsActive.contains(id) { holdsActive.insert(parent) }
+                if holdsRows.contains(id) { holdsRows.insert(parent) }
+                if holdsLive.contains(id) { holdsLive.insert(parent) }
             }
-            var live = section, held = section, loose: [SidebarNode] = []
-            (live.nodes, held.nodes, held.isCollapsed) = ([], [], false)
-            // A moved group's subgroups move with it; the depth it had is taken off theirs.
-            var movedDepth: [GroupID: Int] = [:]
-            for node in section.nodes {
+            var kept: Set<GroupID> = []
+            var live = section
+            live.nodes = section.nodes.compactMap { node in
                 switch node {
                 case let .workspace(ws):
-                    if ws.isArchived && ws.id != active {
-                        held.nodes.append(node)
-                        split.count += 1
-                    } else {
-                        live.nodes.append(node)
-                    }
+                    return !ws.isArchived || ws.id == active ? node : nil
                 case let .item(item):
-                    if item.isArchived { held.nodes.append(node) } else { live.nodes.append(node) }
+                    return item.isArchived ? nil : node
                 case var .group(group):
-                    let holdsActive = active.map { id in group.workspaces.contains { $0.id == id } } ?? false
-                    let parentMoved = group.parent.flatMap { movedDepth[$0] }
-                    let allArchived = !group.workspaces.isEmpty && group.workspaces.allSatisfy(\.isArchived)
-                    if !holdsActive && (parentMoved != nil || group.isArchived || allArchived) {
-                        let shift = parentMoved ?? group.depth
-                        movedDepth[group.id] = shift
-                        if parentMoved == nil { group.parent = nil }
-                        group.depth -= shift
-                        held.nodes.append(.group(group))
-                        split.count += group.workspaces.count
-                        continue
-                    }
-                    let gone = group.workspaces.filter { $0.isArchived && $0.id != active }
-                    if !gone.isEmpty {
-                        group.workspaces.removeAll { $0.isArchived && $0.id != active }
-                        loose += gone.map(SidebarNode.workspace)
-                        split.count += gone.count
-                    }
-                    live.nodes.append(.group(group))
+                    let parentKept = group.parent.map(kept.contains) ?? true
+                    let stays = holdsActive.contains(group.id)
+                        || (parentKept && !group.isArchived && (holdsLive.contains(group.id) || !holdsRows.contains(group.id)))
+                    guard stays else { return nil }
+                    kept.insert(group.id)
+                    group.workspaces.removeAll { $0.isArchived && $0.id != active }
+                    group.items.removeAll { $0.item.isArchived }
+                    return .group(group)
                 }
             }
-            held.nodes += loose
-            split.live.append(live)
-            if !held.nodes.isEmpty { split.archived.append(held) }
-        }
-        return split
-    }
-
-    /// Appends the "Archive (N)" row at `y` and, opened, the archived rows under it (laid out as their own sidebar,
-    /// without the headers and fold rows the lists above already draw). Nothing when nothing is archived. A drag
-    /// keeps it closed: its rows take no drop.
-    static func appendArchive(_ split: ArchiveSplit, firstRow: Bool, options o: SidebarLayoutOptions, base: SidebarLayoutMetrics,
-                              metrics m: SidebarLayoutMetrics, to rows: inout [SidebarRow], y: inout CGFloat) {
-        guard !split.archived.isEmpty else { return }
-        if !firstRow { y += m.sectionSpacing }
-        let open = o.openDoneFolds.contains(.archive) && o.gap == nil && !o.dragClosesArchive
-        let h = m.height(for: WorkspaceRowContent())
-        rows.append(SidebarRow(
-            key: .doneFold(.archive), y: y, height: h, section: SidebarDoneFoldID.archive.section, group: nil, siblingIndex: 0,
-            parentIndex: nil, isLastInGroup: false, isCollapsed: !open, childCount: split.count, groupColor: nil,
-            content: WorkspaceRowContent()
-        ))
-        y += h + m.rowSpacing
-        guard open else { return }
-        var inner = o
-        (inner.archiveSection, inner.foldsArchived, inner.foldsDone, inner.rowLimit) = (false, false, false, 0)
-        (inner.gap, inner.chatHistory, inner.blockHeights, inner.collapsedDocSections) = (nil, nil, [:], [])
-        // The opened Archive lists its rows whole: Recents would fold archived groups past five behind a Show more it skips.
-        if inner.grouping.by == .recents { inner.grouping.by = .none }
-        let nested = make(sections: split.archived, metrics: base, options: inner)
-        let dy = y - m.topPadding
-        for var row in nested.rows {
-            switch row.key {
-            case .section, .emptySection, .block, .folder, .status, .listHeader, .doneFold, .showMore: continue
-            default:
-                row.y += dy
-                rows.append(row)
-                y = row.maxY + m.rowSpacing
-            }
+            return live
         }
     }
 }

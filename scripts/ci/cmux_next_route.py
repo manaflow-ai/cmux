@@ -315,6 +315,14 @@ BUNDLE_INPUTS = (
     "schemas/transcript-look/transcript-look.json",
     # The gallery index and looks the Customize checklist imports (src/pages/settings/customizeLooks.ts).
     "examples/gallery/gallery.json", "examples/looks/*",
+    # The key styles the key presentation imports (src/ui/keyStyle.ts).
+    "schemas/keymap/key-styles.json",
+    # The overlay surface roles the shared surface imports (src/ui/surface/Surface.tsx).
+    "schemas/surface-roles/surface-roles.json",
+    # The scene type scale the scene app imports (src/apps/scene/sceneStyle.ts).
+    "schemas/type-scale/scene-type.json",
+    # The Cloud page's declaration the confirm count reads (src/agent-session/acpmux/cloudErgonomics/confirms.ts).
+    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDescriptor.swift",
 )
 BUNDLE_TARGETS = ("CmuxNextAgentPane", "CmuxNextPages", "CmuxNextAgentActivity")
 BUNDLE_SWIFT_TEST_REASON = "(no swift test suite reads a built bundle; only the tests that read this file run)"
@@ -1057,6 +1065,7 @@ WORKFLOW_JOB_TIERS: dict[str, tuple[str, ...]] = {
     "release-compile": ("native", "mac_release"),
     "app-compile-fleet": ("native",),
     "cmux-scheme-compile": ("native", "scheme"),
+    "cmux-scheme-compile-fleet": ("native", "scheme"),
 }
 # The tiers a Route can take from WORKFLOW_JOB_TIERS (its attribute names; "swift" also sets all_tests).
 WORKFLOW_TIER_FIELDS = ("swift", "generated", "daemon", "native", "mac_release", "scheme")
