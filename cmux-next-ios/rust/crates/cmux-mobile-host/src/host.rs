@@ -677,6 +677,7 @@ async fn answer_session(
         session_exposure: context.session_exposure.clone(),
         route: None,
         path: None,
+        viewport: None,
     };
     let session_id = first.session_id.clone();
     let timeline = Timeline::new();
@@ -730,6 +731,9 @@ async fn answer_session(
     if let Some(cmux_mobile_link::media::MediaLane::Out(video)) = connected.link.media() {
         peer.video = Some(video);
     }
+    // The overlay's viewport sync port, bound on the first channel that syncs.
+    peer.viewport =
+        connected.overlay.clone().map(|overlay| Arc::new(crate::viewport_link::LinkHub::new(overlay)));
     tracing::info!(session_id, ?kind, ?path, phone = peer.device_id, video = peer.video.is_some(), timings = %timeline.summary(), "link up");
     control::emit(&Event::PhoneUp {
         session_id: session_id.clone(),
