@@ -7684,6 +7684,8 @@ class Script(unittest.TestCase):
                 pass
 
             def wait(self, timeout=None):
+                if timeout is None:  # the reap after kill(), as GitHub.run does it
+                    return 0
                 raise subprocess.TimeoutExpired(cmd="gh", timeout=timeout)
 
             def kill(self):
@@ -7693,6 +7695,26 @@ class Script(unittest.TestCase):
             with self.assertRaises(evidence.Unread) as caught:
                 evidence.GitHub().run(["api", "repos/x/y"])
         self.assertIn("90 seconds", str(caught.exception))
+        # And it names the read, so the next timeout says which of the ~60 reads spent the 90 s.
+        self.assertIn("gh api repos/x/y", str(caught.exception))
+
+    def test_an_unread_names_the_read_that_never_happened(self):
+        # The job log read is the one most likely to pass the deadline (a leo-workspace ws-check job's log is
+        # tens of MB; glaeda-gh's own log read of manaflow-ai/cmux run 45518999614 answered "timed out after
+        # 90s", 2026-11-25), so the message has to tell it apart from a cheap route read.
+        evidence = excuse._evidence
+        self.assertEqual(evidence.read_name(["api", "repos/o/r/actions/runs/1/jobs?per_page=100"]),
+                         "gh api repos/o/r/actions/runs/1/jobs?per_page=100")
+        self.assertEqual(evidence.read_name(["run", "view", "45516453123", "--repo", "o/r", "--job", "7", "--log"]),
+                         "gh run view 45516453123 --repo o/r --job 7 --log")
+        # A GraphQL body is thousands of characters; its operation name identifies it.
+        named = evidence.read_name(["api", "graphql", "-f", "query=query PullFiles($owner: String!) { x }",
+                                    "-f", "owner=manaflow-ai"])
+        self.assertIn("query=PullFiles", named)
+        self.assertNotIn("String!", named)
+        self.assertIn("owner=manaflow-ai", named)
+        # Never unbounded, whatever a caller passes.
+        self.assertLessEqual(len(evidence.read_name(["run", "view", "x" * 5000])), 200)
 
     def test_gh_merge_green_asks_the_base_before_refusing_a_red_lane(self):
         text = (ROOT / "scripts/gh-merge-green").read_text()
