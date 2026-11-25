@@ -528,6 +528,7 @@ async fn inbox(
                         continue;
                     }
                     let Some(hub) = hub.upgrade() else { return };
+                    hub.outbox.note_relay_lease(message.attempt);
                     let (client, control, in_flight, beat) =
                         (client.clone(), control.clone(), in_flight.clone(), beat.clone());
                     let own_id = own.borrow().clone();
