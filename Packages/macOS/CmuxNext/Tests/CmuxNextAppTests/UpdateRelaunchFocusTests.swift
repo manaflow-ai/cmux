@@ -151,6 +151,23 @@ import Testing
         #expect(!updater.automaticInstallInFlight)
     }
 
+    /// A relaunch in a custom home (drill 12): the app keeps the running build for rollback, runs the relaunch
+    /// hooks when its helper quits it, and a quit that does not happen leaves the update waiting for a click.
+    @Test func aRelaunchInACustomHomeKeepsTheBuildAndRunsTheHooks() async {
+        let updater = Self.updater(defaults: Self.defaults(), front: Self.nightly)
+        updater.keptRunningBuild = .kept
+        var hooks: (willQuit: @MainActor () async -> Bool, declined: @MainActor () -> Void)?
+        updater.reopenInHome = { quit, declined in hooks = (quit, declined) }
+        var declines = 0
+        updater.updaterReopensInItsHome(build: "200", declined: { declines += 1 })
+        #expect(updater.installingBuild == "200", "the install is recorded as Sparkle's willInstallUpdate would")
+        #expect(await hooks?.willQuit() == true)
+        #expect(updater.relaunchingForUpdate)
+        hooks?.declined()
+        #expect(!updater.relaunchingForUpdate)
+        #expect(declines == 1)
+    }
+
     @Test func aClickOrTheUserInTheAppLetsSparkleRelaunch() {
         for (automatic, front) in [(false, Self.nightly), (true, UpdateFrontmostApp(isThisApp: true, pid: 1, bundleID: "self"))] {
             let updater = Self.updater(defaults: Self.defaults(), front: front)
