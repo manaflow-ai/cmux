@@ -281,5 +281,8 @@ fn a_purged_chat_is_not_packed_and_is_forgotten() {
     session.purged.store(true, Ordering::SeqCst);
     assert!(hub.seal_pack(id).unwrap().is_none(), "a purged chat is not packed");
     assert!(!hub.pack_checked.lock().unwrap().contains_key(id), "and its entry is dropped");
+    // A chat gone from the session map loses its entry too.
+    hub.pack_checked.lock().unwrap().insert("no-such-chat".to_owned(), 1);
     assert!(hub.seal_pack("no-such-chat").unwrap().is_none());
+    assert!(!hub.pack_checked.lock().unwrap().contains_key("no-such-chat"));
 }

@@ -132,8 +132,14 @@ impl Hub {
     /// Brings chat `id`'s pack up to its log (module docs). `None` when the chat is not one
     /// packed here.
     pub(in crate::hub) fn seal_pack(&self, id: &str) -> anyhow::Result<Option<Sealed>> {
+        // The turn comes first, so a seal already running for this chat cannot put back the
+        // entry this one drops below.
+        let _turn = PackTurn::take(id);
         let session = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
-        let Some(session) = session else { return Ok(None) };
+        let Some(session) = session else {
+            self.pack_checked.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
+            return Ok(None);
+        };
         if session.purged.load(Ordering::SeqCst)
             || session.read_meta(|m| m.moved_to.is_some())
             || self.history_awaited(id).is_some()
@@ -143,7 +149,6 @@ impl Hub {
             self.pack_checked.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
             return Ok(None);
         }
-        let _turn = PackTurn::take(id);
         // Every record stored by now; one whose append is under way waits for the next seal.
         let through = session.read_meta(|m| m.last_seq);
         if through == 0 {
