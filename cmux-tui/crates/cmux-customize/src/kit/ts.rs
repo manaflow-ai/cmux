@@ -32,32 +32,56 @@ fn find_from(b: &[u8], from: usize, pat: &[u8]) -> Option<usize> {
     b.get(from..)?.windows(pat.len()).position(|w| w == pat).map(|p| p + from)
 }
 
+/// The byte at `i`, or 0 past the end (0 is none of the bytes the reader
+/// looks for).
+fn byte(b: &[u8], i: usize) -> u8 {
+    b.get(i).copied().unwrap_or(0)
+}
+
+/// `text[from..to]`, or empty when that is not a range of it. The reader's
+/// indices come from its own scans of `text`, so this is the slice.
+fn slice(text: &str, from: usize, to: usize) -> &str {
+    text.get(from..to).unwrap_or("")
+}
+
+fn slice_from(text: &str, from: usize) -> &str {
+    text.get(from..).unwrap_or("")
+}
+
+fn slice_to(text: &str, to: usize) -> &str {
+    text.get(..to).unwrap_or("")
+}
+
 /// The index after the string or comment starting at `i`, or `None` when
 /// `i` starts neither.
 fn skip_trivia(b: &[u8], i: usize) -> Option<usize> {
-    match b[i] {
+    match byte(b, i) {
         q @ (b'"' | b'\'' | b'`') => {
             let mut j = i + 1;
             while j < b.len() {
-                if b[j] == b'\\' {
+                if byte(b, j) == b'\\' {
                     j += 2;
                     continue;
                 }
-                if b[j] == q {
+                if byte(b, j) == q {
                     return Some(j + 1);
                 }
                 // A quote string ends with its line; an apostrophe in JSX
                 // text (`Don't`) must not swallow the file.
-                if b[j] == b'\n' && q != b'`' {
+                if byte(b, j) == b'\n' && q != b'`' {
                     return Some(j);
                 }
                 j += 1;
             }
             Some(b.len())
         }
-        b'/' if b.get(i + 1) == Some(&b'/') => {
-            Some(b[i..].iter().position(|&c| c == b'\n').map_or(b.len(), |p| i + p))
-        }
+        b'/' if b.get(i + 1) == Some(&b'/') => Some(
+            b.get(i..)
+                .unwrap_or_default()
+                .iter()
+                .position(|&c| c == b'\n')
+                .map_or(b.len(), |p| i + p),
+        ),
         b'/' if b.get(i + 1) == Some(&b'*') => {
             Some(find_from(b, i + 2, b"*/").map_or(b.len(), |p| p + 2))
         }
@@ -68,11 +92,11 @@ fn skip_trivia(b: &[u8], i: usize) -> Option<usize> {
 /// Whether the byte at `i` opens or closes a bracket: +1, -1 or 0. `<` and
 /// `>` count only when `angles` (in type text), and never the `>` of `=>`.
 fn bracket(b: &[u8], i: usize, angles: bool) -> i32 {
-    match b[i] {
+    match byte(b, i) {
         b'{' | b'(' | b'[' => 1,
         b'}' | b')' | b']' => -1,
         b'<' if angles => 1,
-        b'>' if angles && !(i > 0 && b[i - 1] == b'=') => -1,
+        b'>' if angles && !(i > 0 && byte(b, i - 1) == b'=') => -1,
         _ => 0,
     }
 }
@@ -108,19 +132,19 @@ fn split_top<'a>(text: &'a str, seps: &[u8], angles: bool) -> Vec<&'a str> {
         let step = bracket(b, i, angles);
         if step != 0 {
             depth += step;
-        } else if depth == 0 && seps.contains(&b[i]) {
-            out.push(&text[start..i]);
+        } else if depth == 0 && seps.contains(&byte(b, i)) {
+            out.push(slice(text, start, i));
             start = i + 1;
         }
         i += 1;
     }
-    out.push(&text[start..]);
+    out.push(slice_from(text, start));
     out
 }
 
 /// The text from `from` up to the first top-level `;` (or the end).
 fn until_semicolon(text: &str, from: usize) -> &str {
-    let rest = &text[from..];
+    let rest = slice_from(text, from);
     let b = rest.as_bytes();
     let (mut depth, mut i) = (0i32, 0);
     while i < b.len() {
@@ -129,8 +153,8 @@ fn until_semicolon(text: &str, from: usize) -> &str {
             continue;
         }
         depth += bracket(b, i, true);
-        if depth < 0 || (depth == 0 && b[i] == b';') {
-            return &rest[..i];
+        if depth < 0 || (depth == 0 && byte(b, i) == b';') {
+            return slice_to(rest, i);
         }
         i += 1;
     }
@@ -144,7 +168,7 @@ fn string_lit(text: &str) -> Option<String> {
     if !matches!(q, b'"' | b'\'' | b'`') || text.len() < 2 || !text.ends_with(q as char) {
         return None;
     }
-    let inner = &text[1..text.len() - 1];
+    let inner = slice(text, 1, text.len() - 1);
     if (inner.contains(q as char) && !inner.contains('\\')) || (q == b'`' && inner.contains("${")) {
         return None;
     }
@@ -163,10 +187,10 @@ fn leading_name(text: &str) -> Option<(String, &str)> {
         && matches!(q, b'"' | b'\'')
     {
         let end = skip_trivia(b, 0)?;
-        return Some((string_lit(&text[..end])?, &text[end..]));
+        return Some((string_lit(slice_to(text, end))?, slice_from(text, end)));
     }
     let end = b.iter().position(|&c| !is_ident(c)).unwrap_or(b.len());
-    (end > 0).then(|| (text[..end].to_owned(), &text[end..]))
+    (end > 0).then(|| (slice_to(text, end).to_owned(), slice_from(text, end)))
 }
 
 // ---------------------------------------------------------------------------
@@ -192,15 +216,15 @@ fn leading_doc(piece: &str) -> (Option<String>, &str) {
         if rest.starts_with("/*") {
             let end = rest.find("*/").map_or(rest.len(), |p| p + 2);
             if rest.starts_with("/**") {
-                docs.push(clean_block(&rest[..end]));
+                docs.push(clean_block(slice_to(rest, end)));
             }
-            rest = rest[end..].trim_start();
+            rest = slice_from(rest, end).trim_start();
         } else if rest.starts_with("//") {
             let end = rest.find('\n').unwrap_or(rest.len());
-            if let Some(line) = rest[..end].strip_prefix("///") {
+            if let Some(line) = slice_to(rest, end).strip_prefix("///") {
                 docs.push(line.trim().to_owned());
             }
-            rest = rest[end..].trim_start();
+            rest = slice_from(rest, end).trim_start();
         } else {
             break;
         }
@@ -211,10 +235,10 @@ fn leading_doc(piece: &str) -> (Option<String>, &str) {
 
 /// The doc comment right above the line starting at `line_start`.
 fn doc_before(text: &str, line_start: usize) -> Option<String> {
-    let before = text[..line_start].trim_end();
+    let before = slice_to(text, line_start).trim_end();
     if before.ends_with("*/") {
         let open = before.rfind("/**")?;
-        return Some(clean_block(&before[open..]));
+        return Some(clean_block(slice_from(before, open)));
     }
     let mut lines = Vec::new();
     for line in before.lines().rev() {
@@ -291,15 +315,15 @@ fn brace_statements(text: &str, keyword: &str) -> Vec<BraceStatement> {
         }
         let open = at + line.len() - rest.len();
         let Some(close) = closing(text, open, false) else { continue };
-        let after = text[close + 1..].trim_start();
+        let after = slice_from(text, close + 1).trim_start();
         let Some(after) = after.strip_prefix("from") else { continue };
         let after = after.trim_start();
         if !after.starts_with(['"', '\'']) {
             continue;
         }
         let Some(end) = skip_trivia(after.as_bytes(), 0) else { continue };
-        let Some(spec) = string_lit(&after[..end]) else { continue };
-        let names = split_top(&text[open + 1..close], b",", false)
+        let Some(spec) = string_lit(slice_to(after, end)) else { continue };
+        let names = split_top(slice(text, open + 1, close), b",", false)
             .into_iter()
             .filter_map(|item| {
                 let item = leading_doc(item).1.trim();
@@ -374,7 +398,7 @@ fn decl_at(text: &str, keyword: &str, name: &str) -> Option<(usize, usize)> {
 
 /// Skips a generic parameter list (`<T>`) at the start of `text[at..]`.
 fn past_generics(text: &str, at: usize) -> usize {
-    let trimmed = text[at..].trim_start();
+    let trimmed = slice_from(text, at).trim_start();
     let at = text.len() - trimmed.len();
     if trimmed.starts_with('<') { closing(text, at, true).map_or(at, |c| c + 1) } else { at }
 }
@@ -413,9 +437,9 @@ fn find_type(name: &str, file: &'static str) -> Option<(&'static str, TypeDef)> 
         let text = source(path)?;
         if let Some((_, after)) = decl_at(text, "interface", name) {
             let at = past_generics(text, after);
-            let open = at + text[at..].find('{')?;
+            let open = at + slice_from(text, at).find('{')?;
             let close = closing(text, open, false)?;
-            let head = text[at..open].trim();
+            let head = slice(text, at, open).trim();
             let extends = head
                 .strip_prefix("extends")
                 .map(|e| {
@@ -428,12 +452,12 @@ fn find_type(name: &str, file: &'static str) -> Option<(&'static str, TypeDef)> 
                 .unwrap_or_default();
             return Some((
                 path,
-                TypeDef::Interface { extends, body: text[open + 1..close].to_owned() },
+                TypeDef::Interface { extends, body: slice(text, open + 1, close).to_owned() },
             ));
         }
         if let Some((_, after)) = decl_at(text, "type", name) {
             let at = past_generics(text, after);
-            let rest = text[at..].trim_start();
+            let rest = slice_from(text, at).trim_start();
             let Some(value) = rest.strip_prefix('=') else { continue };
             let from = text.len() - value.len();
             return Some((path, TypeDef::Alias(until_semicolon(text, from).trim().to_owned())));
@@ -447,13 +471,13 @@ fn const_keys(name: &str, file: &'static str) -> Vec<String> {
     for path in lookup_order(name, file) {
         let Some(text) = source(path) else { continue };
         let Some((_, after)) = decl_at(text, "const", name) else { continue };
-        let Some(eq) = text[after..].find('=').map(|p| p + after) else { continue };
-        let Some(open) = text[eq..].find('{').map(|p| p + eq) else { continue };
-        if !text[eq + 1..open].trim().is_empty() {
+        let Some(eq) = slice_from(text, after).find('=').map(|p| p + after) else { continue };
+        let Some(open) = slice_from(text, eq).find('{').map(|p| p + eq) else { continue };
+        if !slice(text, eq + 1, open).trim().is_empty() {
             continue;
         }
         let Some(close) = closing(text, open, false) else { continue };
-        return object_entries(&text[open + 1..close]).into_iter().map(|(k, _)| k).collect();
+        return object_entries(slice(text, open + 1, close)).into_iter().map(|(k, _)| k).collect();
     }
     Vec::new()
 }
@@ -528,8 +552,9 @@ fn parse_member(piece: &str, at: &'static str) -> Option<Prop> {
     };
     let ty = if after.starts_with('(') {
         let close = closing(after, 0, false)?;
-        let ret = after[close + 1..].trim_start().strip_prefix(':').map_or("void", str::trim);
-        format!("{} => {ret}", &after[..=close])
+        let ret =
+            slice_from(after, close + 1).trim_start().strip_prefix(':').map_or("void", str::trim);
+        format!("{} => {ret}", slice(after, 0, close + 1))
     } else {
         after.strip_prefix(':')?.trim().to_owned()
     };
@@ -558,13 +583,13 @@ fn type_props(ty: &str, file: &'static str, depth: usize) -> Props {
     }
     if ty.starts_with('{') {
         if let Some(close) = closing(ty, 0, false) {
-            out.props = members(&ty[1..close], file);
+            out.props = members(slice(ty, 1, close), file);
         }
         return out;
     }
     if let Some(inner) = ty.strip_prefix("Omit<").and_then(|i| i.strip_suffix('>')) {
         let args = split_top(inner, b",", true);
-        let mut base = type_props(args[0], file, depth + 1);
+        let mut base = type_props(args.first().copied().unwrap_or(""), file, depth + 1);
         let dropped = args.get(1).map(|keys| values(keys, file, depth + 1)).unwrap_or_default();
         base.props.retain(|p| !dropped.contains(&p.name));
         out.under(base);
@@ -605,9 +630,9 @@ fn values(ty: &str, file: &'static str, depth: usize) -> Vec<String> {
             const_keys(table.trim(), file)
         } else if part.ends_with(']')
             && let Some(open) = part.find('[')
-            && let Some(key) = string_lit(&part[open + 1..part.len() - 1])
+            && let Some(key) = string_lit(slice(part, open + 1, part.len() - 1))
         {
-            let base = type_props(&part[..open], file, depth + 1);
+            let base = type_props(slice_to(part, open), file, depth + 1);
             base.props
                 .iter()
                 .find(|p| p.name == key)
@@ -637,26 +662,26 @@ fn values(ty: &str, file: &'static str, depth: usize) -> Vec<String> {
 /// name): the destructured defaults and the props type.
 fn signature(text: &str, after: usize) -> (Vec<(String, String)>, Option<String>) {
     let mut at = past_generics(text, after);
-    let rest = text[at..].trim_start();
+    let rest = slice_from(text, at).trim_start();
     at = text.len() - rest.len();
     if !rest.starts_with('(') {
         // `const Name = (` or `const Name: T = (`.
         let Some(eq) = rest.find('=') else { return (Vec::new(), None) };
-        let tail = rest[eq + 1..].trim_start();
+        let tail = slice_from(rest, eq + 1).trim_start();
         at = text.len() - tail.len();
     }
-    if !text[at..].starts_with('(') {
+    if !slice_from(text, at).starts_with('(') {
         return (Vec::new(), None);
     }
     let Some(close) = closing(text, at, false) else { return (Vec::new(), None) };
-    let params = &text[at + 1..close];
+    let params = slice(text, at + 1, close);
     let first = split_top(params, b",", true).into_iter().next().unwrap_or("").trim();
     if first.is_empty() {
         return (Vec::new(), None);
     }
     let (defaults, ty) = if first.starts_with('{') {
         let Some(end) = closing(first, 0, false) else { return (Vec::new(), None) };
-        let defaults = split_top(&first[1..end], b",", true)
+        let defaults = split_top(slice(first, 1, end), b",", true)
             .into_iter()
             .filter_map(|piece| {
                 let piece = piece.trim();
@@ -665,7 +690,7 @@ fn signature(text: &str, after: usize) -> (Vec<(String, String)>, Option<String>
                 Some((name, one_line(value)))
             })
             .collect();
-        (defaults, first[end + 1..].trim_start().strip_prefix(':').map(str::trim))
+        (defaults, slice_from(first, end + 1).trim_start().strip_prefix(':').map(str::trim))
     } else {
         (Vec::new(), first.split_once(':').map(|(_, t)| t.trim()))
     };
@@ -695,16 +720,16 @@ pub(super) fn gallery_entries() -> Vec<Entry> {
         while let Some(at) = find_from(b, from, b"componentEntry") {
             from = at + "componentEntry".len();
             let open = past_generics(text, from);
-            if !text[open..].starts_with('(') {
+            if !slice_from(text, open).starts_with('(') {
                 continue;
             }
-            let rest = text[open + 1..].trim_start();
+            let rest = slice_from(text, open + 1).trim_start();
             if !rest.starts_with('{') {
                 continue;
             }
             let brace = text.len() - rest.len();
             let Some(close) = closing(text, brace, false) else { continue };
-            let entries = object_entries(&text[brace + 1..close]);
+            let entries = object_entries(slice(text, brace + 1, close));
             let field = |key: &str| entries.iter().find(|(k, _)| k == key).map(|(_, v)| *v);
             let text_of = |key: &str| {
                 field(key).map(|v| string_lit(v).unwrap_or_else(|| one_line(v))).unwrap_or_default()
@@ -715,14 +740,14 @@ pub(super) fn gallery_entries() -> Vec<Entry> {
                     return None;
                 }
                 let end = closing(v, 0, false)?;
-                Some(object_entries(&v[1..end]).into_iter().map(|(k, _)| k).collect())
+                Some(object_entries(slice(v, 1, end)).into_iter().map(|(k, _)| k).collect())
             });
             let covers = field("covers")
                 .and_then(|v| {
                     let v = v.trim();
                     let end = closing(v, 0, false).filter(|_| v.starts_with('['))?;
                     Some(
-                        split_top(&v[1..end], b",", false)
+                        split_top(slice(v, 1, end), b",", false)
                             .into_iter()
                             .filter_map(string_lit)
                             .collect(),
