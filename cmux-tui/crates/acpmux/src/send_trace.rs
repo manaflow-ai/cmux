@@ -142,9 +142,10 @@ pub fn first_update(session: &str) {
         PENDING_COUNT.store(map.len(), Ordering::Relaxed);
         p
     };
-    let Some(p) = p else { return };
+    let Some(mut p) = p else { return };
     let end_ms = now_ms();
-    drop(p.step);
+    // Closing first_token's span: the post below still reads the rest of `p`.
+    p.step = tracing::Span::none();
     let Some(body) = body(&p, end_ms, machine_id()) else { return };
     let Ok(rt) = tokio::runtime::Handle::try_current() else { return };
     let trace_id = p.trace_id;
