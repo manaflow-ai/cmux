@@ -16,7 +16,7 @@ import {
   markSentNow,
 } from "./pendingSteerModel";
 /// A prompt's one pending look, from the moment it is on its way until acpmux took it and the agent
-/// read it: copy, Retry, Fork, Save and the X on hover, and Send now, as a steer queued behind the
+/// read it: copy, Retry, Fork and the X on hover, and Send now, as a steer queued behind the
 /// running turn has drawn them since #22834 (Leo, 2026-11-24: "why is THIS one find and good? ...
 /// this one is good. why were ther e2 of them"). Before, a prompt acpmux had not answered yet said
 /// "(clock) Sending" in its footer instead (#41513), a second look for the same waiting message.
@@ -48,8 +48,10 @@ export function PendingSteer({
   const [kept, setKept] = useState(false);
   const promptId = row.steerPromptId;
   const sent = useSyncExternalStore(subscribeSentNow, readSentNow, readSentNow);
-  // On its way or going again by itself, past its first second (PromptDelivery.tsx).
-  const onItsWay = usePendingShown(row.delivery);
+  // On its way or going again by itself, past its first second (PromptDelivery.tsx). A steer or a
+  // prompt queued behind the turn has its own terms (queued above, or gone once sent now: Leo,
+  // 2026-10-24: "after i clicked send now and it worked it should just disappear").
+  const onItsWay = usePendingShown(row.delivery, row.steer !== undefined || row.delivery?.queued === true);
   const retrying = row.failed === true && resendsItself(row.delivery);
   // Sent now from any of its controls: this row's Send now, or the composer queue's or a queued
   // card's, which turn a queued prompt into a steer under the same promptId. Read from the store by
@@ -91,13 +93,13 @@ export function PendingSteer({
   return (
     <div className="cv-user__pending">
       <MessageFooterRow>
-        {/* Copy, Retry, Fork, Save and the X show on hover, in the sent row's order; Send now stays
-            (Leo, 2026-11-03: "the copy is always showing for no reason... plus the order is wrong"). */}
+        {/* Copy, Retry, Fork and the X show on hover, in the sent row's order; Send now stays
+            (Leo, 2026-11-03: "the copy is always showing for no reason... plus the order is wrong").
+            No Save as Prompt here or in any footer (Leo, 2026-11-24: "save prompt butotn still bad"). */}
         <span className="cv-user__queued-hover">
           {row.text?.trim() && <MessageCopy text={row.text} />}
           {queued?.retry}
           {queued?.fork}
-          {queued?.save}
           {(!queuedNow || (promptId && unsteer)) && (
             <button
               type="button"

@@ -84,6 +84,12 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// `sidebar.showSearchButton`: the footer's Search button after the profile avatar
     /// (plans/cmux-next/sidebar-search.md). On by default; off hides the button only.
     public var showSearchButton = true
+    /// `sidebar.showLiveToggle`: the footer's Live button after the profile avatar (Leo 2026-11-24: "an icon
+    /// maybe toggle somewhere omnipresent... say the bottom left of the sidebar area"). On by default; off
+    /// hides the button only.
+    public var showLiveToggle = true
+    /// `presence.live`: whether this Mac is live to teammates and agents. The Live button shows and flips it.
+    public var presenceLive = false
     /// `sidebar.showNewWorkspaceChooser`: the titlebar's chevron beside the + that opens the New
     /// Workspace chooser. Off by default (Lawrence 2026-10-30: "by default i dont want to have
     /// workspace titlebar dropdowns at all, i just want to have linear list of workspaces"): the +
@@ -159,10 +165,8 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// `sidebar.groupHeader.unreadCount`: a collapsed group's header shows its members' unread
     /// total on the right. Off by default, as ``groupHeaderMemberCount``.
     public var groupHeaderUnreadCount = false
-    /// `sidebar.groupHeader.background`: a group draws as a plain folder (the default, `folder`: David Beyer
-    /// 2026-11-20, groups as plain folders with every thread in the one list), as glass, solid, or `auto` (glass where
-    /// the sidebar is see-through and solid where it is opaque), or as a plain section heading.
-    public var groupHeaderBackground: SidebarGroupBackgroundStyle = .folder
+    /// `sidebar.groupHeader.background`: Automatic draws a visible header band and a rail beside the members.
+    public var groupHeaderBackground: SidebarGroupBackgroundStyle = .auto
     /// `sidebar.groupPalette` (``GroupPalette``): where group colors come from, and whether a new group takes the
     /// palette's next color. Pure glass by default: a new group has no color until a person picks one.
     public var groupPalette: GroupPalette = .glass

@@ -58,7 +58,7 @@ struct RemoteMachinesSidebarTests {
         #expect(machines[0].online && machines[0].chats.isEmpty)
         #expect(!machines[1].online && machines[1].chats.isEmpty)
         let header = Self.rows(machines)[1].info
-        #expect(header.isMissing && header.badge == nil && header.title.contains("big-red"))
+        #expect(!header.isMissing && header.badge == nil && header.title.contains("big-red"))
     }
 
     @Test func foldedByDefaultWithTheCloudIconAndALiveCount() {

@@ -42,8 +42,8 @@ export const isTrustCause = (cause: SendCause) => cause === "trust-pending" || c
 /// out is Edit (Leo, 2026-10-31: "this is completely hardlocked bc of message size").
 export const retryHelps = (cause: SendCause) => cause !== "too-large";
 
-/// Whether a send that did not get there goes again by itself, with nothing on its row but a quiet
-/// "Sending when ready", until it does (Leo, 2026-11-24: "i dont ever want to see these, it should
+/// Whether a send that did not get there goes again by itself, its row keeping the pending look
+/// (PendingSteer.tsx) with no Not sent line, until it does (Leo, 2026-11-24: "i dont ever want to see these, it should
 /// just fix itself automtically. recovery for this stuff is wack"). Yes for every failure of the way
 /// there: no answer from acpmux in time (`timeout`), the pane's link to it (`native.*`, a closed
 /// socket), the chat's machine link (`peer_unreachable`), acpmux or the agent too busy for now. A

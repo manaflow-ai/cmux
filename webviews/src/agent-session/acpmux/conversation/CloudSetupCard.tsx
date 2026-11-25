@@ -8,6 +8,7 @@ import { useId } from "react";
 import { useT } from "../i18n";
 import { cloudSetupActions, type CloudSetupAction, type CloudSetupNeed } from "../cloudSetup";
 import { Spinner } from "./icons";
+import { CloudSetupSteps, type CloudSetupStepsLook } from "./CloudSetupSteps";
 
 const LABELS = {
   connectChatGPT: "cloudSetup.chatgpt",
@@ -19,10 +20,13 @@ const LABELS = {
 export function CloudSetupCard({
   need,
   waiting = false,
+  steps,
   onSetUp,
   onDismiss,
 }: {
   need: CloudSetupNeed;
+  /// A first send's model step: the setup strip (CloudSetupSteps) above the title.
+  steps?: CloudSetupStepsLook;
   /// A button's way in is out: the card says it waits, and the buttons rest until it ends.
   waiting?: boolean;
   onSetUp?: (action: CloudSetupAction) => void;
@@ -34,6 +38,7 @@ export function CloudSetupCard({
   const titleId = useId();
   return (
     <section className="acpmux-cloud-setup" aria-labelledby={titleId} data-waiting={waiting || undefined}>
+      {steps && <CloudSetupSteps current="model" look={steps} />}
       <strong className="acpmux-cloud-setup__title" id={titleId}>
         {t("cloudSetup.title")}
       </strong>

@@ -14,6 +14,8 @@ import { useT } from "../i18n";
 import { isTrustCause, sendCause, sendRetriesItself } from "../sendFailure";
 import { useTranscriptReadOnly } from "./readOnly";
 import { FailedSendsContext } from "./promptDeliveryModel";
+import { Close } from "./icons";
+import { ROW_ICON } from "./messageActionsModel";
 const PENDING_AFTER_MS = PROMPT_PENDING_AFTER_MS;
 
 /// A prompt that did not get there and goes again by itself: shown as on its way, never as failed.
@@ -33,14 +35,22 @@ export function usePendingShown(delivery: PromptDelivery | undefined, queued = f
     const timer = setTimeout(() => setLate(true), Math.max(0, PENDING_AFTER_MS - (Date.now() - sentAt)));
     return () => clearTimeout(timer);
   }, [sending, late, sentAt]);
-  if (resendsItself(delivery)) return true;
+  // Once it went again by itself, its next try keeps the row from its first frame: no footer
+  // flashing between tries.
+  const again = resendsItself(delivery);
+  useEffect(() => {
+    if (again && !late) setLate(true);
+  }, [again, late]);
+  if (again) return true;
   return sending && late && !queued;
 }
 
 /// Under the last prompt of a run acpmux refused for one cause that would refuse it again (too
 /// large, the folder's trust question, any other refusal): why, in one short line, and Trust folder
-/// where that fixes it. A send that goes again by itself draws nothing here. The run's other
-/// prompts draw no line of their own.
+/// where that fixes it, and the pending row's X, which takes the run back into the composer to change
+/// (acpmux's table: a failed prompt is edited in place or removed; Retry is the message menu's where
+/// it helps). A send that goes again by itself draws nothing here. The run's other prompts draw no
+/// line of their own.
 export function DeliveryFailure({ row }: { row: AcpmuxRow }) {
   const t = useT();
   const sends = useContext(FailedSendsContext);
@@ -51,6 +61,7 @@ export function DeliveryFailure({ row }: { row: AcpmuxRow }) {
   if (rowIds[rowIds.length - 1] !== row.id) return null;
   const cause = sendCause(delivery);
   const fix = isTrustCause(cause) ? sends?.trustFolder : undefined;
+  const takeBack = () => void window.cmuxAcpmuxActions?.["chat.editFailedPrompt"]?.({ rowId: row.id, rowIds });
   return (
     <div
       className="cv-user__status cv-user__status--failed"
@@ -61,13 +72,22 @@ export function DeliveryFailure({ row }: { row: AcpmuxRow }) {
       <div className="cv-user__failure-text">
         {row.error ?? t("prompt.notSent", { reason: t("transport.refused") })}
       </div>
-      {fix && (
-        <div className="cv-user__failure">
+      <div className="cv-user__failure">
+        {fix && (
           <button type="button" className="cv-user__cancel cv-user__fix" onClick={fix}>
             {t("trust.trustFolder")}
           </button>
-        </div>
-      )}
+        )}
+        <button
+          type="button"
+          className="cv-user__take-back cv-iconbtn cv-iconbtn--compact"
+          aria-label={t("composer.queueEditMessage")}
+          title={t("composer.queueEditMessage")}
+          onClick={takeBack}
+        >
+          <Close size={ROW_ICON} />
+        </button>
+      </div>
     </div>
   );
 }

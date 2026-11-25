@@ -9,6 +9,7 @@ import {
   computerUseHoldText,
   computerUseState,
   holdsForComputerUse,
+  installComputerUseStateHook,
   readComputerUseState,
   setComputerUseState,
 } from "./computerUseState";
@@ -97,7 +98,9 @@ test("the send's own key press opens the setup page when setup or a build that c
 });
 
 test("the old host's script sets the state a send reads", () => {
-  const hook = (globalThis as Window & typeof globalThis).cmuxAcpmuxComputerUseState;
+  const page: Pick<Window, "cmuxAcpmuxComputerUseState"> = {};
+  installComputerUseStateHook(page);
+  const hook = page.cmuxAcpmuxComputerUseState;
   expect(typeof hook).toBe("function");
   hook?.("needs_setup");
   expect(computerUseState()).toBe("needs_setup");

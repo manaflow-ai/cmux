@@ -1633,7 +1633,6 @@ export default agentPaneEntry({
     "agent-session/acpmux/rows/StartedSessionsRow.tsx",
     "agent-session/acpmux/rows/SubagentDoneRow.tsx",
     "agent-session/acpmux/rows/SubagentGroupRow.tsx",
-    "agent-session/acpmux/rows/SubagentOfPillRow.tsx",
     "agent-session/acpmux/rows/SubagentRow.tsx",
     "agent-session/acpmux/rows/SummaryRow.tsx",
     "agent-session/acpmux/rows/TaskLineRow.tsx",
@@ -2745,7 +2744,7 @@ export default agentPaneEntry({
     "codex-turn-command-under-messages": {
       // Reads the clock on the live line (liveTurnClock.experiment.ts `line`); the shipped `top` puts it over the work.
       experiments: { "live-turn-clock": "line" },
-      note: 'Leo, 2026-10-22: "the ran thing basiclly replcaes the thinking usually". A command still running in an earlier run while the agent writes and messages others: it is the live line at the bottom (Running cp … with its time, ⌃B to run in background at its right on hover), not a Ran cp row with the hint over a Thinking line. Play: the line names the cp, no transcript row draws the hint or runs.',
+      note: 'Leo, 2026-10-22: "the ran thing basiclly replcaes the thinking usually". A command still running in an earlier run while the agent writes and messages others: it is the live line at the bottom (cp … with its time, ⌃B to run in background at its right on hover), not a Ran cp row with the hint over a Thinking line. Leo, 2026-11-23: "running" doesn\'t need text. Play: the line names the cp, no transcript row draws the hint or runs.',
       snapshot: chat(
         [
           user("Copy the session log into recovery and tell the lanes what changed.", 3),
@@ -2769,7 +2768,7 @@ export default agentPaneEntry({
       play: async (ctx: PlayContext) => {
         const doc = ctx.document;
         await ctx.waitFor(() =>
-          (doc.querySelector(".cv-worked.is-below .cv-thinking")?.textContent ?? "").startsWith("Running cp "),
+          (doc.querySelector(".cv-worked.is-below .cv-thinking")?.textContent ?? "").startsWith("cp "),
         );
         const stray = [...doc.querySelectorAll(".cv-command__bg")].filter((node) => !node.closest(".cv-worked"));
         if (stray.length) throw new Error(`${stray.length} transcript rows draw the ⌃B hint`);
@@ -2781,7 +2780,7 @@ export default agentPaneEntry({
     "codex-turn-raw-commands": {
       // Reads the clock on the live line (liveTurnClock.experiment.ts `line`); the shipped `top` puts it over the work.
       experiments: { "live-turn-clock": "line" },
-      note: "Leo's turn-toolcalls-now.png: commands that all start with export PATH=… and send no description. Each reads as its meaningful command (acpmux ls, gh pr view 22363); the two runs and the short note between them are one folded line; the call in flight is the one live line at the bottom (Running acpmux send 13s), shimmering, no dots, under the run over it, its words in a 22px box at the top of the 32px slot it has under a reply, the footer gap (8) over it, so it holds still when a run or a reply lands (#31497, cmux#47098; transcriptGrid.ts LIVE_GAP_LOOKS); ⌃B to run in background shows on hover. Play: hover the line.",
+      note: "Leo's turn-toolcalls-now.png: commands that all start with export PATH=… and send no description. Each reads as its meaningful command (acpmux ls, gh pr view 22363); the two runs and the short note between them are one folded line; the call in flight is the one live line at the bottom (acpmux send 13s), shimmering, no dots, under the run over it, its words in a 22px box at the top of the 32px slot it has under a reply, the footer gap (8) over it, so it holds still when a run or a reply lands (#31497, cmux#47098; transcriptGrid.ts LIVE_GAP_LOOKS); Leo, 2026-11-23: \"running\" doesn't need text. ⌃B to run in background shows on hover. Play: hover the line.",
       snapshot: chat(
         [
           user("What did the lanes decide? Relay it and answer.", 2),
@@ -3613,6 +3612,39 @@ export default agentPaneEntry({
         },
       },
     },
+    "secret-card-keep": {
+      note: "Play: the person ticks Keep as key STRIPE_API_KEY before Provide, so acpmux also stores the value in Keys under that name (docs/design/safe-keys.md); the answer carries keepAs, never more.",
+      snapshot: chat([user("Create the Stripe test webhook", 1), assistant("I need your Stripe key for that.", 0.9)], {
+        isWorking: true,
+        secret: {
+          secretId: "gallery-secret",
+          name: "STRIPE_API_KEY",
+          reason: "Create the test webhook",
+        },
+      }),
+      afterCall: {
+        "chat.secret": chat(
+          [user("Create the Stripe test webhook", 1), assistant("I need your Stripe key for that.", 0.9)],
+          {
+            isWorking: true,
+          },
+        ),
+      },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-secret-card-field" });
+        await ctx.type("sk-test-51Hx9", { selector: ".acpmux-secret-card-field" });
+        await ctx.click({ selector: ".acpmux-secret-card-keep input" });
+        await ctx.click({ role: "button", name: "Provide" });
+        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-secret-card"));
+      },
+      checks: {
+        layoutShiftMax: {
+          value: 0.08,
+          reason:
+            "The card leaves the bottom stack, which lies over the transcript's foot (bottomStack.css): the stack's unpainted wrapper (div.acpmux-dock, the only source) shrinks from its top; the composer and the rows do not move.",
+        },
+      },
+    },
     "secret-card-unsent": {
       note: "Play: a secret typed in the card whose send has not gone through stays in the private field, so the person does not retype it.",
       snapshot: chat([user("Create the Stripe test webhook", 1), assistant("I need your Stripe key for that.", 0.9)], {
@@ -4134,11 +4166,11 @@ function promptPendingLooks() {
   };
   return {
     "prompt-pending": {
-      note: "Chosen: one pending look for every state of a waiting prompt, the queued row (Send now at rest; copy, Retry, Fork, Save and X on hover). Queued behind the running turn: X and Send now act. On its way past its first second: both drawn disabled, the row the same size. Going again by itself after no answer: Send now tries at once, X takes it back to the composer. No Sending status, no Not sent, no Retry, Edit, Remove or Details.",
+      note: "Chosen: one pending look for every state of a waiting prompt, the queued row (Send now at rest; copy, Retry, Fork and X on hover, no Save as Prompt). Queued behind the running turn: X and Send now act. On its way past its first second: both drawn disabled, the row the same size. Going again by itself after no answer: Send now tries at once, X takes it back to the composer. No Sending status, no Not sent, no Retry, Edit, Remove or Details.",
       snapshot: rows(),
     },
     "prompt-pending-queued": {
-      note: 'The queued state pointed: unchanged from before this change (Leo, 2026-11-24: "this one is good").',
+      note: 'The queued state pointed: copy, X and Send now, as before but without Save as Prompt (Leo, 2026-11-24: "this one is good", then "save prompt butotn still bad").',
       snapshot: rows(),
       play: pointAt("queued"),
     },
