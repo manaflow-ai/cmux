@@ -3664,10 +3664,9 @@ async fn dispatch_request_with_identity(
         method::MUX_ATTACH => {
             let s = hub.resolve(session_key(&params)?)?;
             let hidden = params.get("visible") == Some(&Value::Bool(false));
-            let opens = attach_shows(conn, &params) && view::attach_opens(conn, &s.id, hidden);
             if params.get("hold") == Some(&Value::Bool(true)) {
                 let filter = hold_attach_filter(&params)?;
-                if opens {
+                if attach_shows(conn, &params) {
                     hub.wake_for(&s, super::trust_gate::for_web(conn.origin, &params), "click");
                     if person_asks(conn) {
                         hub.release_session_hold_for_person(&s);
@@ -3722,7 +3721,7 @@ async fn dispatch_request_with_identity(
             let event_stream = params.get("eventStream").and_then(Value::as_bool).unwrap_or(false);
             // Opening a hibernated chat on screen wakes its agent, unless an earlier daemon
             // hibernated it (`hub/idle.rs` `wake_for`); a CLI's read does not (`attach_shows`).
-            if opens {
+            if attach_shows(conn, &params) {
                 hub.wake_for(&s, super::trust_gate::for_web(conn.origin, &params), "click");
                 // The person opening a held chat in the app lets it run (`hub/session_hold.rs`).
                 if person_asks(conn) {
@@ -3828,17 +3827,14 @@ async fn dispatch_request_with_identity(
             Ok(json!({}))
         }
         method::MUX_VIEW => {
-            let opens = params.get("visible").and_then(Value::as_bool) == Some(true)
-                && crate::author::author(&params).ok().flatten().is_none()
-                && hub
-                    .resolve(session_key(&params)?)
-                    .ok()
-                    .is_some_and(|session| view::view_opens(conn, &session.id, true));
             let done = view::view(hub, conn, &params)?;
             // Showing a hibernated chat wakes its agent, unless an earlier daemon hibernated it
             // (`hub/idle.rs` `wake_for`).
             // The person's own view only: an authored one is a collaborator's presence.
-            if opens && let Ok(session) = hub.resolve(session_key(&params)?) {
+            if params.get("visible").and_then(Value::as_bool) == Some(true)
+                && crate::author::author(&params).ok().flatten().is_none()
+                && let Ok(session) = hub.resolve(session_key(&params)?)
+            {
                 hub.wake_for(&session, super::trust_gate::for_web(conn.origin, &params), "click");
                 if person_asks(conn) {
                     hub.release_session_hold_for_person(&session);
