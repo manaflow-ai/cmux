@@ -2,7 +2,7 @@
 /// composer never moves to a Cloud machine's pane: this Mac's tab sends, shows the start's card, then shows the chat in place
 /// (``CloudFrontedChats``, cmux#47677). Its pane's daemon is this Mac's, so the machine badge that marks a chat in a Cloud
 /// machine's pane (`TabItem.setMachineBadge`) never drew; this marks it from the Send: starting, failed, and running.
-/// Only the tab: the sidebar row keeps its own rules (Austin 2026-11-22: "we shouldnt show the cloud workspace in the left sidebar").
+/// Only the tab wears it: its workspace's sidebar row never draws a cloud (cmux#55668).
 public nonisolated struct CloudChatTabMark: Equatable, Sendable {
     /// The Cloud machine the chat runs on, once it shows in place (its color pick colors the cloud); nil while it starts or after a failure.
     public var machine: String?
