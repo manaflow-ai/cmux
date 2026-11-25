@@ -122,6 +122,12 @@ extension AgentPaneCloudMachines {
         return plan
     }
 
+    /// The kept `active` plan of `account`, with no read: nil when none is kept (not read yet, `none`, `unknown`, forgotten).
+    public func kept(account: [String?]?) -> AgentPaneCloudMachines.Plan? {
+        guard let account, let kept, kept.account == account else { return nil }
+        return kept.plan
+    }
+
     /// Drops the kept read: the next ``read(account:age:now:_:)`` asks the server (a Subscribe, which may change the
     /// plan, or a page that needs the plan as it is now: `cloudMachine.list {fresh: true}`).
     public func forget() {

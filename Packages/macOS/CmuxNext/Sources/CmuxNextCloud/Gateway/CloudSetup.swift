@@ -97,6 +97,17 @@ public final class CloudSetup {
             if case .connection(let id, _) = self { return id }
             return nil
         }
+
+        /// Whether the chat's model calls go somewhere other than this Mac's own gateway (``PersonalGateway``): the
+        /// agent launch carries this Mac's connection credential, or the platform edge serves the organization's key.
+        /// A start then has no gateway to wait for before its first turn. The production probe's starts on such a
+        /// route waited out the gateway's whole 10 s deadline in about one in five runs (2026-11-21).
+        public var servedWithoutMacGateway: Bool {
+            switch self {
+            case .connection, .organization: true
+            case .gateway, .setup, .fallback: false
+            }
+        }
     }
 
     /// The families a Cloud chat runs (the picker's agent, as the gateway names them).
@@ -148,7 +159,7 @@ public final class CloudSetup {
     /// carries it (``Refusal/gateway``), so a refused start says which team's gateway it read and why it counted none (hq#19758).
     public var gatewayRead: GatewayRead?
 
-    /// One `cmux inference gateway status --team` read (``CloudMoveCLI/inferenceGatewayStatus(team:token:apiOrigin:)``).
+    /// One `cmux inference gateway status --team` read (``CloudMoveCLI/inferenceGatewayStatus(team:held:)``).
     public struct GatewayRead: Equatable, Sendable {
         /// The CLI ran past its bound (the read's 10 s).
         public static let timedOut = "timed_out"
@@ -165,27 +176,29 @@ public final class CloudSetup {
         }
 
         /// The gate's reads, each team once: the install team with the install token the app holds, so the CLI mints none
-        /// (hq#19758), then the person's own team through the CLI's own mint (#51322). `install` is the read a refusal carries
-        /// (``noInstallToken`` with no token); each unread answer logs why.
-        public static func serves(cli: CloudMoveCLI, install: (team: String, token: String)?, personal: String?, apiOrigin: URL) async -> (serves: Set<String>?, install: GatewayRead) {
+        /// (hq#19758), then the person's own team through the CLI's own mint (#51322), a read the caller started beside the
+        /// token's bind wait (cmux#55519) and this cancels when it names the install team. `install` is the read a refusal
+        /// carries (``noInstallToken`` with no token); each unread answer logs why.
+        public static func serves(cli: CloudMoveCLI, install: (team: String, token: String)?, personal: (team: String, read: Task<GatewayRead, Never>)?, apiOrigin: URL) async -> (serves: Set<String>?, install: GatewayRead) {
             let log = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud") // the app's cloud log, where the gate's other lines go
-            var installRead = GatewayRead(team: nil, errorCode: noInstallToken), asked: Set<String> = [], serves: Set<String>?
-            for team in [install?.team, personal].compactMap({ $0 }) where asked.insert(team).inserted {
-                let read: (serves: Set<String>?, why: String?)
-                if let install, team == install.team {
-                    installRead = await cli.inferenceGatewayStatus(team: team, token: install.token, apiOrigin: apiOrigin)
-                    read = (installRead.serves, installRead.errorCode)
-                } else {
-                    read = await cli.inferenceGatewayRead(team: team)
-                }
+            var installRead = GatewayRead(team: nil, errorCode: noInstallToken), reads: [(String, GatewayRead)] = []
+            if let install {
+                installRead = await cli.inferenceGatewayStatus(team: install.team, held: (install.token, apiOrigin))
+                reads.append((install.team, installRead))
+            }
+            if let personal {
+                if personal.team == install?.team { personal.read.cancel() } else { reads.append((personal.team, await personal.read.value)) }
+            }
+            var serves: Set<String>?
+            for (team, read) in reads {
                 if let answer = read.serves {
                     log.info("cloud start gate: team \(team, privacy: .public) gateway serves [\(answer.sorted().joined(separator: ","), privacy: .public)]")
                     serves = (serves ?? []).union(answer)
                 } else {
-                    log.error("cloud start gate: team \(team, privacy: .public) gateway unread: \(read.why ?? "-", privacy: .public)")
+                    log.error("cloud start gate: team \(team, privacy: .public) gateway unread: \(read.errorCode ?? "-", privacy: .public)")
                 }
             }
-            if asked.isEmpty { log.error("cloud start gate: gateway unread: no team to ask") }
+            if reads.isEmpty { log.error("cloud start gate: gateway unread: no team to ask") }
             return (serves, installRead)
         }
     }
