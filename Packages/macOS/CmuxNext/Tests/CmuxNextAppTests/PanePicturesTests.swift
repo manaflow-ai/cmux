@@ -53,7 +53,7 @@ import Testing
             let schedule = FakeSchedule(gap: kind == .terminal ? 200 : 500)
             schedules.append(schedule)
             return schedule
-        }, now: { [unowned self] in clock }, sleep: { [unowned self] ms in slept.append(ms); clock += ms })
+        }, now: { [unowned self] in clock }, wait: { [unowned self] ms in slept.append(ms); clock += ms })
 
         func ask(_ tab: String = "t", kind: PanePictures.Kind = .terminal, stamp: UInt64?, size: CGFloat = 320) async -> CGImage? {
             await pictures.picture(tab, kind: kind, stamp: stamp, maxPixelSize: CGSize(width: size, height: size / 2)) {

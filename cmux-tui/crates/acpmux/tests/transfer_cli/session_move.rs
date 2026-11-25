@@ -2,9 +2,19 @@
 use super::*;
 use std::os::unix::fs::PermissionsExt;
 
-/// Stand in only for the SSH operations the CLI and a daemon's own peer link need. No host SSH, credentials or
-/// network are used; the socket symlink reaches the other test daemon's real RPC server.
-pub(super) fn fake_ssh(home: &Path, target_home: &Path, target_socket: &Path) -> String {
+/// Stand in only for the SSH operations the CLI needs. No host SSH, credentials or network are
+/// used; the socket symlink reaches the other test daemon's real RPC server.
+///
+/// With `link` (the target's WebSocket port, a one-way delay in milliseconds) it also carries the
+/// daemon's own peer link: `ssh -W` is a TCP connection to that port, each chunk held for the
+/// delay in both directions as a link of that latency holds it, and the remote config read
+/// answers with the target's `config.json` and peer token.
+pub(super) fn fake_ssh(
+    home: &Path,
+    target_home: &Path,
+    target_socket: &Path,
+    link: Option<(u16, u64)>,
+) -> String {
     let bin = home.join("bin");
     std::fs::create_dir(&bin).unwrap();
     let script = format!(
@@ -12,7 +22,47 @@ pub(super) fn fake_ssh(home: &Path, target_home: &Path, target_socket: &Path) ->
 import json, os, pathlib, signal, sys
 home = {home}
 socket = {socket}
+link = {link}
 args = sys.argv[1:]
+if '-W' in args and link:
+    import queue, socket as net, threading, time
+    port, delay = link[0], link[1] / 1000
+    peer = net.create_connection(('127.0.0.1', port))
+    peer.setsockopt(net.IPPROTO_TCP, net.TCP_NODELAY, 1)
+    def write_out(data):
+        while data:
+            data = data[os.write(1, data):]
+    def pump(read, write, close):
+        held = queue.Queue()
+        def deliver():
+            while True:
+                item = held.get()
+                if item is None:
+                    close()
+                    return
+                wait = item[0] - time.monotonic()
+                if wait > 0:
+                    time.sleep(wait)
+                write(item[1])
+        out = threading.Thread(target=deliver, daemon=True)
+        out.start()
+        while True:
+            try:
+                data = read()
+            except OSError:
+                data = b''
+            if not data:
+                held.put(None)
+                out.join()
+                return
+            held.put((time.monotonic() + delay, data))
+    up = threading.Thread(
+        target=pump,
+        args=(lambda: os.read(0, 65536), peer.sendall, lambda: peer.shutdown(net.SHUT_WR)),
+        daemon=True)
+    up.start()
+    pump(lambda: peer.recv(65536), write_out, lambda: None)
+    os._exit(0)
 if '-L' in args:
     local, remote = args[args.index('-L') + 1].split(':', 1)
     assert remote == socket
@@ -68,7 +118,13 @@ if '-W' in args:
     pump(lambda: link.recv(65536), write_out, lambda: None)
     sys.exit(0)
 command = args[-1]
-if 'acpmux daemon status --json' in command:
+if link and 'cat ~/.acpmux/config.json' in command:
+    sys.stdout.buffer.write(pathlib.Path(home, 'config.json').read_bytes() + b'\0')
+    token = pathlib.Path(home, 'run', 'peer.token')
+    if token.exists():
+        sys.stdout.buffer.write(token.read_bytes())
+    sys.stdout.buffer.flush()
+elif 'acpmux daemon status --json' in command:
     print(home)
     print(json.dumps({{'socket': socket}}))
     print(500000000)
@@ -92,6 +148,7 @@ else:
 "#,
         home = serde_json::to_string(&target_home.to_string_lossy()).unwrap(),
         socket = serde_json::to_string(&target_socket.to_string_lossy()).unwrap(),
+        link = link.map_or("None".to_owned(), |(port, delay)| format!("({port}, {delay})")),
     );
     let ssh = bin.join("ssh");
     std::fs::write(&ssh, script).unwrap();
