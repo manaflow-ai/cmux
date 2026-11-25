@@ -129,6 +129,12 @@ public final class AcpmuxHub {
     /// The protocol surfaces the Mac's acpmux serves (`initialize` `_meta.acpmux.capabilities`,
     /// acpmux `capabilities.rs`); empty until this connection initializes.
     @ObservationIgnored private(set) var capabilities: Set<String> = []
+    /// This connection's compact chunks and row patches, read back into whole records and rows
+    /// (``AcpmuxDeltas``); a new one per connection, as the Mac keeps its side per connection.
+    @ObservationIgnored var deltas = AcpmuxDeltas()
+    /// The connection a row gap already recovered (``rowGap(_:)``): the gaps after the first on
+    /// it wait for that recovery, never start another.
+    @ObservationIgnored private weak var rowGapRecovered: AcpmuxConnection?
     /// Catch-up attaches answered from the write beside `initialize` (``pipelineAttaches``).
     @ObservationIgnored var pipelinedAttachesRead = 0
 
@@ -199,6 +205,7 @@ public final class AcpmuxHub {
         purgedSinceWatch = []
         droppedSinceWatch = false
         listWhole = false
+        deltas = AcpmuxDeltas()
         if let old = connection { Task { await old.close() } }
         connection = nil
         isReady = false
@@ -236,10 +243,11 @@ public final class AcpmuxHub {
                 "protocolVersion": .number(1),
                 "clientInfo": .object(["name": .string("cmux-ios"), "version": .string("1")]),
                 "clientCapabilities": .object([:]),
-                // The phone draws no time breakdown: none in any attach or chat row on this
-                // connection (acpmux `server/requests/time_breakdown_gate.rs`); an older Mac
-                // ignores the key.
-                "_meta": .object(["acpmux": .object(["omitTimeBreakdown": .bool(true)])]),
+                // Streamed text and row changes in their compact forms (`AcpmuxDeltas`), and no time
+                // breakdown: the phone draws none in any attach or chat row on this connection (acpmux
+                // `server/requests/time_breakdown_gate.rs`). A Mac that predates a key ignores it and
+                // sends that part whole, as before.
+                "_meta": .object(["acpmux": .object(AcpmuxDeltas.initializeMeta.merging(["omitTimeBreakdown": .bool(true)]) { $1 })]),
             ]), timeout: requestTimeout)
             let pageID = try await connection.submit("_acpmux/watch", Self.firstPageParams, timeout: requestTimeout)
             // Each open chat's catch-up attach goes in the same burst (acpmux answers in order,
@@ -603,24 +611,30 @@ public final class AcpmuxHub {
                 for entry in sources[sessionID] ?? [] { entry.source?.receive(promptResend: params) }
             }
         case "_acpmux/event":
+            let params = deltas.event(params)
             if let sessionID {
                 for entry in sources[sessionID] ?? [] { entry.source?.receive(record: params) }
             }
+        case "_acpmux/chunk":
+            switch deltas.chunk(params) {
+            case let .event(sessionID, params):
+                for entry in sources[sessionID] ?? [] { entry.source?.receive(record: params) }
+            case .unknownRef:
+                // Its full event never came here (dropped, or from before this connection), and a
+                // compact chunk does not say whose it is: every open chat reads on from its last
+                // record, as for a lag. Attaching again has the Mac send the next chunk whole.
+                ConnectivityTelemetry.shared.record(.hub, "chunk_unknown_ref", outcome: .failure)
+                for source in liveSources { source.refill() }
+            }
+        case "_acpmux/session_patch":
+            switch deltas.patch(params) {
+            case let .changed(changed):
+                sessionChanged(changed)
+            case let .gap(sessionID):
+                rowGap(sessionID)
+            }
         case "_acpmux/session_changed":
-            guard let value = params["session"], let session = AcpmuxSession(value) else { return }
-            let kind = params["recordKind"]?.stringValue ?? params["kind"]?.stringValue ?? ""
-            let changed = kind == "purged" || sessions[session.id] != session
-            sessions[session.id] = session
-            toldSinceWatch.insert(session.id)
-            let seq = Int(params["seq"]?.numberValue ?? 0)
-            if changed {
-                onWatchEvent?(.sessionChanged(session, recordKind: kind, seq: seq))
-            }
-            if params["kind"]?.stringValue == "permission_resolved" { onWatchEvent?(.permissionResolved(sessionID: session.id)) }
-            if params["kind"]?.stringValue == "purged" {
-                sessions[session.id] = nil
-                purgedSinceWatch.insert(session.id)
-            }
+            sessionChanged(deltas.changed(params))
         case "_acpmux/permission_pending":
             guard let sessionID, let permissionID = params["permissionId"]?.stringValue, let request = params["request"] else { return }
             onWatchEvent?(.permissionPending(sessionID: sessionID, permissionID: permissionID, request: request))
@@ -644,6 +658,39 @@ public final class AcpmuxHub {
             }
         default:
             break
+        }
+    }
+
+    /// A chat's row, whole (`session_changed`, or a patch applied to the row held).
+    private func sessionChanged(_ params: JSONValue) {
+        guard let value = params["session"], let session = AcpmuxSession(value) else { return }
+        let kind = params["recordKind"]?.stringValue ?? params["kind"]?.stringValue ?? ""
+        let changed = kind == "purged" || sessions[session.id] != session
+        sessions[session.id] = session
+        toldSinceWatch.insert(session.id)
+        let seq = Int(params["seq"]?.numberValue ?? 0)
+        if changed {
+            onWatchEvent?(.sessionChanged(session, recordKind: kind, seq: seq))
+        }
+        if params["kind"]?.stringValue == "permission_resolved" { onWatchEvent?(.permissionResolved(sessionID: session.id)) }
+        if params["kind"]?.stringValue == "purged" {
+            sessions[session.id] = nil
+            purgedSinceWatch.insert(session.id)
+        }
+    }
+
+    /// A patch whose base is not the row held: the Mac and this phone no longer agree on what
+    /// the phone holds, and only a new connection resets the Mac's side (its rows go whole
+    /// again). The channel is recovered once, as for a stalled read (one recovery for every gap
+    /// that came on it); until then the row shown stays the last one applied. A hub with nothing
+    /// to recover its channel (``onStall`` nil: Cloud chats, tests) keeps that row until the
+    /// chat's next whole row (an attach, a detach).
+    private func rowGap(_ sessionID: String) {
+        ConnectivityTelemetry.shared.record(.hub, "row_patch_gap", outcome: .failure)
+        guard let connection, onStall != nil, rowGapRecovered !== connection else { return }
+        rowGapRecovered = connection
+        Task { [weak self] in
+            await self?.recover(from: connection, why: "row_gap", method: "_acpmux/session_patch")
         }
     }
 }

@@ -143,13 +143,22 @@ extension LiveCoordinator {
     }
 
     private func observe(_ session: MacSession) {
-        withObservationTracking {
-            _ = session.link.phase
-            _ = session.link.media
+        let (seen, seenMedia) = withObservationTracking {
+            (session.link.phase, session.link.media)
         } onChange: { [weak self, weak session] in
             Task { @MainActor [weak self, weak session] in
                 guard let self, let session, self.sessions[session.macID] === session else { return }
-                self.phaseChanged(session)
+                // A pong: only the round trip changed (every 2.5 to 10 s on a link that is up,
+                // a new number each time over LTE). Only the diagnostics line shows it; the
+                // Mac's state, status, banner and saved list are what they were. Running the
+                // whole update wrote the store's connection state each time, which re-ran the
+                // workspace list, the open workspace's tabs and the saved-list rebuild on the
+                // main thread while the person typed: the "lag spikes in intervals" over LTE.
+                if session.link.media == seenMedia, session.link.phase.differsOnlyInRoundTrip(from: seen) {
+                    self.updateDiagnostics(session)
+                } else {
+                    self.phaseChanged(session)
+                }
                 self.observe(session)
             }
         }
@@ -1102,7 +1111,8 @@ extension LiveCoordinator {
                 store.macConnection[macID] = .connecting
             }
         case .connected:
-            store.macConnection[macID] = .connected
+            // Written only when it changes: each write re-runs everything that reads it.
+            if store.macConnection[macID] != .connected { store.macConnection[macID] = .connected }
             // The Mac answered: a dial failure from before no longer stands (a daemon that
             // did not answer is cleared once its workspaces come).
             if let failure = store.macFailure[macID], failure != .serviceDown { store.macFailure[macID] = nil }
