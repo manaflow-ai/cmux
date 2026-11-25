@@ -4416,13 +4416,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// never holds the composer.
   const [checkedOutGitHub, setCheckedOutGitHub] = useState<{ cwd: string; name: string }>();
   const [cloudSourceWaiting, setCloudSourceWaiting] = useState(false);
+  // A folder the person picked here (and the host granted, `pickedProject`) goes to Cloud as itself, copied
+  // to the machine, when it is no clone of a GitHub repository (cmux#53226). Never an inherited folder: a tab's
+  // start folder once went as a 23 GB copy (#53186), so one nobody picked still starts with none.
   const cloudSourcePick = (cwd: string | undefined) =>
     cloudRepositoryPick(
       cwd,
       checkedOutGitHub?.cwd === cwd
         ? checkedOutGitHub?.name
         : directProjects.find((item) => item.cwd === cwd)?.repo?.github,
-    );
+    ) ?? (cwd !== undefined && cwd === pickedProject.current ? cwd : undefined);
   const [cloudFolderGrant] = useState(() => cloudFolderGrants());
   const pickComposerMode = (mode: RunMode) => {
     if (mode !== sandboxModeRows.mode) {
