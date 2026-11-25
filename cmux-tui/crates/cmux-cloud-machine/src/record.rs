@@ -410,6 +410,8 @@ impl Machine {
             running_since: None,
             evict_at: None,
             disk: None,
+            disk_chats: Vec::new(),
+            disk_evicted: None,
             size_pick: None,
             last_change_failure: None,
             pending_change: None,

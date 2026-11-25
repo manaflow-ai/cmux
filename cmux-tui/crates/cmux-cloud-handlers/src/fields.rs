@@ -479,7 +479,10 @@ pub const DISK_CHATS_SHOWN: usize = 3;
 
 /// The chats filling the disk ("disk chats: c-1 4.2, c-2 1.1 GB, 12 more") and the guest's last
 /// eviction ("disk cleared: 3.1 GB of caches and idle build output at 1700000000000").
-pub fn disk_chat_lines(chats: &[disk::ChatDisk], evicted: Option<&disk::DiskEviction>) -> Vec<String> {
+pub fn disk_chat_lines(
+    chats: &[disk::ChatDisk],
+    evicted: Option<&disk::DiskEviction>,
+) -> Vec<String> {
     let mut lines = Vec::new();
     if !chats.is_empty() {
         let named: Vec<String> = chats

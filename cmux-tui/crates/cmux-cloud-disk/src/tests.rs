@@ -107,14 +107,15 @@ fn a_disk_health_names_its_chats_and_last_eviction() {
     let chats = chats_from_health(&value);
     assert_eq!(
         chats,
-        [
-            ChatDisk { id: "c-big".into(), bytes: 900 },
-            ChatDisk { id: "c-small".into(), bytes: 5 }
-        ]
+        [ChatDisk { id: "c-big".into(), bytes: 900 }, ChatDisk { id: "c-small".into(), bytes: 5 }]
     );
     assert_eq!(
         eviction_from_health(&value),
-        Some(DiskEviction { at: 7, freed_bytes: 4096, paths: vec!["/home/u/.npm/_cacache".into()] })
+        Some(DiskEviction {
+            at: 7,
+            freed_bytes: 4096,
+            paths: vec!["/home/u/.npm/_cacache".into()]
+        })
     );
     let old = serde_json::json!({"total_mb": 20480});
     assert!(chats_from_health(&old).is_empty());
@@ -128,7 +129,8 @@ fn just_grown_the_guest_total_wins_over_the_record() {
     assert_eq!(view.label, "20.5 / 24 GB");
     assert_eq!(view.text, "20.5 of 24 GB, 3.5 free");
     assert_eq!(view.total_gb, 24.0);
-    assert_eq!(view.state, DiskState::Ok);
+    // 3.5 GB free is still under the 4 GiB budget: the next grow is on its way.
+    assert_eq!(view.state, DiskState::AlmostFull);
 }
 
 #[test]

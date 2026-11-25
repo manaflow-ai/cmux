@@ -44,6 +44,7 @@ pub struct ChatDisk {
 pub struct DiskEviction {
     /// When, milliseconds since the epoch.
     pub at: u64,
+    #[serde(alias = "freedBytes")]
     pub freed_bytes: u64,
     pub paths: Vec<String>,
 }

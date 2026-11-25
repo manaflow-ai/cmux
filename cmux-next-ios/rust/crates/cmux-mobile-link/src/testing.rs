@@ -26,6 +26,7 @@ use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 
 mod hub;
+mod relay_cache;
 mod shaped;
 pub use hub::{FakeHub, FakeHubMode, FakeHubStats};
 pub use shaped::{
@@ -55,6 +56,10 @@ pub struct FakeOptions {
     /// A relay join's upgrade is answered this much later (a slow network or
     /// a far Worker), so a join can race a path that starts working.
     pub relay_join_delay: std::time::Duration,
+    /// Answer `/v1/relay-cache/...` (the Worker's `LINK_RELAY_CACHE=on`, RFD 0142 R2 and R9;
+    /// `testing/relay_cache.rs`). Off: every cache route answers `503 relay_cache_off`, as the
+    /// Worker does by default.
+    pub relay_cache: bool,
 }
 
 /// How often the backend answers an older peer's relay frames for one
@@ -86,6 +91,7 @@ struct State {
     /// Each device's relay joins, in order: device → when.
     relay_joined: Vec<(String, std::time::Instant)>,
     relay_frames: u64,
+    relay_cache: relay_cache::FakeRelayCache,
 }
 
 pub struct FakeSignaling {
@@ -119,6 +125,13 @@ impl FakeSignaling {
             }
         });
         Self { base_url, state, task }
+    }
+
+    /// How many `route` requests (`snapshot GET`, `snapshot PUT`, `delta POST`, `catch-up`,
+    /// `ack`) the relay cache answered.
+    pub fn relay_cache_hits(&self, route: &str) -> u64 {
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.relay_cache.hits.get(route).copied().unwrap_or(0)
     }
 
     /// When the server forwarded the first `kind` signal (`wg-init`,
@@ -590,6 +603,41 @@ async fn answer_http(
             .map(str::to_owned)
     });
     let authorized = user.is_some();
+    if let Some(target) = line.split_whitespace().nth(1).filter(|t| t.starts_with("/v1/relay-cache/")) {
+        let method = line.split_whitespace().next().unwrap_or_default();
+        let answer = if authorized {
+            let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
+            state.relay_cache.answer(method, target, &request[head.len()..], options.relay_cache)
+        } else {
+            relay_cache::Answer {
+                status: "401 Unauthorized",
+                content_type: "application/json",
+                body: br#"{"error":"unauthorized"}"#.to_vec(),
+                headers: Vec::new(),
+            }
+        };
+        let mut response = format!(
+            "HTTP/1.1 {}\r\ncontent-type: {}\r\ncontent-length: {}\r\nconnection: close\r\n",
+            answer.status,
+            answer.content_type,
+            answer.body.len()
+        );
+        for (name, value) in &answer.headers {
+            response.push_str(&format!("{name}: {value}\r\n"));
+        }
+        response.push_str("\r\n");
+        let mut bytes = response.into_bytes();
+        bytes.extend_from_slice(&answer.body);
+        let _ = stream.write_all(&bytes).await;
+        // Hold the socket until the client closes it (a real server's FIN comes after its reply
+        // is acked); a proxy in front (cmux-fault's shaper) ends a pair when either side ends.
+        let mut sink = [0u8; 512];
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            while matches!(stream.read(&mut sink).await, Ok(n) if n > 0) {}
+        })
+        .await;
+        return;
+    }
     let (status, reply) = if line.starts_with("GET /v1/health") {
         ("200 OK", json!({"ok": true, "version": "fake"}))
     } else if !authorized {
