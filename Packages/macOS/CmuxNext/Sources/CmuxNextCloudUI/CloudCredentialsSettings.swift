@@ -23,6 +23,17 @@ public final class CloudCredentialsSettings: PageProvider {
         self.read = read
     }
 
+    /// The live part: the selected team's issuer read with the person's own session on `auth`, so the App
+    /// only registers it (SW14 keeps CmuxNextApp from growing).
+    public convenience init(auth: CloudAuth) {
+        self.init(signedIn: { [weak auth] in auth?.isSignedIn ?? false }, read: { [weak auth] in
+            guard let auth else { throw PageError.closed }
+            let team = try auth.accessTokenTeam(requested: nil)
+            return try await CloudOwnerAPIClient(baseURL: auth.configuration.ownerAPIBaseURL(), accessToken: { try await auth.tokens().access },
+                                                 teamID: { team }, buildSpace: auth.configuration.buildSpace).cloudCredentialsInfo()
+        })
+    }
+
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         guard op == Self.op else { throw PageError.unknownOp(op) }
         guard signedIn() else { return ["available": false] }
