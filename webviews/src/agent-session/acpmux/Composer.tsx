@@ -1,4 +1,5 @@
 import { acpmuxPerf } from "./perf";
+import { withoutHandedBack } from "./handedBack";
 import { sentWords } from "./computerUse/computerUseState";
 import { runResumed, submitResumed } from "./composer/resumedSend";
 import { holdFlag, resumeOrFail, setRef } from "./heldFlag";
@@ -254,6 +255,9 @@ export type ComposerHandle = {
   /// Puts a held-back prompt in: `text` before what is typed now, `attachments` before the rest
   /// (`behind`: after them, for prompts sent after one already given back).
   restore(text: string, attachments: ComposerAttachment[], behind?: boolean): void;
+  /// Takes a handed-back prompt out again, because acpmux took it after all (handedBack.ts): its
+  /// words where they still stand in the prompt, its chips by id. Nothing the person changed goes.
+  withdraw(text: string, attachments: ComposerAttachment[]): void;
   /// Snapshot the unsent text without attachment markers or taking it out of this chat.
   draftText(): string;
   /// Prevent ordinary session-switch attachment handoff for text-only recovery.
@@ -1441,6 +1445,21 @@ function ComposerFrame({
       },
       restore: (restoredText, restoredAttachments, behind) =>
         restoreNow.current(restoredText, restoredAttachments, behind),
+      withdraw(landedText, landedAttachments) {
+        const now = field.current?.value() ?? promptRef.current.text;
+        const next = withoutHandedBack(now, landedText);
+        if (next !== now) {
+          notTyped();
+          if (!field.current?.type(next)) writeText(next, next.length);
+        }
+        const ids = landedAttachments
+          .map((chip) => chip.id)
+          .filter((id) => attachmentsRef.current.some((chip) => chip.id === id));
+        if (!ids.length) return;
+        attachmentsRef.current = attachmentsRef.current.filter((chip) => !ids.includes(chip.id));
+        setAttachments((current) => current.filter((chip) => !ids.includes(chip.id)));
+        for (const id of ids) field.current?.removeInline(id);
+      },
       attach(attachment) {
         // A Cloud start is out: no chip comes in from any caller (a highlight, a selection, a
         // recording, a link pick, the focused tab), and the note says why (`refusal`).

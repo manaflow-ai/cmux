@@ -182,6 +182,7 @@ import {
 } from "./folderContinuation";
 import type { BrowseRequest } from "./browseProject";
 import { cloudRepositoryPick } from "./sourcePickerModel";
+import { onHandedBackRecorded } from "./handedBack";
 import { handBackQuotes, quoteIntoComposer, replayHeldForComposer, restoreComposerDraft } from "./composerRestore";
 import {
   linkAttachment,
@@ -3878,6 +3879,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   ]);
   // Declared before the turn actions, which read them (pane/useTurnActions.ts `turnActionsFrom`).
   const composerHandle = useRef<ComposerHandle | null>(null);
+  // A prompt that timed out and came back to the composer, which acpmux took after all, leaves it again.
+  useEffect(() => onHandedBackRecorded((back) => composerHandle.current?.withdraw(back.text, back.attachments)), []);
   /// The newest snapshot, for host requests that read it (pane.context).
   const snapshotRef = useRef<AcpmuxSnapshot | undefined>(initialChat?.snapshot);
   const turnActions = useMemo<TurnActions>(
