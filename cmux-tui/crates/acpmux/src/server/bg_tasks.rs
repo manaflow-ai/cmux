@@ -9,11 +9,12 @@
 //! chat's own agent (a connection that proved it runs in that chat, `hub/person.rs` (a): the
 //! `acpmux` MCP server) and the person reach a chat's tasks.
 
-use super::{Conn, str_param};
+use super::{Conn, HubEvent, str_param};
 use crate::hub::{BgScope, Hub};
-use crate::rpc::{RpcError, method};
+use crate::rpc::{Message, RpcError, method};
 use serde_json::{Value, json};
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 /// The reply to a background-task method, or None for any other method.
 pub(super) async fn dispatch(
@@ -105,4 +106,22 @@ fn caller_subagent(params: &Value) -> Option<Value> {
         sub.get(key).and_then(Value::as_str).filter(|w| crate::cli::sender::subagent_word(w))
     };
     Some(json!({"id": word("id")?, "type": word("type")?}))
+}
+
+/// A logged `bg_update` as `_acpmux/bg_update {task}` (`Hub::bg_announce`), to a connection
+/// attached to its chat or watching every chat, never to a remote WebSocket device or a peer:
+/// like the methods, a task's command line stays on this machine.
+pub(super) fn push_update(conn: &Conn, ev: &HubEvent) {
+    let rec = &ev.record;
+    if rec.dir != "mux" || rec.kind != "bg_update" || ev.remote.is_some() {
+        return;
+    }
+    if conn.origin.web_class() {
+        return;
+    }
+    if !conn.watch_all.load(Ordering::SeqCst) && conn.sub_opts(&ev.session_id).is_none() {
+        return;
+    }
+    let task = rec.msg.get("task").cloned().unwrap_or(Value::Null);
+    conn.send(&Message::notification(method::MUX_BG_UPDATE, json!({"task": task})));
 }

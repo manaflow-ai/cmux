@@ -248,6 +248,7 @@ import {
 } from "./conversation/promptCoach";
 import { promptCoachDismissed, rememberPromptCoachDismissed } from "./conversation/promptCoachDismissed";
 import { promptCoachEnabled } from "./chatDisplay";
+import { bgTaskOf, bgTaskProcess, bgTaskProcesses } from "./session-info/bgTasks";
 import { PromptHeads, type PromptHead } from "./promptHeads";
 import { PLACE_CHAT_METHOD } from "./autoWhereModel";
 import {
@@ -2030,6 +2031,8 @@ export class AcpmuxDirectClient {
   onCatalogChanged?: () => void;
   /// `_acpmux/process_update` listeners (session-info/processes.ts).
   private readonly processListeners = new Set<(process: unknown) => void>();
+  /// `_acpmux/bg_update` listeners (session-info/bgTasks.ts `useBgTasksRunning`).
+  private readonly bgListeners = new Set<(task: unknown) => void>();
   private readonly raceListeners = new Set<(race: RaceRecord) => void>();
   /// A prompt carrying the workspace context is on its way (send).
   private contextInFlight = false;
@@ -4013,6 +4016,14 @@ export class AcpmuxDirectClient {
       if (!stale && !this.closed) this.onCatalogChanged?.();
     } else if (notification.method === "_acpmux/process_update")
       for (const listener of this.processListeners) listener(notification.params?.process);
+    // A daemon task started or ended: the registry's listeners hear it as a process of the chat
+    // (session-info/bgTasks.ts), and the pane's running check as a task.
+    else if (notification.method === "_acpmux/bg_update") {
+      const task = notification.params?.task;
+      const process = bgTaskProcess(task);
+      if (process) for (const listener of this.processListeners) listener(process);
+      for (const listener of this.bgListeners) listener(task);
+    }
     // A new chat's start mode may have changed (a config reload, the
     // `agents.defaultPermissionMode` setting): pending chats ask acpmux again (startMode.ts).
     else if (notification.method === "_acpmux/start_mode_changed") startModeChanged();
@@ -5183,6 +5194,22 @@ export class AcpmuxDirectClient {
   /// place, with the newer page's row. An older acpmux that ignores `limit` sends one reply cut to
   /// what fits and counts the rest in `omitted`; that count is passed on, never dropped. A failed
   /// page fails the whole read: no partial list is answered as if it were whole.
+  async listProcesses(
+    sessionId: string,
+    recent?: number,
+    endedWithin?: number,
+  ): Promise<{ processes?: unknown[]; omitted?: number; endedBefore?: number; recent?: number }> {
+    // The chat's daemon-owned tasks too (session-info/bgTasks.ts), as records of the same list; a
+    // daemon or a connection without `bg/list` lists the registry's alone.
+    const [registry, tasks] = await Promise.all([
+      this.listRegistryProcesses(sessionId, recent, endedWithin),
+      this.listBgTasks(sessionId).then(bgTaskProcesses, () => []),
+    ]);
+    if (!registry.processes || tasks.length === 0) return registry;
+    return { ...registry, processes: [...registry.processes, ...tasks] };
+  }
+
+  /// `_acpmux/process/list`'s pages for chat `sessionId` (`listProcesses`).
   ///
   /// `recent` reads only what a chat's page holds while nothing shows the whole history: every
   /// running process, the `recent` that ended last (processes.ts `PROCESS_LIST_RECENT`) and every
@@ -5191,7 +5218,7 @@ export class AcpmuxDirectClient {
   /// `list_recent_processes`); such a reply says `recent`. A god chat's 56,000 shells were 66 MB of
   /// JSON parsed and held in the renderer for a tray of a few. An acpmux or host that refuses
   /// `recent`, or ignores it (no `recent` echoed), is read whole, as before, with no `recent`.
-  async listProcesses(
+  private async listRegistryProcesses(
     sessionId: string,
     recent?: number,
     endedWithin?: number,
@@ -5317,6 +5344,17 @@ export class AcpmuxDirectClient {
     return this.request("_acpmux/bg/stop", { sessionId, id }, 15_000);
   }
 
+  /// Chat `sessionId`'s daemon-owned background tasks: `{tasks: [...]}` (session-info/bgTasks.ts).
+  listBgTasks(sessionId: string): Promise<unknown> {
+    return this.request("_acpmux/bg/list", { sessionId });
+  }
+
+  /// Each `_acpmux/bg_update` task (a daemon task started or ended); returns the listener's removal.
+  watchBgTasks(listener: (task: unknown) => void): () => void {
+    this.bgListeners.add(listener);
+    return () => void this.bgListeners.delete(listener);
+  }
+
   /// Each `_acpmux/process_update` for the attached chat; returns the listener's removal.
   watchProcesses(listener: (process: unknown) => void): () => void {
     this.processListeners.add(listener);
@@ -5326,6 +5364,9 @@ export class AcpmuxDirectClient {
   /// The end of background process `processId`'s output, at most `maxBytes` (acpmux reads at most
   /// 1 MiB): `{data (base64), fromByte, nextByte, eof}`. Claude Code's processes only.
   tailProcess(processId: string, maxBytes: number): Promise<unknown> {
+    // A daemon task's end (session-info/bgTasks.ts): `bg/output` answers `{data, fromByte}` too.
+    const task = bgTaskOf(processId);
+    if (task) return this.request("_acpmux/bg/output", { sessionId: task.sessionId, id: task.taskId, maxBytes });
     return this.request("_acpmux/process/tail", { processId, maxBytes });
   }
 
@@ -5333,6 +5374,8 @@ export class AcpmuxDirectClient {
   /// that never answers fails it after 10 s. It names its chat (`<sessionId>/<taskId>`'s): the host
   /// lets only a chat in the pane's scope stop one, and acpmux stops only that chat's process.
   killProcess(processId: string): Promise<unknown> {
+    const task = bgTaskOf(processId);
+    if (task) return this.bgStop(task.sessionId, task.taskId);
     const sessionId = processId.split("/")[0] ?? "";
     return this.request("_acpmux/process/kill", { sessionId, processId }, 10_000);
   }

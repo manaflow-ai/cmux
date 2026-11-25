@@ -141,6 +141,7 @@ pub(super) const MUX: &[Kind] = &[
     not("auto_resume_stopped", UNREAD),
     not("background_turn", LIVE),
     not("background_wait_ended", UNREAD),
+    not("bg_update", UNREAD),
     page("bookmarks"),
     not("bridge_delivered", UNREAD),
     not("claim_checks", "a reply's claims, which the chat view does not draw"),

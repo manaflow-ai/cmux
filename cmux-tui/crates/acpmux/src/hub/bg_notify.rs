@@ -36,7 +36,7 @@
 //!   or while no subagent runs, goes to the chat, saying whose it was (W5-M, 2026-11-08: the end of a subagent's
 //!   `acpmux run` task carried a lane's reply into its lead's chat).
 
-use super::bg_tasks::{bg_generation, bg_view};
+use super::bg_tasks::{bg_generation, bg_gone, bg_view};
 use super::*;
 use crate::bg_run::{self, Record};
 use cmux_json::JsonSet as _;
@@ -68,6 +68,7 @@ impl Hub {
         watcher().watch(lock, owner, record.session_id.clone(), alive, move || {
             handle.spawn(async move {
                 if let Some(hub) = hub.upgrade() {
+                    hub.bg_ended(&dir, &session, &id);
                     hub.bg_notify(&dir, &session, &id).await;
                 }
             });
@@ -112,10 +113,12 @@ impl Hub {
                 if names.contains(&format!("{id}.notified")) {
                     continue;
                 }
+                // A task still owed to its chat, or one that still runs: its end reaches the
+                // chat's GUI too (`bg_update`).
                 if let Some(record) = bg_run::read_record(&dir, id)
                     && record.generation == generation
-                    && record.notify
-                    && !bg_run::notified_path(&dir, &record.id).exists()
+                    && ((record.notify && !bg_run::notified_path(&dir, &record.id).exists())
+                        || (record.ended_at.is_none() && !bg_gone(&dir, &record.id)))
                 {
                     self.bg_watch(&dir, &record);
                 }
@@ -144,6 +147,24 @@ impl Hub {
         if let Err(e) = spawned {
             tracing::warn!("the owed ends of background tasks cannot be watched: {e}");
         }
+    }
+
+    /// Logs task `id`'s end as its chat's `bg_update` (`Hub::bg_announce`), for the chat's GUI.
+    fn bg_ended(&self, dir: &Path, session_id: &str, id: &str) {
+        if self.stopping.load(Ordering::SeqCst) {
+            return;
+        }
+        let Some(record) = bg_run::read_record(dir, id) else { return };
+        if bg_generation(dir, false).ok().as_deref() != Some(record.generation.as_str()) {
+            return;
+        }
+        let session =
+            self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(session_id).cloned();
+        let Some(session) = session else { return };
+        if session.purged.load(Ordering::SeqCst) {
+            return;
+        }
+        self.bg_announce(&session, &bg_view(dir, &record, 0));
     }
 
     /// Sends task `id`'s end to chat `session_id` (module docs), unless it went already.

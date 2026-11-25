@@ -833,3 +833,43 @@ async fn a_task_end_is_sent_once_across_a_restart() {
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Issue #45951: a chat's GUI shows its background tasks while they run. A start and an end are
+/// each logged as the chat's `bg_update` and reach its attached client as `_acpmux/bg_update
+/// {task}`, without the task's output, whether or not the task tells its agent (`notify`), so a
+/// watcher shows from its start to its stop with no `bg/list` asked again.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_tasks_start_and_end_reach_the_chats_client_as_bg_updates() {
+    const UPDATE: &str = "_acpmux/bg_update";
+    let mut r = rig(PermissionPolicy::ApproveAll).await;
+    r.hub.set_bg_runner(crate::daemon_env::bg_runner(), acpmux::bg_run::SEGMENT);
+    let id = new_session(&mut r.c, "watcher").await;
+    // `request` drops the notifications that come before its answer, as the start's does.
+    r.c.send(method::MUX_BG_START, json!({"sessionId": id, "command": "echo started; sleep 30"}))
+        .await;
+    let started = r.c.wait_for(UPDATE, |p| p["task"]["sessionId"] == id.as_str()).await;
+    let task_id = started["task"]["id"].as_str().unwrap().to_owned();
+    assert_eq!(started["task"]["notify"], false, "{started}");
+    assert_eq!(started["task"]["state"], "running", "{started}");
+    assert_eq!(started["task"]["command"], "echo started; sleep 30");
+    assert_eq!(started["task"]["sessionId"], id.as_str());
+    assert!(started["task"].get("tail").is_none(), "a bg_update carries no output: {started}");
+    r.c.send(method::MUX_BG_STOP, json!({"sessionId": id, "id": task_id})).await;
+    let ended =
+        r.c.wait_for(UPDATE, |p| {
+            p["task"]["id"] == task_id.as_str() && p["task"]["state"] != "running"
+        })
+        .await;
+    assert_eq!(ended["task"]["state"], "stopped", "{ended}");
+    assert!(ended["task"]["endedAt"].is_u64(), "{ended}");
+    let logged: Vec<String> = r
+        .hub
+        .events(&id, 0, 10_000)
+        .unwrap()
+        .iter()
+        .filter(|e| e.kind == "bg_update")
+        .map(|e| e.msg["task"]["state"].as_str().unwrap_or_default().to_owned())
+        .collect();
+    assert_eq!(logged, ["running", "stopped"], "one bg_update per start and end");
+}

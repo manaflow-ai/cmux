@@ -910,6 +910,11 @@
       "result": true
     },
     {
+      "kind": "notification",
+      "name": "_acpmux/bg_update",
+      "params": true
+    },
+    {
       "kind": "request",
       "name": "_acpmux/run_elsewhere/plan",
       "params": true,

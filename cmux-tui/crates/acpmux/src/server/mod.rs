@@ -2655,6 +2655,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
     }
     chats::push_activity(hub, conn, &ev);
     processes::push_update(conn, &ev);
+    bg_tasks::push_update(conn, &ev);
     let rec = &ev.record;
     // Attached peer updates retain the raw wire id, but also identify its owner and the id its
     // row has here (`qualifiedSessionId`), so clients key live transcripts and prompts by the

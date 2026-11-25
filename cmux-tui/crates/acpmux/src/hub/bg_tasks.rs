@@ -251,9 +251,10 @@ impl Hub {
         }
         let record = bg_run::read_record(&dir, &id)
             .ok_or_else(|| RpcError::internal("the task's runner wrote no record"))?;
-        if record.notify {
-            self.bg_watch(&dir, &record);
-        }
+        // Every task is watched: its end reaches the chat's GUI (`bg_update`), and with `notify`
+        // its agent too (`bg_notify.rs`).
+        self.bg_watch(&dir, &record);
+        self.bg_announce(session, &bg_view(&dir, &record, 0));
         Ok(bg_view(&dir, &record, LIST_TAIL))
     }
 
@@ -322,6 +323,18 @@ impl Hub {
         let folder = self.bg_records(&dir);
         let task = folder.tasks.iter().find(|t| t.record.id == id)?;
         Some(folder.view(&dir, task, LIST_TAIL))
+    }
+
+    /// Logs task `view` as the chat's `bg_update`, which its attached clients hear as
+    /// `_acpmux/bg_update {task}` (`server/bg_tasks.rs`), so a GUI shows a task while it runs
+    /// without asking again (#45951). The output is left out: a client reads it with `bg/output`.
+    pub(super) fn bg_announce(&self, session: &Session, view: &Value) {
+        let mut task = view.clone();
+        if let Some(fields) = task.as_object_mut() {
+            fields.remove("tail");
+            fields.remove("lastLine");
+        }
+        self.append(session, "mux", "bg_update", json!({"task": task}));
     }
 
     /// Whether a task of the chat runs (`Hub::in_use`).
@@ -703,7 +716,7 @@ const STOP_LOOK: std::time::Duration = std::time::Duration::from_millis(50);
 
 /// Whether the task's runner is surely gone: its lock is free or missing. A lock that cannot be
 /// probed proves nothing, so it never counts.
-fn bg_gone(dir: &std::path::Path, id: &str) -> bool {
+pub(super) fn bg_gone(dir: &std::path::Path, id: &str) -> bool {
     #[cfg(unix)]
     {
         matches!(
