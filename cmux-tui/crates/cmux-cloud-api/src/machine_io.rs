@@ -352,7 +352,7 @@ pub async fn perform_with(
     request: &Request,
     now: impl Fn() -> u64,
     policy: Resume,
-    progress: &dyn Fn(&str),
+    progress: &(dyn Fn(&str) + Sync),
 ) -> (Route, Answer) {
     let first = perform_once(client, request, &now).await;
     if !machine_asleep(&first.1) {
