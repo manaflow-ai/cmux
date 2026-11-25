@@ -79,8 +79,9 @@ struct CloudStartTitleTests {
     }
 
     /// cmux#55540: a New Tab chat sent in Cloud mode turns its Mac tab into the Cloud chat in place (`CloudFrontedChats`).
-    /// The tab read "New Tab" and the row "workspace-NNN" through the switch: the hand-off ended the Mac tab's title before
-    /// it showed the chat (the chat's page paints first), and a rebuilt record of the chat's tab lost the title it was handed.
+    /// Through the switch the tab read "New Tab", then "Agent" or the workspace's name, and the row "workspace-NNN": the
+    /// hand-off ended the Mac tab's title before it showed the chat, and the title then rode on the chat's record, which its
+    /// machine retitles ("Agent") and rebuilds. The Mac tab keeps the start's title until the chat has a title of its own.
     @Test func aMacTabKeepsTheStartsTitleThroughTheSwitchToItsCloudChat() throws {
         let titles = AgentCloudStartTitles(), prompt = "what's in this folder?"
         let (macWorkspace, mac) = try Self.workspace(DaemonStore(), surface: 1)
@@ -97,20 +98,38 @@ struct CloudStartTitleTests {
         #expect(titles.title(of: mac) == prompt, "the tab read New Tab while the chat's page painted")
         #expect(reader.label(macWorkspace, front: mac, work: nil) == prompt, "the row read workspace-NNN while the chat's page painted")
 
-        // The Mac tab shows the chat in place, and the start ends.
+        // The Mac tab shows the chat in place (`CloudStartChat.front`), then the start's runner ends it.
+        titles.opened(mac)
         shown = opened
         titles.end(mac)
+        #expect(titles.title(of: mac) == nil && !titles.startsInCloud(mac), "the Mac tab is no New Tab page starting a chat now")
+        #expect(titles.inPlaceTitle(of: mac) == prompt, "the start ended the title the Mac tab keeps for its chat")
         #expect(reader.label(macWorkspace, front: mac, work: nil) == prompt, "the row read workspace-NNN")
 
-        // The chat's machine rebuilt its pane: the same tab, a new record.
-        let (_, rebuilt) = try Self.workspace(DaemonStore(), surface: 2, resource: "tab_0123456789abcdef0123456789abcdef")
-        #expect(rebuilt !== opened && rebuilt.resourceID == opened.resourceID, "fixture: one tab, two records")
+        // The chat's machine rebuilt its pane and titled the chat's record "Agent": the Mac tab still reads as the start.
+        let rebuilt = try Self.chat(surface: 2, title: "Agent")
         shown = rebuilt
-        #expect(titles.title(of: rebuilt) == prompt, "the tab read New Tab")
+        #expect(titles.title(of: mac, showing: rebuilt, untitled: "Agent", turns: AgentTurnStateStore()) == prompt, "the tab read Agent")
+        #expect(titles.title(of: mac, showing: try Self.chat(surface: 2, title: "about:blank"), untitled: "Agent",
+                             turns: AgentTurnStateStore()) == prompt)
         #expect(reader.label(macWorkspace, front: mac, work: nil) == prompt, "the row read workspace-NNN")
 
-        // Another machine's tab with the same surface number and no resource id never reads it.
-        let (_, stranger) = try Self.workspace(DaemonStore(), surface: 2)
-        #expect(stranger.id == "surface:2" && titles.title(of: stranger) == nil)
+        // Once the chat has a title of its own, it reads as that.
+        #expect(titles.title(of: mac, showing: try Self.chat(surface: 2, title: "List the folder"), untitled: "Agent",
+                             turns: AgentTurnStateStore()) == nil)
+
+        // A new start from the same tab begins again: it reads as a starting page, not as the old chat.
+        titles.begin(mac, task: "Second", untitled: "Agent")
+        #expect(titles.title(of: mac) == "Second" && titles.inPlaceTitle(of: mac) == nil)
+    }
+
+    /// A Cloud chat's tab titled `title` on its machine (no resource id).
+    private static func chat(surface: UInt64, title: String) throws -> TabModel {
+        var tab = TabSnapshot(surface: SurfaceID(rawValue: surface), kind: .conversation, title: title, url: "about:blank")
+        tab.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: host, session: nil, harness: "claude"))
+        let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [tab])])
+        let store = DaemonStore()
+        store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 6, key: nil, name: "workspace-6", screens: [screen])]))
+        return try #require(store.workspaces.first?.screens.first?.panes.first?.tabs.first)
     }
 }

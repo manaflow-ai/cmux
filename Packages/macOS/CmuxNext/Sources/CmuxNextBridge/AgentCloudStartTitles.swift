@@ -31,6 +31,10 @@ public final class AgentCloudStartTitles {
     /// New Tab pages whose Send started a Cloud chat (cmux#51000): marked from the Send, kept when the start fails (its
     /// page shows the failure and Retry), cleared once the chat shows in place (``CloudFrontedChats`` marks it then).
     private var cloudSends: [ObjectIdentifier: Mark] = [:]
+    /// Mac tabs that show the chat their start opened in place (``opened(_:)``, `CloudFrontedChats`): each keeps its start's
+    /// title, which ``title(of:showing:untitled:)`` reads until the chat has a title of its own (cmux#55540). A Mac tab is
+    /// this Mac's own record, so the title holds whatever the chat's machine does to its record of the chat.
+    private var inPlace: Set<ObjectIdentifier> = []
     /// New Cloud Chat's own workspaces (cmux#45947): each row reads as Cloud from the click, before a Send names its chat.
     private var cloudWorkspaces: Set<String> = []
 
@@ -38,8 +42,23 @@ public final class AgentCloudStartTitles {
 
     /// The title `tab` reads while it starts a Cloud chat, or shows the chat one started; nil for any other tab.
     public func title(of tab: TabModel) -> String? {
-        if let entry = titles[ObjectIdentifier(tab)], entry.tab === tab { return entry.title }
+        if let entry = titles[ObjectIdentifier(tab)], entry.tab === tab { return inPlace.contains(ObjectIdentifier(tab)) ? nil : entry.title }
         return handed.isEmpty ? nil : tab.resourceID.flatMap { handed[$0.rawValue] }
+    }
+
+    /// The start's title Mac tab `mac` keeps while it shows the chat that start opened in place; nil for any other tab.
+    public func inPlaceTitle(of mac: TabModel) -> String? {
+        guard !inPlace.isEmpty, inPlace.contains(ObjectIdentifier(mac)), let entry = titles[ObjectIdentifier(mac)], entry.tab === mac else { return nil }
+        return entry.title
+    }
+
+    /// What Mac tab `mac`, showing Cloud chat `chat` in place, reads: its start's title (``inPlaceTitle(of:)``) until the chat has a
+    /// title of its own here (a name the person gave it, its turns' title, or a title its record carries other than the blank page's
+    /// or `untitled`, the chat tab's default). The chat's record read "Agent" and the tab with it (cmux#55540).
+    public func title(of mac: TabModel, showing chat: TabModel, untitled: String, turns: AgentTurnStateStore = .shared) -> String? {
+        guard let title = inPlaceTitle(of: mac), chat.name?.isEmpty ?? true, chat.agentSession.flatMap(turns.title(for:)) == nil else { return nil }
+        let own = chat.displayTitle
+        return own.isEmpty || own == untitled || TabItemMapping.isBlankPageAddress(own) ? title : nil
     }
 
     /// Whether `tab` is a New Tab page whose Send is starting a Cloud chat (or a chat one started).
@@ -57,6 +76,7 @@ public final class AgentCloudStartTitles {
     /// The Send of `tab` starts a Cloud chat whose first prompt is `task`; `untitled` when it names nothing (only attachments).
     public func begin(_ tab: TabModel, task: String, untitled: String) {
         titles = titles.filter { $0.value.tab != nil }
+        inPlace = inPlace.filter { titles[$0] != nil && $0 != ObjectIdentifier(tab) }
         titles[ObjectIdentifier(tab)] = Entry(tab: tab, title: Self.title(task: task) ?? untitled)
         cloudSends = cloudSends.filter { $0.value.tab != nil }
         cloudSends[ObjectIdentifier(tab)] = Mark(tab: tab)
@@ -79,13 +99,17 @@ public final class AgentCloudStartTitles {
         if cloudSends[ObjectIdentifier(tab)]?.tab !== tab { cloudSends[ObjectIdentifier(tab)] = Mark(tab: tab) }
     }
 
-    /// `tab`'s start opened its chat, which now shows in place: the front marks it from here (``sentToCloud(_:)`` ends).
+    /// `tab`'s start opened its chat, which now shows in place: the front marks it from here (``sentToCloud(_:)`` ends), and
+    /// the tab keeps its start's title for that chat (``inPlaceTitle(of:)``), past ``end(_:)``.
     public func opened(_ tab: TabModel) {
         if cloudSends[ObjectIdentifier(tab)] != nil { cloudSends[ObjectIdentifier(tab)] = nil }
+        if titles[ObjectIdentifier(tab)]?.tab === tab { inPlace.insert(ObjectIdentifier(tab)) }
     }
 
-    /// The start of `tab` ended (refused, failed or handed over): it reads as its page again.
+    /// The start of `tab` ended (refused, failed or handed over): it reads as its page again. A tab that shows its chat in place
+    /// keeps the title for that chat.
     public func end(_ tab: TabModel) {
+        guard !inPlace.contains(ObjectIdentifier(tab)) else { return }
         if titles[ObjectIdentifier(tab)] != nil { titles[ObjectIdentifier(tab)] = nil }
     }
 
