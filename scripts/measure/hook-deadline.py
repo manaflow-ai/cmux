@@ -9,6 +9,8 @@ provider-facing process from spawn to exit, per event, against a stand-in daemon
   slow      answers every request after 3 s (a daemon busy with other work)
   stall     reads every request and never answers (a wedged daemon)
   down      no socket at all (the daemon stopped or crashed)
+  held      no daemon, and the terminal's hook queue file locked by another process (a sender mid-write on a
+            stalled disk): the helper's handoff to its detached child cannot finish
 
 at idle and with 2 x cores spinning processes (`load=1`). Prints one line per cell:
 
@@ -50,8 +52,25 @@ EVENTS = [
 ]
 
 
+def hold_queues(helper: str, sock: str, root: str, work: str) -> list:
+    """The `held` state: one event queued with no daemon, then every queue file of the session locked."""
+    import fcntl
+    env = {"PATH": "/usr/bin:/bin", "HOME": root, "TMPDIR": root, "CMUX_TUI_SOCKET": sock,
+           "CMUX_TUI_TERMINAL_ID": "term_hookdeadline"}
+    subprocess.run([helper, "claude", "Stop"], input=payload("claude", "Stop", work), env=env, capture_output=True,
+                   timeout=30)
+    spool = os.path.join(root, "hook-spool")
+    held = []
+    for name in sorted(os.listdir(spool)) if os.path.isdir(spool) else []:
+        if name.endswith(".jsonl"):
+            f = open(os.path.join(spool, name), "r+b")
+            fcntl.flock(f, fcntl.LOCK_EX)
+            held.append(f)
+    return held
+
+
 def daemon(path: str, mode: str, stop: threading.Event) -> threading.Thread | None:
-    if mode == "down":
+    if mode in ("down", "held"):
         return None
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     server.bind(path)
@@ -140,7 +159,7 @@ def pct(values: list[float], q: float) -> float:
 
 
 def main(argv: list[str]) -> int:
-    opts = {"n": "40", "load": "0,1", "daemons": "answer,slow,stall,down", "events": ""}
+    opts = {"n": "40", "load": "0,1", "daemons": "answer,slow,stall,down,held", "events": ""}
     helpers: list[tuple[str, str]] = []
     for arg in argv:
         key, _, value = arg.partition("=")
@@ -170,6 +189,9 @@ def main(argv: list[str]) -> int:
                 os.mkdir(work)
                 stop = threading.Event()
                 daemon(sock, mode, stop)
+                held = hold_queues(helpers[0][1], sock, root, work) if mode == "held" else []
+                if mode == "held":
+                    print(f"HOOK-DEADLINE-HELD {len(held)} queue file(s)", flush=True)
                 try:
                     for agent, event, timeout, contract in events:
                         env = {"PATH": "/usr/bin:/bin", "HOME": root, "TMPDIR": root,
@@ -192,6 +214,8 @@ def main(argv: list[str]) -> int:
                                   f"p50={statistics.median(s):.1f} p99={pct(s, 0.99):.1f} max={max(s):.1f} "
                                   f"timeout={timeout * 1000} over={over} bad={bad[label]}", flush=True)
                 finally:
+                    for f in held:
+                        f.close()
                     stop.set()
                     time.sleep(0.3)
                     shutil.rmtree(root, ignore_errors=True)
