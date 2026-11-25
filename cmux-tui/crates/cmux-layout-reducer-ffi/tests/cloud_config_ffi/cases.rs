@@ -105,6 +105,26 @@ fn launch_sign_in_and_identity_rules_answer_here() {
         &json!({"window": "automatic", "defaultBrowser": "com.apple.Safari"}),
     );
     assert_eq!(window["opensDefaultBrowser"], false);
+    let (_, window) = call(
+        c"cloud_auth_sign_in_window",
+        &json!({"window": "inApp", "defaultBrowser": "com.microsoft.edgemac"}),
+    );
+    assert_eq!(window["opensDefaultBrowser"], true);
+    let (_, place) = call(
+        c"cloud_auth_sign_in_place",
+        &json!({"window": "automatic", "defaultBrowser": "com.microsoft.edgemac", "inApp": true}),
+    );
+    assert_eq!(place["place"], "inApp");
+    let (_, place) = call(
+        c"cloud_auth_sign_in_place",
+        &json!({"window": "automatic", "defaultBrowser": "com.microsoft.edgemac"}),
+    );
+    assert_eq!(place["place"], "defaultBrowser");
+    let (_, place) = call(
+        c"cloud_auth_sign_in_place",
+        &json!({"window": "popup", "defaultBrowser": null, "inApp": true}),
+    );
+    assert_eq!(place["place"], "popup");
     let (_, scope) = call(
         c"cloud_auth_creation_scope",
         &json!({"previous": [null, null], "current": ["u", null]}),

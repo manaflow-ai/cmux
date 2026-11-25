@@ -77,8 +77,32 @@ fn url_is_the_edge_spans_route() {
 }
 
 #[test]
+fn minted_ids_are_w3c_trace_ids() {
+    let a = mint_trace_id();
+    assert_eq!(a.len(), 32);
+    assert!(a.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));
+    assert_ne!(a, "0".repeat(32));
+    assert_ne!(a, mint_trace_id());
+    // The platform takes it (StartTraceRoute.ts shape) as a client's would be.
+    assert_eq!(trace_id_of(&json!({"_meta": {"traceId": a}})), Some(a.as_str()));
+}
+
+#[test]
+fn only_an_explicit_off_turns_send_traces_off() {
+    for v in ["off", "OFF", " off ", "0", "false", "no"] {
+        assert!(switch_off(Some(v)), "{v}");
+    }
+    for v in ["", "on", "1", "true", "yes"] {
+        assert!(!switch_off(Some(v)), "{v}");
+    }
+    assert!(!switch_off(None));
+}
+
+#[test]
 fn untraced_calls_touch_nothing() {
-    // Off a Cloud VM (the test host) a traced prompt starts nothing.
+    // Off a Cloud VM (the test host) a prompt, traced or not, starts nothing.
+    received("s-unminted", &json!({}));
+    assert!(!waiting("s-unminted") || crate::cloud_host::is_cloud_vm());
     if crate::cloud_host::is_cloud_vm() {
         return;
     }
