@@ -204,6 +204,13 @@ fn place_screens(
         );
     }
     let target = &mut state.workspaces[to];
+    // `quick-terminal-v1`: a workspace has one quick terminal. A workspace that has one keeps it, and the
+    // quick terminal of a screen that comes in becomes a plain floating pane.
+    if from != to && target.quick_terminal().is_some() {
+        for screen in &mut moving {
+            screen.unmark_quick_terminal();
+        }
+    }
     let active_to = target.screens.get(target.active_screen).map(|s| s.id);
     let index = index.unwrap_or(target.screens.len()).min(target.screens.len());
     target.screens.splice(index..index, moving);
@@ -395,10 +402,6 @@ impl Mux {
                     (to, index)
                 }
                 ScreenDestination::NewWorkspace => {
-                    anyhow::ensure!(
-                        state.workspaces.len() < WORKSPACE_REGISTRY_LIMIT,
-                        "workspace limit reached"
-                    );
                     let name = self.default_workspace_name(state);
                     state.push_workspace(Workspace {
                         id: workspace_id,
@@ -744,10 +747,6 @@ impl Mux {
                     None => (from, index),
                 },
                 ScreenDestination::NewWorkspace => {
-                    anyhow::ensure!(
-                        state.workspaces.len() < WORKSPACE_REGISTRY_LIMIT,
-                        "workspace limit reached"
-                    );
                     let name = self.default_workspace_name(state);
                     state.push_workspace(Workspace {
                         id: workspace_id,

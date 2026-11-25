@@ -13,8 +13,8 @@ extension AgentPaneView: CmuxToastAvoiding {
     /// held away (a move in progress).
     public var toastAvoidanceRect: NSRect {
         guard !holdsPageAway, let box = model.toastAvoidance else { return .zero }
-        return Self.sessionInfoOverlayRect(box, page: page?.frame ?? webView.frame,
-                                           zoom: max(0.25, CGFloat(uiPointerPageZoom)), flipped: isFlipped)
+        return Self.sessionInfoOverlayRect(box.rect, page: page?.frame ?? webView.frame,
+                                           zoom: pageBoxZoom(box.zoom), flipped: isFlipped)
     }
 
     /// The stack or the pane moved, or the pane was hidden or shown (a workspace switch hides an
@@ -24,7 +24,7 @@ extension AgentPaneView: CmuxToastAvoiding {
     /// the composer, and those of the window it left come back down. Says nothing when its window
     /// and its rect there are unchanged, so a layout pass with no move costs no toast work.
     func toastAvoidanceMoved() {
-        let rect = window == nil || isHiddenOrHasHiddenAncestor ? NSRect.zero : convert(toastAvoidanceRect, to: nil)
+        let rect = window == nil || isHiddenOrHasHiddenAncestor || page?.isDrawnAway == true ? NSRect.zero : convert(toastAvoidanceRect, to: nil)
         let left = lastToastAvoidanceWindow
         guard rect != lastToastAvoidance || left !== window else { return }
         lastToastAvoidance = rect

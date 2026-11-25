@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.sidebar.groupGradient.help" : {
+      "comment" : "Setting help for Group Gradient",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The gradient Group Colors uses when set to Gradient."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "التدرّج الذي تستخدمه ألوان المجموعات عند ضبطها على تدرّج."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gradijent koji boje grupa koriste kada su postavljene na Gradijent."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Den gradient, gruppefarver bruger, når de er sat til Gradient."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Der Verlauf, den Gruppenfarben mit „Verlauf“ nutzen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "El degradado que usan los colores de grupo cuando están en Degradado."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le dégradé utilisé par les couleurs des groupes réglées sur Dégradé."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "La sfumatura usata dai colori dei gruppi impostati su Sfumatura."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "グループの色を「グラデーション」にしたときに使うグラデーションです。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ជម្រាលពណ៌ដែលពណ៌ក្រុមប្រើ ពេលកំណត់ជា ជម្រាលពណ៌។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "그룹 색상을 그라데이션으로 설정했을 때 사용하는 그라데이션입니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gradienten gruppefarger bruker når de er satt til Gradient."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gradient używany przez Kolory grup ustawione na Gradient."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O degradê que as cores dos grupos usam quando definidas como Degradê."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Градиент для цветов групп в режиме «Градиент»."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "การไล่สีที่สีของกลุ่มใช้เมื่อตั้งเป็นไล่สี"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Grup renkleri Gradyan olarak ayarlandığında kullanılan gradyan."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Градієнт, який використовують кольори груп у режимі «Градієнт»."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dải màu mà màu nhóm dùng khi đặt là Dải chuyển màu."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "分组颜色设为“渐变”时使用的渐变。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "群組顏色設為「漸層」時使用的漸層。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

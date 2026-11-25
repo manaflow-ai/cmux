@@ -13,6 +13,9 @@ public nonisolated enum ChiefTeleportChipStyle: Int, CaseIterable, Sendable {
     case iconOnly
     /// Plain on This Mac; a filled capsule while the Chief is away or a move runs.
     case awayBadge
+    /// Drawn like the profile panel's pop-up buttons (the theme's selection fill, control height, body text,
+    /// an up-down chevron at the trailing edge): the Runs On row beside the Harness and Computer Use pickers.
+    case field
 
     /// The playground's name for it (DEV-only English).
     public var title: String {
@@ -23,6 +26,7 @@ public nonisolated enum ChiefTeleportChipStyle: Int, CaseIterable, Sendable {
         case .dot: "Status dot"
         case .iconOnly: "Glyph only"
         case .awayBadge: "Badge when away"
+        case .field: "Pop-up field (profile panel)"
         }
     }
 

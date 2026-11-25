@@ -1,10 +1,16 @@
 //! Who serves a host ticket: decided once, by the daemon, for every ticket the hub pushes to
-//! this Mac's device. A Mac (cmux.rd/1) viewer is the daemon's; an iPhone (WebRTC) viewer is the
-//! app's while an app is attached to the device channel, and is ended `app_required` when none
-//! is. The daemon applies the gate the app applies (`JoinConsent+App.swift` `macScreenGate`):
+//! this Mac's device. A Mac (cmux.rd/1) viewer is the daemon's. An iPhone viewer is the app's
+//! (WebRTC) while an app is attached to the device channel; with no app it is the daemon's too,
+//! over cmux.rd/1 (the host answers the phone's WebRTC offer with `{"type":"transport"}`, and the
+//! phone opens cmux.rd/1 on a reattach ticket, `cmux_hub_host::session::serve`), so a phone
+//! reaches a Mac whose app is closed (cmuxterm-hq#18912: "Share works from your computer with
+//! zero actions on that machine"). The daemon applies the gate the app applies
+//! (`JoinConsent+App.swift` `macScreenGate`):
 //! with join consent on (`labs.machineJoin`), View Only needs Screen sharing and Full Control
 //! needs Control too, read from acpmux's consent record (`cli/machine_consent.rs`) as
-//! `_acpmux/machine_consent_get` answers it. A refusal ends the session `failed`, as the app does.
+//! `_acpmux/machine_consent_get` answers it. A ticket the hub marks as the person's own device
+//! (`ownerKind: "user"`, see ``own_account``) skips that gate, as the app's host does. A refusal
+//! ends the session `consent_required`, as the app does.
 
 use cmux_hub_host::session::Ticket;
 use serde_json::Value;
@@ -91,14 +97,22 @@ pub(crate) fn route(
     consent: Consent,
 ) -> Route {
     let control = ticket.scope == "full";
-    if viewer_platform == Some("ios") {
-        // The app's own gate decides an iPhone viewer it serves.
-        return if app_attached { Route::App } else { Route::End("app_required") };
+    if viewer_platform == Some("ios") && app_attached {
+        // The app's own gate decides an iPhone viewer it serves (WebRTC).
+        return Route::App;
     }
     if !consent.allows(control) {
         return Route::End("failed");
     }
     Route::Daemon { view_only: !control }
+}
+
+/// The hub says both devices are signed in to one account (`ownerKind: "user"`, which the hub
+/// writes from its own authenticated record, never from the viewer): the person reaching their
+/// own machine, served with no consent read (Leo, 2026-11-16, ask-da398bba67). A missing field
+/// (an older hub) or any other owner (`team`, `shared`) still goes through the consent.
+pub(crate) fn own_account(push: &Value) -> bool {
+    push.get("ownerKind").and_then(Value::as_str) == Some("user")
 }
 
 /// The push as the app's device channel gets it: a host ticket says who serves it.

@@ -100,11 +100,20 @@ import Testing
         guard let cardRadius = Self.enclosingCardRadius() else { return }
         let scene = Self.scene()
         defer { scene.window.close() }
-        let inset = scene.pill.minY - scene.card.minY
+        // The radius is one token for every screen, concentric with the inset on the 2x grid (`Metrics.tabStripCardInset`).
+        // On a 1x screen the pill's gap snaps down a half point (2.5 to 2 at Compact, 3.5 to 3 at Comfortable; #44449 made
+        // those gaps half points), a half pixel no radius can show, so the measured gap is held to that one pixel and the
+        // concentric radius reads the design inset, not the snapped one.
+        let measured = scene.pill.minY - scene.card.minY
+        let inset = Metrics.tabStripCardInset
+        let scale = scene.window.backingScaleFactor
+        #expect(measured <= inset + 0.01 && inset - measured < 1 / scale + 0.01,
+                "\(style) \(density) @\(scale)x: the pill is \(measured) pt from the card's top, the design inset is \(inset) pt")
         let leading = scene.pill.minX - scene.card.minX
         // Lucas 2026-11-15: the first pill keeps the strip's one end gap at every density (`Metrics.tabStripEndGap`).
         let stripLeading = scene.strip.convert(scene.strip.bounds, to: scene.host).minX - scene.card.minX
-        #expect(abs(leading - stripLeading - Metrics.tabStripEndGap) <= 0.01, "\(style) \(density): the pill is \(leading) pt from the side")
+        let endGap = TabStripMetrics().endGap(scale: scene.window.backingScaleFactor)
+        #expect(abs(leading - stripLeading - endGap) <= 0.01, "\(style) \(density): the pill is \(leading) pt from the side")
         let cell = try #require(scene.firstCell)
         let radius = cell.backgroundLayer.cornerRadius
         var concentric = min(max(0, cardRadius - inset), Metrics.tabHeight / 2)
@@ -175,8 +184,8 @@ import Testing
                 shots.append(("\(style?.rawValue ?? "unset (flat)") \(density)", image))
             }
         }
-        let sheet = PaneMoreShotsTests.contactSheet(shots)
-        let out = PaneMoreShotsTests.packageRoot.appending(path: ".build/tab-concentric-corners.png")
+        let sheet = ShotSheet.contactSheet(shots)
+        let out = ShotSheet.packageRoot.appending(path: ".build/tab-concentric-corners.png")
         try FileManager.default.createDirectory(at: out.deletingLastPathComponent(), withIntermediateDirectories: true)
         try #require(NSBitmapImageRep(cgImage: sheet).representation(using: .png, properties: [:])).write(to: out)
         print("tab-concentric-corners: wrote \(out.path)")
@@ -211,7 +220,7 @@ import Testing
         return try upright(root)
     }
 
-    /// The flipped host's layer tree drawn top side up (`PaneMoreShotsTests.snapshot` expects an
+    /// The flipped host's layer tree drawn top side up (`ShotSheet.snapshot` expects an
     /// unflipped root), at 2x.
     static func upright(_ view: NSView) throws -> CGImage {
         let scale: CGFloat = 2

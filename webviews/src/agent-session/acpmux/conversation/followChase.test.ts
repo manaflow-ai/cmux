@@ -2,7 +2,7 @@
 // within the speed limit, never past its rest, and the frame loop ends at rest. The live browser
 // behaviour at 120 Hz is in test/send-stream-motion.test.ts.
 import { expect, test } from "bun:test";
-import { MOTION_SEND_CURVE } from "../../../motion/scale.generated";
+import { MOTION_SEND_CURVE, MOTION_SETTLE, MOTION_SETTLE_MS } from "../../../motion/scale.generated";
 import { bezierAt } from "../../../ui/cubicBezier";
 import { currentChatMetrics } from "../chatDisplay";
 import {
@@ -15,6 +15,10 @@ import {
   CHASE_MAX_SPEED,
   chaseMaxTrail,
   createFollowChase,
+  STEADY_ACCEL,
+  STEADY_MIN_SPEED,
+  type SteadyState,
+  steadyStep,
 } from "./followChase";
 import type { FollowMotionArm } from "./followMotion.experiment";
 
@@ -472,7 +476,7 @@ test("in the earlier looks a row that arrived holds all of its move back, and is
 /// The product's send step is 0 (Leo, 2026-11-11: "that slow settle animation is just so bad. Like,
 /// just do it."): a send lands at once. These read the rise a page that sets its own send clock (the
 /// galleries) still plays, on the 180 ms it had.
-const GALLERY_SEND_MS = 180;
+const GALLERY_SEND_MS = 180; // motion-allow: a gallery's own send clock, not the scale's (send is 0)
 const GALLERY_SEND = `${GALLERY_SEND_MS}ms`;
 
 test.each([60, 100])("a send's %d px rise plays on the bubble's send clock and rests with it", (px) => {
@@ -561,8 +565,8 @@ test("the reply draining while the turn's end fold plays: each frame of the two 
   const clock = node.ownerDocument.timeline as unknown as { currentTime: number };
   const start = clock.currentTime;
   const span = 43;
-  const easing = "cubic-bezier(0.16, 1, 0.3, 1)";
-  const duration = 180;
+  const easing = MOTION_SETTLE;
+  const duration = MOTION_SETTLE_MS;
   const fold = {
     playState: "running",
     startTime: start,
@@ -661,4 +665,69 @@ test("carry in the `instant` arm: what the reader froze lands in the first frame
   expect(instant.drawn).toBe(0);
   expect(instant.outstanding).toBe(0);
   expect(instant.pending).toBe(0);
+});
+
+/// The `steady` arm's math, frame by frame at 60 Hz: a stream of 16 characters every 50 ms is about a
+/// 22.75 px line every ~250 ms, here 4 px a chunk every third frame (what `shift` draws back).
+function drift(
+  chunks: (frame: number) => number,
+  frames: number,
+  opts: { trail?: number; cap?: number; landing?: (frame: number) => boolean } = {},
+) {
+  const dt = 1 / 60;
+  let state: SteadyState = { x: 0, speed: 0, rate: 0 };
+  const out: { x: number; move: number; speed: number }[] = [];
+  for (let frame = 0; frame < frames; frame += 1) {
+    const inflow = chunks(frame);
+    const before = state.x + inflow;
+    state = steadyStep({ ...state, x: before }, inflow, dt, {
+      trail: opts.trail ?? 45.5,
+      cap: opts.cap ?? 45.5,
+      landing: opts.landing?.(frame) ?? false,
+    });
+    out.push({ x: state.x, move: before - state.x, speed: state.speed });
+  }
+  return out;
+}
+
+test("steady: a constant stream drifts at its own pace, with no stop and start per chunk", () => {
+  const frames = drift((frame) => (frame % 3 === 0 ? 4 : 0), 240);
+  const settled = frames.slice(120);
+  // Every settled frame moves (no frame at rest between chunks) and none surges.
+  for (const { move } of settled) {
+    expect(move).toBeGreaterThan(0.5);
+    expect(move).toBeLessThan(2.5);
+  }
+  // The trail stays a small reserve, never a growing backlog, and never past rest.
+  for (const { x } of frames) {
+    expect(x).toBeGreaterThanOrEqual(0);
+    expect(x).toBeLessThan(12);
+  }
+});
+
+test("steady: the speed changes by at most STEADY_ACCEL per second, even when a tool row lands", () => {
+  const frames = drift((frame) => (frame === 30 ? 120 : frame % 3 === 0 ? 4 : 0), 180, { trail: 200 });
+  for (let index = 1; index < frames.length; index += 1) {
+    if (frames[index]!.x === 0 || frames[index - 1]!.x === 0) continue;
+    expect(Math.abs(frames[index]!.speed - frames[index - 1]!.speed)).toBeLessThanOrEqual(STEADY_ACCEL / 60 + 1e-6);
+  }
+});
+
+test("steady: no frame moves past its cap, and the drift never passes home", () => {
+  const frames = drift((frame) => (frame === 0 ? 400 : 0), 240, { trail: 45.5, cap: 6 });
+  for (const { move, x } of frames) {
+    expect(move).toBeLessThanOrEqual(6 + 1e-6);
+    expect(x).toBeGreaterThanOrEqual(0);
+  }
+  expect(frames.at(-1)!.x).toBe(0);
+});
+
+test("steady: when the stream stops the reserve drains and rests", () => {
+  const frames = drift((frame) => (frame < 120 && frame % 3 === 0 ? 4 : 0), 240, { landing: (frame) => frame >= 120 });
+  const end = frames.slice(120);
+  const rest = end.findIndex(({ x }) => x === 0);
+  expect(rest).toBeGreaterThanOrEqual(0);
+  // At least STEADY_MIN_SPEED: a reserve of under 12 px rests within a fifth of a second.
+  expect(rest).toBeLessThan(Math.ceil((12 / STEADY_MIN_SPEED) * 60) + 2);
+  expect(end[rest]!.speed).toBe(0);
 });

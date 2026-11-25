@@ -4,7 +4,7 @@ import Foundation
 /// Strings of Import from Another Browser… (table Passwords).
 nonisolated enum BrowserFileImportStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "Passwords", bundle: .module)
+        String(localized: key, defaultValue: value, table: "Passwords", bundle: .module.inAppLanguage)
     }
 
     static var title: String { t("import.files.title", "Import from Another Browser") }

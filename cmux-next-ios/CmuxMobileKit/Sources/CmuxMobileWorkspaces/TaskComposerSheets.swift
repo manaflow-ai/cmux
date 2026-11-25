@@ -7,8 +7,8 @@ import SwiftUI
 
 private let theme = CmuxMobileTheme.standard
 
-/// Task Options (classic's): the workspace's name card, then where it runs (Mac and folder),
-/// and with several agents the workspace each one gets.
+/// Task Options (classic's): the workspace's name, Chat or Terminal, then where it runs (Mac
+/// and folder).
 struct TaskComposerOptionsSheet: View {
     @Bindable var creator: WorkspaceCreator
     let sameNames: MacNameDisambiguation
@@ -27,6 +27,7 @@ struct TaskComposerOptionsSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     nameCard
+                    launchCard
                     routeCard
                     if let blocker, blocker == .noFolder || blocker == .noMac {
                         Text(blocker.message)
@@ -67,7 +68,6 @@ struct TaskComposerOptionsSheet: View {
             .font(.subheadline.weight(.semibold))
             .lineLimit(1)
             .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
             .submitLabel(.done)
             .accessibilityLabel("Workspace name")
             .accessibilityIdentifier("taskComposer.name")
@@ -75,6 +75,32 @@ struct TaskComposerOptionsSheet: View {
         .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
         .padding(.horizontal, 16)
         .padding(.vertical, 6)
+        .background(card, in: cardShape)
+    }
+
+    /// Where the task opens: the agent's chat, or its CLI in a terminal (the composer's
+    /// subtitle says which; the next task starts on the same).
+    private var launchCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Open in")
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(theme.colors.label2.color)
+            Picker("Open in", selection: Binding(get: { draft.launch }, set: { if sent == nil { creator.taskDraft.launch = $0 } })) {
+                ForEach(TaskLaunch.allCases, id: \.self) { launch in
+                    Label(launch.title, systemImage: launch.systemImage).tag(launch)
+                }
+            }
+            .pickerStyle(.segmented)
+            .disabled(sent != nil)
+            .accessibilityIdentifier("taskComposer.launch")
+            Text(draft.launch == .chat ? "The agent's chat, with its replies and approvals on this iPhone."
+                                       : "The agent's command line in a terminal tab, as on the Mac.")
+                .font(theme.type.meta)
+                .foregroundStyle(theme.colors.label2.color)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
         .background(card, in: cardShape)
     }
 
@@ -142,7 +168,7 @@ struct TaskComposerOptionsSheet: View {
                     .font(.caption2.weight(.medium))
                     .foregroundStyle(theme.colors.label2.color)
                 Text(value)
-                    .font(path ? .system(.caption, design: .monospaced, weight: .semibold) : .subheadline.weight(.semibold))
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(theme.colors.label.color)
                     .lineLimit(1)
                     .truncationMode(path ? .middle : .tail)
@@ -179,6 +205,7 @@ struct TaskComposerDraftsSheet: View {
                 if !creator.taskDrafts.isLoaded {
                     CmuxSpinner(label: Text("Loading drafts…"))
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .placeholderBound("drafts.loading", .milliseconds(2000))
                 } else if drafts.isEmpty {
                     ContentUnavailableView {
                         Label("No Other Drafts", systemImage: "tray")

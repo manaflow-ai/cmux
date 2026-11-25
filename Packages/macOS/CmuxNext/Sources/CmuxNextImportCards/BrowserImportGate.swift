@@ -44,10 +44,7 @@ public struct BrowserImportGate {
     /// Turns the import actions off in every surface while the setting is off, saying `reason`.
     public func install(into registry: ActionRegistry, reason: @escaping @MainActor () -> String) {
         let gate = self
-        registry.settingOffReason = { id in
-            guard Self.actionIDs.contains(id), !gate.isEnabled else { return nil }
-            return reason()
-        }
+        registry.addSettingOffReason(Self.actionIDs) { gate.isEnabled ? nil : reason() }
     }
 
     /// The launch read's value, before the cards start, so an off setting never lets them scan.

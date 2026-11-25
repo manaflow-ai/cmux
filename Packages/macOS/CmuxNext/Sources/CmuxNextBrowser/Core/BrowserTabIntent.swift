@@ -83,6 +83,13 @@ public enum BrowserTabIntent {
     /// A design mode message from the top frame's isolated world (`BrowserDesignModeScript`):
     /// the runtime's `{type, ...}` as JSON. The host's design mode controller reads it.
     case designMode(Data)
+    /// A Developer Tools row of the tab's own chrome (the DevTools divider's menu): the host runs
+    /// the command's registry action (``WebDevToolsCommand/actionID``) on this tab, as the palette
+    /// does.
+    case devTools(WebDevToolsCommand)
+    /// A row of the Back or Forward button's entry menu: the host runs the palette's Go Back or
+    /// Forward to… (`browser.goToHistoryEntry`) on this tab, `offset` entries away.
+    case goToHistoryEntry(offset: Int)
 }
 
 /// Receives intents from a tab.
