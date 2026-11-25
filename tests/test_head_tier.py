@@ -275,6 +275,78 @@ class IdleTests(BranchRepo):
         self.assertIn("only merges the base", why["cheap.yml"])
 
 
+class LabelledPushTests(BranchRepo):
+    """The labelled push rule: a push onto a PR already carrying ready-to-land runs the cheap tier; land's own
+    update-branch, the labeled event and full-ci keep the full tier."""
+
+    @staticmethod
+    def landing(sha: str, action: str = "synchronize", labels: tuple[str, ...] = ("ready-to-land",)) -> dict:
+        ev = BranchRepo.event(sha, action, labels)
+        ev["pull_request"]["base"]["repo"] = {"full_name": "manaflow-ai/cmux"}
+        ev["pull_request"]["head"]["repo"] = {"full_name": "manaflow-ai/cmux"}
+        return ev
+
+    def tier(self, ev: dict, facts: dict | None, **kw: str) -> tuple[str, str]:
+        return head_tier.tier("pull_request", ev, facts=facts, now=self.now, land_switch=kw.pop("land", "1"), **kw)
+
+    def github_merge(self) -> str:
+        self.git("checkout", "-q", "feat-cmux-next")
+        self.git("commit", "-q", "--allow-empty", "-m", "base moves a third time", when=self.now - 20)
+        self.git("checkout", "-q", "lane/x")
+        env = git_fixture_env.fixture_env()
+        env.update(GIT_COMMITTER_NAME="GitHub", GIT_COMMITTER_EMAIL="noreply@github.com",
+                   GIT_COMMITTER_DATE=f"{self.now - 10} +0000", GIT_AUTHOR_DATE=f"{self.now - 10} +0000")
+        subprocess.run(["git", "-c", "commit.gpgsign=false", "merge", "-q", "--no-ff", "-m",
+                        "Merge branch 'feat-cmux-next' into lane/x", "feat-cmux-next"],
+                       cwd=self.dir, env=env, check=True, capture_output=True)
+        return self.git("rev-parse", "HEAD")
+
+    def test_an_own_commit_onto_a_labelled_pr_runs_the_cheap_tier(self) -> None:
+        ev = self.landing(self.own)
+        got = self.tier(ev, head_tier.head_facts(ev))
+        self.assertEqual(got[0], "cheap", got)
+        self.assertIn("ready-to-land", got[1])
+
+    def test_an_agents_base_merge_onto_a_labelled_pr_runs_the_cheap_tier(self) -> None:
+        ev = self.landing(self.head)
+        self.assertEqual(self.tier(ev, head_tier.head_facts(ev))[0], "cheap")
+
+    def test_lands_update_branch_keeps_the_full_tier(self) -> None:
+        ev = self.landing(self.github_merge())
+        facts = head_tier.head_facts(ev)
+        self.assertIs(facts["by_github"], True)
+        self.assertEqual(self.tier(ev, facts)[0], "full")
+
+    def test_the_label_event_full_ci_switches_and_unread_heads_keep_the_full_tier(self) -> None:
+        facts = head_tier.head_facts(self.landing(self.own))
+        self.assertEqual(self.tier(self.landing(self.own, "labeled"), facts)[0], "full")
+        self.assertEqual(self.tier(self.landing(self.own, labels=("ready-to-land", "full-ci")), facts)[0], "full")
+        self.assertEqual(self.tier(self.landing(self.own), facts, label_push_switch="0")[0], "full")
+        self.assertEqual(self.tier(self.landing(self.own), facts, land="0")[0], "full")
+        self.assertEqual(self.tier(self.landing(self.own), None)[0], "full")
+        fork = self.landing(self.own)
+        fork["pull_request"]["head"]["repo"] = {"full_name": "someone/cmux"}
+        self.assertEqual(self.tier(fork, facts)[0], "full")
+
+    def test_decide_reads_the_switch_and_the_router_posts_pending(self) -> None:
+        names = ("CI_LAND_TIER", "CI_LAND_LABEL_PUSH_CHEAP")
+        old = {n: os.environ.get(n) for n in names}
+        try:
+            os.environ["CI_LAND_TIER"] = "1"
+            os.environ["CI_LAND_LABEL_PUSH_CHEAP"] = "1"
+            decided = head_tier.decide("pull_request", self.landing(self.own))
+            self.assertEqual(decided[0], "cheap")
+            self.assertEqual(pr_router.land_status(self.landing(self.own), decided), "pending")
+            os.environ["CI_LAND_LABEL_PUSH_CHEAP"] = "0"
+            self.assertEqual(head_tier.decide("pull_request", self.landing(self.own))[0], "full")
+        finally:
+            for n, v in old.items():
+                if v is None:
+                    os.environ.pop(n, None)
+                else:
+                    os.environ[n] = v
+
+
 class GreenBaseMergeTests(BranchRepo):
     """The same repository, read before the idle rule's 24 h: the green-head base merge rule alone decides, on a
     head the land rule holds (a ready head into feat-cmux-next from this repository, CI_LAND_TIER on)."""
@@ -314,7 +386,10 @@ class GreenBaseMergeTests(BranchRepo):
         facts = self.facts(True)
         for label in ("full-ci", "ready-to-land"):
             self.assertEqual(tier("pull_request", self.event(self.head, labels=(label,)), facts=facts,
-                                  now=recent)[0], "full", label)
+                                  now=recent, label_push_switch="0")[0], "full", label)
+        # With the labelled push rule on, an agent's base merge onto a ready-to-land PR runs the cheap tier, not none.
+        self.assertEqual(tier("pull_request", self.event(self.head, labels=("ready-to-land",)), facts=facts,
+                              now=recent)[0], "cheap")
         self.assertEqual(tier("pull_request", self.event(self.head), facts=facts, now=recent, green_switch="0")[0],
                          "cheap")
         # Where the green-head rule does not apply, the sync rule's cheap tier (or, with it off, the full tier) stays.
