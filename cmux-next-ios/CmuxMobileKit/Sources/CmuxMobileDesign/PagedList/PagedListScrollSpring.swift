@@ -156,6 +156,22 @@ final class PagedListScrollSpring {
         return (next, CGFloat(nextV), false)
     }
 
+    /// How far the slide may trail its goal (pt), or nil for no bound. Today: no bound.
+    /// - pinned: the list follows its newest row (the newest edge).
+    /// - viewport: the list's visible height.
+    /// - landing: the person's jump, its distance at the start and seconds since.
+    static func lagBound(pinned: Bool, viewport: CGFloat, landing: (start: CGFloat, elapsed: Double)?) -> CGFloat? {
+        nil
+    }
+
+    /// One step with an optional bound on the lag: the step, then the position held within `maxLag`
+    /// of the goal. `bounded` says the bound moved it (the edge moved with arriving content).
+    static func step(position: CGFloat, velocity: CGFloat, goal: CGFloat, dt: Double, response: Double,
+                     maxSpeed: CGFloat?, maxLag: CGFloat?) -> (position: CGFloat, velocity: CGFloat, settled: Bool, bounded: Bool) {
+        let next = step(position: position, velocity: velocity, goal: goal, dt: dt, response: response, maxSpeed: maxSpeed)
+        return (next.position, next.velocity, next.settled, false)
+    }
+
     private func finish(at goal: CGFloat) {
         position = goal
         apply(goal)

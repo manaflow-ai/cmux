@@ -48,6 +48,49 @@ struct PagedListScrollSpringTests {
         #expect(abs(next.position - 1000) > cap * CGFloat(frame60) + 1)
     }
 
+    /// The newest edge under a flood (bd734f10 pill case: the list stayed over a quarter screen behind
+    /// its newest row 10 s after the person's jump). A slide pinned to the newest edge chasing a goal
+    /// that moves 4000 pt/s must keep the newest row in view: within a quarter of the 760 pt list (the
+    /// newest-rows indicator's own threshold). The spring alone settles about 445 pt behind.
+    @Test func aPinnedFollowUnderAFloodKeepsTheNewestRowInView() {
+        let viewport: CGFloat = 760
+        var position: CGFloat = 0, velocity: CGFloat = 0, goal: CGFloat = 0
+        var worst: CGFloat = 0
+        for frame in 0 ..< 180 {
+            goal += 4000 * CGFloat(frame60)
+            let bound = PagedListScrollSpring.lagBound(pinned: true, viewport: viewport, landing: nil)
+            let next = PagedListScrollSpring.step(position: position, velocity: velocity, goal: goal, dt: frame60,
+                                                  response: response, maxSpeed: nil, maxLag: bound)
+            position = next.position
+            velocity = next.velocity
+            if frame > 60 { worst = max(worst, abs(goal - position)) }
+        }
+        #expect(worst <= viewport / 4 + 0.5, "the pinned follow trailed its goal by \(worst) pt")
+    }
+
+    /// The person's jump lands on the newest row within its duration (0.35 s and a frame), even while
+    /// the goal moves 4000 pt/s: from 5000 pt away it is within a quarter screen by then.
+    @Test func thePersonsJumpLandsWithinItsDuration() {
+        let viewport: CGFloat = 760
+        var position: CGFloat = 0, velocity: CGFloat = 0, goal: CGFloat = 5000
+        var elapsed = 0.0
+        while elapsed < 0.35 + frame60 {
+            goal += 4000 * CGFloat(frame60)
+            elapsed += frame60
+            let bound = PagedListScrollSpring.lagBound(pinned: true, viewport: viewport, landing: (start: 5000, elapsed: elapsed))
+            let next = PagedListScrollSpring.step(position: position, velocity: velocity, goal: goal, dt: frame60,
+                                                  response: response, maxSpeed: nil, maxLag: bound)
+            position = next.position
+            velocity = next.velocity
+        }
+        #expect(abs(goal - position) <= viewport / 4 + 0.5, "0.35 s after the jump the list is \(abs(goal - position)) pt from its newest row")
+    }
+
+    /// Not pinned (the reader is away from the newest edge): no bound, the slide runs as before.
+    @Test func awayFromTheEdgeThereIsNoBound() {
+        #expect(PagedListScrollSpring.lagBound(pinned: false, viewport: 760, landing: nil) == nil)
+    }
+
     /// Arrivals faster than the cap for two seconds at 60 Hz: the goal moves away by 80 pt each frame
     /// (4800 pt/s); every step stays within the cap, the slide never jumps to catch up, and the lag grows
     /// by the same small amount each frame (smoothly), then closes once arrivals stop.
