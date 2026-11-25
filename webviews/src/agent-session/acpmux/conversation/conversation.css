@@ -2411,9 +2411,9 @@ pre.cv-math-source {
      Motion (0 with animations off). */
   --cmux-scroller-fade-in: var(--agent-motion-in, 120ms);
   --cmux-scroller-fade-out: var(--agent-motion-move, 180ms);
-  /* Transcript arrivals follow Claude Code's softer standard step. Keep the host variable as the
-     single input so the app's minimal-motion and speed gates still win. */
-  --agent-motion-arrive: var(--cmux-motion-standard, 180ms);
+  /* Transcript arrivals follow Claude Code's softer standard step. Reuse the host-scaled move token
+     so speed, minimal-motion and reduced-motion gates still apply to the shared arrival clock. */
+  --agent-motion-arrive: var(--agent-motion-move, var(--cmux-motion-standard, 180ms));
 }
 /* Where Session Info lies over the chat, the transcript leaves its box out (session-info/chatCut.ts):
    nothing scrolls behind its glass, so it never flickers under a scroll (Leo, 2026-11-03). Only the
