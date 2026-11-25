@@ -128,3 +128,19 @@ fn a_taken_name_counts_on_from_two() {
 fn titles_compare_trimmed_and_case_insensitively() {
     assert_eq!(pick(&[" cloud machine "]), "Cloud Machine 2");
 }
+
+#[test]
+fn a_running_machine_refused_as_not_up_is_dialed_again_with_a_growing_wait() {
+    assert_eq!(redial_after_not_up(Status::Running, 0), Some(5_000));
+    assert_eq!(redial_after_not_up(Status::Running, 1), Some(15_000));
+    let waits: Vec<u64> =
+        (0..).map_while(|attempt| redial_after_not_up(Status::Running, attempt)).collect();
+    assert_eq!(waits, REDIAL_AFTER_NOT_UP_MS);
+    assert!(waits.windows(2).all(|pair| pair[0] < pair[1]), "each wait is longer");
+    // Past the last wait the machine shows its Connect.
+    assert_eq!(redial_after_not_up(Status::Running, REDIAL_AFTER_NOT_UP_MS.len() as u32), None);
+    // A machine that does not run is not dialed by itself: its record's edge connects it.
+    for status in [Status::Paused, Status::Starting, Status::Provisioning, Status::Deleting] {
+        assert_eq!(redial_after_not_up(status, 0), None, "{status:?}");
+    }
+}

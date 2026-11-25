@@ -114,6 +114,15 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             let request: Request = read(request)?;
             json!({"holds": rules::holds_connect(&request.machine, request.origin, request.app_link)})
         }
+        b"cloud_machine_redial_after_not_up" => {
+            #[derive(Deserialize)]
+            struct Request {
+                status: Status,
+                attempt: u32,
+            }
+            let request: Request = read(request)?;
+            json!({"afterMs": rules::redial_after_not_up(request.status, request.attempt)})
+        }
         b"cloud_machine_kept_for_pin" => {
             #[derive(Deserialize)]
             struct Request {
