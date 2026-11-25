@@ -126,6 +126,11 @@ struct CmuxMobileApp: App {
             .overlay(alignment: .topLeading) { LaunchMarksProbe() }
             .overlay(alignment: .topTrailing) { InputLatencyProbe() }
             .overlay(alignment: .bottomLeading) { ResumeMarksProbe() }
+            // `-cmux-placeholder-markers`: the layout-shift count for PlaceholderBoundUITests.
+            .overlay(alignment: .bottomTrailing) { LayoutShiftProbeLabel() }
+            .overlay(alignment: .bottomTrailing) { OpenMarksProbe() }
+            // `CMUX_MOBILE_LOAD_PROBE=1`: placeholder and layout-shift frames for LoadShiftsUITests.
+            .overlay(alignment: .bottomTrailing) { LoadFrameProbeLabel() }
             #endif
             .modifier(ChiefCallCover(
                 controller: ChiefVoice.controller,

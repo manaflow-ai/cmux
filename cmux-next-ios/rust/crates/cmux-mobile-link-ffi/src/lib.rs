@@ -14,6 +14,7 @@ use cmux_mobile_link::{
 };
 use tokio::runtime::Runtime;
 
+mod auto_chats;
 mod browser;
 mod classic_leftovers;
 mod composer_outbox;
@@ -22,8 +23,10 @@ mod last_place;
 mod link_side;
 pub mod local_link;
 mod mac_screen;
+mod mailbox_client;
 mod pair_requests;
 mod read_store;
+mod row_layout;
 mod share_approval;
 mod tabs;
 mod terminal_chat;
@@ -32,6 +35,9 @@ mod terminal_prediction;
 mod terminal_projection;
 mod window_layout;
 
+pub use auto_chats::{
+    AutoChat, AutoChatError, AutoChats, AutoHttp, AutoHttpError, AutoHttpReply, AutoHttpRequest,
+};
 pub use browser::{BrowserFrame, BrowserObserver, BrowserStats, BrowserStream};
 pub use classic_leftovers::{ClassicCleanupPlan, KeychainDelete, KeychainLeftover};
 pub use composer_outbox::{
@@ -1009,6 +1015,7 @@ async fn finish_link(
         connected.path.clone(),
         timeline.clone(),
         current_signaling(pool, &signaling),
+        connected.session_id.clone(),
     );
     Ok(Arc::new(LinkHandle {
         link: connected.link,
@@ -1524,6 +1531,56 @@ pub async fn prewarm(base_url: String, token: String, team_id: String, device_id
 #[uniffi::export]
 pub fn set_cellular_path(cellular: bool) {
     cmux_mobile_link::dial::wireguard::set_cellular_path(cellular);
+}
+
+/// What a network interface is (mirror of `cmux_mobile_link::dial::wireguard::InterfaceKind`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum InterfaceKind {
+    Wifi,
+    Cellular,
+    Wired,
+    Other,
+}
+
+/// One interface that is up, as iOS `NWPath.availableInterfaces` says
+/// (mirror of `cmux_mobile_link::dial::wireguard::NetInterface`).
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct NetInterface {
+    pub name: String,
+    pub kind: InterfaceKind,
+    pub expensive: bool,
+    pub constrained: bool,
+    pub primary: bool,
+}
+
+/// The interfaces that are up now (every path update). Rust decides what to
+/// do with them (a second socket on cell beside Wi-Fi, roaming).
+#[uniffi::export]
+pub fn set_network_interfaces(interfaces: Vec<NetInterface>) {
+    use cmux_mobile_link::dial::wireguard as wg;
+    wg::set_interfaces(
+        interfaces
+            .into_iter()
+            .map(|i| wg::NetInterface {
+                name: i.name,
+                kind: match i.kind {
+                    InterfaceKind::Wifi => wg::InterfaceKind::Wifi,
+                    InterfaceKind::Cellular => wg::InterfaceKind::Cellular,
+                    InterfaceKind::Wired => wg::InterfaceKind::Wired,
+                    InterfaceKind::Other => wg::InterfaceKind::Other,
+                },
+                expensive: i.expensive,
+                constrained: i.constrained,
+                primary: i.primary,
+            })
+            .collect(),
+    );
+}
+
+/// The person allows cell beside Wi-Fi (on unless they turn it off).
+#[uniffi::export]
+pub fn set_cellular_assist(allowed: bool) {
+    cmux_mobile_link::dial::wireguard::set_cellular_assist(allowed);
 }
 
 /// The Mac answered a typed batch's `send` `ack_ms` after its first key's tap
