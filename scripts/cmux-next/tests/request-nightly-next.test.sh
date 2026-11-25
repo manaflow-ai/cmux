@@ -29,7 +29,7 @@ mkdir -p "$src/cmux-tui" "$src/scripts/cmux-next" "$src/scripts/ci"
 cp "$ROOT/scripts/cmux-next/pin-cmux-tui.sh" "$ROOT/scripts/cmux-next/tree-commit-marker.sh" "$src/scripts/cmux-next/"
 [[ -f "$ROOT/scripts/cmux-next/request-nightly-next.sh" ]] \
   && cp "$ROOT/scripts/cmux-next/request-nightly-next.sh" "$src/scripts/cmux-next/"
-cp "$ROOT/scripts/ci/cmux_tui_tree_key.py" "$src/scripts/ci/"
+cp "$ROOT/scripts/ci/cmux_tui_tree_key.py" "$ROOT/scripts/ci/nightly_build_inputs.py" "$src/scripts/ci/"
 cp "$ROOT/scripts/cmux-next/nightly_quarantine.py" "$src/scripts/cmux-next/"
 cp "$ROOT/scripts/cmux-next/cmux-tui-tree-inputs.txt" "$src/scripts/cmux-next/"
 echo reducer > "$src/scripts/cmux-next/build-layout-reducer-ffi.sh"
@@ -65,16 +65,31 @@ mkdir -p "$TMP/bin"
 # commit), unless $cdn/unmarked lists the commit or $cdn/NOAUTO exists (the writer's own test).
 cat > "$TMP/bin/curl" <<STUB
 #!/usr/bin/env bash
-out="" url="" fmt=""
+raw="\$*"; out="" url="" fmt="" fail_http=0
 while [[ \$# -gt 0 ]]; do
   case "\$1" in
     -o) out="\$2"; shift 2 ;;
     -w) fmt="\$2"; shift 2 ;;
-    --proto|--retry|--retry-delay|--connect-timeout|--max-time) shift 2 ;;
+    --proto|--retry|--retry-delay|--connect-timeout|--max-time|-A) shift 2 ;;
+    --fail|--fail-with-body|-f*) fail_http=1; shift ;;
     -*) shift ;;
     *) url="\$1"; shift ;;
   esac
 done
+# The build fleet's compile results service (the precheck): a passing record for every commit, unless
+# $TMP/precheck/<sha> names another state, 404 (no record) or down (no answer).
+if [[ "\$url" == https://gh-events.cmux.com/compile-checks/v1/* ]]; then
+  echo "\$url" >> "$TMP/precheck.log"
+  printf '%s\n' "\$raw" >> "$TMP/precheck-args.log"
+  c="\${url#https://gh-events.cmux.com/compile-checks/v1/}"; c="\${c%%\?*}"
+  st=pass; [[ ! -f "$TMP/precheck/\$c" ]] || st="\$(cat "$TMP/precheck/\$c")"
+  case "\$st" in
+    down) printf 000; exit 7 ;;
+    404) printf 404; exit 0 ;;
+  esac
+  printf '{"sha": "%s", "repo": "o/r", "recipe_version": 2, "configuration": "release-onone", "state": "%s"}\n' "\$c" "\$st" > "\${out:-/dev/stdout}"
+  printf 200; exit 0
+fi
 path="\${url#https://files.cmux.com/cmux-tui/}"; path="\${path%%\?*}"
 # A -w read of a path listed in $cdn/TRUNC transfers, reports its status, then
 # fails (curl exit 18, a truncated transfer).
@@ -83,7 +98,7 @@ if [[ "\$path" != "\$url" && -n "\$fmt" ]] && grep -qxF "\$path" "$cdn/TRUNC" 2>
   exit 18
 fi
 if [[ "\$path" != "\$url" ]] && { grep -qxF "\$path" "$cdn/FAIL" 2>/dev/null || { [[ -n "\$fmt" ]] && grep -qxF "\$path" "$cdn/FAILW" 2>/dev/null; }; }; then
-  [[ -n "\$fmt" ]] && { printf 500; exit 0; }
+  [[ -n "\$fmt" ]] && { printf 500; (( fail_http )) && exit 22 || exit 0; }
   exit 22
 fi
 if [[ "\$path" == tree-commits/*.json && ! -f "$cdn/\$path" && ! -f "$cdn/NOAUTO" ]]; then
@@ -96,7 +111,7 @@ if [[ "\$path" == tree-commits/*.json && ! -f "$cdn/\$path" && ! -f "$cdn/NOAUTO
   fi
 fi
 if [[ "\$path" == "\$url" || ! -f "$cdn/\$path" ]]; then
-  [[ -n "\$fmt" ]] && { printf 404; exit 0; }
+  [[ -n "\$fmt" ]] && { printf 404; (( fail_http )) && exit 22 || exit 0; }
   exit 22
 fi
 if [[ -n "\$out" ]]; then cp "$cdn/\$path" "\$out"; else cat "$cdn/\$path"; fi
@@ -176,9 +191,11 @@ request() { # <args...> -> output in $out, exit in $status
   : > "$TMP/gh.log"
   out=$(cd "$src" && env -u GITHUB_STEP_SUMMARY -u GITHUB_OUTPUT -u CMUX_TUI_TREE_DISPATCH PATH="$TMP/bin:$PATH" \
     RUNNER_TEMP="$TMP/runner" GITHUB_RUN_ID="${RUN_ID:-1}" NIGHTLY_NEXT_PROMOTE="${PROMOTE-1}" \
+    NIGHTLY_NEXT_PRECHECK="${PRECHECK-1}" \
     bash scripts/cmux-next/request-nightly-next.sh --repo o/r "$@" 2>&1) || status=$?
 }
 mkdir -p "$TMP/runner"
+mkdir -p "$TMP/precheck"
 dispatched() { grep -qx "workflow run nightly.yml --repo o/r --ref main -f promote_nightly_next_sha=$1" "$TMP/gh.log"; }
 backfilled() { grep -qx "workflow run cmux-tui-artifacts.yml --repo o/r --ref feat-cmux-next" "$TMP/gh.log"; }
 
@@ -206,6 +223,85 @@ PROMOTE=0 request --sha "$head" --release-compile-green
 request --sha "$head" --release-compile-green
 [[ "$status" == 0 ]] && dispatched "$head" || fail "a green commit with a published tree must be promoted (exit $status):" "$out" "$(cat "$TMP/gh.log")"
 [[ "$(grep -c "workflow run nightly.yml" "$TMP/gh.log")" == 1 ]] || fail "the tick requests one promotion:" "$(cat "$TMP/gh.log")"
+
+# The nightly-next precheck reads the build fleet's existing Release verdict before
+# doing the strings and promotion work. Its result-service request carries an
+# explicit user agent so the service can attribute and rate-limit this read.
+grep -q -- '-A cmux-nightly-precheck/1' "$TMP/precheck-args.log" \
+  || fail "the precheck result read must identify its caller:" "$(cat "$TMP/precheck-args.log")"
+precheck_commit() { # <ignored marker> <name> -> app-identical commit sha
+  git_q -C "$src" commit --allow-empty -m "$2"
+  git -C "$src" rev-parse HEAD
+}
+empty_commit() { # <name> -> commit sha with no app-input diff
+  git_q -C "$src" commit --allow-empty -m "$1"
+  git -C "$src" rev-parse HEAD
+}
+precheck_green=$(precheck_commit green "precheck ancestor green")
+
+# A failed verdict on the requested commit refuses promotion before the costly
+# nightly build. It is a candidate refusal, not a job error.
+red=$(precheck_commit red "precheck red")
+echo fail > "$TMP/precheck/$red"
+request --sha "$red" --release-compile-green
+[[ "$status" == 0 ]] && ! dispatched "$red" \
+  || fail "a red Release verdict must refuse promotion (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+grep -q "precheck red" <<<"$out" || fail "the red precheck refusal must be reported:" "$out"
+
+# A queued or running verdict is also refused, so the next tick can retry it
+# after the fleet finishes instead of starting a known-unready nightly.
+git_q -C "$src" checkout -q --detach "$precheck_green"
+pending=$(precheck_commit pending "precheck pending")
+echo pending > "$TMP/precheck/$pending"
+request --sha "$pending" --release-compile-green
+[[ "$status" == 0 ]] && ! dispatched "$pending" \
+  || fail "a pending Release verdict must defer promotion (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+grep -q "not prechecked yet" <<<"$out" || fail "the pending precheck refusal must be reported:" "$out"
+
+# A missing verdict can reuse the nearest first-parent ancestor when the app
+# inputs are unchanged. The candidate itself has no result, but its ancestor's
+# pass proves the exact app that nightly will build.
+git_q -C "$src" checkout -q --detach "$precheck_green"
+ancestor=$(empty_commit "precheck ancestor reuse")
+echo 404 > "$TMP/precheck/$ancestor"
+request --sha "$ancestor" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$ancestor" \
+  || fail "a same-app ancestor pass must allow promotion (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+grep -q "nothing that reaches the app changed since" <<<"$out" \
+  || fail "ancestor reuse must be visible in the promotion report:" "$out"
+
+# A failed ancestor verdict remains red when the candidate has no own verdict.
+git_q -C "$src" checkout -q --detach "$precheck_green"
+ancestor_red_base=$(precheck_commit "ancestor red base" "precheck ancestor red")
+echo fail > "$TMP/precheck/$ancestor_red_base"
+ancestor_red=$(empty_commit "precheck ancestor red candidate")
+echo 404 > "$TMP/precheck/$ancestor_red"
+request --sha "$ancestor_red" --release-compile-green
+[[ "$status" == 0 ]] && ! dispatched "$ancestor_red" \
+  || fail "a same-app ancestor red must refuse promotion (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+grep -q "precheck red" <<<"$out" || fail "ancestor red must be reported as a precheck refusal:" "$out"
+
+# An unavailable result service is advisory. The existing promotion path stays
+# available, with a warning, when the cache cannot be read.
+git_q -C "$src" checkout -q --detach "$precheck_green"
+down=$(precheck_commit down "precheck service down")
+echo down > "$TMP/precheck/$down"
+request --sha "$down" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$down" \
+  || fail "a down result service must preserve promotion (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+grep -q "results service did not answer" <<<"$out" \
+  || fail "a down result service must emit a warning:" "$out"
+
+# Operators can turn this advisory precheck off without changing the rest of
+# the promotion contract. A red result is ignored only with the explicit opt-out.
+git_q -C "$src" checkout -q --detach "$precheck_green"
+off=$(precheck_commit off "precheck opt out")
+echo fail > "$TMP/precheck/$off"
+PRECHECK=0 request --sha "$off" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$off" \
+  || fail "the explicit precheck opt-out must preserve promotion (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+grep -q "precheck is off" <<<"$out" || fail "the opt-out must be visible in the promotion report:" "$out"
+git_q -C "$src" checkout -q --detach "$head"
 
 # A direct push red on feat-cmux-next's push runs quarantines its commit (the status cmuxterm-hq's base-red-watch
 # posts, read by scripts/cmux-next/nightly_quarantine.py): it is not promoted until a later push is green. The shape is
