@@ -111,8 +111,7 @@ pub(super) fn manifest() -> Manifest {
     // peer that also lists the screen lane; kind 4 itself is the classes lane's.
     manifest.capabilities.insert(
         cmux_mobile_link::classes::SCREEN_LANE.to_owned(),
-        [format!("control:liveness/screen-ack={}", cmux_mobile_link::classes::DATAGRAM_SCREEN_ACK)]
-        .into(),
+        [format!("control:liveness/screen-ack={}", cmux_mobile_link::classes::DATAGRAM_SCREEN_ACK)].into(),
     );
     // Each tunnel feature is keyed by the version that brought it, never the current WG_VERSION: a
     // bump must add a capability, not rename an old one. Reach goes only to a version-2 peer or newer,
@@ -130,7 +129,8 @@ pub(super) fn manifest() -> Manifest {
     manifest.versions.insert("wireguard".into(), signaling::WG_VERSION);
     manifest.accepts.insert(
         "wireguard".into(),
-        [0, signaling::WG_REACH_VERSION, cmux_mobile_link::dial::wireguard::multipath::MULTIPATH_VERSION].into(),
+        [0, signaling::WG_REACH_VERSION, cmux_mobile_link::dial::wireguard::multipath::MULTIPATH_VERSION]
+            .into(),
     );
 
     let mut vocabulary = super::signals::names();
