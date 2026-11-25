@@ -6,7 +6,8 @@ public import CmuxNextDesignTokens
 /// reading, not measured on a Mac: the jarring flash is the outgoing ground against the incoming page's. The switch itself
 /// is unchanged: the fade is added after the swap and runs in Core Animation, so it adds no latency.
 @MainActor
-public enum TabSwitchMorph {
+public struct TabSwitchMorph {
+    public init() {}
     /// Debug Settings > Panes and Columns > "Morph between tabs". Off by default (Leo, 2026-11-22, ask-5c771af51e: "ways to morph
     /// between nearby web pages to reduce jarringness").
     public static let tunable = Tunable<Bool>.toggle(
