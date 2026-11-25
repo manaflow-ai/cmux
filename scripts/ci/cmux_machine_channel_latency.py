@@ -40,6 +40,9 @@ def api(path: str) -> object:
                 return json.loads(out.stdout)
             if "HTTP 404" in out.stderr:
                 return {}  # a workflow file that no longer exists has no runs
+            if "in the last 10 minutes" in out.stderr and wait:
+                time.sleep(150)  # the broker's per-caller jobs-read window
+                continue
             if "retry after" not in out.stderr or not wait:
                 raise RuntimeError(out.stderr.strip()[:300])
             time.sleep(wait)
@@ -65,6 +68,9 @@ def pointed_runs(since: datetime) -> dict[str, tuple]:
         for run in runs:
             wf = run.get("path", "").rsplit("/", 1)[-1]
             if wf not in WORKFLOWS or ts(run["created_at"]) < since:
+                continue
+            # A coalesced run skips build and point and ends within minutes: read jobs only of runs that worked.
+            if (ts(run["updated_at"]) - ts(run.get("run_started_at") or run["created_at"])).total_seconds() < 360:
                 continue
             jobs = api(f"actions/runs/{run['id']}/jobs?per_page=100").get("jobs", [])
             ok = [j for j in jobs if j.get("conclusion") == "success"]
