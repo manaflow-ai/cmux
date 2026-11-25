@@ -33,7 +33,7 @@ const enroll = () =>
 async function fixture(options: { refuse?: string; holdHello?: boolean } = {}) {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
-  const calls: { method: string; params: Record<string, unknown> }[] = [];
+  const calls: { id: number | string; method: string; params: Record<string, unknown> }[] = [];
   const sockets: WebSocket[] = [];
   let answerHello = () => {};
   let helloStarted = () => {};
@@ -120,11 +120,11 @@ test("the real direct client enrolls and says hello before any reads; a fresh cl
       false,
       ["verify"],
     );
-    const message = (nonce: unknown) =>
+    const message = (nonce: string) =>
       new TextEncoder().encode(`cmux-device-hello/v1\nweb-device\n${nonce}\nacpmux:conn-1`);
-    const verify = (nonce: unknown) =>
+    const verify = (nonce: string) =>
       crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, key, fromB64(hello.signature as string), message(nonce));
-    expect(await verify(hello.nonce)).toBe(true);
+    expect(await verify(hello.nonce as string)).toBe(true);
     expect(await verify("another-nonce")).toBe(false);
     const log = f.wire.exportJsonl();
     expect(log).not.toContain("access-secret");
