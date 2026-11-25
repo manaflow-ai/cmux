@@ -14,9 +14,11 @@ nonisolated public struct KeptVersion: Equatable, Sendable {
     public var keptAt: Date?
     /// When it was built, `YYYY-MM-DD`; nil when not known.
     public var date: String?
+    /// The commit it was built from (`CMUXCommit` in its Info.plist); nil for a build without it.
+    public var commit: String?
 
     public init(build: String, shortVersion: String, bundle: URL, storeSchemas: [String: Int]?, teamID: String?,
-                keptAt: Date? = nil, date: String? = nil) {
+                keptAt: Date? = nil, date: String? = nil, commit: String? = nil) {
         self.build = build
         self.shortVersion = shortVersion
         self.bundle = bundle
@@ -24,6 +26,7 @@ nonisolated public struct KeptVersion: Equatable, Sendable {
         self.teamID = teamID
         self.keptAt = keptAt
         self.date = date
+        self.commit = commit
     }
 }
 
