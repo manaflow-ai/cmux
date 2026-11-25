@@ -417,7 +417,7 @@ jobs:
 
       - name: "Pool mirror: checkout"
         if: ${{ startsWith(runner.name, 'cmux-runner-pool-') }}
-        timeout-minutes: 8
+        timeout-minutes: 4
         env:
           SHA: ${{ github.sha }}
           TOKEN: ${{ github.token }}
