@@ -36,8 +36,6 @@ use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-type MakeImporter = Box<dyn FnOnce(Arc<Hub>, FakeAutoCloud, PathBuf) -> Arc<dyn SessionImporter>>;
-
 use acpmux::auto_session::record::AutoRecord;
 use acpmux::auto_session::runtime::ManualClock;
 use acpmux::auto_session::{
@@ -57,6 +55,9 @@ use cmux_auto_session::wire::{
 use futures::future::BoxFuture;
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
+
+/// Builds a rig's importer from the daemon, the laptop's transport and a folder for new chats.
+type MakeImporter = Box<dyn FnOnce(Arc<Hub>, FakeAutoCloud, PathBuf) -> Arc<dyn SessionImporter>>;
 
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 

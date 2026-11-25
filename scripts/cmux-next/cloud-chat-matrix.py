@@ -59,6 +59,7 @@ from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never s
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import claude_login_cache  # noqa: E402
+from app_launch_env import launch_env  # noqa: E402
 
 AGENTS = ("claude", "codex")
 WORKSPACES = ("empty", "small-repo", "monorepo", "private-remote", "submodules", "lfs", "dirty",
@@ -561,7 +562,7 @@ class Matrix:
         if args.app:
             launch = launch_argv(args.app, self.env["CMUX_NEXT_SOCKET_PATH"], args.credentials_file,
                                  args.cloud_backend, str(self.config))
-            self.launcher = subprocess.Popen(launch, env=self.env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            self.launcher = subprocess.Popen(launch, env=launch_env(self.env), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         # As cloud-chat-proof.py waits: the launched app answers `app identify`, then `auth.status` says it
         # is signed in on the selected backend (the first CI run read `cloud list-machines` too early and
         # gave up at 300 s, run 42808502162). Then the machine list loads.

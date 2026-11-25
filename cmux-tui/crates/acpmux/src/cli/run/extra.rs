@@ -548,6 +548,75 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        Command::Succeed { session, names } => {
+            let client = connect(true).await?;
+            let id = crate::cli::resolve::control_id(&client, &session).await?;
+            let v = client
+                .request(method::MUX_SUCCEED, json!({"sessionId": id, "names": names}))
+                .await?;
+            if json_out {
+                print_json(&v);
+            } else {
+                let added: Vec<&str> =
+                    v["added"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+                println!("{id} answers to {}", added.join(", "));
+            }
+            Ok(())
+        }
+        Command::Role { cmd } => {
+            let client = connect(true).await?;
+            let (op, params) = match cmd {
+                RoleCmd::Ls => ("ls", json!({"op": "ls"})),
+                RoleCmd::Claim { address, session } => {
+                    let id = crate::cli::resolve::control_id(&client, &session).await?;
+                    ("claim", json!({"op": "claim", "sessionId": id, "address": address}))
+                }
+                RoleCmd::Release { address, session } => {
+                    let id = crate::cli::resolve::control_id(&client, &session).await?;
+                    ("release", json!({"op": "release", "sessionId": id, "address": address}))
+                }
+            };
+            let v = client.request(method::MUX_ROLE, params).await?;
+            if json_out {
+                print_json(&v);
+                return Ok(());
+            }
+            match op {
+                "ls" => {
+                    for row in v["sessions"].as_array().into_iter().flatten() {
+                        let roles: Vec<&str> = row["roles"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(|r| r["address"].as_str())
+                            .collect();
+                        let succeeds: Vec<&str> = row["succeeds"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(Value::as_str)
+                            .collect();
+                        println!(
+                            "{}\troles: {}\tsucceeds: {}",
+                            row["name"].as_str().unwrap_or_default(),
+                            if roles.is_empty() { "-".into() } else { roles.join(", ") },
+                            if succeeds.is_empty() { "-".into() } else { succeeds.join(", ") },
+                        );
+                    }
+                }
+                "claim" => println!(
+                    "{} holds {}",
+                    v["sessionId"].as_str().unwrap_or_default(),
+                    v["address"].as_str().unwrap_or_default()
+                ),
+                _ => println!(
+                    "{} gave up {}",
+                    v["sessionId"].as_str().unwrap_or_default(),
+                    v["address"].as_str().unwrap_or_default()
+                ),
+            }
+            Ok(())
+        }
         Command::Icon { session, icon } => {
             let client = connect(true).await?;
             let id = crate::cli::resolve::control_id(&client, &session).await?;
@@ -1192,8 +1261,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         Command::Host(PeerCmd::Key { create }) => crate::cli::host_ssh_key::run(create, json_out),
         // Its own socket, a fresh daemon connection per client: none held here.
         #[cfg(unix)]
-        Command::Host(PeerCmd::BrokerForward { owner, socket }) => {
-            crate::cli::host_broker_forward::run(owner, socket).await
+        Command::Host(PeerCmd::BrokerForward { owners, socket }) => {
+            crate::cli::host_broker_forward::run(owners, socket).await
         }
         #[cfg(not(unix))]
         Command::Host(PeerCmd::BrokerForward { .. }) => {
