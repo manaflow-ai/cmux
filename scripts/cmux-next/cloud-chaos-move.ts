@@ -88,6 +88,17 @@ export function moveRng(seed: string): () => number {
 }
 const pick = <T>(rng: () => number, xs: readonly T[]): T => xs[Math.floor(rng() * xs.length) % xs.length];
 
+/**
+ * The buttons lane's Step a drill step falls in (cmux-cloud-start-core src/moves/place.rs Step, as relayed by the
+ * kill-mid-move-drills lane): freeze, carry or commit. bulk_sync is the folder's first sync before the move, which
+ * these steps never stop in.
+ */
+export function buttonStep(step: MoveStep): "freeze" | "carry" | "commit" {
+  if (step === "before-begin" || step === "after-begin") return "freeze";
+  if (step === "frozen-sync") return "carry";
+  return "commit";
+}
+
 /** Where the pump stops for a step: which socket role, which command, its request or its answer. */
 export type MoveTrigger = { roles: Array<"from" | "to" | "sync" | "sync-from">; cmd: string | null; on: "request" | "answer" };
 export function moveTrigger(step: MoveStep): MoveTrigger {
@@ -119,6 +130,8 @@ const ID_OF = /"id"\s*:\s*(\d+)/;
  */
 export class MoveTripwire {
   fired = false;
+  /** The step's own answer came back a refusal, so the step never happened. */
+  refused = false;
   firedAt = 0;
   begun = false;
   writes = 0;
@@ -154,6 +167,8 @@ export class MoveTripwire {
       if (!this.begun || dir !== "request") return;
       this.note(`${role} sync request ${(/"cmd"\s*:\s*"([^"]+)"/.exec(line)?.[1] ?? line.slice(0, 40))}`);
     } else if (cmd !== t.cmd) return;
+    // An answer step happened only when the side said yes: a refusal there is the move ending early, not the step.
+    else if (dir === "answer" && !/"ok"\s*:\s*true/.test(line)) { this.refused = true; return; }
     this.fired = true;
     this.firedAt = Date.now();
     this.note(`trigger: holding the ${dir}; fault in`);
@@ -372,15 +387,20 @@ export class LocalMachine {
   }
 }
 
-/** `cmux carrier serve` for one Cloud machine: the app-link socket the app hands the pump. */
+/**
+ * `cmux carrier serve` for one Cloud machine: the app-link socket the app hands the pump. Serve ends when its stdin
+ * closes and removes the socket, so stdin stays an open pipe for as long as this serves (with "ignore" it printed its
+ * ready line and left at once: run 45162400826's seed pushes all found no socket). `env` is read at each start, so a
+ * restart carries the journey's current access token.
+ */
 export class CarrierServe {
   proc: ChildProcess | null = null;
-  constructor(readonly machine: string, readonly socket: string, private cmux: string, private env: Record<string, string | undefined>, private team?: string) {}
+  constructor(readonly machine: string, readonly socket: string, private cmux: string, private env: () => Record<string, string | undefined>, private team?: string) {}
 
   async start(): Promise<void> {
     const args = ["carrier", "serve", "--machine", this.machine, "--socket", this.socket];
     if (this.team) args.push("--team", this.team);
-    const p = spawn(this.cmux, args, { env: this.env as NodeJS.ProcessEnv, stdio: ["ignore", "ignore", "pipe"] });
+    const p = spawn(this.cmux, args, { env: this.env() as NodeJS.ProcessEnv, stdio: ["pipe", "ignore", "pipe"] });
     this.proc = p;
     let err = "";
     await new Promise<void>((resolve, reject) => {
@@ -394,6 +414,7 @@ export class CarrierServe {
   }
 
   stop(): void {
+    this.proc?.stdin?.end();
     this.proc?.kill("SIGKILL");
     this.proc = null;
   }
@@ -514,7 +535,7 @@ export function countFilesCommand(dir: string, tag: string, n = MOVE_COUNT_STEPS
 /** What the drill gives each Cloud machine and what it may do to one, supplied by cloud-journey.ts. */
 export type MoveContext = {
   cmux: string;
-  /** The carrier's environment: the Cloud API and the person's bearer. */
+  /** The carrier's environment: the Cloud API and the person's bearer, read at each carrier start (the journey refreshes the token in place). */
   env: Record<string, string | undefined>;
   machines: [string, string];
   team?: string;
@@ -546,12 +567,17 @@ export type MoveResult = {
   seed: string;
   direction: MoveDirection;
   step: MoveStep;
+  /** The buttons lane's Step name for `step` (buttonStep). */
+  button_step: "freeze" | "carry" | "commit";
   kill: MoveKill;
   outcome: "pass" | "fail" | "unmeasured";
   /** What the person lost; empty: nothing. */
   lost: string[];
   open: string;
+  /** Distinct runs of the queued prompt overall, and the turn_result records each side's journal holds for it. */
   queued_runs: number;
+  queued_src?: number;
+  queued_dst?: number;
   draft: string;
   edit: string;
   commit: string;
@@ -621,7 +647,7 @@ export async function runMoveChaos(ctx: MoveContext): Promise<MoveResult[]> {
   const local = new LocalMachine(path.join(root, "L"), ctx.cmux, ctx.stubPy, ctx.stubScript, ctx.claudeBin);
   await local.start();
   ctx.log(`move: local machine up at ${local.dir} (stub on ${local.stubPort})`);
-  const carriers = ctx.machines.map((m, i) => new CarrierServe(m, path.join(root, `c${i}.sock`), ctx.cmux, { ...ctx.env, CMUX_TUI_STATE_DIR: path.join(root, `cs${i}`) }, ctx.team));
+  const carriers = ctx.machines.map((m, i) => new CarrierServe(m, path.join(root, `c${i}.sock`), ctx.cmux, () => ({ ...ctx.env, CMUX_TUI_STATE_DIR: path.join(root, `cs${i}`) }), ctx.team));
   for (const c of carriers) await c.start();
   const cloudSide = (i: number): MoveSide => ({ name: i === 0 ? "A" : "B", kind: "cloud", socket: carriers[i].socket, exec: ctx.execFor(ctx.machines[i]), guest: ctx.guest, home: "/home/cmux", machine: ctx.machines[i] });
   const localSide: MoveSide = { name: "L", kind: "local", socket: local.socket, exec: local.exec, guest: local.guest, home: local.home, local };
@@ -633,7 +659,7 @@ export async function runMoveChaos(ctx: MoveContext): Promise<MoveResult[]> {
         : plan.direction === "cloud-local" ? [cloudSide(0), localSide] : [cloudSide(0), cloudSide(1)];
       ctx.log(`move: run ${run} seed ${plan.seed}: ${plan.direction} ${plan.step} ${plan.kill}`);
       const r = await moveRun(ctx, { ...plan, run, root, src, dst, local, carriers }).catch((e: Error): MoveResult => ({
-        run, seed: plan.seed, direction: plan.direction, step: plan.step, kill: plan.kill, outcome: "unmeasured", lost: [], open: "", queued_runs: -1,
+        run, seed: plan.seed, direction: plan.direction, step: plan.step, button_step: buttonStep(plan.step), kill: plan.kill, outcome: "unmeasured", lost: [], open: "", queued_runs: -1,
         draft: "", edit: "", commit: "", pump_first: "", pump_retry: "", seen_ms: null, fault_s: null, detail: `the run broke: ${e.message}`, trace: [],
       }));
       results.push(r);
@@ -650,7 +676,7 @@ export async function runMoveChaos(ctx: MoveContext): Promise<MoveResult[]> {
   return results;
 }
 
-export type RunArgs = { direction: MoveDirection; step: MoveStep; kill: MoveKill; seed: string; run: string; root: string; src: MoveSide; dst: MoveSide; local: LocalMachine; carriers: CarrierServe[] };
+export type RunArgs = { direction: MoveDirection; step: MoveStep; kill: MoveKill; seed: string; run: string; root: string; src: MoveSide; dst: MoveSide; local: LocalMachine; carriers: CarrierServe[]; /** The harness's own self-test between two local daemons, which serve no file ops: no folder sync. */ noSync?: boolean };
 
 async function waitIdentify(socket: string, ms: number): Promise<boolean> {
   for (const until = Date.now() + ms; Date.now() < until; await sleep(2_000)) {
@@ -707,7 +733,9 @@ export async function moveRun(ctx: MoveContext, a: RunArgs): Promise<MoveResult>
   // 2. The folder's first sync, as the app makes it before a move (none for a relay: the move carries it all).
   const pumpEnv = a.local.env;
   const cm = (args: string[], ms = 180_000) => runPump(ctx.cmux, args, pumpEnv).then((p) => (p.ok ? p : Promise.reject(new Error(`${args.slice(0, 3).join(" ")}: ${pumpText(p)}`))));
-  if (a.direction === "local-cloud") {
+  if (a.noSync) {
+    await a.dst.exec(`mkdir -p ${shq(dstFolder)}`);
+  } else if (a.direction === "local-cloud") {
     await cm(["link", "seed", "push", "--socket", a.dst.socket, srcFolder, dstFolder]);
   } else if (a.direction === "cloud-local") {
     await cm(["link", "seed", "fetch", "--socket", a.src.socket, dstFolder, srcFolder, "--find-root", "--adopt"]).catch(async (e: Error) => {
@@ -817,7 +845,9 @@ export async function moveRun(ctx: MoveContext, a: RunArgs): Promise<MoveResult>
   const from = await proxy("from", a.src.socket);
   const to = await proxy("to", a.dst.socket);
   const args = ["link", "agent", "move", "--from-socket", from, "--surface", String(surface), "--to-socket", to, "--cwd", dstFolder, "--interrupt", "--state-dir", path.join(dir, "pump")];
-  if (a.direction === "local-cloud") {
+  if (a.noSync) {
+    // no --sync
+  } else if (a.direction === "local-cloud") {
     args.push("--sync", "seed", "--sync-socket", await proxy("sync", a.dst.socket), "--sync-local", srcFolder, "--sync-remote", dstFolder, "--vm-kind", "owner");
   } else if (a.direction === "cloud-local") {
     args.push("--sync", "pull", "--sync-socket", await proxy("sync", a.src.socket), "--sync-local", dstFolder, "--sync-remote", srcFolder);
@@ -825,14 +855,17 @@ export async function moveRun(ctx: MoveContext, a: RunArgs): Promise<MoveResult>
     args.push("--sync", "relay", "--sync-from-socket", await proxy("sync-from", a.src.socket), "--sync-socket", await proxy("sync", a.dst.socket), "--sync-local", srcFolder, "--sync-remote", dstFolder, "--vm-kind", "owner");
   }
   const first = await runPump(ctx.cmux, args, pumpEnv, (p) => (pump = p));
-  for (const p of proxies) p.stop();
+  // The proxies stay up for the Retry: the pump's move record is keyed by --from-socket and names
+  // --to-socket, so the app's Retry runs on the same paths, as here. The wire fires once.
+  const stopProxies = () => { for (const p of proxies) p.stop(); };
   trace.push(...wire.trace);
   note(`pump: ${pumpText(first)}`);
   const faultS = a.kill === "cut" ? cutS : a.kill.startsWith("pause") ? pauseS : null;
   if (!wire.fired) {
+    stopProxies();
     return {
-      run: a.run, seed: a.seed, direction: a.direction, step: a.step, kill: a.kill, outcome: "unmeasured", lost: [], open: "", queued_runs: -1, draft: "", edit: "", commit: "",
-      pump_first: pumpText(first), pump_retry: "not run", seen_ms: null, fault_s: faultS, detail: `the pump never reached ${a.step} (${a.step === "mid-copy" ? `${wire.writes} writes` : "no such request"})`, trace,
+      run: a.run, seed: a.seed, direction: a.direction, step: a.step, button_step: buttonStep(a.step), kill: a.kill, outcome: "unmeasured", lost: [], open: "", queued_runs: -1, draft: "", edit: "", commit: "",
+      pump_first: pumpText(first), pump_retry: "not run", seen_ms: null, fault_s: faultS, detail: `the pump never reached ${a.step} (${wire.refused ? `the step's answer was a refusal: ${pumpText(first)}` : a.step === "mid-copy" ? `${wire.writes} writes` : "no such request"})`, trace,
     };
   }
 
@@ -842,10 +875,10 @@ export async function moveRun(ctx: MoveContext, a: RunArgs): Promise<MoveResult>
   await bringBack(ctx, a.carriers, [a.src, a.dst], note);
   let retry: PumpAnswer | null = null;
   if (!first.ok) {
-    const direct = args.map((x) => (x === from ? a.src.socket : x === to ? a.dst.socket : x.startsWith(dir) && x.endsWith(".sock") ? (x.endsWith("sync-from.sock") ? a.src.socket : a.direction === "cloud-local" ? a.src.socket : a.dst.socket) : x));
-    retry = await runPump(ctx.cmux, direct, pumpEnv);
+    retry = await runPump(ctx.cmux, args, pumpEnv);
     note(`retry: ${pumpText(retry)}`);
   }
+  stopProxies();
   const last = retry ?? first;
   const seenMs = Date.now() - wire.firedAt - (retry ? 0 : 0);
 
@@ -857,12 +890,19 @@ export async function moveRun(ctx: MoveContext, a: RunArgs): Promise<MoveResult>
   let dstSum: any = null;
   let srcEv: any[] = [];
   let dstEv: any[] = [];
-  const runsOf = (evs: any[]) => evs.filter((e) => e.kind === "turn_result" && e.promptId === queuedId).length;
+  // A read that fails is not an empty journal: keep its error so the verdict says which it was.
+  const evErr: Record<string, string> = {};
+  const eventsOn = (side: MoveSide) =>
+    acpmuxOn(side, "events", session).then(
+      (evs: any) => { delete evErr[side.name]; return Array.isArray(evs) ? evs : (evErr[side.name] = `not a list: ${JSON.stringify(evs).slice(0, 120)}`, []); },
+      (e: Error) => { evErr[side.name] = e.message.slice(0, 200); return []; },
+    );
+  const runsOf = (evs: any[]) => new Set(evs.filter((e) => e.kind === "turn_result" && e.promptId === queuedId).map((e) => `${e.seq}|${e.text}`)).size;
   for (const until = Date.now() + 240_000; ; await sleep(5_000)) {
     [srcSum, dstSum] = await Promise.all([findSummary(a.src), findSummary(a.dst)]);
-    [srcEv, dstEv] = await Promise.all([acpmuxOn(a.src, "events", session).catch(() => []), acpmuxOn(a.dst, "events", session).catch(() => [])]);
+    [srcEv, dstEv] = await Promise.all([eventsOn(a.src), eventsOn(a.dst)]);
     const openSum = [srcSum, dstSum].find((s) => s && !s.error && s.status !== "closed");
-    if (runsOf(srcEv) + runsOf(dstEv) >= 1 && !openSum?.turn) break;
+    if (new Set([...srcEv, ...dstEv].filter((e) => e.kind === "turn_result" && e.promptId === queuedId).map((e) => `${e.seq}|${e.text}`)).size >= 1 && !openSum?.turn) break;
     if (Date.now() > until) break;
   }
   const isOpen = (s: any) => Boolean(s && !s.error && s.status !== "closed");
@@ -874,8 +914,14 @@ export async function moveRun(ctx: MoveContext, a: RunArgs): Promise<MoveResult>
   // Every record the source held when the move began is in the surviving journal, under the same seq and kind.
   const bySeq = new Map(survivorEv.map((e: any) => [e.seq, e]));
   const missing = survivor ? before.filter((e) => !bySeq.has(e.seq) || bySeq.get(e.seq).kind !== e.kind) : before;
-  if (missing.length) lost.push(`${missing.length} of ${before.length} chat records (first seq ${missing[0].seq} ${missing[0].kind})`);
-  const qRuns = runsOf(srcEv) + runsOf(dstEv);
+  const unread = survivor ? evErr[survivor.name] : undefined;
+  if (missing.length) lost.push(`${missing.length} of ${before.length} chat records (first seq ${missing[0].seq} ${missing[0].kind})${unread ? ` [events on ${survivor!.name} unreadable: ${unread}]` : survivor && !survivorEv.length ? ` [events on ${survivor.name} read empty]` : ""}`);
+  // The queued prompt's runs on each side, and overall: a moved journal carries the source's records, so a run
+  // the source made before the move shows on both sides with the same seq and content and counts once.
+  const qRec = (evs: any[]) => evs.filter((e) => e.kind === "turn_result" && e.promptId === queuedId).map((e) => `${e.seq}|${e.text}`);
+  const qSrc = qRec(srcEv).length;
+  const qDst = qRec(dstEv).length;
+  const qRuns = new Set([...qRec(srcEv), ...qRec(dstEv)]).size;
   if (qRuns !== 1) lost.push(qRuns === 0 ? "queued prompt never ran" : `queued prompt ran ${qRuns} times`);
   let draft = "no survivor";
   if (survivor) {
@@ -899,8 +945,8 @@ export async function moveRun(ctx: MoveContext, a: RunArgs): Promise<MoveResult>
   if (survivor === a.dst && !landed.edit && editAt.length) strand.push(`edit only in the ${edit}`);
   if (survivor === a.dst && !landed.commit && commitAt.length) strand.push(`commit only in the ${commit}`);
   return {
-    run: a.run, seed: a.seed, direction: a.direction, step: a.step, kill: a.kill,
-    outcome: lost.length ? "fail" : "pass", lost, open, queued_runs: qRuns, draft, edit, commit,
+    run: a.run, seed: a.seed, direction: a.direction, step: a.step, button_step: buttonStep(a.step), kill: a.kill,
+    outcome: lost.length ? "fail" : "pass", lost, open, queued_runs: qRuns, queued_src: qSrc, queued_dst: qDst, draft, edit, commit,
     pump_first: pumpText(first), pump_retry: pumpText(retry), seen_ms: seenMs, fault_s: faultS,
     detail: `${last.ok ? "move finished" : `move did not finish: ${last.json?.error_code ?? "no answer"}`}${strand.length ? `; ${strand.join("; ")}` : ""}`,
     trace,
@@ -909,6 +955,6 @@ export async function moveRun(ctx: MoveContext, a: RunArgs): Promise<MoveResult>
 
 /** The results as a markdown table: direction × step × kill → what was lost. */
 export function moveTable(results: MoveResult[]): string {
-  const rows = results.map((r) => `| ${r.direction} | ${r.step} | ${r.kill} | ${r.outcome} | ${r.lost.join("; ") || "nothing"} | ${r.open} | ${r.queued_runs} | ${r.draft} | ${r.edit} | ${r.commit} | ${r.pump_first}${r.pump_retry !== "not run" ? ` → retry ${r.pump_retry}` : ""} | ${r.seen_ms ?? ""} | ${r.run} | ${r.seed} |`);
+  const rows = results.map((r) => `| ${r.direction} | ${r.step} (${r.button_step}) | ${r.kill} | ${r.outcome} | ${r.lost.join("; ") || "nothing"} | ${r.open} | ${r.queued_runs} (src ${r.queued_src ?? "?"}, dst ${r.queued_dst ?? "?"}) | ${r.draft} | ${r.edit} | ${r.commit} | ${r.pump_first}${r.pump_retry !== "not run" ? ` → retry ${r.pump_retry}` : ""} | ${r.seen_ms ?? ""} | ${r.run} | ${r.seed} |`);
   return ["| direction | step | kill | outcome | lost | open | queued ran | draft | edit | commit | pump (person sees) | seen ms | run | seed |", "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|", ...rows].join("\n");
 }

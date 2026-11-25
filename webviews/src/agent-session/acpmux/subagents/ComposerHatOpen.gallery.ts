@@ -7,6 +7,7 @@
 // the whole row opening with a chevron of its own for details; and today's lines with the hide control
 // moved from the hat's top edge into the header.
 import { agentPaneEntry } from "../../../gallery/format";
+import { pinKindsHead } from "../../../gallery/fixtures/kindsHead";
 import { activity, assistant, chat, row, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
@@ -96,65 +97,67 @@ const tuckHovered = async (ctx: PlayContext) => {
   await ctx.hover({ selector: ".acpmux-running-tray__tuck" });
 };
 
-export default agentPaneEntry({
-  id: "agent-pane.composer-hat-open",
-  title: "Composer hat: opening a subagent",
-  area: "Agent pane",
-  height: 560,
-  widths: { narrow: 360 },
-  anchors: [{ selector: ".acpmux-composer" }],
-  covers: [
-    "agent-session/acpmux/subagents/SubagentTray.tsx",
-    "agent-session/acpmux/subagents/AgentLine.tsx",
-    "agent-session/acpmux/subagents/hatOpen.experiment.ts",
-    "agent-session/acpmux/subagents/hatOpen.css",
-  ],
-  experiment: {
-    definition: hatOpenLook,
-    script: [
-      { name: "the hat open", run: expanded },
-      {
-        name: "the pointer on a line",
-        run: async (ctx) => ctx.hover({ selector: SECOND_LINE }),
-      },
+export default pinKindsHead(
+  agentPaneEntry({
+    id: "agent-pane.composer-hat-open",
+    title: "Composer hat: opening a subagent",
+    area: "Agent pane",
+    height: 560,
+    widths: { narrow: 360 },
+    anchors: [{ selector: ".acpmux-composer" }],
+    covers: [
+      "agent-session/acpmux/subagents/SubagentTray.tsx",
+      "agent-session/acpmux/subagents/AgentLine.tsx",
+      "agent-session/acpmux/subagents/hatOpen.experiment.ts",
+      "agent-session/acpmux/subagents/hatOpen.css",
     ],
-  },
-  variants: {
-    "today-open": {
-      note: "Today, open: every line ends in the same chevron, but a subagent's opens its view and the command's expands in place.",
-      play: lineHovered,
-      snapshot,
-      experiments: pins("today"),
+    experiment: {
+      definition: hatOpenLook,
+      script: [
+        { name: "the hat open", run: expanded },
+        {
+          name: "the pointer on a line",
+          run: async (ctx) => ctx.hover({ selector: SECOND_LINE }),
+        },
+      ],
     },
-    "today-tuck": {
-      note: "Today's hide control: the tab hanging from the hat's top edge, over the resize rim.",
-      play: tuckHovered,
-      snapshot,
-      experiments: pins("today"),
+    variants: {
+      "today-open": {
+        note: "Today, open: every line ends in the same chevron, but a subagent's opens its view and the command's expands in place.",
+        play: lineHovered,
+        snapshot,
+        experiments: pins("today"),
+      },
+      "today-tuck": {
+        note: "Today's hide control: the tab hanging from the hat's top edge, over the resize rim.",
+        play: tuckHovered,
+        snapshot,
+        experiments: pins("today"),
+      },
+      "rolodex-line": {
+        note: "Hover Rolodex: the line under the pointer flips a card up with its whole task, state and latest step; a click on a subagent opens it.",
+        play: thumbed,
+        snapshot,
+        experiments: pins("rolodex"),
+      },
+      "row-open": {
+        note: "Row opens: every line, the command too, opens what it stands for; its chevron is a button of its own, lit alone.",
+        play: lineHovered,
+        snapshot,
+        experiments: pins("row"),
+      },
+      "row-details": {
+        note: "Row opens, chevron pressed: the line's whole task and latest step open under it, in place.",
+        play: detailsOpen,
+        snapshot,
+        experiments: pins("row"),
+      },
+      "hide-head": {
+        note: "Hide in the header: the hide button sits before the panel button and the chevron, shown while the pointer is on the hat; the top edge keeps only the resize rim.",
+        play: hideHovered,
+        snapshot,
+        experiments: pins("hide"),
+      },
     },
-    "rolodex-line": {
-      note: "Hover Rolodex: the line under the pointer flips a card up with its whole task, state and latest step; a click on a subagent opens it.",
-      play: thumbed,
-      snapshot,
-      experiments: pins("rolodex"),
-    },
-    "row-open": {
-      note: "Row opens: every line, the command too, opens what it stands for; its chevron is a button of its own, lit alone.",
-      play: lineHovered,
-      snapshot,
-      experiments: pins("row"),
-    },
-    "row-details": {
-      note: "Row opens, chevron pressed: the line's whole task and latest step open under it, in place.",
-      play: detailsOpen,
-      snapshot,
-      experiments: pins("row"),
-    },
-    "hide-head": {
-      note: "Hide in the header: the hide button sits before the panel button and the chevron, shown while the pointer is on the hat; the top edge keeps only the resize rim.",
-      play: hideHovered,
-      snapshot,
-      experiments: pins("hide"),
-    },
-  },
-});
+  }),
+);

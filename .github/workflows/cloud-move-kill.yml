@@ -1,0 +1,165 @@
+name: Cloud move kill drills (staging, real machines)
+
+# Kills one side of a chat move mid-step on real Cloud machines and reports what the person lost
+# (scripts/cmux-next/cloud-chaos-move.ts, run as `cloud-journey.ts --chaos-move`). Leo (2026-11-23): "i was also
+# curious about the ultra destructive case and the sync stuff regarding local and cloud vms. is that already solved?"
+#
+# The runner plays the person's Mac (a headless cmux-tui daemon and its acpmux, Claude Code on the model stub);
+# machine A is the journey's own and machine B a second one for Cloud->Cloud; the journey deletes both. One job per
+# kill measures every direction x step once (24 runs); `random` records 20 seeded random runs. The tables are the
+# job summaries and the move-* artifacts. Nothing gates on these drills: a loss is a finding, so the jobs fail
+# only when the drill itself breaks, never on a red cell (continue-on-error).
+#
+# Secrets: the staging agent test account (cmux-next-vm-image-dev), as cloud-journey-pr.yml reads it. Same-repo
+# pull requests only.
+
+on:
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: The drills' seed
+        required: false
+        default: ""
+        type: string
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - scripts/cmux-next/cloud-chaos-move.ts
+      - scripts/cmux-next/cloud-journey.ts
+      - .github/workflows/cloud-move-kill.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-move-kill-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/feat-cmux-next' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    timeout-minutes: 60  # a cold-cache runner took 40+ min in run 45449534340
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+      - name: Initialize Ghostty protocol submodules
+        run: git submodule update --init --depth 1 ghostty ghostty-next
+      - name: Install Linux cmux-tui build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+      - name: Set up cmux-tui Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+      - name: Resolve Ghostty Zig version
+        id: ghostty-zig-version
+        env:
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+        run: |
+          set -euo pipefail
+          version="$(bash ./scripts/ghostty-zig-version.sh)"
+          [[ -n "$version" ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Set up Zig for Ghostty
+        uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
+        with:
+          version: ${{ steps.ghostty-zig-version.outputs.version }}
+          use-cache: false
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        uses: ./.github/actions/zig-global-cache
+      - name: Build this pull request's Linux cmux-tui
+        working-directory: cmux-tui
+        env:
+          CARGO_NET_RETRY: "10"
+          CARGO_HTTP_TIMEOUT: "120"
+          GHOSTTY_ZIG_SOURCE: ghostty-next
+          CMUX_GHOSTTY_SRC: ""
+          # The drill jobs run this binary on other runners: libghostty-vt for any x86-64 CPU, not this
+          # runner's (Zig's default is the build host's CPU; run 45151030154's drills died on SIGILL).
+          CMUX_GHOSTTY_VT_ZIG_CPU: baseline
+        run: |
+          set -euo pipefail
+          cargo build -p cmux-tui --bin cmux-tui --locked
+          mkdir -p "$RUNNER_TEMP/bin"
+          cp "${CARGO_TARGET_DIR:-target}/debug/cmux-tui" "$RUNNER_TEMP/bin/cmux-tui"
+          sha256sum "$RUNNER_TEMP/bin/cmux-tui"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: move-kill-cmux-tui-${{ github.run_id }}
+          path: ${{ runner.temp }}/bin/cmux-tui
+          retention-days: 1
+          if-no-files-found: error
+
+  drill:
+    needs: build
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    environment:
+      name: cmux-next-vm-image-dev
+      deployment: false
+    # Below the leaked-machine sweep's age bound (STALE_JOURNEY_MS, 3 h), so the sweep never takes a drill's live
+    # machine: 24 cells took 50 to 90+ min in run 45389153532 (source-side kills wait out a resume each).
+    timeout-minutes: 170
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      # Two machines a job. Two jobs at once: the staging team's 300-machine cap infra-failed off-dst, random and
+      # kill-dst in run 45468029304 at four. random goes first: it is the seeded 20-run pass.
+      max-parallel: 2
+      matrix:
+        kill: [random, kill-src, pause-src, cut, kill-dst, off-src, off-dst, pause-dst]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/cmux-next
+            tests/fixtures/model-stub
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: move-kill-cmux-tui-${{ github.run_id }}
+          path: ${{ runner.temp }}/bin
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+      - name: Claude Code for the runner's own side (the person's Mac)
+        run: |
+          set -euo pipefail
+          # A self-hosted runner's global npm prefix is not the job's to write: a prefix of its own.
+          prefix="$RUNNER_TEMP/npm-global"
+          npm install --global --prefix "$prefix" --no-fund --no-audit @anthropic-ai/claude-code@2.1.284 >/dev/null
+          echo "$prefix/bin" >> "$GITHUB_PATH"
+          "$prefix/bin/claude" --version
+          chmod 0755 "$RUNNER_TEMP/bin/cmux-tui"
+      - name: Move drills (${{ matrix.kill }})
+        env:
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+          KILL: ${{ matrix.kill }}
+          SEED: ${{ inputs.seed || format('gh{0}', github.run_id) }}
+          RANDOM_KILLS: kill-src,pause-src,cut
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/move/$KILL"
+          mkdir -p "$out"
+          # The seeded pass draws from the kinds that got machines under the cap (RANDOM_KILLS empties it: every kind).
+          if [ "$KILL" = random ]; then pick=(--runs 20 ${RANDOM_KILLS:+--kill "$RANDOM_KILLS"}); else pick=(--kill "$KILL"); fi
+          rc=0
+          bun scripts/cmux-next/cloud-journey.ts --backend staging --out "$out" --cmux "$RUNNER_TEMP/bin/cmux-tui" \
+            --model stub --chaos-move --seed "$SEED-$KILL" --claude-bin "$(command -v claude)" "${pick[@]}" || rc=$?
+          { echo "### Move drills: $KILL (seed $SEED-$KILL)"; echo; cat "$out/move.md" 2>/dev/null || echo "(no table written)"; echo; } >> "$GITHUB_STEP_SUMMARY"
+          test -s "$out/move.json" || { echo "::error::the drill wrote no results (journey exit $rc)"; exit 1; }
+          ran=$(jq '[.results[] | select(.outcome != "unmeasured")] | length' "$out/move.json")
+          [ "$ran" -gt 0 ] || { echo "::error::the drill measured no move (journey exit $rc): $(grep -m1 'FAIL move drills' "$out/summary.md" 2>/dev/null || echo 'see journey.json')"; exit 1; }
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: move-${{ matrix.kill }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/move/**/move.*
+            ${{ runner.temp }}/move/**/journey.json
+            ${{ runner.temp }}/move/**/summary.md
+          if-no-files-found: warn
+          retention-days: 14

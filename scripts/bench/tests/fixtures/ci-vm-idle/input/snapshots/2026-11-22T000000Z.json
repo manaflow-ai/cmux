@@ -1,0 +1,15 @@
+{
+  "generated_at": "2026-11-22T00:00:00Z",
+  "rows": [
+    {
+      "name": "cmux-runner-pool-test-0001",
+      "machine_type": "n2-standard-16",
+      "zone": "us-central1-a",
+      "status": "RUNNING",
+      "created": "2026-11-21T00:00:00Z",
+      "last_start": "2026-11-22T00:00:00Z",
+      "last_stop": "",
+      "last_suspended": ""
+    }
+  ]
+}

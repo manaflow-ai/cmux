@@ -17,6 +17,7 @@
 //! backend, not an older one; an older backend omits only optional fields.
 
 use super::{CloudError, decode_answer};
+use cmux_cloud_disk::{self as disk, DiskReport};
 use cmux_cloud_wire::{CloudConnectInfo, CloudMachine, CloudMachineConnectInfoOp, Op};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -111,9 +112,32 @@ fn disk_health_state(value: &Value) -> &'static str {
     if free <= floor { "warning" } else { "healthy" }
 }
 
-fn annotate_disk_health(mut value: Value) -> Value {
+/// The report with its `state` and its `bar` (cmux-cloud-disk [`disk::view`]:
+/// used over allocated split system / project / caches, the Cloud page draws
+/// it as it is). A report the state calls `unknown` gives a bar of the
+/// allocation alone, as a guest that reports nothing would.
+///
+/// cmux-platform writes the report from the guest's `acpmux machine load` (`total_mb`,
+/// `used_mb`, `free_mb`, `system_mb`, `project_mb`, `caches_mb`); [`DiskReport::from_health`]
+/// reads those and the guest's own names.
+fn annotate_disk_health(mut value: Value, allocated_mb: Option<i64>) -> Value {
     let state = disk_health_state(&value);
+    // The bar needs only the sizes: a report without the health fields (`floor_mb`,
+    // `top_users`) still draws, its health `unknown`; sizes that contradict (used and free over
+    // the total) draw the allocation alone.
+    let report = DiskReport::from_health(&value)
+        .filter(|r| match (r.total_bytes, r.used_bytes, r.free_bytes) {
+            (Some(total), Some(used), free) => used.saturating_add(free.unwrap_or(0)) <= total,
+            _ => true,
+        })
+        .unwrap_or_default();
     if let Value::Object(object) = &mut value {
+        let allocated = allocated_mb.and_then(|mb| disk::mib(Some(mb as f64)));
+        if let Some(bar) =
+            disk::view(allocated, &report).and_then(|bar| serde_json::to_value(bar).ok())
+        {
+            object.insert("bar".into(), bar);
+        }
         object.insert("state".into(), Value::String(state.into()));
     }
     value
@@ -144,7 +168,7 @@ impl TryFrom<MachineWire> for Machine {
         let MachineWire { mut record, mut extra } = wire;
         record.revision = Revision::try_from(std::mem::take(&mut record.revision))?.into();
         if let Some(value) = extra.disk_health.take() {
-            extra.disk_health = Some(annotate_disk_health(value));
+            extra.disk_health = Some(annotate_disk_health(value, record.size.disk_mb));
         }
         Ok(Self { record, extra })
     }
