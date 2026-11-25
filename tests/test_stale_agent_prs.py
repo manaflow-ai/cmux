@@ -207,5 +207,34 @@ class SuccessorTests(unittest.TestCase):
         self.assertEqual(module.successors(merged, "manaflow-ai/cmux"), {101: 200, 102: 200, 103: 201})
 
 
+
+class SearchPastCapTests(unittest.TestCase):
+    """GitHub's search stops at 1000 results; with more open agent PRs the oldest were never scored (2026-11-25)."""
+
+    def test_every_open_pr_is_read_past_the_search_cap(self):
+        everything = [{"number": n, "createdAt": f"2026-{1 + n // 250:02d}-{1 + n % 25:02d}T00:00:{n % 60:02d}Z"}
+                      for n in range(1, 2301)]
+        everything.sort(key=lambda node: (node["createdAt"], node["number"]))
+
+        def fake_gh_json(*args):
+            q = next(a for a in args if a.startswith("q="))[2:]
+            since = next((word.split(">=", 1)[1] for word in q.split() if word.startswith("created:>=")), None)
+            hits = [node for node in everything if since is None or node["createdAt"] >= since]
+            if "sort:created-asc" not in q:
+                hits = list(reversed(hits))
+            hits = hits[:1000]
+            after = next((int(a[6:]) for a in args if a.startswith("after=")), 0)
+            page = hits[after:after + 100]
+            return {"data": {"search": {"nodes": page, "pageInfo": {"hasNextPage": after + 100 < len(hits),
+                                                                     "endCursor": str(after + 100)}}}}
+
+        original = module.gh_json
+        module.gh_json = fake_gh_json
+        try:
+            found = module.search(module.OPEN_QUERY, "repo:o/r is:pr is:open author:a")
+        finally:
+            module.gh_json = original
+        self.assertEqual(sorted(node["number"] for node in found), list(range(1, 2301)))
+
 if __name__ == "__main__":
     unittest.main()
