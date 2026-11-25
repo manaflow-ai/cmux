@@ -69,6 +69,14 @@
     var(--grid-composer-lead-center) / var(--cmux-interface-scale, 1) * var(--cv-composer-density) -
       var(--grid-transcript-icon-box) / 2
   );
+  /* A row's outset (.acpmux-row below): 0 px at 298 px of content and wider, 8 px under it. Declared
+     here, once, and read by each row: a custom property's 100% resolves where it is used, so a row
+     gets the same value as if it declared it. */
+  --cv-lead-outset: clamp(
+    0px,
+    calc((297.5px - (100% - var(--cv-inset) - var(--cv-inset-end, var(--cv-inset)))) * 1000),
+    8px
+  );
   --cv-font: var(--instrument-type-chat-family, var(--font-ui));
   /* Code follows the terminal font; a chat or Markdown viewer code font (chatDisplay.ts) sets
      --cv-mono in front of it. */
@@ -2486,13 +2494,15 @@ pre.cv-math-source {
 /* --cv-inset-end: the column's end, moved in while the computer use live preview shows beside it
    (computerUse/computerUsePreview.css). */
 /* --cv-lead tucks the rows to the composer's +; under 298 px of content the composer card reaches
-   8 px past the column (composerLocation.css --acpmux-composer-narrow-outset), and its + with it. */
+   8 px past the column (composerLocation.css --acpmux-composer-narrow-outset), and its + with it
+   (--cv-lead-outset, declared on the transcript above).
+   No custom property is declared on a row: one declared there (this outset was) gives each row a
+   custom property set of its own instead of the one it inherits, and WebKit styled every row and
+   the elements in it about twice as slowly. A fling mounts a viewport of rows a frame and the
+   transcript measures them in the same commit, so that one declaration was about half of a fling
+   frame's React time (82 cloned rows, 1,203 elements, WebKit: 36-42 ms to insert, style and lay
+   out with it, 18-26 ms without; bench/transcript-scroll-frame.bench.ts). */
 .acpmux-row {
-  --cv-lead-outset: clamp(
-    0px,
-    calc((297.5px - (100% - var(--cv-inset) - var(--cv-inset-end, var(--cv-inset)))) * 1000),
-    8px
-  );
   left: calc(var(--cv-inset) + var(--cv-lead) - var(--cv-lead-outset));
   right: var(--cv-inset-end, var(--cv-inset));
 }
@@ -3477,7 +3487,7 @@ body {
   min-width: 0;
   overflow: hidden;
   color: var(--cv-text-muted);
-  font-family: var(--cv-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-family: var(--cv-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   text-overflow: ellipsis;
   white-space: nowrap;
   line-height: inherit;
@@ -5048,7 +5058,7 @@ button.cv-video-frames__frame:focus-visible {
 .cv-bgtask__raw-command {
   min-width: 0;
   overflow: hidden;
-  font-family: var(--cv-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-family: var(--cv-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   text-overflow: ellipsis;
   white-space: nowrap;
   line-height: inherit;
