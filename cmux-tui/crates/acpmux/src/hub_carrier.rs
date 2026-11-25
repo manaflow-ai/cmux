@@ -513,7 +513,16 @@ impl DialStages {
         self.ticket + self.relay + self.peer_join + self.noise + self.answer
     }
 
+    /// Log the stages and record them in `gauges.carrier` (`acpmux status`'s `carrier:` line).
+    /// A plain acpmux link asks no service, so its zero answer is no answer sample.
     fn log(&self, daemon: &str, kind: &str) {
+        crate::gauges::carrier::global().circuit(&crate::gauges::carrier::Stages {
+            ticket: self.ticket,
+            relay: self.relay,
+            peer_join: self.peer_join,
+            noise: self.noise,
+            answer: (!self.answer.is_zero()).then_some(self.answer),
+        });
         let ms = |d: Duration| d.as_secs_f64() * 1e3;
         tracing::debug!(
             machine = %daemon.get(..8).unwrap_or(daemon),
@@ -540,6 +549,9 @@ pub struct DialReport {
     pub stream: Duration,
     /// The path it took: the relay, or a direct connection (`hub_carrier_direct.rs`).
     pub via: direct::Via,
+    /// How many of the stream's first bytes rode behind its OPEN, before the answer
+    /// ([`HubCarrier::dial_service_early`]); 0 when none did.
+    pub early: usize,
 }
 
 impl DialReport {
@@ -548,6 +560,9 @@ impl DialReport {
         let mut json = self.steps_json();
         if let Some(object) = json.as_object_mut() {
             object.insert("path".into(), self.via.name().into());
+            if self.early > 0 {
+                object.insert("early".into(), self.early.into());
+            }
         }
         json
     }
@@ -575,6 +590,9 @@ enum KeptOpen {
     Refused(ServiceRefusal),
     /// The circuit could not open at all (no ticket, not serving): a plain dial fares no better.
     Failed(String),
+    /// The circuit failed after the stream's early bytes left: the far service may have acted
+    /// on them, so no other path dials it again ([`mux::OpenFailed::early_out`]).
+    Lost(String),
     /// No kept circuit for this one: take a plain circuit.
     Plain(String),
 }
@@ -845,12 +863,41 @@ impl HubCarrier {
         daemon: &str,
         service: CircuitService,
     ) -> Result<(HubStream, DialReport), String> {
+        self.dial_service_early(daemon, service, &[]).await
+    }
+
+    /// [`Self::dial_service_reported`] with the stream's first bytes, `early`, already in hand
+    /// (a client that speaks first, as `lane-gh` does to its broker). On a kept circuit they go
+    /// right behind the stream's OPEN, so the far service's reply to them comes one round trip
+    /// after the dial began instead of two (the OPEN's ANSWER, then the request and its reply).
+    /// On any other path they are the stream's first bytes after the answer. A circuit that fails
+    /// once they left is not dialed again: the far service may have acted on them. At most
+    /// [`Self::EARLY_BYTES`] of them ride with the OPEN; the rest follow as stream bytes.
+    pub async fn dial_service_early(
+        &self,
+        daemon: &str,
+        service: CircuitService,
+        early: &[u8],
+    ) -> Result<(HubStream, DialReport), String> {
         let mut report = DialReport::default();
-        let stream = self
-            .dial_service_report(daemon, service, CircuitLane::of(service), &mut report)
+        let (pipelined, rest) = early.split_at(early.len().min(Self::EARLY_BYTES));
+        let mut stream = self
+            .dial_service_report_early(
+                daemon,
+                service,
+                CircuitLane::of(service),
+                pipelined,
+                &mut report,
+            )
             .await?;
+        if !rest.is_empty() {
+            stream.write_all(rest).await.map_err(|e| e.to_string())?;
+        }
         Ok((stream, report))
     }
+
+    /// The most bytes [`Self::dial_service_early`] sends behind a stream's OPEN.
+    pub const EARLY_BYTES: usize = mux::EARLY_BYTES;
 
     /// [`Self::dial_service`] on the kept circuit of `lane`, whatever the service's own lane.
     pub async fn dial_service_on(
@@ -869,27 +916,47 @@ impl HubCarrier {
         lane: CircuitLane,
         report: &mut DialReport,
     ) -> Result<HubStream, String> {
+        self.dial_service_report_early(daemon, service, lane, &[], report).await
+    }
+
+    /// [`Self::dial_service_report`] whose stream starts with `early` (at most
+    /// [`mux::EARLY_BYTES`]): behind the OPEN on a kept circuit, else written once answered.
+    async fn dial_service_report_early(
+        &self,
+        daemon: &str,
+        service: CircuitService,
+        lane: CircuitLane,
+        early: &[u8],
+        report: &mut DialReport,
+    ) -> Result<HubStream, String> {
         if !self.key_current() {
             return Err("the node key was replaced; this carrier is stopped".into());
         }
-        let Some(hello) = service_hello(service) else {
-            return self.dial_acpmux(daemon, lane).await;
+        let after_answer = |mut stream: HubStream| async move {
+            if !early.is_empty() {
+                stream.write_all(early).await.map_err(|e| e.to_string())?;
+            }
+            Ok::<_, String>(stream)
         };
-        match self.direct_open(daemon, lane, hello.clone(), report).await {
+        let Some(hello) = service_hello(service) else {
+            return after_answer(self.dial_acpmux(daemon, lane).await?).await;
+        };
+        match self.direct_open(daemon, lane, hello.clone(), early, report).await {
             Some(KeptOpen::Stream(stream)) => return Ok(stream),
             Some(KeptOpen::Refused(refusal)) => return Err(refusal.to_string()),
+            Some(KeptOpen::Lost(e)) => return Err(e),
             _ => {}
         }
-        match self.kept_open(daemon, lane, hello.clone(), report, Path::Relay).await {
+        match self.kept_open(daemon, lane, hello.clone(), early, report, Path::Relay).await {
             KeptOpen::Stream(stream) => return Ok(stream),
             KeptOpen::Refused(refusal) => return Err(refusal.to_string()),
-            KeptOpen::Failed(e) => return Err(e),
+            KeptOpen::Failed(e) | KeptOpen::Lost(e) => return Err(e),
             KeptOpen::Plain(why) => {
                 tracing::debug!("hub carrier: a plain circuit for this dial: {why}");
             }
         }
         match self.plain_service(daemon, hello, report).await? {
-            Ok(secure) => Ok(self.carry_plain(secure)),
+            Ok(secure) => after_answer(self.carry_plain(secure)).await,
             Err(refusal) => Err(refusal.to_string()),
         }
     }
@@ -907,11 +974,11 @@ impl HubCarrier {
                 let hello = hello_record(CircuitService::Acpmux);
                 let mut report = DialReport::default();
                 if let Some(KeptOpen::Stream(stream)) =
-                    self.direct_open(daemon, lane, hello.clone(), &mut report).await
+                    self.direct_open(daemon, lane, hello.clone(), &[], &mut report).await
                 {
                     return Ok(stream);
                 }
-                match self.kept_open(daemon, lane, hello, &mut report, Path::Relay).await {
+                match self.kept_open(daemon, lane, hello, &[], &mut report, Path::Relay).await {
                     KeptOpen::Stream(stream) => return Ok(stream),
                     KeptOpen::Refused(refusal) => {
                         tracing::debug!(
@@ -924,7 +991,7 @@ impl HubCarrier {
                     }
                     // The circuit did not open: a plain one would not either, and a second
                     // dial here would double the dials of a host whose links all dropped.
-                    KeptOpen::Failed(e) => return Err(e),
+                    KeptOpen::Failed(e) | KeptOpen::Lost(e) => return Err(e),
                     KeptOpen::Plain(why) => {
                         tracing::debug!("hub carrier: a plain circuit for this acpmux dial: {why}");
                     }
@@ -956,6 +1023,7 @@ impl HubCarrier {
             circuit: Some(stages),
             stream: Duration::ZERO,
             via: direct::Via::Hub,
+            early: 0,
         };
         match answer {
             Ok(Ok(())) => Ok(Ok(secure)),
@@ -1000,6 +1068,7 @@ impl HubCarrier {
         daemon: &str,
         lane: CircuitLane,
         hello: Bytes,
+        early: &[u8],
         report: &mut DialReport,
         path: Path,
     ) -> KeptOpen {
@@ -1029,7 +1098,7 @@ impl HubCarrier {
                         let asked = Instant::now();
                         let wait = self.timings.handshake;
                         let (first, said) = tokio::join!(
-                            mux.open(hello.clone(), wait),
+                            mux.open(hello.clone(), early, wait),
                             tokio::time::timeout(wait, said)
                         );
                         stages.answer = asked.elapsed();
@@ -1039,12 +1108,16 @@ impl HubCarrier {
                             circuit: Some(stages),
                             stream: Duration::ZERO,
                             via: direct::Via::Hub,
+                            early: early.len(),
                         };
+                        let early_out = first.as_ref().err().is_some_and(|e| e.early_out);
                         match said {
                             Ok(Ok(Ok(()))) => {
                                 self.stats.kept_circuits.fetch_add(1, Ordering::Relaxed);
                                 kept.live = Some(mux.clone());
                             }
+                            // The far machine refused the `mux` hello before reading any
+                            // stream: early bytes behind it were never read.
                             Ok(Ok(Err(refusal))) => {
                                 mux.close().await;
                                 tracing::debug!(
@@ -1055,17 +1128,26 @@ impl HubCarrier {
                             }
                             Ok(Err(_)) | Err(_) => {
                                 mux.close().await;
-                                return KeptOpen::Failed(mux.ended().unwrap_or_else(|| {
+                                let why = mux.ended().unwrap_or_else(|| {
                                     "the machine did not answer the kept circuit's hello".into()
-                                }));
+                                });
+                                return if early_out {
+                                    KeptOpen::Lost(why)
+                                } else {
+                                    KeptOpen::Failed(why)
+                                };
                             }
                         }
                         match first {
                             Ok(Ok(stream)) => return KeptOpen::Stream(stream),
                             Ok(Err(refusal)) => return KeptOpen::Refused(refusal),
+                            Err(e) if e.early_out => {
+                                mux.close().await;
+                                return KeptOpen::Lost(e.why);
+                            }
                             Err(e) => {
                                 mux.close().await;
-                                why = e;
+                                why = e.why;
                                 continue;
                             }
                         }
@@ -1073,17 +1155,31 @@ impl HubCarrier {
                 }
             };
             let asked = Instant::now();
-            let opened = mux.open(hello.clone(), self.timings.handshake).await;
+            let opened = mux.open(hello.clone(), early, self.timings.handshake).await;
             *report = DialReport {
                 kept: true,
                 circuit: None,
                 stream: asked.elapsed(),
                 via: direct::Via::Hub,
+                early: early.len(),
             };
+            if matches!(opened, Ok(Ok(_))) {
+                crate::gauges::carrier::global().kept_stream(report.stream);
+            }
             match opened {
                 Ok(Ok(stream)) => return KeptOpen::Stream(stream),
                 Ok(Err(refusal)) => return KeptOpen::Refused(refusal),
+                Err(e) if e.early_out => {
+                    tracing::info!(
+                        "hub carrier: a kept circuit failed after a stream's first bytes left \
+                         ({}); not sent again",
+                        e.why
+                    );
+                    mux.close().await;
+                    return KeptOpen::Lost(e.why);
+                }
                 Err(e) => {
+                    let e = e.why;
                     tracing::info!(
                         "hub carrier: a kept circuit failed under a dial ({e}); opening it again"
                     );
@@ -1104,16 +1200,23 @@ impl HubCarrier {
         daemon: &str,
         lane: CircuitLane,
         hello: Bytes,
+        early: &[u8],
         report: &mut DialReport,
     ) -> Option<KeptOpen> {
         let address = self.direct_address(daemon).await?;
-        match self.kept_open(daemon, lane, hello, report, Path::Direct(address)).await {
+        match self.kept_open(daemon, lane, hello, early, report, Path::Direct(address)).await {
             KeptOpen::Stream(stream) => {
                 report.via = direct::Via::Direct;
                 Some(KeptOpen::Stream(stream))
             }
             KeptOpen::Refused(refusal) if refusal.reason != "service.unknown" => {
                 Some(KeptOpen::Refused(refusal))
+            }
+            // The far service may have read the early bytes: no relay dial repeats them.
+            KeptOpen::Lost(why) => {
+                tracing::info!("hub carrier direct: {address} failed ({why}) after early bytes");
+                self.direct.miss(daemon);
+                Some(KeptOpen::Lost(why))
             }
             KeptOpen::Refused(refusal) => {
                 tracing::debug!("hub carrier direct: {address} refused: {refusal}; the relay");
