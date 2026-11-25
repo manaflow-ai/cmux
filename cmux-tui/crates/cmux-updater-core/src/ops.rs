@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 
 use crate::appcast::{self, AppcastItem};
 use crate::numeric;
+use crate::policy::{self, HealthReport, MeteredMode, Pulled, Snooze};
 use crate::rollback::{self, Kept, Refusal, RingReturn};
 use crate::select::{self, Candidate, Outcome};
 use crate::system_version::SystemVersion;
@@ -162,6 +163,112 @@ pub fn ring_return(request: &RingReturnRequest) -> RingReturn {
     )
 }
 
+/// `updater_installed_newer`: per pair, whether the first build is newer (`InstalledBuildWatch`).
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct NewerReply {
+    pub newer: Vec<bool>,
+}
+
+pub fn installed_newer(request: &CompareRequest) -> NewerReply {
+    NewerReply {
+        newer: request.pairs.iter().map(|(a, b)| policy::installed_is_newer(a, b)).collect(),
+    }
+}
+
+/// `updater_policy`: the small decisions, each asked only when its facts are sent.
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PolicyRequest {
+    #[serde(default)]
+    pub delta_wait: Option<DeltaWait>,
+    #[serde(default)]
+    pub network: Option<Network>,
+    #[serde(default)]
+    pub snooze: Option<SnoozeAsk>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeltaWait {
+    pub lists_deltas: bool,
+    pub user_asked: bool,
+    pub waited_seconds: f64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Network {
+    pub setting: bool,
+    pub mode: MeteredMode,
+    pub constrained: bool,
+    pub expensive: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SnoozeAsk {
+    pub snooze: Snooze,
+    #[serde(default)]
+    pub version: Option<String>,
+    pub now: f64,
+}
+
+#[derive(Debug, Serialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PolicyReply {
+    /// The pushed build downloads now (else it waits for its deltas).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delta_downloads_now: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub downloads_automatically: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snooze_hides: Option<bool>,
+    /// The snooze without a reminder that ended.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snooze_expired: Option<Snooze>,
+}
+
+pub fn policy(request: &PolicyRequest) -> PolicyReply {
+    PolicyReply {
+        delta_downloads_now: request.delta_wait.as_ref().map(|ask| {
+            policy::delta_downloads_now(ask.lists_deltas, ask.user_asked, ask.waited_seconds)
+        }),
+        downloads_automatically: request.network.as_ref().map(|ask| {
+            policy::downloads_automatically(ask.setting, ask.mode, ask.constrained, ask.expensive)
+        }),
+        snooze_hides: request
+            .snooze
+            .as_ref()
+            .map(|ask| ask.snooze.hides(ask.version.as_deref(), ask.now)),
+        snooze_expired: request.snooze.as_ref().map(|ask| ask.snooze.expired(ask.now)),
+    }
+}
+
+/// `updater_read`: a document the updater fetched, read by its kind.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadRequest {
+    /// `pulled` (a feed's `pulled.json`) or `health` (`cmux app health --json`).
+    pub kind: String,
+    pub json: String,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+pub struct ReadReply {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pulled: Option<Vec<Pulled>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub health: Option<HealthReport>,
+}
+
+pub fn read(request: &ReadRequest) -> ReadReply {
+    match request.kind.as_str() {
+        "pulled" => ReadReply { pulled: Some(policy::pulled_list(&request.json)), health: None },
+        "health" => ReadReply { pulled: None, health: policy::health_report(&request.json) },
+        _ => ReadReply { pulled: None, health: None },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -243,6 +350,37 @@ mod tests {
         )
         .unwrap();
         assert_eq!(numeric_compare(&request), CompareReply { orders: vec![-1, 1, 0] });
+    }
+
+    #[test]
+    fn policy_answers_what_is_asked() {
+        let request: PolicyRequest = serde_json::from_value(json!({
+            "deltaWait": {"listsDeltas": false, "userAsked": false, "waitedSeconds": 30.0},
+            "network": {"setting": true, "mode": "defer-expensive", "constrained": false, "expensive": true},
+            "snooze": {"snooze": {"remindAfter": 10.0}, "version": "1.0", "now": 20.0},
+        }))
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(policy(&request)).unwrap(),
+            json!({"deltaDownloadsNow": false, "downloadsAutomatically": false, "snoozeHides": false,
+                   "snoozeExpired": {"closedVersion": null, "remindAfter": null}})
+        );
+        assert_eq!(serde_json::to_value(policy(&PolicyRequest::default())).unwrap(), json!({}));
+    }
+
+    #[test]
+    fn read_answers_by_kind() {
+        let reply =
+            read(&ReadRequest { kind: "pulled".into(), json: r#"[{"build": "7"}]"#.into() });
+        assert_eq!(
+            serde_json::to_value(reply).unwrap(),
+            json!({"pulled": [{"build": "7", "reason": ""}]})
+        );
+        let reply = read(&ReadRequest { kind: "health".into(), json: "{}".into() });
+        assert_eq!(serde_json::to_value(reply).unwrap(), json!({}));
+        let reply =
+            installed_newer(&CompareRequest { pairs: vec![("1205".into(), "1204".into())] });
+        assert_eq!(reply.newer, vec![true]);
     }
 
     #[test]

@@ -107,3 +107,26 @@ fn rollback_and_ring_return_answer() {
     assert_eq!(code, OK);
     assert_eq!(body, json!({"orders": [-1]}));
 }
+
+#[test]
+fn policies_and_reads_answer() {
+    let (code, body) =
+        call(c"updater_installed_newer", &json!({"pairs": [["1205", "1204"], ["7", "007"]]}));
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"newer": [true, false]}));
+    let (code, body) = call(
+        c"updater_policy",
+        &json!({"deltaWait": {"listsDeltas": true, "userAsked": false, "waitedSeconds": 0.0}}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"deltaDownloadsNow": true}));
+    let (code, body) = call(
+        c"updater_read",
+        &json!({"kind": "health", "json": "{\"ok\": true, \"checks\": [{\"name\": \"chat\", \"ok\": true}]}"}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(
+        body,
+        json!({"health": {"ok": true, "checks": [{"name": "chat", "ok": true, "reason": "", "detail": ""}]}})
+    );
+}

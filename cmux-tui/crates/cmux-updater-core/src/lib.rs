@@ -9,6 +9,8 @@
 //! - [`select`]: what a feed offers this Mac: the newest item its macOS can run.
 //! - [`numeric`]: the numeric order of kept builds and channel tracks.
 //! - [`rollback`]: which kept build a rollback goes to, and where a slower ring sends this Mac.
+//! - [`policy`]: the installed-build watch, the delta wait, metered downloads, the card snooze,
+//!   the pulled list and the post-update health report.
 //! - [`ops`]: the JSON requests the app sends over the app FFI (`updater_*`).
 //!
 //! No I/O: the app fetches the feed and passes its bytes.
@@ -16,6 +18,7 @@
 pub mod appcast;
 pub mod numeric;
 pub mod ops;
+pub mod policy;
 pub mod rollback;
 pub mod select;
 pub mod system_version;
