@@ -742,7 +742,6 @@ mod tests {
         assert!(!has(crate::agent_env::EXCLUDE_MARKER));
     }
 
-    /// A Claude session is launched under its acpmux name (`--name`), so Claude
     /// A daemon started by a bounded command holds its `CMUX_DEADLINE`: an agent it starts
     /// must not, or the fleet's orphan reaper ends the agent once the bound passes.
     #[test]
@@ -761,6 +760,7 @@ mod tests {
         }
     }
 
+    /// A Claude session is launched under its acpmux name (`--name`), so Claude
     /// Code's peer list says what `acpmux ls` says; with cmux's tools off too.
     #[test]
     fn a_claude_session_is_launched_under_its_acpmux_name() {
