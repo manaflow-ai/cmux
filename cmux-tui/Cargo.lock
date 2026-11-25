@@ -30,7 +30,6 @@ dependencies = [
  "cmux-chat-index",
  "cmux-cloud-api",
  "cmux-cloud-client",
- "cmux-cloud-disk",
  "cmux-cloud-environment",
  "cmux-cloud-start-core",
  "cmux-cloud-wire",
@@ -82,7 +81,6 @@ dependencies = [
  "cmux-tailnet",
  "cmux-tailnet-front",
  "cmux-tailnet-join",
- "cmux-tailnet-local",
  "cmux-transport",
  "cmux-tui-hooks",
  "cmux-tui-platform",
@@ -1745,10 +1743,8 @@ dependencies = [
 name = "cmux-cloud-start-core"
 version = "0.1.0"
 dependencies = [
- "hex",
  "serde",
  "serde_json",
- "sha2 0.10.9",
  "toml",
 ]
 
@@ -2053,7 +2049,6 @@ dependencies = [
 name = "cmux-extension-sdk"
 version = "1.0.0"
 dependencies = [
- "cmux-app-host",
  "cmux-app-manifest",
  "cmux-customize",
  "serde_json",
@@ -2155,27 +2150,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cmux-git-cache"
-version = "0.1.0"
-dependencies = [
- "axum",
- "base64",
- "bytes",
- "cmux-process",
- "cmux-scope",
- "flate2",
- "futures-util",
- "hex",
- "reqwest",
- "rustls",
- "serde_json",
- "sha2 0.10.9",
- "tempfile",
- "tokio",
- "tokio-util",
-]
-
-[[package]]
 name = "cmux-health-core"
 version = "0.1.0"
 dependencies = [
@@ -2223,7 +2197,6 @@ dependencies = [
  "cmux-cloud-environment",
  "cmux-cloud-start-core",
  "cmux-file-lock",
- "cmux-git-cache",
  "cmux-json",
  "cmux-link",
  "cmux-process",
@@ -2386,7 +2359,7 @@ dependencies = [
 name = "cmux-local-url"
 version = "0.1.0"
 dependencies = [
- "regex-automata",
+ "regex",
 ]
 
 [[package]]
@@ -2698,7 +2671,6 @@ dependencies = [
  "cmux-relay",
  "cmux-remote-protocol",
  "cmux-signed-envelope",
- "cmux-tailnet-local",
  "cmux-terminal-host-protocol",
  "cmux-tui-util",
  "cmux-unix-socket",
@@ -3220,7 +3192,6 @@ dependencies = [
  "cmux-server-core",
  "cmux-signed-bundle",
  "cmux-stack-auth",
- "cmux-sync",
  "cmux-tailnet-join",
  "cmux-terminal-client",
  "cmux-theme-pack",
@@ -3467,11 +3438,9 @@ dependencies = [
 name = "cmux-tui-machine-protocol"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "serde",
  "serde_json",
  "subtle",
- "tokio",
  "zeroize",
 ]
 
