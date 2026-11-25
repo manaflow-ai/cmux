@@ -36,6 +36,8 @@ fn table() -> Vec<(&'static str, Value, Kind)> {
         ("press_key", json!({"window_id": "1", "delivery": "foreground"}), Kind::Hid),
         ("drag", json!({"window_id": "1"}), Kind::WindowInput),
         ("drag", json!({"window_id": "1", "delivery": "foreground"}), Kind::Hid),
+        ("move_pointer", json!({"window_id": "1", "x": 1, "y": 1}), Kind::WindowInput),
+        ("move_pointer", json!({"window_id": "1", "delivery": "foreground"}), Kind::Hid),
         // An unknown delivery is not taken for background.
         ("click", json!({"window_id": "1", "delivery": "sideways"}), Kind::Hid),
         ("scroll", json!({"window_id": "1"}), Kind::WindowInput),

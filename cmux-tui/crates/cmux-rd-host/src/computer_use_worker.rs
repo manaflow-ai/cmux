@@ -32,7 +32,7 @@ pub fn run(args: &[String]) -> i32 {
 /// [`run`] with the desktop's host services given (the helper's own screen capture).
 pub fn run_with(host: Option<Arc<dyn HostServices>>) -> i32 {
     worker::run(
-        std::io::stdin().lock(),
+        std::io::BufReader::new(std::io::stdin()),
         std::io::stdout(),
         move || Ok(platform(host)),
         worker::ASK_TIMEOUT,

@@ -53,6 +53,13 @@ pub enum Event {
         from: Point,
         to: Point,
     },
+    /// A pointer move with no press (a hover).
+    Move {
+        window: String,
+        point: Option<Point>,
+        element: Option<String>,
+        delivery: Delivery,
+    },
     SetValue {
         window: String,
         element: String,
@@ -803,6 +810,15 @@ impl Desktop for FakeDesktop {
     fn scroll(&self, target: &PointerTarget, dx: f64, dy: f64) -> DResult<ActionOutcome> {
         self.known(target.window_id())?;
         self.push(Event::Scroll { window: target.window_id().into(), dx, dy });
+        Ok(self.delivered())
+    }
+    fn move_pointer(&self, target: &PointerTarget, delivery: Delivery) -> DResult<ActionOutcome> {
+        self.known(target.window_id())?;
+        let (point, element) = match target {
+            PointerTarget::Point { point, .. } => (Some(*point), None),
+            PointerTarget::Element { element_id, .. } => (None, Some(element_id.clone())),
+        };
+        self.push(Event::Move { window: target.window_id().into(), point, element, delivery });
         Ok(self.delivered())
     }
     fn drag(

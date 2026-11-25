@@ -75,7 +75,7 @@ public nonisolated enum MacScreenHubRefusal: Equatable, Sendable {
 
 /// A viewer tab's progress with the hub, before and around the stream.
 public nonisolated enum MacScreenHubPhase: Equatable, Sendable {
-    /// Restored, opened by automation, or ended: the Connect card (View / Control).
+    /// Restored, opened by automation that waits for the person, or ended: the Connect card (View / Control).
     case idle
     /// The request is on its way.
     case requesting(SessionScope)

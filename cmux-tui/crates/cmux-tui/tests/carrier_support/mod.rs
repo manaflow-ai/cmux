@@ -73,7 +73,7 @@ impl Signer {
             "aud": MACHINE,
             "team": TEAM,
             "sub": "user_00000000000000000001",
-            "svc": [self.1],
+            "svc": self.1.split(',').collect::<Vec<_>>(),
             "nk": noise_key_digest(noise_key),
             "jti": URL_SAFE_NO_PAD.encode((jti as u128).to_be_bytes()),
             "iat": now() - 5,

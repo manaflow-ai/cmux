@@ -17,6 +17,8 @@ final class AccountsService: AccountsServices {
     unowned let services: AppServices
     private(set) lazy var model = AccountsModel(services: self)
     private(set) lazy var github = GitHubConnections.live(auth: services.cloud.auth, ownerAPI: services.cloud.configuration.ownerAPIBaseURL(), preview: services.environment.showcase || fixtureHome != nil)
+    /// The Chief's Gmail and Google Calendar connections (cmux issue 34263), on the same sign-in and owner API.
+    private(set) lazy var chiefConnections = ChiefConnections.live(auth: services.cloud.auth, ownerAPI: services.cloud.configuration.ownerAPIBaseURL(), preview: services.environment.showcase || fixtureHome != nil)
     private(set) lazy var agentKeys = TeamAgentKeys.live(auth: services.cloud.auth, ownerAPI: services.cloud.configuration.ownerAPIBaseURL(), preview: services.environment.showcase || fixtureHome != nil)
     private(set) lazy var modelsPolicy = TeamModelsPolicy.live(auth: services.cloud.auth, ownerAPI: services.cloud.configuration.ownerAPIBaseURL(), preview: services.environment.showcase || fixtureHome != nil)
     /// `models.spreadUsage` mirrored into acpmux for the app's life (SettingsModels.mirrorSpread).
@@ -189,8 +191,3 @@ final class AccountsService: AccountsServices {
 
 /// Settings > Accounts drives the same Cloud sign-in as every other entry point.
 extension CloudAuth: CmuxAccountSource {}
-
-/// Fixture mode: no Keychain item exists.
-private struct NoKeychain: KeychainProbing {
-    func hasGenericPassword(service: String) -> Bool { false }
-}

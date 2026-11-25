@@ -6,18 +6,22 @@
 //! finishes a half-done start and never makes a second machine:
 //!
 //! 1. the machine: `cloud.machine.create {name, size}` at the size the person's plan gives a
-//!    Chief ([`chief_size_for`]: the included 2 vCPU / 4 GiB / 32 GiB unless the plan names an
-//!    add-on) under the idempotency key `chief-machine-<key>-create` (a same-key retry never makes
+//!    Chief (`cloud.plan.get`'s `chief_size`, [`chief_size_for`]: the included 2 vCPU / 4 GiB /
+//!    32 GiB unless the plan names a bigger one; a plan read that fails is the included size) under the idempotency key `chief-machine-<key>-create` (a same-key retry never makes
 //!    a second machine), started again when it is paused, then waited on until it runs with a host;
-//! 2. no idle pause: `cloud.machine.idle_policy.set {idle_seconds: 0}` (no early pause; the
-//!    platform's 24 h backstop pauses a machine only after a day with no activity reports, and a
-//!    Chief host that answers its conversation reports activity) and `cloud.machine.keep` (never
-//!    deleted by the plan's retention);
+//! 2. it pauses when idle (cmuxterm-hq RFD 0037, wake on message): `cloud.machine.idle_policy.set
+//!    {idle_seconds: CHIEF_IDLE_SECONDS}`, so after the Chief acts the machine pauses on the Cloud's
+//!    short idle window, and the next message resumes it (cmux-api `mux-machine-wake.ts`). With
+//!    `keep_awake: true` it never pauses early instead (`idle_seconds: 0`; the platform's 24 h
+//!    backstop pauses it only after a day with no activity reports). And `cloud.machine.keep`
+//!    (never deleted by the plan's retention). Both are set last, once the host runs (step 4), so
+//!    a start that fails before then leaves no kept machine that never pauses;
 //! 3. the pairing, with no session token ever on the machine: the machine's own
 //!    `optchat-chief cloud pair` (in the background, as the work user) prints a code; this call
 //!    approves it as the signed-in person (`server.pair.approve`, the same op the app's Add
 //!    Server sends) and creates the new Chief placed on that install (`chief.create` with
-//!    `brain_place {host, install}`, not the default, so the person's other Chiefs stay where
+//!    `brain_place {host, install, machine, team}`, the machine and team so cmux-api can resume a
+//!    paused machine when a message comes, not the default, so the person's other Chiefs stay where
 //!    they are). The pairing then finds the placed Chief and writes it to the install file.
 //!    Approving a code read from the machine this call made is the person's own approval: the
 //!    code comes over the person's own exec route, from a machine of theirs;
@@ -69,27 +73,56 @@ impl ChiefSize {
             Self::Xl => (8, 32768, 131_072),
         }
     }
-    /// The add-on a plan's data names (`chief_m`, `chief_l`, `chief_xl`), or none.
+    /// The bigger Chief a plan names: `cloud.plan.get`'s `chief_size` (`M`, `L`, `XL`) or the
+    /// add-on spelling (`chief_m`, `chief_l`, `chief_xl`); `included` and anything else is none.
     fn add_on(name: &str) -> Option<Self> {
         match name {
-            "chief_m" => Some(Self::M),
-            "chief_l" => Some(Self::L),
-            "chief_xl" => Some(Self::Xl),
+            "M" | "chief_m" => Some(Self::M),
+            "L" | "chief_l" => Some(Self::L),
+            "XL" | "chief_xl" => Some(Self::Xl),
             _ => None,
+        }
+    }
+    /// A size the person names: `included` or a bigger Chief ([`Self::add_on`]'s spellings).
+    pub fn named(name: &str) -> Option<Self> {
+        match name {
+            "included" => Some(Self::Included),
+            other => Self::add_on(other),
+        }
+    }
+    /// The size's name, as [`Self::named`] reads it.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Included => "included",
+            Self::M => "M",
+            Self::L => "L",
+            Self::Xl => "XL",
         }
     }
 }
 
-/// The size the person's plan gives a new Chief, from the Chief add-on the plan names: the
-/// included size unless it names a bigger Chief it pays for. An add-on name this build does not
-/// know is the included size too: never a paid size the plan did not name.
-///
-/// No Cloud read names a Chief add-on yet: `cloud.plan.get` answers `plan_id`, `limits` and
-/// `usage` and no Chief size (cmux-platform Plan.ts `planView`), and add-ons are not sold, so
-/// [`run`] passes none and every Chief starts at the included size. Once the platform answers
-/// the person's Chief add-on, [`run`] passes it here and nothing else changes.
+/// The size the person's plan gives a new Chief, from the Chief size the plan names: the
+/// included size unless it names a bigger Chief it pays for. A name this build does not know
+/// (and `included`) is the included size too: never a paid size the plan did not name.
 pub fn chief_size_for(add_on: Option<&str>) -> ChiefSize {
     add_on.and_then(ChiefSize::add_on).unwrap_or(ChiefSize::Included)
+}
+
+/// The Chief size in a `cloud.plan.get` answer: its `chief_size` (cmux-platform#1685), read at
+/// the top or under `plan`.
+pub fn plan_chief_size(plan: &Value) -> ChiefSize {
+    let named =
+        plan.get("chief_size").or_else(|| plan.pointer("/plan/chief_size")).and_then(Value::as_str);
+    chief_size_for(named)
+}
+
+/// The person's Chief size, from `cloud.plan.get`. A read that fails, or a plan that names no
+/// size, is the included size: the plan read never stops a Chief from starting.
+pub(crate) async fn plan_size<C: Cloud>(cloud: &C) -> ChiefSize {
+    match cloud.read("cloud.plan.get", json!({})).await {
+        Ok(plan) => plan_chief_size(&plan),
+        Err(_) => ChiefSize::Included,
+    }
 }
 /// The unit the Cloud image carries (images/cmux-vm/chief) and the fallback writes.
 pub const HOST_UNIT: &str = "cmux-chief.service";
@@ -110,6 +143,11 @@ const MACHINE_WAIT: Duration = Duration::from_secs(420);
 const PAIR_WAIT: Duration = Duration::from_secs(120);
 const POLL: Duration = Duration::from_secs(3);
 const EXEC_MS: u64 = 25_000;
+/// A Chief machine's idle policy unless `keep_awake`: about three minutes after its last activity
+/// (RFD 0037: the Chief stays awake about 3 minutes after it acts, then pauses). Where the machine's
+/// daemon reports turns, the Cloud's own short window (`CLOUD_IDLE_PAUSE_SECONDS`, or the machine's
+/// reported `idle_window_seconds`) decides instead; any value above 0 lets the machine pause.
+pub const CHIEF_IDLE_SECONDS: i64 = 180;
 
 /// The Cloud calls the start makes; [`Session`] is the person's, tests have their own.
 pub trait Cloud {
@@ -141,10 +179,12 @@ pub struct Start {
     pub team: Option<String>,
     pub api: String,
     pub until_machine: bool,
+    /// `keep_awake: true`: the machine never pauses early (`idle_seconds: 0`). Default off.
+    pub keep_awake: bool,
 }
 
 /// The call's args: `key` (1 to 48 of `a-z0-9-`), optional `name` (the Chief's), `machine_name`
-/// (default `chief-<key>`) and `until` (`"machine"`).
+/// (default `chief-<key>`), `until` (`"machine"`) and `keep_awake` (default false).
 pub fn parse(request: &Request) -> Result<Start, Failure> {
     let args = &request.args;
     let key = text(args, "key")?.to_owned();
@@ -174,6 +214,11 @@ pub fn parse(request: &Request) -> Result<Start, Failure> {
             return Err(Failure::Transport(format!("until {other:?}: only \"machine\"")));
         }
     };
+    let keep_awake = match args.get("keep_awake") {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(b)) => *b,
+        Some(_) => return Err(Failure::Transport("keep_awake: true or false".into())),
+    };
     Ok(Start {
         key,
         chief_name,
@@ -181,6 +226,7 @@ pub fn parse(request: &Request) -> Result<Start, Failure> {
         team: request.team.clone().filter(|t| !t.is_empty()),
         api: request.api.trim_end_matches('/').to_owned(),
         until_machine,
+        keep_awake,
     })
 }
 
@@ -239,10 +285,10 @@ pub struct Probe {
 pub fn probe_command() -> String {
     let script = format!(
         r#"import json, os, re, shutil, subprocess
-d = {dir:?}
+d = {STATE_DIR:?}
 out = {{}}
 try:
-    f = json.load(open({file:?}))
+    f = json.load(open({INSTALL_FILE:?}))
     for k in ("install", "host", "chief", "conversation"):
         if isinstance(f.get(k), str) and f[k]:
             out[k] = f[k]
@@ -267,12 +313,9 @@ except Exception:
 b = shutil.which("optchat-chief") or (os.path.expanduser("~/.local/bin/optchat-chief") if os.access(os.path.expanduser("~/.local/bin/optchat-chief"), os.X_OK) else None)
 if b:
     out["binary"] = b
-out["unit"] = os.path.exists("/etc/systemd/system/{unit}")
-out["active"] = subprocess.run(["systemctl", "is-active", "--quiet", "{unit}"]).returncode == 0
+out["unit"] = os.path.exists("/etc/systemd/system/{HOST_UNIT}")
+out["active"] = subprocess.run(["systemctl", "is-active", "--quiet", "{HOST_UNIT}"]).returncode == 0
 print(json.dumps(out))"#,
-        dir = STATE_DIR,
-        file = INSTALL_FILE,
-        unit = HOST_UNIT,
     );
     as_user(&format!("python3 -I -c {}", shq(&script)))
 }
@@ -300,24 +343,23 @@ pub fn fallback_unit(binary: &str) -> String {
          Description=cmux Cloud Chief host (optchat-chief host --conversation-source cloud)\n\
          After=network-online.target cmux-host.service\n\
          Wants=network-online.target\n\
-         ConditionPathExists={file}\n\
+         ConditionPathExists={INSTALL_FILE}\n\
          StartLimitIntervalSec=0\n\n\
          [Service]\n\
          Type=simple\n\
          User=cmux\n\
          Group=cmux\n\
          Environment=HOME=/home/cmux\n\
-         Environment=OPTCHAT_CLOUD_INSTALL={file}\n\
+         Environment=OPTCHAT_CLOUD_INSTALL={INSTALL_FILE}\n\
          Environment=ACPMUX_BIN={ACPMUX_BIN}\n\
          Environment=ACPMUX_HOME={ACPMUX_HOME}\n\
          EnvironmentFile=-/etc/cmux/chief.env\n\
-         ExecStart=/bin/sh -c 'exec {binary} host --conversation-source cloud --cloud-install {file} --daemon-socket \"$(head -n 1 /etc/cmux/daemon-socket)\"'\n\
+         ExecStart=/bin/sh -c 'exec {binary} host --conversation-source cloud --cloud-install {INSTALL_FILE} --daemon-socket \"$(head -n 1 /etc/cmux/daemon-socket)\"'\n\
          Restart=always\n\
          RestartSec=5\n\
          RestartPreventExitStatus=2\n\n\
          [Install]\n\
          WantedBy=multi-user.target\n",
-        file = INSTALL_FILE,
     )
 }
 
@@ -369,12 +411,35 @@ pub fn create_params(start: &Start, size: ChiefSize) -> Value {
     })
 }
 
+impl ChiefSize {
+    const ALL: [Self; 4] = [Self::Included, Self::M, Self::L, Self::Xl];
+}
+
+/// `cloud.machine.create` under the start's key. A rerun whose plan read gave another size than
+/// the first run's (the plan changed, or this read failed) is refused `idempotency.conflict`: the
+/// key was sent at one of the four sizes, so the create is sent again at the others until it
+/// replays the machine the first run made. Never a second machine.
+async fn create<C: Cloud>(cloud: &C, start: &Start, size: ChiefSize) -> Result<Value, Failure> {
+    fn conflict(made: &Result<Value, Failure>) -> bool {
+        matches!(made, Err(Failure::Http { code: Some(code), .. }) if code == "idempotency.conflict")
+    }
+    let key = format!("chief-machine-{}-create", start.key);
+    let first = cloud.op("cloud.machine.create", create_params(start, size), &key).await;
+    if !conflict(&first) {
+        return first;
+    }
+    for other in ChiefSize::ALL.into_iter().filter(|s| *s != size) {
+        let made = cloud.op("cloud.machine.create", create_params(start, other), &key).await;
+        if !conflict(&made) {
+            return made;
+        }
+    }
+    first
+}
+
 /// The machine, made at `size` or found by its key, running with a host.
 async fn machine<C: Cloud>(cloud: &C, start: &Start, size: ChiefSize) -> Result<Value, Failure> {
-    let params = create_params(start, size);
-    let made = cloud
-        .op("cloud.machine.create", params, &format!("chief-machine-{}-create", start.key))
-        .await?;
+    let made = create(cloud, start, size).await?;
     let id = id_of(&made, "/machine/id")
         .ok_or_else(|| Failure::Decoding("cloud.machine.create: no machine id".into()))?;
     let mut waited = Duration::ZERO;
@@ -429,6 +494,7 @@ async fn placed_chief<C: Cloud>(
     start: &Start,
     host: &str,
     install: &str,
+    machine: &str,
 ) -> Result<Value, Failure> {
     let list = cloud.read("chief.list", json!({})).await?;
     let found = list.get("chiefs").and_then(Value::as_array).and_then(|all| {
@@ -440,10 +506,11 @@ async fn placed_chief<C: Cloud>(
     if let Some(chief) = found {
         return Ok(chief);
     }
+    let team = team(cloud, start).await?;
     let params = json!({
         "display_name": start.chief_name,
         "is_default": false,
-        "brain_place": { "host": host, "install": install },
+        "brain_place": { "host": host, "install": install, "machine": machine, "team": team },
     });
     let chief =
         cloud.op("chief.create", params, &format!("chief-machine-{}-chief", start.key)).await?;
@@ -457,18 +524,16 @@ async fn placed_chief<C: Cloud>(
     Ok(chief)
 }
 
-/// The whole start; see the module docs.
-pub async fn run<C: Cloud>(cloud: &C, start: &Start) -> Result<Value, Failure> {
-    // The plan names no Chief add-on yet (see chief_size_for): the included size.
-    let row = machine(cloud, start, chief_size_for(None)).await?;
-    let id = id_of(&row, "/id").unwrap_or_default();
+/// Step 2's idle policy and keep, once the host runs (each found done or done now).
+async fn settle<C: Cloud>(cloud: &C, start: &Start, row: &Value, id: &str) -> Result<(), Failure> {
     let idle = row.pointer("/idle_policy/idle_seconds").and_then(Value::as_i64);
-    if idle != Some(0) {
+    let want = if start.keep_awake { 0 } else { CHIEF_IDLE_SECONDS };
+    if idle != Some(want) {
         cloud
             .op(
                 "cloud.machine.idle_policy.set",
-                json!({ "machine": id, "idle_seconds": 0 }),
-                &format!("chief-machine-{}-idle", start.key),
+                json!({ "machine": id, "idle_seconds": want }),
+                &format!("chief-machine-{}-idle-{want}", start.key),
             )
             .await?;
     }
@@ -481,6 +546,14 @@ pub async fn run<C: Cloud>(cloud: &C, start: &Start) -> Result<Value, Failure> {
             )
             .await?;
     }
+    Ok(())
+}
+
+/// The whole start; see the module docs.
+pub async fn run<C: Cloud>(cloud: &C, start: &Start) -> Result<Value, Failure> {
+    let size = plan_size(cloud).await;
+    let row = machine(cloud, start, size).await?;
+    let id = id_of(&row, "/id").unwrap_or_default();
     if start.until_machine {
         return Ok(
             json!({ "machine": id, "machine_name": start.machine_name, "stage": "machine" }),
@@ -499,7 +572,7 @@ pub async fn run<C: Cloud>(cloud: &C, start: &Start) -> Result<Value, Failure> {
     while probe.chief.is_none() || probe.conversation.is_none() {
         match (&probe.install, &probe.host) {
             (Some(install), Some(host)) if placed.is_none() => {
-                placed = Some(placed_chief(cloud, start, host, install).await?);
+                placed = Some(placed_chief(cloud, start, host, install, &id).await?);
             }
             (Some(_), _) => {}
             (None, _) => {
@@ -536,6 +609,10 @@ pub async fn run<C: Cloud>(cloud: &C, start: &Start) -> Result<Value, Failure> {
         exec_ok(cloud, &id, &command).await?;
         how
     };
+    // Only a machine whose host runs is kept and given its idle policy: a start that failed
+    // above (no host, pairing refused, timed out) leaves a plain machine the plan's retention
+    // removes, not a kept one that never pauses.
+    settle(cloud, start, &row, &id).await?;
     let chief = probe.chief.clone().unwrap_or_default();
     Ok(json!({
         "machine": id,

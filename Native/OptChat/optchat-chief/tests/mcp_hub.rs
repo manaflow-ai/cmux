@@ -78,6 +78,14 @@ fn call(hub: &McpHub, args: Value) -> String {
     }
 }
 
+/// The error `args` must fail with.
+fn call_err(hub: &McpHub, args: Value) -> String {
+    match hub.handle(&args, &Caller::Chief) {
+        Ok(t) => panic!("{args} should have failed: {t}"),
+        Err(e) => e,
+    }
+}
+
 /// Waits (up to 20 s) for a note containing `needle`.
 fn note(notes: &Arc<Mutex<Vec<String>>>, needle: &str) -> String {
     let deadline = Instant::now() + Duration::from_secs(20);
@@ -501,6 +509,68 @@ fn oauth_sign_in_then_the_server_connects_and_wakes_the_chief() {
 }
 
 #[test]
+fn device_code_sign_in_shows_the_code_then_connects_and_wakes_the_chief() {
+    let (child, port) = http_server(&["--token", "dev-tok-1", "--device", "fake-device-client"]);
+    let _k = Kill(child);
+    let tmp = tempfile::tempdir().unwrap();
+    let url = format!("http://127.0.0.1:{port}/mcp");
+    // A registry entry like the builtin `github` one, pointing at the fake.
+    let registry = tmp.path().join("registry.json");
+    std::fs::write(
+        &registry,
+        json!({"servers": [{"name": "devfake", "title": "Dev fake", "publisher": "127.0.0.1",
+            "url": url, "auth": "device", "scopes": ["repo", "read:org"],
+            "client_id": "fake-device-client"}]})
+        .to_string(),
+    )
+    .unwrap();
+    let notes: Arc<Mutex<Vec<String>>> = Arc::default();
+    let n = notes.clone();
+    let registry_path = registry.display().to_string();
+    let hub = McpHub::with_env(
+        tmp.path().join("optchat/mcp"),
+        tmp.path().join("cmux/mcp"),
+        None,
+        Arc::new(move |t: String| n.lock().unwrap().push(t)),
+        Arc::new(move |k: &str| {
+            if k == optchat_chief::mcp_hub::oauth::EXTRA_REGISTRY_ENV {
+                Some(registry_path.clone())
+            } else {
+                std::env::var(k).ok()
+            }
+        }),
+    );
+    hub.start();
+    let out = call(
+        &hub,
+        json!({"action": "add", "name": "devfake", "target": url}),
+    );
+    assert!(out.contains("outcome: waiting"), "{out}");
+    assert!(out.contains("WDJB-MJHT"), "the user code: {out}");
+    assert!(
+        out.contains(&format!("http://127.0.0.1:{port}/device")),
+        "the verification URL: {out}"
+    );
+    assert!(out.contains("only they enter it and approve"), "{out}");
+    assert!(
+        !out.contains("dev-code-1"),
+        "the device code stays in the hub: {out}"
+    );
+    // The fake answers authorization_pending once, then the token.
+    let n = note(&notes, "[mcp devfake] signed in");
+    assert!(n.contains("echo"), "{n}");
+    assert_eq!(
+        call(
+            &hub,
+            json!({"action": "call", "server": "devfake", "tool": "echo", "args": {"text": "via device"}})
+        ),
+        "via device"
+    );
+    let saved = std::fs::read_to_string(tmp.path().join("cmux/mcp/servers/devfake.json")).unwrap();
+    assert!(!saved.contains("dev-tok-1"));
+}
+
+#[test]
 fn the_mcp_tool_is_one_fixed_tool_for_the_chief_and_its_subagents() {
     for subagent in [false, true] {
         let list = optchat_chief::mcp::tools_for(subagent);
@@ -657,6 +727,109 @@ fn a_rejected_token_is_refreshed_once_before_asking_for_a_sign_in() {
         secrets.contains("tok-123") && secrets.contains("ref-2"),
         "{secrets}"
     );
+}
+
+/// Seeds `secrets/<name>.json` with OAuth tokens for the fake HTTP server at `base`.
+fn seed_tokens(shared: &Path, name: &str, base: &str, access: &str, refresh: Option<&str>) {
+    std::fs::create_dir_all(shared.join("secrets")).unwrap();
+    // Far from expiry, so only the server's 401 can send the hub to refresh.
+    let mut oauth = json!({"access_token": access, "expires_ms": u64::MAX / 2,
+        "client_id": "fake-client", "token_endpoint": format!("{base}/token"),
+        "issuer": base, "resource": format!("{base}/mcp")});
+    if let Some(r) = refresh {
+        oauth["refresh_token"] = json!(r);
+    }
+    std::fs::write(
+        shared.join(format!("secrets/{name}.json")),
+        json!({ "oauth": oauth }).to_string(),
+    )
+    .unwrap();
+}
+
+/// A token the server revokes mid-session (after connect, at a tool call) is
+/// refreshed once and the call retried, not reported as a failed connect.
+#[test]
+fn a_token_revoked_mid_session_is_refreshed_and_the_call_retried() {
+    let (child, port) = http_server(&["--token", "tok-123", "--revoke-on-call"]);
+    let _k = Kill(child);
+    let r = rig();
+    let base = format!("http://127.0.0.1:{port}");
+    seed_tokens(&r.shared, "locked", &base, "tok-123", Some("ref-1"));
+    let out = call(
+        &r.hub,
+        json!({"action": "add", "name": "locked", "target": format!("{base}/mcp")}),
+    );
+    assert!(out.contains("outcome: done"), "{out}");
+    let out = call(
+        &r.hub,
+        json!({"action": "call", "server": "locked", "tool": "echo", "args": {"text": "still here"}}),
+    );
+    assert_eq!(out, "still here");
+    let secrets = std::fs::read_to_string(r.shared.join("secrets/locked.json")).unwrap();
+    assert!(
+        secrets.contains("tok-123-next") && secrets.contains("ref-2"),
+        "{secrets}"
+    );
+}
+
+/// With nothing to refresh, a mid-session 401 asks for a sign-in; it does not
+/// say the server "did not connect".
+#[test]
+fn a_token_revoked_mid_session_without_a_refresh_asks_for_a_sign_in() {
+    let (child, port) = http_server(&["--token", "tok-123", "--revoke-on-call"]);
+    let _k = Kill(child);
+    let r = rig();
+    let base = format!("http://127.0.0.1:{port}");
+    seed_tokens(&r.shared, "locked", &base, "tok-123", None);
+    let out = call(
+        &r.hub,
+        json!({"action": "add", "name": "locked", "target": format!("{base}/mcp")}),
+    );
+    assert!(out.contains("outcome: done"), "{out}");
+    let out = call_err(
+        &r.hub,
+        json!({"action": "call", "server": "locked", "tool": "echo", "args": {"text": "x"}}),
+    );
+    assert!(out.contains("needs the person to sign in"), "{out}");
+    assert!(!out.contains("did not connect"), "{out}");
+}
+
+/// A tool name the server does not know is the server's answer, with the
+/// tools it does have; it is not a connect failure.
+#[test]
+fn an_unknown_tool_names_the_server_s_tools() {
+    let r = rig();
+    add_stdio(&r, "session");
+    let out = call_err(
+        &r.hub,
+        json!({"action": "call", "server": "fake", "tool": "ech0", "args": {}}),
+    );
+    assert!(!out.contains("did not connect"), "{out}");
+    assert!(
+        out.contains("has no tool \"ech0\"") && out.contains("echo"),
+        "{out}"
+    );
+}
+
+/// A key the caller gave that the server refuses is reported as a bad key,
+/// not turned into a sign-in the person never asked for.
+#[test]
+fn a_refused_key_is_a_bad_key_not_a_sign_in() {
+    let (child, port) = http_server(&["--token", "tok-123"]);
+    let _k = Kill(child);
+    let r = rig();
+    let out = call_err(
+        &r.hub,
+        json!({"action": "add", "name": "keyed", "target": format!("http://127.0.0.1:{port}/mcp"),
+            "headers": {"Authorization": "Bearer wrong"}}),
+    );
+    assert!(
+        out.contains("refused the key") && out.contains("Authorization"),
+        "{out}"
+    );
+    assert!(!out.contains("wrong"), "the key is never echoed: {out}");
+    let list = call(&r.hub, json!({"action": "list"}));
+    assert!(!list.contains("needs sign-in"), "{list}");
 }
 
 /// A tool whose name is no identifier (`resolve-library-id`) is declared and
