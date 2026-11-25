@@ -1,4 +1,4 @@
-import Darwin
+import CoreFoundation
 import XCTest
 
 /// FEED-15 (Aziz 2026-11-24, iPhone 16 Plus, 84 live Codex workspaces: "When a new feed row comes in as
@@ -95,7 +95,7 @@ final class FeedArrivalShiftUITests: XCTestCase {
             for _ in 0..<4 { app.swipeUp(velocity: .fast) }
         }
         // Placed: the load and the measure start, and the case's motion runs under them.
-        notify_post(Self.startSignal)
+        CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFNotificationName(Self.startSignal as CFString), nil, nil, true)
         Thread.sleep(forTimeInterval: 1)
         switch which {
         case .drag:

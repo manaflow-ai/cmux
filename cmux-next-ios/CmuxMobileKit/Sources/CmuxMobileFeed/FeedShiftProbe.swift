@@ -1,7 +1,7 @@
 // DEBUG only: the Feed's frame-shift measure for FEED-15 (FeedArrivalShiftUITests).
 #if DEBUG && os(iOS)
 import CmuxMobileDesign
-import Darwin
+import CoreFoundation
 import OSLog
 import QuartzCore
 import UIKit
@@ -28,7 +28,7 @@ import UIKit
 /// (`above=…`: the most any visible row above it moved), so a test of rule (b) checks both.
 ///
 /// With the probe on, the rig's load waits for the test's signal: a Darwin notification
-/// (`FeedShiftProbe.startSignal`) the UI test posts once it has placed the list. XCUITest waits for
+/// (`FeedShiftProbe.startSignal`, on CFNotificationCenter's Darwin center) the UI test posts once it has placed the list. XCUITest waits for
 /// the app to go idle before each action, and a running load never lets it, so placing the list
 /// under load took 40-118 s (feed15-red-2 c4876285); a timer could not know when placing ends. The
 /// measure starts with the load. `CMUX_MOBILE_FEED_STRESS_HEADER=S`
@@ -45,7 +45,6 @@ final class FeedShiftProbe {
     /// What waits for the signal (the rig's live timer), run when it comes.
     private var onStart: [() -> Void] = []
     private var started = false
-    private var signalToken: Int32 = 0
     static let headerEvery: TimeInterval? = ProcessInfo.processInfo.environment["CMUX_MOBILE_FEED_STRESS_HEADER"].flatMap(Double.init)
 
     private weak var table: UITableView?
@@ -79,9 +78,21 @@ final class FeedShiftProbe {
         guard Self.enabled, self.table == nil else { return }
         self.table = table
         lastOffset = table.contentOffset.y
-        notify_register_dispatch(Self.startSignal, &signalToken, DispatchQueue.main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.start() }
-        }
+        // A Darwin notification, which a UI test can post across processes. The callback may come
+        // on any thread; it hops to the main actor. The probe is a process-long singleton, so the
+        // unretained pointer outlives the observer.
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), Unmanaged.passUnretained(self).toOpaque(),
+                                        { _, observer, _, _, _ in
+                                            guard let observer else { return }
+                                            let pointer = UInt(bitPattern: observer)
+                                            DispatchQueue.main.async {
+                                                MainActor.assumeIsolated {
+                                                    guard let raw = UnsafeRawPointer(bitPattern: pointer) else { return }
+                                                    Unmanaged<FeedShiftProbe>.fromOpaque(raw).takeUnretainedValue().start()
+                                                }
+                                            }
+                                        },
+                                        Self.startSignal as CFString, nil, .deliverImmediately)
     }
 
     /// Runs `body` when the test's signal comes (at once if it came already).
