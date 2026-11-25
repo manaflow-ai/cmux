@@ -1,6 +1,10 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#else
+import Foundation
+#endif
 import Testing
-@testable import CmuxNextAgentPane
+@testable import CmuxNextAgentPanePlacement
 
 /// A window of a chat and the column on its right, as the app measures it (`RightColumn`): a pane
 /// whose last tab closes goes away, so its split collapses.

@@ -1,5 +1,4 @@
-import AppKit
-import CmuxNextCompat
+import Foundation
 
 /// The agent panes a chat's subagents opened in (`chat.subagentPane`), one tracker per source chat
 /// on an acpmux session, so a click in one chat never reuses a tab opened beside another. Each
@@ -125,14 +124,15 @@ public final class AgentSubagentPanes {
         public var again: (Request) -> Void
         /// The time, for ``focusBound``.
         public var now: () -> ContinuousClock.Instant
-        /// Calls `acted` on the person's next action (``watchUser(_:)``); returns what stops watching.
+        /// Calls `acted` on the person's next action (the app's: CmuxNextAgentPane's
+        /// `AgentSubagentPanes.watchUser`); returns what stops watching.
         public var watchUser: (_ acted: @escaping @MainActor @Sendable () -> Void) -> () -> Void
 
         public init(isOpen: @escaping (String) -> Bool, focus: @escaping (String, Bool) -> Void,
                     place: @escaping (String, RightColumnPlacement.Decision<String>, @escaping @MainActor (String) -> Void, @escaping @MainActor (Bool) -> Void) -> Bool,
                     column: @escaping (String) -> RightColumnPlacement.Column = { _ in RightColumnPlacement.Column() },
                     again: @escaping (Request) -> Void, now: @escaping () -> ContinuousClock.Instant = { .now },
-                    watchUser: @escaping (@escaping @MainActor @Sendable () -> Void) -> () -> Void = AgentSubagentPanes.watchUser) {
+                    watchUser: @escaping (@escaping @MainActor @Sendable () -> Void) -> () -> Void) {
             self.isOpen = isOpen
             self.focus = focus
             self.place = place
@@ -186,27 +186,6 @@ public final class AgentSubagentPanes {
 
     private func prune(_ isOpen: (String) -> Bool) {
         tabs = tabs.filter { isOpen($0.value) }
-    }
-
-    /// Calls `acted` on the next click or key press in the app, or when another window takes the
-    /// keyboard or the app resigns active; returns what stops watching.
-    nonisolated public static func watchUser(_ acted: @escaping @MainActor @Sendable () -> Void) -> () -> Void {
-        let monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { event in
-            guard Thread.isMainThread else { return event }
-            // main-proof: guarded by Thread.isMainThread above (AppKit calls local monitors on main)
-            MainActor.assumeIsolated { acted() }
-            return event
-        }
-        let center = NotificationCenter.default
-        let observers = [NSWindow.didBecomeKeyNotification, NSApplication.didResignActiveNotification].map { name in
-            MainActorObservation(name, center: center) {
-                acted()
-            }
-        }
-        return {
-            if let monitor { NSEvent.removeMonitor(monitor) }
-            observers.forEach { $0.cancel() }
-        }
     }
 
     /// The `revealTurn` value that opens a pane on subagent `agent`'s view (the page's
