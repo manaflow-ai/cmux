@@ -59,6 +59,22 @@ export function parseSurface(hash: string): SurfaceKind | null {
   return match ? (match[1] as SurfaceKind) : null;
 }
 
+/** The Updated card's title line's middle, CSS px down from the top of the card's own box (its
+    `.wn-card-rest`, else the page's root), to a quarter pixel; 0 with no title. The host centers its
+    native x on it (SidebarUpdatedCardHost.closeFrame; u51892, 2026-11-23: "why the x icon is not
+    aligned vertically with the Updated to Nightly thing? let's put it on the right side in line with the
+    Updated to Nightly"): the x took the corner's concentric inset, which sat it below the title line, and
+    lower still once the card grew. The title is trimmed to its capitals (updateSurfaces.css), so its box's
+    middle is the capitals' middle, where the eye reads the line's center. */
+export function cardTitleMid(root: HTMLElement): number {
+  const title = root.querySelector<HTMLElement>(".wn-card-title");
+  if (!title) return 0;
+  const box = (title.closest<HTMLElement>(".wn-card-rest") ?? root).getBoundingClientRect();
+  const line = title.getBoundingClientRect();
+  if (line.height <= 0) return 0;
+  return Math.max(0, Math.round((line.top + line.height / 2 - box.top) * 4) / 4);
+}
+
 export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client: PageClient | null): void {
   routeChipHost(client);
   const strings = createStrings(table);
@@ -198,10 +214,16 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
       // read one pixel over the card's (49 for 48), so the slot grew a pixel and moved the list.
       const open = root.querySelector<HTMLElement>(".wn-preview")?.getBoundingClientRect().height ?? 0;
       const height = Math.round(root.getBoundingClientRect().height - open);
-      const key = `${height}x0x${overlay}x${glass}`;
+      const title = cardTitleMid(root);
+      // Its words are final (the span's notes answered; not the host's items standing in after the 1.5 s
+      // settle, which late notes still replace): the host holds the height it remembered from the last
+      // showing only until then, so a shorter card gives the room back once, instead of standing with a
+      // blank band above its words (u51892 review F1).
+      const final = spans === null || spans.done;
+      const key = `${height}x0x${overlay}x${glass}x${title}x${final}`;
       if (key === reported) return;
       reported = key;
-      call(SurfaceOps.size, { height, width: 0, overlay, preview: glass });
+      call(SurfaceOps.size, { height, width: 0, overlay, preview: glass, title, settled: final });
       return;
     }
     if (!settled()) return;
@@ -268,6 +290,9 @@ export class SpanNotes {
   private loaded: ReleaseNotes[] | undefined;
   /** The span's notes loaded, failed, came back empty or took too long: the card's words are final. */
   settled = false;
+  /** The span's notes answered (loaded, failed or came back empty), not only took too long: no later
+      words will replace these. The host holds its remembered height until then (u51892 review F1). */
+  done = false;
 
   constructor(
     private readonly client: PageClient,
@@ -290,6 +315,7 @@ export class SpanNotes {
   private load(key: string, span: UpdateSpan): void {
     this.key = key;
     this.loaded = undefined;
+    this.done = false;
     // A new span's words are not final until its own notes answer.
     this.settled = false;
     const store = new ChangelogStore(this.client);
@@ -312,6 +338,7 @@ export class SpanNotes {
       .catch(() => undefined)
       .finally(() => {
         if (this.store !== store) return;
+        this.done = true;
         if (this.settled) this.onChange();
         else this.settle();
       });
