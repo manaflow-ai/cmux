@@ -1,3 +1,4 @@
+public import CmuxEgress
 import CmuxNextWakeups
 public import Foundation
 import Observation
@@ -89,7 +90,8 @@ public final class WebUpdater {
     /// reloaded at their safe points (``pruneUnused()``).
     @ObservationIgnored public var served: () -> [URL] = { [] }
     /// Whether cmux is in the front: checks come every ``interval`` there and every
-    /// ``backgroundInterval`` behind other apps (``noteActivation(stale:)`` brings one in).
+    /// ``backgroundInterval`` behind other apps (``noteActivation(stale:)`` brings one in). Both are
+    /// a minute today; the split stays so a later cost reading can widen the background one alone.
     @ObservationIgnored public var foreground = true
     /// A check ended, whatever it took: the app reads the channel's switch file of web pieces
     /// then (cmux-tui/crates/cmux-web-pieces), with the state the check left.
@@ -109,12 +111,15 @@ public final class WebUpdater {
     /// read with its ETag (a 304 while unchanged), the archive is fetched only for a new update.
     let interval: Duration
     /// Between scheduled checks while cmux is behind other apps. A swap there runs once cmux has
-    /// been behind for ``WebSwapGate/grace``, so this bounds how stale a backgrounded app gets:
-    /// at 600 s a merge reached a NIGHTLY behind another app 10.8 minutes later (2026-10-25),
-    /// past the five minutes Leo asked for. Each check is a small pointer read (a 304 while
-    /// unchanged), so every two minutes stays quiet.
+    /// been behind for ``WebSwapGate/grace``, so this bounds how stale a backgrounded app gets: at
+    /// 600 s a merge reached a NIGHTLY behind another app 10.8 minutes later (2026-10-25); at 120 s
+    /// the read alone could add two minutes to merge-to-visible, and cmux sits behind other apps
+    /// most of the day (Leo, 2026-11-22: "this should've been fast"). Each check is one conditional
+    /// GET of an 844-byte pointer (a header-only 304 while unchanged, never the archive), so a
+    /// minute in both states is 60 small reads an hour per running app: a constant cost that does
+    /// not grow with pages, merges or uptime.
     let backgroundInterval: Duration
-    public nonisolated static let defaultBackgroundInterval: Duration = .seconds(120)
+    public nonisolated static let defaultBackgroundInterval: Duration = .seconds(60)
     /// The next scheduled check.
     @ObservationIgnored private let nextCheck: DemandTimer
     @ObservationIgnored private var etag: String?
@@ -138,7 +143,7 @@ public final class WebUpdater {
     public init(store: WebUpdateStore, app: App, keys: WebUpdateKeys = .bundled, base: URL = WebUpdater.defaultBase,
                 interval: Duration = .seconds(60), backgroundInterval: Duration = WebUpdater.defaultBackgroundInterval,
                 clock: any Clock<Duration> = ContinuousClock(),
-                fetch: @escaping Fetch = { try await URLSession.shared.data(for: $0) },
+                fetch: @escaping Fetch = { try await CmuxEgress.shared(site: "CmuxNextUpdater.WebUpdater").data(for: $0) },
                 download: @escaping Download = WebUpdater.downloadToFile) {
         self.store = store
         self.app = app
@@ -234,7 +239,7 @@ public final class WebUpdater {
         Task { await check() }
     }
 
-    /// cmux went behind other apps: the check booked a minute out moves to ``backgroundInterval``
+    /// cmux went behind other apps: the check booked ``interval`` out moves to ``backgroundInterval``
     /// after the last one.
     public func noteBackground() {
         foreground = false
@@ -441,7 +446,7 @@ public final class WebUpdater {
 
     /// Downloads to a temporary file the caller removes.
     @concurrent public nonisolated static func downloadToFile(_ request: URLRequest) async throws -> URL {
-        let (file, response) = try await URLSession.shared.download(for: request)
+        let (file, response) = try await CmuxEgress.shared(site: "CmuxNextUpdater.WebUpdater").download(for: request)
         guard (response as? HTTPURLResponse)?.statusCode == 200 else {
             try? FileManager.default.removeItem(at: file)
             throw WebUpdateRefusal.transfer("archive status \((response as? HTTPURLResponse)?.statusCode ?? 0)")

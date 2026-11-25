@@ -67,9 +67,39 @@ where
     tries(not_found_passes, Some(deadline), call).await
 }
 
+/// The longest `retryAfterSeconds` a send waits out ([`retry_send`]): the hub's windows are one
+/// minute long, so its answer is never longer than this.
+pub const SEND_MAX_RETRY_AFTER: Duration = Duration::from_secs(60);
+
+/// A send to the hub (it carries an idempotency key, so posting it again is the same message),
+/// tried again as [`retry`] does, but a 429's `retryAfterSeconds` is waited out up to
+/// [`SEND_MAX_RETRY_AFTER`] instead of failing the send: before this, every send behind a full
+/// rate window failed at once with `the hub answered 429 mesh.rate_limited`, though the window
+/// reopened within the minute (2026-11-23, every relayed send to a busy host for two hours).
+pub async fn retry_send<T, F, Fut>(call: F) -> Result<T, HubError>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, HubError>>,
+{
+    tries_with(true, None, SEND_MAX_RETRY_AFTER, call).await
+}
+
 async fn tries<T, F, Fut>(
     not_found_passes: bool,
     deadline: Option<Instant>,
+    call: F,
+) -> Result<T, HubError>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, HubError>>,
+{
+    tries_with(not_found_passes, deadline, MAX_RETRY_AFTER, call).await
+}
+
+async fn tries_with<T, F, Fut>(
+    not_found_passes: bool,
+    deadline: Option<Instant>,
+    max_retry_after: Duration,
     mut call: F,
 ) -> Result<T, HubError>
 where
@@ -92,7 +122,7 @@ where
             return Err(e);
         }
         let wait = match e.retry_after {
-            Some(after) if after > MAX_RETRY_AFTER => return Err(e),
+            Some(after) if after > max_retry_after => return Err(e),
             Some(after) => after.max(wait),
             None => wait,
         };
@@ -222,6 +252,40 @@ mod tests {
         assert_eq!(got.unwrap_err().status, Some(503));
         assert_eq!(tries.load(Ordering::SeqCst), 1);
         assert_eq!(started.elapsed(), Duration::ZERO);
+    }
+
+    /// A send waits out a 429's retryAfterSeconds (up to a minute) and goes; a read does not.
+    #[tokio::test(start_paused = true)]
+    async fn a_send_waits_out_a_rate_window_and_then_goes() {
+        let calls = AtomicUsize::new(0);
+        let started = Instant::now();
+        let got = retry_send(|| {
+            let n = calls.fetch_add(1, Ordering::SeqCst);
+            async move {
+                if n == 0 {
+                    let mut e = status(429, Some("mesh.rate_limited"));
+                    e.retry_after = Some(Duration::from_secs(40));
+                    Err(e)
+                } else {
+                    Ok(n)
+                }
+            }
+        })
+        .await;
+        assert_eq!(got.unwrap(), 1);
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        assert!(
+            started.elapsed() >= Duration::from_secs(40),
+            "it waited the hub's retryAfterSeconds"
+        );
+        // A read keeps its short bound: the same answer is not waited on.
+        let read = retry(false, || async {
+            let mut e = status(429, Some("mesh.rate_limited"));
+            e.retry_after = Some(Duration::from_secs(40));
+            Err::<(), _>(e)
+        })
+        .await;
+        assert!(read.is_err());
     }
 
     /// A retryAfter under the cap but past the deadline is not waited: the 429 is returned now.

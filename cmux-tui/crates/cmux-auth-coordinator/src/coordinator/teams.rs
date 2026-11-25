@@ -1,6 +1,7 @@
 //! The team list, the selected team and team-scope recovery.
 
-use super::{Coordinator, RateLimitStreak, Recovery};
+use super::Coordinator;
+use super::state::{Backoff, RecoveryLoop, Restore, Teams};
 use crate::event::{AfterTeams, AuthFailure, Effect, TeamList, TeamRefreshTicket};
 use crate::model::{AuthTeam, resolve_team_id};
 use crate::phase::team_scope_rate_limit_delay;
@@ -15,13 +16,13 @@ impl Coordinator {
         after: AfterTeams,
         fx: &mut Vec<Effect>,
     ) {
-        self.team_read_counter = self.team_read_counter.wrapping_add(1);
-        self.pending_team_reads.insert(self.team_read_counter);
+        self.generations.team_read = self.generations.team_read.wrapping_add(1);
+        self.pending_team_reads.insert(self.generations.team_read);
         fx.push(Effect::RefreshTeams(TeamRefreshTicket {
-            id: self.team_read_counter,
+            id: self.generations.team_read,
             generation,
-            mutation_generation: self.team_mutation_generation,
-            list_generation: self.team_list_generation,
+            mutation_generation: self.generations.team_mutation,
+            list_generation: self.generations.team_list,
             runs_post_sign_in_hook: runs_hook,
             after,
         }));
@@ -33,52 +34,56 @@ impl Coordinator {
         result: Result<TeamList, AuthFailure>,
         fx: &mut Vec<Effect>,
     ) {
-        // Each read is answered once: a repeated answer (or one for a read
-        // this coordinator never issued) would end another read's in-flight
+        // Each read is answered once (`step` refused a repeated answer, or
+        // one for a read never issued): it would end another read's in-flight
         // count and apply its list or hook twice.
-        if !self.pending_team_reads.remove(&ticket.id) {
-            return;
-        }
-        let current = ticket.generation == self.session_generation;
+        self.pending_team_reads.remove(&ticket.id);
+        let current = ticket.generation == self.generations.session;
         match result {
-            Ok(list) if current => {
-                self.team_scope_rate_limit = None;
+            Ok(_) | Err(_) if !current => {}
+            Ok(list) => {
+                self.backoff = Backoff::Clear;
                 fx.push(Effect::SessionCheckSucceeded);
-                self.authenticated_teams_session_generation = Some(ticket.generation);
-                if ticket.list_generation == self.team_list_generation {
+                // This session's list has loaded: a delete or rename since
+                // the read began keeps the list it left.
+                if self.teams == Teams::Unloaded {
+                    self.teams = Teams::Loaded { teams: Vec::new() };
+                }
+                if ticket.list_generation == self.generations.team_list {
                     self.set_available_teams(list.teams, fx);
                 }
-                let selection_changed = ticket.mutation_generation != self.team_mutation_generation;
+                let selection_changed =
+                    ticket.mutation_generation != self.generations.team_mutation;
                 let wanted = if selection_changed {
                     self.selected_team_id.clone()
                 } else {
                     list.server_selected_team_id.or_else(|| self.selected_team_id.clone())
                 };
-                let resolved = resolve_team_id(wanted.as_deref(), &self.available_teams);
+                let resolved = resolve_team_id(wanted.as_deref(), self.teams.list());
                 self.set_selected_team(resolved, fx);
             }
-            Err(failure) if current => {
+            Err(failure) => {
                 self.note_team_scope_failure(&failure, fx);
                 self.schedule_team_scope_recovery(fx);
             }
-            _ => {}
         }
         // The rest of `applySignedInUser`: a sign-out during the read skips the hook.
         if ticket.after == AfterTeams::Nothing {
             return;
         }
-        if current && ticket.runs_post_sign_in_hook && self.owner_is_active(ticket.after) {
+        if current && ticket.runs_post_sign_in_hook && self.hook_owner_is_active(ticket.after) {
             fx.push(Effect::RunPostSignInHook(ticket));
             return;
         }
         self.after_teams(ticket.generation, ticket.after, fx);
     }
 
-    /// Whether the restore run or sign-in flow a team read belongs to is still running.
-    fn owner_is_active(&self, after: AfterTeams) -> bool {
+    /// Whether the restore run or sign-in flow a team read belongs to is
+    /// still running. A plain refresh has no owner and runs no hook.
+    pub(super) fn hook_owner_is_active(&self, after: AfterTeams) -> bool {
         match after {
-            AfterTeams::Nothing => true,
-            AfterTeams::Restore { id } => self.active_restore_id == Some(id),
+            AfterTeams::Nothing => false,
+            AfterTeams::Restore { id } => self.restore == Restore::Running { id },
             AfterTeams::SignIn(flow) => self.flow_is_active(flow),
         }
     }
@@ -91,7 +96,7 @@ impl Coordinator {
         match after {
             AfterTeams::Nothing => {}
             AfterTeams::Restore { id } => {
-                if self.active_restore_id == Some(id) {
+                if self.restore == (Restore::Running { id }) {
                     self.finish_restore(fx);
                 }
             }
@@ -99,8 +104,8 @@ impl Coordinator {
                 if !self.flow_is_active(flow) {
                     return;
                 }
-                if generation == self.session_generation
-                    && flow.sign_out_epoch == self.sign_out_epoch
+                if generation == self.generations.session
+                    && flow.sign_out_epoch == self.generations.sign_out_epoch
                 {
                     self.succeed_sign_in(flow, fx);
                 } else {
@@ -111,7 +116,7 @@ impl Coordinator {
     }
 
     pub(super) fn set_available_teams(&mut self, teams: Vec<AuthTeam>, fx: &mut Vec<Effect>) {
-        self.available_teams = teams;
+        self.teams = Teams::Loaded { teams };
         self.publish_team_scope(fx);
     }
 
@@ -124,57 +129,65 @@ impl Coordinator {
         self.publish_team_scope(fx);
     }
 
-    /// A 429 starts or extends the backoff; any other classified failure ends
-    /// it; a timeout leaves it as is.
+    /// A 429 starts or extends the backoff; any other failure ends it.
     pub(super) fn note_team_scope_failure(&mut self, failure: &AuthFailure, fx: &mut Vec<Effect>) {
         match failure {
             AuthFailure::RateLimited { retry_after } => {
-                let streak = self.team_scope_rate_limit.map_or(0, |limit| limit.streak) + 1;
+                let streak = match self.backoff {
+                    Backoff::Clear => 0,
+                    Backoff::RateLimited { streak, .. } => streak,
+                } + 1;
                 let jitter = 0.5 + 0.5 * self.next_unit();
                 let delay = team_scope_rate_limit_delay(*retry_after, streak, jitter);
-                self.team_scope_rate_limit = Some(RateLimitStreak { streak, delay });
+                self.backoff = Backoff::RateLimited { streak, delay };
                 fx.push(Effect::SessionCheckRateLimited {
                     retry_after: *retry_after,
                     backoff: delay,
                     attempt: streak,
                 });
             }
-            _ => self.team_scope_rate_limit = None,
+            AuthFailure::Cancelled
+            | AuthFailure::Offline
+            | AuthFailure::Unauthorized
+            | AuthFailure::InvalidCode
+            | AuthFailure::NetworkError
+            | AuthFailure::TimedOut
+            | AuthFailure::Other => self.backoff = Backoff::Clear,
         }
     }
 
     pub(super) fn schedule_team_scope_recovery(&mut self, fx: &mut Vec<Effect>) {
-        if !self.needs_team_scope_recovery() || self.team_scope_recovery.is_some() {
+        if !self.needs_team_scope_recovery() || self.recovery != RecoveryLoop::Idle {
             return;
         }
-        self.next_recovery_id += 1;
-        let recovery = Recovery { id: self.next_recovery_id, attempt: 0 };
-        self.team_scope_recovery = Some(recovery);
-        fx.push(Effect::SleepTeamScopeRecovery {
-            id: recovery.id,
-            delay: self.team_scope_recovery_wait(0),
-        });
+        self.generations.recovery += 1;
+        let id = self.generations.recovery;
+        self.recovery = RecoveryLoop::Sleeping { id, attempt: 0 };
+        fx.push(Effect::SleepTeamScopeRecovery { id, delay: self.team_scope_recovery_wait(0) });
     }
 
     pub(super) fn on_recovery_due(&mut self, id: u64, fx: &mut Vec<Effect>) {
-        let Some(recovery) = self.team_scope_recovery else {
-            return;
+        // `step` refused a loop that is not the one sleeping.
+        let attempt = match self.recovery {
+            RecoveryLoop::Sleeping { attempt, .. } => attempt,
+            RecoveryLoop::Idle => return,
         };
-        if recovery.id != id {
-            return;
-        }
         if !self.needs_team_scope_recovery() {
-            self.team_scope_recovery = None;
+            self.recovery = RecoveryLoop::Idle;
             return;
         }
-        self.team_scope_recovery = Some(Recovery { id, attempt: recovery.attempt + 1 });
-        self.check_existing_session(fx);
+        self.recovery = RecoveryLoop::Sleeping { id, attempt: attempt + 1 };
+        // A launch that asked to clear auth starts no restore; the loop
+        // still counted the attempt.
+        let _ = self.check_existing_session(fx);
     }
 
     pub(super) fn cancel_team_scope_recovery(&mut self, fx: &mut Vec<Effect>) {
-        if let Some(recovery) = self.team_scope_recovery.take() {
-            fx.push(Effect::CancelTeamScopeRecovery { id: recovery.id });
+        if let RecoveryLoop::Sleeping { id, .. } =
+            std::mem::replace(&mut self.recovery, RecoveryLoop::Idle)
+        {
+            fx.push(Effect::CancelTeamScopeRecovery { id });
         }
-        self.team_scope_rate_limit = None;
+        self.backoff = Backoff::Clear;
     }
 }

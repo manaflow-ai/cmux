@@ -83,13 +83,13 @@ for helper_dir in bin libexec; do
 done
 echo "==> entitlements, helpers, Chromium helpers and browser host: OK"
 
-# The Screen Sharing helper ("<app> Screen Sharing.app",
+# The Screen Sharing helper ("<app> Helper.app", executable cmux-screen-sharing,
 # plans/cmux-next/screen-sharing-helper.md): cmux copies it out of the app before it
 # runs it, so a copy taken out of the app must keep its own stapled ticket.
 check_screen_share_helper() {
   local share share_copy
-  for share in "$APP_PATH/Contents/Library/"*" Screen Sharing.app"; do
-    [[ -d "$share" ]] || continue
+  for share in "$APP_PATH/Contents/Library/"*" Helper.app"; do
+    [[ -e "$share/Contents/MacOS/cmux-screen-sharing" ]] || continue
     /usr/bin/codesign --verify --strict --verbose=2 "$share"
     if /usr/bin/codesign -d --entitlements :- "$share" 2>&1 | grep -q "application-identifier"; then
       echo "error: nested Screen Sharing helper unexpectedly carries application-identifier" >&2
