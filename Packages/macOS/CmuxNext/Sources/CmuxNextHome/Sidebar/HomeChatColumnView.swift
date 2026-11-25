@@ -56,8 +56,12 @@ final class HomeChatColumnView: NSView, WindowControlsAvoiding {
     /// The traffic lights' row (its line) and what of them lies over the column, at its last layout.
     private var windowControls: (row: CGRect?, over: CGRect?)
 
+    /// The line from the lights' row (else, in full screen, the toolbar band's own line), and what to
+    /// keep clear of: the lights and the band at its fully open width (`homeTopRowReserve`), never
+    /// its width of the moment, so the corner hover never moves the buttons.
     private var currentWindowControls: (row: CGRect?, over: CGRect?) {
-        (homeLightsRow(band: HomeSidebarHeaderLayout.band), homeWindowControls(band: HomeSidebarHeaderLayout.band))
+        let reserve = homeTopRowReserve(band: HomeSidebarHeaderLayout.band)
+        return (homeLightsRow(band: HomeSidebarHeaderLayout.band) ?? reserve?.line, reserve?.clear)
     }
 
     /// Relays out only when the traffic lights over the column changed (the page moved in its window).
