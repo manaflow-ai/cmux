@@ -54,6 +54,9 @@
 // environment; no cmux.json key): on, picking Cloud in a new chat's strip adds the Environment chip
 // (CloudEnvironmentChip.tsx), on Auto. On by default, as the host's flag is: only the host's `false`
 // (CLOUD_ENVIRONMENTS_ENABLED=0 or false) hides it.
+// `cloudLeaseOnOpen` is the launch flag CLOUD_LEASE_ON_OPEN (Swift AgentPaneCloudLeaseOnOpenFlag): on, a
+// composer that opens with Cloud already its target leases its machine at open (cloudComposeReservation.ts
+// `opened`). On by default, as the host's flag is: only the host's `false` (CLOUD_LEASE_ON_OPEN=0) turns it off.
 import { useSyncExternalStore } from "react";
 
 // `symbols`: one row of harness symbols at the top of the model picker, each name on hover (Leo
@@ -91,6 +94,7 @@ export type ComposerSettings = {
   emptyChatComposerPosition: EmptyChatComposerPosition;
   followUpMode: FollowUpMode;
   cloudEnvironments: boolean;
+  cloudLeaseOnOpen: boolean;
 };
 
 export const DEFAULT_COMPOSER: ComposerSettings = {
@@ -114,6 +118,7 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   emptyChatComposerPosition: "bottom",
   followUpMode: "steer",
   cloudEnvironments: true,
+  cloudLeaseOnOpen: true,
 };
 const KEYS = Object.keys(DEFAULT_COMPOSER) as (keyof ComposerSettings)[];
 type ComposerFlag =
@@ -126,7 +131,8 @@ type ComposerFlag =
   | "harnessSwitch"
   | "scrollToBottomOnSend"
   | "showMachineLoadWarnings"
-  | "cloudEnvironments";
+  | "cloudEnvironments"
+  | "cloudLeaseOnOpen";
 
 /// The host's value; anything it does not know keeps the default.
 export function readComposerSettings(value: unknown): ComposerSettings {
@@ -161,6 +167,7 @@ export function readComposerSettings(value: unknown): ComposerSettings {
     emptyChatComposerPosition: raw.emptyChatComposerPosition === "center" ? "center" : "bottom",
     followUpMode: readFollowUpMode(raw.followUpMode),
     cloudEnvironments: flag("cloudEnvironments"),
+    cloudLeaseOnOpen: flag("cloudLeaseOnOpen"),
   };
 }
 

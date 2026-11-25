@@ -33,6 +33,7 @@ stopped by exact pid.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import signal
 import hashlib
 import json
@@ -76,6 +77,21 @@ CEF_TRACE_CATEGORIES = "toplevel,toplevel.flow,ipc,mojom"
 
 
 BROWSER_THREADS = ("CrBrowserMain", "Chrome_IOThread")
+
+
+@contextlib.contextmanager
+def host_load(count: int):
+    """`count` busy-loop processes (children of this bench) while the block runs, each ended after it: a busy Mac,
+    where every timer wakes late, for a daemon's wakeups under load."""
+    loops = [subprocess.Popen([sys.executable, "-I", "-c", "while True: pass"], stdin=subprocess.DEVNULL,
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) for _ in range(count)]
+    try:
+        yield loops
+    finally:
+        for loop in loops:
+            loop.kill()
+        for loop in loops:
+            loop.wait()
 
 
 def cef_trace_switches(path: str, seconds: int) -> str:
@@ -834,6 +850,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="Chromium's own startup trace for this many seconds (30-600; a ring buffer of "
                              f"{CEF_TRACE_BUFFER_KB >> 10} MiB in a temporary folder removed after): tasks per second for "
                              "each thread and the place that posted them, the first 30 s (startup) left out")
+    parser.add_argument("--host-load", type=int, default=0,
+                        help="busy-loop processes run through the measured windows (0-64): the daemons' wakeups on "
+                             "a busy Mac, where every timer wakes late")
     parser.add_argument("--out")
     args = parser.parse_args(argv)
     args.parser = parser
@@ -842,6 +861,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def check_args(args: argparse.Namespace) -> None:
     parser = args.parser
+    if not 0 <= args.host_load <= 64:
+        parser.error("--host-load must be 0 to 64 loops")
     if args.cef_trace != 0 and not 30 <= args.cef_trace <= 600:
         parser.error("--cef-trace must be 0 (off) or 30 to 600 seconds")
     if not 0 <= args.wake_trace <= 15:
@@ -943,8 +964,11 @@ def main(argv: list[str] | None = None) -> int:
         renderer_threads: list = []
         wake_call = lambda: client.call("debug.wakeups", {"run_loop": True}, timeout=30)  # noqa: E731
         wakes_before = wake_call() if args.wake_trace else None
-        rows = measure(process.pid, bundle, args.windows, args.window,
-                       each if args.sample_each_window and not args.no_sample else None, threads, renderer_threads)
+        with host_load(args.host_load) as loops:
+            if loops:
+                log(f"idle-cpu: {len(loops)} busy loops run through the windows (--host-load)")
+            rows = measure(process.pid, bundle, args.windows, args.window,
+                           each if args.sample_each_window and not args.no_sample else None, threads, renderer_threads)
         result["processes"] = rows
         if args.wake_trace:
             import thread_wakes

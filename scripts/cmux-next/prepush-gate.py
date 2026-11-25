@@ -463,6 +463,16 @@ SETTINGS_KEYS_HINT = ("A settings export lost a key its source declares, or has 
 CARGO_HINT = ("Fix the locks: run `scripts/cmux-next/cargo-locks.py fix` (it runs `cargo update --workspace` in each "
               "stale workspace, which rewrites only what the manifests now need), commit the Cargo.lock files, then "
               "push. A manifest change in one workspace can leave another workspace's lock stale (eb4f3eb1d94).")
+# cmux#55547: #51769 added 3 keys to a string catalog and its diff rewrote 281k lines: its base merges ran main's older
+# trusted merge driver, which put the branch's text and order back over the base's. Compared with the push's merge base
+# with feat-cmux-next, so a base merge's own changes never count. CI's fast gates run it on BASE..MERGE.
+XCSTRINGS_CHECK = "String catalogs edited in place (scripts/cmux-next/check-xcstrings-diff.py)"
+XCSTRINGS_SCRIPT = SCRIPTS + "/check-xcstrings-diff.py"
+XCSTRINGS_HINT = ("A string catalog was re-serialized, not edited: take the merge base's text back (git checkout "
+                  "$(git merge-base HEAD origin/feat-cmux-next) -- <catalog>) and add or remove keys in place with "
+                  "scripts/xcstrings-edit.py. After a base merge, rerun scripts/install-git-hooks.sh from a feat-cmux-next "
+                  "checkout (the clone's trusted merge driver may be main's older copy) and redo the merge. A deliberate "
+                  "reformat: an `Xcstrings-Reformat: <why>` commit trailer.")
 SIDEBAR_CHECK = "Sidebar look owner (plans/cmux-next/sidebar-owner.md)"
 SIDEBAR_VIEWS = "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/"
 # The sidebar package's code, not only Views/: a702 (9a2fceefbbb, 2026-10-25) changed the pinned section from tiles
@@ -2572,6 +2582,36 @@ def settings_export_keys(repo: Path, base: str, head: str, trusted_scripts: Path
     return found
 
 
+def xcstrings_rewrites(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
+    """`<catalog>: ...` per string catalog the push re-serializes (moved keys, entries rewritten with no value change,
+    changed separators) instead of adding, removing or editing entries (XCSTRINGS_CHECK). Compared with HEAD's merge base
+    with feat-cmux-next, the diff a pull request shows. Git objects only, and only when the push changes a catalog."""
+    names = git(repo, "diff", "--name-only", "--no-renames", "-z", base, head, "--", "*.xcstrings").decode(
+        "utf-8", "surrogateescape")
+    if not any(names.split("\0")):
+        return []
+    # The push's merge base with feat-cmux-next, so a base merge's own changes never count. When BASE already
+    # descends from it (no base merge in the range; CI's BASE..MERGE with a stale or missing ref), BASE is closer.
+    fork = git(repo, "merge-base", head, DEFAULT_BASE_REFS[0], check=False).decode().strip()
+    if not fork or subprocess.run(["git", "-C", str(absolute(repo)), "merge-base", "--is-ancestor", fork, base],
+                                  capture_output=True).returncode == 0:
+        fork = base
+    script = check_script(repo, head, XCSTRINGS_SCRIPT, trusted_scripts, base)
+    if script is None:
+        return []  # a commit older than this check
+    with tempfile.TemporaryDirectory(prefix="cmux-xcstrings-") as tmp:
+        check = absolute(Path(tmp)) / "check-xcstrings-diff.py"
+        check.write_bytes(script)
+        code, out = run(["python3", "-I", str(check), "range", fork, head], repo, timeout=120)
+    lines = out.splitlines()
+    found = [line.strip() for line in lines if line.startswith("  ") and ".xcstrings: " in line]
+    stopped = no_verdict(code, out, (0, 1)) or ("exited 1 but named no catalog" if code == 1 and not found else None)
+    if stopped:
+        return [NoVerdict(f"{XCSTRINGS_SCRIPT} {stopped} instead of judging the catalogs, so the push is refused: "
+                          f"{out_tail(lines)}", outside_cause(stopped))]
+    return found if code == 1 else []
+
+
 def new_generated_files(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
     """`<file>: a new committed generated file (...)` per file the range adds that a generator writes, or that is
     named or headed as generated, and that no "committed" generator covers (GENERATED_CHECK). Git objects only, and
@@ -3529,6 +3569,10 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         frozen = window_freezes(repo, base, head)
         if frozen:
             reserved.append((FREEZE_CHECK, frozen))
+    if (only is None or "xcstrings" in only) and want(XCSTRINGS_CHECK):
+        rewritten = xcstrings_rewrites(repo, base, head, trusted_scripts)
+        if rewritten:
+            reserved.append((XCSTRINGS_CHECK, rewritten))
     if (only is None or "crash-allow" in only) and want(CRASH_ALLOW_CHECK):
         unreviewed = crash_allow_unreviewed(repo, base, head)
         if unreviewed:
@@ -4324,7 +4368,7 @@ def _main(argv: list[str] | None = None) -> int:
     parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,swiftlint,reserved,ui-font,conflicts,"
                                        "cargo-lock,sidebar,crash-allow,crash-ratchet,freeze,highlights,pictures,workflows,"
                                        "single-host-fallbacks,redefinitions,port-drift,new-crate-versions,"
-                                       "settings-export-keys,main-twin,job-bounds,generated-files,generated-fresh")
+                                       "settings-export-keys,main-twin,job-bounds,generated-files,generated-fresh,xcstrings")
     parser.add_argument("--timings", action="store_true")
     parser.add_argument("--defer-ci-layers", action="store_true",
                         help="the hook on a loaded host: leave the checks the PR's fast-gates job runs (scanners, "
@@ -4518,6 +4562,8 @@ def _main(argv: list[str] | None = None) -> int:
         print(NEW_VERSIONS_HINT)
     if any(name == SETTINGS_KEYS_CHECK for name, _ in found_any):
         print(SETTINGS_KEYS_HINT)
+    if any(name == XCSTRINGS_CHECK for name, _ in found_any):
+        print(XCSTRINGS_HINT)
     if any(name == FALLBACKS_CHECK for name, _ in found_any):
         print(FALLBACKS_HINT)
     if any(name == CRASH_RATCHET_CHECK for name, _ in found_any):

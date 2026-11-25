@@ -202,6 +202,8 @@ keyed! {
     AttachmentParams: ["sessionId", "id"];
     /// `_acpmux/turn_shots`.
     TurnShotsParams: ["sessionId", "turnId"];
+    /// `_acpmux/customize_run`.
+    CustomizeRunParams: ["run"];
     /// `_acpmux/bookmark_get`.
     BookmarkGetParams: ["sessionId"];
     /// `_acpmux/bookmark_set`.

@@ -268,7 +268,6 @@ impl Seed {
     pub fn new(
         job: Arc<Job>,
         params: StartParams,
-        folder: PathBuf,
         bundle: Option<place::BundleCopy>,
         carry: Option<place::BundleCopy>,
         roots: Roots,
@@ -276,6 +275,8 @@ impl Seed {
         credentials: Vec<Credential>,
     ) -> Self {
         let chosen = credentials.first().cloned().unwrap_or(Credential::Anonymous);
+        // The job's folder is where this seed writes: one source, never a second copy to agree.
+        let folder = job.folder.clone();
         Self { job, params, folder, bundle, carry, roots, git, credentials, chosen, reached: None }
     }
 

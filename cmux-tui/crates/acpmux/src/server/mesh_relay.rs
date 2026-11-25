@@ -207,8 +207,18 @@ pub async fn start_configured(hub: &Arc<Hub>) -> Option<MeshRelay> {
     let shown = config.shown();
     tracing::info!("mesh relay: on, through {shown}");
     let ledger = hub.store.handoff_dir().map(|dir| dir.join("mesh-controls.json"));
+    // A joined relay's `sameUser` entry an older join wrote (no `maxPolicy`, untouched by its
+    // owner) runs as the one a join writes now (`MeshControlFrom::same_user`, approve-all), as
+    // `host join --status` would rewrite it. Before, only that command upgraded it, and only
+    // the next daemon start read it: every fleet lane VM joined before `maxPolicy` kept the `ask`
+    // cap, so `acpmux new --machine LANE-VM --policy approve-all` from the coordinator's Mac was
+    // refused ("an approve-all start relayed through the mesh hub", 2026-11-25).
+    let mut control_from = config.control_from;
+    if joined {
+        crate::mesh_relay_config::upgrade_join_entries(&mut control_from);
+    }
     let control = Arc::new(
-        MeshControlHook::new(config.control_from, ledger)
+        MeshControlHook::new(control_from, ledger)
             .with_own_user(Arc::new(crate::cli::cloud_join::machine_user_id)),
     );
     // A joined relay's reconnect: a machine joined before the hub recorded capabilities states

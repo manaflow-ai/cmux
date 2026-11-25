@@ -71,22 +71,39 @@ approval keys are unchanged, so a Mac keeps its approvals: it stores keys, not s
   per account and keeps them across sign-out (`verify/persistence.md`).
 - Machine id (added 2026-10-21): each cmux build on a Mac is its own device
   (its own id in its own Application Support folder, its own identity key and
-  paired phones), so a Mac running a nightly and a dev build, or one that kept
-  a deleted build's record, is on the account more than once. A Mac registers
-  `machineId`, the same for every build on that computer: HMAC-SHA256 under
-  the key `cmux-mobile machine-id v1` of `<owner sub> NUL <16-byte host UUID>`
+  paired phones), so a Mac running Stable and NIGHTLY, or a dev build, is on the
+  account more than once. A Mac registers `machineId`, the same for every build
+  of one account on that computer: HMAC-SHA256 under the key
+  `cmux-mobile machine-id v1` of `<owner sub> NUL <16-byte host UUID>`
   (`gethostuuid`, the IOPlatformUUID), first 16 bytes in lowercase hex. The
   hardware id never leaves the Mac, and two accounts on one Mac get unrelated
-  ids. The phone lists one Mac per (owner, machine id), by its most recently
-  active build. The other builds stay in Settings → Devices, marked "Another
-  cmux build on this Mac"; one links only while something names it (a Feed
-  answer or notification of that build) and closes after the idle window. A name is never an
-  identity: Macs that share a name stay separate (with the name tag), and a
-  Mac with no `machineId` (an older host) is never folded into another.
-  Builds stay separate devices on purpose: one shared device id would make
+  ids. Builds stay separate devices on purpose: one shared device id would make
   two running builds replace each other's signaling socket (4000 `replaced`),
   and would make a debug build hold the identity key phones pin for the
   release build.
+- Every build is its own Mac on the phone (changed 2026-11-12; from 2026-10-21
+  the phone listed one Mac per (owner, machine id) and marked the rest "Another
+  cmux build on this Mac"). The phone lists, links and removes each build on
+  its own. Each build names itself apart: the Mac registers `name` as the
+  computer's name for the Stable lane (`com.cmuxterm.app`, cmux NEXT Stable
+  `com.cmuxterm.app.nightly.cmux-next-stable`) and `<computer name> (<lane>)`
+  for any other build (`NIGHTLY`, `DEV <tag>`, `RC`, `STAGING <tag>`;
+  CmuxNextCompat `BuildIdentity.instanceLabel`). The phone names itself the
+  same way: the App Store build by the phone's name, every other build with its
+  label (`INTERNAL`, `BETA`, `PROD`, `DEV`, `DEMO`; Info.plist
+  `CmuxMobileInstanceLabel`). A name is never an identity: Macs that share a
+  name stay separate (with the name tag).
+- A Mac's device id is per account (changed 2026-11-12): each account signed in
+  to one build keeps its own id (`<state>/device-id.<owner sub>`) and its own
+  paired-phone list, so account B never registers the id account A owns (which
+  the service refuses with `403 not_owner`). An older build's single
+  `device-id` is adopted by the account its paired list names. If registration
+  still answers `not_owner`, hostd emits `{"type":"device_not_owned"}` and exits
+  with status 79; the app forgets that account's id and starts hostd with a new
+  one (at most twice per launch). Each id records the machine id it was made on
+  (`device-id.<owner sub>.machine`): a state folder that Migration Assistant or
+  a restore copied to another Mac carries the old Mac's value, so the new Mac
+  makes its own id instead of registering as the old one.
 
 ## Build spaces (API 0.16.0)
 
@@ -639,9 +656,9 @@ relay was retired: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux-next/
 
 ### Relay placement
 
-A Durable Object stays where it is first created, so the first join decides
-where a session's relay lives for good (`backend/src/placement.ts`). The
-Worker picks the region r that makes cost(joiner, r) + cost(r, peer) least.
+A Durable Object stays where it is first created, so the first reach of it
+(the hub's prewarm below, else the first join) decides where a session's
+relay lives for good (`backend/src/placement.ts`). The Worker picks the region r that makes cost(joiner, r) + cost(r, peer) least.
 The peer is the other party of the session, located by its live signal
 socket. Each end's cost to r is either:
 
@@ -665,6 +682,19 @@ split wins.
   `netcheck=<region>:<ms>,...` to its signal socket's URL (and may add it to
   a relay join). Entries that fail to parse are dropped. The hub keeps the
   value with the socket and never stores it.
+- **Prewarm (added 2026-11-24, server-only, no version change):** when the
+  hub forwards a session's first `wg-init`, it creates the session's relay
+  object (the same name the relay route uses) without waiting for it, placed
+  from both ends' signal sockets (each one's ingress and netcheck), else at
+  the sender's `locationHint`. A later join finds the object made and placed,
+  so a fallback to the relay no longer pays for creation and a cold start.
+  Since the object stays where it is first created, this placement is the
+  session's; the join's own placement applies only when the prewarm did not
+  happen (the kill switch, a `webrtc-*` session, a failed prewarm). Nothing on
+  the wire changes: no frame, header or status is new, old and new clients
+  join and talk exactly as before, and an older Worker's relay object that
+  answers the prewarm with `426` is created all the same. A prewarmed object
+  holds no socket and no storage, so it is evicted soon after if nobody joins.
 
 ### When no path works
 

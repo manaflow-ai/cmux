@@ -5086,6 +5086,31 @@ the service down, or a base reader without the phase) is `unavailable` and fails
 other than 0, 1 or 75 did. A check the fleet still holds queued (`pending`) is a warning, as exit 75 was. swift-canary-fleet does the same for a pull request; any non-pass still lets the Mac
 canary run, and a push keeps its tip-check read and gateway compile.
 
+## note-fast-tier-current-base
+
+Above `fast-tier: Build on the base's current tip` in `.github/workflows/cmux-next.yml`.
+
+A pull_request run checks out the merge commit GitHub made when the run was queued, and the fast tier waits 1 to
+4 hours for a Mac. So it compiled bases hours old: on 2026-11-24 from 01:30 to 03:02Z it failed 50 times and
+passed 3 (34 runner-hours). Every failure sampled was the BrowserPageTunables compile error from #48267, which
+#53025 had fixed at 01:07Z. Job 138099435473 started at 02:16Z on a base from 23:34Z, 151 commits behind.
+scripts/ci/fast_tier_current_base.py applies the pull request's merged change to the base's current tip in a
+scratch index and checks out a merge commit with parents (tip, PR head). On any failure (a conflict, a fetch that
+fails or times out), the run's own merge stays checked out. `vars.CI_FAST_TIER_CURRENT_BASE` set to `0` turns it
+off.
+
+## note-pr-control-pool
+
+Above `push-head-preflight` in `.github/workflows/cmux-next.yml` (moved here to keep the workflow under its size limit).
+
+Its Linux control jobs (this one, the placements, release-compile-fast-admission, dev-landing-place) take
+cmux-linux, the persistent runner pool, on a push's or same-repo PR's attempt 1 (cmuxterm-hq decisions/junctions.md:
+one label for every own-branch Linux job). They took cmux-gcp-pr-control-jit-x64, one-job JIT VMs, until that label
+queued 1,860 jobs (oldest about 2 h, 2026-11-21) while the pool had about 300 runners idle. compile-status and its
+handoff stay on that label: each holds a statuses write App token (# ephemeral-required on its runs-on).
+Not cmux-gcp-nightly-jit-x64: on 2026-11-20 these jobs filled it (333 queued) and the nightly's own
+pick-nightly-app-runner waited behind them; that label serves nightly runs only. A re-run falls through to the pools.
+
 ## note-affected-set-replay
 
 How much of a PR's verdict goes to checks its diff could not have made fail (Leo, 2026-11-21: "help 100x ci speed
@@ -5177,3 +5202,43 @@ compile-checks phase `scheme-debug` with the job id of the app zip.
   is a `fleet parity` warning with the table in the step summary.
 - Off switch: `vars.CI_SCHEME_COMPILE_FLEET=0` skips the fleet job; the Mac compiles every head. DEV Release
   (`dev_daily`) compiles are unchanged.
+
+## note-canary-linux-read
+
+Above `swift-canary-fleet: if`, `runs-on` and its push read in `.github/workflows/cmux-next.yml`.
+
+Leo, 2026-11-25: "i need us to be defo making sure it runs on our scheduler, which has far more capabilities
+than github actions. github actions is just there at the start and end or whatever maybe i guess, but we own the
+in-between. all of it". On a feat-cmux-next push the controller's tip check already compiles the app at the
+pushed head (SwiftPM Release -Onone; the record scripts/ci/fleet_compile_result.py reads). The job used to
+take an idle gateway Mac runner, read that record for up to 15 min, and compile the head a second time through
+`cmux-ci compile-check --app` when there was none (2.6 gateway job-hours on 2026-11-24). It now runs on
+cmux-linux for every routed push, with or without an idle gateway, and only reads the record (up to 40 min,
+600 s with no record at all). pass and superseded (note-551) let the Mac canary report from a small runner; a
+fail runs the Mac canary, which prints the errors; no verdict prints `::warning title=mac fallback::` and runs
+the Mac canary, the job's only fallback. macos-placement still judges the gateway for it (GATEWAY_JOBS), which
+now only keeps the canary out of the cascade's runner count.
+
+## note-560
+
+Above fast-tier-fleet and fast-tier-fleet-mac in `.github/workflows/cmux-next.yml`, their consumers' verdict
+reads, and `scripts/ci/fleet_fast_tier_result.py`.
+
+Leo, 2026-11-25: "i need us to be defo making sure it runs on our scheduler, which has far more capabilities
+than github actions. github actions is just there at the start and end or whatever maybe i guess, but we own the
+in-between. all of it". fast-tier-fleet held a gateway Mac for up to 50 minutes only to submit two light steps
+and wait on them. The controller now submits those same steps itself when the job is queued (cmuxterm-hq
+`cmux_next_fast_tier_check.go`, hooked on the job name) and judges them, so the job runs on `cmux-linux` and
+reads one verdict: `GET /compile-checks/v1/<sha>?repo=...&phase=fast-tier[&ffi_repin=1]`.
+
+The reader trusts a 200 only when it names phase `fast-tier`, this sha and repo, the asked number of steps, and
+steps that ran this head. A controller that predates the phase answers its tip compile receipt, which the reader
+turns into `unavailable`, so the two sides merge in either order. `queued` past 20 minutes hands back as the
+client's exit 75 did; `unavailable` (no record after 5 minutes, an outage past 2 minutes, a step with no
+verdict, still running at 45 minutes) exits 0 and leaves the decision to fast-tier-fleet-mac.
+
+fast-tier-fleet-mac is the old gateway client, unchanged but for its `::warning title=mac fallback::`, and runs
+only on `unavailable` while the placement still names a gateway runner for this attempt. Its name differs, so
+the controller's hook never fires on it. Consumers read `fast-tier-fleet-mac`'s verdict and result when it ran,
+else fast-tier-fleet's; an `unavailable` with no fallback leaves cmux-next fast tier to run the suites itself,
+as when no fleet job ran.

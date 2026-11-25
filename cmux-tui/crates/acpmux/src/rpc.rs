@@ -499,6 +499,12 @@ pub mod method {
     pub const MUX_DETACH: &str = "_acpmux/detach";
     pub const MUX_WATCH: &str = "_acpmux/watch";
     pub const MUX_RENAME: &str = "_acpmux/rename";
+    /// `acpmux succeed OLD...`: a session takes over sessions that died or moved; a message to
+    /// one of them reaches it (`hub/successors.rs`).
+    pub const MUX_SUCCEED: &str = "_acpmux/succeed";
+    /// `acpmux role claim|release|ls`: role addresses (`goal:SLUG`, `area:NAME`, `topic:NAME`)
+    /// a session answers to (`hub/successors.rs`).
+    pub const MUX_ROLE: &str = "_acpmux/role";
     /// `acpmux register NAME`: the session the caller's shell runs in takes a stable name
     /// (`hub/register.rs`). Local unix socket only.
     pub const MUX_REGISTER: &str = "_acpmux/register";
@@ -623,6 +629,9 @@ pub mod method {
     pub const MUX_ATTACHMENT: &str = "_acpmux/attachment";
     /// A turn's before and after picture of the chat's page (`hub/turn_shots.rs`).
     pub const MUX_TURN_SHOTS: &str = "_acpmux/turn_shots";
+    /// A wrap-up card's Try it on, Keep or Revert: `cmux customize` run from a typed, allowlisted
+    /// request (`customize_run.rs`).
+    pub const MUX_CUSTOMIZE_RUN: &str = "_acpmux/customize_run";
     pub const MUX_PERMISSION_RESPOND: &str = "_acpmux/permission_respond";
     /// The signed app gives this launch's person key (`hub/person.rs`).
     pub const MUX_PERSON_ENROLL: &str = "_acpmux/person_enroll";

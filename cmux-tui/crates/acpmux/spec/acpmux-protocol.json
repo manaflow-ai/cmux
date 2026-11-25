@@ -433,6 +433,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/succeed",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/role",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/register",
       "params": true,
       "result": true
@@ -1255,6 +1267,14 @@
       "name": "_acpmux/turn_shots",
       "params": {
         "$ref": "#/types/TurnShotsParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/customize_run",
+      "params": {
+        "$ref": "#/types/CustomizeRunParams"
       },
       "result": true
     },
@@ -3925,6 +3945,16 @@
           "type": "string"
         }
       ]
+    },
+    "CustomizeRunParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "run": true
+      },
+      "type": "object"
     },
     "DeliveryReceipt": {
       "properties": {

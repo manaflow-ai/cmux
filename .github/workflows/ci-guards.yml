@@ -888,6 +888,11 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_install_git_hooks.py
 
+      # cmux#55547: string catalogs change in place (the checker, the in-place editor and the pre-push gate's check).
+      - name: Validate string catalogs are edited in place
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_check_xcstrings_diff.py
+
       - name: Validate the advisory post-edit checks
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_post_edit_checks.py

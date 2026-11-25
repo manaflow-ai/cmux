@@ -59,7 +59,7 @@ jobs:
           add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui/crates/cmux-rd-host -> target
-          shared-key: cmux-rd-windows-host
+          shared-key: cmux-rd-windows-host-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/crates/cmux-rd-host/Cargo.lock', '.cargo/config.toml') }}
           save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
 
       - name: Build the Windows host

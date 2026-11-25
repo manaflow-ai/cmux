@@ -23,14 +23,16 @@ afterEach(() => {
   clock = undefined;
 });
 
-/// What a row draws, without the fields a delivery's timing sets (when it arrived, its render version).
+/// What a row draws, without the fields a delivery's timing sets (when it arrived, its render version, and
+/// `readAtOpen`: what of a running turn had arrived when the chat was first drawn).
 function drawn(rows: readonly AcpmuxRow[]): unknown {
   const strip = (value: unknown): unknown => {
     if (Array.isArray(value)) return value.map(strip);
     if (!value || typeof value !== "object") return value;
     const out: Record<string, unknown> = {};
     for (const [key, item] of Object.entries(value))
-      if (!/^(version|at|.*At|receivedAt|startedAt|endedAt|elapsedMs|durationMs)$/.test(key)) out[key] = strip(item);
+      if (!/^(version|at|.*At|receivedAt|startedAt|endedAt|elapsedMs|durationMs|readAtOpen)$/.test(key))
+        out[key] = strip(item);
     return out;
   };
   return rows.map(strip);

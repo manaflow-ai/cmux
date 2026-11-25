@@ -643,6 +643,9 @@ impl Peer {
         let _open = crate::gauges::Held::on(&crate::gauges::links().links_open);
         self.set_serving(Some(via));
         self.start_probes();
+        // The transport's reads, also after the link ends: how long it heard nothing.
+        #[cfg(feature = "hub-carrier")]
+        let link_heard = opened.heard.clone();
         let heard = Some(opened.heard);
         let end = match opened.ws {
             carriers::OpenedWs::Boxed(ws) => self.serve_heard(*ws, out_rx, heard).await,
@@ -668,6 +671,12 @@ impl Peer {
         match end {
             // The path died while another answers: the link moves there without an outage.
             Err(error) if !self.stop.load(Ordering::SeqCst) => {
+                // A hub link that went silent leaves no dead kept circuit for its redial to
+                // wait `ANSWER_SUSPECT` on (`HubCarrier::close_kept_silent_for`).
+                #[cfg(feature = "hub-carrier")]
+                if via == Via::Hub {
+                    self.hub_link_ended_silent(link_heard.silent()).await;
+                }
                 self.path_failed(via);
                 if self.another_path_alive(via) && self.link().is_ready() {
                     self.went_down(Some(crate::protocol::peer_state::DialFail::PathChanged));
@@ -999,6 +1008,11 @@ impl Peer {
         );
         ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut last_frame = tokio::time::Instant::now();
+        // When the silence budget runs out if nothing comes before then, set by a ping tick that
+        // finds less than a ping interval of it left. Checked then, not on the next tick: a dead
+        // link is dropped at its budget, not up to `ping_every` after it (a 5G/LTE handoff took
+        // 7.5 s to notice of a 6 s budget, about 8 of its 8 s direct handoff).
+        let mut silence_due: Option<tokio::time::Instant> = None;
         // Time this daemon kept the loop from reading is not the peer's silence (`ReaderHeld`).
         let mut reader = crate::peer_link::ReaderHeld::default();
         let mut stale_settled = false;
@@ -1273,6 +1287,18 @@ impl Peer {
                 _ = &mut handshake_deadline, if !self.link().is_ready() || !listed => {
                     break Err(self.deadline_passed(timed_out(handshake_started)));
                 }
+                // The silence budget ran out between two ping ticks (`silence_due`). The same rule
+                // as the tick's: a frame since then, or time this daemon did not read, keeps it.
+                _ = tokio::time::sleep_until(silence_due.unwrap_or_else(tokio::time::Instant::now)), if silence_due.is_some() => {
+                    let now = tokio::time::Instant::now();
+                    let late = now.saturating_duration_since(silence_due.take().unwrap_or(now));
+                    let silence = self.with_silence(|b| b.current());
+                    let silent = heard.as_ref().map_or(last_frame.elapsed(), |h| h.silent().min(last_frame.elapsed())).min(reader.reading());
+                    if silent.saturating_sub(late) >= silence {
+                        self.with_silence(|b| b.dropped(now));
+                        break Err(self.deadline_passed(format!("peer stopped answering ({}s without a frame)", silent.as_secs())));
+                    }
+                }
                 due = ping.tick() => {
                     // The selector moved the session to a faster path: the link moves while no
                     // request is out on it, and its list is in (one read after ready has no
@@ -1303,6 +1329,8 @@ impl Peer {
                         self.with_silence(|b| b.dropped(now));
                         break Err(self.deadline_passed(format!("peer stopped answering ({}s without a frame)", silent.as_secs())));
                     }
+                    let left = silence.saturating_sub(silent.saturating_sub(late));
+                    silence_due = (left < timings.ping_every).then(|| now + left);
                     if silent >= timings.ping_every {
                         self.with_link(Link::overdue);
                     }

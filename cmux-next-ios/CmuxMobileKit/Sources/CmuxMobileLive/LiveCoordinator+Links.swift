@@ -143,13 +143,22 @@ extension LiveCoordinator {
     }
 
     private func observe(_ session: MacSession) {
-        withObservationTracking {
-            _ = session.link.phase
-            _ = session.link.media
+        let (seen, seenMedia) = withObservationTracking {
+            (session.link.phase, session.link.media)
         } onChange: { [weak self, weak session] in
             Task { @MainActor [weak self, weak session] in
                 guard let self, let session, self.sessions[session.macID] === session else { return }
-                self.phaseChanged(session)
+                // A pong: only the round trip changed (every 2.5 to 10 s on a link that is up,
+                // a new number each time over LTE). Only the diagnostics line shows it; the
+                // Mac's state, status, banner and saved list are what they were. Running the
+                // whole update wrote the store's connection state each time, which re-ran the
+                // workspace list, the open workspace's tabs and the saved-list rebuild on the
+                // main thread while the person typed: the "lag spikes in intervals" over LTE.
+                if session.link.media == seenMedia, session.link.phase.differsOnlyInRoundTrip(from: seen) {
+                    self.updateDiagnostics(session)
+                } else {
+                    self.phaseChanged(session)
+                }
                 self.observe(session)
             }
         }
@@ -182,6 +191,8 @@ extension LiveCoordinator {
         #endif
         session.acpmux.macLink = nil
         session.currentLink = link
+        // A link up is progress for every wait on this Mac (a reply waiting for it, held keys).
+        if link != nil { session.progress.progressed() }
         session.servedLink = nil
         session.pairingGate = nil
         // A new link pairs from the start: the old link's retry ends, the backoff starts over.
@@ -259,6 +270,7 @@ extension LiveCoordinator {
         }
         session.servedLink = link
         session.acpmux.macLink = link
+        session.progress.progressed()
         bindWorkspaces(session, link, prepared: daemon)
         Task { [weak self] in await self?.checkVersion(session, link) }
         let passed = startPairing(session, link, auth: auth)
@@ -283,6 +295,7 @@ extension LiveCoordinator {
             return
         }
         guard session.currentLink === link, sessions[macID] === session else { return }
+        session.progress.progressed()  // paired: the link moved a step
         for relay in session.cloudChats.values { relay.bind(link) }
         #if DEBUG
         UploadProbe.start(on: link, macName: session.name)  // the pair-e2e rig's upload leg; inert without its launch argument
@@ -646,6 +659,8 @@ extension LiveCoordinator {
         }
         // Its channel died or went silent: the link is checked at once too.
         terminal.onLinkSuspect = { [weak self] in self?.sessions[macID]?.link.suspect() }
+        // Held keys wait on the Mac link's progress, not a fixed 10 s (``DaemonTerminalSession/inputHoldLimit``).
+        terminal.linkProgress = owner.progress
         owner.terminals.removeAll { $0.session == nil }
         owner.terminals.append(MacSession.WeakTerminal(session: terminal))
         // The tab dials its Mac now (a closed link opens, a cached "offline" is tried),
@@ -1096,7 +1111,8 @@ extension LiveCoordinator {
                 store.macConnection[macID] = .connecting
             }
         case .connected:
-            store.macConnection[macID] = .connected
+            // Written only when it changes: each write re-runs everything that reads it.
+            if store.macConnection[macID] != .connected { store.macConnection[macID] = .connected }
             // The Mac answered: a dial failure from before no longer stands (a daemon that
             // did not answer is cleared once its workspaces come).
             if let failure = store.macFailure[macID], failure != .serviceDown { store.macFailure[macID] = nil }

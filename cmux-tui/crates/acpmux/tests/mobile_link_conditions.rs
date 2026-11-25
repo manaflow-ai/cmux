@@ -2322,7 +2322,7 @@ async fn bg_chat_once(
                 .as_object()
                 .map(|m| m.iter().map(|(k, x)| (k.clone(), x.to_string().len())).collect())
                 .unwrap_or_default();
-            fields.sort_by(|a, b| b.1.cmp(&a.1));
+            fields.sort_by_key(|f| std::cmp::Reverse(f.1));
             fields.truncate(6);
             eprintln!(
                 "netcond-debug {phase} {when} {} kind {} recordKind {} seq {} bytes {} top {:?}",

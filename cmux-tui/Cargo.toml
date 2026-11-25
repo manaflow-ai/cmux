@@ -203,6 +203,7 @@ members = [
     "crates/cmux-embed",
     "crates/cmux-embed-macros",
     "crates/cmux-redact",
+    "crates/cmux-repro",
 ]
 default-members = [
     "crates/acpmux",

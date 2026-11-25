@@ -23,7 +23,7 @@ import { heldPick } from "../newtab/draftFolder";
 import { cloudSendAgent, cloudStartModePick } from "../cloudModePick";
 import { rememberStartedProject } from "../newtab/startedProject";
 import { writePersistedDraft } from "../composerDraft";
-import { Composer, type ComposerHandle, type ComposerRelay, type ComposerWake } from "../Composer";
+import { Composer, type ComposerHandle, type ComposerWake, type ComposerRelay } from "../Composer";
 import type { BrowseRequest } from "../browseProject";
 import { restoreComposerDraft } from "../composerRestore";
 import { openPicker } from "../pickerOpeners";
@@ -48,6 +48,8 @@ import { rememberNewChatPlace } from "../lastNewChatPlace";
 import { HarnessHealthNotice } from "../HarnessHealthNotice";
 import { Notice } from "../NoticeSlot";
 import { AutoResumeNotice } from "../AutoResumeNotice";
+import { MoveDock, PlaceChip } from "../place/PlaceMounts";
+import { HybridChip } from "../hybrid/HybridMounts";
 import { OverloadNotice } from "../OverloadNotice";
 import type { HostOverload } from "../overloadNoticeModel";
 import { liveAutoResume, type TurnPhase } from "../turnPhase";
@@ -73,7 +75,7 @@ import { lostPrompt, resentAfterLoss, keepLostPrompt } from "../lostPrompt";
 import { guestMention } from "../mentionItems";
 import { clearHeldFork, sendHeldFork, heldFork } from "../forkHold";
 import { CloudChatHint } from "../CloudChatHint";
-import { AutoAddingMachineLine, AutoArrival } from "../AutoWhere";
+import { AutoArrival, AutoAddingMachineLine } from "../AutoWhere";
 import { AUTO_LOOK, type AutoLanding } from "../autoWhereModel";
 import type { StringKey } from "../i18n";
 import { callNative } from "../callNative";
@@ -84,7 +86,7 @@ import { keptInChat, removeQueued, sendWhenTaken, heldRefusal, heldGoesAfterTrus
 import { keptAttachments } from "./draftHost";
 import { withdrawForTypedReply } from "./hatHost";
 import type { AcpmuxSnapshot, AcpmuxPlanEntry, AcpmuxRow, AcpmuxPermission } from "../model";
-import type { AutoRow, RunMode, SandboxRun, SandboxTab } from "../sandboxRun";
+import type { RunMode, SandboxRun, SandboxTab, AutoRow } from "../sandboxRun";
 import type { CloudEnvironmentPick } from "../cloudEnvironmentChoice";
 import type { CloudChatHintState } from "../cloudChatHintModel";
 import type { MachineHarnessCheck } from "../machineHarnesses";
@@ -844,6 +846,16 @@ export function drawPaneComposer({
             </Notice>
             <OverloadNotice state={hostOverload} />
             {!showNewTab && <AutoResumeNotice state={liveAutoResume(liveTurnPhase, snapshot.autoResume)} />}
+            {!showNewTab && !quick && (
+              <MoveDock
+                session={snapshot.sessionId}
+                say={notices.transient}
+                claims={() => ({
+                  queued: snapshot.queue.length,
+                  hasDraft: (composerHandle.current?.draftText() ?? "").trim() !== "",
+                })}
+              />
+            )}
             {!showNewTab && (
               <ShareNudge
                 open={shareNudge.shown}
@@ -1540,6 +1552,31 @@ export function drawPaneComposer({
                 }
               : {})}
             onConnect={connectMachine}
+            // A started chat's Local, Cloud, Auto (beside the picker's own move row); the floating chat has none.
+            {...(quick || !snapshot.sessionId
+              ? {}
+              : {
+                  placeControl: (
+                    <>
+                      <PlaceChip
+                        session={snapshot.sessionId}
+                        say={notices.transient}
+                        claims={() => ({
+                          queued: snapshot.queue.length,
+                          hasDraft: (composerHandle.current?.draftText() ?? "").trim() !== "",
+                        })}
+                      />
+                      <HybridChip
+                        session={snapshot.sessionId}
+                        say={notices.transient}
+                        claims={() => ({
+                          queued: snapshot.queue.length,
+                          hasDraft: (composerHandle.current?.draftText() ?? "").trim() !== "",
+                        })}
+                      />
+                    </>
+                  ),
+                })}
             // The floating chat has no tab to move.
             {...(quick
               ? {}

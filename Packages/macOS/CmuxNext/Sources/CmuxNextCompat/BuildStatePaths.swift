@@ -140,6 +140,9 @@ public nonisolated struct BuildStatePaths: Sendable, Equatable {
     /// The shell mode's completion dump folder (`AgentPaneShellCompletion`).
     public var shellCompletionCache: URL { ownCaches ?? caches.appendingPathComponent("cmux-next", isDirectory: true) }
 
+    /// The kept favicon per site origin (`OriginFaviconKeeper`), one folder per profile.
+    public var originFaviconsCache: URL { (ownCaches ?? caches.appendingPathComponent("cmux-next", isDirectory: true)).appendingPathComponent("OriginFavicons", isDirectory: true) }
+
     /// Browser tabs' thumbnails and favicons for the phones' tab overview (`PhoneTabPictures`), which hostd reads:
     /// `<Caches>/<bundle id>/phone-tab-pictures`, in a DEV build's own caches folder in a DEV build.
     public var phoneTabPicturesCache: URL {

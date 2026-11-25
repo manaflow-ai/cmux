@@ -55,6 +55,8 @@ pub use super::turn::missing_turn;
 #[path = "wireguard_roam.rs"]
 mod roam;
 use roam::{Control, Session};
+#[path = "wireguard_dormant.rs"]
+pub mod dormant;
 #[path = "wireguard_multipath.rs"]
 pub mod multipath;
 #[path = "wireguard_paths.rs"]
@@ -413,7 +415,7 @@ fn parse_key(text: &str) -> Result<[u8; 32], DialError> {
 const UDP_BUFFER: usize = 2 * 1024 * 1024;
 
 /// A UDP socket for the tunnel, on any port, with [`UDP_BUFFER`] buffers.
-pub(super) fn bind_udp() -> io::Result<UdpSocket> {
+pub(crate) fn bind_udp() -> io::Result<UdpSocket> {
     let socket =
         socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, Some(socket2::Protocol::UDP))?;
     let _ = socket.set_recv_buffer_size(UDP_BUFFER);
@@ -531,7 +533,7 @@ const MAX_HOST_IPS: usize = 8;
 
 /// The IPv4 addresses of this machine's interfaces (the tunnel's socket is
 /// IPv4), as WebRTC gathers its host candidates.
-fn interface_ips() -> Vec<IpAddr> {
+pub(crate) fn interface_ips() -> Vec<IpAddr> {
     webrtc::util::ifaces::ifaces()
         .unwrap_or_default()
         .into_iter()
@@ -1028,6 +1030,10 @@ struct HybridUnderlay {
     /// held until their delivery time, and the timer for the first.
     delayed: std::collections::VecDeque<(Instant, Vec<u8>, Origin)>,
     delay_timer: Option<std::pin::Pin<Box<tokio::time::Sleep>>>,
+    /// Asks the session to send the peer its endpoints again through
+    /// signaling (`Session::nudge_peer`): our route to the peer's TURN
+    /// relayed address went quiet.
+    nudge: Option<mpsc::UnboundedSender<()>>,
     /// The second interface: the phone's socket on cell, or the Mac's view
     /// of the phone's metered addresses (`wireguard_multipath.rs`).
     assist: multipath::Assist,
@@ -1134,6 +1140,7 @@ impl HybridUnderlay {
             answering: false,
             delayed: std::collections::VecDeque::new(),
             delay_timer: None,
+            nudge: None,
             assist: multipath::Assist::default(),
         };
         underlay.set_peer_endpoints(spec.peer_endpoints.to_vec());
@@ -2270,7 +2277,27 @@ impl Underlay for HybridUnderlay {
 
     fn poll_probes(&mut self, now: Instant) -> DueProbes {
         self.drain_control();
-        self.paths.poll(now)
+        let due = self.paths.poll(now);
+        if let Some(route) = self.paths.take_chosen_quiet()
+            && self.labels.peer_relayed.contains(&route.addr)
+            && let Some(nudge) = &self.nudge
+        {
+            // We reach the peer through its TURN server and that route went
+            // quiet: the server may be gone, and a peer with nothing to send
+            // (idle) would not find out until its next probe, seconds away.
+            // Signaling still reaches it; the announcement it answers inside
+            // the tunnel starts its own silence watch on that route, and
+            // with it its TURN server check.
+            let _ = nudge.send(());
+        }
+        if let Some(rtt_us) = self.paths.take_turn_quiet()
+            && let Some(turn) = self.turn.as_ref()
+        {
+            // Two silence windows of the quiet route's smoothed RTT
+            // (max(8 x srtt, 200 ms)): the server's leg is part of that round trip.
+            turn.check_server(cmux_wg::silence_window(rtt_us) * 2);
+        }
+        due
     }
 
     fn on_pong(&mut self, path: PathId, id: u64, now: Instant) {
@@ -2428,17 +2455,6 @@ impl Underlay for HybridUnderlay {
     }
 }
 
-/// Holds the tunnel; dropping it ends the session.
-struct Guard {
-    session: Arc<Session>,
-}
-
-impl Drop for Guard {
-    fn drop(&mut self) {
-        self.session.close();
-    }
-}
-
 /// A parked link holds this tunnel ([`crate::link::HoldHook`]). Weak: the
 /// link's guard owns the session, and the hook must not keep it open.
 fn hold_hook(session: &Arc<Session>) -> crate::link::HoldHook {
@@ -2533,8 +2549,9 @@ fn start_tunnel(
     let (reach_tx, reach_rx) = mpsc::unbounded_channel();
     let (relayed, relayed_tls) = relayed_of(spec.turn.as_ref());
     let turn_dead = spec.turn.as_ref().map(TurnCarrier::dead);
+    let (nudge_tx, mut nudge_rx) = mpsc::unbounded_channel();
     let relay_shared = Arc::new(roam::RelayShared::default());
-    let underlay = HybridUnderlay::new(
+    let mut underlay = HybridUnderlay::new(
         UnderlaySpec {
             socket: spec.socket,
             peer_endpoints: spec.peer_endpoints,
@@ -2550,6 +2567,7 @@ fn start_tunnel(
         },
         options,
     );
+    underlay.nudge = Some(nudge_tx);
     let host = |ip: Ipv4Addr| IpNetwork::new(IpAddr::V4(ip), 32).expect("host prefix");
     let config = WgConfig {
         private_key: spec.private_key,
@@ -2600,6 +2618,13 @@ fn start_tunnel(
         peer_version: spec.peer_version,
         relay: spec.relay,
         relay_shared,
+    });
+    let weak = Arc::downgrade(&session);
+    tokio::spawn(async move {
+        while nudge_rx.recv().await.is_some() {
+            let Some(session) = weak.upgrade() else { return };
+            session.nudge_peer();
+        }
     });
     Ok(Tunnel { session, path: path_rx, peer })
 }
@@ -2772,7 +2797,19 @@ pub(super) fn dial_wireguard<'a>(
         let tunnel = start_tunnel(signaling, spec, options)?;
         options.timeline.mark("tunnel_started");
         tunnel.session.follow(events.session);
-        let guard = Guard { session: Arc::clone(&tunnel.session) };
+        let keeper = dormant::Keeper::new(dormant::KeeperSpec {
+            session: Arc::clone(&tunnel.session),
+            dialer: true,
+            peer_device: mac.to_owned(),
+            from_user_id: None,
+            peer_ip,
+            input_lane: agreed,
+            reliable,
+            path: tunnel.path.clone(),
+            peer: tunnel.peer.clone(),
+            tunnel_keys: tunnel_keys.clone(),
+        });
+        let guard = dormant::Lease::new(&keeper);
         let net = tunnel.session.net()?;
         {
             let net = Arc::clone(&net);
@@ -2828,6 +2865,7 @@ pub(super) fn dial_wireguard<'a>(
             None
         };
         options.timeline.mark("wg_liveness");
+        let overlay = super::Overlay { net: Arc::clone(&net), peer_ip: IpAddr::V4(peer_ip) };
         let link_addr = SocketAddr::new(IpAddr::V4(peer_ip), LINK_PORT);
         let stream = net.connect(link_addr).await.map_err(transport_error)?;
         options.timeline.mark("tunnel_tcp_connected");
@@ -2850,10 +2888,12 @@ pub(super) fn dial_wireguard<'a>(
         });
         // A media session needs the tunnel's lane as its floor.
         let webrtc_media = webrtc_media_agreed && media.is_some();
+        dormant::superseded(true, mac);
         Ok(Dialed {
             tunnel_keys: Some(tunnel_keys),
             stream: Box::new(stream),
             hold: Some(hold_hook(&tunnel.session)),
+            on_link: Some(guard.on_link()),
             path: tunnel.path,
             peer: tunnel.peer,
             guard: Box::new(guard),
@@ -2861,6 +2901,7 @@ pub(super) fn dial_wireguard<'a>(
             media,
             webrtc_media,
             liveness,
+            overlay: Some(overlay),
             reliable,
         })
     })
@@ -2890,6 +2931,11 @@ impl Dialer for WireGuardDialer {
         options: &'a DialOptions,
     ) -> DialFuture<'a> {
         Box::pin(async move {
+            if let SignalPayload::WgResumed { ticket } = first.payload {
+                options.timeline.mark("dormant_resumed");
+                return dormant::resumed(ticket);
+            }
+            let from_user_id = first.from_user_id.clone();
             let effective = effective_options(options);
             let options: &DialOptions = &effective;
             // This side's relay ticket comes stamped on the phone's `wg-init` (`relayTicket`).
@@ -2971,7 +3017,19 @@ impl Dialer for WireGuardDialer {
             };
             let tunnel = start_tunnel(signaling, spec, options)?;
             tunnel.session.follow(events.session);
-            let guard = Guard { session: Arc::clone(&tunnel.session) };
+            let keeper = dormant::Keeper::new(dormant::KeeperSpec {
+                session: Arc::clone(&tunnel.session),
+                dialer: false,
+                peer_device: first.from.clone(),
+                from_user_id,
+                peer_ip,
+                input_lane: agreed,
+                reliable,
+                path: tunnel.path.clone(),
+                peer: tunnel.peer.clone(),
+                tunnel_keys: tunnel_keys.clone(),
+            });
+            let guard = dormant::Lease::new(&keeper);
             let net = tunnel.session.net()?;
             tunnel.session.start_control(&net).await;
             if turn_missed {
@@ -3017,6 +3075,7 @@ impl Dialer for WireGuardDialer {
             } else {
                 None
             };
+            let overlay = super::Overlay { net: Arc::clone(&net), peer_ip: IpAddr::V4(peer_ip) };
             drop(net);
             signaling
                 .send_signal(
@@ -3056,8 +3115,10 @@ impl Dialer for WireGuardDialer {
             tunnel.session.map_port(port);
             let stream =
                 listener.accept().await.ok_or_else(|| DialError::Transport("tunnel closed".into()))?;
-            // The phone's second connection is the input lane.
-            let lane = agreed.then(|| {
+            // The phone's second connection is the input lane. Then the
+            // listener serves resumed links on this tunnel (dormant).
+            let resumes = Arc::downgrade(&keeper);
+            let lane = if agreed {
                 let (tx, rx) = oneshot::channel();
                 tokio::spawn(async move {
                     if let Ok(Some(stream)) = tokio::time::timeout(LANE_TIMEOUT, listener.accept()).await {
@@ -3065,20 +3126,30 @@ impl Dialer for WireGuardDialer {
                     } else {
                         tracing::info!("input lane was not opened in time");
                     }
+                    if let Some(keeper) = resumes.upgrade() {
+                        keeper.serve_resumes(listener);
+                    }
                 });
-                rx
-            });
+                Some(rx)
+            } else {
+                keeper.serve_resumes(listener);
+                None
+            };
+            drop(keeper);
             let webrtc_media = webrtc_media_wanted && media.is_some();
+            dormant::superseded(false, &first.from);
             Ok(Dialed {
                 tunnel_keys: Some(tunnel_keys),
                 stream: Box::new(stream),
                 hold: Some(hold_hook(&tunnel.session)),
+                on_link: Some(guard.on_link()),
                 path: tunnel.path,
                 peer: tunnel.peer,
                 guard: Box::new(guard),
                 lane,
                 webrtc_media,
                 liveness,
+                overlay: Some(overlay),
                 reliable,
                 media: media.map(|carrier| {
                     options.timeline.mark("video_lane");

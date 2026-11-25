@@ -1404,6 +1404,26 @@ impl ArtifactsSyncConfig {
     }
 }
 
+/// The fleet memory mount (`memory_mount.rs`): `~/.cmux/memory/{private,team}` kept in sync with
+/// the memory store on cmux-platform. On by default on a machine joined to cmux Cloud ("autocloud
+/// default on"); `"memory": {"sync": false}` turns it off.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct MemorySyncConfig {
+    /// Unset: on. `false`: the daemon never syncs (`acpmux memory sync` still does, by hand).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sync: Option<bool>,
+    /// The mount's root, `~/.cmux/memory` when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dir: Option<PathBuf>,
+}
+
+impl MemorySyncConfig {
+    pub fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
 /// Persisted cmux-added prompt overrides. The `user` value applies to every new
 /// session on this daemon; project entries are keyed by a canonical working directory.
 /// Harness-owned prompts never live here: this store contains only text the user explicitly
@@ -1548,6 +1568,8 @@ pub struct Config {
     /// Optional platform artifact and memory synchronization.
     #[serde(default, skip_serializing_if = "ArtifactsSyncConfig::is_default")]
     pub artifacts_sync: ArtifactsSyncConfig,
+    #[serde(default, skip_serializing_if = "MemorySyncConfig::is_default")]
+    pub memory: MemorySyncConfig,
     /// Opt-in cmux-platform wake-on-message integration. Absent/disabled keeps
     /// the normal peer route and send behavior unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]

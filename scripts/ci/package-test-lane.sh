@@ -294,28 +294,19 @@ PY
 # target no pull request check runs is listed with its reason in the swift-test-targets.json
 # registry, which the Swift test coverage check reads (hq#11644); the rows after CmuxPhonePush
 # passed `suite` on an owned Mac at ccc9958672bf before they joined (CmuxChiefList at 777eb5a7d77f).
+# Mac-only: a package whose tests pass on Linux runs in swift-linux-packages.yml (the list or a whole-package
+# matrix group), never here as well.
 select_packages() {
   PACKAGES=(
-    CMUXAuthCore
     CmuxAuthRuntime
-    CmuxChiefList
     CmuxIrohTransport
     CmuxIrxTransport
     CmuxUpdater
     CmuxPhonePush
-    CmuxConnectivityTelemetry
-    CmuxDeviceHub
-    CmuxEgress
-    CmuxHomeCore
     CmuxHomeRender
-    CmuxMobileBilling
-    CmuxMobileSupport
-    CmuxMobileTunnel
     CmuxRemote
     CmuxScreenKit
-    CmuxTabsKit
     CmuxVNCWebRTC
-    CmuxVisibleRows
     GlassHost
   )
 
@@ -956,12 +947,16 @@ run_suite() {
     configuration+=(--sanitize="$CMUX_SWIFT_SANITIZE" --scratch-path "$suite_package/.build-sanitize-$CMUX_SWIFT_SANITIZE"
       "${sanitize_link_flags[@]}")
   fi
-  case "$suite_package" in
-    Packages/macOS/CmuxNext|Packages/macOS/CmuxNativeSidebarGallery)
-      ensure_web_bundles ;;
-  esac
-  if [ "$suite_package" = Packages/macOS/CmuxNext ]; then
-    ensure_cmux_tui_tree
+  # On Linux, CmuxNext builds only its Linux shape (CMUX_SWIFTPM_TARGET_LINUX: three targets that
+  # read neither the web bundles nor cmux-tui), and the swift container has no curl to fetch bun.
+  if [ "$lane_os" != Linux ]; then
+    case "$suite_package" in
+      Packages/macOS/CmuxNext|Packages/macOS/CmuxNativeSidebarGallery)
+        ensure_web_bundles ;;
+    esac
+    if [ "$suite_package" = Packages/macOS/CmuxNext ]; then
+      ensure_cmux_tui_tree
+    fi
   fi
   local scratch="$suite_package/.build${CMUX_SWIFT_SANITIZE:+-sanitize-$CMUX_SWIFT_SANITIZE}"
   swiftpm_binary_module_guard "$suite_package" "$scratch" || exit $? # 75: fetch failed, no test ran
