@@ -38,6 +38,18 @@ impl Peer {
             .clone()
             .or_else(|| carrier.route(&self.name))
             .ok_or_else(|| "no hub route".to_owned())?;
+        *self.hub_dialed_at.lock_or_recover() = Some(carrier.relay_up().generation());
         carrier.dial(&daemon).await
+    }
+
+    /// Resolves once a relay the carrier could not reach answers again after this peer's last
+    /// hub dial (`hub_carrier_relay_up.rs`); never for a peer that has not dialed the hub.
+    pub(super) async fn relay_back(&self) {
+        let dialed = *self.hub_dialed_at.lock_or_recover();
+        let carrier = self.hub_carrier.get().and_then(|(slot, _)| slot.get());
+        match (dialed, carrier) {
+            (Some(seen), Some(carrier)) => carrier.relay_up().after(seen).await,
+            _ => std::future::pending().await,
+        }
     }
 }
