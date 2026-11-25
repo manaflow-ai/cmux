@@ -37,6 +37,24 @@ fn agent_hooks_flag_collects_providers() {
     assert!(direct_ssh_flags(&plain).unwrap().agent_hooks.is_empty());
 }
 
+/// `cmux ssh --repo LOCAL[:REMOTE]`: REMOTE starts at the first `:` that opens an absolute
+/// or `~` path, and defaults to `~/<LOCAL's folder name>`.
+#[test]
+fn repo_flag_splits_local_and_remote() {
+    let args = ["host", "--repo", "/work/cmux:/srv/cmux"].map(str::to_string);
+    assert_eq!(direct_ssh_flags(&args).unwrap().repo.as_deref(), Some("/work/cmux:/srv/cmux"));
+    assert!(direct_ssh_flags(&["host".to_string()]).unwrap().repo.is_none());
+    let twice = ["host", "--repo", "/a", "--repo", "/b"].map(str::to_string);
+    assert!(direct_ssh_flags(&twice).is_err());
+
+    let split = |spec: &str| split_repo_spec(spec).unwrap();
+    assert_eq!(split("/work/cmux:/srv/cmux"), (PathBuf::from("/work/cmux"), "/srv/cmux".into()));
+    assert_eq!(split("/work/cmux:~/src/cmux"), (PathBuf::from("/work/cmux"), "~/src/cmux".into()));
+    assert_eq!(split("/work/cmux"), (PathBuf::from("/work/cmux"), "~/cmux".into()));
+    assert_eq!(split("/work/a:b"), (PathBuf::from("/work/a:b"), "~/a:b".into()));
+    assert!(split_repo_spec(":/srv/cmux").is_err());
+}
+
 /// `--via-machine M` reaches a loopback daemon on another of the person's machines through
 /// acpmux's carrier; it owns the route's dial, so no tunnel flag may come with it.
 #[test]
@@ -1094,6 +1112,22 @@ fn relay_credentials_support_exact_route_scoped_forms() {
 }
 
 #[test]
+fn relay_credentials_take_more_routes_than_the_old_cap() {
+    // A client once refused more than 4 relay credential routes.
+    let count = 6;
+    let routes = client_relay_options(
+        None,
+        (0..count).map(|index| format!("relay+wss://relay-{index}.example")).collect(),
+        (0..count).map(|index| format!("slot-{index}")).collect(),
+        (0..count)
+            .map(|index| ClientRelayCredentialArg::File(format!("ticket-{index}").into()))
+            .collect(),
+    )
+    .unwrap();
+    assert_eq!(routes.len(), count);
+}
+
+#[test]
 fn connect_rejects_inline_invitation_and_ticket_arguments() {
     let marker = "inline-secret-marker";
     for args in [
@@ -1436,14 +1470,6 @@ fn remote_client_locale_fixture() {
             ],
         ),
         client_relay_options(None, vec!["relay+wss://one.example".into()], vec![], vec![]),
-        client_relay_options(
-            None,
-            (0..5).map(|index| format!("relay+wss://relay-{index}.example")).collect(),
-            (0..5).map(|index| format!("slot-{index}")).collect(),
-            (0..5)
-                .map(|index| ClientRelayCredentialArg::File(format!("ticket-{index}").into()))
-                .collect(),
-        ),
         client_relay_options(
             None,
             vec!["wss://not-a-relay.example".into()],

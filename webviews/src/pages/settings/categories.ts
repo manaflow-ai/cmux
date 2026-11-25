@@ -45,6 +45,7 @@ export const CATEGORY_CARDS = [
   "sharedLinks",
   "archivedWorkspaces",
   "customizeLibrary",
+  "customizeProgress",
   "customizeChecklist",
   "tailnet",
   "models",
@@ -57,7 +58,7 @@ export const CATEGORY_CARDS = [
 /** A non-schema part a category draws (host lists, the theme studio, file actions). */
 export type CategoryCard = (typeof CATEGORY_CARDS)[number];
 
-const isCard = (card: string): card is CategoryCard => (CATEGORY_CARDS as readonly string[]).includes(card);
+export const isCard = (card: string): card is CategoryCard => (CATEGORY_CARDS as readonly string[]).includes(card);
 
 export type CategoryGroup = { key: string; title: LocalizedText; rows: SchemaRow[] };
 

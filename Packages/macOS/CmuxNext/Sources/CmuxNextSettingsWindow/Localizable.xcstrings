@@ -81108,6 +81108,138 @@
         }
       }
     },
+    "settingsPage.link.missing": {
+      "comment": "Settings: a deep link (cmux://settings/...) named a setting, card or connection the page does not have; %@ is the name it asked for",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No setting or connection named “%@”."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يوجد إعداد أو اتصال باسم “%@”."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nema postavke ni veze pod nazivom “%@”."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen indstilling eller forbindelse med navnet “%@”."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Einstellung oder Verbindung namens „%@“."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay ningún ajuste ni conexión llamado “%@”."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun réglage ni connexion nommé « %@ »."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuna impostazione o connessione chiamata “%@”."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」という設定または接続はありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានការកំណត់ ឬការតភ្ជាប់ដែលមានឈ្មោះ “%@” ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”(이)라는 설정이나 연결이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen innstilling eller tilkobling med navnet «%@»."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brak ustawienia lub połączenia o nazwie „%@”."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhuma configuração ou conexão chamada “%@”."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет настройки или подключения с именем «%@»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีการตั้งค่าหรือการเชื่อมต่อชื่อ “%@”"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” adlı bir ayar veya bağlantı yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Немає налаштування чи підключення з назвою «%@»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có cài đặt hoặc kết nối nào tên “%@”."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有名为“%@”的设置或连接。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有名為「%@」的設定或連線。"
+          }
+        }
+      }
+    },
     "settingsPage.accounts.empty": {
       "comment": "Settings > Accounts when no provider account was found; the Sign In button sits above it",
       "extractionState": "manual",
@@ -132041,6 +132173,402 @@
         }
       }
     },
+    "settingsPage.customizeLibrary.code.beaten": {
+      "comment": "Customization Library: under a pull request entry that is on while a higher pull request entry is on too; only the higher one's pages are shown. %@ is the higher entry's name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is higher: its pages are in use"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ أعلى: صفحاته هي المستخدمة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ je više: koriste se njegove stranice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ er højere: dens sider bruges"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ist höher: dessen Seiten gelten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ va arriba: se usan sus páginas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@, plus haut : ses pages s'affichent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ è più in alto: si usano le sue pagine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ が上にあり、そのページが使われます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ នៅខាងលើ៖ ទំព័ររបស់វាកំពុងប្រើ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@이(가) 위에 있어 그 페이지가 쓰입니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ er høyere: sidene dens brukes"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ jest wyżej: używane są jego strony"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ está acima: as páginas dele estão em uso"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ выше: используются его страницы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ อยู่สูงกว่า: ใช้หน้าของรายการนั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ üstte: onun sayfaları kullanılıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ вище: використовуються його сторінки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ ở trên: đang dùng các trang của nó"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 位置更高,使用其页面"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 位置較高,使用其頁面"
+          }
+        }
+      }
+    },
+    "settingsPage.customizeLibrary.code.needsBuild": {
+      "comment": "Customization Library: under a pull request entry, one line per part of the pull request that a running app cannot take and that needs a new app build. %@ is the CLI's description of that part, in English.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs a build: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يحتاج إلى إصدار: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Treba novi build: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kræver et build: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Braucht einen Build: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Necesita una compilación: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nécessite un build : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serve una build: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ビルドが必要: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ត្រូវការ build៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "빌드 필요: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Krever et bygg: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wymaga kompilacji: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Precisa de um build: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нужна сборка: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ต้องบิลด์ใหม่: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Derleme gerekir: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Потрібна збірка: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cần bản build: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "需要新构建:%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "需要新建置:%@"
+          }
+        }
+      }
+    },
+    "settingsPage.customizeLibrary.code.openPr": {
+      "comment": "Customization Library: link on a pull request entry's line that opens the pull request on GitHub.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open pull request"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فتح طلب السحب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvori pull request"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbn pull request"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pull Request öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir pull request"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ouvrir la pull request"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apri pull request"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "プルリクエストを開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើក pull request"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "풀 리퀘스트 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpne pull request"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otwórz pull request"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir pull request"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Открыть pull request"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิด pull request"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pull request'i aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкрити pull request"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mở pull request"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "打开拉取请求"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "打開提取要求"
+          }
+        }
+      }
+    },
     "settingsPage.customizeLibrary.title": {
       "comment": "Settings > Personalization: title of the card listing every customization the person applied, kept as entries they turn on and off.",
       "extractionState": "manual",
@@ -158283,6 +158811,137 @@
         }
       }
     },
+    "settingsPage.betaChip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beta"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تجريبي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beta"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beta"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bêta"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beta"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ベータ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beta"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "베타"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beta"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beta"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бета"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เบต้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beta"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бета"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beta"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "测试版"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "測試版"
+          }
+        }
+      }
+    },
     "settingsWindow.agentCustomization.title": {
       "comment": "Settings > Agents: the card title for Claude Code's and Codex's own customization, Labs labs.agentCustomization (product names stay as is)",
       "extractionState": "manual",
@@ -166203,6 +166862,5154 @@
         }
       }
     },
+    "settingsPage.customizeProgress.title": {
+      "comment": "Title of the Customize cmux checklist card at the top of Settings > General.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Customize cmux"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تخصيص cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prilagodi cmux"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilpas cmux"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux anpassen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personaliza cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personnaliser cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personalizza cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmuxをカスタマイズ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្ដូរ cmux តាមបំណង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 맞춤 설정"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilpass cmux"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dostosuj cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Personalize o cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Настройка cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปรับแต่ง cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux'u özelleştir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Налаштування cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tùy chỉnh cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自定义 cmux"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自訂 cmux"
+          }
+        }
+      }
+    },
+    "settingsPage.customizeProgress.progress": {
+      "comment": "The checklist's progress. First %@ is the number of steps done, second %@ the number of steps.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ of %@ done"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ من %@ منجزة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ od %@ završeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ af %@ udført"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ von %@ erledigt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ de %@ completados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ sur %@ terminés"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ di %@ completati"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@/%@ 完了"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានបញ្ចប់ %@ ក្នុងចំណោម %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@/%@ 완료"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ av %@ fullført"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ z %@ ukończono"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ de %@ concluídos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Выполнено %@ из %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เสร็จแล้ว %@ จาก %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ / %@ tamamlandı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Виконано %@ з %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã xong %@/%@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已完成 %@/%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已完成 %@/%@"
+          }
+        }
+      }
+    },
+    "settingsPage.customizeProgress.detail": {
+      "comment": "One line under the checklist's progress while steps are left.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Make cmux your own, one step at a time. Each step opens where it is done."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اجعل cmux خاصًا بك، خطوة بعد خطوة. تُفتح كل خطوة في المكان الذي تُنجز فيه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prilagodi cmux sebi, korak po korak. Svaki korak se otvara tamo gdje se obavlja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gør cmux til din egen, et trin ad gangen. Hvert trin åbner dér, hvor det udføres."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Machen Sie cmux zu Ihrem eigenen, Schritt für Schritt. Jeder Schritt öffnet sich dort, wo er erledigt wird."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Haz tuyo cmux, paso a paso. Cada paso se abre donde se completa."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Faites de cmux votre outil, étape par étape. Chaque étape s'ouvre à l'endroit où elle se règle."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rendi cmux tuo, un passo alla volta. Ogni passo si apre dove viene completato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmuxを自分好みに、ひとつずつ整えましょう。各ステップは設定する場所で開きます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ធ្វើឱ្យ cmux ជារបស់អ្នក មួយជំហានម្តងៗ។ ជំហាននីមួយៗបើកនៅកន្លែងដែលត្រូវធ្វើ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux를 나만의 것으로, 한 단계씩 만들어 보세요. 각 단계는 설정하는 곳에서 열립니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gjør cmux til din egen, ett steg om gangen. Hvert steg åpnes der det gjøres."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dostosuj cmux do siebie, krok po kroku. Każdy krok otwiera się tam, gdzie się go wykonuje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Deixe o cmux do seu jeito, um passo de cada vez. Cada passo abre onde é feito."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сделайте cmux своим, шаг за шагом. Каждый шаг открывается там, где его выполняют."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ทำให้ cmux เป็นของคุณทีละขั้นตอน แต่ละขั้นตอนจะเปิดในที่ที่ทำขั้นตอนนั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux'u adım adım kendinize göre yapın. Her adım, yapıldığı yerde açılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Зробіть cmux своїм, крок за кроком. Кожен крок відкривається там, де його виконують."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Biến cmux thành của riêng bạn, từng bước một. Mỗi bước mở ra ngay nơi thực hiện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一步一步，让 cmux 成为你的专属工具。每一步都会在对应的设置处打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一步一步，讓 cmux 成為你的專屬工具。每一步都會在對應的設定處開啟。"
+          }
+        }
+      }
+    },
+    "settingsPage.customizeProgress.allDone": {
+      "comment": "One line under the checklist's progress once every step is done.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Everything is set up. Dismiss this card, or keep it to come back to."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "كل شيء جاهز. أغلق هذه البطاقة، أو أبقها للرجوع إليها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sve je podešeno. Odbaci ovu karticu ili je zadrži da se vratiš na nju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alt er sat op. Luk dette kort, eller behold det, så du kan vende tilbage til det."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alles ist eingerichtet. Schließen Sie diese Karte oder behalten Sie sie, um später zurückzukehren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Todo está configurado. Descarta esta tarjeta o consérvala para volver a ella."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tout est configuré. Fermez cette carte ou gardez-la pour y revenir."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "È tutto pronto. Chiudi questa scheda oppure tienila per tornarci."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "すべて設定済みです。このカードを閉じるか、あとで見返せるようにそのままにしておけます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អ្វីៗត្រូវបានរៀបចំរួចហើយ។ បិទកាតនេះ ឬទុកវាដើម្បីត្រឡប់មកវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "모든 설정이 끝났습니다. 이 카드를 닫거나, 나중에 다시 볼 수 있게 그대로 두세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alt er satt opp. Lukk dette kortet, eller behold det for å komme tilbake til det."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wszystko skonfigurowane. Zamknij tę kartę lub zachowaj ją, aby do niej wrócić."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tudo configurado. Dispense este cartão ou mantenha-o para voltar a ele."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Всё настроено. Закройте эту карточку или оставьте её, чтобы вернуться к ней позже."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตั้งค่าทุกอย่างเรียบร้อยแล้ว ปิดการ์ดนี้ หรือเก็บไว้เพื่อกลับมาดูภายหลัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Her şey ayarlandı. Bu kartı kapatın ya da daha sonra dönmek için tutun."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Усе налаштовано. Закрийте цю картку або залиште її, щоб повернутися до неї пізніше."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mọi thứ đã được thiết lập. Hãy đóng thẻ này, hoặc giữ lại để quay lại sau."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一切都已设置好。你可以关闭此卡片，也可以保留它以便日后回来查看。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一切都已設定好。你可以關閉此卡片，也可以保留它以便日後回來查看。"
+          }
+        }
+      }
+    },
+    "settingsPage.customizeProgress.dismiss": {
+      "comment": "Accessible name and tooltip of the × that puts the checklist card away.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dismiss"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إغلاق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odbaci"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afvis"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schließen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Descartar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fermer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chiudi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "閉じる"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បដិសេធ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "닫기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lukk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zamknij"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dispensar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Закрыть"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kapat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Закрити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đóng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "關閉"
+          }
+        }
+      }
+    },
+    "settingsPage.customizeProgress.open": {
+      "comment": "Button on a checklist step that goes to the Settings section where the step is done.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فتح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvori"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbn"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ouvrir"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apri"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpne"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otwórz"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Открыть"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкрити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mở"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "打开"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "開啟"
+          }
+        }
+      }
+    },
+    "settingsPage.customizeProgress.next": {
+      "comment": "A compact checklist's link to the next step. %@ is the step's title, e.g. Pick a theme.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "التالي: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sljedeće: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Næste: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Weiter: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Siguiente: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suivant : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avanti: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "次へ: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បន្ទាប់: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다음: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neste: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dalej: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Próximo: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Далее: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ถัดไป: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sonraki: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Далі: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tiếp theo: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "下一步：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "下一步：%@"
+          }
+        }
+      }
+    },
+    "settingsPage.customizeProgress.showAll": {
+      "comment": "Button that shows every checklist step. %@ is the number of steps.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show All %@ Steps"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عرض كل الخطوات (%@)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži svih %@ koraka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis alle %@ trin"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Alle %@ Schritte anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar los %@ pasos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher les %@ étapes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra tutti i %@ passi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@個のステップをすべて表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញជំហានទាំង %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@단계 모두 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis alle %@ steg"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokaż wszystkie kroki (%@)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar os %@ passos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показать все шаги (%@)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงทั้งหมด %@ ขั้นตอน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ adımın tümünü göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показати всі кроки (%@)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện cả %@ bước"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "显示全部 %@ 个步骤"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "顯示全部 %@ 個步驟"
+          }
+        }
+      }
+    },
+    "settingsPage.customizeProgress.showLess": {
+      "comment": "Button that shows only the next few checklist steps again.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Less"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عرض أقل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži manje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis færre"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Weniger anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar menos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afficher moins"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostra meno"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "表示を減らす"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញតិចជាងនេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "간단히 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis færre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokaż mniej"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mostrar menos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показать меньше"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดงน้อยลง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Daha az göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показати менше"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thu gọn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "显示更少"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "顯示較少"
+          }
+        }
+      }
+    },
+    "settingsPage.customizeProgress.step.theme": {
+      "comment": "Title of a step of the Customize cmux checklist (an imperative).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick a theme"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اختر مظهرًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odaberi temu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vælg et tema"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Design auswählen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Elige un tema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Choisir un thème"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scegli un tema"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "テーマを選ぶ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជ្រើសរើសស្បែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "테마 고르기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Velg et tema"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wybierz motyw"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Escolha um tema"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Выберите тему"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เลือกธีม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir tema seçin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оберіть тему"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chọn một giao diện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "选择主题"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "選擇佈景主題"
+          }
+        }
+      }
+    },
+    "settingsPage.customizeProgress.step.theme.detail": {
+      "comment": "Description under a step of the Customize cmux checklist.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colors for the terminal and the window."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ألوان الطرفية والنافذة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Boje za terminal i prozor."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Farver til terminalen og vinduet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Farben für das Terminal und das Fenster."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Colores para la terminal y la ventana."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les couleurs du terminal et de la fenêtre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I colori del terminale e della finestra."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ターミナルとウインドウの配色です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពណ៌សម្រាប់ទែមីនាល់ និងបង្អួច។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "터미널과 창의 색상입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Farger for terminalen og vinduet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kolory terminala i okna."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cores do terminal e da janela."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цвета терминала и окна."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สีของเทอร์มินัลและหน้าต่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminalin ve pencerenin renkleri."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кольори термінала й вікна."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Màu sắc cho terminal và cửa sổ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "终端和窗口的配色。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "終端機和視窗的配色。"
+          }
+        }
+      }
+    },
+    "settingsPage.customizeProgress.step.look": {
+      "comment": "Title of a step of the Customize cmux checklist (an imperative).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Try a look"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جرّب مظهرًا متكاملًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Isprobaj izgled"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prøv et look"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Look ausprobieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prueba un aspecto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Essayer un style"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prova un aspetto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ルックを試す"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សាកល្បងរូបរាង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "룩 적용해 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prøv et utseende"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wypróbuj wygląd"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Experimente um visual"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Попробуйте стиль"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลองลุคใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir görünüm deneyin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Спробуйте вигляд"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thử một diện mạo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "试试外观方案"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "試試外觀方案"
+          }
+        }
+      }
+    },
+    "settingsPage.customizeProgress.step.look.detail": {
+      "comment": "Description under a step of the Customize cmux checklist.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A whole look at once, kept in your Customization Library."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مظهر كامل دفعة واحدة، يُحفظ في مكتبة التخصيص."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cijeli izgled odjednom, spremljen u tvojoj biblioteci prilagodbi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et helt look på én gang, gemt i dit tilpasningsbibliotek."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein ganzer Look auf einmal, gespeichert in Ihrer Anpassungsbibliothek."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un aspecto completo de una vez, guardado en tu biblioteca de personalización."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un style complet d'un coup, conservé dans votre bibliothèque de personnalisation."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un aspetto completo in un colpo solo, salvato nella tua libreria di personalizzazione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "見た目をまとめて切り替え、カスタマイズライブラリに保存できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រូបរាងទាំងមូលក្នុងពេលតែមួយ រក្សាទុកក្នុងបណ្ណាល័យប្ដូរតាមបំណងរបស់អ្នក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "전체 룩을 한 번에 적용하고 사용자화 보관함에 저장합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et helt utseende på én gang, lagret i tilpasningsbiblioteket ditt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cały wygląd naraz, zapisany w Twojej bibliotece personalizacji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um visual completo de uma vez, guardado na sua Biblioteca de Personalização."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Весь стиль сразу, он сохраняется в вашей библиотеке настроек."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลุคทั้งชุดในครั้งเดียว เก็บไว้ในคลังการปรับแต่งของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tüm görünüm tek seferde, Özelleştirme Kitaplığınızda saklanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Весь вигляд одразу, він зберігається у вашій бібліотеці налаштувань."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cả diện mạo cùng lúc, được lưu trong Thư viện tùy chỉnh của bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一次应用整套外观，并保存在你的自定义资源库中。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一次套用整套外觀，並儲存在你的自訂資源庫中。"
+          }
+        }
+      }
+    },
+    "settingsPage.customizeProgress.step.background": {
+      "comment": "Title of a step of the Customize cmux checklist (an imperative).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a background"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اختر خلفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odaberi pozadinu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vælg en baggrund"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hintergrund wählen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Elige un fondo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Choisir un arrière-plan"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scegli uno sfondo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "背景を選ぶ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជ្រើសរើសផ្ទៃខាងក្រោយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "배경 고르기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Velg en bakgrunn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wybierz tło"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Escolha um plano de fundo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Выберите фон"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เลือกพื้นหลัง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir arka plan seçin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оберіть тло"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chọn hình nền"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "选择背景"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "選擇背景"
+          }
+        }
+      }
+    },
+    "settingsPage.customizeProgress.step.background.detail": {
+      "comment": "Description under a step of the Customize cmux checklist.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A picture or color behind your work."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "صورة أو لون خلف عملك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slika ili boja iza tvog rada."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et billede eller en farve bag dit arbejde."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein Bild oder eine Farbe hinter Ihrer Arbeit."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una imagen o un color detrás de tu trabajo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une image ou une couleur derrière votre travail."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un'immagine o un colore dietro al tuo lavoro."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "作業の背後に表示する画像または色です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រូបភាព ឬពណ៌នៅពីក្រោយការងាររបស់អ្នក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "작업 뒤에 표시할 사진이나 색상입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et bilde eller en farge bak arbeidet ditt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Obraz lub kolor za Twoją pracą."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma imagem ou cor atrás do seu trabalho."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Картинка или цвет за вашей работой."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "รูปภาพหรือสีที่อยู่เบื้องหลังงานของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çalışmanızın arkasında bir resim ya da renk."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Зображення або колір за вашою роботою."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một hình ảnh hoặc màu nằm phía sau công việc của bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "工作区后面的图片或颜色。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "工作區後面的圖片或顏色。"
+          }
+        }
+      }
+    },
+    "settingsPage.customizeProgress.step.textSize": {
+      "comment": "Title of a step of the Customize cmux checklist (an imperative).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set text size and density"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اضبط حجم النص والكثافة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Postavi veličinu teksta i gustoću"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indstil tekststørrelse og tæthed"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Textgröße und Dichte festlegen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajusta el tamaño del texto y la densidad"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Régler la taille du texte et la densité"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Imposta dimensione del testo e densità"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "文字サイズと密度を設定する"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំណត់ទំហំអក្សរ និងដង់ស៊ីតេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "글자 크기와 밀도 설정하기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angi tekststørrelse og tetthet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ustaw rozmiar tekstu i gęstość"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Defina o tamanho do texto e a densidade"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Задайте размер текста и плотность"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตั้งขนาดข้อความและความหนาแน่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Metin boyutunu ve yoğunluğu ayarlayın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Налаштуйте розмір тексту та щільність"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đặt cỡ chữ và mật độ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "设置文字大小和密度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "設定文字大小和密度"
+          }
+        }
+      }
+    },
+    "settingsPage.customizeProgress.step.textSize.detail": {
+      "comment": "Description under a step of the Customize cmux checklist.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How big and how roomy the sidebar, tabs and chat are."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مدى كبر الشريط الجانبي وعلامات التبويب والدردشة ومدى اتساعها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koliko su veliki i prostrani bočna traka, kartice i chat."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvor store og luftige sidebjælken, fanerne og chatten er."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wie groß und wie geräumig Seitenleiste, Tabs und Chat sind."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Qué tan grandes y espaciosos son la barra lateral, las pestañas y el chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La taille et l'espacement de la barre latérale, des onglets et du chat."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quanto sono grandi e spaziosi la barra laterale, le schede e la chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サイドバー、タブ、チャットの大きさとゆとりを調整します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទំហំ និងភាពទូលាយនៃរបារចំហៀងផ្ទាំង និងការជជែក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사이드바, 탭, 채팅의 크기와 여백입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvor store og romslige sidepanelet, fanene og chatten er."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jak duże i przestronne są pasek boczny, karty i czat."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O tamanho e o espaçamento da barra lateral, das abas e do chat."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Насколько крупными и просторными выглядят боковая панель, вкладки и чат."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ขนาดและความโปร่งของแถบด้านข้าง แท็บ และแชต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kenar çubuğunun, sekmelerin ve sohbetin ne kadar büyük ve ferah olacağı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Наскільки великими й просторими виглядають бічна панель, вкладки та чат."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thanh bên, thẻ và cuộc trò chuyện lớn và thoáng đến mức nào."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "侧边栏、标签页和聊天的大小与疏密程度。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "側邊欄、分頁和聊天的大小與疏密程度。"
+          }
+        }
+      }
+    },
+    "settingsPage.customizeProgress.step.sidebar": {
+      "comment": "Title of a step of the Customize cmux checklist (an imperative).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrange the sidebar"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "رتّب الشريط الجانبي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uredi bočnu traku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arranger sidebjælken"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seitenleiste anordnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Organiza la barra lateral"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Organiser la barre latérale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Organizza la barra laterale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サイドバーを整える"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចាត់ចែងរបារចំហៀង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사이드바 정리하기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ordne sidepanelet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uporządkuj pasek boczny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Organize a barra lateral"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Настройте боковую панель"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "จัดแถบด้านข้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kenar çubuğunu düzenleyin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Налаштуйте бічну панель"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sắp xếp thanh bên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "整理侧边栏"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "整理側邊欄"
+          }
+        }
+      }
+    },
+    "settingsPage.customizeProgress.step.sidebar.detail": {
+      "comment": "Description under a step of the Customize cmux checklist.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Its side, look and what each row shows."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جانبه ومظهره وما يعرضه كل صف."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Njegova strana, izgled i šta prikazuje svaki red."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dens side, udseende og hvad hver række viser."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seite, Aussehen und was jede Zeile zeigt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Su lado, su aspecto y lo que muestra cada fila."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Son côté, son apparence et ce que montre chaque ligne."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il lato, l'aspetto e cosa mostra ogni riga."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "表示する側、見た目、各行に表示する内容です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចំហៀង រូបរាង និងអ្វីដែលជួរនីមួយៗបង្ហាញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "위치, 모양, 각 행에 표시할 내용입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvilken side, utseendet og hva hver rad viser."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Jego strona, wygląd i to, co pokazuje każdy wiersz."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O lado, o visual e o que cada linha mostra."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Его сторона, внешний вид и то, что показывает каждая строка."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ด้านที่แสดง รูปลักษณ์ และสิ่งที่แต่ละแถวแสดง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Konumu, görünümü ve her satırın neyi gösterdiği."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Його бік, вигляд і те, що показує кожен рядок."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vị trí, diện mạo và nội dung mỗi hàng hiển thị."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "它的位置、外观以及每一行显示的内容。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "它的位置、外觀以及每一列顯示的內容。"
+          }
+        }
+      }
+    },
+    "settingsPage.customizeProgress.step.chat": {
+      "comment": "Title of a step of the Customize cmux checklist (an imperative).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tune the chat"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اضبط الدردشة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podesi chat"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Finjuster chatten"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chat abstimmen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajusta el chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Régler le chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Regola la chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャットを調整する"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កែសម្រួលការជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅 다듬기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Finjuster chatten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dostrój czat"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajuste o chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Настройте чат"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปรับแต่งแชต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbeti ayarlayın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Налаштуйте чат"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tinh chỉnh cuộc trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "调整聊天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "調整聊天"
+          }
+        }
+      }
+    },
+    "settingsPage.customizeProgress.step.chat.detail": {
+      "comment": "Description under a step of the Customize cmux checklist.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat text, font and width."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "نص الدردشة وخطها وعرضها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tekst, font i širina chata."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chattens tekst, skrifttype og bredde."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chattext, Schrift und Breite."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Texto, fuente y ancho del chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Texte, police et largeur du chat."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Testo, font e larghezza della chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャットの文字、フォント、幅です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អក្សរ ពុម្ពអក្សរ និងទទឹងនៃការជជែក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅의 글자, 글꼴, 너비입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chattens tekst, skrift og bredde."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tekst, czcionka i szerokość czatu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Texto, fonte e largura do chat."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Текст, шрифт и ширина чата."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ข้อความ แบบอักษร และความกว้างของแชต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbet metni, yazı tipi ve genişliği."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Текст, шрифт і ширина чату."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chữ, phông chữ và độ rộng của cuộc trò chuyện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天的文字、字体和宽度。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "聊天的文字、字體和寬度。"
+          }
+        }
+      }
+    },
+    "settingsPage.customizeProgress.step.newTab": {
+      "comment": "Title of a step of the Customize cmux checklist (an imperative).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose your New Tab page"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اختر صفحة علامة التبويب الجديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odaberi stranicu novog taba"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vælg din side til ny fane"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seite für neuen Tab wählen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Elige tu página de pestaña nueva"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Choisir votre page Nouvel onglet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scegli la pagina Nuova scheda"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新規タブのページを選ぶ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជ្រើសរើសទំព័រផ្ទាំងថ្មីរបស់អ្នក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새 탭 페이지 고르기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Velg siden for ny fane"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wybierz stronę nowej karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Escolha sua página de Nova Aba"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Выберите страницу новой вкладки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เลือกหน้าแท็บใหม่ของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni Sekme sayfanızı seçin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оберіть сторінку нової вкладки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chọn trang Thẻ mới của bạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "选择新标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "選擇新分頁頁面"
+          }
+        }
+      }
+    },
+    "settingsPage.customizeProgress.step.newTab.detail": {
+      "comment": "Description under a step of the Customize cmux checklist.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What a new tab opens on."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ما تفتحه علامة التبويب الجديدة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Šta se otvara u novom tabu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvad en ny fane åbner på."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Was ein neuer Tab öffnet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Qué abre una pestaña nueva."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce que s'affiche dans un nouvel onglet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cosa apre una nuova scheda."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新しいタブで最初に開く内容です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អ្វីដែលផ្ទាំងថ្មីបើក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새 탭에서 열리는 내용입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hva en ny fane åpnes med."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Co otwiera się w nowej karcie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O que uma nova aba abre."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Что открывается в новой вкладке."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สิ่งที่แท็บใหม่เปิดขึ้นมา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni sekmenin neyle açılacağı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Що відкривається в новій вкладці."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nội dung mà thẻ mới mở ra."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新标签页打开时显示的内容。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新分頁開啟時顯示的內容。"
+          }
+        }
+      }
+    },
+    "settingsPage.customizeProgress.step.terminalFont": {
+      "comment": "Title of a step of the Customize cmux checklist (an imperative).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pick a terminal font"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اختر خط الطرفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odaberi font terminala"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vælg en terminalskrifttype"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminalschrift wählen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Elige una fuente de terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Choisir une police de terminal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scegli un font del terminale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ターミナルのフォントを選ぶ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជ្រើសរើសពុម្ពអក្សរទែមីនាល់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "터미널 글꼴 고르기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Velg en terminalskrift"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wybierz czcionkę terminala"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Escolha uma fonte de terminal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Выберите шрифт терминала"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เลือกแบบอักษรเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir terminal yazı tipi seçin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оберіть шрифт термінала"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chọn phông chữ terminal"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "选择终端字体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "選擇終端機字體"
+          }
+        }
+      }
+    },
+    "settingsPage.customizeProgress.step.terminalFont.detail": {
+      "comment": "Description under a step of the Customize cmux checklist.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The font and size of your terminals."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "خط وحجم الطرفيات لديك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Font i veličina tvojih terminala."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skrifttype og størrelse på dine terminaler."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Schrift und Größe Ihrer Terminals."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La fuente y el tamaño de tus terminales."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La police et la taille de vos terminaux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il font e la dimensione dei tuoi terminali."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ターミナルのフォントとサイズです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពុម្ពអក្សរ និងទំហំនៃទែមីនាល់របស់អ្នក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "터미널의 글꼴과 크기입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skriften og størrelsen på terminalene dine."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Czcionka i rozmiar Twoich terminali."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A fonte e o tamanho dos seus terminais."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Шрифт и размер ваших терминалов."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แบบอักษรและขนาดของเทอร์มินัลของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminallerinizin yazı tipi ve boyutu."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Шрифт і розмір ваших терміналів."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phông chữ và cỡ chữ của các terminal."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "终端的字体和大小。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "終端機的字體和大小。"
+          }
+        }
+      }
+    },
+    "settingsPage.customizeProgress.step.shortcut": {
+      "comment": "Title of a step of the Customize cmux checklist (an imperative).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set a keyboard shortcut"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عيّن اختصار لوحة مفاتيح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Postavi tipkovnički prečac"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indstil en tastaturgenvej"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tastaturkurzbefehl festlegen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Define un atajo de teclado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Définir un raccourci clavier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Imposta una scorciatoia da tastiera"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "キーボードショートカットを設定する"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំណត់ផ្លូវកាត់ក្តារចុច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "키보드 단축키 설정하기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angi en tastatursnarvei"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ustaw skrót klawiszowy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Defina um atalho de teclado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Задайте сочетание клавиш"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตั้งแป้นพิมพ์ลัด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir klavye kısayolu belirleyin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Задайте комбінацію клавіш"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đặt phím tắt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "设置键盘快捷键"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "設定鍵盤快速鍵"
+          }
+        }
+      }
+    },
+    "settingsPage.customizeProgress.step.shortcut.detail": {
+      "comment": "Description under a step of the Customize cmux checklist.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Put any action on the keys you want."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اربط أي إجراء بالمفاتيح التي تريدها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dodijeli bilo koju radnju tipkama koje želiš."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Læg enhver handling på de taster, du vil."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Legen Sie jede Aktion auf die gewünschten Tasten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Asigna cualquier acción a las teclas que quieras."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Associez n'importe quelle action aux touches de votre choix."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Assegna qualsiasi azione ai tasti che preferisci."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "好きな操作を好きなキーに割り当てられます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដាក់សកម្មភាពណាមួយលើគ្រាប់ចុចដែលអ្នកចង់បាន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "원하는 키에 어떤 동작이든 지정하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Legg hvilken som helst handling på tastene du vil ha."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przypisz dowolną akcję do wybranych klawiszy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Atribua qualquer ação às teclas que quiser."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Назначьте любое действие на нужные клавиши."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำหนดการทำงานใดก็ได้ให้กับปุ่มที่คุณต้องการ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dilediğiniz eylemi istediğiniz tuşlara atayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Призначте будь-яку дію на потрібні клавіші."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gán bất kỳ thao tác nào cho phím bạn muốn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "把任意操作放到你想要的按键上。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "把任何動作放到你想要的按鍵上。"
+          }
+        }
+      }
+    },
+    "settingsPage.customizeProgress.step.notifications": {
+      "comment": "Title of a step of the Customize cmux checklist (an imperative).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set up notifications"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اضبط الإشعارات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podesi obavijesti"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Opsæt notifikationer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mitteilungen einrichten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Configura las notificaciones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Configurer les notifications"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Configura le notifiche"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "通知を設定する"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រៀបចំការជូនដំណឹង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "알림 설정하기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sett opp varsler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skonfiguruj powiadomienia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Configure as notificações"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Настройте уведомления"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตั้งค่าการแจ้งเตือน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bildirimleri ayarlayın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Налаштуйте сповіщення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thiết lập thông báo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "设置通知"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "設定通知"
+          }
+        }
+      }
+    },
+    "settingsPage.customizeProgress.step.notifications.detail": {
+      "comment": "Description under a step of the Customize cmux checklist.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When cmux tells you an agent is done or needs you, and how."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "متى يخبرك cmux أن وكيلًا انتهى أو يحتاج إليك، وكيف."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kada te cmux obavijesti da je agent gotov ili te treba, i na koji način."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvornår cmux fortæller dig, at en agent er færdig eller har brug for dig, og hvordan."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wann cmux Ihnen meldet, dass ein Agent fertig ist oder Sie braucht, und wie."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuándo te avisa cmux de que un agente terminó o te necesita, y cómo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quand cmux vous signale qu'un agent a terminé ou a besoin de vous, et comment."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quando cmux ti avvisa che un agente ha finito o ha bisogno di te, e come."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントの作業完了や応答待ちをcmuxがいつ、どのように知らせるかを設定します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ពេលណា cmux ប្រាប់អ្នកថាភ្នាក់ងារបានបញ្ចប់ ឬត្រូវការអ្នក និងរបៀបណា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트가 끝났거나 도움이 필요할 때 cmux가 언제, 어떻게 알려 줄지 정합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når cmux sier fra om at en agent er ferdig eller trenger deg, og hvordan."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kiedy i jak cmux powiadamia, że agent skończył lub Cię potrzebuje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quando o cmux avisa que um agente terminou ou precisa de você, e como."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Когда и как cmux сообщает, что агент закончил работу или нуждается в вас."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux จะบอกคุณเมื่อใดและอย่างไรว่าเอเจนต์ทำงานเสร็จหรือต้องการคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux'un bir ajanın bittiğini ya da size ihtiyaç duyduğunu ne zaman ve nasıl bildireceği."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Коли й як cmux повідомляє, що агент завершив роботу або потребує вас."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khi nào và bằng cách nào cmux báo cho bạn biết một tác nhân đã xong hoặc cần bạn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 在代理完成或需要你时，何时以及如何通知你。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 在代理完成或需要你時，何時以及如何通知你。"
+          }
+        }
+      }
+    },
+    "settingsPage.customizeProgress.step.agents": {
+      "comment": "Title of a step of the Customize cmux checklist (an imperative).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose your agents and models"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اختر وكلاءك ونماذجك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odaberi agente i modele"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vælg dine agenter og modeller"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agenten und Modelle auswählen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Elige tus agentes y modelos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Choisir vos agents et modèles"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scegli i tuoi agenti e modelli"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントとモデルを選ぶ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជ្រើសរើសភ្នាក់ងារ និងម៉ូដែលរបស់អ្នក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트와 모델 고르기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Velg agenter og modeller"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wybierz agentów i modele"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Escolha seus agentes e modelos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Выберите агентов и модели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เลือกเอเจนต์และโมเดลของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajanlarınızı ve modellerinizi seçin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Оберіть агентів і моделі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chọn tác nhân và mô hình của bạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "选择代理和模型"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "選擇代理和模型"
+          }
+        }
+      }
+    },
+    "settingsPage.customizeProgress.step.agents.detail": {
+      "comment": "Description under a step of the Customize cmux checklist.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to the models your chats use."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "سجّل الدخول إلى النماذج التي تستخدمها دردشاتك."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prijavi se u modele koje tvoji chatovi koriste."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Log ind på de modeller, dine chats bruger."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Melden Sie sich bei den Modellen an, die Ihre Chats nutzen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inicia sesión en los modelos que usan tus chats."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Connectez-vous aux modèles qu'utilisent vos chats."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Accedi ai modelli usati dalle tue chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャットで使うモデルにサインインします。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ចូលទៅក្នុងម៉ូដែលដែលការជជែករបស់អ្នកប្រើ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅에서 사용하는 모델에 로그인하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Logg inn på modellene chattene dine bruker."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zaloguj się do modeli używanych przez Twoje czaty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Entre nos modelos que seus chats usam."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Войдите в модели, которые используют ваши чаты."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลงชื่อเข้าใช้โมเดลที่แชตของคุณใช้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbetlerinizin kullandığı modellerde oturum açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Увійдіть у моделі, які використовують ваші чати."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đăng nhập vào các mô hình mà cuộc trò chuyện của bạn dùng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "登录聊天所使用的模型。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "登入聊天所使用的模型。"
+          }
+        }
+      }
+    },
+    "settingsPage.customizeProgress.step.agentDefaults": {
+      "comment": "Title of a step of the Customize cmux checklist (an imperative).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set agent defaults"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عيّن الإعدادات الافتراضية للوكيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Postavi zadane postavke agenta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indstil agentstandarder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Agenten-Standards festlegen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Define los valores predeterminados del agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Définir les réglages par défaut des agents"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Imposta i valori predefiniti dell'agente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントの既定値を設定する"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំណត់លំនាំដើមរបស់ភ្នាក់ងារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트 기본값 설정하기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angi agentstandarder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ustaw domyślne ustawienia agenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Defina os padrões do agente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Задайте настройки агента по умолчанию"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตั้งค่าเริ่มต้นของเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajan varsayılanlarını belirleyin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Задайте типові налаштування агента"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đặt mặc định cho tác nhân"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "设置代理默认值"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "設定代理預設值"
+          }
+        }
+      }
+    },
+    "settingsPage.customizeProgress.step.agentDefaults.detail": {
+      "comment": "Description under a step of the Customize cmux checklist.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What a new chat may do without asking, and its guidance."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ما يمكن أن تفعله دردشة جديدة دون أن تسأل، وتوجيهاتها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Što novi chat smije raditi bez pitanja i njegove smjernice."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvad en ny chat må gøre uden at spørge, og dens vejledning."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Was ein neuer Chat ohne Nachfrage tun darf, und seine Anweisungen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Qué puede hacer un chat nuevo sin preguntar, y sus indicaciones."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce qu'un nouveau chat peut faire sans demander, et ses consignes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cosa può fare una nuova chat senza chiedere, e le sue indicazioni."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新しいチャットが確認なしでできることと、その指示です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អ្វីដែលការជជែកថ្មីអាចធ្វើបានដោយមិនសួរ និងការណែនាំរបស់វា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새 채팅이 묻지 않고 할 수 있는 일과 그 지침입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hva en ny chat kan gjøre uten å spørre, og veiledningen den får."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Co nowy czat może robić bez pytania oraz jego wskazówki."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O que um novo chat pode fazer sem perguntar, e suas orientações."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Что новый чат может делать без вопросов, и его инструкции."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สิ่งที่แชตใหม่ทำได้โดยไม่ต้องถาม และคำแนะนำของแชต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni bir sohbetin sormadan neler yapabileceği ve yönergeleri."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Що новий чат може робити без запитання, і його настанови."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Những gì một cuộc trò chuyện mới được làm mà không cần hỏi, và hướng dẫn của nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新聊天无需询问即可执行的操作，以及它的指引。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新聊天無需詢問即可執行的操作，以及它的指引。"
+          }
+        }
+      }
+    },
+    "settingsPage.customizeProgress.step.mcp": {
+      "comment": "Title of a step of the Customize cmux checklist (an imperative).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect an MCP server"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اربط خادم MCP"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Poveži MCP server"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilslut en MCP-server"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "MCP-Server verbinden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conecta un servidor MCP"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Connecter un serveur MCP"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Collega un server MCP"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "MCPサーバーを接続する"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ភ្ជាប់ម៉ាស៊ីនមេ MCP"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "MCP 서버 연결하기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koble til en MCP-server"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Połącz serwer MCP"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conecte um servidor MCP"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Подключите MCP-сервер"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เชื่อมต่อเซิร์ฟเวอร์ MCP"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bir MCP sunucusu bağlayın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Підключіть MCP-сервер"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kết nối máy chủ MCP"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "连接 MCP 服务器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "連接 MCP 伺服器"
+          }
+        }
+      }
+    },
+    "settingsPage.customizeProgress.step.mcp.detail": {
+      "comment": "Description under a step of the Customize cmux checklist.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Give your agents a service's tools."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "امنح وكلاءك أدوات خدمة ما."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Daj svojim agentima alate neke usluge."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Giv dine agenter en tjenestes værktøjer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Geben Sie Ihren Agenten die Werkzeuge eines Dienstes."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dale a tus agentes las herramientas de un servicio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Donnez à vos agents les outils d'un service."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dai ai tuoi agenti gli strumenti di un servizio."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントにサービスのツールを使えるようにします。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្តល់ឧបករណ៍របស់សេវាកម្មមួយដល់ភ្នាក់ងាររបស់អ្នក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트가 서비스의 도구를 쓸 수 있게 합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gi agentene dine verktøyene til en tjeneste."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Daj swoim agentom narzędzia usługi."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dê aos seus agentes as ferramentas de um serviço."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Дайте своим агентам инструменты сервиса."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "มอบเครื่องมือของบริการให้เอเจนต์ของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajanlarınıza bir hizmetin araçlarını verin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Надайте своїм агентам інструменти сервісу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cho tác nhân của bạn dùng công cụ của một dịch vụ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "让你的代理使用某项服务的工具。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "讓你的代理使用某項服務的工具。"
+          }
+        }
+      }
+    },
+    "settingsPage.customizeProgress.step.github": {
+      "comment": "Title of a step of the Customize cmux checklist (an imperative).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect GitHub"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اربط GitHub"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Poveži GitHub"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilslut GitHub"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GitHub verbinden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conecta GitHub"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Connecter GitHub"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Collega GitHub"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GitHubを接続する"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ភ្ជាប់ GitHub"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GitHub 연결하기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koble til GitHub"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Połącz GitHub"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Conecte o GitHub"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Подключите GitHub"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เชื่อมต่อ GitHub"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GitHub'ı bağlayın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Підключіть GitHub"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kết nối GitHub"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "连接 GitHub"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "連接 GitHub"
+          }
+        }
+      }
+    },
+    "settingsPage.customizeProgress.step.github.detail": {
+      "comment": "Description under a step of the Customize cmux checklist.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pull requests and repositories in cmux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "طلبات السحب والمستودعات داخل cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pull requestovi i repozitoriji u cmuxu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pull requests og repositories i cmux."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pull Requests und Repositories in cmux."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pull requests y repositorios en cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les pull requests et les dépôts dans cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pull request e repository in cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "プルリクエストとリポジトリをcmuxで扱えます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pull request និង repository នៅក្នុង cmux។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux에서 풀 리퀘스트와 저장소를 다룹니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pull requests og repoer i cmux."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pull requesty i repozytoria w cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pull requests e repositórios no cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pull request'ы и репозитории в cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pull request และรีโพซิทอรีใน cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux içinde pull request'ler ve depolar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pull request-и та репозиторії в cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pull request và kho mã ngay trong cmux."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 cmux 中查看拉取请求和仓库。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 cmux 中檢視拉取請求和儲存庫。"
+          }
+        }
+      }
+    },
+    "settingsPage.customizeProgress.step.phone": {
+      "comment": "Title of a step of the Customize cmux checklist (an imperative).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pair your phone"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اقرن هاتفك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Upari svoj telefon"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Par din telefon"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Telefon koppeln"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vincula tu teléfono"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Associer votre téléphone"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Associa il tuo telefono"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "iPhoneをペアリングする"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្គូផ្គងទូរសព្ទរបស់អ្នក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "휴대폰 페어링하기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Koble sammen telefonen din"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sparuj telefon"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pareie seu celular"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Подключите телефон"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "จับคู่โทรศัพท์ของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Telefonunuzu eşleştirin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "З'єднайте телефон"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ghép nối điện thoại của bạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "配对你的手机"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "配對你的手機"
+          }
+        }
+      }
+    },
+    "settingsPage.customizeProgress.step.phone.detail": {
+      "comment": "Description under a step of the Customize cmux checklist.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Follow your chats away from the Mac."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تابع دردشاتك بعيدًا عن جهاز Mac."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prati svoje chatove dok si daleko od Maca."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Følg dine chats, når du er væk fra din Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Verfolgen Sie Ihre Chats, wenn Sie nicht am Mac sind."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sigue tus chats lejos del Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suivez vos chats loin du Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Segui le tue chat lontano dal Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Macから離れていてもチャットを追えます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តាមដានការជជែករបស់អ្នកពេលនៅឆ្ងាយពី Mac។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac에서 떨어져 있어도 채팅을 따라가세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Følg chattene dine borte fra Macen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Śledź swoje czaty, gdy jesteś z dala od Maca."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Acompanhe seus chats longe do Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Следите за чатами вдали от Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ติดตามแชตของคุณเมื่ออยู่ห่างจาก Mac"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mac'ten uzaktayken sohbetlerinizi takip edin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Стежте за своїми чатами, коли ви далеко від Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Theo dõi các cuộc trò chuyện khi bạn rời xa máy Mac."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "离开 Mac 时也能跟进你的聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "離開 Mac 時也能跟進你的聊天。"
+          }
+        }
+      }
+    },
     "settingsPage.tailnet.cloudTitle": {
       "comment": "Settings > Tailscale Cloud machine join.",
       "extractionState": "manual",
@@ -171745,6 +177552,515 @@
             "value": "無法完成：%@"
           }
         }
+      }
+    },
+    "settingsPage.customSound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom Sound…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "صوت مخصص…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prilagođeni zvuk…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tilpasset lyd…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eigener Ton …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sonido personalizado…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Son personnalisé…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Suono personalizzato…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "カスタムサウンド…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សំឡេងផ្ទាល់ខ្លួន…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사용자 지정 사운드…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Egendefinert lyd …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Własny dźwięk…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Som personalizado…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Свой звук…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เสียงที่กำหนดเอง…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Özel Ses…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Власний звук…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Âm thanh tùy chỉnh…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自定义声音…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自訂聲音…"
+          }
+        }
+      }
+    },
+    "settingsWindow.autoCloudEnroll": {
+      "comment": "Settings > Machines: the title of a Remote machine's AutoCloud enrollment line (product name).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "AutoCloud"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "AutoCloud"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "AutoCloud"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "AutoCloud"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "AutoCloud"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "AutoCloud"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "AutoCloud"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "AutoCloud"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "AutoCloud"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "AutoCloud"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "AutoCloud"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "AutoCloud"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "AutoCloud"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "AutoCloud"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "AutoCloud"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "AutoCloud"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "AutoCloud"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "AutoCloud"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "AutoCloud"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "AutoCloud"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "AutoCloud"}}
+      }
+    },
+    "settingsWindow.autoCloudEnrollHelp": {
+      "comment": "Settings > Machines: what the AutoCloud switch does; always shown.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Only while you're away. Your own use always comes first."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "فقط أثناء غيابك. استخدامك أنت يأتي أولاً دائمًا."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Samo dok ste odsutni. Vaše korištenje uvijek ima prednost."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Kun mens du er væk. Din egen brug går altid forud."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Nur während Sie weg sind. Ihre eigene Nutzung hat immer Vorrang."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Solo mientras no estás. Tu propio uso siempre va primero."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Seulement en votre absence. Votre propre usage passe toujours en premier."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Solo mentre sei assente. Il tuo uso ha sempre la precedenza."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "離席中のみ。あなた自身の利用が常に優先されます。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "តែពេលអ្នកមិននៅ។ ការប្រើរបស់អ្នកតែងតែមកមុន។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "자리를 비운 동안에만. 내 사용이 항상 우선입니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Bare mens du er borte. Din egen bruk går alltid først."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Tylko gdy cię nie ma. Twoje użycie zawsze ma pierwszeństwo."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Só enquanto você está ausente. Seu próprio uso sempre vem primeiro."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Только пока вас нет. Ваша работа всегда в приоритете."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เฉพาะตอนที่คุณไม่อยู่ การใช้งานของคุณมาก่อนเสมอ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Yalnızca siz yokken. Kendi kullanımınız her zaman önce gelir."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Лише поки вас немає. Ваша робота завжди має пріоритет."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Chỉ khi bạn vắng mặt. Việc bạn dùng luôn được ưu tiên."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "仅在你离开时。你自己的使用始终优先。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "僅在你離開時。你自己的使用始終優先。"}}
+      }
+    },
+    "settingsWindow.autoCloudOff": {
+      "comment": "Settings > Machines: AutoCloud status line when the Remote machine is not enrolled; only that machine can enroll itself.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Off. Turn it on in Settings on that machine."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "متوقف. شغّله من الإعدادات على ذلك الجهاز."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Isključeno. Uključite ga u Postavkama na tom uređaju."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Fra. Slå det til i Indstillinger på den maskine."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Aus. Schalten Sie es in den Einstellungen auf diesem Gerät ein."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Desactivado. Actívalo en Ajustes en esa máquina."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Désactivé. Activez-le dans les Réglages de cette machine."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Disattivato. Attivalo nelle Impostazioni su quella macchina."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "オフ。そのマシンの設定でオンにしてください。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "បិទ។ បើកវានៅក្នុងការកំណត់លើម៉ាស៊ីននោះ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "꺼짐. 해당 머신의 설정에서 켜세요."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Av. Slå det på i Innstillinger på den maskinen."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Wyłączone. Włącz w Ustawieniach na tej maszynie."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Desativado. Ative nos Ajustes daquela máquina."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Выкл. Включите в настройках на той машине."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ปิดอยู่ เปิดได้ในการตั้งค่าบนเครื่องนั้น"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kapalı. O makinedeki Ayarlar'dan açın."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Вимк. Увімкніть у налаштуваннях на тій машині."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Tắt. Bật trong Cài đặt trên máy đó."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "已关闭。请在那台机器的设置中开启。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "已關閉。請在那台機器的設定中開啟。"}}
+      }
+    },
+    "settingsWindow.autoCloudOwnerOnly": {
+      "comment": "Settings > Machines: AutoCloud policy line when no team may use the machine, only the owner's own work.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Your work only"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "عملك فقط"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Samo vaš rad"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Kun dit arbejde"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Nur Ihre Arbeit"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Solo tu trabajo"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Votre travail uniquement"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Solo il tuo lavoro"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "自分の作業のみ"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "តែការងាររបស់អ្នក"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "내 작업만"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Bare ditt arbeid"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Tylko twoja praca"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Só o seu trabalho"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Только ваша работа"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เฉพาะงานของคุณ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Yalnızca sizin işiniz"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Лише ваша робота"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Chỉ công việc của bạn"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "仅限你的工作"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "僅限你的工作"}}
+      }
+    },
+    "settingsWindow.autoCloudHours": {
+      "comment": "Settings > Machines: AutoCloud policy hours, local time; %1$@ start, %2$@ end (may wrap midnight).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "%1$@–%2$@"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "%1$@–%2$@"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "%1$@–%2$@"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "%1$@–%2$@"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "%1$@–%2$@"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "%1$@–%2$@"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "%1$@–%2$@"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "%1$@–%2$@"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "%1$@–%2$@"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "%1$@–%2$@"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "%1$@–%2$@"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "%1$@–%2$@"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "%1$@–%2$@"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "%1$@–%2$@"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "%1$@–%2$@"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "%1$@–%2$@"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "%1$@–%2$@"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "%1$@–%2$@"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "%1$@–%2$@"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "%1$@–%2$@"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "%1$@–%2$@"}}
+      }
+    },
+    "settingsWindow.autoCloudAccepting": {
+      "comment": "Settings > Machines: AutoCloud status line when the machine takes work now.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Taking AutoCloud work now"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يستقبل عمل AutoCloud الآن"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Sada prima AutoCloud posao"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Tager AutoCloud-arbejde nu"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Nimmt jetzt AutoCloud-Arbeit an"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Aceptando trabajo de AutoCloud ahora"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Accepte du travail AutoCloud"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Accetta lavoro AutoCloud ora"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "現在 AutoCloud の作業を受付中"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "កំពុងទទួលការងារ AutoCloud"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "지금 AutoCloud 작업을 받는 중"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Tar AutoCloud-arbeid nå"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Przyjmuje teraz pracę AutoCloud"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Aceitando trabalho do AutoCloud agora"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Сейчас принимает работу AutoCloud"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "กำลังรับงาน AutoCloud"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Şu an AutoCloud işi alıyor"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Зараз приймає роботу AutoCloud"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Đang nhận việc AutoCloud"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "正在接受 AutoCloud 工作"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "正在接受 AutoCloud 工作"}}
+      }
+    },
+    "settingsWindow.autoCloudOwnerActive": {
+      "comment": "Settings > Machines: AutoCloud status line while the owner is using the machine.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Waiting: you're using this machine"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "في الانتظار: أنت تستخدم هذا الجهاز"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Čeka: koristite ovaj uređaj"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Venter: du bruger denne maskine"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Wartet: Sie nutzen dieses Gerät"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "En espera: estás usando esta máquina"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "En attente : vous utilisez cette machine"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "In attesa: stai usando questa macchina"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "待機中: このマシンを使用中です"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "កំពុងរង់ចាំ៖ អ្នកកំពុងប្រើម៉ាស៊ីននេះ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "대기 중: 이 머신을 사용 중입니다"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Venter: du bruker denne maskinen"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Czeka: używasz tej maszyny"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Aguardando: você está usando esta máquina"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Ожидание: вы используете машину"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "รอ: คุณกำลังใช้เครื่องนี้"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Bekliyor: bu makineyi kullanıyorsunuz"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Очікує: ви користуєтеся машиною"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Đang chờ: bạn đang dùng máy này"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "等待中：你正在使用此机器"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "等待中：你正在使用此機器"}}
+      }
+    },
+    "settingsWindow.autoCloudPaused": {
+      "comment": "Settings > Machines: AutoCloud status line when enrolled but not taking work (outside hours, busy).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Not taking work right now"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "لا يستقبل عملاً الآن"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Trenutno ne prima posao"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Tager ikke arbejde lige nu"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Nimmt gerade keine Arbeit an"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "No acepta trabajo ahora"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "N'accepte pas de travail pour l'instant"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Non accetta lavoro ora"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "現在は作業を受け付けていません"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "មិនទទួលការងារឥឡូវនេះ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "지금은 작업을 받지 않음"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Tar ikke arbeid nå"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Teraz nie przyjmuje pracy"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Não está aceitando trabalho agora"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Сейчас не принимает работу"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ไม่รับงานในตอนนี้"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Şu an iş almıyor"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Зараз не приймає роботу"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Hiện không nhận việc"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "目前不接受工作"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "目前不接受工作"}}
+      }
+    },
+    "settingsWindow.autoCloudCap.macos": {
+      "comment": "Settings > Machines: AutoCloud capability badge, the machine runs macOS.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Mac"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "Mac"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Mac"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Mac"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Mac"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Mac"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Mac"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Mac"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "Mac"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "Mac"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "Mac"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Mac"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Mac"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Mac"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Mac"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "Mac"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Mac"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Mac"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Mac"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "Mac"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "Mac"}}
+      }
+    },
+    "settingsWindow.autoCloudCap.xcode": {
+      "comment": "Settings > Machines: AutoCloud capability badge, Xcode installed (product name).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Xcode"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "Xcode"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Xcode"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Xcode"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Xcode"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Xcode"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Xcode"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Xcode"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "Xcode"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "Xcode"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "Xcode"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Xcode"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Xcode"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Xcode"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Xcode"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "Xcode"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Xcode"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Xcode"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Xcode"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "Xcode"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "Xcode"}}
+      }
+    },
+    "settingsWindow.autoCloudCap.ios-simulator": {
+      "comment": "Settings > Machines: AutoCloud capability badge, the iOS Simulator is available.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Simulator"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "المحاكي"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Simulator"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Simulator"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Simulator"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Simulador"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Simulateur"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Simulatore"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "シミュレータ"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ឧបករណ៍ក្លែងធ្វើ"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "시뮬레이터"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Simulator"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Symulator"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Simulador"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Симулятор"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ซิมูเลเตอร์"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Simülatör"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Симулятор"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Trình mô phỏng"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "模拟器"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "模擬器"}}
+      }
+    },
+    "settingsWindow.autoCloudCap.gpu-metal": {
+      "comment": "Settings > Machines: AutoCloud capability badge, a Metal GPU.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Metal GPU"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "وحدة GPU بـ Metal"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Metal GPU"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Metal-GPU"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Metal-GPU"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "GPU Metal"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "GPU Metal"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "GPU Metal"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "Metal GPU"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "GPU Metal"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "Metal GPU"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Metal-GPU"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "GPU Metal"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "GPU Metal"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "GPU Metal"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "GPU Metal"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Metal GPU"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "GPU Metal"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "GPU Metal"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "Metal GPU"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "Metal GPU"}}
+      }
+    },
+    "settingsWindow.autoCloudCap.linux": {
+      "comment": "Settings > Machines: AutoCloud capability badge, the machine runs Linux.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Linux"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "Linux"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Linux"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Linux"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Linux"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Linux"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Linux"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Linux"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "Linux"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "Linux"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "Linux"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Linux"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Linux"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Linux"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Linux"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "Linux"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Linux"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Linux"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Linux"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "Linux"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "Linux"}}
+      }
+    },
+    "settingsWindow.autoCloudCap.gpu-nvidia": {
+      "comment": "Settings > Machines: AutoCloud capability badge, an NVIDIA GPU.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "NVIDIA GPU"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "وحدة GPU من NVIDIA"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "NVIDIA GPU"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "NVIDIA-GPU"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "NVIDIA-GPU"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "GPU NVIDIA"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "GPU NVIDIA"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "GPU NVIDIA"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "NVIDIA GPU"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "GPU NVIDIA"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "NVIDIA GPU"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "NVIDIA-GPU"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "GPU NVIDIA"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "GPU NVIDIA"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "GPU NVIDIA"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "GPU NVIDIA"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "NVIDIA GPU"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "GPU NVIDIA"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "GPU NVIDIA"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "NVIDIA GPU"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "NVIDIA GPU"}}
       }
     }
   },

@@ -128,7 +128,7 @@ end reason, the decision, or `old->new` for a permission change).
 | `POST /v1/auth/stack` | `{token}` | `{session, userId, expiresAt}` | Verifies the Stack Auth token (JWKS). The session carries the Stack token sealed (AES-GCM, key derived from the session key) for the cmux relay check, and ends no later than that token (at most 1 h). A session from before this (no sealed token) still works but never gets the cmux relay; one whose token does not open is refused with 401 `unauthorized`. |
 | `POST /v1/auth/machine` | `{credential, deviceId}` | `{session, userId, scope, ownerKind, machineId, teamId, expiresAt}` | A joined machine's sign-in (Identity, Machine sign-in): cmux-platform names the person; the `machine` session sets up and serves only `deviceId`. 401 when cmux-platform does not accept the credential or it expired, 403 `machine_no_person` or `account_not_on_hub`, 503 `machine_auth_unavailable`. |
 | `GET /v1/me` | | `{userId, plan: 'free'\|'paid', device}` | `plan` is `paid` when cmux billing says the cmux relay is included (see Plans); `free` otherwise, including when the lookup fails. Needs a registered device. |
-| `POST /v1/devices` | `{id, name, platform, signingKey, agreementKey, machine?, shareByJoin?}` | `{device}` | Registers or updates this device. `shareByJoin: true` from a `machine` session (a machine the person joined, registering from its own sign-in) turns a Mac or Linux host's sharing on, unless the switch was ever set on purpose (`mac_screen_chosen`): joining is the consent, and a person's explicit off always wins, for every later join or update. From any other session it changes nothing. Signed by `signingKey`. The first registration sets `name`; once `PATCH` renamed the device, registration keeps that name. `machine` (64 lowercase hex digits, else 400) names the Mac the device runs on: the app sends the HMAC-SHA256 of `cmux.device-hub.machine\n` and the Mac's hardware UUID, keyed by 32 random bytes the first cmux app on the Mac writes to `~/Library/Application Support/cmux-device-hub/machine.key` (0600), so every build of the app and cmux Remote send the same value and no device elsewhere can compute it from the public hardware UUID. The first `machine` a device names stays; the hub never lists it. See "Permissions are per Mac". |
+| `POST /v1/devices` | `{id, name, platform, signingKey, agreementKey, machine?, shareByJoin?}` | `{device}` | Registers or updates this device. `shareByJoin: true` from a `machine` session (a machine the person joined, registering from its own sign-in) turns a Mac or Linux host's sharing on, unless the switch was ever set on purpose (`mac_screen_chosen`): joining is the consent, and a person's explicit off always wins, for every later join or update. From any other session it changes nothing. Signed by `signingKey`. The first registration sets `name`; once `PATCH` renamed the device, registration keeps that name. `machine` (64 lowercase hex digits, else 400) names the Mac the device runs on: the app sends the HMAC-SHA256 of `cmux.device-hub.machine\n` and the Mac's hardware UUID, keyed by 32 random bytes the first cmux app on the Mac writes to `~/Library/Application Support/cmux-device-hub/machine.key` (0600), so every build of the app and cmux Remote of one build space send the same value and no device elsewhere can compute it from the public hardware UUID. A tagged dev build appends `\n` and its space (`dev:<slug>`) to the message, so each space names the Mac apart; the default space's value is unchanged. The first `machine` a device names stays; the hub never lists it. See "Permissions are per Mac". |
 | `GET /v1/devices` | | `{devices:[…]}` | Not removed devices, with `online` from open sockets and `screenShare` (the host's last report, or null). |
 | `PATCH /v1/devices/:id` | `{name}` | `{device}` | Any of the user's devices. |
 | `DELETE /v1/devices/:id` | | `{}` | Removes the device; ends its sessions; pushes revocations. Deletes every permission that names it, as host or as viewer, and pushes `permissions.changed` for each host that listed it. |
@@ -195,6 +195,34 @@ signing key. Pushes reach only connected devices; there is no backlog, so a
 device refetches state after it reconnects: its devices, relays, its own
 permission list, and every other device's permission list it shows (its access
 to each host), so a change made while it was away never leaves an old value.
+
+## Build spaces
+
+A tagged dev build of the Mac app, of its cmux Remote and of the iPhone app sends
+`X-Cmux-Build-Space: dev:<slug>` (its tag's slug) on every request and socket upgrade, as it does to
+cloud-api and cmux-mobile-api; NIGHTLY, release, TestFlight and App Store builds send nothing (the
+default space). Every DEV Mac and Debug iPhone of every tag uses the one dev hub, so each space is
+its own set of devices: the User DO of a dev space is named `dev:<slug>|<userId>`, and the default
+space keeps the bare `<userId>` every object had before. A tag's phone lists and reaches only that
+tag's Macs; NIGHTLY's and other tags' Macs of the same account are not devices of its space (a
+session asked for one is `404 not_found`).
+
+- The value must match `^dev:[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$` and not be `dev:default`, else
+  `400 build_space.invalid` (never read as the default space). Only a hub whose `ENVIRONMENT` is
+  `dev`, `test` or `local` serves dev spaces; production (`ENVIRONMENT=production`), and a hub with
+  no or another `ENVIRONMENT`, refuses every one with `403 build_space.not_allowed`, before auth.
+- A hub session carries its space (`bsp`, absent for the default space). A request whose header
+  names another space than its session's is `401 unauthorized`, so the app signs in again with its
+  own header. Device renewal (`POST /v1/auth/device`) reaches the User DO of the request's space,
+  the only one that knows the device's anchor: the app tells cmux Remote the space it anchored in
+  (`hub.anchored` `build_space`). The cmux Remote (dev) that DEV builds pin predates build spaces
+  and would renew in the default space, so in a dev space the Mac app serves this Mac with its own
+  hub (its own device, which names the space on every call and its socket) and signs cmux Remote's
+  worker out (`hub.signed_out`); only the default space uses cmux Remote's device.
+- The user id is the same in every space (`<projectId>:<sub>`); only the objects are apart.
+- A machine sign-in (`POST /v1/auth/machine`) names no build: the acpmux daemon's and `cmux-rd
+  linux-host`'s devices are default-space devices, and a dev-space Mac app does not adopt the
+  daemon's device (ShareHostDevice).
 
 ## Permissions are per Mac
 

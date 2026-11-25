@@ -1,0 +1,236 @@
+{
+  "title": "Command Palette Preview with v2 look A: \"work\" typed, the selection moved down three rows (the preview follows it), then ⌘K opens the selected row's actions. Record it with: cmux-ci capture SHA --state tour:palette-v2-actions",
+  "settings": {
+    "experiments": {
+      "paletteV2": "flat",
+      "palettePreview": true
+    }
+  },
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "New workspace work api",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "work api"
+      ],
+      "wait": 1.2,
+      "shot": false
+    },
+    {
+      "title": "New workspace work web",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "work web"
+      ],
+      "wait": 1.2,
+      "shot": false
+    },
+    {
+      "title": "New workspace release notes",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "release notes"
+      ],
+      "wait": 1.2,
+      "shot": false
+    },
+    {
+      "title": "New workspace research",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "research"
+      ],
+      "wait": 1.2,
+      "shot": false
+    },
+    {
+      "title": "Show work api",
+      "cmux": [
+        "workspace",
+        "name:work api",
+        "focus"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "Open the command palette",
+      "cmux": [
+        "action",
+        "run",
+        "commandPalette"
+      ],
+      "wait": 1.5,
+      "shot": false
+    },
+    {
+      "title": "Type w",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "w",
+          "target": "palette"
+        }
+      },
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "Type o",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "o",
+          "target": "palette"
+        }
+      },
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "Type r",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "r",
+          "target": "palette"
+        }
+      },
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "Type k",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "k",
+          "target": "palette"
+        }
+      },
+      "wait": 1.2,
+      "shot": false
+    },
+    {
+      "title": "\"work\": the top match selected, its preview beside it",
+      "wait": 0.5,
+      "rpc": {
+        "method": "debug.palette.capture",
+        "params": {
+          "path": "{collect}"
+        }
+      },
+      "collect": "actions-top.png"
+    },
+    {
+      "title": "Down",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "down",
+          "target": "palette"
+        }
+      },
+      "wait": 0.6,
+      "shot": false
+    },
+    {
+      "title": "Down",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "down",
+          "target": "palette"
+        }
+      },
+      "wait": 0.6,
+      "shot": false
+    },
+    {
+      "title": "Down",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "down",
+          "target": "palette"
+        }
+      },
+      "wait": 1.0,
+      "shot": false
+    },
+    {
+      "title": "Three rows down: the preview follows the selection",
+      "wait": 0.5,
+      "rpc": {
+        "method": "debug.palette.capture",
+        "params": {
+          "path": "{collect}"
+        }
+      },
+      "collect": "actions-down3.png"
+    },
+    {
+      "title": "Cmd-K: the selected row's actions",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "k",
+          "target": "palette",
+          "modifiers": [
+            "cmd"
+          ]
+        }
+      },
+      "wait": 1.2,
+      "shot": false
+    },
+    {
+      "title": "Actions ⌘K open on the selected row",
+      "wait": 0.5,
+      "rpc": {
+        "method": "debug.palette.capture",
+        "params": {
+          "path": "{collect}"
+        }
+      },
+      "collect": "actions-cmdk.png"
+    },
+    {
+      "title": "Close the palette",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "escape",
+          "target": "palette"
+        }
+      },
+      "wait": 0.5,
+      "shot": false
+    },
+    {
+      "title": "Close the palette",
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "escape",
+          "target": "palette"
+        }
+      },
+      "wait": 0.5,
+      "shot": false
+    }
+  ]
+}

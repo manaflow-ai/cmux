@@ -1,7 +1,7 @@
 //! `cmux migrate`: move to cmux Cloud from wherever the work is now (cmuxterm-hq RFD 0168 "Moving
 //! to AutoCloud"). Each source reads, read-only, into a plan (cmux-migrate); `apply` makes it real
 //! step by step through this binary's own Cloud verbs (the signed-in app), or headless through
-//! `cloud journey --repo --keep` (CI, Linux); `undo` deletes what a move made.
+//! `cloud journey --repo [--keep]` (CI, Linux); `undo` deletes what a move made.
 //!
 //! Leo, 2026-11-24: "we ought to be able to have good migration capabilities all around for people
 //! of all stages any and all levels of technical sophistication and teams and organizations of any
@@ -11,7 +11,7 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use cmux_migrate::apply::{self, Cloud, Created, Event, Local, WorkPatch};
+use cmux_migrate::apply::{self, Cloud, Created, Event, Local, PatchRoute, WorkPatch};
 use cmux_migrate::ledger::{Ledger, Load};
 use cmux_migrate::sources::competitors::{self, Product, Route};
 use cmux_migrate::sources::{compose, devcontainer, laptop, nix, ssh_host};
@@ -41,6 +41,8 @@ SOURCE:
   ssh:HOST                      a box you reach over SSH (one read-only probe)
   codespaces | coder            your workspaces there (gh / coder CLI, signed in)
   gitpod [PATH]                 a checkout's .gitpod.yml
+  t3code | t3 [t3code:PATH]     T3 Code's projects, thread worktrees and their
+                                Claude Code / Codex sessions (CMUX_SWITCH_KIT=1)
   daytona | exe.dev | namespace | devpod | devin | capy
                                 how that product's workspaces move (`routes`)
 
@@ -49,14 +51,45 @@ app to make it, and records each finished step in ~/.cmux/migrate/ledger.json,
 so running it again goes on where it stopped and makes nothing twice.
 --headless makes each machine without the app (CMUX_CLOUD_ACCESS_TOKEN or the
 dogfood sign-in; see `cmux cloud journey --help`) and measures its time to the
-first chat reply; it only clones and sets up, it carries no local files.
+first chat reply; it only clones and sets up: local work, chats and settings are
+skipped (said so), and a later run in the app carries them.
+Shell history is listed unchecked (it can hold typed tokens): check it in the
+plan to carry it.
 ";
+
+/// The switch kit (cmuxterm-hq#23822) is off until `CMUX_SWITCH_KIT=1`.
+fn switch_kit_on() -> bool {
+    std::env::var("CMUX_SWITCH_KIT").is_ok_and(|v| v == "1")
+}
+
+/// `t3code` or `t3code:PATH` (a T3 home), when the switch kit is on.
+fn t3code_source(source: &str) -> Option<Option<&str>> {
+    if !switch_kit_on() {
+        return None;
+    }
+    match source {
+        "t3code" | "t3" => Some(None),
+        _ => source.strip_prefix("t3code:").map(Some),
+    }
+}
+
+/// Reads T3 Code's database read-only and plans its projects and thread worktrees.
+fn t3code_plan(home: &Path, path: Option<&str>) -> Result<Plan, String> {
+    use cmux_migrate::sources::t3code;
+    let env = std::env::var("T3CODE_HOME").ok();
+    let t3_home = match path {
+        Some(p) => std::path::absolute(p).map_err(|e| format!("{p}: {e}"))?,
+        None => t3code::home_dir(home, env.as_deref()),
+    };
+    let catalog = t3code::read(&t3_home.join(t3code::DATABASE)).map_err(|e| e.to_string())?;
+    Ok(t3code::plan(home, &t3_home, &catalog, &laptop::GitCli::default()))
+}
 
 /// One external reader (ssh probe, `gh`, `coder`) ends by then.
 const READER_BOUND: Duration = Duration::from_secs(120);
 /// A create the app answers `pending` for is waited on this long.
 const CREATE_BOUND: Duration = Duration::from_secs(600);
-/// `cloud file-write --contents` goes as one argument: chunks stay well under Linux's 128 KiB.
+/// One `cloud file-write --contents-file` request: a big file goes in parts joined on the machine.
 const WRITE_CHUNK: usize = 48 * 1024;
 /// A headless create (clone, setup, first chat) ends by then.
 const HEADLESS_BOUND: Duration = Duration::from_secs(1800);
@@ -238,32 +271,39 @@ fn run(global: &GlobalArgs, output: OutputMode, command: Command) -> Result<i32,
             let mut ledger = load_ledger()?;
             let local = HomeLocal::new();
             let mut events = Vec::new();
-            let mut plan = plan;
-            if headless.is_some() {
-                // The headless route carries no local files: say so once, not as a failed step each.
-                for carry in plan.carry.iter_mut().filter(|c| c.checked) {
-                    carry.checked = false;
-                    plan.warnings.push(format!(
-                        "--headless: {} stays (run without --headless to carry it)",
-                        carry.path
-                    ));
+            // The headless route carries no local files: apply skips those steps, said once each
+            // and left undone, so a later run in the app carries them.
+            // Saved after every step, not only at the end: a crash or Ctrl-C after a machine is
+            // made keeps its id, so a rerun skips it and undo can delete it.
+            let mut checkpoint = |ledger: &Ledger| {
+                if let Err(why) = save_ledger(ledger) {
+                    eprintln!("cmux migrate: could not save the ledger: {why}");
                 }
-                for project in &mut plan.projects {
-                    project.chats.clear();
-                }
-            }
+            };
             let outcome = match headless {
                 Some(backend) => {
                     let mut cloud = Headless { global: global.clone(), backend };
-                    apply::apply(&plan, &only, &mut ledger, &mut cloud, &local, &mut |e| {
-                        say(output, e, &mut events)
-                    })
+                    apply::apply_saving(
+                        &plan,
+                        &only,
+                        &mut ledger,
+                        &mut cloud,
+                        &local,
+                        &mut |e| say(output, e, &mut events),
+                        &mut checkpoint,
+                    )
                 }
                 None => {
                     let mut cloud = AppCloud { runner: SelfRunner::new(global) };
-                    apply::apply(&plan, &only, &mut ledger, &mut cloud, &local, &mut |e| {
-                        say(output, e, &mut events)
-                    })
+                    apply::apply_saving(
+                        &plan,
+                        &only,
+                        &mut ledger,
+                        &mut cloud,
+                        &local,
+                        &mut |e| say(output, e, &mut events),
+                        &mut checkpoint,
+                    )
                 }
             };
             save_ledger(&ledger)?;
@@ -292,6 +332,9 @@ pub(super) fn read_source(source: &str) -> Result<Plan, String> {
             .map_err(|e| format!("{}: {e}", root.join(".gitpod.yml").display()))?;
         let repo = cmux_migrate::sources::project_files::repo_at(&root).url;
         return competitors::gitpod_plan(&root.display().to_string(), repo.as_deref(), &yml);
+    }
+    if let Some(t3) = t3code_source(source) {
+        return t3code_plan(&home, t3);
     }
     match source {
         "this-computer" | "laptop" | "this-mac" => {
@@ -612,22 +655,33 @@ impl<R: Runner> Cloud for AppCloud<R> {
             .unwrap_or_default())
     }
 
+    /// The text goes through a private (0600) temp file read by `--contents-file`, never as an
+    /// argument: argv is visible to every process on this computer (`ps`).
     fn write_file(&mut self, machine: &str, path: &str, text: &str) -> Result<(), String> {
         let target = Self::target(machine);
         let dir = path.rsplit_once('/').map_or("/", |(dir, _)| dir).to_owned();
         self.exec(machine, &format!("mkdir -p {}", shell_quote(&dir)))?;
-        if text.len() <= WRITE_CHUNK {
+        let mut send = |to: &str, part: &str| -> Result<(), String> {
+            let mut file = tempfile::Builder::new()
+                .prefix("cmux-migrate-")
+                .tempfile()
+                .map_err(|e| format!("a temp file: {e}"))?;
+            file.write_all(part.as_bytes()).map_err(|e| format!("a temp file: {e}"))?;
+            let local = file.path().display().to_string();
             self.verb(&[
                 "cloud",
                 "file-write",
                 "--target",
                 &target,
                 "--path",
-                path,
-                "--contents",
-                text,
-            ])?;
-            return Ok(());
+                to,
+                "--contents-file",
+                &local,
+            ])
+            .map(|_| ())
+        };
+        if text.len() <= WRITE_CHUNK {
+            return send(path, text);
         }
         let mut parts = Vec::new();
         let mut rest = text;
@@ -637,16 +691,7 @@ impl<R: Runner> Cloud for AppCloud<R> {
                 cut -= 1;
             }
             let part = format!("{path}.cmux-part-{:04}", parts.len());
-            self.verb(&[
-                "cloud",
-                "file-write",
-                "--target",
-                &target,
-                "--path",
-                &part,
-                "--contents",
-                &rest[..cut],
-            ])?;
+            send(&part, &rest[..cut])?;
             parts.push(shell_quote(&part));
             rest = &rest[cut..];
         }
@@ -674,7 +719,7 @@ impl<R: Runner> Cloud for AppCloud<R> {
     }
 }
 
-/// Each machine through `cloud journey --repo --machine-config --keep` (no app: CI, Linux). It
+/// Each machine through `cloud journey --repo --machine-config [--keep]` (no app: CI, Linux). It
 /// measures the time to the first chat reply in the machine's checkout; local files do not go.
 struct Headless {
     global: GlobalArgs,
@@ -697,31 +742,14 @@ impl Cloud for Headless {
         std::fs::write(&config, machine_toml).map_err(|e| e.to_string())?;
         let exe = std::env::current_exe().map_err(|e| e.to_string())?;
         let mut command = cmux_process::Command::new(exe);
+        let keep = std::env::var("CMUX_MIGRATE_JOURNEY_DELETE").as_deref() != Ok("1");
+        let stub = std::env::var("CMUX_MIGRATE_MODEL_STUB").ok();
         command
             .args(super::cloud_start_chat::forwarded_globals(&self.global))
-            .args([
-                "cloud",
-                "journey",
-                "--backend",
-                &self.backend,
-                "--repo",
-                repo,
-                "--keep",
-                "--out",
-            ])
-            .arg(&dir)
-            .arg("--machine-config")
-            .arg(&config)
+            .args(headless_journey_args(&self.backend, repo, &dir, &config, keep, stub.as_deref()))
             .stdin(cmux_process::Stdio::null())
             .stdout(cmux_process::Stdio::null())
             .stderr(cmux_process::Stdio::inherit());
-        // CI measures and then deletes (CMUX_MIGRATE_JOURNEY_DELETE=1); a person's move keeps its machine.
-        if std::env::var("CMUX_MIGRATE_JOURNEY_DELETE").as_deref() != Ok("1") {
-            command.arg("--keep");
-        }
-        if let Ok(stub) = std::env::var("CMUX_MIGRATE_MODEL_STUB") {
-            command.args(["--model-stub", &stub]);
-        }
         let mut child = command.spawn().map_err(|e| e.to_string())?;
         let deadline = Instant::now() + HEADLESS_BOUND;
         while !child.exited_within(Duration::from_secs(1)).unwrap_or(true) {
@@ -755,6 +783,35 @@ impl Cloud for Headless {
     fn delete_machine(&mut self, machine: &str) -> Result<(), String> {
         Err(format!("--headless cannot delete {machine}: `cmux vm rm {machine}`"))
     }
+    fn carries_files(&self) -> bool {
+        false
+    }
+}
+
+/// `cloud journey`'s words for one headless create. `keep` leaves the machine running (a person's
+/// move); without it the journey deletes it after the first reply, pass or fail (CI sets
+/// `CMUX_MIGRATE_JOURNEY_DELETE=1`, so its runs leave no machines behind).
+pub(super) fn headless_journey_args(
+    backend: &str,
+    repo: &str,
+    out: &Path,
+    config: &Path,
+    keep: bool,
+    stub: Option<&str>,
+) -> Vec<String> {
+    let mut args: Vec<String> = ["cloud", "journey", "--backend", backend, "--repo", repo, "--out"]
+        .map(str::to_owned)
+        .to_vec();
+    args.push(out.display().to_string());
+    args.push("--machine-config".into());
+    args.push(config.display().to_string());
+    if keep {
+        args.push("--keep".into());
+    }
+    if let Some(stub) = stub {
+        args.extend(["--model-stub".to_owned(), stub.to_owned()]);
+    }
+    args
 }
 
 /// A kept journey's machine and its time to the first reply: every step's time through `reply`.
@@ -829,6 +886,44 @@ impl HomeLocal {
     }
 }
 
+impl HomeLocal {
+    /// Unpushed commits and the working tree of a checkout here, against the commit it shares
+    /// with its upstream (else the remote's default branch), which the machine checks out first.
+    fn local_work_patch(&self, checkout: &str) -> Result<WorkPatch, String> {
+        let dir = self.real(checkout);
+        let line = |args: &[&str]| {
+            self.git(&dir, args).ok().map(|o| o.trim().to_owned()).filter(|o| !o.is_empty())
+        };
+        let upstream = line(&["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"])
+            .or_else(|| line(&["rev-parse", "--abbrev-ref", "origin/HEAD"]));
+        let base = upstream.as_deref().and_then(|up| line(&["merge-base", up, "HEAD"]));
+        let branch = line(&["symbolic-ref", "--short", "-q", "HEAD"]);
+        let commits = match &base {
+            Some(base) => {
+                self.git(&dir, &["format-patch", "--stdout", "--binary", &format!("{base}..HEAD")])?
+            }
+            None => String::new(),
+        };
+        let mut work = self.git(&dir, &["-c", "core.quotepath=off", "diff", "--binary", "HEAD"])?;
+        // Untracked files as new-file diffs written here: git's own route (`add -N`) would touch the real index.
+        let untracked = self.git(&dir, &["ls-files", "--others", "--exclude-standard", "-z"])?;
+        let mut total = 0u64;
+        for path in untracked.split('\0').filter(|p| !p.is_empty()).take(2000) {
+            let Ok(meta) = std::fs::metadata(dir.join(path)) else { continue };
+            if !meta.is_file()
+                || meta.len() > apply::MAX_FILE_BYTES
+                || total + meta.len() > apply::MAX_CARRY_BYTES
+            {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(dir.join(path)) else { continue };
+            total += meta.len();
+            work.push_str(&new_file_diff(path, &text));
+        }
+        Ok(WorkPatch { commits, work, base, branch })
+    }
+}
+
 impl Local for HomeLocal {
     fn read_text(&self, path: &str, max: u64) -> Option<String> {
         let real = self.real(path);
@@ -867,33 +962,23 @@ impl Local for HomeLocal {
         found
     }
 
-    fn work_patch(&self, checkout: &str) -> Result<WorkPatch, String> {
-        let dir = self.real(checkout);
-        let upstream = self.git(&dir, &["rev-parse", "--abbrev-ref", "@{upstream}"]).ok();
-        let commits = match upstream.as_deref().map(str::trim).filter(|u| !u.is_empty()) {
-            Some(upstream) => self.git(
-                &dir,
-                &["format-patch", "--stdout", "--binary", &format!("{upstream}..HEAD")],
-            )?,
-            None => String::new(),
-        };
-        let mut work = self.git(&dir, &["-c", "core.quotepath=off", "diff", "--binary", "HEAD"])?;
-        // Untracked files as new-file diffs written here: git's own route (`add -N`) would touch the real index.
-        let untracked = self.git(&dir, &["ls-files", "--others", "--exclude-standard", "-z"])?;
-        let mut total = 0u64;
-        for path in untracked.split('\0').filter(|p| !p.is_empty()).take(2000) {
-            let Ok(meta) = std::fs::metadata(dir.join(path)) else { continue };
-            if !meta.is_file()
-                || meta.len() > apply::MAX_FILE_BYTES
-                || total + meta.len() > apply::MAX_CARRY_BYTES
-            {
-                continue;
+    /// Read where the checkout is: here for a laptop or a folder, over the source's shell for an
+    /// SSH host or a codespace ([`apply::patch_route`]).
+    fn work_patch(
+        &self,
+        source: &cmux_migrate::Source,
+        project: &str,
+        checkout: &str,
+    ) -> Result<WorkPatch, String> {
+        match apply::patch_route(source, project) {
+            PatchRoute::Local => self.local_work_patch(checkout),
+            PatchRoute::Remote { program, args } => {
+                let args: Vec<&str> = args.iter().map(String::as_str).collect();
+                let out = bounded(&program, &args, Some(&apply::remote_patch_script(checkout)))?;
+                apply::parse_remote_patch(&out)
             }
-            let Ok(text) = std::fs::read_to_string(dir.join(path)) else { continue };
-            total += meta.len();
-            work.push_str(&new_file_diff(path, &text));
+            PatchRoute::Unsupported(why) => Err(why),
         }
-        Ok(WorkPatch { commits, work })
     }
 
     fn now_ms(&self) -> i64 {

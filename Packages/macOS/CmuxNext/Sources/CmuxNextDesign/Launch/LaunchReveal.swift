@@ -45,6 +45,8 @@ public final class LaunchReveal {
     @ObservationIgnored public var firstFrame: FirstFrameGate?
     /// The pending waits of ``whenReady(_:orAfter:_:)``, by timer; each leaves at its region's ready or its fire.
     @ObservationIgnored private var waits: [ObjectIdentifier: DemandTimer] = [:]
+    /// Page views wait for the first window frame (``LaunchPageDeferral``); the app binds its gate.
+    @ObservationIgnored public let pages = LaunchPageDeferral()
 
     /// - Parameter deadline: How long after the first `hold` every region
     ///   shows anyway.

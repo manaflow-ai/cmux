@@ -13,6 +13,10 @@ four packages it does link; the kit tests skipped eight packages the kit links
 (CmuxHomeCore, CmuxDeviceHub, CmuxTheme, ...). `--check` fails when a filter
 misses a package the app links or names a package directory it does not.
 
+The CmuxMobileKit tests are also the `ios-kit` step of ci/steps.toml on a feat-cmux-next pull request; its
+`inputs` are held to the same set (its `ignore` drops notes and cmux-next-ios/verify/ evidence, as the workflow's
+negations do).
+
 Usage:
   scripts/ci/ios_app_package_paths.py           print the `<package>/**` lines
   scripts/ci/ios_app_package_paths.py --check   exit 1 and list each drift
@@ -26,12 +30,20 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import ci_steps  # noqa: E402
 
 # The app's manifests: the XcodeGen project and the kit package.
 APP_MANIFESTS = ("cmux-next-ios/project.yml", "cmux-next-ios/CmuxMobileKit/Package.swift")
 
 # Workflows whose pull_request and push filters must name exactly the app's packages.
 WORKFLOWS = (".github/workflows/ios-review-gate.yml", ".github/workflows/cmux-next-ios-kit.yml")
+# The triggers each workflow filters. The kit workflow keeps only its push: a feat-cmux-next pull request runs
+# the kit as TABLE_STEP (pr-pipeline.yml's ios job).
+WORKFLOW_EVENTS = {".github/workflows/cmux-next-ios-kit.yml": ("push",)}
+# The step table and its step whose `inputs` must name exactly the app's packages.
+TABLE = "ci/steps.toml"
+TABLE_STEP = "ios-kit"
 
 # Directories whose package paths the filters may only name when the app links them.
 PACKAGE_ROOTS = ("Packages/", "vendor/")
@@ -113,20 +125,25 @@ def check(root: Path = ROOT) -> list[str]:
     problems: list[str] = []
     if not pkgs:
         return [f"no local packages found in {', '.join(APP_MANIFESTS)}"]
+    filters: list[tuple[str, list[str] | None]] = []
     for wf in WORKFLOWS:
-        filters = workflow_filters((root / wf).read_text())
-        for event in ("pull_request", "push"):
-            lines = filters.get(event)
-            if lines is None:
-                problems.append(f"{wf}: {event} has no paths filter")
+        found = workflow_filters((root / wf).read_text())
+        for event in WORKFLOW_EVENTS.get(wf, ("pull_request", "push")):
+            filters.append((f"{wf}: {event}", found.get(event)))
+    if (root / TABLE).is_file():
+        step = ci_steps.load(root / TABLE).steps.get(TABLE_STEP)
+        filters.append((f"{TABLE}: step {TABLE_STEP}", list(step.inputs) if step else None))
+    for where, lines in filters:
+        if lines is None:
+            problems.append(f"{where} has no paths filter")
+            continue
+        for pattern in sorted(want - set(lines)):
+            problems.append(f"{where} misses {pattern} (the app links it)")
+        for line in lines:
+            if line.startswith("!") or "/Resources/" in line or not line.startswith(PACKAGE_ROOTS):
                 continue
-            for pattern in sorted(want - set(lines)):
-                problems.append(f"{wf}: {event} misses {pattern} (the app links it)")
-            for line in lines:
-                if line.startswith("!") or "/Resources/" in line or not line.startswith(PACKAGE_ROOTS):
-                    continue
-                if line not in want:
-                    problems.append(f"{wf}: {event} names {line}, which the app does not link")
+            if line not in want:
+                problems.append(f"{where} names {line}, which the app does not link")
     return problems
 
 
