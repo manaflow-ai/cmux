@@ -178,7 +178,8 @@
             ]},
             {"group": "settings.group.workspaceRows"},
             {"title": {"key": "settings.pageGroup.sidebarExtras", "text": "Sidebar Buttons and Spaces"}, "keys": [
-              "sidebar.showSpaces", "sidebar.spacesPosition", "sidebar.spacesVisibility", "sidebar.showProfileControl",
+              "sidebar.showSpaces", "sidebar.spacesPosition", "sidebar.spacesVisibility", "appearance.metrics.spaceButtonSpacing",
+              "sidebar.showProfileControl",
               "sidebar.showSearchButton", "sidebar.showLiveToggle", "presence.live", "sidebar.showNewWorkspaceChooser", "sidebar.cards.tips", "sidebar.nowPlaying.enabled", "sidebar.nowPlaying.otherApps",
               "home.channelsEnabled"
             ]},
@@ -314,8 +315,8 @@
             ]},
             {"title": {"key": "settings.pageGroup.chatLayout", "text": "Chat Layout"}, "keys": [
               "agentPane.display.width", "agentPane.display.fullWidth", "agentPane.zoom", "agentPane.display.minimap",
-              "agentPane.display.vscodeMinimap", "agentPane.display.pinnedPlan", "agentPane.display.trayTucked", "agentPane.display.trayHandle",
-              "agentPane.display.headerBreadcrumb",
+              "agentPane.display.vscodeMinimap", "agentPane.display.chatListStatusPills", "agentPane.display.pinnedPlan", "agentPane.display.trayTucked",
+              "agentPane.display.trayHandle", "agentPane.display.headerBreadcrumb",
               "agentPane.display.unreadBanner",
               "agentPane.display.senderIcon.lead", "agentPane.display.senderIcon.badge", "agentPane.display.senderIcon.corner",
               "agentPane.display.rail.side", "agentPane.display.rail.show", "agentPane.display.rail.control",
@@ -604,7 +605,7 @@
           "title": {"key": "settings.category.experimental", "text": "Experimental"},
           "symbol": "flask",
           "groups": [
-            {"group": "settings.group.labs", "keys": ["appearance.experimentalControls"]},
+            {"group": "settings.group.labs", "keys": ["appearance.experimentalControls", "appearance.glassControls", "appearance.settingsBetaChips"]},
             {"group": "settings.group.experiments", "note": "Taste prototypes, each behind its own switch, all off by default."},
             {"group": "settings.group.appearanceTuning"}
           ]

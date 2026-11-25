@@ -59,4 +59,7 @@ area locks '(.*/)?Cargo\.(toml|lock)$'
 # cargo clippy --fix: the cmux-tui Rust a pull request changes, and on the base what changed since the
 # last successful run (base-autofix-repair.sh, with the crates it can affect: cargo_affected.py).
 area clippy 'cmux-tui/.*\.rs$'
+# The iPhone app's uniffi Swift bindings (scripts/ios-ffi-bindings.sh): the FFI crate, the crates it
+# builds on, their workspace, and the committed copy itself (a merge that kept one side).
+area iosffi 'cmux-next-ios/rust/(Cargo\.(toml|lock)|rust-toolchain\.toml|crates/)|cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/|scripts/ios-ffi-bindings\.sh'
 area jobinputs '\.github/workflows/|scripts/ci/(fast-check-inputs|affected-jobs|job-inputs-always|pr_router)\.json$|scripts/ci/job_inputs\.py$'

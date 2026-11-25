@@ -1227,6 +1227,13 @@ export class SubagentFold {
         agent.cwd = cwd;
         changed = true;
       }
+      // The model the call asked for (Claude's Agent `model`: an alias or a release); none, or
+      // `inherit`, runs on the chat's (SubagentForkChips.tsx).
+      const spawnModel = text(input.model);
+      if (spawnModel && spawnModel !== "inherit" && agent.spawnModel !== spawnModel) {
+        agent.spawnModel = spawnModel;
+        changed = true;
+      }
     }
     for (const part of Array.isArray(update?.content) ? update.content : []) {
       const said = part?.content?.text;
