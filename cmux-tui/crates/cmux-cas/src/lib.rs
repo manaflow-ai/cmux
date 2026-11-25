@@ -16,6 +16,7 @@
 
 pub mod assemble;
 pub mod cdc;
+pub mod dedup;
 pub mod id;
 pub mod manifest;
 pub mod pack;
