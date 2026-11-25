@@ -811,6 +811,10 @@ pub struct SessionMeta {
     /// chat list shows of it without opening the archive. Cleared when the log comes back.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cold: Option<ColdPreview>,
+    /// The chat's Auto mode (`auto_session/record.rs`): whether it is on, whether this machine
+    /// held the chat last, and changes kept aside. Never copied to a fork.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_session: Option<crate::auto_session::record::AutoRecord>,
     /// The subagent of chat `parent_id` this fork holds the conversation of, not the chat's own
     /// (`hub/fork_subagent.rs`). The info view's `forkOf`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
