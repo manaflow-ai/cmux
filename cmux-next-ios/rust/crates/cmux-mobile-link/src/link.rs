@@ -24,6 +24,7 @@ use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tokio_util::codec::{FramedRead, FramedWrite};
 
+use crate::classes::{Delivery, Sequencer};
 use crate::frame::{Frame, FrameCodec, FrameType};
 
 /// Events queued per channel before the link reader waits for the owner.
@@ -56,6 +57,41 @@ const CHANNEL_STALL: Duration = Duration::from_secs(3);
 /// (20,000 deltas after an outage is about 20 MB), so a channel read slowly
 /// never holds the others; still a bound on what one channel can hold.
 const CHANNEL_BUFFER_BYTES: usize = 64 * 1024 * 1024;
+
+/// The service a phone opens to park the link before the OS suspends it
+/// (PROTOCOL.md "Parked link"). A side that knows it answers `close` with
+/// [`PARKED`]; an older one answers `unknown_service`.
+pub const PARK_SERVICE: &str = "_link.park";
+/// The `close` code that accepts a park.
+pub const PARKED: &str = "parked";
+/// Park argument advertising lossless, independently deflated data frames.
+const PARK_ENCODING: &str = "deflate-v1";
+/// The longest hold a side grants; a longer ask is cut to this.
+pub const MAX_PARK_HOLD: Duration = Duration::from_secs(10 * 60);
+/// The tunnel holds its connections this much past the park, so the link's
+/// own expiry (a clean close) comes first.
+const PARK_TRANSPORT_MARGIN: Duration = Duration::from_secs(30);
+
+/// Applies a park to the transport under the link: `Some(hold)` holds the
+/// tunnel's connections for a silent peer (`cmux_wg::WgNet::hold`), `None`
+/// releases them. Calls arrive in order, one at a time.
+pub type HoldHook =
+    Arc<dyn Fn(Option<Duration>) -> futures_util::future::BoxFuture<'static, ()> + Send + Sync>;
+
+/// Whether the link is parked (PROTOCOL.md "Parked link").
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Park {
+    Off,
+    /// Neither side expects the other until `until`: no keepalive, and the
+    /// Mac sends only control frames. Past `until` the link closes.
+    Parked {
+        until: Instant,
+        deflate: bool,
+    },
+    /// The phone is back ([`Link::resume`]); the first frame from the Mac
+    /// ends the park on this side.
+    Resuming,
+}
 
 /// Which end of the link this is: the phone opens odd channel ids, the Mac
 /// even ones. Channel 0 carries pings.
@@ -210,6 +246,9 @@ pub struct LivenessDatagrams {
     /// binding): this side's pings go as datagrams at once. Otherwise they
     /// stay in the stream until the first datagram from the peer arrives.
     pub peer_listening: bool,
+    /// The peer listed [`crate::classes::CLASSES_LANE`]: input and state
+    /// channels send their messages as datagrams too (`crate::classes`).
+    pub classes: bool,
 }
 
 fn liveness_datagram(kind: u8, nonce: u64, attempt: u8) -> Vec<u8> {
@@ -286,6 +325,11 @@ pub struct OpenRequest {
     /// Absent (bulk) on the wire unless `input`; older peers ignore it.
     #[serde(default, skip_serializing_if = "Lane::is_bulk")]
     pub lane: Lane,
+    /// The channel's messages also travel as datagrams, delivered this way
+    /// (`crate::classes`). Only sent to a peer that listed
+    /// [`crate::classes::CLASSES_LANE`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivery: Option<Delivery>,
 }
 
 /// `close` payload.
@@ -387,12 +431,12 @@ impl Outbox {
         match class {
             Class::Control => queues.control.push_back(frame),
             Class::Input => {
-                *queues.bytes.entry(frame.channel).or_default() += frame.payload.len();
+                *queues.bytes.entry(frame.channel).or_default() += frame.queue_bytes();
                 queues.input.push_back(frame);
             }
             Class::Bulk => {
                 let channel = frame.channel;
-                *queues.bytes.entry(channel).or_default() += frame.payload.len();
+                *queues.bytes.entry(channel).or_default() += frame.queue_bytes();
                 let queue = queues.bulk.entry(channel).or_default();
                 if queue.is_empty() {
                     queues.turns.push_back(channel);
@@ -433,7 +477,7 @@ impl Outbox {
                     return Pushed::ChannelClosed;
                 }
                 let used = queues.bytes.get(&frame.channel).copied().unwrap_or(0);
-                if used == 0 || used + frame.payload.len() <= CHANNEL_QUEUE_BYTES {
+                if used == 0 || used + frame.queue_bytes() <= CHANNEL_QUEUE_BYTES {
                     Self::enqueue(&mut queues, class, frame);
                     drop(queues);
                     self.ready.notify_one();
@@ -444,11 +488,15 @@ impl Outbox {
         }
     }
 
-    /// The next frame by priority, without waiting.
-    fn pop(&self) -> Option<Next> {
+    /// The next frame by priority, without waiting. `held`: only control
+    /// frames go (a parked Mac's writer; channel data waits in its queue).
+    fn pop(&self, held: bool) -> Option<Next> {
         let mut queues = self.lock();
         if let Some(frame) = queues.control.pop_front() {
             return Some(Next::Frame(frame));
+        }
+        if held && !queues.shutdown {
+            return None;
         }
         let frame = if let Some(frame) = queues.input.pop_front() {
             frame
@@ -467,7 +515,7 @@ impl Outbox {
             return None;
         };
         if let Some(used) = queues.bytes.get_mut(&frame.channel) {
-            *used = used.saturating_sub(frame.payload.len());
+            *used = used.saturating_sub(frame.queue_bytes());
             if *used == 0 {
                 queues.bytes.remove(&frame.channel);
             }
@@ -477,12 +525,12 @@ impl Outbox {
         Some(Next::Frame(frame))
     }
 
-    async fn next(&self) -> Next {
+    async fn next(&self, held: &AtomicBool) -> Next {
         loop {
             let ready = self.ready.notified();
             tokio::pin!(ready);
             ready.as_mut().enable();
-            if let Some(next) = self.pop() {
+            if let Some(next) = self.pop(held.load(Ordering::Acquire)) {
                 return next;
             }
             ready.await;
@@ -503,6 +551,16 @@ struct Route {
     /// The channel's sender's closed flag: the peer's close sets it, so a send
     /// in progress stops instead of streaming into a channel the peer dropped.
     closed: Arc<AtomicBool>,
+    /// Puts numbered messages (stream chunks and datagrams) back in order
+    /// for a channel opened with a [`Delivery`].
+    sequencer: Option<Arc<tokio::sync::Mutex<Sequencer>>>,
+}
+
+impl Route {
+    fn new(inbox: Inbox, closed: &Arc<AtomicBool>, delivery: Option<Delivery>) -> Self {
+        let sequencer = delivery.map(|delivery| Arc::new(tokio::sync::Mutex::new(Sequencer::new(delivery))));
+        Self { inbox, closed: Arc::clone(closed), sequencer }
+    }
 }
 
 /// A channel's inbound events on their way to its owner. The link reader
@@ -661,6 +719,10 @@ struct Inner {
     datagrams: Mutex<Option<mpsc::Sender<Vec<u8>>>>,
     /// This side's pings go as datagrams: the peer is listening.
     datagram_pings: AtomicBool,
+    /// The peer takes class datagrams (`crate::classes`).
+    classes: AtomicBool,
+    /// Messages delivered from a class datagram ahead of their stream copy.
+    datagram_wins: AtomicU64,
     /// The phone app is in the foreground with a surface on screen
     /// ([`Link::set_foreground_probe`]).
     foreground: watch::Sender<bool>,
@@ -679,6 +741,17 @@ struct Inner {
     transport: Mutex<Option<Box<dyn Any + Send>>>,
     /// The media lane, when the dial negotiated one.
     media: Mutex<Option<crate::media::MediaLane>>,
+    park: watch::Sender<Park>,
+    /// A parked Mac sends only control frames (the writers read this).
+    writes_held: AtomicBool,
+    /// The next explicit probe must wake the Mac on the ordered stream.
+    resume_probe: AtomicBool,
+    /// What the transport should hold ([`HoldHook`]); one task applies it.
+    transport_hold: watch::Sender<Option<Duration>>,
+    /// Tests: while `true`, a keepalive beat's pinger waits here before it
+    /// pings, as a pinger the scheduler runs late does.
+    #[cfg(test)]
+    pinger_gate: watch::Sender<bool>,
 }
 
 impl Inner {
@@ -707,6 +780,23 @@ impl Inner {
         self.push(MAIN, Class::Control, frame)
     }
 
+    /// Run `send` (queue a keepalive ping, as a datagram or in the stream)
+    /// unless the link is parked: `Ok(false)` when parked. The check and
+    /// the send hold the park's lock, as [`Self::set_parked`] does, so a
+    /// beat that fired before a park either queues its ping ahead of the
+    /// park's open or sends nothing; a ping after the park would end the
+    /// Mac's park while the phone sleeps.
+    fn send_keepalive(&self, send: impl FnOnce() -> Result<(), LinkError>) -> Result<bool, LinkError> {
+        let mut sent = Ok(false);
+        self.park.send_if_modified(|park| {
+            if !matches!(park, Park::Parked { .. }) {
+                sent = send().map(|()| true);
+            }
+            false
+        });
+        sent
+    }
+
     /// Send one liveness datagram; `false` when there is no datagram lane
     /// or its queue is full.
     fn send_datagram(&self, kind: u8, nonce: u64, attempt: u8) -> bool {
@@ -716,6 +806,23 @@ impl Inner {
 
     fn datagram_pings(&self) -> bool {
         self.datagram_pings.load(Ordering::Relaxed)
+    }
+
+    fn classes(&self) -> bool {
+        self.classes.load(Ordering::Relaxed)
+            && self.datagrams.lock().unwrap_or_else(PoisonError::into_inner).is_some()
+    }
+
+    /// Queue class datagrams to the peer, best effort: a full queue drops them.
+    fn send_class_datagrams(&self, datagrams: Vec<Vec<u8>>) {
+        let Some(sender) = self.datagrams.lock().unwrap_or_else(PoisonError::into_inner).clone() else {
+            return;
+        };
+        for _ in 0..crate::classes::COPIES {
+            for datagram in &datagrams {
+                let _ = sender.try_send(datagram.clone());
+            }
+        }
     }
 
     /// A pong to `nonce` arrived (in the stream or as a datagram).
@@ -794,6 +901,43 @@ impl Inner {
 
     fn last_received(&self) -> Instant {
         *self.last_rx.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Park for `hold`: no keepalive on either side, the transport held, and
+    /// on the Mac only control frames written, until the peer is heard again
+    /// or `hold` passes (then the link closes).
+    fn set_parked(&self, hold: Duration, deflate: bool) {
+        let hold = hold.min(MAX_PARK_HOLD);
+        if self.role == Role::Mac {
+            self.writes_held.store(true, Ordering::Release);
+        }
+        self.park.send_replace(Park::Parked { until: Instant::now() + hold, deflate });
+        self.transport_hold.send_replace(Some(hold + PARK_TRANSPORT_MARGIN));
+        tracing::debug!(role = ?self.role, ?hold, "link parked");
+    }
+
+    /// End a park: the keepalive, the transport's own timeouts and every
+    /// queued write resume. Called only once the peer was heard (a frame
+    /// just arrived), so the transport's restored timeouts start fresh.
+    fn unpark(&self) {
+        let was = self.park.send_replace(Park::Off);
+        if was == Park::Off {
+            return;
+        }
+        self.writes_held.store(false, Ordering::Release);
+        for outbox in &self.outboxes {
+            outbox.ready.notify_one();
+        }
+        self.transport_hold.send_replace(None);
+        tracing::debug!(role = ?self.role, "link unparked");
+    }
+
+    /// The park's deadline, while parked.
+    fn parked_until(&self) -> Option<Instant> {
+        match *self.park.borrow() {
+            Park::Parked { until, .. } => Some(until),
+            Park::Off | Park::Resuming => None,
+        }
     }
 
     /// Mark the link closed (once) and tell every channel.
@@ -881,6 +1025,8 @@ impl Link {
             pings: Mutex::new(HashMap::new()),
             datagrams: Mutex::new(None),
             datagram_pings: AtomicBool::new(false),
+            classes: AtomicBool::new(false),
+            datagram_wins: AtomicU64::new(0),
             foreground: watch::channel(config.foreground_probe).0,
             rtt: watch::channel(None).0,
             srtt: Mutex::new(None),
@@ -891,6 +1037,12 @@ impl Link {
             tasks: Mutex::new(Vec::new()),
             transport: Mutex::new(transport),
             media: Mutex::new(None),
+            park: watch::channel(Park::Off).0,
+            writes_held: AtomicBool::new(false),
+            resume_probe: AtomicBool::new(false),
+            transport_hold: watch::channel(None).0,
+            #[cfg(test)]
+            pinger_gate: watch::channel(false).0,
         });
         let (read_half, write_half) = tokio::io::split(stream);
         let writer =
@@ -922,8 +1074,12 @@ impl Link {
                         () = tokio::time::sleep(interval) => {}
                         _ = closed.wait_for(Option::is_some) => return,
                     }
+                    if !wait_out_park(&link).await {
+                        return;
+                    }
                     let sent = Instant::now();
-                    let ping = link.ping();
+                    // Not sent if a park came since the check above.
+                    let ping = link.round_trip(true);
                     tokio::pin!(ping);
                     loop {
                         // Wait for the pong, but count any inbound frame as
@@ -937,6 +1093,10 @@ impl Link {
                                 break;
                             }
                             () = tokio::time::sleep_until(deadline) => {
+                                // Parked since the ping: its pong may never come.
+                                if link.inner.parked_until().is_some() {
+                                    break;
+                                }
                                 let quiet_since = link.inner.last_received().max(sent);
                                 if quiet_since + config.keepalive_timeout <= Instant::now() {
                                     link.inner.shut("keepalive timed out");
@@ -962,7 +1122,7 @@ impl Link {
     /// peer is listening, else on the first datagram it sends; in-stream
     /// pings are still answered. A second attach is ignored.
     pub fn attach_liveness_datagrams(&self, lane: LivenessDatagrams) {
-        let LivenessDatagrams { outgoing, incoming, peer_listening } = lane;
+        let LivenessDatagrams { outgoing, incoming, peer_listening, classes } = lane;
         {
             let mut datagrams = self.inner.datagrams.lock().unwrap_or_else(PoisonError::into_inner);
             if self.is_closed() || datagrams.is_some() {
@@ -973,9 +1133,22 @@ impl Link {
         if peer_listening {
             self.inner.datagram_pings.store(true, Ordering::Relaxed);
         }
+        self.inner.classes.store(classes, Ordering::Relaxed);
         let reader = tokio::spawn(read_datagrams(Arc::clone(&self.inner), incoming));
         self.inner.tasks.lock().unwrap_or_else(PoisonError::into_inner).push(reader);
-        tracing::debug!(role = ?self.inner.role, peer_listening, "liveness datagrams attached");
+        tracing::debug!(role = ?self.inner.role, peer_listening, classes, "liveness datagrams attached");
+    }
+
+    /// Whether input and state channels send their messages as datagrams
+    /// too (the peer listed [`crate::classes::CLASSES_LANE`]).
+    pub fn class_datagrams(&self) -> bool {
+        self.inner.classes()
+    }
+
+    /// Messages this side took from a class datagram ahead of their stream
+    /// copy, since the link opened.
+    pub fn datagram_wins(&self) -> u64 {
+        self.inner.datagram_wins.load(Ordering::Relaxed)
     }
 
     /// The phone app is in the foreground with a terminal or chat on
@@ -1109,12 +1282,37 @@ impl Link {
     /// when the link has one (waiting up to 2 s for a lane that is still
     /// opening), else the main stream ahead of bulk data. The `open` frame
     /// carries the lane, so the peer schedules its replies the same way.
+    ///
+    /// When the peer takes class datagrams, an input-lane channel's messages
+    /// also travel as datagrams, delivered in order ([`Delivery::Ordered`]).
     pub async fn open_on(
         &self,
         service: &str,
         args: serde_json::Value,
         lane: Lane,
     ) -> Result<Channel, LinkError> {
+        let delivery = (lane == Lane::Input).then_some(Delivery::Ordered);
+        self.open_with(service, args, lane, delivery).await
+    }
+
+    /// Open a channel for terminal screen state: each message is a whole
+    /// state, and when the peer takes class datagrams they also travel as
+    /// datagrams and only the newest reaches the reader
+    /// ([`Delivery::Latest`]). Otherwise a main-stream channel.
+    pub async fn open_latest(&self, service: &str, args: serde_json::Value) -> Result<Channel, LinkError> {
+        self.open_with(service, args, Lane::Bulk, Some(Delivery::Latest)).await
+    }
+
+    /// [`Link::open_on`] with its messages also sent as datagrams and
+    /// delivered as `delivery` says, when the peer takes class datagrams.
+    pub async fn open_with(
+        &self,
+        service: &str,
+        args: serde_json::Value,
+        lane: Lane,
+        delivery: Option<Delivery>,
+    ) -> Result<Channel, LinkError> {
+        let delivery = delivery.filter(|_| self.inner.classes());
         let stream = match lane {
             Lane::Bulk => MAIN,
             Lane::Input => {
@@ -1133,14 +1331,14 @@ impl Link {
         let (tx, rx) = mpsc::channel(CHANNEL_DEPTH);
         let closed = Arc::new(AtomicBool::new(false));
         let inbox = Inbox::new(tx, &self.inner, stream, id);
-        self.inner.lock_channels().insert(id, Route { inbox, closed: Arc::clone(&closed) });
-        let payload = serde_json::to_vec(&OpenRequest { service: service.to_owned(), args, lane })
+        self.inner.lock_channels().insert(id, Route::new(inbox, &closed, delivery));
+        let payload = serde_json::to_vec(&OpenRequest { service: service.to_owned(), args, lane, delivery })
             .expect("open request serializes");
         if let Err(error) = self.inner.push(stream, class, Frame::new(id, FrameType::Open, payload)) {
             self.inner.lock_channels().remove(&id);
             return Err(error);
         }
-        Ok(Channel::new(id, stream, class, Arc::clone(&self.inner), rx, closed))
+        Ok(Channel::new(id, stream, class, Arc::clone(&self.inner), rx, closed, delivery))
     }
 
     /// The next channel the peer opened, or `None` once the link is closed.
@@ -1150,6 +1348,13 @@ impl Link {
 
     /// Round-trip one ping.
     pub async fn ping(&self) -> Result<Duration, LinkError> {
+        // Not a keepalive: always sent, so always a round trip.
+        self.round_trip(false).await.map(Option::unwrap_or_default)
+    }
+
+    /// Round-trip one ping; a `keepalive` ping is not sent while parked
+    /// (`Ok(None)`).
+    async fn round_trip(&self, keepalive: bool) -> Result<Option<Duration>, LinkError> {
         let nonce = self.inner.next_nonce.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
         self.inner.pings.lock().unwrap_or_else(PoisonError::into_inner).insert(nonce, tx);
@@ -1164,14 +1369,29 @@ impl Link {
         let started = Instant::now();
         // As a datagram when the peer listens (out ahead of the stream's
         // queued bytes), else, or when its queue is full, in the stream.
-        let datagram = self.inner.datagram_pings() && {
-            if self.inner.closed_reason().is_some() {
-                return Err(self.inner.closed_error());
+        // A keepalive ping is not sent at all while parked.
+        let mut datagram = false;
+        let mut first = || {
+            // An ordinary datagram can arrive after a later park. Only the
+            // ordered stream proves this wake follows the request to park.
+            let wake = !keepalive && self.inner.resume_probe.swap(false, Ordering::AcqRel);
+            datagram = !wake && self.inner.datagram_pings() && {
+                if self.inner.closed_reason().is_some() {
+                    return Err(self.inner.closed_error());
+                }
+                self.inner.send_datagram(DATAGRAM_PING, nonce, 0)
+            };
+            if !datagram {
+                self.inner.send_control(Frame::new(0, FrameType::Ping, nonce.to_be_bytes().to_vec()))?;
             }
-            self.inner.send_datagram(DATAGRAM_PING, nonce, 0)
+            Ok(())
         };
-        if !datagram {
-            self.inner.send_control(Frame::new(0, FrameType::Ping, nonce.to_be_bytes().to_vec()))?;
+        if keepalive {
+            if !self.inner.send_keepalive(first)? {
+                return Ok(None);
+            }
+        } else {
+            first()?;
         }
         self.inner.sent_ping();
         self.inner.ping_stats.lock().unwrap_or_else(PoisonError::into_inner).sent += 1;
@@ -1192,6 +1412,14 @@ impl Link {
                 () = tokio::time::sleep(DATAGRAM_PING_RESEND),
                     if has_lane && (tries < DATAGRAM_PING_ATTEMPTS || !in_stream) =>
                 {
+                    // Parked since the first send: no resend wakes the Mac.
+                    let park = self.inner.park.borrow();
+                    if matches!(*park, Park::Parked { .. }) {
+                        if keepalive {
+                            return Ok(None);
+                        }
+                        continue;
+                    }
                     if tries < DATAGRAM_PING_ATTEMPTS {
                         // A stream ping sent before the peer was heard on
                         // datagrams gets its tries once it is: behind a
@@ -1226,7 +1454,7 @@ impl Link {
         let mut srtt = self.inner.srtt.lock().unwrap_or_else(PoisonError::into_inner);
         // RFC 6298's gain: one slow pong moves it an eighth of the way.
         *srtt = Some(srtt.map_or(rtt, |srtt| (srtt * 7 + rtt) / 8));
-        Ok(rtt)
+        Ok(Some(rtt))
     }
 
     /// How long a probe of this link may wait for its pong: `floor`, or
@@ -1344,6 +1572,79 @@ impl Link {
     pub fn close(&self, reason: &str) {
         self.inner.shut(reason);
     }
+
+    /// Phone, before the OS suspends the app: ask the Mac to hold this link
+    /// for up to `hold` (at most [`MAX_PARK_HOLD`]) while the phone is
+    /// silent, waiting at most `timeout` for the answer. On `Ok(true)` both
+    /// sides are parked: no keepalives, the transport held, and the Mac
+    /// writes only control frames until [`Link::resume`] and a ping. `Ok(false)`:
+    /// the Mac predates parking or did not answer in time; nothing changed,
+    /// and the link closes on silence as before.
+    pub async fn park(&self, hold: Duration, timeout: Duration) -> Result<bool, LinkError> {
+        let hold = hold.min(MAX_PARK_HOLD);
+        let millis = u64::try_from(hold.as_millis()).unwrap_or(u64::MAX);
+        // Parked before the ask: this side's keepalive must not ping in the
+        // round trip, since a ping ends the Mac's park as soon as it starts.
+        self.inner.set_parked(hold, false);
+        let parked = match self
+            .open(PARK_SERVICE, serde_json::json!({ "hold_ms": millis, "encoding": PARK_ENCODING }))
+            .await
+        {
+            Ok(mut channel) => Ok(matches!(
+                tokio::time::timeout(timeout, channel.recv()).await,
+                Ok(Some(ChannelEvent::Closed(info))) if info.code == PARKED
+            )),
+            Err(error) => Err(error),
+        };
+        if parked != Ok(true) {
+            // Not held over there: back to the keepalive. The transport keeps
+            // its long timeout through the release grace.
+            self.inner.unpark();
+        }
+        parked
+    }
+
+    /// Phone, back from the background: this side expects the Mac again.
+    /// The keepalive restarts from now, and the park ends here at the first
+    /// frame from the Mac; send a ping (a probe) so the Mac ends its own.
+    /// `false` when the link was not parked (or its park already expired).
+    pub fn resume(&self) -> bool {
+        if self.inner.parked_until().is_none_or(|until| until <= Instant::now()) {
+            return false;
+        }
+        self.inner.received();
+        self.inner.resume_probe.store(true, Ordering::Release);
+        self.inner.park.send_replace(Park::Resuming);
+        true
+    }
+
+    /// Whether the link is parked (resuming counts as parked until the peer
+    /// is heard).
+    pub fn is_parked(&self) -> bool {
+        *self.inner.park.borrow() != Park::Off
+    }
+
+    /// Run `hook` whenever the park changes what the transport should hold,
+    /// in order, one call at a time (the WireGuard dialer's `WgNet::hold`).
+    pub fn set_hold_hook(&self, hook: HoldHook) {
+        let mut hold = self.inner.transport_hold.subscribe();
+        let mut closed = self.inner.closed.subscribe();
+        let task = tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    changed = hold.changed() => {
+                        if changed.is_err() {
+                            return;
+                        }
+                    }
+                    _ = closed.wait_for(Option::is_some) => return,
+                }
+                let wanted = *hold.borrow_and_update();
+                hook(wanted).await;
+            }
+        });
+        self.inner.tasks.lock().unwrap_or_else(PoisonError::into_inner).push(task);
+    }
 }
 
 async fn write_loop<W>(inner: Arc<Inner>, stream: usize, mut sink: FramedWrite<W, FrameCodec>)
@@ -1354,7 +1655,7 @@ where
     loop {
         // Highest priority first; feed what is queued, flushing every
         // FLUSH_BYTES so the transport sees frames in priority order.
-        let frame = match outbox.next().await {
+        let frame = match outbox.next(&inner.writes_held).await {
             Next::Frame(frame) => frame,
             Next::Shutdown => {
                 let _ = sink.close().await;
@@ -1366,12 +1667,15 @@ where
         // Frames whose sender asked when they reach the transport (send_marked).
         let mut marks: Vec<crate::frame::FlushMark> = Vec::new();
         marks.extend(frame.flushed.take());
+        let mut pong = frame.kind == FrameType::Pong;
         let mut traffic = !matches!(frame.kind, FrameType::Ping | FrameType::Pong);
         let mut result = sink.feed(frame).await;
-        while result.is_ok() && pending < FLUSH_BYTES {
-            match outbox.pop() {
+        // Hand a pong to the transport before feeding more queued output.
+        while result.is_ok() && !pong && pending < FLUSH_BYTES {
+            match outbox.pop(inner.writes_held.load(Ordering::Acquire)) {
                 Some(Next::Frame(mut frame)) => {
                     pending += frame.payload.len();
+                    pong = frame.kind == FrameType::Pong;
                     marks.extend(frame.flushed.take());
                     traffic |= !matches!(frame.kind, FrameType::Ping | FrameType::Pong);
                     result = sink.feed(frame).await;
@@ -1422,11 +1726,19 @@ async fn watch_liveness(link: Link, after: Duration) {
     let probe = |link: &Link| {
         let pinger = link.clone();
         tokio::spawn(async move {
-            let _ = tokio::time::timeout(after, pinger.ping()).await;
+            let _ = tokio::time::timeout(after, pinger.round_trip(true)).await;
         });
     };
     let mut last_probe: Option<Instant> = None;
     loop {
+        // The Mac's park reply is deliberately the last unanswered frame.
+        // Silence only indicates a dead path while we expect the peer to answer.
+        if inner.parked_until().is_some() {
+            if !wait_out_park(&link).await {
+                return;
+            }
+            last_probe = None;
+        }
         let now = Instant::now();
         let unanswered = inner.unanswered();
         let next = if inner.suspect_flag.load(Ordering::Relaxed) {
@@ -1487,6 +1799,12 @@ async fn foreground_probe(link: Link) {
                 changed = on.changed() => if changed.is_err() { return },
             }
         }
+        if inner.parked_until().is_some() {
+            if !wait_out_park(&link).await {
+                return;
+            }
+            continue;
+        }
         // The last probe (when, its nonce) and whether it was resent.
         let mut last: Option<(Instant, u64)> = None;
         let mut resent = false;
@@ -1499,7 +1817,7 @@ async fn foreground_probe(link: Link) {
                 let wait = srtt.map_or(DATAGRAM_PING_RESEND, |srtt| srtt * FOREGROUND_RESEND_RTTS);
                 at + wait.clamp(DATAGRAM_PING_RESEND, FOREGROUND_RESEND_CAP)
             });
-            tokio::select! {
+            let retry = tokio::select! {
                 _ = closed.wait_for(Option::is_some) => return,
                 changed = on.changed() => {
                     if changed.is_err() {
@@ -1510,17 +1828,23 @@ async fn foreground_probe(link: Link) {
                     }
                     continue;
                 }
-                () = tokio::time::sleep_until(resend_at.unwrap_or(tick)), if resend_at.is_some() => {
-                    resent = true;
-                    if let Some((at, nonce)) = last
-                        && inner.last_received() < at
-                        && !inner.suspect_flag.load(Ordering::Relaxed)
-                    {
-                        inner.send_datagram(DATAGRAM_PING, nonce, 1);
-                    }
-                    continue;
+                () = tokio::time::sleep_until(resend_at.unwrap_or(tick)), if resend_at.is_some() => true,
+                () = tokio::time::sleep_until(tick) => false,
+            };
+            // Serialize each send with set_parked, including a retry already due.
+            let park = inner.park.borrow();
+            if matches!(*park, Park::Parked { .. }) {
+                break;
+            }
+            if retry {
+                resent = true;
+                if let Some((at, nonce)) = last
+                    && inner.last_received() < at
+                    && !inner.suspect_flag.load(Ordering::Relaxed)
+                {
+                    inner.send_datagram(DATAGRAM_PING, nonce, 1);
                 }
-                () = tokio::time::sleep_until(tick) => {}
+                continue;
             }
             let now = Instant::now();
             tick = (tick + FOREGROUND_PROBE).max(now);
@@ -1556,6 +1880,32 @@ async fn foreground_probe(link: Link) {
     }
 }
 
+/// While the link is parked, wait for the park to end. `false` when the link
+/// ended instead: it closed, or the park expired and it is closed here.
+async fn wait_out_park(link: &Link) -> bool {
+    let mut park = link.inner.park.subscribe();
+    let mut closed = link.inner.closed.subscribe();
+    loop {
+        let Some(until) = link.inner.parked_until() else {
+            return !link.is_closed();
+        };
+        tokio::select! {
+            _ = closed.wait_for(Option::is_some) => return false,
+            changed = park.changed() => {
+                if changed.is_err() {
+                    return false;
+                }
+            }
+            () = tokio::time::sleep_until(until) => {
+                if link.inner.parked_until().is_some_and(|until| until <= Instant::now()) {
+                    link.inner.shut("park expired");
+                    return false;
+                }
+            }
+        }
+    }
+}
+
 /// The keepalive with Align Keepalives on: a ping on every beat of
 /// `interval` ([`crate::keepalive::next_beat`]), whether or not the last one
 /// was answered, so the link's datagrams keep the beat even while a pong is
@@ -1568,6 +1918,13 @@ async fn aligned_keepalive(link: Link, interval: Duration, timeout: Duration) {
     let mut unanswered: Option<Instant> = None;
     let mut beat = crate::keepalive::next_beat(Instant::now(), interval);
     loop {
+        if link.inner.parked_until().is_some() {
+            if !wait_out_park(&link).await {
+                return;
+            }
+            unanswered = None;
+            beat = crate::keepalive::next_beat(Instant::now(), interval);
+        }
         if unanswered.is_some_and(|sent| link.inner.last_received() >= sent) {
             unanswered = None;
         }
@@ -1575,17 +1932,25 @@ async fn aligned_keepalive(link: Link, interval: Duration, timeout: Duration) {
         tokio::select! {
             _ = closed.wait_for(Option::is_some) => return,
             () = tokio::time::sleep_until(beat) => {
+                if link.inner.parked_until().is_some() {
+                    continue;
+                }
                 // The pinger waits one beat for its pong (the RTT it reports);
-                // any frame, the pong too, counts as the answer above.
+                // any frame, the pong too, counts as the answer above. It runs
+                // later than this check, maybe after a park: it sends nothing
+                // then.
                 let pinger = link.clone();
                 tokio::spawn(async move {
-                    let _ = tokio::time::timeout(interval, pinger.ping()).await;
+                    #[cfg(test)]
+                    let _ = pinger.inner.pinger_gate.subscribe().wait_for(|held| !*held).await;
+                    let _ = tokio::time::timeout(interval, pinger.round_trip(true)).await;
                 });
                 unanswered.get_or_insert(beat);
                 beat = crate::keepalive::next_beat(beat, interval);
             }
             () = tokio::time::sleep_until(deadline.unwrap_or(beat)), if deadline.is_some() => {
                 if let Some(sent) = unanswered
+                    && link.inner.parked_until().is_none()
                     && link.inner.last_received() < sent
                     && sent + timeout <= Instant::now()
                 {
@@ -1602,6 +1967,27 @@ async fn aligned_keepalive(link: Link, interval: Duration, timeout: Duration) {
 /// first one says the peer listens, so this side's pings switch over.
 async fn read_datagrams(inner: Arc<Inner>, mut incoming: mpsc::Receiver<Vec<u8>>) {
     while let Some(datagram) = incoming.recv().await {
+        if let Some(fragment) = crate::classes::parse_datagram(&datagram) {
+            if inner.closed_reason().is_some() {
+                return;
+            }
+            inner.received();
+            inner.received_traffic();
+            let channel = fragment.channel;
+            let route = inner
+                .lock_channels()
+                .get(&channel)
+                .and_then(|route| route.sequencer.clone().map(|sequencer| (route.inbox.clone(), sequencer)));
+            let Some((inbox, sequencer)) = route else { continue };
+            let mut sequencer = sequencer.lock().await;
+            let delivered = sequencer.fragment(fragment);
+            if !delivered.is_empty() {
+                inner.datagram_wins.fetch_add(1, Ordering::Relaxed);
+                // Errors (an overflow close) go on the main stream.
+                deliver(&inner, MAIN, channel, &inbox, delivered).await;
+            }
+            continue;
+        }
         let Some((kind, nonce, attempt)) = parse_liveness_datagram(&datagram) else { continue };
         if inner.closed_reason().is_some() {
             return;
@@ -1637,6 +2023,18 @@ async fn read_loop<R>(
         if !matches!(frame.kind, FrameType::Ping | FrameType::Pong) {
             inner.received_traffic();
         }
+        // A park ends when the peer is back: on the Mac its first ping or
+        // app request (channel data here, a new channel below: a phone running
+        // a notification action in the background is awake and waits for the
+        // answer), on a resuming phone the first frame from the Mac.
+        let park = *inner.park.borrow();
+        match (park, inner.role) {
+            (Park::Parked { .. }, Role::Mac) if frame.kind == FrameType::Data => {
+                inner.unpark();
+            }
+            (Park::Resuming, _) => inner.unpark(),
+            (Park::Parked { .. } | Park::Off, _) => {}
+        }
         if stream == INPUT {
             // The peer is heard on the lane: use it.
             inner.lane.send_if_modified(|state| {
@@ -1650,6 +2048,10 @@ async fn read_loop<R>(
         match frame.kind {
             FrameType::Ping => {
                 let _ = inner.push(stream, Class::Control, Frame::new(0, FrameType::Pong, frame.payload));
+                if inner.role == Role::Mac && matches!(park, Park::Parked { .. }) {
+                    // Queue the answer before waking either backlog writer.
+                    inner.unpark();
+                }
             }
             FrameType::Pong => {
                 if let Ok(bytes) = <[u8; 8]>::try_from(&frame.payload[..]) {
@@ -1672,14 +2074,37 @@ async fn read_loop<R>(
                     refuse(&inner, stream, frame.channel, "bad_request", "open payload is not JSON");
                     continue;
                 };
+                // The peer is about to be suspended: hold the link for it.
+                // The answer is a control frame, so it goes out while parked.
+                if request.service == PARK_SERVICE {
+                    match request.args.get("hold_ms").and_then(serde_json::Value::as_u64) {
+                        Some(millis) if millis > 0 => {
+                            let deflate = request.args.get("encoding").and_then(serde_json::Value::as_str)
+                                == Some(PARK_ENCODING);
+                            inner.set_parked(Duration::from_millis(millis), deflate);
+                            refuse(&inner, stream, frame.channel, PARKED, "");
+                        }
+                        _ => refuse(&inner, stream, frame.channel, "bad_request", "hold_ms must be positive"),
+                    }
+                    continue;
+                }
+                // Any other new channel is an app request: the phone is awake.
+                if inner.role == Role::Mac {
+                    inner.unpark();
+                }
                 // Replies go back on the stream the open came on, at the
                 // priority of the lane the peer asked for.
                 let class = Class::from(request.lane);
                 let (tx, rx) = mpsc::channel(CHANNEL_DEPTH);
                 let closed = Arc::new(AtomicBool::new(false));
                 let inbox = Inbox::new(tx, &inner, stream, frame.channel);
-                inner.lock_channels().insert(frame.channel, Route { inbox, closed: Arc::clone(&closed) });
-                let channel = Channel::new(frame.channel, stream, class, Arc::clone(&inner), rx, closed);
+                // Replies are sent as datagrams too only when this side
+                // also has the peer's word that it takes them.
+                let delivery = request.delivery;
+                inner.lock_channels().insert(frame.channel, Route::new(inbox, &closed, delivery));
+                let mirror = delivery.filter(|_| inner.classes());
+                let channel =
+                    Channel::new(frame.channel, stream, class, Arc::clone(&inner), rx, closed, mirror);
                 let accepted = IncomingChannel {
                     service: request.service,
                     args: request.args,
@@ -1690,24 +2115,54 @@ async fn read_loop<R>(
                     // Nobody accepts; the channel's drop refuses it.
                 }
             }
-            FrameType::Data => {
-                let inbox = inner.lock_channels().get(&frame.channel).map(|route| route.inbox.clone());
+            FrameType::Data | FrameType::DeflatedData => {
+                let channel = frame.channel;
+                let inbox = inner.lock_channels().get(&channel).map(|route| route.inbox.clone());
                 if let Some(inbox) = inbox {
                     // The reader never waits on one channel's owner (see
                     // `Inbox`), only on a channel holding its whole buffer.
                     // Past the stall budget that channel is closed `overflow`
                     // on both sides and the link goes on.
                     if inbox.owner_gone() {
-                        inner.lock_channels().remove(&frame.channel);
-                    } else if !inbox.push(ChannelEvent::Data(frame.payload)).await
-                        && inner.lock_channels().remove(&frame.channel).is_some()
-                    {
-                        tracing::warn!(
-                            channel = frame.channel,
-                            "channel held {CHANNEL_BUFFER_BYTES} bytes for {CHANNEL_STALL:?}; closing it"
-                        );
-                        refuse(&inner, stream, frame.channel, "overflow", "the channel was not read");
+                        inner.lock_channels().remove(&channel);
+                    } else {
+                        let payload = match frame.into_data() {
+                            Ok(payload) => payload,
+                            Err(error) => break format!("read failed: {error}"),
+                        };
+                        if !inbox.push(ChannelEvent::Data(payload)).await
+                            && inner.lock_channels().remove(&channel).is_some()
+                        {
+                            tracing::warn!(
+                                channel,
+                                "channel held {CHANNEL_BUFFER_BYTES} bytes for {CHANNEL_STALL:?}; closing it"
+                            );
+                            refuse(&inner, stream, channel, "overflow", "the channel was not read");
+                        }
                     }
+                }
+            }
+            FrameType::Sequenced => {
+                let channel = frame.channel;
+                let route = inner
+                    .lock_channels()
+                    .get(&channel)
+                    .map(|route| (route.inbox.clone(), route.sequencer.clone()));
+                let Some((inbox, sequencer)) = route else { continue };
+                let Some((seq, last, chunk)) = crate::classes::parse_sequenced(frame.payload) else {
+                    break "read failed: short sequenced frame".to_owned();
+                };
+                let delivered = match &sequencer {
+                    Some(sequencer) => {
+                        let mut sequencer = sequencer.lock().await;
+                        let delivered = sequencer.stream_chunk(seq, last, chunk);
+                        deliver(&inner, stream, channel, &inbox, delivered).await
+                    }
+                    // A channel opened without a delivery: take the chunks as they come.
+                    None => deliver(&inner, stream, channel, &inbox, vec![chunk]).await,
+                };
+                if !delivered {
+                    continue;
                 }
             }
             FrameType::Close => {
@@ -1727,6 +2182,28 @@ async fn read_loop<R>(
         }
     };
     inner.shut(&reason);
+}
+
+/// Hand `messages` to `channel`'s inbox in order; `false` once the channel is
+/// gone (its owner left, or it held its whole buffer too long and was closed).
+async fn deliver(inner: &Inner, stream: usize, channel: u32, inbox: &Inbox, messages: Vec<Bytes>) -> bool {
+    for message in messages {
+        if inbox.owner_gone() {
+            inner.lock_channels().remove(&channel);
+            return false;
+        }
+        if !inbox.push(ChannelEvent::Data(message)).await {
+            if inner.lock_channels().remove(&channel).is_some() {
+                tracing::warn!(
+                    channel,
+                    "channel held {CHANNEL_BUFFER_BYTES} bytes for {CHANNEL_STALL:?}; closing it"
+                );
+                refuse(inner, stream, channel, "overflow", "the channel was not read");
+            }
+            return false;
+        }
+    }
+    true
 }
 
 /// Refuse or end `channel` with a `close` frame on `stream`, ahead of data.
@@ -1779,6 +2256,12 @@ pub struct ChannelSender {
     closed: Arc<AtomicBool>,
     /// Where queued payload bytes are counted, if anywhere.
     meter: Option<Arc<ByteMeter>>,
+    /// Each send is a numbered message, sent as datagrams too
+    /// (`crate::classes`).
+    mirror: Option<Delivery>,
+    next_seq: AtomicU64,
+    /// Payload bytes queued for the transport so far ([`sent_bytes`](Self::sent_bytes)).
+    sent: AtomicU64,
 }
 
 impl ChannelSender {
@@ -1795,6 +2278,15 @@ impl ChannelSender {
     /// (not the main stream).
     pub fn on_input_stream(&self) -> bool {
         self.stream == INPUT
+    }
+
+    /// Payload bytes this channel has queued for the transport so far. A channel's queue holds
+    /// at most [`CHANNEL_QUEUE_BYTES`], so each chunk of a long write gets in only once the
+    /// writer took the ones before it: while a write waits, this moves exactly as the link
+    /// drains it. A caller's deadline for a request reads it as progress (iOS `DaemonClient`:
+    /// a send that is still moving is never cut by a wall clock).
+    pub fn sent_bytes(&self) -> u64 {
+        self.sent.load(Ordering::Relaxed)
     }
 
     /// Counts every payload byte this sender queues from now on into `meter`.
@@ -1818,6 +2310,14 @@ impl ChannelSender {
         if self.closed.load(Ordering::Acquire) {
             return Err(LinkError::ChannelClosed);
         }
+        let seq = self.mirror.map(|_| self.next_seq.fetch_add(1, Ordering::Relaxed));
+        if let (Some(delivery), Some(seq)) = (self.mirror, seq)
+            && data.len() <= crate::classes::MIRROR_MAX
+            && !self.inner.writes_held.load(Ordering::Acquire)
+        {
+            // Ahead of the stream copy, which may wait for room.
+            self.inner.send_class_datagrams(crate::classes::datagrams(self.id, seq, &data, delivery));
+        }
         let mut rest = data;
         let mut mark = mark;
         while !rest.is_empty() {
@@ -1826,12 +2326,26 @@ impl ChannelSender {
                 return Err(self.inner.closed_error());
             }
             let size = chunk.len();
-            let mut frame = Frame::new(self.id, FrameType::Data, chunk);
+            let mut frame = match seq {
+                Some(seq) => Frame::new(
+                    self.id,
+                    FrameType::Sequenced,
+                    crate::classes::sequenced_payload(seq, rest.is_empty(), &chunk),
+                ),
+                None => Frame::new(self.id, FrameType::Data, chunk),
+            };
+            if frame.kind == FrameType::Data
+                && self.inner.writes_held.load(Ordering::Acquire)
+                && matches!(*self.inner.park.borrow(), Park::Parked { deflate: true, .. })
+            {
+                frame.deflate_if_smaller();
+            }
             if rest.is_empty() {
                 frame.flushed = mark.take();
             }
             match self.inner.outboxes[self.stream].push_data(self.class, frame, &self.closed).await {
                 Pushed::Queued => {
+                    self.sent.fetch_add(size as u64, Ordering::Relaxed);
                     if let Some(meter) = &self.meter {
                         meter.add_sent(size);
                     }
@@ -1920,9 +2434,20 @@ impl Channel {
         inner: Arc<Inner>,
         rx: mpsc::Receiver<ChannelEvent>,
         closed: Arc<AtomicBool>,
+        mirror: Option<Delivery>,
     ) -> Self {
         Self {
-            sender: ChannelSender { id, stream, class, inner, closed, meter: None },
+            sender: ChannelSender {
+                id,
+                stream,
+                class,
+                inner,
+                closed,
+                meter: None,
+                mirror,
+                next_seq: AtomicU64::new(0),
+                sent: AtomicU64::new(0),
+            },
             receiver: ChannelReceiver { rx, done: false, meter: None },
         }
     }
@@ -2059,6 +2584,45 @@ mod tests {
             .unwrap();
         assert!(matches!(sent, Err(LinkError::ChannelClosed)), "{sent:?}");
         drop(phone);
+    }
+
+    /// `sent_bytes` is a write's progress: it stops where a stalled link stops taking bytes and
+    /// reaches the whole write on a link that drains (iOS `DaemonClient` bounds a send by it).
+    #[tokio::test]
+    async fn sent_bytes_moves_only_while_the_link_takes_the_write() {
+        let (a, _stalled) = tokio::io::duplex(64 * 1024);
+        let phone = Link::new(a, Role::Phone, LinkConfig::default(), None);
+        let channel = phone.open("daemon", serde_json::json!({})).await.unwrap();
+        let sender = Arc::new(channel.sender);
+        let total = CHANNEL_QUEUE_BYTES * 8;
+        let sending = tokio::spawn({
+            let sender = Arc::clone(&sender);
+            async move { sender.send(Bytes::from(vec![0u8; total])).await }
+        });
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let stuck = sender.sent_bytes();
+        assert!(stuck > 0 && stuck < total as u64, "part of the write got in: {stuck}");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(sender.sent_bytes(), stuck, "a stalled link makes no progress");
+        sender.close("cancelled", "").await;
+        let _ = sending.await;
+
+        let (phone, mac) = pair();
+        let server = tokio::spawn(async move {
+            let mut incoming = mac.accept().await.expect("incoming");
+            let mut got = 0;
+            while got < total {
+                match incoming.channel.recv().await {
+                    Some(ChannelEvent::Data(bytes)) => got += bytes.len(),
+                    other => panic!("unexpected {other:?}"),
+                }
+            }
+            mac
+        });
+        let channel = phone.open("daemon", serde_json::json!({})).await.unwrap();
+        channel.send(Bytes::from(vec![1u8; total])).await.unwrap();
+        assert_eq!(channel.sender.sent_bytes(), total as u64);
+        let _mac = server.await.unwrap();
     }
 
     /// The peer's close stops our sends: a Mac that refuses an upload before
@@ -2308,16 +2872,20 @@ mod tests {
             service: "echo".into(),
             args: serde_json::json!({}),
             lane: Lane::Bulk,
+            delivery: None,
         })
         .unwrap();
         assert!(bulk.get("lane").is_none());
+        assert!(bulk.get("delivery").is_none());
         let input = serde_json::to_value(OpenRequest {
             service: "daemon".into(),
             args: serde_json::json!({}),
             lane: Lane::Input,
+            delivery: Some(Delivery::Ordered),
         })
         .unwrap();
         assert_eq!(input["lane"], "input");
+        assert_eq!(input["delivery"], "ordered");
         let old: OpenRequest = serde_json::from_str(r#"{"service":"daemon"}"#).unwrap();
         assert_eq!(old.lane, Lane::Bulk);
     }
@@ -2605,6 +3173,288 @@ mod tests {
         assert!(!mac.is_closed());
     }
 
+    /// Link keepalive tight enough to close a silent peer within a second.
+    fn quick_keepalive() -> LinkConfig {
+        LinkConfig {
+            keepalive: Some(Duration::from_millis(50)),
+            keepalive_timeout: Duration::from_millis(600),
+            ..LinkConfig::default()
+        }
+    }
+
+    /// The next frame from the Mac that is not one of its keepalive pings.
+    async fn next_from_mac(
+        frames: &mut FramedRead<tokio::io::ReadHalf<tokio::io::DuplexStream>, FrameCodec>,
+    ) -> Option<Frame> {
+        loop {
+            let frame = tokio::time::timeout(Duration::from_secs(5), frames.next()).await.ok()??.ok()?;
+            if frame.kind != FrameType::Ping {
+                return Some(frame);
+            }
+        }
+    }
+
+    /// The partial link (PROTOCOL.md "Parked link"): a Mac whose phone parked
+    /// the link before the OS suspended it outlives its keepalive timeout,
+    /// sends the silent phone nothing (no ping, no held channel data), and on
+    /// the phone's first ping answers and sends what it held. The phone side
+    /// is raw frames, as a suspended phone sends nothing at all.
+    #[tokio::test(start_paused = true)]
+    async fn a_parked_mac_link_waits_silently_for_the_phone() {
+        let (a, b) = tokio::io::duplex(1024 * 1024);
+        let mac = Link::new(a, Role::Mac, quick_keepalive(), None);
+        let (read, write) = tokio::io::split(b);
+        let mut from_mac = FramedRead::new(read, FrameCodec);
+        let mut to_mac = FramedWrite::new(write, FrameCodec);
+        to_mac.send(Frame::new(1, FrameType::Open, br#"{"service":"echo"}"#.to_vec())).await.unwrap();
+        let served = mac.accept().await.expect("the echo channel").channel;
+        to_mac
+            .send(Frame::new(
+                3,
+                FrameType::Open,
+                br#"{"service":"_link.park","args":{"hold_ms":5000}}"#.to_vec(),
+            ))
+            .await
+            .unwrap();
+        let answer = next_from_mac(&mut from_mac).await.expect("the Mac answers the park");
+        assert_eq!((answer.channel, answer.kind), (3, FrameType::Close));
+        let info: CloseInfo = serde_json::from_slice(&answer.payload).unwrap();
+        assert_eq!(info.code, "parked");
+
+        // Output for the suspended phone waits on the Mac.
+        served.send(Bytes::from_static(b"held")).await.unwrap();
+        let quiet = tokio::time::timeout(Duration::from_secs(4), from_mac.next()).await;
+        assert!(quiet.is_err(), "a parked Mac sent its silent phone {quiet:?}");
+        assert!(!mac.is_closed(), "closed while parked: {:?}", mac.closed_state().borrow().clone());
+
+        // The phone is back: its ping ends the park.
+        to_mac.send(Frame::new(0, FrameType::Ping, 7u64.to_be_bytes().to_vec())).await.unwrap();
+        // The pong and the held data; the Mac's own keepalive pings, back on,
+        // may come between them.
+        let pong = (0, FrameType::Pong, Bytes::from(7u64.to_be_bytes().to_vec()));
+        let held = (1, FrameType::Data, Bytes::from_static(b"held"));
+        let mut got = Vec::new();
+        while !(got.contains(&pong) && got.contains(&held)) {
+            let frame = next_from_mac(&mut from_mac).await.expect("the Mac answers the returning phone");
+            got.push((frame.channel, frame.kind, frame.payload));
+            assert!(got.len() <= 4, "unexpected frames from the Mac: {got:?}");
+        }
+        assert!(!mac.is_closed());
+    }
+
+    /// A parked phone that runs a request in the background (a notification
+    /// action's permission lookup on a channel it has, or a new channel) is
+    /// awake: the Mac answers it with no ping first, and stays unparked.
+    #[tokio::test(start_paused = true)]
+    async fn a_parked_mac_answers_an_app_request_without_a_ping() {
+        let (a, b) = tokio::io::duplex(1024 * 1024);
+        let mac = Link::new(a, Role::Mac, quick_keepalive(), None);
+        let (read, write) = tokio::io::split(b);
+        let mut from_mac = FramedRead::new(read, FrameCodec);
+        let mut to_mac = FramedWrite::new(write, FrameCodec);
+        to_mac.send(Frame::new(1, FrameType::Open, br#"{"service":"acpmux"}"#.to_vec())).await.unwrap();
+        let mut served = mac.accept().await.expect("the acpmux channel").channel;
+        to_mac
+            .send(Frame::new(
+                3,
+                FrameType::Open,
+                br#"{"service":"_link.park","args":{"hold_ms":600000}}"#.to_vec(),
+            ))
+            .await
+            .unwrap();
+        let answer = next_from_mac(&mut from_mac).await.expect("the Mac answers the park");
+        assert_eq!((answer.channel, answer.kind), (3, FrameType::Close));
+        assert!(mac.is_parked());
+
+        // The request on the channel the phone has: the Mac's answer comes back.
+        to_mac.send(Frame::new(1, FrameType::Data, b"info?".to_vec())).await.unwrap();
+        assert_eq!(served.recv().await, Some(ChannelEvent::Data(Bytes::from_static(b"info?"))));
+        served.send(Bytes::from_static(b"info")).await.unwrap();
+        let reply = next_from_mac(&mut from_mac).await.expect("the parked Mac answers the request");
+        assert_eq!(
+            (reply.channel, reply.kind, reply.payload),
+            (1, FrameType::Data, Bytes::from_static(b"info"))
+        );
+        assert!(!mac.is_parked(), "the Mac still holds a link its phone is using");
+
+        // A new channel on a parked link is answered the same way.
+        to_mac
+            .send(Frame::new(
+                5,
+                FrameType::Open,
+                br#"{"service":"_link.park","args":{"hold_ms":600000}}"#.to_vec(),
+            ))
+            .await
+            .unwrap();
+        let answer = next_from_mac(&mut from_mac).await.expect("the Mac answers the second park");
+        assert_eq!((answer.channel, answer.kind), (5, FrameType::Close));
+        to_mac.send(Frame::new(7, FrameType::Open, br#"{"service":"echo"}"#.to_vec())).await.unwrap();
+        let lookup = mac.accept().await.expect("the new channel").channel;
+        lookup.send(Bytes::from_static(b"answer")).await.unwrap();
+        let reply = next_from_mac(&mut from_mac).await.expect("the parked Mac answers on a new channel");
+        assert_eq!(
+            (reply.channel, reply.kind, reply.payload),
+            (7, FrameType::Data, Bytes::from_static(b"answer"))
+        );
+        assert!(!mac.is_parked());
+        assert!(!mac.is_closed());
+    }
+
+    /// A park is bounded: once its hold passes with nothing heard, the Mac
+    /// closes the link as a dead one closes.
+    #[tokio::test(start_paused = true)]
+    async fn a_parked_link_closes_when_its_hold_passes() {
+        let (a, b) = tokio::io::duplex(1024 * 1024);
+        let mac = Link::new(a, Role::Mac, quick_keepalive(), None);
+        let (read, write) = tokio::io::split(b);
+        let mut from_mac = FramedRead::new(read, FrameCodec);
+        let mut to_mac = FramedWrite::new(write, FrameCodec);
+        to_mac
+            .send(Frame::new(
+                1,
+                FrameType::Open,
+                br#"{"service":"_link.park","args":{"hold_ms":2000}}"#.to_vec(),
+            ))
+            .await
+            .unwrap();
+        let answer = next_from_mac(&mut from_mac).await.expect("the Mac answers the park");
+        assert_eq!(answer.kind, FrameType::Close);
+        let started = Instant::now();
+        let reason = tokio::time::timeout(Duration::from_secs(5), mac.closed()).await.expect("closes");
+        assert_eq!(reason, "park expired");
+        assert!(started.elapsed() >= Duration::from_millis(1900), "closed after {:?}", started.elapsed());
+    }
+
+    /// Both ends: the phone parks, both outlive their keepalives while
+    /// silent, and resume plus one probe brings the link back with no redial.
+    #[tokio::test(start_paused = true)]
+    async fn park_then_resume_keeps_the_link() {
+        let (a, b) = tokio::io::duplex(1024 * 1024);
+        let phone = Link::new(a, Role::Phone, quick_keepalive(), None);
+        let mac = Link::new(b, Role::Mac, quick_keepalive(), None);
+        assert!(phone.park(Duration::from_secs(5), Duration::from_secs(1)).await.unwrap());
+        assert!(phone.is_parked() && mac.is_parked());
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        assert!(!phone.is_closed() && !mac.is_closed(), "a parked link closed");
+        assert!(phone.resume());
+        assert!(phone.probe(Duration::from_secs(1)).await.is_ok());
+        assert!(!phone.is_parked() && !mac.is_parked(), "the park did not end");
+        // Unparked, the keepalives run again and the link stays up.
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        assert!(!phone.is_closed() && !mac.is_closed());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn resume_probe_releases_ordered_output_with_liveness_datagrams() {
+        let (a, b) = tokio::io::duplex(1024);
+        let config = LinkConfig { keepalive: None, ..LinkConfig::default() };
+        let phone = Link::new(a, Role::Phone, config.clone(), None);
+        let mac = Link::new(b, Role::Mac, config, None);
+        let (phone_lane, mac_lane) = datagram_pair(true, true, 0);
+        phone.attach_liveness_datagrams(phone_lane);
+        mac.attach_liveness_datagrams(mac_lane);
+        let mut channel = phone.open("echo", serde_json::json!({})).await.unwrap();
+        let served = mac.accept().await.unwrap().channel;
+        assert!(phone.park(Duration::from_secs(10), Duration::from_secs(1)).await.unwrap());
+        let writes: Vec<_> = (0..20u8).map(|n| Bytes::from(vec![n; 512])).collect();
+        for bytes in &writes {
+            served.send(bytes.clone()).await.unwrap();
+        }
+        assert!(phone.resume());
+        phone.probe(Duration::from_secs(1)).await.unwrap();
+        assert!(!mac.is_parked());
+        served.close("done", "").await;
+        for bytes in writes {
+            assert!(matches!(channel.recv().await, Some(ChannelEvent::Data(got)) if got == bytes));
+        }
+        assert!(matches!(channel.recv().await, Some(ChannelEvent::Closed(info)) if info.code == "done"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn foreground_probes_wait_out_a_park() {
+        let (phone, mac, dark) = gated_pair(LinkConfig::default(), LinkConfig::default());
+        let sent = Arc::new(AtomicU64::new(0));
+        let (phone_lane, mac_lane) = gated_datagrams(&dark, Arc::clone(&sent));
+        phone.attach_liveness_datagrams(phone_lane);
+        mac.attach_liveness_datagrams(mac_lane);
+        phone.set_foreground_probe(true);
+        tokio::time::sleep(FOREGROUND_PROBE).await;
+        assert!(phone.park(Duration::from_secs(60), Duration::from_secs(1)).await.unwrap());
+        dark.send_replace(true);
+        let before = sent.load(Ordering::Relaxed);
+        tokio::time::sleep(Duration::from_secs(36)).await;
+        assert_eq!(sent.load(Ordering::Relaxed), before);
+        assert!(!mac.is_suspect() && !phone.is_suspect());
+
+        dark.send_replace(false);
+        assert!(phone.resume());
+        phone.probe(Duration::from_secs(1)).await.unwrap();
+        let resumed = sent.load(Ordering::Relaxed);
+        tokio::time::sleep(FOREGROUND_PROBE * 2).await;
+        assert!(sent.load(Ordering::Relaxed) > resumed);
+    }
+
+    /// A keepalive beat that fired just before the phone parked must not put
+    /// its ping on the wire after the park: the Mac takes any ping from a
+    /// parked phone as the phone back, and would unpark while the phone
+    /// sleeps. The beat's pinger is held at the test gate (as a pinger the
+    /// scheduler runs late is) until the park was accepted.
+    #[tokio::test(start_paused = true)]
+    async fn a_keepalive_ping_deferred_past_a_park_stays_unsent() {
+        let (a, b) = tokio::io::duplex(1024 * 1024);
+        let beat = Duration::from_millis(200);
+        let config = LinkConfig {
+            keepalive: Some(beat),
+            keepalive_timeout: Duration::from_secs(30),
+            aligned: true,
+            ..LinkConfig::default()
+        };
+        let phone = Link::new(a, Role::Phone, config, None);
+        let mac = Link::new(b, Role::Mac, LinkConfig { keepalive: None, ..LinkConfig::default() }, None);
+
+        // The next beat's pinger waits at the gate.
+        phone.inner.pinger_gate.send_replace(true);
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while phone.inner.pinger_gate.receiver_count() == 0 {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("a keepalive beat fired");
+
+        // The park is sent and accepted while that pinger waits; then it runs.
+        assert!(phone.park(Duration::from_secs(5), Duration::from_secs(1)).await.unwrap());
+        assert!(mac.is_parked());
+        phone.inner.pinger_gate.send_replace(false);
+
+        tokio::time::sleep(beat * 3).await;
+        assert!(phone.is_parked(), "the phone left its park");
+        assert!(mac.is_parked(), "a keepalive ping queued after the park unparked the Mac");
+    }
+
+    /// A Mac that predates parking refuses the service: the phone is told,
+    /// and nothing on its side is parked.
+    #[tokio::test]
+    async fn an_older_mac_refuses_the_park() {
+        let (a, b) = tokio::io::duplex(64 * 1024);
+        let phone = Link::new(a, Role::Phone, LinkConfig::default(), None);
+        let (read, write) = tokio::io::split(b);
+        let mut from_phone = FramedRead::new(read, FrameCodec);
+        let mut to_phone = FramedWrite::new(write, FrameCodec);
+        let older_mac = tokio::spawn(async move {
+            while let Some(Ok(frame)) = from_phone.next().await {
+                if frame.kind == FrameType::Open {
+                    let refusal = br#"{"code":"unknown_service","reason":"no service _link.park"}"#.to_vec();
+                    to_phone.send(Frame::new(frame.channel, FrameType::Close, refusal)).await.unwrap();
+                }
+            }
+        });
+        assert!(!phone.park(Duration::from_secs(60), Duration::from_secs(1)).await.unwrap());
+        assert!(!phone.is_parked());
+        assert!(!phone.resume());
+        older_mac.abort();
+    }
+
     /// A phone and a Mac link joined by a network that can go dark: while
     /// `dark` is true nothing crosses either way (bytes wait, as TCP's do
     /// inside the tunnel), and they flow again once it is false.
@@ -2812,9 +3662,73 @@ mod tests {
         let (phone_out, mac_in) = wire(drop_first);
         let (mac_out, phone_in) = wire(0);
         (
-            LivenessDatagrams { outgoing: phone_out, incoming: phone_in, peer_listening: mac_listening },
-            LivenessDatagrams { outgoing: mac_out, incoming: mac_in, peer_listening: phone_listening },
+            LivenessDatagrams {
+                outgoing: phone_out,
+                incoming: phone_in,
+                peer_listening: mac_listening,
+                classes: false,
+            },
+            LivenessDatagrams {
+                outgoing: mac_out,
+                incoming: mac_in,
+                peer_listening: phone_listening,
+                classes: false,
+            },
         )
+    }
+
+    /// With class datagrams agreed, an input-lane channel's messages cross
+    /// while the streams are dark, in order and once each, and a
+    /// latest-wins channel shows the newest; the stream copies that follow
+    /// when the network is back are dropped as duplicates.
+    #[tokio::test(start_paused = true)]
+    async fn class_datagrams_cross_a_dark_stream_once_each() {
+        let (phone, mac, dark) = gated_pair(LinkConfig::default(), LinkConfig::default());
+        let (phone_lane, mac_lane) = datagram_pair(true, true, 0);
+        phone.attach_liveness_datagrams(LivenessDatagrams { classes: true, ..phone_lane });
+        mac.attach_liveness_datagrams(LivenessDatagrams { classes: true, ..mac_lane });
+        assert!(phone.class_datagrams() && mac.class_datagrams());
+        let server = tokio::spawn({
+            let mac = mac.clone();
+            async move {
+                let keys = mac.accept().await.expect("keys");
+                let screen = mac.accept().await.expect("screen");
+                (keys.channel, screen.channel)
+            }
+        });
+        let keys = phone.open_on("keys", serde_json::json!({}), Lane::Input).await.unwrap();
+        let mut screen = phone.open_latest("screen", serde_json::json!({})).await.unwrap();
+        let (mut mac_keys, mac_screen) = server.await.unwrap();
+        dark.send_replace(true);
+        for key in 0u8..5 {
+            keys.send(Bytes::from(vec![key; 3])).await.unwrap();
+        }
+        for key in 0u8..5 {
+            match tokio::time::timeout(Duration::from_millis(100), mac_keys.recv()).await {
+                Ok(Some(ChannelEvent::Data(bytes))) => assert_eq!(&bytes[..], &[key; 3]),
+                other => panic!("key {key}: {other:?}"),
+            }
+        }
+        let (screen_tx, _screen_rx) = mac_screen.split();
+        for state in 0u8..3 {
+            screen_tx.send(Bytes::from(vec![state; 2000])).await.unwrap();
+        }
+        let mut newest = None;
+        while let Ok(Some(ChannelEvent::Data(bytes))) =
+            tokio::time::timeout(Duration::from_millis(100), screen.recv()).await
+        {
+            assert!(newest.is_none_or(|seen| bytes[0] > seen), "older state after a newer one");
+            newest = Some(bytes[0]);
+        }
+        assert_eq!(newest, Some(2), "the newest state arrived while dark");
+        dark.send_replace(false);
+        assert!(phone.ping().await.is_ok());
+        assert!(
+            tokio::time::timeout(Duration::from_millis(200), mac_keys.recv()).await.is_err(),
+            "a stream copy was delivered twice"
+        );
+        assert!(tokio::time::timeout(Duration::from_millis(200), screen.recv()).await.is_err());
+        assert!(mac.datagram_wins() >= 5 && phone.datagram_wins() >= 1);
     }
 
     /// The Mac's stream stalls after one byte (its writes never finish):
@@ -2948,8 +3862,13 @@ mod tests {
         let (phone_out, mac_in) = wire(dark.subscribe(), Some(phone_sent));
         let (mac_out, phone_in) = wire(dark.subscribe(), None);
         (
-            LivenessDatagrams { outgoing: phone_out, incoming: phone_in, peer_listening: true },
-            LivenessDatagrams { outgoing: mac_out, incoming: mac_in, peer_listening: true },
+            LivenessDatagrams {
+                outgoing: phone_out,
+                incoming: phone_in,
+                peer_listening: true,
+                classes: false,
+            },
+            LivenessDatagrams { outgoing: mac_out, incoming: mac_in, peer_listening: true, classes: false },
         )
     }
 

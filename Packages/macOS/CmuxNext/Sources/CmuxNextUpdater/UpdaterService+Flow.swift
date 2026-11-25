@@ -17,6 +17,7 @@ extension UpdaterService {
         // Update Available button (``availableButton``), not this card; a check they asked for shows here.
         if let newestCard { return newestCard }
         if let cancelledDownloadCard { return cancelledDownloadCard }
+        if let healthCard { return healthCard }
         guard !stagedPulledHeld, let card = flow.card(downloadsAutomatically: true) else { return nil }
         if card == .installing, installCardDismissed { return nil }
         if case .available(let version) = card, updateSnooze.hides(version: version, at: now()) { return nil }
@@ -96,6 +97,15 @@ extension UpdaterService {
         var action = flow.handle(.quitRequested, preferences: preferences).lazy.compactMap { effect -> UpdateQuitAction? in
             if case .quit(let action) = effect { action } else { nil }
         }.first ?? .proceed
+        if rollbackQuitPending {
+            // A rollback's quit: a staged update would install over the build just put in place
+            // and relaunch forward (cmux#41013 review F2). One staged after the swap is cancelled.
+            if let staged = stagedBuild(), !staged.isEmpty {
+                log.append(cancelStaged() ? "quit: a rollback quits, cancelled the staged update \(staged)"
+                                          : "quit: a rollback quits, but the staged update \(staged) could not be cancelled")
+            }
+            return .cancelPendingInstall
+        }
         if action == .proceed, stagedPulledHeld {
             if cancelStaged() {
                 log.append("quit: the staged build was pulled, cancelled it instead of installing on quit")
@@ -341,7 +351,7 @@ extension UpdaterService {
     func applyDownloadPolicy() {
         let required = requiredMinimumVersion != nil
         let enabled = (downloadSetting.enabled || required) && !isOffManagedChannel && !policy.disablesUpdates
-        let downloads = UpdateNetworkPolicy.downloadsAutomatically(setting: enabled, mode: required ? .download : downloadSetting.metered,
+        let downloads = (required || !downloadHeldForDeltas) && UpdateNetworkPolicy.downloadsAutomatically(setting: enabled, mode: required ? .download : downloadSetting.metered,
                                                                    constrained: network.constrained || networkPending,
                                                                    expensive: network.expensive || networkPending)
         // The tip app reads its feed every few minutes only where found updates download by

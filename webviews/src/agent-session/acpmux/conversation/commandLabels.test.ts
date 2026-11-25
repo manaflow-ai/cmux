@@ -33,9 +33,10 @@ const label = (item: AcpmuxActivity) => {
   return toolLabel(
     item.tool!,
     item.text,
-    (command) => t(running ? "tools.runningCommand" : "tools.ranCommand", { command }),
+    (command) => (running ? command : t("tools.ranCommand", { command })),
     undefined,
-    t(running ? "tools.runningUnnamed" : "tools.ranUnnamed"),
+    running ? undefined : t("tools.ranUnnamed"),
+    !running,
   );
 };
 
@@ -143,6 +144,9 @@ const CASES: [command: string, label: string][] = [
   ["cat input.txt | sort --compress-program=gzip", "Ran cat input.txt | sort --compress-program=gzip"],
   ["cat input.txt | uniq - out.txt", "Ran cat input.txt | uniq - out.txt"],
   ["cat input.txt | sed -n '1,20p'", "Read input.txt"],
+  ["rg --pre ./decode.sh x src", "Ran rg --pre ./decode.sh x src"],
+  ["sed -n '1e rm -rf build' file.txt", "Ran sed -n '1e rm -rf build' file.txt"],
+  ["sed -n 's/a/b/e' file.txt", "Ran sed -n 's/a/b/e' file.txt"],
   ["cat input.txt | sed 's/a/b/g'", "Read input.txt"],
   ["cat input.txt | sed -e 's|a|b|' -e '/^#/d'", "Read input.txt"],
   ["cat input.txt | sed -i 's/a/b/' other.txt", "Ran cat input.txt | sed -i 's/a/b/' other.txt"],
@@ -215,7 +219,7 @@ test("a running command reads as written until it finishes; cleaning is for fini
   const item = shell(`agent-memory search "better tooltips" 2>/dev/null | head -10`, {
     status: "in_progress",
   });
-  expect(label(item)).toBe(`Running agent-memory search "better tooltips" 2>/dev/null | head -10`);
+  expect(label(item)).toBe(`agent-memory search "better tooltips" 2>/dev/null | head -10`);
 });
 
 test("the live line names the command as written, whitespace normalised", () => {

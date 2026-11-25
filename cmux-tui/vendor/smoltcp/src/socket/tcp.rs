@@ -701,6 +701,9 @@ pub struct Socket<'a> {
     /// cmux patch: the path under the connection changed; the next RTO
     /// branch resends without backing off ([path_changed](#method.path_changed)).
     path_change_retransmit: bool,
+    /// cmux patch: retransmission is held while the peer is silent on purpose
+    /// ([set_retransmit_paused](#method.set_retransmit_paused)).
+    retransmit_paused: bool,
     /// cmux patch: lower the segment size when full segments keep timing out
     /// ([set_black_hole_fallback](#method.set_black_hole_fallback)).
     black_hole_fallback: bool,
@@ -826,6 +829,7 @@ impl<'a> Socket<'a> {
             sack_window_cut: false,
             local_mss: usize::MAX,
             path_change_retransmit: false,
+            retransmit_paused: false,
             black_hole_fallback: false,
             black_hole_rtos: 0,
             path_mss_cap: None,
@@ -1109,6 +1113,25 @@ impl<'a> Socket<'a> {
         }
         self.path_change_retransmit = true;
         self.timer = Timer::Retransmit { expires_at: Instant::from_micros(0) };
+    }
+
+    /// cmux patch: hold or resume retransmission.
+    ///
+    /// A tunnel whose peer went silent on purpose (a phone the OS suspended in
+    /// the background) holds it: data in flight stays unacknowledged and is
+    /// not resent, by the RTO, a tail-loss probe or a zero-window probe, so the
+    /// silence costs no segments. New data is still sent once, and segments
+    /// that arrive are answered as usual. Resumed with data in flight, the
+    /// socket resends from the oldest unacknowledged byte at its next poll
+    /// with the RTO back at the RTT estimate's value, as
+    /// [path_changed](#method.path_changed) does: the peer is back. Off by
+    /// default; the setting is preserved across [listen](#method.listen) and
+    /// [connect](#method.connect).
+    pub fn set_retransmit_paused(&mut self, paused: bool) {
+        let was = core::mem::replace(&mut self.retransmit_paused, paused);
+        if was && !paused {
+            self.path_changed();
+        }
     }
 
     /// cmux patch: the link under this connection repairs its own losses
@@ -3212,7 +3235,8 @@ impl<'a> Socket<'a> {
             // If a timeout expires, we should abort the connection.
             net_debug!("timeout exceeded");
             self.set_state(State::Closed);
-        } else if let Timer::TailLossProbe { rto_at, .. } = self.timer
+        } else if !self.retransmit_paused
+            && let Timer::TailLossProbe { rto_at, .. } = self.timer
             && self.timer.should_retransmit(cx.now())
         {
             // cmux patch: the probe timer expired with no ACK of new data. Resend
@@ -3230,7 +3254,7 @@ impl<'a> Socket<'a> {
                 self.timer = Timer::Retransmit { expires_at: rto_at };
                 self.rtte.on_retransmit();
             }
-        } else if self.timer.should_retransmit(cx.now()) {
+        } else if !self.retransmit_paused && self.timer.should_retransmit(cx.now()) {
             if let Timer::Retransmit { .. } = self.timer {
                 // If a retransmit timer expired, we should resend data starting at the last ACK.
                 net_debug!("retransmitting after rto");
@@ -3317,7 +3341,7 @@ impl<'a> Socket<'a> {
         } else if self.timer.should_keep_alive(cx.now()) {
             // If we need to transmit a keep-alive packet, do it.
             tcp_trace!("keep-alive timer expired");
-        } else if self.timer.should_zero_window_probe(cx.now()) {
+        } else if !self.retransmit_paused && self.timer.should_zero_window_probe(cx.now()) {
             tcp_trace!("sending zero-window probe");
         } else if self.timer.should_close(cx.now()) {
             // If we have spent enough time in the TIME-WAIT state, close the socket.
@@ -3448,7 +3472,10 @@ impl<'a> Socket<'a> {
                     };
 
                     // To send a zero-window-probe, force the window limit to at least 1 byte.
-                    if win_limit == 0 && self.timer.should_zero_window_probe(cx.now()) {
+                    if win_limit == 0
+                        && !self.retransmit_paused
+                        && self.timer.should_zero_window_probe(cx.now())
+                    {
                         win_limit = 1;
                         is_zero_window_probe = true;
                     }
@@ -3728,8 +3755,22 @@ impl<'a> Socket<'a> {
                 (_, _) => PollAt::Ingress,
             };
 
+            // cmux patch: while retransmission is held, its deadlines wait
+            // for a segment from the peer instead.
+            let timer_poll_at = match self.timer {
+                Timer::Retransmit { .. }
+                | Timer::FastRetransmit
+                | Timer::TailLossProbe { .. }
+                | Timer::ZeroWindowProbe { .. }
+                    if self.retransmit_paused =>
+                {
+                    PollAt::Ingress
+                }
+                _ => self.timer.poll_at(),
+            };
+
             // We wait for the earliest of our timers to fire.
-            *[self.timer.poll_at(), timeout_poll_at, delayed_ack_poll_at]
+            *[timer_poll_at, timeout_poll_at, delayed_ack_poll_at]
                 .iter()
                 .min()
                 .unwrap_or(&PollAt::Ingress)
@@ -10677,6 +10718,33 @@ mod test {
         assert_eq!(s.rtte.retransmission_timeout(), Duration::from_millis(200));
         recv_nothing!(s, time 449);
         recv!(s, time 450, Ok(segment), exact);
+    }
+
+    #[test]
+    fn test_retransmit_paused_resends_nothing_until_resumed() {
+        let mut s = socket_established();
+        s.set_min_rto(Duration::from_millis(200));
+        s.set_tail_loss_probe(Some(Duration::from_millis(25)));
+        s.rtte.sample(40);
+        s.send_slice(b"abcdef").unwrap();
+        let segment = TcpRepr {
+            control: TcpControl::Psh,
+            seq_number: LOCAL_SEQ + 1,
+            ack_number: Some(REMOTE_SEQ + 1),
+            payload: &b"abcdef"[..],
+            ..RECV_TEMPL
+        };
+        recv!(s, time 0, Ok(segment), exact);
+        // The peer went silent on purpose: no probe, no RTO, and no poll due.
+        s.set_retransmit_paused(true);
+        for at in [100, 200, 1_000, 10_000, 60_000] {
+            recv_nothing!(s, time at);
+        }
+        assert_eq!(s.socket.poll_at(&mut s.cx), PollAt::Ingress);
+        // Back: resent at once, the RTO at the estimate's 200 ms.
+        s.set_retransmit_paused(false);
+        recv!(s, time 60_100, Ok(segment), exact);
+        assert_eq!(s.rtte.retransmission_timeout(), Duration::from_millis(200));
     }
 
     #[test]

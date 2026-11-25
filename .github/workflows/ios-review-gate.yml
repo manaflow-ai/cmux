@@ -66,6 +66,7 @@ on:
   # side by side, about 30 minutes), so a change that breaks it is red before
   # it merges.
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "cmux-next-ios/**"
       # The local packages the app links (scripts/ci/ios_app_package_paths.py --check keeps this list exact).
@@ -186,7 +187,7 @@ jobs:
   plan:
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
     # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
-    if: ${{ (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 5
     # The routing token (owned-pool picker below) lives in ci-routing-agent. A call from another
@@ -376,6 +377,8 @@ jobs:
       - name: Pick the macOS pool
         id: pool
         env:
+          # The overflow switch the granted default reads (ios_runner_pool.py granted_default()).
+          CI_OVERFLOW_MAC: ${{ vars.CI_OVERFLOW_MAC }}
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -446,7 +449,7 @@ jobs:
     name: Guideline lint (${{ needs.plan.outputs.lane }})
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
     # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
-    if: ${{ (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 15
     permissions:
@@ -531,7 +534,7 @@ jobs:
     name: Reviewer path (${{ needs.plan.outputs.lane }}, ${{ matrix.family }})
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
     # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
-    if: ${{ (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && ((github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci'))) }}
     # One job per device, side by side: each builds the app (about 6
     # minutes) and walks one device (about 20), where one job walking all
     # three in a row took about 45 minutes. A family with no simulator on
@@ -669,6 +672,7 @@ jobs:
         if: env.UDID != '' && (steps.ffi.outputs.cache-hit != 'true' || steps.ffi-place.outcome != 'success')
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
           add-rust-environment-hash-key: false
           cache-bin: false
@@ -714,10 +718,15 @@ jobs:
           # Debug: the mock account the walk signs in with is DEBUG only.
           # CMUX_MOBILE_APPLE_SIGN_IN=YES shows Sign in with Apple, as the
           # App Store configurations do (Debug hides it).
+          # TARGETED_DEVICE_FAMILY=1: every build App Review gets is iPhone-only, so on iPad it
+          # runs in compatibility mode (the iPhone layout in a phone-sized window). Debug alone
+          # also targets iPad (project.yml, for the foldable harness on an iPad mini), and walked
+          # as is, the iPad leg judged a two-pane layout no reviewer sees: run 45334322455 failed
+          # 8 iPad tests that wait for the tab bar ("the shell must show") on that layout.
           xcodebuild -project CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Debug \
             -destination "$dest,arch=arm64" -derivedDataPath "$DERIVED" -enableCodeCoverage NO \
             CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
-            CMUX_MOBILE_APPLE_SIGN_IN=YES \
+            CMUX_MOBILE_APPLE_SIGN_IN=YES TARGETED_DEVICE_FAMILY=1 \
             build-for-testing 2>&1 | tee "$RESULTS/build.log" | { grep -E 'error:|BUILD' || true; }
           # xcodebuild's own status: `|| true` on the pipeline would replace it.
           test "${PIPESTATUS[0]}" -eq 0
@@ -799,10 +808,7 @@ jobs:
     # Anywhere else it skips, and an internal-submission report then blocks
     # (asc.missing): that lane is never judged without Apple's check.
     needs: plan
-    if: >-
-      github.event_name != 'pull_request'
-      && ((needs.plan.outputs.lane == 'appstore' && github.ref == 'refs/heads/main')
-        || (needs.plan.outputs.lane == 'internal-submission' && github.ref == 'refs/heads/rc/cnx-ios-builder'))
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (github.event_name != 'pull_request' && ((needs.plan.outputs.lane == 'appstore' && github.ref == 'refs/heads/main') || (needs.plan.outputs.lane == 'internal-submission' && github.ref == 'refs/heads/rc/cnx-ios-builder'))) }}
     environment: release
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 20
@@ -870,6 +876,9 @@ jobs:
             echo '{"issues":[{"severity":"error","code":"version.unknown","message":"no MARKETING_VERSION in cmux-next-ios/project.yml"}]}' > asc-validate.json
           else
             asc validate --app "$ASC_APP_ID" --version "$version" --platform IOS --strict --output json > asc-validate.json || true
+            # The app's version history: its first App Store version takes no
+            # What's New (App Store Connect refuses it, run 45102744374).
+            asc versions list --app "$ASC_APP_ID" --platform IOS --paginate --output json > app-store-versions.json || true
           fi
           if [ -d app/cmux-next-ios/AppStoreReview/metadata ]; then
             asc metadata validate --dir app/cmux-next-ios/AppStoreReview/metadata --output json > asc-metadata.json || true
@@ -879,7 +888,9 @@ jobs:
         continue-on-error: true
         with:
           name: review-gate-asc
-          path: asc-*.json
+          path: |
+            asc-*.json
+            app-store-versions.json
           retention-days: 3
 
   # Writes the framework a leg built into cmux NEXT's R2 bucket, which the
@@ -888,7 +899,7 @@ jobs:
   # job alone (tests/test_ci_pull_request_caches_are_read_only.py).
   seed-link-ffi:
     needs: reviewer-path
-    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (!cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') }}
     # A seed that fails never turns the push run red; the report does not need it.
     continue-on-error: true
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
@@ -944,7 +955,7 @@ jobs:
 
   report:
     needs: [plan, lint, reviewer-path, asc-validate]
-    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (!cancelled() && needs.plan.result == 'success') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     # The verdict needs only the small review-gate-* files; the stills download
     # and the screen diff that follow have their own step timeouts.
@@ -1018,6 +1029,7 @@ jobs:
             while IFS= read -r f; do args+=(--suite-log "$f"); done < <(find in -name "$fam.log" -type f | sort)
           done
           while IFS= read -r f; do args+=(--asc-validate "$f"); done < <(find in -name 'asc-*.json' -type f | sort)
+          while IFS= read -r f; do args+=(--asc-versions "$f"); done < <(find in -name 'app-store-versions.json' -type f | sort | head -n1)
           if [ "$ASC_RESULT" = "skipped" ]; then args+=(--asc-skipped); fi
           known=cmux-next-ios/AppStoreReview/known-blockers.json
           if [ "$RATCHET" = true ] && [ -f "base/$known" ]; then

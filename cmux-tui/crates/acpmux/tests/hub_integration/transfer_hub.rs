@@ -16,10 +16,10 @@
 use super::transfer::texts;
 use super::*;
 use acpmux::hub::transfer_pull::{PageSource, TransferDial};
-use acpmux::mesh::{Ack, ControlHook, InMessage};
+use acpmux::mesh::{Ack, InMessage};
 use acpmux::mesh_http::MeshControlFrom;
 use acpmux::rpc::RpcError;
-use acpmux::server::mesh_relay::MeshControlHook;
+use acpmux::server::mesh_relay::{ControlHook, MeshControlHook};
 use futures::future::BoxFuture;
 use std::path::{Path, PathBuf};
 
@@ -91,8 +91,10 @@ impl TransferDial for Direct {
 fn hook(ledger: &Path, ops: &[&str]) -> MeshControlHook {
     let entry = MeshControlFrom {
         daemon_id: String::new(),
+        max_policy: None,
         same_user: true,
         ops: ops.iter().map(|o| (*o).to_owned()).collect(),
+        max_policy: None,
     };
     MeshControlHook::new(vec![entry], Some(ledger.join("mesh-controls.json")))
         .with_own_user(Arc::new(|| Some("user-1".to_owned())))

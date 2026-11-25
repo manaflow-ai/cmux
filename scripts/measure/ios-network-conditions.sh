@@ -38,11 +38,31 @@
 # surface runs its usual bench at the scales given (scales=250x: 5,000 turns, 10,000 messages).
 #   cmux-ci test -- bash scripts/measure/ios-network-conditions.sh mode=duress surfaces=terminal \
 #     before=MERGE_BASE_SHA after=PR_HEAD_SHA n=5
+#
+# mode=background (Leo, 2026-11-24: "the syncing can arguably happen in the background too, so
+# deltas can be sipped and maintained"; cmux-next-ios/design/background-delta-sync.md): the
+# time-away table. For each time away (away=1m,10m,1h,8h), load (loads=idle,busy) and profile
+# (profiles=, default good-wifi,lte,lossy-3) the Mac produces, while the phone's link is closed,
+# what that span produces (simulated: made at once, no real time slept), then the link reopens
+# through the shaper and each surface catches up: events_behind, stale_s, catch_up_ms, bytes_down,
+# bytes_up, round_trips, cursor_hit, per phone form (phase before = today's: the terminal's full
+# replay, the list with no `known` after a cold relaunch, the chat's tail-first attach and its
+# confirming read; after = the cursor form: resume_offset + resume_generation, the persisted
+# `known`, the chat's newest page; after_bounded = after + resume_max_bytes when the daemon lists
+# terminal-resume-bounded-v1). Rows: scale `<away>-<load>`. Loads: idle = nothing running (the
+# terminal quiet, a list change every 10 min); busy = one agent streaming (2 KiB/s of build log
+# into the terminal, capped at the 4 MiB resume ring + 512 KiB; a list change a minute; a ~1 KB
+# chat turn every 2 s, about one record a second, acpmux keeps them all). The terminal surface
+# runs background_catch_up_after_time_away (terminal and workspaces rows), chat
+# chat_background_catch_up_after_time_away. ios-network-conditions-report.py makes one table.
+#   nice scripts/measure/ios-network-conditions.sh mode=background n=5
+# IOS_NETCOND_TARGET_DIR=DIR keeps the cargo target directory across runs (default: under .build,
+# removed at the start of each run).
 # Local, without cmux-ci: scripts/measure/ios-network-conditions.sh [args] (needs cargo).
 set -euo pipefail
 trap 'echo "ios-network-conditions.sh: line $LINENO exited $? ($BASH_COMMAND)" >&2' ERR
 
-before="" after="" mode=links duress_profiles="lte,lossy-3" n=5 profiles="" surfaces="terminal,chat" scales="1x,10x,100x" seed=0 relay=""
+before="" after="" mode=links duress_profiles="lte,lossy-3" n=5 profiles="" surfaces="terminal,chat" scales="1x,10x,100x" seed=0 relay="" away="1m,10m,1h,8h" loads="idle,busy"
 for kv in "$@"; do
   case "$kv" in
     before=*) before="${kv#*=}" ;;
@@ -55,12 +75,17 @@ for kv in "$@"; do
     scales=*) scales="${kv#*=}" ;;
     seed=*) seed="${kv#*=}" ;;
     relay=*) relay="${kv#*=}" ;;
-    *) echo "ios-network-conditions.sh: unknown arg '$kv' (before=, after=, mode=, duress_profiles=, n=, profiles=, surfaces=, scales=, seed=, relay=)" >&2; exit 2 ;;
+    away=*) away="${kv#*=}" ;;
+    loads=*) loads="${kv#*=}" ;;
+    *) echo "ios-network-conditions.sh: unknown arg '$kv' (before=, after=, mode=, duress_profiles=, n=, profiles=, surfaces=, scales=, seed=, relay=, away=, loads=)" >&2; exit 2 ;;
   esac
 done
 [[ -z "$before" || "$before" =~ ^[0-9a-f]{40}$ ]] || { echo "ios-network-conditions.sh: before= is a 40-character SHA" >&2; exit 2; }
 [[ -z "$after" || "$after" =~ ^[0-9a-f]{40}$ ]] || { echo "ios-network-conditions.sh: after= is a 40-character SHA" >&2; exit 2; }
-[[ "$mode" == links || "$mode" == duress ]] || { echo "ios-network-conditions.sh: mode=links or mode=duress" >&2; exit 2; }
+[[ "$mode" == links || "$mode" == duress || "$mode" == background ]] || { echo "ios-network-conditions.sh: mode=links, mode=duress or mode=background" >&2; exit 2; }
+[[ "$away" =~ ^[0-9]+[smh](,[0-9]+[smh])*$ ]] || { echo "ios-network-conditions.sh: away=1m,10m,1h,8h" >&2; exit 2; }
+[[ "$loads" =~ ^(idle|busy)(,(idle|busy))?$ ]] || { echo "ios-network-conditions.sh: loads=idle,busy" >&2; exit 2; }
+[[ "$mode" != background || -n "$profiles" ]] || profiles="good-wifi,lte,lossy-3"
 [[ "$duress_profiles" =~ ^[a-z0-9-]+(,[a-z0-9-]+)*$ ]] || { echo "ios-network-conditions.sh: duress_profiles=NAME,..." >&2; exit 2; }
 [[ "$n" =~ ^[1-9][0-9]{0,2}$ ]] || { echo "ios-network-conditions.sh: n is 1-999" >&2; exit 2; }
 [[ "$seed" =~ ^[0-9]{1,9}$ ]] || { echo "ios-network-conditions.sh: seed is a number" >&2; exit 2; }
@@ -137,14 +162,18 @@ bench() {
     echo "NETCOND-SKIP $label $surface: no bench file at this ref"; return 0; }
   log="$work/$label-$surface.log"
   local locked=(--locked)
-  [[ "$tree" != "$root" && -n "${overlaid[$label]:-}" ]] && locked=()
+  [[ "$tree" != "$root" && "$overlaid" == *" $label "* ]] && locked=()
   local filter=()
   [[ "$mode" == duress && "$surface" == terminal ]] && filter=(--exact open_path_under_duress)
   [[ "$mode" == links && "$surface" == terminal ]] && filter=(--exact terminal_attach_under_link_profiles)
+  # The time-away bench runs only in mode=background.
+  [[ "$mode" != background && "$surface" == chat ]] && filter=(--skip chat_background_catch_up_after_time_away)
+  [[ "$mode" == background && "$surface" == terminal ]] && filter=(--exact background_catch_up_after_time_away)
+  [[ "$mode" == background && "$surface" == chat ]] && filter=(--exact chat_background_catch_up_after_time_away)
   # One target directory for every leg: the dependencies build once.
-  (cd "$tree/cmux-tui" && CARGO_TARGET_DIR="$work/target" \
+  (cd "$tree/cmux-tui" && CARGO_TARGET_DIR="${IOS_NETCOND_TARGET_DIR:-$work/target}" \
     NETCOND_PROFILES="$profiles" NETCOND_SCALES="$scales" NETCOND_RUNS="$n" NETCOND_SEED_BASE="$seed" NETCOND_RELAY="$relay" \
-    NETCOND_DURESS_PROFILES="$duress_profiles" \
+    NETCOND_DURESS_PROFILES="$duress_profiles" NETCOND_AWAY="$away" NETCOND_LOADS="$loads" \
     cargo test --release ${locked[@]+"${locked[@]}"} -p "$crate" --test mobile_link_conditions -- \
       ${filter[@]+"${filter[@]}"} --ignored --nocapture --test-threads 1 2>&1 | tee "$log" |
     # Live as they come, so a run cut at its deadline still shows how far it got.
@@ -161,7 +190,9 @@ bench() {
 : >"$work/lines.txt"
 status=0
 IFS=, read -r -a surface_list <<<"$surfaces"
-declare -A overlaid=()
+# Labels whose tree got this checkout's harness files, space-separated: a plain string, since macOS
+# runs /bin/bash 3.2, which has no associative arrays (declare -A).
+overlaid=" "
 cleanup=()
 trap 'for tree in ${cleanup[@]+"${cleanup[@]}"}; do git -C "$root" worktree remove --force "$tree" 2>/dev/null || true; done' EXIT
 # checkout LABEL SHA: the ref's tree at $work/LABEL-src, with this checkout's harness files laid over
@@ -175,9 +206,9 @@ checkout() {
   git -C "$tree" submodule update --init --depth 1 ghostty-next >/dev/null
   for file in "${harness_files[@]}"; do
     [[ -f "$root/$file" ]] || continue
-    cmp -s "$root/$file" "$tree/$file" || overlaid[$label]=1
+    cmp -s "$root/$file" "$tree/$file" || { [[ "$overlaid" == *" $label "* ]] || overlaid+="$label "; }
   done
-  if [[ -n "${overlaid[$label]:-}" ]]; then
+  if [[ "$overlaid" == *" $label "* ]]; then
     overlay "$tree"
     echo "NETCOND-OVERLAY $label=$sha: the harness files of $(git rev-parse HEAD) laid over it"
   fi

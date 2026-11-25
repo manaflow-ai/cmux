@@ -342,7 +342,7 @@ impl Supervisor {
             Tell::Now => Self::publish_stream_locked(&inner, &source.stream(), json!({})),
             Tell::After(after) => {
                 let me = self.me.clone();
-                let name = source.name.clone();
+                let name = source.name;
                 self.timers.schedule(after, move || {
                     if let Some(me) = me.upgrade() {
                         me.signal_source_due(&name);

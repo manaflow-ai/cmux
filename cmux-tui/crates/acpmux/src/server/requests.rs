@@ -35,6 +35,7 @@ mod settled_attach;
 mod settled_attach_tests;
 mod successor;
 mod time_breakdown_gate;
+pub(super) use time_breakdown_gate::without as without_time_breakdown;
 mod turn_opener;
 mod workflow_dispatch;
 pub use workflow_dispatch::FEATURE as DURABLE_DISPATCH_FEATURE;
@@ -118,7 +119,9 @@ pub(super) fn ask<'a>(conn: &Conn, params: &Value, who: &'a str) -> crate::hub::
     let name = create_name(params);
     // A peer daemon's connection never learns this host's peers (`redact::hide_peers_from_peer`).
     let peers = conn.origin != Origin::Peer;
-    crate::hub::admission::Ask { force, can_force, person, who, local: !web, peers, name }
+    // Only `session/new` follows a placed create (`hub/admission_redirect.rs`).
+    let redirect = crate::hub::admission_redirect::movable(params);
+    crate::hub::admission::Ask { force, can_force, person, who, local: !web, peers, name, redirect }
 }
 
 /// A peer request's `reply` with what its `wait` saw (`Hub::wait_for_peer`) as `wait`; none
@@ -259,7 +262,11 @@ pub(super) async fn handle_notification(
                 return cancel_refused::tell(hub, conn, &sent, &e);
             }
             if let Ok(key) = session_key(&params) {
-                if let Ok(s) = hub.resolve(key) {
+                // A chat that moved to a peer is stopped there (`hub/moved_forward.rs`).
+                let moved = hub.moved_forward(key);
+                if let Ok(s) = hub.resolve(key)
+                    && moved.is_none()
+                {
                     conn.cancel_preparation(&s.id);
                     s.abandon_prepared_connection(&conn.id);
                     // The person's Stop holds the agents' messages behind it (`hub/cancel.rs`),
@@ -267,7 +274,7 @@ pub(super) async fn handle_notification(
                     if let Err(e) = person_stop::stop(hub, conn, &params, &s).await {
                         tracing::debug!(conn = %conn.id, "cancel: {e}");
                     }
-                } else if let Some((peer, id, row)) = hub.resolve_remote(key) {
+                } else if let Some((peer, id, row)) = moved.or_else(|| hub.resolve_remote(key)) {
                     let turn = cancel_refused::row_turn(&row);
                     let mut forwarded = json!({"sessionId": id});
                     super::remote_guard::mark_forwarded(
@@ -925,6 +932,91 @@ fn route_bare_key(hub: &Arc<Hub>, m: &str, params: &mut Value) -> Result<(), Rpc
     Ok(())
 }
 
+/// `session/new` on the peer `peer_name` (`_meta.acpmux.peer`), for a caller's
+/// own `peer` and for a create admission placed there (`hub/admission_redirect.rs`).
+async fn new_on_peer(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    params: &Value,
+    peer_name: &str,
+) -> Result<Value, RpcError> {
+    // A credential is for an agent on this machine only: never sent on to a peer.
+    if mux_meta(params).and_then(|m| m.get(crate::agent_credentials::FIELD)).is_some() {
+        return Err(RpcError::invalid_params(
+            "credentials start an agent on this machine only, never on a peer",
+        ));
+    }
+    // A machine only the mesh hub reaches starts it through the hub's start control
+    // (`mesh_control_send.rs`), as `acpmux session start --machine` does, so a placed
+    // `new` lands there instead of being refused as no peer.
+    if hub.peer_by_name(peer_name).is_none()
+        && conn.origin == Origin::Local
+        && hub.mesh.get().is_some()
+        && hub.mesh_book_has_host(peer_name)
+        && !super::trust_gate::gated(conn.origin, params)
+    {
+        return super::mesh_control_send::start_through_hub(hub, conn, params, peer_name).await;
+    }
+    let peer = hub.peer_by_name(peer_name).ok_or_else(|| RpcError::no_peer(peer_name))?;
+    if super::trust_gate::gated(conn.origin, params) && !peer.supports_trust_gate() {
+        return Err(super::trust_gate::peer_unsupported(&peer.name));
+    }
+    let mut p = params.clone();
+    super::peer_forward::strip_new_meta(&mut p);
+    // The chat there follows this Mac's answer to cmux's tools (`cmux_tools_answer.rs`).
+    let answer =
+        crate::hub::cmux_tools_answer::here_for(crate::user_settings::text().as_deref(), &p);
+    crate::hub::cmux_tools_answer::stamp(&mut p, answer);
+    super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut p);
+    // An approved no-prompt preset's chat runs unattended there (`unattended_presets.rs`).
+    let unattended = hub.forward_unattended_preset(conn.caller(), &peer.name, &mut p).await?;
+    // A full-access starter's chat runs in full access there too, and the person's
+    // own start at the person's start level (`hub/full_access_children.rs`).
+    let carried = hub.forward_start_policy(person_start(conn, params), conn.caller(), &mut p).await;
+    crate::hub::merge_mux_meta(&mut p, created_by_stamp(hub, conn, params));
+    // This caller's own opt-out for its remote chains there (`hub/vm_boundary.rs`),
+    // for the person's own clients here only (`vm_boundary::owner`): a saved
+    // `vmBoundary`, or a dedicated agent VM of this caller's own fleet registry
+    // (`hub/agent_vm.rs`).
+    if crate::hub::vm_boundary::owner(
+        conn.auth,
+        super::remote_guard::control_of(conn.origin, conn.auth, params),
+        params,
+    ) && (peer.vm_boundary() || crate::hub::agent_vm::registry_agent_vm(&peer.name, &peer.url))
+    {
+        crate::hub::merge_mux_meta(&mut p, json!({crate::hub::vm_boundary::FIELD: true}));
+    }
+    if let Some((name, digest)) = &unattended {
+        hub.unattended_preset_holds(name, digest).await?;
+    }
+    // A peer that takes no full access from this machine still starts the person's
+    // own chat, asking, as before the start level was carried (`Carried::Person`).
+    let asking = (carried == crate::hub::full_access_children::Carried::Person)
+        .then(|| crate::hub::full_access_children::without_carried_policy(&p));
+    let mut result = match super::remote_guard::hint::new_on(&peer, params, p).await {
+        Err(e)
+            if asking.is_some()
+                && e.data.as_ref().is_some_and(|d| d.get("fullAccessRefusedBy").is_some()) =>
+        {
+            let asking = asking.unwrap_or_default();
+            super::remote_guard::hint::new_on(&peer, params, asking).await?
+        }
+        r => r?,
+    };
+    if let Some(approved) = &unattended {
+        let id = result.get("sessionId").and_then(Value::as_str);
+        hub.log_unattended_start(approved, &peer.name, conn.caller(), id);
+    }
+    if let Some(id) = result.get("sessionId").and_then(Value::as_str) {
+        view::subscribe_remote(hub, conn, id, None);
+        peer.mark_attached(id);
+    }
+    if let Some(obj) = result.as_object_mut() {
+        obj.insert("peer".into(), Value::String(peer.name.clone()));
+    }
+    Ok(result)
+}
+
 /// Whether a start on `conn` is the person's own here, which carries the person's start level to
 /// another machine (`hub/full_access_children.rs`): the unix socket or the app, by the proof
 /// the connection presented, and not held to the Web's rules (`remote_guard::control_of`).
@@ -1113,7 +1205,9 @@ pub(super) async fn handle_request(
             crate::sender_token::stamp(prompt, matched, carried);
             // Who sent it, as the `Sent-by:` line the daemon appends to its text (`sent_by.rs`):
             // only a local connection that proved its session, before the outbox or a peer
-            // takes it, so every route carries the sender's own line.
+            // takes it, so every route carries the sender's own line. Its `_meta` copy is the
+            // daemon's alone: one a client sent is dropped.
+            crate::sent_by::drop_claimed(prompt, carried);
             if conn.origin == super::Origin::Local
                 && let Some(caller) = conn.caller()
             {
@@ -1361,16 +1455,22 @@ async fn dispatch_request_with_identity(
             let extensions: &[&str] = &[
                 super::peer_forward::TRUST_PEER_EXTENSION,
                 method::MUX_V2, method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_USAGE, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
-                method::MUX_DETACH, method::MUX_WATCH, method::MUX_HARNESS_INVENTORY_WATCH, method::MUX_HARNESS_INVENTORY_REFRESH, method::MUX_HARNESS_UPDATE_PLAN, method::MUX_HARNESS_UPDATE_PREPARE, method::MUX_RENAME, method::MUX_REGISTER, method::MUX_INBOX_RELAY, method::MUX_DETACH_PARENT, method::MUX_KEEP, method::MUX_KILL, method::MUX_PAUSE, method::MUX_WAKE, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT, method::MUX_QUEUE_APPROVE, method::MUX_QUEUE_DECLINE, method::MUX_QUEUE_TEXT, method::MUX_ROWS,
-                method::MUX_INFO, method::MUX_MACHINE_INFO, method::MUX_SESSION_FILES, method::MUX_EVENTS, method::MUX_GITHUB_ACTION, method::MUX_GITHUB_APP_LEASE, method::MUX_ATTACHMENT, method::MUX_TURN_SHOTS, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_TEAM_SEND, method::MUX_TEAM_INBOX, method::MUX_TEAM_READ, method::MUX_TEAM_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL, method::MUX_PROCESS_BACKGROUND, method::MUX_PROCESS_CENSUS, method::MUX_WORKTREE_REPORT, method::MUX_WORKTREE_CLEAN, method::MUX_WORKTREE_RESTORE, method::MUX_RETENTION, method::MUX_COLD_ARCHIVE,
-                method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_COMPOSER_SET, method::MUX_COMPOSERS, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_PROMPTS_LIST, method::MUX_PROMPTS_SAVE, method::MUX_PROMPTS_DELETE, method::MUX_STASH_LIST, method::MUX_STASH_PUSH, method::MUX_STASH_GET, method::MUX_STASH_DROP, method::MUX_STASH_MOVE, method::MUX_MEMORY_RESOLVE, method::MUX_PROMPT_COACH, method::MUX_ASK, method::MUX_BTW, method::MUX_VIEW, method::MUX_TYPING, method::MUX_MARK_UNREAD, method::MUX_MARK_READ, method::MUX_SEEN, method::MUX_ARCHIVE, method::MUX_SIDE,
-                method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_SET_DIRECTORIES, method::MUX_MCP_RECONNECT, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_FILE_PUT, method::MUX_FILE_PUT_BEGIN, method::MUX_FILE_PUT_CHUNK, method::MUX_FILE_PUT_FINISH, method::MUX_FILE_PUT_CANCEL, method::MUX_FILE_PUT_STATUS, method::MUX_UPLOADS_KEEP, method::MUX_MEDIA_OPEN, method::MUX_MEDIA_RANGE, method::MUX_SUBAGENT_TRANSCRIPT, method::MUX_NATIVE_HISTORY, method::MUX_WORKFLOWS, method::MUX_DISPATCH, method::MUX_STEER, method::MUX_BRIEFS, method::MUX_REPORT, method::MUX_TASK_NEW, method::MUX_TASKS, method::MUX_RESOLVE, method::MUX_WHO_ELSE, method::MUX_SEND_FANOUT, method::MUX_SHUTDOWN, method::MUX_SESSION_AUTH, method::MUX_MESH_CONTROL,
+                method::MUX_DETACH, method::MUX_WATCH, method::MUX_HARNESS_INVENTORY_WATCH, method::MUX_HARNESS_INVENTORY_REFRESH, method::MUX_HARNESS_UPDATE_PLAN, method::MUX_HARNESS_UPDATE_PREPARE, method::MUX_RENAME, method::MUX_REGISTER, method::MUX_INBOX_RELAY, method::MUX_DETACH_PARENT, method::MUX_KEEP, method::MUX_KILL, method::MUX_PAUSE, method::MUX_WAKE, method::MUX_SESSION_HOLD, method::MUX_FLEET_HOLD, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT, method::MUX_QUEUE_APPROVE, method::MUX_QUEUE_DECLINE, method::MUX_QUEUE_TEXT, method::MUX_ROWS,
+                method::MUX_INFO, method::MUX_MACHINE_INFO, method::MUX_SESSION_FILES, method::MUX_EVENTS, method::MUX_GITHUB_ACTION, method::MUX_GITHUB_APP_LEASE, method::MUX_GITHUB_REST, method::MUX_ATTACHMENT, method::MUX_TURN_SHOTS, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_TEAM_SEND, method::MUX_TEAM_INBOX, method::MUX_TEAM_READ, method::MUX_TEAM_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL, method::MUX_PROCESS_BACKGROUND, method::MUX_PROCESS_CENSUS, method::MUX_WORKTREE_REPORT, method::MUX_WORKTREE_CLEAN, method::MUX_WORKTREE_RESTORE, method::MUX_RETENTION, method::MUX_COLD_ARCHIVE,
+                method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_COMPOSER_SET, method::MUX_COMPOSERS, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_PROMPTS_LIST, method::MUX_PROMPTS_SAVE, method::MUX_PROMPTS_DELETE, method::MUX_STASH_LIST, method::MUX_STASH_PUSH, method::MUX_STASH_GET, method::MUX_STASH_DROP, method::MUX_STASH_MOVE, method::MUX_MEMORY_RESOLVE, method::MUX_AGENT_HOME, method::MUX_AGENT_HOME_RESOLVE, method::MUX_PROMPT_COACH, method::MUX_ASK, method::MUX_BTW, method::MUX_VIEW, method::MUX_TYPING, method::MUX_MARK_UNREAD, method::MUX_MARK_READ, method::MUX_SEEN, method::MUX_ARCHIVE, method::MUX_SIDE,
+                method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_SET_DIRECTORIES, method::MUX_MCP_RECONNECT, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_FILE_PUT, method::MUX_FILE_PUT_BEGIN, method::MUX_FILE_PUT_CHUNK, method::MUX_FILE_PUT_FINISH, method::MUX_FILE_PUT_CANCEL, method::MUX_FILE_PUT_STATUS, method::MUX_UPLOADS_KEEP, method::MUX_MEDIA_OPEN, method::MUX_MEDIA_RANGE, method::MUX_SUBAGENT_TRANSCRIPT, method::MUX_SUBAGENT_LIST, method::MUX_NATIVE_HISTORY, method::MUX_WORKFLOWS, method::MUX_DISPATCH, method::MUX_STEER, method::MUX_BRIEFS, method::MUX_REPORT, method::MUX_TASK_NEW, method::MUX_TASKS, method::MUX_RESOLVE, method::MUX_WHO_ELSE, method::MUX_SEND_FANOUT, method::MUX_SHUTDOWN, method::MUX_SESSION_AUTH, method::MUX_MESH_CONTROL,
                 method::CHAT_FIX_FROM_LINK,
                 method::CHAT_FIX_FROM_LINK_PREPARE,
                 method::MUX_PROJECT_NEW,
+                method::MUX_PLACE_CHAT,
                 method::MUX_PERF,
                 method::MUX_CALLERS,
+                method::MUX_FELT_SNAPSHOT,
             ];
+            let capabilities = crate::capabilities::ids_for_connection(matches!(
+                conn.transport,
+                Transport::LocalStream { .. }
+            ));
             #[allow(unused_mut)]
             let mut reply = json!({
                 "protocolVersion": 1,
@@ -1381,7 +1481,7 @@ async fn dispatch_request_with_identity(
                     "sessionCapabilities": {"list": {}, "fork": {}, "resume": {}, "close": {}, "delete": {}},
                 },
                 "authMethods": [],
-                "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::build(), "capabilities": crate::capabilities::ids(),
+                "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::build(), "capabilities": capabilities,
                 // `local`: the unix socket or the proven local app
                 // (`local_app.rs`), which the session pool serves.
                 "origin": match conn.origin { Origin::Web => "remote", Origin::Peer => "peer", _ => "local" },
@@ -1401,14 +1501,14 @@ async fn dispatch_request_with_identity(
                 "callerSessionId": conn.caller(),
                 // The challenge a local connection proves the person key against.
                 "personChallenge": if conn.challengeable() {
-                    json!({"nonce": conn.nonce, "connection": conn.id})
+                    json!({"nonce": conn.nonce, "connection": conn.id, crate::hub::person::REPROVE_FIELD: true})
                 } else {
                     Value::Null
                 },
                 // The daemon run decision proofs bind (`hub/person.rs`).
                 "personInstance": hub.person.instance(),
                 "extensions": extensions, "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", crate::config::chief_builtins::BRAIN_PRESETS_FEATURE, "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::journal_restore::PAGES_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, crate::hub::pause::FEATURE, crate::hub::release_to_watch::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE, super::dual_requests::FEATURE, crate::hub::require_asking::FEATURE, crate::hub::create_key::FEATURE, crate::sender_token::FEATURE, crate::hub::register::AUTO_FEATURE, crate::request_cancel::FEATURE, super::fork_through::RETARGET_FEATURE], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", crate::config::chief_builtins::BRAIN_PRESETS_FEATURE, "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::file_uploads::window::FEATURE, crate::hub::journal_restore::PAGES_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, crate::hub::pause::FEATURE, crate::hub::session_hold::FEATURE, crate::hub::release_to_watch::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE, super::dual_requests::FEATURE, crate::hub::require_asking::FEATURE, crate::hub::create_key::FEATURE, crate::sender_token::FEATURE, crate::hub::register::AUTO_FEATURE, crate::request_cancel::FEATURE, super::fork_through::RETARGET_FEATURE, crate::hub::fork_subagent::FEATURE, super::client_features::UNSENT_FEATURE], "trustGate": true}}
             });
             // This link carries the v2 list stream (`link_v2.rs`): the one change `peers` makes
             // to what v1 sends a link.
@@ -1488,15 +1588,28 @@ async fn dispatch_request_with_identity(
             }
             hub.github_app.set(&params)
         }
-        method::MUX_GITHUB_ACTION => crate::github_broker::handle(hub, conn, params).await,
-        // Decided in order in `Conn::bind_person`; this only reports it.
+        method::MUX_GITHUB_REST => {
+            if conn.origin != Origin::Local {
+                return Err(RpcError::new(
+                    -32040,
+                    "the app's GitHub calls come over the unix socket only",
+                ));
+            }
+            if !conn.is_person() {
+                return Err(crate::hub::person::person_required("the app's GitHub calls"));
+            }
+            crate::github_rest_op::serve(params, &hub.github_app).await
+        }
+        method::MUX_GITHUB_ACTION => super::github_lane::handle(hub, conn, params).await,
+        // Decided in order in `Conn::bind_person`; a proof that came before this run's key waits
+        // for it here (`Conn::settle_prove`).
         method::MUX_PERSON_PROVE => {
-            if conn.is_person() {
+            if conn.settle_prove(hub, &params).await {
                 Ok(json!({"person": true}))
             } else {
                 Err(RpcError::new(
                     -32000,
-                    "the person proof does not answer this connection's challenge (it must be the second request, after initialize)",
+                    "the person proof does not answer this connection's challenge under this daemon's key (it comes after initialize)",
                 )
                 .with_data(json!({"reason": crate::hub::person::PROOF_REFUSED})))
             }
@@ -1600,7 +1713,11 @@ async fn dispatch_request_with_identity(
                 }
                 // The VM provisioning exec (root) gives an unsigned daemon its key
                 // (`daemon/provision.rs`); an agent, the daemon's own user, never can.
-                (false, _) if conn.provisioner => return hub.person.provision(key),
+                (false, _)
+                    if matches!(conn.transport, Transport::LocalStream { provisioner: true }) =>
+                {
+                    return hub.person.provision(key);
+                }
                 (false, _) => false,
             };
             hub.person.enroll(key, verified)
@@ -1609,6 +1726,10 @@ async fn dispatch_request_with_identity(
         method::MUX_COMPUTER_USE_CALL => super::computer_use_relay::call(hub, conn, &params).await,
         method::MUX_COMPUTER_USE_MACHINES => super::computer_use_relay::machines(hub, conn).await,
         method::MUX_COMPUTER_USE_STATE => super::computer_use_relay::state(hub, conn).await,
+        // A file or command action on another of the person's machines (`machine_files_relay.rs`).
+        method::MUX_MACHINE_FILES_CALL => {
+            super::machine_files_relay::call(hub, conn, &params).await
+        }
         // A scoped key from the machine that keeps its provider's bootstrap (`keys_relay.rs`).
         method::MUX_KEYS_MINT => super::keys_relay::mint(hub, conn, &params).await,
         method::SESSION_NEW => {
@@ -1617,83 +1738,7 @@ async fn dispatch_request_with_identity(
                 mux_meta(&params).and_then(|m| m.get("peer")).and_then(Value::as_str)
                 && !peer_name.is_empty()
             {
-                // A credential is for an agent on this machine only: never sent on to a peer.
-                if mux_meta(&params).and_then(|m| m.get(crate::agent_credentials::FIELD)).is_some()
-                {
-                    return Err(RpcError::invalid_params(
-                        "credentials start an agent on this machine only, never on a peer",
-                    ));
-                }
-                let peer =
-                    hub.peer_by_name(peer_name).ok_or_else(|| RpcError::no_peer(peer_name))?;
-                if super::trust_gate::gated(conn.origin, &params) && !peer.supports_trust_gate() {
-                    return Err(super::trust_gate::peer_unsupported(&peer.name));
-                }
-                let mut p = params.clone();
-                super::peer_forward::strip_new_meta(&mut p);
-                // The chat there follows this Mac's answer to cmux's tools (`cmux_tools_answer.rs`).
-                let answer = crate::hub::cmux_tools_answer::here_for(
-                    crate::user_settings::text().as_deref(),
-                    &p,
-                );
-                crate::hub::cmux_tools_answer::stamp(&mut p, answer);
-                super::remote_guard::mark_forwarded(conn.origin, conn.auth, &params, &mut p);
-                // An approved no-prompt preset's chat runs unattended there (`unattended_presets.rs`).
-                let unattended =
-                    hub.forward_unattended_preset(conn.caller(), &peer.name, &mut p).await?;
-                // A full-access starter's chat runs in full access there too, and the person's
-                // own start at the person's start level (`hub/full_access_children.rs`).
-                let carried = hub
-                    .forward_start_policy(person_start(conn, &params), conn.caller(), &mut p)
-                    .await;
-                crate::hub::merge_mux_meta(&mut p, created_by_stamp(hub, conn, &params));
-                // This caller's own opt-out for its remote chains there (`hub/vm_boundary.rs`),
-                // for the person's own clients here only (`vm_boundary::owner`): a saved
-                // `vmBoundary`, or a dedicated agent VM of this caller's own fleet registry
-                // (`hub/agent_vm.rs`).
-                if crate::hub::vm_boundary::owner(
-                    conn.auth,
-                    super::remote_guard::control_of(conn.origin, conn.auth, &params),
-                    &params,
-                ) && (peer.vm_boundary()
-                    || crate::hub::agent_vm::registry_agent_vm(&peer.name, &peer.url))
-                {
-                    crate::hub::merge_mux_meta(
-                        &mut p,
-                        json!({crate::hub::vm_boundary::FIELD: true}),
-                    );
-                }
-                if let Some((name, digest)) = &unattended {
-                    hub.unattended_preset_holds(name, digest).await?;
-                }
-                // A peer that takes no full access from this machine still starts the person's
-                // own chat, asking, as before the start level was carried (`Carried::Person`).
-                let asking = (carried == crate::hub::full_access_children::Carried::Person)
-                    .then(|| crate::hub::full_access_children::without_carried_policy(&p));
-                let mut result = match super::remote_guard::hint::new_on(&peer, &params, p).await {
-                    Err(e)
-                        if asking.is_some()
-                            && e.data
-                                .as_ref()
-                                .is_some_and(|d| d.get("fullAccessRefusedBy").is_some()) =>
-                    {
-                        let asking = asking.unwrap_or_default();
-                        super::remote_guard::hint::new_on(&peer, &params, asking).await?
-                    }
-                    r => r?,
-                };
-                if let Some(approved) = &unattended {
-                    let id = result.get("sessionId").and_then(Value::as_str);
-                    hub.log_unattended_start(approved, &peer.name, conn.caller(), id);
-                }
-                if let Some(id) = result.get("sessionId").and_then(Value::as_str) {
-                    view::subscribe_remote(hub, conn, id, None);
-                    peer.mark_attached(id);
-                }
-                if let Some(obj) = result.as_object_mut() {
-                    obj.insert("peer".into(), Value::String(peer.name.clone()));
-                }
-                return Ok(result);
+                return new_on_peer(hub, conn, &params, peer_name).await;
             }
             let mut cwd = str_param(&params, "cwd").map(PathBuf::from);
             let meta = mux_meta(&params);
@@ -1835,13 +1880,61 @@ async fn dispatch_request_with_identity(
             // never forks is not checked. Before the worktree, so a refusal makes none;
             // counted until the create ends.
             let who = who(conn);
-            let admitted = match &adopt {
+            let mut admitted = match &adopt {
                 Some(a) if a.if_live != crate::adopt::IfLive::Fork => None,
                 _ => Some(hub.admit_new(ask(conn, &params, &who)).await?),
             };
             // The session this one takes over from: its harness is kept (`requests/successor.rs`).
             let succ = successor::find(hub, conn, &params, lineage.as_ref(), adopting).await?;
             let copy = succ.as_ref().and_then(|s| s.copy.clone()).unwrap_or_default();
+            // A fleet hold lets only its allowlist start, unless the person asks (`hub/session_hold.rs`).
+            if !adopting
+                && let Some(refusal) =
+                    hub.fleet_hold_refuses_new(pick("name").as_deref(), person_asks(conn))
+            {
+                return Err(refusal);
+            }
+            // No room here and a peer has some: it starts there (`hub/admission_redirect.rs`).
+            // A fixed id, an adopt or a successor is this daemon's own; a start that fails
+            // there starts here, warned (no start is dropped for a cap).
+            if let Some(placed) = admitted
+                .as_mut()
+                .filter(|_| fixed_id.is_none() && !adopting && succ.is_none())
+                .and_then(|a| a.placed.take())
+            {
+                use crate::hub::admission_redirect as redirect;
+                let p = redirect::forwarded(&params, &placed);
+                match Box::pin(new_on_peer(hub, conn, &p, &placed.host)).await {
+                    Ok(result) => {
+                        redirect::log("redirected", placed.reason, Some(&placed.host), None);
+                        return Ok(redirect::answer(result, &placed));
+                    }
+                    Err(e) => {
+                        let host = Some(placed.host.as_str());
+                        redirect::log(
+                            "local_forward_failed",
+                            placed.reason,
+                            host,
+                            Some(e.message.as_str()),
+                        );
+                        if let Some(a) = admitted.as_mut() {
+                            let failed = redirect::forward_failed(&placed, &e.message);
+                            let mut w = a.warning.take().unwrap_or_else(|| json!({}));
+                            let text = match w.get("warning").and_then(Value::as_str) {
+                                Some(cap) => format!("{cap} {failed}"),
+                                None => failed,
+                            };
+                            w.set("warning", json!(text));
+                            w.set("placeFailed", json!(placed.host));
+                            a.warning = Some(w);
+                        }
+                    }
+                }
+            }
+            // It starts here in a filler's room: the filler is hibernated (`free_filler`).
+            if let Some((filler, reason)) = admitted.as_mut().and_then(|a| a.freed.take()) {
+                crate::hub::admission_redirect::free_filler(hub.clone(), filler, reason);
+            }
             // After the request checks above, so a request they refuse makes no worktree.
             let worktree = super::new_worktree::ensure(conn.origin, meta, &mut cwd).await?;
             let workspace_id = crate::session_env::workspace_id(meta, &env)?;
@@ -1855,6 +1948,16 @@ async fn dispatch_request_with_identity(
                     workspace: workspace_id.clone(),
                 })
             });
+            // The owner's own daemon starts this machine's own chat, not a remote chain
+            // (`remote_guard::owner_control`, cmux#50026): no remote start rule, no asking-mode
+            // settle, the mode it asks as this machine's own start. A VM-boundary start stays one.
+            let remote_start = conn.origin.web_class()
+                && (!super::remote_guard::owner_control(conn.origin, conn.auth, &params)
+                    || crate::hub::vm_boundary::asked(
+                        conn.auth,
+                        super::remote_guard::control_of(conn.origin, conn.auth, &params),
+                        &params,
+                    ));
             let req = crate::hub::NewRequest {
                 harness: copy.harness.or_else(|| pick("harness")),
                 preset: copy.preset.or_else(|| pick("preset")),
@@ -1869,7 +1972,7 @@ async fn dispatch_request_with_identity(
                 workspace_id,
                 env,
                 // LocalApp = same-user secret, equal to the unix socket for STARTING presets; writes stay unix-socket only.
-                remote: conn.origin.web_class(),
+                remote: remote_start,
                 vm_boundary: crate::hub::vm_boundary::asked(
                     conn.auth,
                     super::remote_guard::control_of(conn.origin, conn.auth, &params),
@@ -1911,7 +2014,7 @@ async fn dispatch_request_with_identity(
             {
                 hub.set_tags(&s, Some(tags), &[], None);
             }
-            if conn.origin.web_class() {
+            if remote_start {
                 let peer = super::remote_guard::settles_as_peer(conn.origin, conn.auth, &params);
                 let cloud_mobile = super::remote_guard::cloud_mobile(&params);
                 // The VM boundary its caller asked for (`hub/vm_boundary.rs`): a
@@ -1981,6 +2084,8 @@ async fn dispatch_request_with_identity(
         method::SESSION_RESUME => session_open::resume(hub, conn, resolved.as_ref(), &params),
         method::SESSION_LIST => super::list_reply::acp_list(hub, conn, &params).await,
         method::SESSION_PROMPT => {
+            // The felt send-to-ack starts here, before the admission wait (`felt.rs`).
+            let felt_started = std::time::Instant::now();
             let s = resolved_session(hub, resolved.as_ref(), &params)?;
             // A delivery again names the generation it first reached (`outbox.rs`
             // `redeliver_open`): a session purged and made again under its id never runs it.
@@ -1993,6 +2098,7 @@ async fn dispatch_request_with_identity(
                 )
                 .with_data(json!({"reason": "stale_generation", "retryable": false})));
             }
+            let prompt_admission = s.prompt_admission.clone().lock_owned().await;
             attach(hub, conn, &s.id);
             if person_asks(conn) {
                 super::lane_parent::person_wrote(hub, &s);
@@ -2024,6 +2130,9 @@ async fn dispatch_request_with_identity(
                 crate::prompt_uploads::owned(&s.id, &blocks).await
             });
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
+            // An `@computer-use` / `@browser-use` the person wrote gets acpmux's fixed note for the
+            // agent, from any origin: its text is acpmux's, not the client's (`tool_mentions.rs`).
+            crate::tool_mentions::add_note(&mut blocks);
             let provenance =
                 crate::hub::Hub::prompt_provenance(&params, conn.origin, conn.is_trigger())?;
             // The caller's own provenance: a `cmux agent message`, never an inbox item.
@@ -2325,8 +2434,10 @@ async fn dispatch_request_with_identity(
                 )
                 .map_err(|e| RpcError::invalid_params(e.to_string()))?;
             }
+            let on_accepted = super::felt::time_ack(felt_started, on_accepted);
             let mut opts = crate::hub::PromptOptions {
                 race_guard: None,
+                prompt_admission: Some(prompt_admission),
                 cloud_turn,
                 prompt_id,
                 message_id,
@@ -2465,17 +2576,26 @@ async fn dispatch_request_with_identity(
             let workspace_id = crate::session_env::workspace_id(mux_meta(&params), &env)?;
             let through = super::fork_through::through(&params);
             let start_later = super::fork_through::starts_later(&params);
-            // A remote device's switch is its new chat (`hub/fork.rs` `Retarget::remote`).
-            let remote_switch = conn.origin.web_class();
+            // A remote device's switch is its new chat (`hub/fork.rs` `Retarget::remote`); the
+            // owner's own daemon's is this machine's (`remote_guard::owner_control`).
+            let remote_switch = conn.origin.web_class()
+                && !super::remote_guard::owner_control(conn.origin, conn.auth, &params);
             let retarget = super::fork_through::retarget(&params)?
                 .map(|r| crate::hub::Retarget { remote: remote_switch, ..r });
             let switched = retarget.is_some();
+            // A subagent's own conversation, a model, a mode (`hub/fork_subagent.rs`). The mode
+            // pick is the person's own on this Mac: one that does not ask widens a narrow policy
+            // first, as their mode pick does (`SESSION_SET_MODE` below).
+            let start = crate::hub::fork_subagent::ForkStart::from_params(
+                &params,
+                conn.is_person() && !conn.origin.web_class(),
+            )?;
             let who = who(conn);
             let (new, warning) = if let Some(prompt) =
                 params.pointer("/_meta/acpmux/beforePromptId").and_then(Value::as_str)
             {
                 // A switch forks the chat as it is now; a fork before a prompt keeps its harness.
-                if retarget.is_some() {
+                if retarget.is_some() || !start.is_plain() {
                     return Err(RpcError::invalid_params(
                         "a fork before a prompt keeps the chat's harness: omit harness",
                     ));
@@ -2497,6 +2617,24 @@ async fn dispatch_request_with_identity(
                     // Onto another harness (`_meta.acpmux.harness`, `hub/fork.rs` `Retarget`): a
                     // pick of another harness's model in a started chat, at its next send.
                     let new = match retarget {
+                        _ if !start.is_plain() => {
+                            if through.is_some() {
+                                return Err(RpcError::invalid_params(
+                                    "a fork of a subagent, or one on a picked model or mode, forks the chat as it is now: omit throughSeq",
+                                ));
+                            }
+                            let fork = hub.fork_with_start(
+                                &s,
+                                retarget,
+                                name,
+                                cwd,
+                                env,
+                                workspace_id,
+                                start_later,
+                                start,
+                            );
+                            admitted.run(fork).await?
+                        }
                         Some(retarget) => {
                             let fork = hub.fork_to(
                                 &s,
@@ -2593,12 +2731,14 @@ async fn dispatch_request_with_identity(
         }
         method::SESSION_CLOSE => {
             let s = hub.resolve(session_key(&params)?)?;
-            heap(|| hub.kill(&s, false)).await?;
+            let why = crate::close_why::CloseWhy::from_params(conn.close_actor(&s.id), &params);
+            heap(|| hub.kill_why(&s, false, why)).await?;
             Ok(json!({}))
         }
         method::SESSION_DELETE => {
             let s = hub.resolve(session_key(&params)?)?;
-            heap(|| hub.kill(&s, true)).await?;
+            let why = crate::close_why::CloseWhy::from_params(conn.close_actor(&s.id), &params);
+            heap(|| hub.kill_why(&s, true, why)).await?;
             Ok(json!({}))
         }
         // ------------------------------------------------ acpmux extensions
@@ -2631,6 +2771,16 @@ async fn dispatch_request_with_identity(
             }
         }
         method::MUX_STATUS => Ok(hub.status().await),
+        // The felt-latency histograms (`cmux-felt`): names and numbers only, but this machine's
+        // own clients only, like the perf watch beside it.
+        method::MUX_FELT_SNAPSHOT => {
+            if !matches!(conn.origin, Origin::Local | Origin::LocalApp) {
+                return Err(RpcError::invalid_params(
+                    "only the local app or unix socket may read the felt latency",
+                ));
+            }
+            Ok(cmux_felt::snapshot())
+        }
         // Each caller's requests and bytes over a recent window (`caller_stats.rs`): this
         // machine's own clients only. It names local pids and sessions.
         method::MUX_CALLERS => {
@@ -2653,18 +2803,16 @@ async fn dispatch_request_with_identity(
         }
         method::MUX_SESSIONS => {
             // `usage: true` (`ls --wide`, `--json`): each chat's usage as its harness recorded it
-            // until now first (`hub/usage_view.rs`); else rows carry the last pass's.
+            // (`hub/usage_view.rs` `read_usage_for_list`); else rows carry the last pass's.
             if params.get("usage") == Some(&Value::Bool(true)) {
-                let read = hub.refresh_usage_stats();
-                let _ = tokio::time::timeout(crate::hub::USAGE_READ_WAIT, read).await;
+                hub.read_usage_for_list().await;
             }
             super::list_reply::sessions(hub, conn, &params).await
         }
         method::MUX_USAGE => {
-            // The same usage read `_acpmux/sessions {usage: true}` waits for, then only the stats
-            // (`hub/usage_answer.rs`).
-            let read = hub.refresh_usage_stats();
-            let _ = tokio::time::timeout(crate::hub::USAGE_READ_WAIT, read).await;
+            // The same usage read `_acpmux/sessions {usage: true}` makes (the cached stats at once,
+            // a pass behind them), then only the stats (`hub/usage_answer.rs`).
+            hub.read_usage_for_list().await;
             let known = match params.get("known") {
                 None | Some(Value::Null) => None,
                 Some(Value::String(known)) => Some(known.as_str()),
@@ -2696,6 +2844,17 @@ async fn dispatch_request_with_identity(
             Ok(json!({"warmed": warmed}))
         }
         method::MUX_PREWARM => {
+            // A Cloud machine's first home chat folder, warm before the chat exists
+            // (`hub/pool/reserved.rs`): this machine's own socket only.
+            if params.get("reserveHome").and_then(Value::as_bool) == Some(true) {
+                if conn.origin != Origin::Local {
+                    return Err(RpcError::invalid_params(
+                        "reserveHome is asked on this machine's own socket only",
+                    ));
+                }
+                let wait = params.get("wait").and_then(Value::as_bool) == Some(true);
+                return heap(|| hub.reserve_home_warm(wait)).await;
+            }
             let s = |k: &str| params.get(k).and_then(Value::as_str).map(str::to_owned);
             // A Cloud chat's coming start (cmux#45953): its owner credential, from this machine's
             // own socket only, as `session/new` takes one; never from an agent's connection.
@@ -2758,6 +2917,7 @@ async fn dispatch_request_with_identity(
             Ok(json!({"policy":policy.to_string()}))
         }
         "_acpmux/peers" => Ok(json!({"peers": hub.peers()})),
+        "_acpmux/host_overload" => Ok(crate::host_overload::current().to_json()),
         "_acpmux/host_health" => Ok(super::peer_status::host_health(hub, conn.origin).await),
         "_acpmux/peer_status" => super::peer_status::peer_status(hub, conn.origin, &params).await,
         super::vm_host::METHOD => super::vm_host::handle(hub, conn, &params).await,
@@ -2806,6 +2966,25 @@ async fn dispatch_request_with_identity(
             ))
         }
         "_acpmux/place" => Ok(super::place::place(hub, &params).await),
+        // A new chat's place mode and where it starts with it (`chat_place.rs`): the composer's
+        // place picker and chip, on the same sockets `_acpmux/place` answers on.
+        "_acpmux/chat_place" | "_acpmux/chat_place_set"
+            if !matches!(conn.origin, Origin::Local | Origin::LocalApp) =>
+        {
+            Err(RpcError::invalid_params(
+                "_acpmux/chat_place answers on this machine's unix socket and the app's own pane only",
+            ))
+        }
+        "_acpmux/chat_place" => Ok(super::chat_place::read(hub, &params).await),
+        "_acpmux/chat_place_set" => super::chat_place::set(hub, &params).await,
+        // Where a new Auto chat runs, from this machine's budget: the same clients as
+        // `_acpmux/place` (its reason names this machine's numbers).
+        method::MUX_PLACE_CHAT if !matches!(conn.origin, Origin::Local | Origin::LocalApp) => {
+            Err(RpcError::invalid_params(
+                "_acpmux/place_chat answers on this machine's unix socket and the app's own pane only",
+            ))
+        }
+        method::MUX_PLACE_CHAT => Ok(super::place::place_chat(&params).await),
         "_acpmux/move_targets" if conn.origin != Origin::Local => Err(RpcError::invalid_params(
             "_acpmux/move_targets answers on this machine's unix socket only",
         )),
@@ -3454,6 +3633,9 @@ async fn dispatch_request_with_identity(
                 let filter = hold_attach_filter(&params)?;
                 if attach_shows(conn, &params) {
                     hub.wake_for(&s, super::trust_gate::for_web(conn.origin, &params), "click");
+                    if person_asks(conn) {
+                        hub.release_session_hold_for_person(&s);
+                    }
                 }
                 view::attach(
                     hub,
@@ -3480,7 +3662,7 @@ async fn dispatch_request_with_identity(
                     "readThrough": read_through,
                     "hold": true,
                 });
-                time_breakdown_gate::apply(&mut reply, &params);
+                time_breakdown_gate::apply(&mut reply, &params, conn);
                 return Ok(reply);
             }
             // `settled`: the chat's settled view first, read before any log wait; a restart's
@@ -3506,6 +3688,10 @@ async fn dispatch_request_with_identity(
             // hibernated it (`hub/idle.rs` `wake_for`); a CLI's read does not (`attach_shows`).
             if attach_shows(conn, &params) {
                 hub.wake_for(&s, super::trust_gate::for_web(conn.origin, &params), "click");
+                // The person opening a held chat in the app lets it run (`hub/session_hold.rs`).
+                if person_asks(conn) {
+                    hub.release_session_hold_for_person(&s);
+                }
             }
             view::attach(
                 hub,
@@ -3526,7 +3712,7 @@ async fn dispatch_request_with_identity(
                     if let Some(mut reply) =
                         crate::qos::off_worker(|| settled_attach::reply(hub, conn, &s, view))?
                     {
-                        time_breakdown_gate::apply(&mut reply, &params);
+                        time_breakdown_gate::apply(&mut reply, &params, conn);
                         return Ok(reply);
                     }
                     Some(key)
@@ -3593,7 +3779,7 @@ async fn dispatch_request_with_identity(
                 reply["settled"] = Value::Null;
                 hub.settle_view_for_open(&s, key);
             }
-            time_breakdown_gate::apply(&mut reply, &params);
+            time_breakdown_gate::apply(&mut reply, &params, conn);
             // The page and its opener each keep a record of up to 14 MiB: together they could
             // pass one message, and the chat then never opened (`hub::fit_reply`).
             crate::hub::fit_reply(&mut reply);
@@ -3613,6 +3799,9 @@ async fn dispatch_request_with_identity(
                 && let Ok(session) = hub.resolve(session_key(&params)?)
             {
                 hub.wake_for(&session, super::trust_gate::for_web(conn.origin, &params), "click");
+                if person_asks(conn) {
+                    hub.release_session_hold_for_person(&session);
+                }
             }
             Ok(done)
         }
@@ -3762,7 +3951,10 @@ async fn dispatch_request_with_identity(
             let purge = params.get("purge").and_then(Value::as_bool).unwrap_or(false);
             // `ifIdle`: refused unless idle, checked under the turn lock (`stop_if_idle.rs`).
             let condition = crate::hub::stop_if_idle::StopCondition::from_params(&params)?;
-            heap(|| hub.stop(&s, purge, condition)).await?;
+            // Who asked, and the `reason`/`outcome` it gave (`close_why.rs`): recorded, never
+            // refused.
+            let why = crate::close_why::CloseWhy::from_params(conn.close_actor(&s.id), &params);
+            heap(|| hub.stop_why(&s, purge, condition, why)).await?;
             Ok(json!({"sessionId": s.id, "purged": purge}))
         }
         // Hibernate an idle session now, or start a hibernated one's agent now (`hub/pause.rs`).
@@ -3774,6 +3966,13 @@ async fn dispatch_request_with_identity(
             let s = hub.resolve(session_key(&params)?)?;
             heap(|| hub.wake(&s)).await
         }
+        // Hold a chat, or release it; set or read the fleet hold (`hub/session_hold.rs`).
+        method::MUX_SESSION_HOLD => {
+            let s = hub.resolve(session_key(&params)?)?;
+            let held = params.get("held").and_then(Value::as_bool).unwrap_or(true);
+            heap(|| hub.set_session_hold(&s, held)).await
+        }
+        method::MUX_FLEET_HOLD => hub.set_fleet_hold(&params),
         method::MUX_WATCH_TAKE_OVER => super::chats::watch_take_over(hub, &params).await,
         method::MUX_RELEASE_TO_WATCH => {
             super::chats::release_to_watch(hub, &params, conn.origin, conn.socket_peer).await
@@ -3847,6 +4046,22 @@ async fn dispatch_request_with_identity(
             // Who answered, when a person other than the owner did (`author.rs`): a label only.
             let author = crate::author::author(&params)?;
             answerer.author = author.as_ref();
+            // A notification's one-tap choice (`hub/ask_choices.rs`): the option and answers it
+            // stands for, then the same answer and checks.
+            // One that is not a string is refused, never read as no choice (a cancel).
+            if let Some(choice) = params.get("choiceId").filter(|v| !v.is_null()) {
+                let choice = choice
+                    .as_str()
+                    .ok_or_else(|| RpcError::invalid_params("choiceId must be a string"))?;
+                let answered = answers.as_ref().is_some_and(|a| !a.is_null());
+                if option.is_some() || answered || annotations.is_some() {
+                    return Err(RpcError::invalid_params(
+                        "choiceId goes alone: no optionId, answers or annotations beside it",
+                    ));
+                }
+                hub.respond_choice(&s, pid, choice, answered_by, answerer, control).await?;
+                return Ok(json!({}));
+            }
             // The paired machine that answers, for D13 (`Hub::local_claude_refusal`).
             let device = super::remote_guard::sending_device(conn, &params);
             answerer.device = device.as_deref();
@@ -3906,6 +4121,8 @@ async fn dispatch_request_with_identity(
         method::MUX_MEDIA_OPEN | method::MUX_MEDIA_RANGE => {
             crate::hub::media_read::handle(hub, &conn.media, m, &params).await
         }
+        // A chat's subagents, running and lately ended, from its subagent tree.
+        method::MUX_SUBAGENT_LIST => crate::hub::subagent_list::handle(hub, &params),
         // A subagent's transcript, read from the files Claude Code writes for the chat.
         method::MUX_SUBAGENT_TRANSCRIPT => {
             heap(|| crate::hub::subagent_transcript::handle(hub, &params)).await
@@ -3964,6 +4181,45 @@ async fn dispatch_request_with_identity(
                 reason = %shutdown_reason(&params),
                 "a client asked this daemon to stop"
             );
+            // A take-over start's ask for this daemon's listeners (`daemon/listener_handover.rs`):
+            // from the unix socket only, to a side socket in this home that the asking process
+            // listens on. Sent before the stop begins; a failure only means it binds as before.
+            #[cfg(unix)]
+            let handed: Vec<&'static str> = match (
+                params.get(crate::daemon::listener_handover::PARAM).and_then(Value::as_str),
+                conn.origin,
+                conn.socket_peer,
+            ) {
+                (Some(side), Origin::Local, crate::sender_harness::SocketPeer::Pid(asker)) => {
+                    let side = std::path::PathBuf::from(side);
+                    let home = crate::config::home();
+                    match tokio::task::spawn_blocking(move || {
+                        crate::daemon::listener_handover::hand(&home, &side, asker)
+                    })
+                    .await
+                    {
+                        Ok(Ok(kinds)) => {
+                            tracing::info!(
+                                asker,
+                                ?kinds,
+                                "handed the listeners to the take-over start"
+                            );
+                            kinds
+                        }
+                        Ok(Err(why)) => {
+                            tracing::warn!(asker, "listener handover refused: {why}");
+                            Vec::new()
+                        }
+                        Err(e) => {
+                            tracing::warn!("listener handover task: {e}");
+                            Vec::new()
+                        }
+                    }
+                }
+                _ => Vec::new(),
+            };
+            #[cfg(not(unix))]
+            let handed: Vec<&'static str> = Vec::new();
             crate::daemon::supervision::stopping(crate::daemon::supervision::shutdown_cause(
                 &shutdown_reason(&params),
                 params.get("restart").and_then(Value::as_bool) == Some(true),
@@ -3996,7 +4252,11 @@ async fn dispatch_request_with_identity(
             } else {
                 0
             };
-            Ok(json!({"endAgents": end_agents, "keptSessions": kept}))
+            Ok(json!({
+                "endAgents": end_agents,
+                "keptSessions": kept,
+                "listenersHanded": handed,
+            }))
         }
         method::MUX_HANDOFF_PREPARE => {
             heap(|| hub.handoff_prepare(&params, conn.origin.web_class())).await
@@ -4014,17 +4274,20 @@ async fn dispatch_request_with_identity(
         // Anything else that names a session goes to the agent untouched, from the unix
         // socket (the app: only a subagent stop); it may spawn or read (`remote_guard.rs`).
         other => {
-            if !super::remote_guard::forwards(conn.origin, other) && session_key(&params).is_ok() {
+            let key = session_key(&params).map_err(|_| match other {
+                method::MUX_SUBAGENT_STOP | method::MUX_STEER_WITHDRAW | method::MUX_STEP_NOW => {
+                    RpcError::invalid_params("sessionId is required")
+                }
+                _ => RpcError::method_not_found(other),
+            })?;
+            if !super::remote_guard::forwards(conn.origin, other) {
                 return Err(RpcError::invalid_params(format!(
                     "{other} is passed to the harness only from the local unix socket"
                 )));
             }
-            if let Ok(key) = session_key(&params) {
-                let s = hub.resolve(key)?;
-                crate::hub::person::harness_forward_check(conn.is_person(), other)?;
-                return heap(|| hub.forward(&s, other, params)).await;
-            }
-            Err(RpcError::method_not_found(other))
+            let s = hub.resolve(key)?;
+            crate::hub::person::harness_forward_check(conn.is_person(), other)?;
+            heap(|| hub.forward(&s, other, params)).await
         }
     }
 }
@@ -4094,7 +4357,7 @@ async fn rows(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcE
     }
     let (hub2, id, params) = (hub.clone(), s.id.clone(), params.clone());
     let (reply, following) =
-        tokio::task::spawn_blocking(move || crate::rows::read(&hub2, &id, &params))
+        tokio::task::spawn_blocking(move || crate::rows::read(&*hub2, &id, &params))
             .await
             .map_err(|e| RpcError::internal(format!("rows: {e}")))??;
     if let Some(following) = following
@@ -4409,6 +4672,8 @@ pub(super) fn note_initialize(conn: &Conn, params: &Value) {
     // Opt-in: a client that does not ask hears every peer row's `session_changed`, as before.
     let batches = params.pointer("/_meta/acpmux/peerRowBatches").and_then(Value::as_bool);
     conn.peer_row_batches.store(batches == Some(true), Ordering::SeqCst);
+    // The features it reads (`client_features.rs`); none listed: a client from before the list.
+    conn.client_features.note(params);
     // Opt-in too (`chunk_deltas.rs`): a client that does not ask hears every chunk's whole event.
     // A peer's link reads text masked (`peer_text.rs`), so it is never sent the compact form.
     let deltas = params.pointer("/_meta/acpmux/chunkDeltas").and_then(Value::as_bool);
@@ -4418,6 +4683,9 @@ pub(super) fn note_initialize(conn: &Conn, params: &Value) {
     // (`peer_text.rs`) knows a summary only whole, so a masked peer always gets whole rows.
     conn.session_delta
         .store(super::session_patch::allowed(params, conn.raw_text), Ordering::SeqCst);
+    // Opt-in too (`time_breakdown_gate.rs`): a client that does not ask keeps every breakdown.
+    let omit = params.pointer("/_meta/acpmux/omitTimeBreakdown").and_then(Value::as_bool);
+    conn.omit_time_breakdown.store(omit == Some(true), Ordering::SeqCst);
     *conn.sent_rows.lock_or_recover() = Default::default();
 }
 

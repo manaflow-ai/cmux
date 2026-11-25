@@ -4968,3 +4968,92 @@ macos-placement uploads the owned-pool-watch marker: ci-owned-pool-rescue.yml's 
 (owned_pool_rescue.SIDE_WORKFLOW_PATHS) and re-runs a job a mini leaves queued or refuses. Bot attempt 2 and
 later drop the stale placement output and re-admits it through the same fast-checks/owned-Mac/Blacksmith
 order; a person's re-run stays on the side label.
+
+## note-554
+
+Above `SUPERSEDED_GATE` and `superseded="" head_read=""` in compile-status, and above `if [[ "$state" == superseded ]]` in
+release-compile-fast, in `.github/workflows/cmux-next.yml`.
+
+A feat-cmux-next push the controller will not check (its receipt reads `"state": "superseded"`, a newer push tip
+is checked instead: note-551, cmuxterm-hq cmux_next_tip_debounce.go) gets no compile result, ever. compile-status
+did not take that state as final: it read it every 30 s for its whole 40 minutes, then posted
+`[no-verdict] No compile result for this head in 40 minutes` and failed, and release-compile-fast then read it for
+20 more minutes and handed the head to the Mac fallback. 2026-11-21 04Z..11-23 05Z: 159 failed compile-status jobs
+on feat-cmux-next pushes, 5,774 runner-min (p50 40.1 min each), about 4 min per merged PR.
+
+Now both read the branch head once (anonymous `git ls-remote`, no token) when the receipt says superseded and the run
+has no pull request. A head that moved on ends the wait at once: compile-status posts cmux-next/compile `error`
+`[no-verdict] [superseded] ...` (still no verdict to base_red_excuse.py's COMPILE_STATUS_NO_VERDICT) and ends green;
+release-compile-fast ends green with verdict `superseded`, so neither the admission job nor the Mac Release compile
+runs, as for a push the preflight found superseded. A head that has not moved, or that cannot be read, waits as
+before. Nothing that compiles is skipped: the newer tip's check covers these commits, and a red there names them.
+Undo: vars.CMUX_NEXT_SUPERSEDED_COMPILE_GATE = '0'.
+
+## note-555
+
+Above `macos-placement: CI_FAST_TIER_FLEET_SPILL` in `.github/workflows/cmux-next.yml`.
+
+With Blacksmith macOS off, a FLEET_CLIENT_JOBS job (the fast tier) that no idle mini took is listed in
+fleet_jobs, so its build-fleet client runs it on an idle gateway runner instead of waiting on the owned
+label (next_macos_cascade.fleet_spill()). 2026-11-23 09-11Z the fast tier queued 46 to 65 min on
+glaeda-side-std-xcode-26.6 before starting; at 11:33Z the label had 173 jobs queued (87 of them fast tier,
+76 over 10 min), oldest 318 min, and all 31 of its slots busy, while placement logged idle gateway runners.
+fleet_gateway() still keeps the job only with an idle gateway runner of its own, and a fleet verdict
+`queued` hands it back, which with the switch off waits on the owned route rather than a Blacksmith label
+no runner serves (side_lane_placement.handback()). `vars.CI_FAST_TIER_FLEET_SPILL` set to `0` turns the
+spill off; unset or any other value leaves it on.
+
+## note-556
+
+Above `generated-files-base-red:` in `.github/workflows/cmux-next.yml`.
+
+Leo, 2026-11-24: "de facto, im asking for 99% fewer minutes of ci time, period." In the 24 h to 2026-11-24 11Z,
+`cmux-next generated files` ran 581 times for 17,010 runner-min and passed 0 times: base push runs went 41 red,
+0 green, and every PR run was red for the base's reasons. There were two shapes. The first was SwiftPM exiting 1 with
+`error: cannot find 'PaneMoreShotsTests' in scope` buried in about 43k warning lines; base fixed it at e627e833 but
+long-queued PR merge refs predated the fix. The second was the action and settings export judges failing because the
+CCmuxAppFFI pin (app-ffi-pin.json) lags the Rust catalog, so the Swift tests read the old catalog; it waits on the
+re-pin PR. A PR run of a job red on the base tells nobody anything gh-merge-green does not already excuse, so a pull
+request skips it while the newest base push verdict is red (scripts/ci/base_red_skip.py: fails open, 10% audit, the
+full-ci label runs it, push and dispatch always run it). `vars.CI_SKIP_WHILE_BASE_RED` set to `0` turns it off.
+
+## note-557
+
+Above `runs-on` in app-compile-fleet and swift-canary-fleet in `.github/workflows/cmux-next.yml`.
+
+Both jobs used to take a gateway runner and hold it while the build fleet compiled the head: the client
+submitted the Debug `--app` compile and waited up to 25 minutes for it. 2026-11-23..24, app-compile-fleet held
+gateway runners for about 22,900 runner-min a day (1,791 jobs) doing nothing but wait.
+
+Now the compile check posts its result back instead of holding a runner. The controller (cmuxterm-hq
+cmux_next_app_debug_check.go) submits the Debug `--app` compile of a same-repository pull request head when
+it sees either job queued, or when the job's read names the pull request, and serves the record at
+`compile-checks/v1/<sha>?phase=app-debug` (configuration `debug`, recipe 2). That record never stands for the
+land Release. The job runs on cmux-linux and reads only that record with the trusted base copy of
+scripts/ci/fleet_compile_result.py (`--phase app-debug`). The check name, its `if`, its placement and its
+verdicts are unchanged: pass is green, fail is red, and no result in 40 minutes (no record after 5 minutes,
+the service down, or a base reader without the phase) is `unavailable` and fails closed, as a cmux-ci exit
+other than 0, 1 or 75 did. A check the fleet still holds queued (`pending`) is a warning, as exit 75 was. swift-canary-fleet does the same for a pull request; any non-pass still lets the Mac
+canary run, and a push keeps its tip-check read and gateway compile.
+
+## note-affected-set-replay
+
+How much of a PR's verdict goes to checks its diff could not have made fail (Leo, 2026-11-21: "help 100x ci speed
+... while maintaining a partial semblance of checks. and we can infrequenrly have fuller checks."). Replayed over
+the last 20 non-bot PRs squash-merged into feat-cmux-next with `scripts/ci/affected_set_replay.py fetch` then
+`report` (input map and assumptions in its header; test `tests/test_ci_affected_set_replay.py`). It is also the
+before-number for cmux#54763.
+
+| Measure (20 PRs, 2026-11-24) | Value |
+| --- | --- |
+| Machine minutes on checks the diff could not have failed | 103 of 1396 (7%) |
+| Verdict wall summed, affected-only vs all | 1367 of 1380 min (1% less) |
+| Verdict wall p50, all checks that ran | 29.4 min |
+| Critical-path wall p50, affected checks only | 29.4 min |
+| Costliest unaffectable checks (machine min) | tooling-tests 64, app compile (build fleet) 16, fast tier (cargo) 12 |
+
+Reading: path routing already skips what the diff cannot touch (a skipped check costs nothing and is not counted),
+so the checks that did run were nearly all inputs of the diff, the PR itself, or the routers that decide the rest.
+An ideal input-based routing would save about 7% of minutes and almost no wall; the verdict wall is the slowest
+affected check (and queue and reruns), not unaffected work. Lower bound: routers, placement, comment and
+PR-metadata jobs and unknown checks count as affected, and CI plumbing paths are an input of every check.

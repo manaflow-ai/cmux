@@ -56,7 +56,7 @@ public final class HostsSidebar {
             self.stopAging = stopAging
         }
 
-        /// Mesh-only joined Macs use the signed-in dial flow; linked rows use the ordinary workspace action.
+        /// Mesh-only joined machines (Mac or Linux) use the signed-in dial flow; linked rows use the ordinary workspace action.
         public func open(_ machine: MachineSectionRow) {
             switch MachineRow(machine: machine).action {
             case .dialJoined(let joined): openJoined(joined)
@@ -81,10 +81,9 @@ public final class HostsSidebar {
 
         var action: RowAction? {
             if let joined = machine.joined, machine.id == JoinedMachine.healthID(joined.id) {
-                // A mesh-only joined row is a presence/management row. Only an online Mac
-                // supports the signed-in dial flow; Linux and Windows rows have no daemon
-                // machine id that workspace.newOnMachine could accept.
-                return joined.state == .online && joined.isMac ? .dialJoined(joined) : nil
+                // A mesh-only joined row opens through its hub route (``SignedInMachineDial``), which
+                // makes the server row workspace.newOnMachine runs on; an offline one stays closed.
+                return joined.opensOverHub ? .dialJoined(joined) : nil
             }
             return machine.isConnected ? .newWorkspace : .connect
         }
@@ -254,9 +253,10 @@ public final class HostsSidebar {
         }
 
         var header = SidebarItemInfo(title: "Hosts", symbol: "server.rack", badge: machines.isEmpty ? nil : machines.count)
-        func held(_ machine: MachineSectionRow) -> Bool {
-            holdsConnect(machine) && lasting.map { !$0.contains(machine.id) } ?? false
-        }
+        // A connect nobody asked for never says so, however long it lasts: the link keeps redialing in the
+        // background and the row keeps its name (Leo, 2026-11-24: "all the connecting... indicators and the
+        // graying out of workspaces, nah let's not do that. let's just keep optimistically connecting").
+        func held(_ machine: MachineSectionRow) -> Bool { holdsConnect(machine) }
         header.activity = machines.contains(where: { $0.isConnecting && !$0.failed && !held($0) }) ? .working : .idle
         add(Self.headerID, header)
         guard expanded else { return items }
@@ -272,7 +272,7 @@ public final class HostsSidebar {
             info.caption = quiet ? nil : caption(for: machine)
             info.tooltip = machine.failure
             info.indent = 1
-            info.isMissing = !machine.isConnected && !machine.isConnecting && machine.serverState == nil
+            // Never greyed: an offline machine says "Offline" in its caption, at full strength.
             info.activity = machine.isConnecting && !machine.failed && !quiet ? .working : .idle
             add(LayoutItemID(Self.rowPrefix + machine.id), info)
         }

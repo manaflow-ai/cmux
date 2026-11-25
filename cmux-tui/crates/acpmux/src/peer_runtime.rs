@@ -19,8 +19,13 @@ impl Peer {
         notices: mpsc::Sender<(String, u64, PeerNotice)>,
     ) -> Arc<Self> {
         let (out, out_rx) = mpsc::channel(1024);
+        let scope = cmux_scope::Scope::new("acpmux peer");
+        let notices = crate::peer_notice_outbox::NoticeOutbox::new(
+            notices,
+            scope.child("acpmux peer notices"),
+        );
         Arc::new(Self {
-            scope: cmux_scope::Scope::new("acpmux peer"),
+            scope,
             name: name.to_owned(),
             generation: NEXT_GENERATION.fetch_add(1, Ordering::SeqCst),
             url: url.to_owned(),
@@ -32,6 +37,7 @@ impl Peer {
             hub_carrier: std::sync::OnceLock::new(),
             link_host: std::sync::OnceLock::new(),
             explicit_route: AtomicBool::new(false),
+            tailnet: StdMutex::new(super::tailnet_path::State::from_env()),
             link_socket: std::sync::OnceLock::new(),
             paths: StdMutex::new(None),
             serving: StdMutex::new(None),
@@ -129,6 +135,8 @@ impl Peer {
             health_asking: AtomicBool::new(false),
             watch_key: StdMutex::new(None),
             pipelined_key: StdMutex::new(None),
+            early_init: StdMutex::new(None),
+            early_refused: AtomicBool::new(false),
             pipelines: AtomicBool::new(false),
             list_follow: AtomicBool::new(false),
             list_cursor: StdMutex::new(None),
