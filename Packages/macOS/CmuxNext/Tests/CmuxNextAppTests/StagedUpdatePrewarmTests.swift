@@ -165,10 +165,12 @@ import Testing
         _ = await StagedUpdatePrewarm(installation: root, bundleIdentifier: Self.bundleID, build: "300").perform(work: BackgroundWork(), marker: marker)
         #expect(!FileManager.default.fileExists(atPath: marker.path), "no staged bundle ran: no marker")
         _ = await StagedUpdatePrewarm(installation: root, bundleIdentifier: Self.bundleID, build: "200").perform(work: BackgroundWork(), marker: marker)
-        #expect(try String(contentsOf: marker, encoding: .utf8) == "200 full\n", "one line, replaced at each step")
+        let full = UpdatePrewarmRules.isLinked ? "full" : "full_legacy"
+        #expect(try String(contentsOf: marker, encoding: .utf8) == (UpdatePrewarmRules.isLinked ? "200 full\n" : "200\n"),
+                "one line, replaced at each step")
         #expect(StagedUpdatePrewarm.consumeLaunchVerdict(build: "199", at: marker)
             == .init(preWarmed: false, reason: "other_build:200", consume: false), "another build's launch")
-        #expect(StagedUpdatePrewarm.consumeLaunchVerdict(build: "200", at: marker) == .init(preWarmed: true, reason: "full", consume: true))
+        #expect(StagedUpdatePrewarm.consumeLaunchVerdict(build: "200", at: marker) == .init(preWarmed: true, reason: full, consume: true))
         #expect(StagedUpdatePrewarm.consumeLaunchVerdict(build: "200", at: marker)
             == .init(preWarmed: false, reason: "no_record", consume: false), "a relaunch of the same build")
     }
@@ -176,7 +178,8 @@ import Testing
     /// Each step's marker reads back as that step: a pre-warm the relaunch cut short after the main executable still
     /// counts (it pays almost all of the first launch's check), one cut before it does not, a skip says why, and a
     /// marker an older build wrote (just the build) still reads as a full pre-warm.
-    @Test func eachStepsMarkerReadsBackAsThatStep() throws {
+    @Test(.enabled(if: UpdatePrewarmRules.isLinked, "needs the pinned app FFI to carry CCmuxUpdatePrewarmFFI"))
+    func eachStepsMarkerReadsBackAsThatStep() throws {
         let root = try Self.temporary()
         defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
         let marker = root.appending(path: "support/launch-prewarm")
