@@ -35,6 +35,7 @@ pub mod hub;
 pub mod hybrid;
 pub mod keepalive;
 pub mod key_echo;
+pub mod key_paint;
 pub mod lan;
 pub mod link;
 pub mod link_stat;

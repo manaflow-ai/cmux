@@ -24,6 +24,8 @@ bindgen = ["uniffi/cli"]
 [dependencies]
 async-trait = "0.1"
 cmux-auto-session.workspace = true
+# Wake on intent (src/cloud_wake.rs): the Mac's `wake_hint` rules.
+cmux-cloud-handlers.workspace = true
 # The terminal composer's keyed Send (src/composer_outbox.rs).
 cmux-composer-send.workspace = true
 # Attachments over the `bundle` service (src/bundle.rs).
