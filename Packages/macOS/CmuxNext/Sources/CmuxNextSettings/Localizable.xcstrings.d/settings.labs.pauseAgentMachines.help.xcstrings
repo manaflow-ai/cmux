@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.labs.pauseAgentMachines.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "إيقاف جهاز وكيل جديد مؤقتًا بعد 15 دقيقة من الخمول؛ ويستأنف عند وصول العمل."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pauziraj novu mašinu agenta nakon 15 minuta neaktivnosti; nastavlja kada stigne posao."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sæt en ny agentmaskine på pause efter 15 inaktive minutter; den genoptages, når der kommer arbejde."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine neue Agent-Maschine nach 15 Minuten Leerlauf pausieren; sie wird fortgesetzt, sobald Arbeit eintrifft."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pause a new agent machine after 15 idle minutes; it resumes when work arrives."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pausa una máquina de agente nueva tras 15 minutos de inactividad; se reanuda cuando llega trabajo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Met en pause une nouvelle machine d’agent après 15 minutes d’inactivité ; elle reprend dès qu’un travail arrive."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Metti in pausa una nuova macchina dell’agente dopo 15 minuti di inattività; riprende quando arriva del lavoro."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新しいエージェントマシンを15分間アイドル状態が続いたら一時停止し、作業が届くと再開します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ផ្អាកម៉ាស៊ីនភ្នាក់ងារថ្មីបន្ទាប់ពីទំនេរ 15 នាទី; វាបន្តនៅពេលមានការងារមកដល់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "새 에이전트 머신이 15분 동안 유휴 상태이면 일시 중지하고, 작업이 도착하면 다시 시작합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sett en ny agentmaskin på pause etter 15 minutter uten aktivitet; den fortsetter når det kommer arbeid."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wstrzymuj nową maszynę agenta po 15 minutach bezczynności; wznawia pracę, gdy pojawi się zadanie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pausa uma nova máquina de agente após 15 minutos ociosa; ela é retomada quando chega trabalho."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Приостанавливать новую машину агента после 15 минут простоя; она возобновляется, когда поступает работа."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "หยุดเครื่องเอเจนต์ใหม่ชั่วคราวหลังจากไม่มีการใช้งาน 15 นาที และจะทำงานต่อเมื่อมีงานเข้ามา"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeni bir ajan makinesini 15 dakika boşta kaldıktan sonra duraklat; iş geldiğinde devam eder."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Призупиняти нову машину агента після 15 хвилин простою; вона відновлюється, коли надходить робота."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tạm dừng máy tác tử mới sau 15 phút không hoạt động; máy tiếp tục khi có việc đến."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新的智能体机器空闲 15 分钟后暂停；有工作到来时恢复。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新的代理機器閒置 15 分鐘後暫停；有工作到來時恢復。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
