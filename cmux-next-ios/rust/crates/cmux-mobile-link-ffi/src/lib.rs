@@ -22,8 +22,10 @@ mod last_place;
 mod link_side;
 pub mod local_link;
 mod mac_screen;
+mod mailbox_client;
 mod pair_requests;
 mod read_store;
+mod row_layout;
 mod share_approval;
 mod tabs;
 mod terminal_chat;
@@ -1009,6 +1011,7 @@ async fn finish_link(
         connected.path.clone(),
         timeline.clone(),
         current_signaling(pool, &signaling),
+        connected.session_id.clone(),
     );
     Ok(Arc::new(LinkHandle {
         link: connected.link,
