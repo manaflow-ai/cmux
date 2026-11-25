@@ -33,6 +33,9 @@ public final class BackdropImageStore {
     public let desktop: DesktopWallpaperWatch
     /// The wallpaper light (`appearance.wallpaperLighting`): fed by ``desktop`` and by each decoded picture's field.
     public let light = WallpaperLight()
+    /// The live wallpapers' programs, render queue and stills (``BackdropLiveView``), shared by every
+    /// window that draws from this store.
+    public nonisolated let livePrograms = LiveWallpaperPrograms()
     /// Texture passes run (tests).
     private(set) var renderCount = 0
 

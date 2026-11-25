@@ -2,11 +2,30 @@
 
 - 2026-11-17 (wallpaper-lighting): Sidebar-Look: Leo, 2026-11-17: "what if you almost treat the background wallpaper like a light source? lighting inside cmux!?". Under `appearance.wallpaperLighting` (off by default) the sidebar's edge line catches the wallpaper's key light: a `WallpaperRimLayer` along the line, brightest where it faces the light, hidden while the setting is off. Nothing else in the sidebar moves or changes color. Regression: `WallpaperLightTests`.
 
+- 2026-11-19 (lane/look-glyph-settings): Sidebar-Look: Leo, 2026-11-19: "the dots and the way it moves changes a
+  lot". A `cmux.sidebar.rows/1` row's `indicator` may be a particles glyph: `{choreography: <cmux.particles/1
+  document>, trigger}`, or `"glyph"` / `{choreography: "glyph", trigger}` for the look's
+  `agentPane.display.thinking.glyph`. While the row is busy or working, `StatusIndicatorView` hides its loading glyph
+  and plays the document in the same cell (`SidebarRowChoreographyView`, the scene renderer's native player on the
+  motion clock, at the document's own size, held when the indicator would not animate). Rows with no such indicator
+  draw as before; nothing changes without a look or a customize app that asks for it. The player and the look's glyph
+  reader are instance members of `StatusIndicatorAppearance`. Regression: `SidebarRowGlyphTests` (CmuxNextAppTests).
+
+- 2026-11-24 (ui/updated-card-slot): Sidebar-Look: Lucas, 2026-11-24: "we also want to fix this interim state after
+  you press "Install update" and the old card still shows and overlaps". When another card takes the bottom slot, the
+  card that leaves goes in the same frame, also mid-exit (`SidebarCardPresence.hideAtOnce`). Before, the download's
+  notice stayed half drawn under the Update Ready card: each progress change showed it again, which cancelled its
+  exit, and the next layout started a new one. A card that leaves an empty slot keeps its exit.
+  Regression: `SidebarCardPresenceHideAtOnceTests`.
+
+- 2026-11-23 (feat-cmux-next-sidebar-quiet-state): Sidebar-Look: Leo, 2026-11-23 ~23:05Z, on a row reading "claude-sr2-coo ⚠ [1] [•1] ›" over "◇◇◇◇◇ 4 running · 3 failed": "this is weird and bad and unncessary"; 05:09Z: "state can fucking only be relevant when you may need to investigate/take action"; on the hover card's three empty split tiles: "this idk when we started doing this but" (earlier: "if the previews dont show up, what's the point?"). A folded chat (or the tree off) draws no subagent line (#46963's stacked line stays only under the Debug `sidebar.subagents.look` = stack); its failed subagents add to the title line's failed chip (`WorkspaceRowContent.drawnRollUp`). The roll-up (`SidebarTreeRollUpView`) draws only waiting on you and failed, a dot and a count each with no box: no hidden-sessions count, no running spinner, no unread chip (the row's own blue dot is the one unread mark); VoiceOver still says every count. The hover card no longer draws the split miniature (#50440: a kind glyph in an empty box per pane) until a pane carries a real snapshot; the tab list stays. Regression: `SidebarDeepTreeTests.aFoldedRollUpDrawsOnlyWhatNeedsThePerson`, `SidebarSubagentRowsTests`.
+- 2026-11-22 (feat-cmux-next-51635-archived-workspaces-list): Sidebar-Look: user, 2026-11-22 (https://github.com/manaflow-ai/cmux/issues/51635): "why does the archived workspaces look like this, that's kind of weird right — is this what chatgpt does for archived chats? ... i feel like that they cant possibly be shown in the sidebar somehow?" Archived rows leave the sidebar: no "Archive (N)" fold at the bottom, no dimmed archived rows in a list, a group or Group by Status. An archived workspace, an archived link, tab or app row (loose or in a group), and a group that is archived or holds rows none of which is live (its subgroups' rows counted) draw nowhere; a group holding a live row at any depth stays. They live in Settings > Sidebar > Archived Workspaces (`SettingsArchivedWorkspaces`, the `archivedWorkspaces` card), in sidebar order with the group and computer, each with Open, Restore and Delete (Delete asks inline), like ChatGPT's Settings > Data controls > Archived chats. Open shows it and it keeps its place dimmed while active, with every group above it; a filter still lists archived matches in place; Pinned keeps its rows. The `.archive` fold kind and its string are gone. Regression: `SidebarArchiveSectionTests`, `SettingsArchivedWorkspacesTests`, webviews `archivedWorkspaces.test.tsx`.
 - 2026-11-23: Restore Automatic as the default for `sidebar.groupHeader.background` after Lawrence asked who
   changed how groups look. A group opens with its visible header band and member rail. Folders and the six
   other alternatives remain available to people who choose them. Regression: `SidebarGroupBackgroundSettingTests`,
   `ChiefGroupRailTests`, and `SidebarGroupsAsFoldersTests`.
 
+- 2026-11-24 (no-connecting-limbo-mac): Sidebar-Look: Leo, 2026-11-24: "all the connecting... indicators and the graying out of workspaces, nah let's not do that. let's just keep optimistically connecting and reinforcing the connection and sync-ups can be satisfying instead of making the user think they're constsntly suspended in a state of connection limbo". A machine section header or one-list label that is connecting or reconnecting keeps its last look for as long as the link takes (`SidebarPlaceholderGrace.isOnItsWay`): no "Connecting…"/"Reconnecting…" words and no spinner. Unreachable, offline, Disconnected, Failed, sign-in and update states still show after the 10 s grace. The Hosts sidebar draws no "Connecting…" caption or connect spinner. Regression: `DaemonStartupFailureStateTests.theConnectingLabelIsHeldForGood`, `HostsSidebarTests.aConnectNeverSaysConnecting`.
 - 2026-11-24 (perf-sidebar-ticking, #47054): Sidebar-Look: no visual change, logged for 854e3d78713, 8a7fe3b912c and 27900050de3 (pushed before the trailer rule reached this branch). A workspace row builds its spoken accessibility label when an assistive app reads it (`accessibilityLabel()`), cached until its words change, not on every configure: a progress tick configured each row 4 times a second and built the label's localized numbers and joined line every time (stable gate `sidebar.400.ticking.main_ms_per_s`). Nothing drawn changes; VoiceOver reads the same words, the agent pill's title included. Regression: `SidebarRowLabelOnDemandTests`.
 - 2026-11-14 (Remote ergonomics flow 5, ports): Sidebar-Look: Leo asked “and how are the ergonomics of cmux remote tho esp in the gui?”. The workspace hover card draws each port of the workspace's `ports` entry as a row under the tab list ("localhost:5173", network icon, the tab rows' hover and pressed fill), with details shut or open; a click opens it in a browser tab of the workspace, on another machine through its daemon. The entry no longer repeats as a details fact when it has a port to open; one with only words still does. Gallery: "Ports · this Mac · one port", "· two ports · details open", "· another machine · its localhost", "· port row hovered".
 - 2026-11-14 (CMUX-383 row layouts): Leo asked for “as well as adding a proper customizing path”.
@@ -17,6 +36,7 @@
   `WorkspaceRowLayoutSettingsTests`, `WorkspaceRowLayoutWatcherTests` and
   `WorkspaceRowLayoutRenderingTests`; gallery: `AASidebarRowLayoutGalleryTests`.
 
+- 2026-11-24 (lane/sidebar-live-toggle, RFD 0141 phase 1): Sidebar-Look: Leo, 2026-11-24: "i think there's even situations where we can have an icon maybe toggle somewhere omnipresent... say the bottom left of the sidebar area, which is currently not used for anything. because we hid spaces by default". The footer line gets a Live button right after the profile avatar (SF Symbol `dot.radiowaves.left.and.right`, the Search button's size, centered on the avatar's line): accent-filled when `presence.live` is on, dimmed when off (off by default: RFD 0141 makes Live opt-in). A click flips `presence.live`; a right-click lists the live agents (SidebarPresence) and the team's people (each opens their DM) with Turn Live On/Off; the tooltip says what it means and how many teammates are live. `sidebar.showLiveToggle` (default on) hides it. The live-mode badge, the Spaces dots and the Update button start after it. Regression: `SidebarLiveToggleTests`, `SidebarLiveSettingsTests`.
 - 2026-11-23 (chief-row-house-icon): Sidebar-Look: the person, 2026-11-23: "add the home icon to the sidebar chief, the one that we used to have ages ago". The top row (Home, which is the Chief) draws Home's house again (`SidebarBuiltIn.home`: symbol `house`, icon `.home`) beside "Chief", in every look, also when the Chief wears a picture; the picture and the sparkles stay on the Chief Activity item. This replaces the title-only row of chief-row-no-icon below (`hidesGlyphBesideTitle` is gone); its gap above the workspaces stays. Regression: `SidebarChiefRowHouseTests`, `ChiefReplacesHomeTests`.
 - 2026-11-23 (chief-row-no-icon): Sidebar-Look: the person, 2026-11-23: "remove the chief icon from the sidebar, and add a bit of spacing so that its clear and away from workspaces" / "just a bit of spacing nothing too crazy". The top row (Home, which is the Chief) draws its title alone in every look with a title: no crown, and "Chief" starts on the column a text-only workspace title starts on (`SidebarItemInfo.hidesGlyphBesideTitle`, set by `ChiefSidebar.decorateHome`). A tile, an icon look and a rail button keep the glyph. The top section's block keeps `SidebarListBlocks.topSectionGap` (`Metrics.space4`, 8 pt at Default, scaled by the density) under it, on top of the list's row gap, so the next row (a pin or a workspace) sits 10 pt under the Chief at Default instead of 2 pt; every other block keeps no bottom padding. A drag's drop hold at the block's end reads the items' end, above that gap. Regression: `SidebarChiefRowTitleOnlyTests`, `SidebarTopRowsRhythmTests` (Home to the first pin adds the gap), `SidebarItemGlyphStaysTests`.
 - 2026-11-18 (lane/sidebar-row-age): Sidebar-Look: Leo, 2026-11-18 (ask c-d1b544f190): "can you guys also start the [...]/codex/claude repos that we just have the entire ui and the various customizations lifted chameleon-like...". A look that sets `sidebar.showTimestamps` gets Codex's thread row: the title on the left, the age at the right end of the title line. A chat workspace had no time to show (the Rust face's `last_activity_ms` counts terminal agents' reports and notifications only), so its row drew no age; it now reads its chat's acpmux `lane.since` (`SidebarWorkspace.chatActivity`, from the chat tab the face picks) and draws the newer of the two (`rowAge`) in the existing trailing time slot (`badgeTime`, an expanded row's `time`, the Last Activity element). Off by default (`sidebar.showTimestamps` off draws no age, as before); sorting, grouping and hover cards keep `lastActivity`. `SidebarChatRowAgeTests`; gallery `AASidebarRowAgeGalleryTests` (off, compact, comfortable with a folder line, expanded; dark and light, artifact `sidebar-row-age-gallery.tar`).
@@ -42,6 +62,7 @@
 - 2026-11-21 (nx-48363-glow-marks-overlap): Sidebar-Look: user, 2026-11-20 (https://github.com/manaflow-ai/cmux/issues/48363): "it happens for blue notification dot and the red error o, we need to fix this issue". On a hovered workspace row the ✕ and ⋮ never draw over the unread dot, the row badge or the status mark (the red error): the row's display pass (`updateNeedsYouGlow`) no longer sets those marks back to full opacity when the row does not glow, which undid the layout that clears them under the controls. The needs-you glow only clears them, the layout keeps them clear while the row glows, and when the glow stops the layout's hover rules bring them back. The row tracks the marks the glow cleared (`marksHiddenForGlow`), so a glow that ends by a display-only change (secondary selection, drop target) still asks for the layout that restores them. Regression: `SidebarRowCloseClearsMarksTests` (now runs the display pass after the hover layout and checks the unread or error mark returns after the hover).
 - 2026-11-21 (49579-standard-dialog-density): Sidebar-Look: user, 2026-11-21 (https://github.com/manaflow-ai/cmux/issues/49579): "The sidebar's 'cmux Is Up to Date' card uses its own oversized title/body text, padding and radius. Make it, and every similar sidebar/app dialog or toast card, use one standardized type scale and spacing that follows the text density settings." Every card reads one scale, `CmuxNextDesign/CardScale.swift`: `Typography.cardTitle` (TypeScale body step, emphasized), `cardBody`/`cardBodyDigits`/`cardButton` (detail step), `cardCaption` (caption step) and `dialogTitle` (title step), each times the density's text factor and the person's Text Size and Interface Size on the half-point grid (Default 13/12/11, Compact 11.5/11/10, Spacious 15.5/14.5/13), so a card's title sits under the rows' title at every density (it matched them). Spacing: `Metrics.cardPadding` `space4 + space1` (10 pt at Default; supersedes the tip card's 12 of 2026-11-19 and the Update Ready card's 5), `cardTextGap` `space1`, `cardRowGap` `space3`, `cardCornerRadius` concentric from the padding. Moved onto it: the notice cards (update status, tips, asks, announcements, star prompt), Update Ready, Now Playing (was `space3` and the surface corner), the card text buttons, switches and Automatic Updates label, toasts, and dialogs (`Metrics.dialogPadding` `space6`, was a fixed 16 times the text scale). Regression: `CardScaleDensityTests` (every density).
 - 2026-11-22 (a590 pin cuts): Sidebar-Look: Lawrence 2026-11-20: "drastically simplify all parts of the UI"
+- 2026-11-24 (spaces-member-room, #31378): Sidebar-Look: Leo, 2026-11-24: "we also need to fix stupid bugs and usability issues with spaces". A Pinned group's link, tab or app that stores the group's own space draws only in a window on that space; one storing no space or another space still draws wherever its group lists. Move Group to Space takes along the members that stored the old space. Regression: `SidebarSpaceOwnsPinsAndGroupsTests`, `SidebarSpaceReachabilityTests`.
   (plans/cmux-next/ui-simplify.md, Pin: "no drop overlay text"). An empty Pinned's drop zone, the gap a drag opens at
   the top (`SidebarPinZone`), no longer says "Drop here to pin": the gap is the cue, as every other empty section's
   row draws nothing. The zone and the drop are unchanged. Kept, not cut: the filled pin a pinned row leads with (Leo
@@ -154,6 +175,9 @@
   (`WorkspaceRowContent.summaryLine`). Source: acpmux `rollingSummary` on the chat's row. Tests:
   `SidebarRollingSummaryTests`. Stills: the States Playground's pinned hover card and the idle row's Expanded line carry a
   summary (`SidebarStatesPlaygroundFixture`), shot by `AASidebarStatesGalleryTests` (`sidebar-states-gallery.tar`).
+- 2026-11-22 (https://github.com/manaflow-ai/cmux/issues/51749): the rolling summary and next action above are removed
+  everywhere (hover card, Expanded rows, chat header, iPhone Chats list, and acpmux's generation of them). The user did
+  not want the line; hover cards and Expanded rows read as they did before 2026-11-20.
 - 2026-11-19 (lane/look-menus-proportions): Sidebar-Look: Leo, 2026-11-19: "i think y'all also ought to emulate the things
   for context menu styling and such maybne in those repos too and the layout and proportions as well". Opt-in
   `sidebar.drawnMenus` (off, so no visual change by default): the sidebar's right-click menus and a row's more button
@@ -1414,6 +1438,17 @@ Enforced (Oct 23, Lawrence: "ensure this will always be true, and future agents 
 2. Do not take back a look another commit chose in the last week without naming that commit here.
 3. Failing test first, then the fix. Real-app captures from the Mac-mini fleet, before and after.
 4. Land on `feat-cmux-next` (rebase, plain push). Add the commit to the log at the end of this note.
+
+## No two icons in a row share a box (2026-11-22)
+
+Leo 2026-11-22T21:56Z, on a tree parent's chevron with the blue dot drawn over the ⋮ beside it: "this too. fucking
+overlapping icons. over 24 hours ago." Target look: at every sidebar width, hovered or not, pinned or not, no two
+drawn icons of a row (the ✕, the ⋮, the pin, a tree chevron, the speaker, the drive button, the dot, the spinner, the
+status badge, a count, a chip) have intersecting frames. Each row kind's layout ends with one pass,
+`NSView.clearMarksMeetingIcons(keep:marks:fades:)`: the controls a person points at keep their box, and a mark meeting
+any icon drawn before it clears until the next layout (workspace rows, group headers, pinned tiles). Tests:
+`SidebarIconsNeverMeetTests` (pairwise frame intersection at the minimum width and above, every close spot, badge
+style, mark set and pose; a gallery at narrow widths).
 
 ## Every button rounds as a tab (2026-11-12)
 
@@ -2815,6 +2850,12 @@ Commits logged without a trailer (the card above):
   (red on feat-cmux-next and on base 19421bb).
   Sidebar-Look: Leo 2026-10-21 "move the magnifying glass a bit lower": one device pixel, no more.
 
+- 2026-11-22 (quiet-connect-cloud): a Cloud machine resuming for an attach (`.resuming`, the record's pending start) is
+  held by the connecting grace (10 s, `SidebarPlaceholderGrace.healsOnItsOwn`) as a connect or reconnect is: a resume of
+  a second or two keeps the header quiet, no "Resuming…" and no spinner; one past the grace says so then. Pausing,
+  Paused and Deleting are not held. Harness: `CloudHeaderQuietTimelineTests` (label exposure ms per scenario).
+  Sidebar-Look: Leo 2026-11-14 "i also want all our connectivity stuff to shut up and load faster/percievably load faster".
+
 - 2026-11-21 (49583, 35f0edfcc6e): every sidebar row symbol (a pinned row's leading pin; a hovered row's Pin/Unpin,
   ⋮, ✕, tree chevron and speaker; a pinned item's ⋮ and Unpin; a group header's ⋮, Unpin and chevron) draws at one
   side, `SidebarStyle.rowSymbolSide`: the image side of the leading pin fitted to the rows' optical square. Before, the
@@ -2831,6 +2872,9 @@ Commits logged without a trailer (the card above):
   on a tab, so the row keeps the tab bar's balance. Fitting every favicon's ink to the glyphs' side had drawn it about
   1.4x smaller than on its tab.
   Sidebar-Look: "the icon sizes should be the same size as the horizontal tabs... the icon sizes need to be kind of standardized"
+- 2026-11-22 (leo-24h-icon-fixes): no two icons in a row share a box: a last layout pass clears any mark meeting a
+  control or an earlier icon. `SidebarIconsNeverMeetTests`.
+  Sidebar-Look: Leo 2026-11-22 "this too. fucking overlapping icons. over 24 hours ago."
 - 2026-11-23 (Updated card, ask-33e37575cb): the "Updated to Nightly" card is one line, "Updated to Nightly" with
   What's New ↗ at its end, at the composer's one-line height (48) and material (the art share over background
   pictures), at the layout grid's card corner (`card-radius`, 16: a third of the box) instead of the composer's
@@ -2846,6 +2890,8 @@ Commits logged without a trailer (the card above):
   pixels its frame draws (SidebarFaviconLegibilityTests: 32 px drawn as 17 pt). The gap test measures a favicon from
   its own square's end: it starts on the glyphs' edge and fills the tab's side, so it ends nearer its title by design.
   Sidebar-Look: no visual change
+- 2026-11-24 (lane/agent-chat-terminal-mark, ask-97938b6c84): Sidebar-Look: Leo, 2026-11-24: "terminal agent chats. can they be demarcated a bit differently/should they? than gui agent chats. both of them rn are just claude icon. but one is terminal one is gui." A workspace hover card's tab row draws a terminal's agent (a hook's report in a terminal or remote terminal tab) on a soft rounded square of the row's tint (`AgentBrandCatalog.templateImage(terminal:)`, the shared `terminalTile*` rule), and an agent chat's mark bare, as the tab strip (`TabIcon.terminalAgentMark`) and the iPhone's avatars (`AgentAvatarHost.terminal`) do. No row layout changes. Gallery: `AATerminalAgentMarkGalleryTests` (tab strip, light and dark).
+- 2026-11-25 (#55277, lane/terminal-agent-mark-default-off, ask-97938b6c84): 86b4688efbd puts the hover card row's terminal tile (entry above) behind `experiments.terminalAgentMark`, off by default: off, the row draws every agent's bare mark as it did before. Same Leo words as above. Gallery: `AATerminalAgentMarkGalleryTests` (strip off and on, light and dark).
 - 2026-11-24 (lane/sidebar-cloud-page-icon-size, ask-f32d868839): Sidebar-Look: Leo, 2026-11-24: "dont have such a
   dinky cloud icon. increase it". A cmux page's own icon in a row's favicon slot (a Cloud desktop's cloud, History's
   clock) drew at the pack glyphs' optical size, 11/16 of the favicon beside it on the next row. It now draws at the
