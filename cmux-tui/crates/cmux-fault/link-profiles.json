@@ -107,6 +107,26 @@
       "up_kbit": 40000,
       "rtt_ms": 80,
       "source": "The 'relay-30' hop for a Mac a continent away from its Cloud machine (a machine lives in one region). RTT: assumed, a transcontinental round trip; rate as 'relay-30'."
+    },
+    {
+      "name": "satellite-600",
+      "version": 1,
+      "down_kbit": 25000,
+      "up_kbit": 3000,
+      "rtt_ms": 600,
+      "jitter_ms": 50,
+      "loss_percent": 0.5,
+      "source": "Geostationary satellite broadband: 35,786 km each way puts the round trip at 480 ms of propagation alone; consumer GEO service measures about 600 ms (FCC Measuring Broadband America, satellite results). Rates and loss [assumed]. Used by scoreboard_rows.rs's satellite row (RFD 0142 T4)."
+    },
+    {
+      "name": "airplane-wifi",
+      "version": 1,
+      "down_kbit": 5000,
+      "up_kbit": 1000,
+      "rtt_ms": 700,
+      "jitter_ms": 200,
+      "loss_percent": 1,
+      "source": "In-flight Wi-Fi over a GEO satellite backhaul: the satellite round trip plus the cabin's shared, congested hop [assumed]. Used by scoreboard_rows.rs's airplane row."
     }
   ]
 }
