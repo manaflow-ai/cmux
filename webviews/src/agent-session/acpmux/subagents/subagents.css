@@ -2754,7 +2754,10 @@ button.cv-subagent > :last-child {
 .acpmux-hat-face {
   position: absolute;
   top: 0;
-  left: calc(var(--hat-face-index) * var(--hat-face-step));
+  left: 0;
+  /* Placed on transform, so a step change (more icons sharing the cap) slides them without moving
+     any box by layout; `transform` stays free for the hover lift. */
+  translate: calc(var(--hat-face-index) * var(--hat-face-step)) 0;
   display: inline-flex;
   line-height: 0;
   border-radius: 999px;
@@ -2763,7 +2766,7 @@ button.cv-subagent > :last-child {
      under it instead (the mask, as SenderIcon.tsx cuts under its badge), so it shows the glass
      behind on any theme. The mask reaches --hat-face-pad past the icon so its badge still hangs out. */
   transition:
-    left var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out),
+    translate var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out),
     transform var(--cmux-motion-quick) var(--agent-ease-out, ease-out);
 }
 .acpmux-hat-face svg {
@@ -2806,7 +2809,7 @@ button.cv-subagent > :last-child {
 /* The fan arm: a tight stack at rest; hovered, the icons spread to the spread arm's step over the
    header (the row keeps its resting width, so nothing beside it moves). */
 .acpmux-hat-faces[data-hat-faces="fan"]:hover .acpmux-hat-face {
-  left: calc(var(--hat-face-index) * var(--hat-face-open-step));
+  translate: calc(var(--hat-face-index) * var(--hat-face-open-step)) 0;
   --hat-face-gap: var(--hat-face-open-step);
 }
 .acpmux-hat-faces[data-hat-faces="fan"] .acpmux-hat-faces__row {

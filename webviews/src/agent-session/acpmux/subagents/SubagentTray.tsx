@@ -139,7 +139,7 @@ import { hatOpenLook } from "./hatOpen.experiment";
 import { SubagentCardBody, SubagentPreviewCard } from "./SubagentPreview";
 import "./hatOpen.css";
 import { DoneCheck, DoneMark } from "./DoneMark";
-import { Tick, useGlide } from "./trayMotion";
+import { Tick, useGlide, GlideRow } from "./trayMotion";
 import { useCountedRender } from "../perfRender";
 import { useTrayMotion } from "./trayMotionModel";
 import { useTraySeen } from "./traySeen";
@@ -404,11 +404,13 @@ export const SubagentTray = memo(function SubagentTray({
   // was in the list is kept as it moves (onFocus/onBlur below), not read after the commit.
   const headButton = useRef<HTMLButtonElement | null>(null);
   // "+N more" and the time move as one trailing segment: a width change before them glides them to
-  // their new place instead of jumping (trayMotion.tsx `useGlide`).
-  // The kinds after the subagent icons glide too, when the icon row widens (HatFaces).
-  useGlide(
+  // their new place instead of jumping (trayMotion.tsx `useGlide`). So do the counts after the
+  // subagent icons (HatFaces.tsx): the icons' row takes its new width at once, and the words after
+  // it glide on transform, never by an eased layout width (the feel harness's layout-shift check);
+  // the icons' own held count starts that glide in its own commit (GlideRow, HatFaces.tsx).
+  const headGlide = useGlide(
     headButton,
-    ":scope > .acpmux-running-tray__more, :scope > .acpmux-running-tray__time, :scope > .acpmux-running-tray__kinds > .acpmux-running-tray__kind",
+    ":scope > .acpmux-running-tray__more, :scope > .acpmux-running-tray__time, :scope > .acpmux-running-tray__kinds > :not(.acpmux-hat-faces)",
   );
   const focusInList = useRef(false);
   useLayoutEffect(() => {
@@ -836,14 +838,16 @@ export const SubagentTray = memo(function SubagentTray({
               tally={tallyHead}
               faces={
                 !tallyHead && faces.length > 0 && facesArm !== "lead" ? (
-                  <HatFaces
-                    faces={faces}
-                    size={ROW_ICON}
-                    narrow={narrow}
-                    arm={facesArm}
-                    onOpen={onOpen}
-                    onOpenSession={onOpenSession}
-                  />
+                  <GlideRow value={headGlide}>
+                    <HatFaces
+                      faces={faces}
+                      size={ROW_ICON}
+                      narrow={narrow}
+                      arm={facesArm}
+                      onOpen={onOpen}
+                      onOpenSession={onOpenSession}
+                    />
+                  </GlideRow>
                 ) : undefined
               }
             />
