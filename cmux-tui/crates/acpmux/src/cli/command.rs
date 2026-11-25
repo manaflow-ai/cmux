@@ -1158,7 +1158,7 @@ pub enum Command {
         /// permission mode every new chat starts in, `permissions.codex=ask` for
         /// one harness, `session.memory_mb=6144`, `session.swap_mb=2048`,
         /// `session.tasks_max=8192`, `session.sessions_tasks_max=131072`,
-        /// `session.cpu_class=normal`, `remote_daemon=127.0.0.1:PORT` or
+        /// `session.cpu_class=background`, `remote_daemon=127.0.0.1:PORT` or
         /// `lane_gh_broker=~/.cache/lane-gh-broker/broker.sock`). A value the
         /// daemon would refuse to start with is refused and config.json is left as it was:
         /// `transport.wireguard=true` needs `transport.wireguardStatic` in config.json first.
