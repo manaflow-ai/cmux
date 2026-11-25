@@ -974,7 +974,26 @@ fleet_submit_mac; echo "JOB=$MAC_JOB"''', {'CMUX_CI': str(ci), 'CNX_REVIEW_BUILD
                 ref = args[args.index('--ref') + 1]
                 self.assertEqual(ref, base if want_base else head)
                 self.assertEqual('--any-tag' in args, want_base)
+                # The fleet client's swap-first default queues nothing for a change it can swap; the hand-off
+                # needs the tagged Mac app itself, for its head as for its base (vfix1125, 2026-11-25).
+                self.assertIn('--build', args)
                 self.assertEqual((state / 'mac-ref').read_text().strip(), ref)
+
+    def test_a_build_the_fleet_does_not_queue_says_what_the_client_said(self):
+        # Before: `KeyError: 'id'` on stderr and "printed no job id"; the client's reason was lost.
+        with tempfile.TemporaryDirectory() as temp:
+            ci = Path(temp) / 'cmux-ci'
+            ci.write_text('#!/bin/sh\necho "Nothing queued (swap first): pass --build to build anyway."\n')
+            ci.chmod(0o755)
+            state = Path(temp) / 'state'
+            state.mkdir()
+            (state / 'mac-ref').write_text(SHA + '\n')
+            r = bash(f'''source "{REVIEW}"; SLUG={TAG} SHA={SHA} STATE="{state}" WORKSPACE=w CMUX_CI="{ci}"
+rc=0; fleet_submit_mac || rc=$?; echo "RC=$rc"; echo "REPORT=$REPORT_MAC"''', {'CMUX_CI': str(ci)})
+            self.assertIn('RC=1', r.stdout, r.stderr)
+            self.assertIn('REPORT=BLOCKED: cmux-ci build cmux queued no job: Nothing queued (swap first)', r.stdout)
+            self.assertNotIn('KeyError', r.stderr)
+            self.assertFalse((state / 'cmux-job').exists())
 
     def test_sim_step_arguments(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -1123,10 +1142,12 @@ fleet_start_sim; fleet_finish_sim || echo "SIM=$REPORT_SIM"''', {'CMUX_CI': str(
 
     def test_handoff_mode_takes_one_tag(self):
         for args, want in ((['handoff'], 'handoff takes one argument, tag=TAG'),
-                           (['handoff', 'tag=Bad_Tag'], 'handoff tag= wants lowercase'),
-                           (['handoff', 'tag=default'], 'handoff tag= wants lowercase'),
+                           # The shared tag rule (scripts/lib/mobile-attach.sh cmux_attach_validate_dev_tag).
+                           (['handoff', 'tag=Bad_Tag'], "'Bad_Tag' is not a canonical tag"),
+                           (['handoff', 'tag=bad--tag'], "'bad--tag' is not a canonical tag"),
+                           (['handoff', 'tag=default'], 'reserved for the stable app instance'),
                            # The fleet controller's form of the same step.
-                           (['shots', 'handoff=Bad_Tag'], 'handoff tag= wants lowercase')):
+                           (['shots', 'handoff=Bad_Tag'], 'handoff tag=Bad_Tag refused')):
             with self.subTest(args=args):
                 r = subprocess.run(['bash', str(SIM), *args], capture_output=True, text=True,
                                    env=dict(os.environ, CMUX_CI_STEP_KEY='test'), timeout=30)
