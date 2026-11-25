@@ -657,7 +657,11 @@ function PendingQuestion({
           </span>
         </legend>
         <div className="acpmux-question-pages">
-          <div className="acpmux-question-body">
+          <div
+            className="acpmux-question-body"
+            data-preview={showPreview || undefined}
+            data-preview-layout={showPreview ? layout : undefined}
+          >
             <div className="acpmux-question-rows" onMouseLeave={() => setHovered(undefined)}>
               {item.options.map((option, row) => {
                 const chosen = isChosen(state, option, item);
@@ -700,7 +704,7 @@ function PendingQuestion({
             {layout !== "inline" && preview}
           </div>
           {others.map((each) => (
-            <RowsSizer key={each.id} item={each} />
+            <RowsSizer key={each.id} item={each} t={t} layout={layout} />
           ))}
         </div>
         {refused && (
@@ -769,22 +773,44 @@ function PendingQuestion({
 }
 
 /// A question the card does not show, drawn only for its room (#56534): its rows' marks, labels and
-/// details on the shown rows' metrics, in the shown rows' grid cell, hidden and inert. Not its preview,
-/// which follows the pointer within a page anyway.
-function RowsSizer({ item }: { item: AgentQuestion["items"][number] }) {
+/// details on the shown rows' metrics, and the preview it opens with (its first option's, as the
+/// estimate's), laid out as its page lays them, in the shown rows' grid cell, hidden and inert.
+function RowsSizer({
+  item,
+  t,
+  layout,
+}: {
+  item: AgentQuestion["items"][number];
+  t: Translate;
+  layout: QuestionPreviewLayout;
+}) {
+  const sizerId = useId();
+  const previews = hasPreviews(item);
+  const previewOption = previews ? shownPreview(item.options, [0]) : undefined;
+  const preview = previewOption && <OptionPreview id={sizerId} t={t} option={previewOption} inline={layout === "inline"} />;
   return (
-    <div className="acpmux-question-body acpmux-question-rows-sizer" aria-hidden="true" inert>
+    <div
+      className="acpmux-question-body acpmux-question-rows-sizer"
+      data-preview={previews || undefined}
+      data-preview-layout={previews ? layout : undefined}
+      aria-hidden="true"
+      inert
+    >
       <div className="acpmux-question-rows">
         {item.options.map((option) => (
-          <div key={option.id} className="acpmux-question-row-sizer">
-            <span className="acpmux-question-number" />
-            <span className="acpmux-question-text">
-              <span className="acpmux-question-label">{inlineText(option.label)}</span>
-              {option.detail && <span className="acpmux-question-detail">{inlineText(option.detail)}</span>}
-            </span>
-          </div>
+          <React.Fragment key={option.id}>
+            <div className="acpmux-question-row-sizer">
+              <span className="acpmux-question-number" />
+              <span className="acpmux-question-text">
+                <span className="acpmux-question-label">{inlineText(option.label)}</span>
+                {option.detail && <span className="acpmux-question-detail">{inlineText(option.detail)}</span>}
+              </span>
+            </div>
+            {layout === "inline" && option === previewOption && preview}
+          </React.Fragment>
         ))}
       </div>
+      {layout !== "inline" && preview}
     </div>
   );
 }

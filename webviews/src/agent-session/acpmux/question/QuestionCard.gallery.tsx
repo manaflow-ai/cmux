@@ -110,7 +110,8 @@ const fenced = (question: AgentQuestion): AgentQuestion => ({
 });
 
 /// Three questions of very different lengths in one ask (cmux#56534): a long title with two short
-/// options, a one-line title with four options and their details, and a short one with no Other. The
+/// options, a one-line title with four options and their details, and a short one with no Other whose
+/// options carry previews. The
 /// card keeps one size, and its rows, last row and buttons one place, on every page.
 const pagingUneven: AgentQuestion = {
   ...(pending4 as unknown as AgentQuestion),
@@ -146,8 +147,12 @@ const pagingUneven: AgentQuestion = {
       header: "Flag",
       prompt: "Ship behind a flag?",
       options: [
-        { id: "yes", label: "Yes" },
-        { id: "no", label: "No" },
+        {
+          id: "yes",
+          label: "Yes",
+          preview: { format: "markdown", text: "Settings\n  Labs\n    [x] New layouts\n  Restart to apply" },
+        },
+        { id: "no", label: "No", preview: { format: "markdown", text: "Settings\n  (no Labs entry)" } },
       ],
       multiSelect: false,
       allowsOther: false,

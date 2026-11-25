@@ -198,7 +198,7 @@
   align-items: flex-start;
   gap: var(--ds-space-2);
 }
-.acpmux-question-ask .acpmux-question[data-preview] .acpmux-question-body { padding-right: 0; }
+.acpmux-question-ask .acpmux-question-body[data-preview] { padding-right: 0; }
 .acpmux-question-ask .acpmux-question-rows {
   gap: var(--grid-half-step);
   padding: 0;
@@ -224,7 +224,7 @@
   background: color-mix(in srgb, var(--agent-text) 4%, transparent);
 }
 .acpmux-question-ask .acpmux-question-preview-label { padding-top: var(--grid-half-step); }
-.acpmux-question-ask .acpmux-question[data-preview-layout=below] .acpmux-question-preview { margin: var(--ds-space-2) 0 0; }
+.acpmux-question-ask .acpmux-question-body[data-preview-layout=below] .acpmux-question-preview { margin: var(--ds-space-2) 0 0; }
 .acpmux-question-ask .acpmux-question-preview[data-inline] { margin: 0 0 0 calc(var(--ds-control-icon) + var(--ds-space-2) * 2 + var(--grid-half-step)); }
 /* The number square: a filled 20 px tile in the inset fill, its corner the control radius less the
    row's inset half (concentric with the row). Highlighted it firms up; chosen it is the text colour. */
@@ -424,9 +424,11 @@ svg.acpmux-next-step__arrow {
 .acpmux-question-swap > * { grid-area: 1 / 1; }
 .acpmux-question-swap > [aria-hidden="true"] { visibility: hidden; }
 /* What Send still waits for, one line in the bar before the pager that steps to it: cut short rather
-   than wrapped, and the first to give way to "Needs your input" in a narrow card. */
-.acpmux-question-bar > span:first-child { flex: none; }
-.acpmux-question-bar-actions { flex: 0 1 auto; min-width: 0; }
+   than wrapped, and the first to give way in a narrow card; then "Needs your input" is cut, and the
+   pager and the × never leave the bar. */
+.acpmux-question-bar > span:first-child { flex: 0 1 auto; overflow: hidden; white-space: nowrap; }
+/* The actions give way first (down to the pager and the ×, their least width), then the label. */
+.acpmux-question-bar-actions { flex: 0 100000 auto; }
 .acpmux-question-bar-actions > :not(.acpmux-question-hint) { flex: none; }
 .acpmux-question-bar .acpmux-question-hint {
   flex: 0 1 auto;

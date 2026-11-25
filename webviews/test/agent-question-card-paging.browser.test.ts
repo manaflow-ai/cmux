@@ -1,7 +1,7 @@
 // cmux-web-test-timeout: 600
 // The multi-question "Needs your input" card holds still while it pages (cmux#56534; the user, on
 // clicking Next: "i dont like how there is layout shift"). On the gallery's three questions of very
-// different lengths (agent-pane.question-card, pending-paging-uneven):
+// different lengths, the last with option previews (agent-pane.question-card, pending-paging-uneven):
 //
 // 1. Stepping through every question with the pager's arrows, then back, and with the footer's Next,
 //    the card, its title, its rows, its last row, Skip, Next/Send, the pager and the × keep their
@@ -148,17 +148,20 @@ await requireBrowserLane("agent-question-card-paging.browser.test.ts", async () 
     test("the pager's and the ×'s tooltips open above the bar, off the question", async () => {
       const page = await open(640);
       const question = await page.locator(".acpmux-question-head").boundingBox();
-      for (const selector of [
-        '.acpmux-question-nav-button[data-step="previous"]',
-        ".acpmux-question-nav-button:not([data-step])",
-        ".acpmux-question-bar .ui-dismiss",
-      ]) {
-        // Previous starts disabled on the first page; step on so every control takes a hover.
-        if (selector.includes("previous")) await page.locator(".acpmux-question-nav-button:not([data-step])").click();
+      // Previous starts disabled on the first page; step on so every control takes a hover.
+      await page.locator(".acpmux-question-nav-button:not([data-step])").click();
+      const tip = page.locator(".ui-title-tooltip");
+      for (const [selector, words] of [
+        ['.acpmux-question-nav-button[data-step="previous"]', "Previous Question"],
+        [".acpmux-question-nav-button:not([data-step])", "Next Question"],
+        [".acpmux-question-bar .ui-dismiss", "Dismiss"],
+      ] as const) {
+        // The last control's tooltip goes first, so the one measured is this control's.
         await page.mouse.move(0, 0);
+        await tip.waitFor({ state: "hidden", timeout: 5_000 });
         await page.locator(selector).hover();
-        const tip = page.locator(".ui-title-tooltip").last();
         await tip.waitFor({ state: "visible", timeout: 5_000 });
+        expect((await tip.innerText()).trim()).toBe(words);
         const box = (await tip.boundingBox())!;
         const bar = (await page.locator(".acpmux-question-bar").boundingBox())!;
         expect(box.y + box.height).toBeLessThanOrEqual(bar.y + bar.height / 2);
