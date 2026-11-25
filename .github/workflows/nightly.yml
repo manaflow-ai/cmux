@@ -3244,7 +3244,7 @@ jobs:
   report-nightly-shelf-red:
     name: report the nightly App Store shelf
     needs: [decide, resolve-nightly-cmux-tui-client, check-nightly-app-store-shelf]
-    if: "always() && needs.check-nightly-app-store-shelf.result == 'failure'"
+    if: "!cancelled() && needs.check-nightly-app-store-shelf.result == 'failure'"
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
