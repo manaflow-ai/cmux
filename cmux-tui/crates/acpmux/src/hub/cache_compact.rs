@@ -222,17 +222,7 @@ impl Hub {
         if let Some((_, timer)) = timers.remove(&session.id) {
             timer.abort();
         }
-        let Some(threshold) = read_threshold() else {
-            eprintln!("DBG {} off", session.id);
-            return;
-        };
-        eprintln!(
-            "DBG {} usage {} threshold {:?} wait {:?}",
-            session.id,
-            update,
-            threshold,
-            wait_ms(update, threshold, now_ms())
-        );
+        let Some(threshold) = read_threshold() else { return };
         let Some(wait) = wait_ms(update, threshold, now_ms()) else { return };
         let Some(used) = context(update) else { return };
         let Some(expires) = update.pointer("/_meta/acpmux/cacheExpiresAt").and_then(Value::as_u64)
@@ -296,14 +286,6 @@ impl Hub {
         let Some(last) = last.and_then(|t| t.as_str().map(str::to_owned)) else { return };
         // Read again: the setting may have been turned off or its threshold raised since the
         // timer was armed, and the cache must still be warm when the request goes.
-        eprintln!(
-            "DBG {} fire used {:?} th {:?} expired {} ready {}",
-            session.id,
-            used,
-            read_threshold(),
-            now_ms() >= expires_ms,
-            self.cache_compact_ready(session)
-        );
         if read_threshold().is_none_or(|threshold| !over(used, threshold))
             || now_ms() >= expires_ms
             || !self.cache_compact_ready(session)
