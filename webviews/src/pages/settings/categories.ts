@@ -45,6 +45,7 @@ export const CATEGORY_CARDS = [
   "sharedLinks",
   "archivedWorkspaces",
   "customizeLibrary",
+  "customizeProgress",
   "customizeChecklist",
   "tailnet",
   "models",

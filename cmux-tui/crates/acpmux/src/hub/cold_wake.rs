@@ -32,11 +32,58 @@
 //! Tuning: every knob is a setting and an environment variable of the daemon, the variable winning
 //! ([`Knobs`]; the table is in the crate's README, "Tuning compaction").
 //!
+//! - **Every wake source.** Leo, 2026-11-24: "well im saying maybe for other things possibly...?
+//!   idk. / and reading and writing to forums/slack could be there too potentially". Whatever
+//!   wakes an idle chat on another's behalf joins the one window: the inbox's notices, and every
+//!   prompt that names another agent (`PromptOptions::agent`: a background task's end, a disk
+//!   budget notice, a goal's notice, a lane's report, a task's result, a suggested task's result,
+//!   a watch's wake, a cross-host message). What stays immediate: a block, a question, a fire
+//!   notice, the person's own prompt (a Cloud trigger's too), a chat's first work, a cut turn's
+//!   continuation and a goal's continuation (each runs alone, right after its turn, warm).
+//! - **Outside producers** (a forum or Slack bridge, a CI notifier run from a timer) join it with
+//!   `acpmux send SESSION --gather --from NAME` (or `--notice ... --sender NAME`), which sends
+//!   [`GATHER_META`]: a named sender's message that waits for the chat's batch. The daemon
+//!   refuses one that could not wait ([`gather_refusal`]): no named sender (the owner's own
+//!   terminal send, the person's prompt), a block or a question, a fire notice, or a send that
+//!   asks to wake at once (`--interrupt`, `--now`, `--wait`).
+//!
 //! The detector is `acpmux::hub::cold_wake` in the daemon's log:
 //! `cold wake batch opened` (with the window, the context and how long it was cold) and
 //! `cold wake compaction`, and the handbook's "a cold wake re-reads the whole context" page.
 
 use super::*;
+
+/// `_meta.acpmux.gather` (`acpmux send --gather`, module docs): an outside producer's message
+/// that waits for the chat's batch instead of waking it at once.
+pub const GATHER_META: &str = "gather";
+
+/// What a `--gather` send would do that a batch cannot wait for, as the refusal the daemon
+/// answers it with; None when it joins the window. `agent` is whether it names another sender
+/// (else it is the person's own prompt), `fire` whether it is a fire notice, and `wakes_now`
+/// whether it asks to wake at once (`interrupt`, `steerNow`, `wakeOrFail`).
+pub(crate) fn gather_refusal(
+    agent: bool,
+    class: Option<crate::prompt_class::PromptClass>,
+    fire: bool,
+    wakes_now: bool,
+) -> Option<RpcError> {
+    use crate::prompt_class::PromptClass;
+    let why = if !agent {
+        "it names no sender: add --from NAME (or ACPMUX_FROM, or --notice --sender NAME)"
+    } else if matches!(class, Some(PromptClass::Block | PromptClass::Question)) {
+        "a block or a question wakes the chat at once: send it without --gather"
+    } else if fire {
+        "a fire notice wakes the chat at once: send it without --gather"
+    } else if wakes_now {
+        "it asks to wake the chat at once (--interrupt, --now or --wait): drop that or --gather"
+    } else {
+        return None;
+    };
+    Some(
+        RpcError::invalid_params(format!("send.gather_refused: {why}"))
+            .with_data(json!({"reason": "send.gather_refused"})),
+    )
+}
 
 /// The provenance kind of the compaction a cold batch runs first.
 pub(crate) const KIND: &str = "cold_wake_compact";
