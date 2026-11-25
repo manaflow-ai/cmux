@@ -3431,3 +3431,8 @@ fn fails_before_marker(id: &str) -> bool {
     let at = armed.iter().position(|a| a == id);
     at.map(|at| armed.swap_remove(at)).is_some()
 }
+
+/// Diagnostic: every rehydrate's backtrace (test builds).
+#[cfg(test)]
+pub(crate) static REHYDRATE_TRACES: std::sync::Mutex<Vec<String>> =
+    std::sync::Mutex::new(Vec::new());
