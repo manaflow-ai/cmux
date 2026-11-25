@@ -2406,6 +2406,10 @@ async fn dispatch_request_with_identity(
                 }
                 _ => p,
             });
+            // The sender's own delivery deadline (`acpmux send --within`, `hub/inbox.rs`
+            // "Deadlines"), kept on the provenance so the inbox record keeps it.
+            let within = crate::prompt_class::within(&params);
+            let provenance = provenance.map(|p| crate::prompt_provenance::mark_within(p, within));
             // Another agent's message with no provenance (`hub/digest.rs`): one that names its
             // sender, or one from a connection that proved it runs in an acpmux session.
             let agent = notice_sender

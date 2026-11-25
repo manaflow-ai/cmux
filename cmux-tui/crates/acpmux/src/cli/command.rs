@@ -535,6 +535,11 @@ pub enum Command {
         /// wait for the reply.
         #[arg(long, conflicts_with_all = ["wait", "quiet", "timeout", "tag"])]
         gather: bool,
+        /// Deliver it within this long (90s, 5m, 1h): a message the receiver's inbox holds wakes
+        /// the receiver by its deadline, at the latest 15 minutes for a result (an action) and
+        /// 60 for an FYI (a block or a question wakes it at once). This only tightens that.
+        #[arg(long, value_name = "DURATION", value_parser = crate::prompt_class::parse_within)]
+        within: Option<u64>,
     },
     /// Team-scoped durable messages. Needs a team hub (`meshRelay`); on there by default.
     #[command(aliases = aliases::INBOX)]
