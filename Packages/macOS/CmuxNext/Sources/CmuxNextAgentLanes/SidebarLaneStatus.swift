@@ -42,6 +42,8 @@ enum SidebarLaneStatus {
                     : SidebarLocalLanes.lanes(workspace, lanes: lanes, turns: turns)
                 // A runaway session's warning shows whatever the lane toggles say (Leo 2026-10-30).
                 row.usageWarnings = usageWarnings(local)
+                // What its chats wait on (the working shelf, `sidebar.workingShelf`), whatever the lane toggles say.
+                row.backgroundWaits = local.reduce(0) { $0 + $1.backgroundWaits }
                 // The agent's task list across its turns, whatever the other lane toggles say.
                 row.taskProgress = SidebarTunables.taskProgress.value ? taskProgress(local) : nil
                 // Captures run no agents: sample subagents stand in (`sidebar.subagents.fixture`, Debug, off).

@@ -45,6 +45,6 @@ extension SidebarModel {
             if (old.agentChip == .needsYou) != (new.agentChip == .needsYou) { return true }
         }
         return Self.movesRows(from: old, to: new, groupsByFolder: groupsByFolder, settles: settlesFinished,
-                              automates: !showsAutomaticSessions)
+                              automates: !showsAutomaticSessions, shelves: shelvesWaiting)
     }
 }

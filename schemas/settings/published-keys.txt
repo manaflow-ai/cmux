@@ -639,6 +639,7 @@ sidebar.steppingWraps
 sidebar.style
 sidebar.textSize
 sidebar.topBandMaxShare
+sidebar.workingShelf
 sidebar.workspaceIcons
 sidebar.workspaceRow.agent.agentStatus
 sidebar.workspaceRow.agent.branch

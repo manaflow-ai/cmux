@@ -188,6 +188,10 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// Settled chats (`sidebar.settleFinished`, `SidebarSettlePlanner`): these rows fold into a "Settled (N)" row at the
     /// end of their list, before the Done row. Empty (the setting off, the default) draws every row in place.
     public var settled: Set<WorkspaceID> = []
+    /// The working shelf (`sidebar.workingShelf`, `SidebarShelfPlanner`): chats whose turn ended and that wait on work
+    /// that wakes them (a background task, a watch, a subagent) fold into a "Working (N)" row at the end of their list,
+    /// before every other fold. Empty (the setting off, the default) draws every row in place.
+    public var shelved: Set<WorkspaceID> = []
     /// Automatic sessions (`sidebar.showAutomaticSessions` off, the default; `SidebarAutomaticPlanner`): these rows fold
     /// into an "Automatic (N)" row at the end of their list, before the Settled row. Empty draws every row in place.
     public var automatic: Set<WorkspaceID> = []

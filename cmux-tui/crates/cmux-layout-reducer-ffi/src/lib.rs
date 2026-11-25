@@ -13,6 +13,8 @@
 //! and when to look again),
 //! the sidebar's settled chats (`sidebar_settle_plan`: which seen, finished
 //! chats fold behind Settled, and what Archive Settled Chats archives),
+//! the sidebar's working shelf (`sidebar_shelf_plan`: which chats waiting on
+//! background work fold behind Working),
 //! the sidebar's automatic sessions (`sidebar_automatic_plan`: which rows no
 //! person started and no chat spawned fold behind Automatic),
 //! `cmux-tab-discard`'s hidden browser tab rules (`tab_discard_*`: which hidden tabs freeze,
@@ -257,6 +259,12 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 let request: settle::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&settle::plan(&request)).map_err(|_| ERR_INVALID)?
+            }
+            b"sidebar_shelf_plan" => {
+                use cmux_layout_reducer::shelf;
+                let request: shelf::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&shelf::plan(&request)).map_err(|_| ERR_INVALID)?
             }
             b"keep_awake_plan" => {
                 use cmux_layout_reducer::keep_awake;

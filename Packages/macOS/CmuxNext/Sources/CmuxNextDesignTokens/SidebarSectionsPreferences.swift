@@ -141,6 +141,9 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// "Settled (N)" row at the end of its list until its next turn, question or failure (the rule is Rust's,
     /// `cmux-layout-reducer` `settle`). Off by default; the Studio look turns it on.
     public var settleFinished = false
+    /// `sidebar.workingShelf`: an agent chat waiting on background work (a background task, a subagent, a watch) folds
+    /// into one "Working (N)" row at the end of its list and comes back when it needs the person. Off by default.
+    public var workingShelf = false
     /// `sidebar.showAutomaticSessions`: sessions no person started and no chat's subagent (a script, an automation, a
     /// launcher; the daemon records `created_by` kind `script`) draw in place. Off by default: they fold into an
     /// "Automatic (N)" row at the end of their list (the rule is Rust's, `cmux-layout-reducer` `automatic`).

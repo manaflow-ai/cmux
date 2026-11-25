@@ -46,6 +46,8 @@ public final class SidebarModel {
     @ObservationIgnored private var storedSections: [SidebarSection] { didSet { contentRevision &+= 1 } }
     /// The settled chats of `contentRevision` (`settledChats()`): one Rust call per change of the rows, not per layout.
     @ObservationIgnored var settleCache: (revision: UInt64, settled: Set<WorkspaceID>)?
+    /// The shelved chats of `contentRevision` (`shelvedChats()`): one Rust call per change of the rows.
+    @ObservationIgnored var shelfCache: (revision: UInt64, shelved: Set<WorkspaceID>)?
     /// The automatic sessions of `contentRevision` (`automaticSessions()`): one Rust call per change of the rows.
     @ObservationIgnored var automaticCache: (revision: UInt64, automatic: Set<WorkspaceID>)?
     /// The latest document projection before user customization. Keeping this
@@ -279,6 +281,8 @@ public final class SidebarModel {
     public var showsTimestamps = false
     /// Seen, finished agent chats fold behind a "Settled (N)" row (`sidebar.settleFinished`, off by default).
     public var settlesFinished = false
+    /// Chats waiting on background work fold behind a "Working (N)" row (`sidebar.workingShelf`, off by default).
+    public var shelvesWaiting = false
     /// Sessions no person started and no chat's subagent draw in place (`sidebar.showAutomaticSessions`, off by
     /// default: they fold behind an "Automatic (N)" row).
     public var showsAutomaticSessions = false
@@ -830,6 +834,7 @@ public final class SidebarModel {
         detailedStatus = preferences.detailedStatusIcons
         showsTimestamps = preferences.showTimestamps
         settlesFinished = preferences.settleFinished
+        shelvesWaiting = preferences.workingShelf
         showsAutomaticSessions = preferences.showAutomaticSessions
         (showsColors, colorIndicator) = (preferences.showColors, preferences.workspaceColorIndicator)
         showsLocalMachine = preferences.showLocalMachine
@@ -884,6 +889,7 @@ public final class SidebarModel {
         if grouping.groupsByRecents && o.rowLimit == 0 { o.rowLimit = SidebarLayout.projectLimit }
         (o.openDoneFolds, o.openShowMore) = (openDoneFolds, openShowMore)
         o.grouping = settledGrouping()
+        if shelvesWaiting { o.shelved = shelvedChats() }
         if settlesFinished { o.settled = settledChats() }
         o.automatic = automaticSessions()
         o.subagentLook = SidebarTunables.subagentLook.value

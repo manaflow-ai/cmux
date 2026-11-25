@@ -424,11 +424,11 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                     isCollapsed: false, childCount: indices.count, groupColor: nil
                 ))
                 y += m.groupHeaderHeight + m.rowSpacing
-                guard !o.settled.isEmpty || !o.automatic.isEmpty else {
+                guard !o.shelved.isEmpty || !o.settled.isEmpty || !o.automatic.isEmpty else {
                     for index in indices { emit(index, nodes[index]) }
                     continue
                 }
-                // Settled chats (`sidebar.settleFinished`) and automatic sessions (`sidebar.showAutomaticSessions`
+                // Chats on the working shelf (`sidebar.workingShelf`), settled chats (`sidebar.settleFinished`) and automatic sessions (`sidebar.showAutomaticSessions`
                 // off) fold at the end of their project's rows. Only them: a
                 // folder keeps its Done and archived rows, and every row, as it always did.
                 var settling = o

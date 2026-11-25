@@ -98,6 +98,9 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// The usage rules the workspace's agent chats on this Mac break (their acpmux lanes'
     /// `usageWarnings`, one line each): the row's warning badge and its tooltip. Empty: no badge.
     public var usageWarnings: [String] = []
+    /// What its agent chats wait on that wakes them by themselves (acpmux's summary `backgroundWaits`: background tasks
+    /// that notify, watches, background subagents, working sub-sessions), summed: the working shelf reads it.
+    public var backgroundWaits = 0
     /// The user's icon or color, else the shown tab's page icon or favicon (``iconFromShownTab``). When nil, the row
     /// draws no icon (WORKSPACE-ROWS-NO-DEFAULT-ICON).
     public var icon: WorkspaceIcon?
