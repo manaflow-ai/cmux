@@ -122,10 +122,12 @@ describe("localized pricing page", () => {
       const off = await renderSettled(await PricingPage({ params: Promise.resolve({ locale: "en" }) }));
       expect(off).not.toContain("data-cloud-intro");
       expect(off).not.toContain("plan=intro");
+      expect(off).not.toContain("cloud-intro-proof");
       process.env.CMUX_CLOUD_INTRO = "1";
       const on = await renderSettled(await PricingPage({ params: Promise.resolve({ locale: "en" }) }));
       expect(on.match(/data-cloud-intro="a"/g)).toHaveLength(1);
       expect(on).toContain('data-testid="cloud-intro-form"');
+      expect(on).toContain('data-testid="cloud-intro-proof"');
       expect(on.indexOf("data-cloud-intro")).toBeLessThan(on.indexOf("Get Pro"));
     } finally {
       if (previous === undefined) delete process.env.CMUX_CLOUD_INTRO;
