@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.home.server.help" : {
+      "comment" : "Settings help (home.server): cmux Cloud by default, or a self-hosted server over Tailscale. Keep the example address unchanged.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Self-hosted: a Tailscale MagicDNS address, such as http://mini.tail1234.ts.net:7320."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "الاستضافة الذاتية: عنوان Tailscale MagicDNS، مثل http://mini.tail1234.ts.net:7320."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Samostalno hostovan: Tailscale MagicDNS adresa, npr. http://mini.tail1234.ts.net:7320."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Selvhostet: en Tailscale MagicDNS-adresse, f.eks. http://mini.tail1234.ts.net:7320."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Selbst gehostet: eine MagicDNS-Adresse von Tailscale, etwa http://mini.tail1234.ts.net:7320."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Autoalojado: una dirección MagicDNS de Tailscale, como http://mini.tail1234.ts.net:7320."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Auto-hébergé : une adresse Tailscale MagicDNS, par exemple http://mini.tail1234.ts.net:7320."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Self-hosted: un indirizzo MagicDNS di Tailscale, ad esempio http://mini.tail1234.ts.net:7320."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "セルフホスト: Tailscale MagicDNS のアドレス（例: http://mini.tail1234.ts.net:7320）。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បង្ហោះខ្លួនឯង៖ អាសយដ្ឋាន Tailscale MagicDNS ដូចជា http://mini.tail1234.ts.net:7320។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "자체 호스팅: Tailscale MagicDNS 주소(예: http://mini.tail1234.ts.net:7320)."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Selvhostet: en Tailscale MagicDNS-adresse, for eksempel http://mini.tail1234.ts.net:7320."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Serwer własny: adres Tailscale MagicDNS, np. http://mini.tail1234.ts.net:7320."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Auto-hospedado: um endereço MagicDNS do Tailscale, como http://mini.tail1234.ts.net:7320."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Собственный сервер: адрес Tailscale MagicDNS, например http://mini.tail1234.ts.net:7320."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "โฮสต์เอง: ที่อยู่ MagicDNS ของ Tailscale เช่น http://mini.tail1234.ts.net:7320"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kendi barındırdığınız sunucu: bir Tailscale MagicDNS adresi, örneğin http://mini.tail1234.ts.net:7320."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Власний сервер: адреса Tailscale MagicDNS, наприклад http://mini.tail1234.ts.net:7320."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tự lưu trữ: một địa chỉ Tailscale MagicDNS, ví dụ http://mini.tail1234.ts.net:7320."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "自托管：Tailscale MagicDNS 地址，例如 http://mini.tail1234.ts.net:7320。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "自行託管：Tailscale MagicDNS 位址，例如 http://mini.tail1234.ts.net:7320。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
