@@ -432,15 +432,17 @@ struct TabsScreen<Source: TabsDataSource>: View {
     // MARK: Page
 
     private var contentContext: TabsKitContentContext {
-        let barInset = ToolbarLayout.barInset(metrics: theme.metrics, size: size, safeTop: safeTop, safeBottom: safeBottom)
-        let top = theme.metrics.barEdge == .top
         let chrome = chrome, theme = theme
+        let insets = ToolbarLayout.pageInsets(metrics: theme.metrics, size: size, safeTop: safeTop, safeBottom: safeBottom,
+                                              bar: chrome.bar)
         return TabsKitContentContext(
             pageSize: size,
-            safeAreaInsets: EdgeInsets(top: top ? barInset : safeTop, leading: 0, bottom: top ? safeBottom : barInset, trailing: 0),
+            safeAreaInsets: EdgeInsets(top: insets.resting.top, leading: 0, bottom: insets.resting.bottom, trailing: 0),
+            chromeInsets: EdgeInsets(top: insets.live.top, leading: 0, bottom: insets.live.bottom, trailing: 0),
             isInteractive: zoomState.pageInteractive && !chrome.swiping && !chrome.editing && !chrome.menuOpen,
             isZoomGestureActive: zoomPinchActive,
             isToolbarCollapsed: chrome.bar == .collapsed,
+            toolbarEdge: theme.metrics.barEdge,
             onScroll: { dy in chrome.pageDragged(dy, theme) })
     }
 

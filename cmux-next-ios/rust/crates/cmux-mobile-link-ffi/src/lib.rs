@@ -14,7 +14,9 @@ use cmux_mobile_link::{
 };
 use tokio::runtime::Runtime;
 
+mod auto_chats;
 mod browser;
+mod chat_prompt_outbox;
 mod classic_leftovers;
 mod composer_outbox;
 mod follow_camera;
@@ -22,7 +24,10 @@ mod last_place;
 mod link_side;
 pub mod local_link;
 mod mac_screen;
+mod mailbox_client;
 mod pair_requests;
+mod read_store;
+mod row_layout;
 mod share_approval;
 mod tabs;
 mod terminal_chat;
@@ -31,7 +36,14 @@ mod terminal_prediction;
 mod terminal_projection;
 mod window_layout;
 
+pub use auto_chats::{
+    AutoChat, AutoChatError, AutoChats, AutoHttp, AutoHttpError, AutoHttpReply, AutoHttpRequest,
+};
 pub use browser::{BrowserFrame, BrowserObserver, BrowserStats, BrowserStream};
+pub use chat_prompt_outbox::{
+    ChatAttachment, ChatCancelStep, ChatEditStep, ChatPromptDone, ChatPromptLook, ChatPromptOutbox,
+    ChatPromptOutcome, ChatPromptRequest, ChatPromptTaken, ChatUploadState, ChatUploadedAttachment,
+};
 pub use classic_leftovers::{ClassicCleanupPlan, KeychainDelete, KeychainLeftover};
 pub use composer_outbox::{
     ComposerOutbox, ComposerSendAnswer, ComposerSendDone, ComposerSendOutcome, ComposerSendRequest,
@@ -40,6 +52,7 @@ pub use follow_camera::{FollowCamera, FollowCameraMode, FollowRect};
 pub use last_place::{LastPlaceAnchor, LastPlaceRecord, LastPlaceScreen, LastPlaceStore};
 pub use link_side::{LinkOpenSide, link_open_side};
 pub use mac_screen::{MacScreenAnswer, MacScreenDisplay, MacScreenIceServer, MacScreenObserver, MacScreenRd};
+pub use read_store::{PhoneReadKey, PhoneReadStore, PhoneReadStoreError};
 pub use share_approval::{ShareApprovalDraft, ShareAsk, share_approval_draft, share_approval_signed};
 pub use tabs::{TabsEvent, TabsMirror, TabsRow, TabsViewport};
 pub use terminal_chat::{
@@ -549,6 +562,13 @@ impl LinkHandle {
         u32::try_from(timeout.as_millis()).unwrap_or(u32::MAX)
     }
 
+    /// How long a resumed parked link may stay silent before the app races a
+    /// fresh dial against it: three smoothed round trips plus 100 ms, within
+    /// 250 ms and 1.5 s (500 ms before any round trip was measured).
+    pub fn resume_hedge_ms(&self) -> u32 {
+        u32::try_from(self.link.resume_hedge_after().as_millis()).unwrap_or(u32::MAX)
+    }
+
     /// The app is in the foreground with a terminal or chat on screen
     /// (`true`), or not. While it is and the link's pings travel as
     /// WireGuard datagrams, the link probes every 3 s and is suspect after
@@ -599,6 +619,20 @@ impl LinkHandle {
     /// no traffic for a whole beat on the keepalive beat.
     pub fn traffic_ago_ms(&self) -> u64 {
         u64::try_from(self.link.traffic_ago().as_millis()).unwrap_or(u64::MAX)
+    }
+
+    /// Milliseconds since the link last made progress: anything heard from
+    /// the Mac, or a write other than a keepalive taken by the transport
+    /// (`Link::progress_ago`). The one progress clock a send's hold reads:
+    /// `ChatPromptOutbox.progressed(nowMs - progressAgoMs())` is the adapter.
+    pub fn progress_ago_ms(&self) -> u64 {
+        u64::try_from(self.link.progress_ago().as_millis()).unwrap_or(u64::MAX)
+    }
+
+    /// How many times the link made progress; monotonic, so a change since
+    /// the last read means it moved in between (`Link::progress_count`).
+    pub fn progress_count(&self) -> u64 {
+        self.link.progress_count()
     }
 
     /// Close the link and its transport. The signaling socket stays warm
@@ -986,6 +1020,7 @@ async fn finish_link(
         connected.path.clone(),
         timeline.clone(),
         current_signaling(pool, &signaling),
+        connected.session_id.clone(),
     );
     Ok(Arc::new(LinkHandle {
         link: connected.link,
@@ -1501,6 +1536,56 @@ pub async fn prewarm(base_url: String, token: String, team_id: String, device_id
 #[uniffi::export]
 pub fn set_cellular_path(cellular: bool) {
     cmux_mobile_link::dial::wireguard::set_cellular_path(cellular);
+}
+
+/// What a network interface is (mirror of `cmux_mobile_link::dial::wireguard::InterfaceKind`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum InterfaceKind {
+    Wifi,
+    Cellular,
+    Wired,
+    Other,
+}
+
+/// One interface that is up, as iOS `NWPath.availableInterfaces` says
+/// (mirror of `cmux_mobile_link::dial::wireguard::NetInterface`).
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct NetInterface {
+    pub name: String,
+    pub kind: InterfaceKind,
+    pub expensive: bool,
+    pub constrained: bool,
+    pub primary: bool,
+}
+
+/// The interfaces that are up now (every path update). Rust decides what to
+/// do with them (a second socket on cell beside Wi-Fi, roaming).
+#[uniffi::export]
+pub fn set_network_interfaces(interfaces: Vec<NetInterface>) {
+    use cmux_mobile_link::dial::wireguard as wg;
+    wg::set_interfaces(
+        interfaces
+            .into_iter()
+            .map(|i| wg::NetInterface {
+                name: i.name,
+                kind: match i.kind {
+                    InterfaceKind::Wifi => wg::InterfaceKind::Wifi,
+                    InterfaceKind::Cellular => wg::InterfaceKind::Cellular,
+                    InterfaceKind::Wired => wg::InterfaceKind::Wired,
+                    InterfaceKind::Other => wg::InterfaceKind::Other,
+                },
+                expensive: i.expensive,
+                constrained: i.constrained,
+                primary: i.primary,
+            })
+            .collect(),
+    );
+}
+
+/// The person allows cell beside Wi-Fi (on unless they turn it off).
+#[uniffi::export]
+pub fn set_cellular_assist(allowed: bool) {
+    cmux_mobile_link::dial::wireguard::set_cellular_assist(allowed);
 }
 
 /// The Mac answered a typed batch's `send` `ack_ms` after its first key's tap

@@ -652,8 +652,12 @@ public final class TerminalModel {
 
     /// Refreshes `snapshot` from the live page, rendered here on the main
     /// thread: for callers that need the picture now (the background save).
+    /// A capture of a surface that drew none of the Mac's rows (only the page background: a
+    /// solid black card) never replaces the card's picture: the card keeps its last-known
+    /// page, or shows the Mac's screen text, or nothing (`TerminalCardContent`). Once the page
+    /// drew live output, a blank capture is the real screen (a cleared terminal) and is kept.
     public func captureSnapshot() {
-        if let image = controller?.snapshot() {
+        if let image = controller?.snapshot(), drewLiveOutput || !TerminalFrameKeep.isBlank(image) {
             cardRenders += 1
             cardSnapshotAt = CACurrentMediaTime()
             snapshot = image
@@ -962,14 +966,14 @@ public final class TerminalModel {
 
     /// `count` characters of prose, sentences and paragraph breaks, for
     /// typing-cost captures of a long draft (`ComposerTypingLagUITests`).
-    public static func demoProse(_ count: Int) -> String {
+    public static func demoProse(_ count: Int, oneParagraph: Bool = false) -> String {
         let sentence = "The build fails on the second step when the cache is cold, so check the log and the screenshots before rerunning it. "
         var text = ""
         var index = 0
-        while text.count < count {
+        while text.utf8.count < count {
             text += sentence
             index += 1
-            if index % 4 == 0 { text += "\n\n" }
+            if index % 4 == 0, !oneParagraph { text += "\n\n" }
         }
         return String(text.prefix(count))
     }
