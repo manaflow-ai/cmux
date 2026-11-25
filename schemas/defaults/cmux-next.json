@@ -1012,7 +1012,7 @@
     "setting.workspaces.hibernation.idleMinutes": 60,
     "setting.workspaces.newPlacement": "top",
     "setting.worktrees.autoCleanup": true,
-    "setting.worktrees.cleanBuildCaches": false,
+    "setting.worktrees.cleanBuildCaches": true,
     "steps-aside.yieldsToCodeEditor": ["focusDown", "focusLocation", "focusUp", "globalSearch", "groupSelectedWorkspaces", "home.openChiefDock", "moveSurfaceToPaneDown", "moveSurfaceToPaneLeft", "moveSurfaceToPaneRight", "moveSurfaceToPaneUp", "openBrowser", "palette.newAgentChat", "space.next", "space.previous", "splitRight", "toggleChecklistItemComplete", "toggleSplitZoom"],
     "steps-aside.yieldsToTerminal": ["decreaseWorkspaceTerminalFontSize", "groupSelectedWorkspaces", "increaseWorkspaceTerminalFontSize", "resetWorkspaceTerminalFontSize", "toggleChecklistItemComplete"],
     "steps-aside.yieldsToWebContent": ["toggleChecklistItemComplete"],

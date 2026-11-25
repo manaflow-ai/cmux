@@ -126,7 +126,9 @@ pub fn open_inside(folder: &Path) -> Result<Option<u32>, String> {
     let mut command = std::process::Command::new("lsof");
     command
         .env("PATH", path)
-        .args(["-w", "-t", "+d"])
+        .args(["-w", "-t"])
+        // A folder by its top-level files; a lone file by itself.
+        .args(if folder.is_dir() { ["+d"] } else { ["--"] })
         .arg(folder)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
