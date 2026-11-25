@@ -106,6 +106,40 @@ public struct CmuxMobileGround<Legacy: View>: View {
     }
 
     public var body: some View {
+        // A chat that follows the Mac's chat look draws in that look's light or dark style, so its
+        // ground is the look's own color, never the phone's light or dark one (white text on a white
+        // ground otherwise, under a light phone and a dark Mac theme).
+        if level == .chat, let look = macTheme.chatLook, setting.policy != .current {
+            chatGround(look)
+        } else {
+            policyGround
+        }
+    }
+
+    @ViewBuilder private func chatGround(_ look: CmuxMobileChatLook) -> some View {
+        let ground = Color(uiColor: CmuxMobileRGBA(red: look.background.red, green: look.background.green,
+                                                     blue: look.background.blue).uiColor)
+        switch setting.policy.ground(level) {
+        case .wallpaper(let minTint):
+            if let wallpaper = macTheme.wallpaper {
+                GeometryReader { proxy in
+                    Image(uiImage: wallpaper.image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: proxy.size.width, height: proxy.size.height)
+                        .clipped()
+                        .overlay(ground.opacity(max(wallpaper.tint, minTint)))
+                }
+                .accessibilityHidden(true)
+            } else {
+                ground
+            }
+        default:
+            ground
+        }
+    }
+
+    @ViewBuilder private var policyGround: some View {
         switch setting.policy.ground(level) {
         case .legacy:
             legacy
