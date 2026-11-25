@@ -246,6 +246,22 @@ fn configured_waits_are_checked() {
     assert_eq!(staggered(u64::MAX, "s"), u64::MAX);
 }
 
+/// Every unread steer of the cut turn is quoted: past the old limit of 64, none is dropped.
+#[test]
+fn every_unread_steer_is_quoted_past_sixty_four() {
+    let (hub, session) = retry_chat();
+    hub.append(&session, "mux", "turn_started", json!({"turnId": "cut", "promptId": "p"}));
+    for n in 0..100 {
+        let steer = json!({"steer": true, "turnId": "cut", "promptId": format!("s-{n}"),
+                           "text": format!("steer {n}")});
+        hub.append(&session, "mux", "user_message", steer);
+    }
+    hub.append(&session, "mux", "steer_read", json!({"promptId": "s-0"}));
+    let unread = hub.unread_steers(&session.id, "cut");
+    assert_eq!(unread.len(), 99);
+    assert_eq!((unread[0].as_str(), unread[98].as_str()), ("steer 1", "steer 99"));
+}
+
 /// A capacity outage is waited out with no attempt limit: past the configured waits the last
 /// one doubles, at most [`super::CAPACITY_MAX_WAIT_MS`] (Leo, 2026-11-23: "I can't even talk
 /// to the GUI chats right now because of alleged overload").

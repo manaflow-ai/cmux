@@ -2287,7 +2287,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "8999c1f44dfd2b2a090af0a99517f6c8738402be8fad00a01f6bcd5b21462e3b",
+      "sha256": "b385728ded6c625af4d02ef6622c54e6fbf18d54b9faa7dad77e2660930469ca",
       "size": 8511
     },
     {
@@ -3847,7 +3847,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "a778a465a40b641793e328255ee0e5328b1b6c4c4546a3a9c2fe5b9492d54b75",
+  "ir_sha256": "0e9ad98facd4f616a6231f6b8026499abece893f159b8615c391195d999fb099",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2
