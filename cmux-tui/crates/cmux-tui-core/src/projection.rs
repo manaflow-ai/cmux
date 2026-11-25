@@ -1055,10 +1055,11 @@ impl cmux_projection::reap::Live for DaemonMounts {
         name: &str,
         at: Option<&Path>,
         only_if_idle: bool,
+        still_eligible: &dyn Fn() -> bool,
         free: &mut dyn FnMut() -> std::io::Result<u64>,
     ) -> Option<std::io::Result<u64>> {
         let mut table = projections().lock().unwrap_or_else(PoisonError::into_inner);
-        if only_if_idle && table.contains_key(name) {
+        if (only_if_idle && table.contains_key(name)) || !still_eligible() {
             return None;
         }
         end(&mut table, name, at);

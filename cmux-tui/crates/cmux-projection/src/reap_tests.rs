@@ -230,9 +230,10 @@ fn an_orphan_goes_after_the_grace_and_not_while_mounted() {
             name: &str,
             _at: Option<&Path>,
             only_if_idle: bool,
+            still_eligible: &dyn Fn() -> bool,
             free: &mut dyn FnMut() -> io::Result<u64>,
         ) -> Option<io::Result<u64>> {
-            (!(only_if_idle && self.mounted(name))).then(free)
+            (!(only_if_idle && self.mounted(name)) && still_eligible()).then(free)
         }
     }
     let machine = Machine::new();
@@ -250,6 +251,57 @@ fn an_orphan_goes_after_the_grace_and_not_while_mounted() {
     let report = pass(&places, &list, &Idle, later, &Limits::default());
     assert!(!state.exists(), "an orphan outlived its grace: {report:?}");
     assert!(report.reclaimed.iter().any(|reclaim| reclaim.why == Why::Orphan));
+}
+
+/// Detach wins the mount lock after the scan selected an archived or orphaned projection.
+#[test]
+fn detach_between_scan_and_unmount_preserves_edits_and_whiteouts() {
+    struct Detaching<'a> {
+        state: &'a Path,
+        at: &'a Path,
+    }
+
+    impl Live for Detaching<'_> {
+        fn mounted(&self, _: &str) -> bool {
+            false
+        }
+
+        fn end(
+            &self,
+            _: &str,
+            _: Option<&Path>,
+            _: bool,
+            still_eligible: &dyn Fn() -> bool,
+            _: &mut dyn FnMut() -> io::Result<u64>,
+        ) -> Option<io::Result<u64>> {
+            state::update(self.state, self.at, |record| {
+                record.detached = Some(Detached { ms: 1, chat: None });
+            })
+            .unwrap();
+            assert!(!still_eligible(), "a stale verdict authorized unmount and cleanup");
+            None
+        }
+    }
+
+    for archived in [false, true] {
+        let machine = Machine::new();
+        let at = machine.chat_folder("removed");
+        let (state, overlay) = machine.project("projection", &at);
+        edit(&overlay);
+        drop(overlay);
+        let before = state::mark(&state).unwrap();
+        let folder = if archived { at.clone() } else { machine.chat_folder("other") };
+        let list = chats(vec![chat("chat", &folder, archived)]);
+        let now = SystemTime::now() + ORPHAN_GRACE + DAY;
+        let expected = if archived { Why::Archived } else { Why::Orphan };
+        assert_eq!(verdict(&state, &list, false, now, ORPHAN_GRACE), Some(expected));
+        let live = Detaching { state: &state, at: &at };
+        let report = pass(&machine.places(), &list, &live, now, &Limits::default());
+        assert!(report.reclaimed.is_empty());
+        assert!(state::read(&state).unwrap().detached.is_some());
+        assert_eq!(state::mark(&state).unwrap(), before);
+        assert!(at.exists());
+    }
 }
 
 /// The Mac released the projection (its chat was archived or deleted): it goes at once, mounted

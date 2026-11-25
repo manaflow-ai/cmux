@@ -175,12 +175,14 @@ pub trait Live {
     fn mounted(&self, name: &str) -> bool;
     /// Ends projection `name` (this daemon's mount of it, or a dead daemon's mount left at `at`)
     /// with new mounts of it held off, then runs `free` and answers what it did. `None`, and
-    /// `free` not run, when `only_if_idle` and this daemon serves it now.
+    /// `free` not run, when `only_if_idle` and this daemon serves it now, or when
+    /// `still_eligible` fails under the mount lock before unmounting anything.
     fn end(
         &self,
         name: &str,
         at: Option<&Path>,
         only_if_idle: bool,
+        still_eligible: &dyn Fn() -> bool,
         free: &mut dyn FnMut() -> io::Result<u64>,
     ) -> Option<io::Result<u64>>;
 }
@@ -198,9 +200,10 @@ impl Live for Idle {
         _name: &str,
         _at: Option<&Path>,
         _only_if_idle: bool,
+        still_eligible: &dyn Fn() -> bool,
         free: &mut dyn FnMut() -> io::Result<u64>,
     ) -> Option<io::Result<u64>> {
-        Some(free())
+        still_eligible().then(free)
     }
 }
 
@@ -379,18 +382,14 @@ fn projections(
                 && matches!(why, Why::Orphan | Why::Archived);
         // Detach already unmounted this projection. Another chat may have reused its path.
         let at = record.as_ref().filter(|_| !detached).map(|r| r.at.as_path());
-        let mut changed = false;
-        let freed = live
-            .end(&name, at, detached || why == Why::Orphan, &mut || {
-                // Under the daemon's mount lock: a re-add, edit, and second detach could all have
-                // happened since the pass chose this entry.
-                if detached && (state::read(&state) != record || !detached_layer_empty(&state)) {
-                    changed = true;
-                    return Ok(0);
-                }
+        // Detach or re-attach can change the record after the scan. Check again under the
+        // mount lock, before unmounting a path that another chat could already be using.
+        let still_eligible =
+            || state::read(&state) == record && (!detached || detached_layer_empty(&state));
+        let freed =
+            live.end(&name, at, detached || why == Why::Orphan, &still_eligible, &mut || {
                 free_projection(&state, at, why)
-            })
-            .filter(|_| !changed);
+            });
         match freed {
             Some(freed) => note(report, &state, why, freed),
             // Mounted since the verdict: it is in use again.
