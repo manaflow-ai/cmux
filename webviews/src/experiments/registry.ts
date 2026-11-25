@@ -62,6 +62,7 @@ import { toolRowWords } from "../agent-session/acpmux/conversation/toolRowWords.
 import { workedForMessages } from "../agent-session/acpmux/conversation/workedForMessages.experiment";
 import { bareWorkedTurns } from "../agent-session/acpmux/conversation/bareWorkedTurns.experiment";
 import { turnErrorCard } from "../agent-session/acpmux/conversation/turnErrorCard.experiment";
+import { capacityWaitLook } from "../agent-session/acpmux/conversation/capacityWait.experiment";
 import { pausedMachineResume } from "../agent-session/acpmux/pausedMachine.experiment";
 import { codeRouterOffer } from "../agent-session/acpmux/conversation/codeRouterOffer.experiment";
 import { stoppedTurnLook } from "../agent-session/acpmux/conversation/stoppedTurn.experiment";
@@ -124,6 +125,7 @@ import { menuRowStates } from "../ui/menuRowStates.experiment";
 import { jumpLatestPlace } from "../agent-session/acpmux/jumpPlace.experiment";
 import { hatPillPlace } from "../agent-session/acpmux/hatPillPlace.experiment";
 import { dockBand } from "../agent-session/acpmux/dockBand.experiment";
+import { draftFoot } from "../agent-session/acpmux/draftFoot.experiment";
 import { outcomeAsk } from "../agent-session/acpmux/outcomeAsk.experiment";
 import { composerV2Look } from "../agent-session/acpmux/composerV2.experiment";
 import { composerShellLook } from "../agent-session/acpmux/composer/shellLook.experiment";
@@ -174,6 +176,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   chatMinimapPlaceholder,
   codeActionsLook,
   turnErrorCard,
+  capacityWaitLook,
   pausedMachineResume,
   codeRouterOffer,
   stoppedTurnLook,
@@ -260,6 +263,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   jumpLatestPlace,
   hatPillPlace,
   dockBand,
+  draftFoot,
   outcomeAsk,
   glassToolbarLook,
   composerV2Look,
