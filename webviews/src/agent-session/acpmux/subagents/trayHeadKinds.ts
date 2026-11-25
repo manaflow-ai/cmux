@@ -295,11 +295,7 @@ export type TrayHeadForms = { long: string; short: string; count: string };
 export function trayHeadForms(t: Translate, part: TrayHeadPart): TrayHeadForms {
   const short = part.text;
   const n = part.items.length;
-  const long = part.long
-    ? part.long
-    : part.tone
-      ? short
-      : t("tray.summary.kindRunning", { kind: short });
+  const long = part.long ? part.long : part.tone ? short : t("tray.summary.kindRunning", { kind: short });
   return { long, short, count: String(n) };
 }
 
