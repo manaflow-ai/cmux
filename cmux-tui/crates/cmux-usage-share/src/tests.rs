@@ -465,7 +465,7 @@ fn old_spool_files_are_pruned() {
 async fn fresh_install_sends_no_usage_telemetry_until_opt_in() {
     struct CountSends(std::sync::atomic::AtomicUsize);
     impl Sender for CountSends {
-        fn send(&self, _body: Vec<u8>) -> impl std::future::Future<Output = Sent> + Send {
+        fn send(&self, _body: Vec<u8>) -> impl Future<Output = Sent> + Send {
             self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             async { Sent::Retry { why: String::new() } }
         }

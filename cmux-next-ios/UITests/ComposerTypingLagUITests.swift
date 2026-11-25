@@ -18,7 +18,7 @@ import XCTest
 ///   measure the field's height for the key.
 ///
 /// The gate: commit p95 under 16 ms, and the text laid out per key bounded by
-/// the field's size (it holds 14 lines), not the draft's length: the cost of a
+/// the field's size (it holds 6 lines), not the draft's length: the cost of a
 /// key is the same for 500, 5,000 and 20,000 characters. A phone in Low Power
 /// Mode runs at a fraction of the simulator Mac's speed, so a per-key cost that
 /// grows with the draft is the failure even where the Mac hides it.
@@ -27,7 +27,7 @@ import XCTest
 ///       --arg test --arg ui=ComposerTypingLagUITests --artifact artifacts/ios-sim/evidence.zip
 final class ComposerTypingLagUITests: XCTestCase {
     static let field = "terminal.composer.field"
-    /// Text laid out per key may cover the field's 14 lines and some slack, never the draft.
+    /// Text laid out per key may cover the field's lines and some slack, never the draft.
     static let maxLayoutUnitsPerKey = 4_096.0
     /// SwiftUI asks a field's size a few times per pass (several widths); a key is one pass.
     static let maxSizeQuestionsPerKey = 8.0

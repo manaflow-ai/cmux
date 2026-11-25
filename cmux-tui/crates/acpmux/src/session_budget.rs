@@ -34,10 +34,22 @@
 //!   on, and a 100 MB/s cap took the neighbor's fsync p99 from 231-336 ms to 779-859 ms. The disk
 //!   watcher (`hub/session_budget_watch.rs`) is the session's disk limit.
 //! - disk: `ACPMUX_SESSION_DISK_MB` / `session.diskMb`, default this host's registry
-//!   `lanes.disk_per_lane_gb`, else a tenth of the home filesystem between 2 and 64 GiB. The
+//!   `lanes.disk_per_lane_gb`, else a tenth of the home filesystem on a host with a lane cap or half
+//!   on one without (one person's machine: a Cloud VM, a Mac), between 2 and 64 GiB. The
 //!   kernel has no per-scope disk limit here, so `hub/session_budget_watch.rs` measures it.
 //! - store: what a chat keeps in acpmux's own store (its event log and background output),
 //!   `ACPMUX_SESSION_STORE_MB`, default an eighth of the disk budget (`session_store.rs`).
+//!
+//! - totals ([`Total`]): one session across all its scopes (its harness scope and every
+//!   background task scope it started share the slice `acpmuxsessions-<id>.slice`,
+//!   `session_total.rs`): `ACPMUX_SESSION_TOTAL_MEMORY_MB` (default the scope's memory ceiling,
+//!   so N scopes of one session never hold N ceilings), `ACPMUX_SESSION_TOTAL_TASKS_MAX` (default
+//!   twice the scope's) and `ACPMUX_SESSION_TOTAL_CPU_QUOTA_PCT` (default the scope's); all three 0:
+//!   no per-session slice, as before. Every agent host scope together (`acpmuxhosts.slice`):
+//!   `ACPMUX_HOSTS_MEMORY_MAX_MB` (default [`HOSTS_MEMORY_PCT`] of the RAM),
+//!   `ACPMUX_HOSTS_TASKS_MAX` (default the sessions slice's) and `ACPMUX_HOSTS_CPU_QUOTA_PCT`
+//!   (default [`HOSTS_CPU_QUOTA_PCT`]). Neither total sets `MemoryHigh`: on a host without swap
+//!   it throttles without end instead of killing ([`task_budget`]).
 //!
 //! [`status`] is the `sessionBudgets` object of `daemon status` ([`VERSION`]).
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
@@ -49,7 +61,8 @@ use serde_json::{Value, json};
 ///
 /// 2 (2026-11-24): `io`, whether the IO weight takes effect.
 /// 3: `store`, the per-session store budget (`session_store.rs`).
-pub(crate) const VERSION: u64 = 3;
+/// 4: `perSession` and `hostsSlice`, the totals ([`Total`]).
+pub(crate) const VERSION: u64 = 4;
 
 /// How many lanes' worth of RAM one session may use: a lane is a coordinator and its helpers,
 /// and one of them bursts (a link) while the others idle.
@@ -61,6 +74,12 @@ pub(crate) const CPU_QUOTA_PCT: u64 = 75;
 /// The default CPU and IO weights (systemd's own are 100).
 pub(crate) const CPU_WEIGHT: u64 = 50;
 pub(crate) const IO_WEIGHT: u64 = 50;
+/// The default ceiling of every agent host scope together, a percent of the RAM (the sessions
+/// slice's own default is 85%).
+pub(crate) const HOSTS_MEMORY_PCT: u64 = 85;
+/// The default CPU ceiling of every agent host scope together, a percent of the machine: the
+/// daemon, ssh and the user manager keep the rest.
+pub(crate) const HOSTS_CPU_QUOTA_PCT: u64 = 90;
 const MIB: u64 = 1 << 20;
 const GIB: u64 = 1 << 30;
 
@@ -205,10 +224,17 @@ pub(crate) fn memory_default(host: &Host) -> u64 {
 }
 
 /// A session's default disk budget on `host` (0: unknown).
+///
+/// A host with a lane cap shares its disk, so a session gets the registry's per-lane share,
+/// else a tenth. A host with none is one person's machine (a Cloud VM, a Mac): half its disk.
+/// A tenth of a 20 GiB Cloud VM was the 2 GiB floor, under one blobless cmux clone (1.3 GiB)
+/// plus its build.
 pub(crate) fn disk_default(host: &Host) -> u64 {
+    let share =
+        if host.lanes.is_some_and(|n| n > 0) { host.disk_total / 10 } else { host.disk_total / 2 };
     host.disk_per_lane
         .filter(|n| *n > 0)
-        .unwrap_or_else(|| (host.disk_total / 10).clamp(2 * GIB, 64 * GIB))
+        .unwrap_or_else(|| share.clamp(2 * GIB, 64 * GIB))
         .min(if host.disk_total > 0 { host.disk_total } else { u64::MAX })
 }
 
@@ -303,6 +329,115 @@ impl Budget {
             "diskBytes": self.disk,
         })
     }
+}
+
+/// A ceiling for several scopes together (a slice's); 0 (None for tasks) is off.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct Total {
+    pub memory_max: u64,
+    pub tasks_max: Option<u64>,
+    /// Percent of one CPU (`CPUQuota=`).
+    pub cpu_quota: u64,
+}
+
+impl Total {
+    /// Whether any limit is on.
+    pub(crate) fn on(&self) -> bool {
+        self.memory_max > 0 || self.tasks_max.is_some() || self.cpu_quota > 0
+    }
+
+    /// The slice properties in `systemctl set-property` spelling. A limit that is off is
+    /// `infinity`, so one set earlier goes.
+    pub(crate) fn properties(&self) -> Vec<(&'static str, String)> {
+        let inf = |v: Option<u64>| v.map_or("infinity".to_owned(), |n| n.to_string());
+        vec![
+            ("MemoryMax", inf(Some(self.memory_max).filter(|n| *n > 0))),
+            ("TasksMax", inf(self.tasks_max)),
+            (
+                "CPUQuota",
+                if self.cpu_quota > 0 { format!("{}%", self.cpu_quota) } else { String::new() },
+            ),
+        ]
+    }
+
+    /// The limits that are on as `StartTransientUnit` `(name, signature, value)` triples.
+    pub(crate) fn bus_properties(&self) -> Vec<[String; 3]> {
+        let mut out = Vec::new();
+        if self.memory_max > 0 {
+            out.push(["MemoryMax".into(), "t".into(), self.memory_max.to_string()]);
+        }
+        if let Some(n) = self.tasks_max {
+            out.push(["TasksMax".into(), "t".into(), n.to_string()]);
+        }
+        if self.cpu_quota > 0 {
+            let usec = self.cpu_quota.saturating_mul(10_000).to_string();
+            out.push(["CPUQuotaPerSecUSec".into(), "t".into(), usec]);
+        }
+        out
+    }
+
+    pub(crate) fn json(&self) -> Value {
+        json!({
+            "memoryMaxBytes": self.memory_max,
+            "tasksMax": self.tasks_max,
+            "cpuQuotaPercent": self.cpu_quota,
+        })
+    }
+}
+
+/// One session's total across its scopes on `host`, from `get` and the session's scope `budget`.
+pub(crate) fn session_total_from(
+    get: &dyn Fn(&str) -> Option<String>,
+    host: &Host,
+    budget: &Budget,
+) -> Total {
+    let knob = |key: &str| get(key).and_then(|v| v.trim().parse::<u64>().ok());
+    Total {
+        memory_max: knob("ACPMUX_SESSION_TOTAL_MEMORY_MB")
+            .map_or(budget.memory_max, |n| n.saturating_mul(MIB)),
+        tasks_max: match knob("ACPMUX_SESSION_TOTAL_TASKS_MAX") {
+            Some(0) => None,
+            Some(n) => Some(n),
+            None => budget.tasks_max.map(|n| n.saturating_mul(2)),
+        },
+        cpu_quota: knob("ACPMUX_SESSION_TOTAL_CPU_QUOTA_PCT")
+            .map_or(budget.cpu_quota, |pct| host.cores.saturating_mul(pct.min(100))),
+    }
+}
+
+/// Every agent host scope's total (`acpmuxhosts.slice`) on `host`, from `get`; `tasks_default`
+/// is the sessions slice's default `TasksMax` (`session_scope::sessions_tasks_default`).
+pub(crate) fn hosts_total_from(
+    get: &dyn Fn(&str) -> Option<String>,
+    host: &Host,
+    tasks_default: u64,
+) -> Total {
+    let knob = |key: &str| get(key).and_then(|v| v.trim().parse::<u64>().ok());
+    Total {
+        memory_max: knob("ACPMUX_HOSTS_MEMORY_MAX_MB").map_or_else(
+            || (u128::from(host.memory) * u128::from(HOSTS_MEMORY_PCT) / 100) as u64,
+            |n| n.saturating_mul(MIB),
+        ),
+        tasks_max: match knob("ACPMUX_HOSTS_TASKS_MAX") {
+            Some(0) => None,
+            Some(n) => Some(n),
+            None => Some(tasks_default),
+        },
+        cpu_quota: host.cores.saturating_mul(
+            knob("ACPMUX_HOSTS_CPU_QUOTA_PCT").unwrap_or(HOSTS_CPU_QUOTA_PCT).min(100),
+        ),
+    }
+}
+
+/// The daemon's totals: a session's (no profile env) and the hosts slice's.
+pub(crate) fn daemon_totals() -> (Total, Total) {
+    let host = this_host();
+    let empty = std::collections::BTreeMap::new();
+    let limits = crate::session_scope::daemon_limits();
+    let get = crate::session_scope::knob_reader(&empty, limits);
+    let budget = Budget::read(&get, &host);
+    let tasks = crate::session_scope::sessions_tasks_default(crate::session_scope::threads_max());
+    (session_total_from(&get, &host, &budget), hosts_total_from(&get, &host, tasks))
 }
 
 /// The daemon's budget, as a host or task scope gets it: no profile env (a host is placed
@@ -412,10 +547,12 @@ pub(crate) fn home_disk() -> Option<(u64, u64)> {
 /// scope; `perTaskScope` for agent host and background task scopes), what it was sized
 /// from, whether the IO weight takes effect (`io`, version 2), whether the disk watcher runs,
 /// and each measured scope's use (`use`, from `hub/session_budget_watch.rs`); `store` is the
-/// per-session store budget and its readings (`session_store::Watch::json`, version 3).
+/// per-session store budget and its readings (`session_store::Watch::json`, version 3); the
+/// totals (`perSession`, `hostsSlice`, version 4).
 pub(crate) fn status(
     budget: &Budget,
     task: &Budget,
+    totals: (&Total, &Total),
     host: &Host,
     watch: Value,
     store: Value,
@@ -424,6 +561,8 @@ pub(crate) fn status(
         "version": VERSION,
         "perScope": budget.json(),
         "perTaskScope": task.json(),
+        "perSession": totals.0.json(),
+        "hostsSlice": totals.1.json(),
         "sizedFrom": {
             "memoryBytes": host.memory,
             "cores": host.cores,
@@ -460,6 +599,18 @@ pub(crate) fn budget_line(v: &Value) -> Option<String> {
         per.get("cpuWeight").and_then(Value::as_u64).unwrap_or(0),
         gib("diskBytes"),
     );
+    // Version 2: the totals; an older daemon has none.
+    let total = |key: &str| {
+        v.get(key)?.get("memoryMaxBytes").and_then(Value::as_u64).map(|b| {
+            if b == 0 { "off".to_owned() } else { format!("{:.1}G", b as f64 / GIB as f64) }
+        })
+    };
+    if let Some(session) = total("perSession") {
+        line.push_str(&format!(", session total {session}"));
+    }
+    if let Some(hosts) = total("hostsSlice") {
+        line.push_str(&format!(", hosts total {hosts}"));
+    }
     // Version 2's `io`: the weight, and why it does nothing when it does nothing. An older
     // daemon has no `io`, and its line stays as it was.
     let weight = per.get("ioWeight").and_then(Value::as_u64).filter(|w| *w > 0);
@@ -480,7 +631,7 @@ pub(crate) fn budget_line(v: &Value) -> Option<String> {
     if over > 0 {
         line.push_str(&format!(", {over} scope(s) over"));
     }
-    // Version 2: the store budget, when it is on (an older daemon has no `store`).
+    // Version 3: the store budget, when it is on (an older daemon has no `store`).
     let store = v.get("store").filter(|s| s.get("on") == Some(&Value::Bool(true)));
     if let Some(bytes) = store.and_then(|s| s.get("budgetBytes")).and_then(Value::as_u64) {
         line.push_str(&format!(", store {:.1}G a chat", bytes as f64 / GIB as f64));

@@ -144,13 +144,19 @@ function PickerChips({
         start();
         void callNative("chat.effort", { configId, value });
       }}
+      // A started chat whose host serves Continue In… but not an in-place fork carries its
+      // conversation there (Continue In…'s review) rather than starting a blank chat (cmux#55750).
       onHarness={(harness, model, options) =>
-        void callNative("chat.new", {
-          harness,
-          ...(model ? { model } : {}),
-          ...(options ? { options } : {}),
-          ...inFolder,
-        })
+        void (
+          !startsChat && snapshot.sessionId && snapshot.canHandoff && !switchForks(snapshot)
+            ? callNative("chat.handoff.prepare", { harness })
+            : callNative("chat.new", {
+                harness,
+                ...(model ? { model } : {}),
+                ...(options ? { options } : {}),
+                ...inFolder,
+              })
+        ).catch(() => undefined)
       }
       // A started chat switches to any other harness's model (Leo 2026-10-22: "need to be able to
       // switch to different harnesses, can expose as fork"). A pick only holds it (forkHold.ts); the
