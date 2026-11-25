@@ -941,7 +941,8 @@ test("Connectors says how many to reconnect, else how many connected, else None;
   const rows = [...section(container, "connectors")!.querySelectorAll(".acpmux-session-info-row")].map(
     (row) => row.textContent,
   );
-  expect(rows).toEqual(["githubConnected", "linearNeeds reconnect", "sentryConnecting"]);
+  // A server still connecting says nothing until that lasts the shared bound (lasting.ts `CONNECTION_QUIET_MS`).
+  expect(rows).toEqual(["githubConnected", "linearNeeds reconnect", "sentry"]);
 
   // None failed: how many the harness loaded, never a green connected count.
   await render(container, {
