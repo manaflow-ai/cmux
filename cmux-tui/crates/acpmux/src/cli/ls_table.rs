@@ -61,6 +61,7 @@ pub const HELP: &str = "Examples:
   acpmux ls --wide                every column (AGENT, STATUS, usage, LAST)
   acpmux ls --status stuck        only stuck sessions (a filter hides nothing else)
   acpmux ls --leads               the leaders: each live session others report to, with its reports
+  acpmux ls --archived            archived chats, newest archive first: when, and by whom (auto)
   acpmux ls --live --machine cosmic-gray   that machine's live sessions (--machine local: this one)
   acpmux --json ls --fields name,state,peer   for scripts: the daemon's rows, unchanged
   acpmux ls 'review-27*' --fields name,turn.activity   name globs (host/glob: one peer's); dotted fields
@@ -176,8 +177,8 @@ fn pending(row: &Value) -> u64 {
     row.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0)
 }
 
-/// The short reason a lane needs someone, or empty: a permission it waits on, the account's rate
-/// limit holding it ("rate-limited until 04:30Z"), the daemon's stuck reason (capacity, the
+/// The short reason a lane needs someone, or empty: a permission it waits on, a pause acpmux
+/// ends by itself ("paused: capacity, resumes 04:30Z"), the daemon's stuck reason (capacity, the
 /// harness down), a stalled, failed or lost turn, a question, or a harness
 /// whose sandbox refuses every command.
 fn stuck(row: &Value, now: u64, pauses: &BTreeMap<String, String>) -> String {
@@ -197,9 +198,11 @@ fn stuck(row: &Value, now: u64, pauses: &BTreeMap<String, String>) -> String {
     if row.get("rateLimitParked").and_then(Value::as_u64).is_some() {
         return "rate-limited, parked: acpmux retry".into();
     }
-    // The account's rate limit holds every turn until its reset (`hub/rate_hold.rs`).
-    if let Some(until) = row.get("rateLimitedUntil").and_then(Value::as_u64) {
-        return crate::hub::rate_hold::until_line(until);
+    // Paused (acpmux continues it by itself: a waiting retry, the account's rate-limit hold) or
+    // stranded (its last turn failed and nothing will): `hub/pause_state.rs`.
+    let pause = crate::hub::pause_state::of_row(row);
+    if let Some(state @ crate::hub::pause_state::PauseState::Paused { .. }) = &pause {
+        return crate::hub::pause_state::short_line(state);
     }
     match row.get_str("stuckReason").unwrap_or("") {
         "" => {}
@@ -216,6 +219,9 @@ fn stuck(row: &Value, now: u64, pauses: &BTreeMap<String, String>) -> String {
     let lane = &row["lane"];
     if let Some(since) = lane["stalledSince"].as_u64() {
         return format!("stalled {}", ago(now, since));
+    }
+    if let Some(state) = &pause {
+        return crate::hub::pause_state::short_line(state);
     }
     match lane["state"].as_str() {
         Some("failed") => "failed turn".into(),
@@ -312,7 +318,7 @@ fn usage(row: &Value) -> [String; 7] {
 }
 
 /// How long ago `at` was, from `now` (both in ms): `12s`, `4m`, `3h`, `2d`.
-fn ago(now: u64, at: u64) -> String {
+pub(crate) fn ago(now: u64, at: u64) -> String {
     let s = now.saturating_sub(at) / 1000;
     match s {
         0..60 => format!("{s}s"),
@@ -533,12 +539,8 @@ mod tests;
 /// (`hub/key_route.rs`). A tag the lane-gh broker wrote in its word alphabet carries its spaces
 /// as `+` ("Logan+dot+chats-going-blank"); it reads with spaces again.
 pub(crate) fn alias(row: &Value) -> Option<String> {
-    let raw = row.get("tags")?.get("session.alias")?.as_str()?.trim();
-    let text = if raw.contains('+') && !raw.contains(char::is_whitespace) {
-        raw.replace('+', " ")
-    } else {
-        raw.to_owned()
-    };
+    let raw = row.get("tags")?.get("session.alias")?.as_str()?;
+    let text = crate::session_handle::spoken_alias(raw);
     let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
     (!text.is_empty()).then_some(text)
 }

@@ -38,6 +38,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp  # noqa: E402
+from state_wait import StateWaitTimeout, wait_stable, wait_until  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -133,6 +134,24 @@ def panes(workspace):
     return [p for s in (workspace or {}).get("screens") or [] for p in s.get("panes") or [] if not p.get("dock")]
 
 
+def agent_pages():
+    """The agent pages Chromium lists on the DevTools port (needs --cdp-port)."""
+    import urllib.request
+    targets = json.load(urllib.request.urlopen(f"http://127.0.0.1:{opts.cdp_port}/json", timeout=10))
+    return [t for t in targets if t.get("type") == "page" and "cmux.agent" in t.get("url", "")]
+
+
+def settle_pages(what):
+    """Until the workspaces' tabs (and, with --cdp-port, Chromium's agent pages) stop changing."""
+    def read():
+        tabs = sorted((t.get("id") or "", t.get("kind") or "") for w in workspaces() for p in panes(w) for t in p.get("tabs") or [])
+        return tabs, (len(agent_pages()) if opts.cdp_port else None)
+    try:
+        wait_stable(read, what, timeout=60, interval=0.25, reads=4)
+    except StateWaitTimeout as error:
+        print(f"note: {error}; going on", flush=True)
+
+
 def open_chats(count):
     """`count` agent chats, each in a new workspace's pane (palette.newAgentChat aimed at the pane, no focus), as a
     person with many chats open has; returns how many showed up as conversation tabs."""
@@ -180,7 +199,11 @@ try:
                 wait(lambda: len(workspaces()) >= have + index + 1, 60)
         results["workspaces"] = len(wait(lambda: (lambda w: w if len(w) >= have + opts.workspaces else None)(workspaces()), 120) or workspaces())
         print(f"workspaces: {results['workspaces']} in {time.monotonic() - start:.0f} s", flush=True)
-        time.sleep(3.0)  # the new workspaces' terminals start (harness, not app code)
+        # The new workspaces' terminals started: no terminal tab still has its pending id.
+        if not wait_until(lambda: not any(str(t.get("id") or "").startswith("pending_") for w in workspaces() for p in panes(w)
+                                          for t in p.get("tabs") or [] if t.get("kind") == "terminal"),
+                          "every new workspace's terminal started", timeout=120, interval=0.5, raise_on_timeout=False):
+            print("note: some terminals still pending after 120 s; going on", flush=True)
     if opts.placeholder_workspaces:
         start = time.monotonic()
         have = len(workspaces())
@@ -227,21 +250,17 @@ try:
             rpc("action.run", {"action": "newTab.page", "args": {}, "focus": False, "origin": "script",
                                "target": f"pane:{panes(ws)[0]['id']}"})
             made += 1
-        time.sleep(3.0)  # the pages load (harness, not app code)
+        settle_pages("the new tab pages")
         if opts.cdp_port:
-            import urllib.request
-            targets = json.load(urllib.request.urlopen(f"http://127.0.0.1:{opts.cdp_port}/json", timeout=10))
-            results["agent_pages"] = len([t for t in targets if t.get("type") == "page" and "cmux.agent" in t.get("url", "")])
+            results["agent_pages"] = len(agent_pages())
         results["new_tabs"] = made
         print(f"new tab pages opened: {made}; agent pages in Chromium: {results.get('agent_pages')}", flush=True)
     if opts.chats:
         results["chats"] = open_chats(opts.chats)
         print(f"chats open: {results['chats']} of {opts.chats}", flush=True)
-        time.sleep(3.0)  # the chat pages' first renders (harness, not app code)
+        settle_pages("the chat pages")
         if opts.cdp_port:
-            import urllib.request
-            targets = json.load(urllib.request.urlopen(f"http://127.0.0.1:{opts.cdp_port}/json", timeout=10))
-            pages = [t for t in targets if t.get("type") == "page" and "cmux.agent" in t.get("url", "")]
+            pages = agent_pages()
             results["agent_pages"] = len(pages)
             renderers = subprocess.run(["pgrep", "-f", "--", "--type=renderer"], capture_output=True, text=True).stdout.split()
             print(f"agent pages in Chromium: {len(pages)}; renderer processes on the host: {len(renderers)}", flush=True)

@@ -19,6 +19,21 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
     var selectionOwns: (UITouch?) -> Bool = { _ in false }
     /// A drag began scrolling the app (its content moves under any selection).
     var dragBegan: () -> Void = {}
+    /// The drag ended with no fling, was cancelled, or its fling ended or stopped.
+    var panEnded: () -> Void = {}
+    /// DEBUG: a wheel report went to the surface (cmux#48951's round trip).
+    var wheelSent: () -> Void = {}
+    /// A drag toward older rows asks to open the phone's reader of the app's
+    /// history (``TerminalTUIReader``); true when it opened. That drag then
+    /// moves the reader, not the app.
+    var readerOpens: () -> Bool = { false }
+    /// The reader's drag moved (its translation since it began).
+    var readerMoved: (CGFloat) -> Void = { _ in }
+    /// The reader's drag ended at this finger velocity (points per second).
+    var readerEnded: (CGFloat) -> Void = { _ in }
+    /// A wheel's `dy` (points): the part that still goes to the app after
+    /// the session painted what it holds (``TerminalSession/panHeldRows(_:)``).
+    var panHeld: (CGFloat) -> CGFloat = { $0 }
 
     private weak var surface: TerminalSurfaceView?
     private(set) var pan: UIPanGestureRecognizer?
@@ -35,6 +50,8 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
     private weak var tap: UITapGestureRecognizer?
     /// Where and when the tap's finger landed (host points, the touch clock).
     private var tapDown: (at: CGPoint, time: TimeInterval)?
+    /// This drag moves the reader (``readerOpens``).
+    private var dragsReader = false
 
     /// `tap`: the host's tap, which a touch that stops a fling does not reach.
     func install(in host: UIView, surface: TerminalSurfaceView, tap: UITapGestureRecognizer) {
@@ -66,18 +83,35 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
             dragBegan()
             // The finger's start, not where the pan recognized.
             let translation = pan.translation(in: surface)
+            // Toward older rows the phone already has: a plain scroll of them.
+            dragsReader = translation.y > 0 && readerOpens()
+            if dragsReader {
+                readerMoved(translation.y)
+                return
+            }
             let at = pan.location(in: surface)
             anchor = CGPoint(x: at.x - translation.x, y: at.y - translation.y)
             // The touch slop before the pan began is not scaled: a drag
             // meant to be slow starts fast past it.
             send(scroll.moved(translationY: translation.y))
+        case .changed where dragsReader:
+            readerMoved(pan.translation(in: surface).y)
+        case .ended where dragsReader, .cancelled where dragsReader, .failed where dragsReader:
+            dragsReader = false
+            readerMoved(pan.translation(in: surface).y)
+            readerEnded(pan.state == .ended ? pan.velocity(in: surface).y : 0)
+            panEnded()
         case .changed:
             send(scroll.moved(translationY: pan.translation(in: surface).y, velocityY: pan.velocity(in: surface).y))
         case .ended:
             send(scroll.moved(translationY: pan.translation(in: surface).y, velocityY: pan.velocity(in: surface).y))
             if isEnabled(), let fling = TerminalTUIMomentum(velocityY: pan.velocity(in: surface).y) {
                 startMomentum(fling)
+            } else {
+                panEnded()
             }
+        case .cancelled, .failed:
+            panEnded()
         default:
             break
         }
@@ -85,8 +119,13 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
 
     private func send(_ wheel: TerminalTUIScroll.Wheel?) {
         guard let wheel, let surface, isEnabled() else { return }
-        surface.scrollWheel(at: anchor, deltaY: wheel.dy, momentum: wheel.momentum)
+        let dy = wheel.dy == 0 ? 0 : panHeld(wheel.dy)
+        // Painted on the phone: nothing for the app (a fling's end still
+        // closes Ghostty's momentum phase, with no rows).
+        if dy == 0, wheel.dy != 0, wheel.momentum != .ended { return }
+        surface.scrollWheel(at: anchor, deltaY: dy, momentum: wheel.momentum)
         tapClick.scrolled(at: CACurrentMediaTime())
+        wheelSent()
     }
 
     private func startMomentum(_ fling: TerminalTUIMomentum) {
@@ -108,6 +147,16 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
         if fling.isFinished { endLink() }
     }
 
+    /// DEBUG demo: a fling of `velocityY` (points per second, positive
+    /// scrolls toward older content) from the surface's middle, through the
+    /// same momentum and wheel path as a finger's.
+    func demoFling(velocityY: CGFloat) {
+        guard let surface, isEnabled(), let fling = TerminalTUIMomentum(velocityY: velocityY) else { return }
+        stopMomentum()
+        anchor = CGPoint(x: surface.bounds.midX, y: surface.bounds.midY)
+        startMomentum(fling)
+    }
+
     /// A touch, a new drag or leaving the app stops a fling (its end goes out once).
     func stopMomentum() {
         if var fling = momentum {
@@ -120,8 +169,10 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
 
     private func endLink() {
         momentum = nil
-        link?.invalidate()
-        link = nil
+        guard let link else { return }
+        link.invalidate()
+        self.link = nil
+        panEnded()
     }
 
     // MARK: UIGestureRecognizerDelegate

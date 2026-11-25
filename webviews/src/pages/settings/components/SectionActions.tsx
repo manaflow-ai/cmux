@@ -5,13 +5,17 @@ import { Button } from "../../../ui/Button";
 import { useQuery } from "@tanstack/react-query";
 import { useStore } from "../context";
 import { sectionActionsQuery } from "../sectionQueries";
+import { useSeveralSpaces } from "../cardRows";
 
 const NONE: never[] = [];
 
 /** The section's buttons, from the query its route's loader (or a hover on its link) filled. */
 export function SectionActions({ section }: { section: string }) {
   const store = useStore();
-  const actions = useQuery(sectionActionsQuery(store, section)).data ?? NONE;
+  const all = useQuery(sectionActionsQuery(store, section)).data ?? NONE;
+  // With one space no button names spaces (New Space, Set Space Theme…); the palette still has them.
+  const severalSpaces = useSeveralSpaces();
+  const actions = severalSpaces ? all : all.filter((action) => !action.id.startsWith("space."));
   return (
     <div data-section-actions={section}>
       {actions.length > 0 && (

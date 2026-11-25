@@ -8,106 +8,107 @@ import Foundation
 enum MiscHandlerStrings {
     /// The undo toast of a closed tab (REOPEN-CLOSED): `Closed “<title>”`.
     static func tabClosed(_ title: String) -> String {
-        String(format: String(localized: "handlers.misc.closed.toast", defaultValue: "Closed “%@”", table: "MiscHandlers", bundle: .module), title)
+        String(format: String(localized: "handlers.misc.closed.toast", defaultValue: "Closed “%@”", table: "MiscHandlers", bundle: .module.inAppLanguage), title)
     }
     /// The undo toast of a group close (REOPEN-CLOSED): `Closed N tabs` (plural rules).
     static func tabsClosed(_ count: Int) -> String {
-        String(localized: "handlers.misc.closed.toastTabs", defaultValue: "Closed \(count) tabs", table: "MiscHandlers", bundle: .module)
+        String(localized: "handlers.misc.closed.toastTabs", defaultValue: "Closed \(count) tabs", table: "MiscHandlers", bundle: .module.inAppLanguage)
     }
-    static var untitledTab: String { String(localized: "handlers.misc.closed.untitledTab", defaultValue: "Untitled Tab", table: "MiscHandlers", bundle: .module) }
-    static var untitledScreen: String { String(localized: "handlers.misc.closed.untitledScreen", defaultValue: "Untitled Screen", table: "MiscHandlers", bundle: .module) }
-    static var untitledWorkspace: String { String(localized: "handlers.misc.closed.untitledWorkspace", defaultValue: "Untitled Workspace", table: "MiscHandlers", bundle: .module) }
-    static var cloud: String { String(localized: "handlers.misc.unavailable.cloud", defaultValue: "This version of cmux can't run this Cloud action. Update cmux, then try again.", table: "MiscHandlers", bundle: .module) }
-    static var reactGrabFailed: String { String(localized: "handlers.misc.reactGrabFailed", defaultValue: "React Grab could not load on this page.", table: "MiscHandlers", bundle: .module) }
+    static var untitledTab: String { String(localized: "handlers.misc.closed.untitledTab", defaultValue: "Untitled Tab", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var untitledScreen: String { String(localized: "handlers.misc.closed.untitledScreen", defaultValue: "Untitled Screen", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var untitledWorkspace: String { String(localized: "handlers.misc.closed.untitledWorkspace", defaultValue: "Untitled Workspace", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var cloud: String { String(localized: "handlers.misc.unavailable.cloud", defaultValue: "This version of cmux can't run this Cloud action. Update cmux, then try again.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var reactGrabFailed: String { String(localized: "handlers.misc.reactGrabFailed", defaultValue: "React Grab could not load on this page.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
     /// A browser tab refused while `browser.enabled` is off.
-    static var browserOff: String { String(localized: "handlers.misc.browserOff", defaultValue: "The cmux browser is off. Run Enable cmux Browser to open web pages in cmux.", table: "MiscHandlers", bundle: .module) }
+    static var browserOff: String { String(localized: "handlers.misc.browserOff", defaultValue: "The cmux browser is off. Run Enable cmux Browser to open web pages in cmux.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
     static var defaultBrowserIsCmux: String {
-        String(localized: "handlers.misc.defaultBrowserIsCmux", defaultValue: "cmux is the default browser, so the link opens in cmux", table: "MiscHandlers", bundle: .module)
+        String(localized: "handlers.misc.defaultBrowserIsCmux", defaultValue: "cmux is the default browser, so the link opens in cmux", table: "MiscHandlers", bundle: .module.inAppLanguage)
     }
-    static var noDefaultBrowser: String { String(localized: "handlers.misc.noDefaultBrowser", defaultValue: "No app opens this link", table: "MiscHandlers", bundle: .module) }
-    static var terminalChatNoSession: String { String(localized: "handlers.misc.failed.terminalChatNoSession", defaultValue: "The focused terminal runs no agent session to open as a chat.", table: "MiscHandlers", bundle: .module) }
-    static var terminalChatNotAgentTab: String { String(localized: "handlers.misc.failed.terminalChatNotAgentTab", defaultValue: "The focused tab is neither a terminal nor an agent chat.", table: "MiscHandlers", bundle: .module) }
-    static var terminalChatNoTerminal: String { String(localized: "handlers.misc.failed.terminalChatNoTerminal", defaultValue: "No open terminal runs this chat's session.", table: "MiscHandlers", bundle: .module) }
-    static var terminalChatBusy: String { String(localized: "handlers.misc.failed.terminalChatBusy", defaultValue: "This chat is still working. Switch when its turn ends.", table: "MiscHandlers", bundle: .module) }
-    static var terminalChatStopFailed: String { String(localized: "handlers.misc.failed.terminalChatStopFailed", defaultValue: "The chat could not stop, so no terminal resumes its session.", table: "MiscHandlers", bundle: .module) }
-    static var terminalChatNoPane: String { String(localized: "handlers.misc.failed.terminalChatNoPane", defaultValue: "The chat stopped, but its workspace has no pane for the terminal.", table: "MiscHandlers", bundle: .module) }
-    /// Toggle Terminal and Chat's row on a terminal running an agent session (the pane's ⋮, the tab's right-click).
-    static var terminalChatSwitchToChat: String { String(localized: "handlers.misc.terminalChat.switchToChat", defaultValue: "Switch to Chat", table: "MiscHandlers", bundle: .module) }
+    static var noDefaultBrowser: String { String(localized: "handlers.misc.noDefaultBrowser", defaultValue: "No app opens this link", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var terminalChatNoSession: String { String(localized: "handlers.misc.failed.terminalChatNoSession", defaultValue: "The focused terminal runs no agent session to open as a chat.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var terminalChatNotAgentTab: String { String(localized: "handlers.misc.failed.terminalChatNotAgentTab", defaultValue: "The focused tab is neither a terminal nor an agent chat.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var terminalChatNoTerminal: String { String(localized: "handlers.misc.failed.terminalChatNoTerminal", defaultValue: "No open terminal runs this chat's session.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var terminalChatBusy: String { String(localized: "handlers.misc.failed.terminalChatBusy", defaultValue: "This chat is still working. Switch when its turn ends.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var terminalChatStopFailed: String { String(localized: "handlers.misc.failed.terminalChatStopFailed", defaultValue: "The chat could not stop, so no terminal resumes its session.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var terminalChatNoPane: String { String(localized: "handlers.misc.failed.terminalChatNoPane", defaultValue: "The chat stopped, but its workspace has no pane for the terminal.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    /// Toggle Terminal and Chat's row on a terminal running an agent session (the tab's right-click).
+    static var terminalChatSwitchToChat: String { String(localized: "handlers.misc.terminalChat.switchToChat", defaultValue: "Switch to Chat", table: "MiscHandlers", bundle: .module.inAppLanguage) }
     /// Toggle Terminal and Chat's row on a chat a terminal runs.
-    static var terminalChatSwitchToTerminal: String { String(localized: "handlers.misc.terminalChat.switchToTerminal", defaultValue: "Switch to Terminal", table: "MiscHandlers", bundle: .module) }
-    static var terminalChatHarness: String { String(localized: "handlers.misc.failed.terminalChatHarness", defaultValue: "Only Claude Code and Codex sessions can open as a chat.", table: "MiscHandlers", bundle: .module) }
+    static var terminalChatSwitchToTerminal: String { String(localized: "handlers.misc.terminalChat.switchToTerminal", defaultValue: "Switch to Terminal", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var terminalChatHarness: String { String(localized: "handlers.misc.failed.terminalChatHarness", defaultValue: "Only Claude Code and Codex sessions can open as a chat.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
     /// A Simulator shortcut (Home, Rotate, Appearance, Software Keyboard) with no phone tab focused.
-    static var noPhoneTab: String { String(localized: "handlers.misc.failed.noPhoneTab", defaultValue: "No phone tab is focused.", table: "MiscHandlers", bundle: .module) }
-    static var noBrowser: String { String(localized: "handlers.misc.failed.noBrowser", defaultValue: "No browser tab is focused.", table: "MiscHandlers", bundle: .module) }
-    static var noTerminal: String { String(localized: "handlers.misc.failed.noTerminal", defaultValue: "No terminal tab is focused.", table: "MiscHandlers", bundle: .module) }
+    static var noPhoneTab: String { String(localized: "handlers.misc.failed.noPhoneTab", defaultValue: "No phone tab is focused.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var noBrowser: String { String(localized: "handlers.misc.failed.noBrowser", defaultValue: "No browser tab is focused.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var noTerminal: String { String(localized: "handlers.misc.failed.noTerminal", defaultValue: "No terminal tab is focused.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
     /// A shortcut the key window's kind does not support (`WindowKeyTable`).
-    static var notInThisWindow: String { String(localized: "handlers.misc.unavailable.windowKind", defaultValue: "Not available in this window.", table: "MiscHandlers", bundle: .module) }
-    static var noPane: String { String(localized: "handlers.misc.failed.noPane", defaultValue: "Click a tab first, then try again.", table: "MiscHandlers", bundle: .module) }
+    static var notInThisWindow: String { String(localized: "handlers.misc.unavailable.windowKind", defaultValue: "Not available in this window.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var noPane: String { String(localized: "handlers.misc.failed.noPane", defaultValue: "Click a tab first, then try again.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
     /// The sheet that asks for a terminal's resume command (Set/Edit Resume Command).
     /// A pane verb on a pane still opening (`PaneNotReady`, P0 2026-10-30): it was not sent.
-    static var paneNotReady: String { String(localized: "handlers.misc.failed.paneNotReady", defaultValue: "This pane is still opening; try again in a moment.", table: "MiscHandlers", bundle: .module) }
+    static var paneNotReady: String { String(localized: "handlers.misc.failed.paneNotReady", defaultValue: "This pane is still opening; try again in a moment.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
     /// A create's target was a pending pane whose own create was never made (`PendingPaneNotCreated`, P0 2026-10-30).
-    static var pendingPaneNotCreated: String { String(localized: "handlers.misc.failed.pendingPaneNotCreated", defaultValue: "The pane it was for was not created.", table: "MiscHandlers", bundle: .module) }
-    static var daemonOffline: String { String(localized: "handlers.misc.failed.daemonOffline", defaultValue: "cmux's background service isn't connected.", table: "MiscHandlers", bundle: .module) }
-    static var printUnavailable: String { String(localized: "handlers.misc.failed.printUnavailable", defaultValue: "This page can't be printed now.", table: "MiscHandlers", bundle: .module) }
-    static var noPageURL: String { String(localized: "handlers.misc.failed.noPageURL", defaultValue: "The page has no URL.", table: "MiscHandlers", bundle: .module) }
-    static var hardReloadEngine: String { String(localized: "handlers.misc.failed.hardReloadEngine", defaultValue: "This browser engine cannot bypass the cache; use Reload Page.", table: "MiscHandlers", bundle: .module) }
-    static var noUnread: String { String(localized: "handlers.misc.failed.noUnread", defaultValue: "There are no unread notifications.", table: "MiscHandlers", bundle: .module) }
+    static var pendingPaneNotCreated: String { String(localized: "handlers.misc.failed.pendingPaneNotCreated", defaultValue: "The pane it was for was not created.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var daemonOffline: String { String(localized: "handlers.misc.failed.daemonOffline", defaultValue: "cmux's background service isn't connected.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var printUnavailable: String { String(localized: "handlers.misc.failed.printUnavailable", defaultValue: "This page can't be printed now.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var noPageURL: String { String(localized: "handlers.misc.failed.noPageURL", defaultValue: "The page has no URL.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var hardReloadEngine: String { String(localized: "handlers.misc.failed.hardReloadEngine", defaultValue: "This browser engine cannot bypass the cache; use Reload Page.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var noUnread: String { String(localized: "handlers.misc.failed.noUnread", defaultValue: "There are no unread notifications.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
     static var noNotificationToCopy: String {
-        String(localized: "handlers.misc.failed.noNotificationToCopy", defaultValue: "There are no notifications to copy.", table: "MiscHandlers", bundle: .module)
+        String(localized: "handlers.misc.failed.noNotificationToCopy", defaultValue: "There are no notifications to copy.", table: "MiscHandlers", bundle: .module.inAppLanguage)
     }
-    static var noPrompt: String { String(localized: "handlers.misc.failed.noPrompt", defaultValue: "No agent has been given a prompt yet.", table: "MiscHandlers", bundle: .module) }
-    static var sessionRequired: String { String(localized: "handlers.misc.failed.sessionRequired", defaultValue: "Name the cmux session to open (session).", table: "MiscHandlers", bundle: .module) }
-    static var noAgentSession: String { String(localized: "handlers.misc.failed.noAgentSession", defaultValue: "The focused terminal has no agent session to fork.", table: "MiscHandlers", bundle: .module) }
-    static var noAgentPane: String { String(localized: "handlers.misc.failed.noAgentPane", defaultValue: "The focused pane is not showing an agent chat.", table: "MiscHandlers", bundle: .module) }
-    static var forkTerminalAgents: String { String(localized: "handlers.misc.failed.forkTerminalAgents", defaultValue: "This terminal's agent cannot fork. Open it as a chat to fork it.", table: "MiscHandlers", bundle: .module) }
-    static var noForkTarget: String { String(localized: "handlers.misc.failed.noForkTarget", defaultValue: "Focus an agent chat, or a terminal running an agent, to fork it.", table: "MiscHandlers", bundle: .module) }
-    static var nothingReadAloud: String { String(localized: "handlers.misc.failed.nothingReadAloud", defaultValue: "Nothing is being read aloud.", table: "MiscHandlers", bundle: .module) }
-    static var noAgentChat: String { String(localized: "handlers.misc.failed.noAgentChat", defaultValue: "Dictation works in agent chats. Focus one first.", table: "MiscHandlers", bundle: .module) }
-    static var switchModelNeedsFocus: String { String(localized: "handlers.misc.failed.switchModelNeedsFocus", defaultValue: "Switch Model… opens a menu, so it needs focus.", table: "MiscHandlers", bundle: .module) }
-    static var noCodeBlock: String { String(localized: "handlers.misc.failed.noCodeBlock", defaultValue: "This chat has no code block to copy.", table: "MiscHandlers", bundle: .module) }
-    static var copyCodeFailed: String { String(localized: "handlers.misc.failed.copyCodeFailed", defaultValue: "The last code block could not be copied.", table: "MiscHandlers", bundle: .module) }
-    static var noWorkingChief: String { String(localized: "handlers.misc.failed.noWorkingChief", defaultValue: "No Chief is working right now.", table: "MiscHandlers", bundle: .module) }
-    static var noChief: String { String(localized: "handlers.misc.failed.noChief", defaultValue: "There is no Chief yet. Make one with New Chief.", table: "MiscHandlers", bundle: .module) }
-    static var homeChiefPaneStays: String { String(localized: "handlers.misc.failed.homeChiefPaneStays", defaultValue: "The Chief pane stays open in Home.", table: "MiscHandlers", bundle: .module) }
-    static var channelsCannotStep: String { String(localized: "handlers.misc.failed.channelsCannotStep", defaultValue: "Channels did not move to another conversation.", table: "MiscHandlers", bundle: .module) }
-    static var sideQuestionNeedsFocus: String { String(localized: "handlers.misc.failed.sideQuestionNeedsFocus", defaultValue: "Ask a Side Question… opens the chat's composer, so it needs focus.", table: "MiscHandlers", bundle: .module) }
-    static var continueInNeedsFocus: String { String(localized: "handlers.misc.failed.continueInNeedsFocus", defaultValue: "Continue In… requires focus; use cmux acp continue for a headless handoff.", table: "MiscHandlers", bundle: .module) }
-    static var quickChatNeedsFocus: String { String(localized: "handlers.misc.failed.quickChatNeedsFocus", defaultValue: "Start Agent opens from the keyboard, palette or menu. It does not take the keyboard for automation.", table: "MiscHandlers", bundle: .module) }
-    static var quickChatUnavailable: String { String(localized: "handlers.misc.failed.quickChatUnavailable", defaultValue: "Start Agent needs the agent page, which this build does not include.", table: "MiscHandlers", bundle: .module) }
-    static var checkpointNeedsFocus: String { String(localized: "handlers.misc.failed.checkpointNeedsFocus", defaultValue: "Checkpoint review requires focus. Use git.checkpoint.create for a headless capture.", table: "MiscHandlers", bundle: .module) }
-    static var gitWriteNeedsFocus: String { String(localized: "handlers.misc.failed.gitWriteNeedsFocus", defaultValue: "Commit and push from the agent pane require focus. Use cmux git commit or cmux git push to run them headless.", table: "MiscHandlers", bundle: .module) }
-    static var noFile: String { String(localized: "handlers.misc.failed.noFile", defaultValue: "No file is focused.", table: "MiscHandlers", bundle: .module) }
-    static var agentChromiumPage: String { String(localized: "handlers.misc.failed.agentChromiumPage", defaultValue: "Automation cannot open Chromium's own pages (chrome://, chrome-extension://, devtools://).", table: "MiscHandlers", bundle: .module) }
+    static var noPrompt: String { String(localized: "handlers.misc.failed.noPrompt", defaultValue: "No agent has been given a prompt yet.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var sessionRequired: String { String(localized: "handlers.misc.failed.sessionRequired", defaultValue: "Name the cmux session to open (session).", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var noAgentSession: String { String(localized: "handlers.misc.failed.noAgentSession", defaultValue: "The focused terminal has no agent session to fork.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var noAgentPane: String { String(localized: "handlers.misc.failed.noAgentPane", defaultValue: "The focused pane is not showing an agent chat.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var forkTerminalAgents: String { String(localized: "handlers.misc.failed.forkTerminalAgents", defaultValue: "This terminal's agent cannot fork. Open it as a chat to fork it.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var noForkTarget: String { String(localized: "handlers.misc.failed.noForkTarget", defaultValue: "Focus an agent chat, or a terminal running an agent, to fork it.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var nothingReadAloud: String { String(localized: "handlers.misc.failed.nothingReadAloud", defaultValue: "Nothing is being read aloud.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var noAgentChat: String { String(localized: "handlers.misc.failed.noAgentChat", defaultValue: "Dictation works in agent chats. Focus one first.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var switchModelNeedsFocus: String { String(localized: "handlers.misc.failed.switchModelNeedsFocus", defaultValue: "Switch Model… opens a menu, so it needs focus.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var noCodeBlock: String { String(localized: "handlers.misc.failed.noCodeBlock", defaultValue: "This chat has no code block to copy.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var copyCodeFailed: String { String(localized: "handlers.misc.failed.copyCodeFailed", defaultValue: "The last code block could not be copied.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var noWorkingChief: String { String(localized: "handlers.misc.failed.noWorkingChief", defaultValue: "No Chief is working right now.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var noChief: String { String(localized: "handlers.misc.failed.noChief", defaultValue: "There is no Chief yet. Make one with New Chief.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var homeChiefPaneStays: String { String(localized: "handlers.misc.failed.homeChiefPaneStays", defaultValue: "The Chief pane stays open in Home.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var channelsCannotStep: String { String(localized: "handlers.misc.failed.channelsCannotStep", defaultValue: "Channels did not move to another conversation.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var sideQuestionNeedsFocus: String { String(localized: "handlers.misc.failed.sideQuestionNeedsFocus", defaultValue: "Ask a Side Question… opens the chat's composer, so it needs focus.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var continueInNeedsFocus: String { String(localized: "handlers.misc.failed.continueInNeedsFocus", defaultValue: "Continue In… requires focus; use cmux acp continue for a headless handoff.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var quickChatNeedsFocus: String { String(localized: "handlers.misc.failed.quickChatNeedsFocus", defaultValue: "Start Agent opens from the keyboard, palette or menu. It does not take the keyboard for automation.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static func sessionTabRevealFailed(_ tab: String) -> String { String(format: String(localized: "handlers.misc.failed.sessionTabRevealFailed", defaultValue: "The chat is open in tab %@, but cmux could not show it.", table: "MiscHandlers", bundle: .module.inAppLanguage), tab) }
+    static var quickChatUnavailable: String { String(localized: "handlers.misc.failed.quickChatUnavailable", defaultValue: "Start Agent needs the agent page, which this build does not include.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var checkpointNeedsFocus: String { String(localized: "handlers.misc.failed.checkpointNeedsFocus", defaultValue: "Checkpoint review requires focus. Use git.checkpoint.create for a headless capture.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var gitWriteNeedsFocus: String { String(localized: "handlers.misc.failed.gitWriteNeedsFocus", defaultValue: "Commit and push from the agent pane require focus. Use cmux git commit or cmux git push to run them headless.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var noFile: String { String(localized: "handlers.misc.failed.noFile", defaultValue: "No file is focused.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
+    static var agentChromiumPage: String { String(localized: "handlers.misc.failed.agentChromiumPage", defaultValue: "Automation cannot open Chromium's own pages (chrome://, chrome-extension://, devtools://).", table: "MiscHandlers", bundle: .module.inAppLanguage) }
     static func unknownBrowserProfile(_ text: String) -> String {
         String(format: String(localized: "handlers.misc.failed.unknownBrowserProfile",
                               defaultValue: "%@ is not a browser profile. Use \"agent\" or the id of an existing profile.",
-                              table: "MiscHandlers", bundle: .module), text)
+                              table: "MiscHandlers", bundle: .module.inAppLanguage), text)
     }
     static func invalidURL(_ text: String) -> String {
-        String(format: String(localized: "handlers.misc.failed.invalidURL", defaultValue: "%@ is not a URL cmux can open.", table: "MiscHandlers", bundle: .module), text)
+        String(format: String(localized: "handlers.misc.failed.invalidURL", defaultValue: "%@ is not a URL cmux can open.", table: "MiscHandlers", bundle: .module.inAppLanguage), text)
     }
     static func fileNotFound(_ path: String) -> String {
-        String(format: String(localized: "handlers.misc.failed.fileNotFound", defaultValue: "%@ is not a file cmux can open.", table: "MiscHandlers", bundle: .module), path)
+        String(format: String(localized: "handlers.misc.failed.fileNotFound", defaultValue: "%@ is not a file cmux can open.", table: "MiscHandlers", bundle: .module.inAppLanguage), path)
     }
     static func fileNotInTab(_ path: String) -> String {
-        String(format: String(localized: "handlers.misc.failed.fileNotInTab", defaultValue: "%@ opens in the editor, not in a tab.", table: "MiscHandlers", bundle: .module), path)
+        String(format: String(localized: "handlers.misc.failed.fileNotInTab", defaultValue: "%@ opens in the editor, not in a tab.", table: "MiscHandlers", bundle: .module.inAppLanguage), path)
     }
     static func pathNotAbsolute(_ path: String) -> String {
-        String(format: String(localized: "handlers.misc.failed.pathNotAbsolute", defaultValue: "%@ is a relative path. Give the file's absolute path.", table: "MiscHandlers", bundle: .module), path)
+        String(format: String(localized: "handlers.misc.failed.pathNotAbsolute", defaultValue: "%@ is a relative path. Give the file's absolute path.", table: "MiscHandlers", bundle: .module.inAppLanguage), path)
     }
     static func invalidPlace(_ place: String) -> String {
-        String(format: String(localized: "handlers.misc.failed.invalidPlace", defaultValue: "%@ is not a place to open a file. Use tab or editor.", table: "MiscHandlers", bundle: .module), place)
+        String(format: String(localized: "handlers.misc.failed.invalidPlace", defaultValue: "%@ is not a place to open a file. Use tab or editor.", table: "MiscHandlers", bundle: .module.inAppLanguage), place)
     }
     /// A cmux picker asked for by a run that may not change the view (an agent, the CLI without
     /// focus): it would open over the person's window.
     static var pickerNeedsFocus: String {
         String(localized: "handlers.misc.refusal.pickerNeedsFocus", defaultValue: "The picker opens only when focus is requested.",
-               table: "MiscHandlers", bundle: .module)
+               table: "MiscHandlers", bundle: .module.inAppLanguage)
     }
-    static var noEditor: String { String(localized: "handlers.misc.failed.noEditor", defaultValue: "No app on this Mac edits text.", table: "MiscHandlers", bundle: .module) }
+    static var noEditor: String { String(localized: "handlers.misc.failed.noEditor", defaultValue: "No app on this Mac edits text.", table: "MiscHandlers", bundle: .module.inAppLanguage) }
     static func appNotFound(_ app: String) -> String {
-        String(format: String(localized: "handlers.misc.failed.appNotFound", defaultValue: "No app named %@ was found.", table: "MiscHandlers", bundle: .module), app)
+        String(format: String(localized: "handlers.misc.failed.appNotFound", defaultValue: "No app named %@ was found.", table: "MiscHandlers", bundle: .module.inAppLanguage), app)
     }
 }
 

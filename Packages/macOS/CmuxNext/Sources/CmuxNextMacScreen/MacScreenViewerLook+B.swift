@@ -119,7 +119,7 @@ struct MacScreenStripState: Equatable {
         case let .hubWaiting(scope):
             return MacScreenStripState(
                 title: String(format: L.t("macScreen.hub.waitingTitle", "Waiting for %@ to approve…"), name), ink: \.attention, mark: .loading,
-                caption: String(format: L.t("macScreen.hub.waitingBody", "You asked for %@. Someone at that Mac needs to allow it."), scope.title),
+                caption: String(format: L.t("macScreen.hub.waitingOwnerBody", "You asked for %@. Its owner needs to allow it."), scope.title),
                 actions: [Action(title: L.t("macScreen.card.cancel", "Cancel"), run: .cancelRequest, id: "macScreen.hub.cancel")])
         case let .hubDeclined(scope):
             return MacScreenStripState(
@@ -193,10 +193,11 @@ extension MacScreenChromeActions {
 }
 
 extension MacScreenChromeHost {
-    /// Lays look B's strip out in `pane` (made and added, after the picture, the first time a look asks for it), and hides
-    /// the toolbar under it. Returns whether the pane shows its state card: never under the strip, which carries the state.
+    /// Lays look B's strip out in `pane` (made and added, after the picture, the first time a look asks for it); the
+    /// toolbar takes the look's own visibility (``MacScreenToolbarView/hiddenByLook``: hidden under the strip, a pill off a
+    /// live picture, a faded auto-hide). Returns whether the pane shows its state card: never under the strip.
     func layoutStatusStrip(_ style: MacScreenViewerStyle, in pane: MacScreenPaneView) -> Bool {
-        toolbar.isHidden = style.statusStrip
+        toolbar.syncHidden()
         guard style.statusStrip else {
             statusStrip?.bar.isHidden = true
             statusStrip?.body.isHidden = true

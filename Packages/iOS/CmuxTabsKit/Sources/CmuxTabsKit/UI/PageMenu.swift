@@ -9,6 +9,8 @@ struct PageMenu: View {
     var origin: CGRect
     var capsule: CGRect
     var topLimit: CGFloat
+    /// A top bar's menu drops down from the capsule to here (nil: it grows up from a bottom bar).
+    var bottomLimit: CGFloat? = nil
     var expanded: Bool
     /// Content fades in over 80-200 ms and unblurs, on its own clock.
     var contentVisible: Bool
@@ -25,11 +27,23 @@ struct PageMenu: View {
         return rows * m.menuRow + CGFloat(max(0, groups.count - 1)) * m.menuGroupGap + 20
     }
 
-    var body: some View {
-        let m = theme.metrics
+    /// The open menu's frame: it drops down from a top bar's capsule (to `bottomLimit`) or
+    /// grows up from a bottom bar's (to `topLimit`).
+    private var fullFrame: CGRect {
+        let width = theme.metrics.menuWidth
+        if let bottomLimit {
+            let top = capsule.minY + 1
+            return CGRect(x: capsule.minX, y: top, width: width, height: max(1, min(contentHeight, bottomLimit - top)))
+        }
         let bottom = capsule.maxY - 1
         let height = max(1, min(contentHeight, bottom - topLimit))
-        let full = CGRect(x: capsule.minX, y: bottom - height, width: m.menuWidth, height: height)
+        return CGRect(x: capsule.minX, y: bottom - height, width: width, height: height)
+    }
+
+    var body: some View {
+        let m = theme.metrics
+        let full = fullFrame
+        let height = full.height
         let r = expanded ? full : origin
         ZStack(alignment: .topLeading) {
             Color.clear
@@ -72,7 +86,7 @@ struct PageMenu: View {
             onSelect(item)
         } label: {
             HStack(spacing: 0) {
-                Image(systemName: item.systemImage)
+                (item.symbolBundle.map { Image(item.systemImage, bundle: $0) } ?? Image(systemName: item.systemImage))
                     .font(.system(size: 18))
                     .frame(width: 30)
                     .padding(.leading, 25)

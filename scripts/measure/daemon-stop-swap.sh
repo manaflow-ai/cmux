@@ -302,7 +302,8 @@ child_pid=""
 # The processes whose command line has DIR/, where DIR is the folder that this run made, or one
 # round's folder in it. No other pattern: a process of another run never has this path.
 left_of() { ps -A -ww -o pid= -o command= | DSS_DIR="$1/" awk 'index($0, ENVIRON["DSS_DIR"])'; }
-# Prints each of them (DSS-KILL) and sends SIGTERM, then SIGKILL to those still there 3 s later.
+# Prints each of them (DSS-KILL) and sends SIGTERM, then SIGKILL to those still there once all
+# have exited or 5 s have passed.
 end_left() {
   local pid cmd
   left_count=0
@@ -313,7 +314,11 @@ end_left() {
     left_count=$((left_count + 1))
   done < <(left_of "$1" || true)
   (( left_count > 0 )) || return 0
-  sleep 3
+  # Until every one of them has exited, 5 s at most (then the rest get SIGKILL).
+  for _ in $(seq 50); do
+    left_of "$1" 2>/dev/null | awk -v me="$$" '$1 != me' | grep -q . || break
+    sleep 0.1
+  done
   while read -r pid cmd; do
     [[ -n "$pid" && "$pid" != "$$" ]] || continue
     echo "DSS-KILL pid=$pid SIGKILL cmd=${cmd:0:400}"

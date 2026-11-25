@@ -4,12 +4,6 @@ import CmuxNextDesign
 import CmuxNextFocus
 import CmuxNextSignposts
 
-/// Applies reducer effects to the real world (AppKit, WebKit, CEF, layout,
-/// registry context). `FocusEffectApplier` in the app; a recorder in tests.
-protocol FocusEffectApplying: AnyObject {
-    func apply(_ effects: [FocusEffect], state: FocusState)
-}
-
 /// The focus state machine of one window (plans/cmux-next/focus.md).
 ///
 /// Events are reduced in FIFO order. Effects run after the reducer

@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextPages
 import Foundation
 import UniformTypeIdentifiers
@@ -113,7 +114,9 @@ final class AgentPaneSchemeHandler: NSObject, WKURLSchemeHandler {
         let base = root.standardizedFileURL.resolvingSymlinksInPath()
         let file = components.reduce(base) { $0.appendingPathComponent($1) }.standardizedFileURL.resolvingSymlinksInPath()
         guard file.path.hasPrefix(base.path + "/") else { return nil }
-        return file
+        // A NIGHTLY ships the pane's string table in English only; the person's language comes in
+        // the downloaded language pack (CMUX-570).
+        return Bundle.languagePackFile(for: file) ?? file
     }
 
     nonisolated static func mimeType(forExtension pathExtension: String) -> String {
