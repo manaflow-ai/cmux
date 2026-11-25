@@ -633,7 +633,8 @@
         "CmuxNextPagesTestSupport",
         "CmuxNextSettings",
         "CmuxNextSidebar",
-        "CmuxNextWakeups"
+        "CmuxNextWakeups",
+        "CmuxNextWakeupsTestSupport"
       ],
       "packages": [
         "CmuxHomeRender"

@@ -28,6 +28,8 @@ static LANE_GH_NUMBER: LazyLock<Option<Regex>> =
     LazyLock::new(|| Regex::new(r#""number"\s*:\s*([0-9]+)"#).ok());
 
 /// A session keeps at most this many; a runaway loop stops growing its meta here.
+/// Measured: the meta is saved whole on every change, about 130 bytes a pull request (its URL
+/// and time): 26 KB per save at 200.
 pub(super) const MAX_PULL_REQUESTS: usize = 200;
 
 /// The shell script a tool call runs: `rawInput.command` as a string, or an argv (the script of
