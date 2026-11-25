@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextActions
 public import CmuxNextDesign
 import CmuxNextCompat
 
@@ -24,15 +25,17 @@ public final class AppToolbarButtons: NSObject {
     private weak var host: NSView?
     /// The reveal the built-in buttons fade with (R83): the app buttons fade with them.
     private weak var reveal: HoverReveal?
+    private var menuRegistry: ActionRegistry?
     private var observation: Task<Void, Never>?
 
     override public init() { super.init() }
 
     /// Draws the client's list in `host` and keeps drawing it: an install, a hide or a saved local manifest
     /// (`apps-changed`) redraws the buttons with no relaunch.
-    public func follow(_ client: AppsClient, in host: NSView, reveal: HoverReveal?) {
+    public func follow(_ client: AppsClient, in host: NSView, reveal: HoverReveal?, registry: ActionRegistry? = nil) {
         self.host = host
         self.reveal = reveal
+        menuRegistry = registry ?? ActionRegistry()
         onRun = { [weak client] item, entry in client?.runToolbarItem(item, entry: entry) }
         image = { [weak client] item, size in
             // The scene images' cache: a file inside the app's package only, decoded once.
@@ -108,7 +111,7 @@ public final class AppToolbarButtons: NSObject {
             for item in rest {
                 switch item.kind {
                 case .button:
-                    menu.addItem(row(item.title.resolved(), AppToolbarClick(item: item, entry: nil)))
+                    menu.addItem(row(item.title.resolved(), AppToolbarClick(item: item, entry: nil), actionID: "button"))
                 case .menu:
                     let parent = NSMenuItem(title: item.title.resolved(), action: nil, keyEquivalent: "")
                     parent.submenu = entriesMenu(item)
@@ -122,25 +125,23 @@ public final class AppToolbarButtons: NSObject {
 
     private func entriesMenu(_ item: AppToolbarContribution) -> NSMenu {
         let menu = NSMenu()
-        for entry in item.entries { menu.addItem(row(entry.title.resolved(), AppToolbarClick(item: item, entry: entry))) }
+        for (index, entry) in item.entries.enumerated() {
+            menu.addItem(row(entry.title.resolved(), AppToolbarClick(item: item, entry: entry), actionID: "entry-\(index)"))
+        }
         return menu
     }
 
-    private func row(_ title: String, _ click: AppToolbarClick) -> NSMenuItem {
-        let menuItem = NSMenuItem(title: title, action: #selector(runRow(_:)), keyEquivalent: "")
-        menuItem.target = self
-        menuItem.representedObject = click
-        return menuItem
+    private func row(_ title: String, _ click: AppToolbarClick, actionID: String) -> NSMenuItem {
+        let id = ActionID(rawValue: "apps.toolbar.\(click.item.id).\(actionID)")
+        menuRegistry?.register(Action(id: id, title: title) { [weak self] in
+            self?.onRun?(click.item, click.entry)
+        })
+        return menuRegistry?.makeMenuItem(for: id) ?? NSMenuItem(title: title, action: nil, keyEquivalent: "")
     }
 
     @objc private func runButton(_ sender: NSButton) {
         guard items.indices.contains(sender.tag) else { return }
         onRun?(items[sender.tag], nil)
-    }
-
-    @objc private func runRow(_ sender: NSMenuItem) {
-        guard let click = sender.representedObject as? AppToolbarClick else { return }
-        onRun?(click.item, click.entry)
     }
 
     // Not an isolated deinit: the task handle is Sendable and cancels from any thread.
@@ -150,9 +151,9 @@ public final class AppToolbarButtons: NSObject {
 extension AppsClient {
     /// The toolbar band's app buttons, drawn in `host` and kept current (``AppToolbarButtons/follow(_:in:reveal:)``).
     /// The band reads the answer at each layout; it keeps the buttons' owner alive for as long as it holds it.
-    public func toolbarButtons(in host: NSView, reveal: HoverReveal?) -> () -> [TitlebarBandButton] {
+    public func toolbarButtons(in host: NSView, reveal: HoverReveal?, registry: ActionRegistry? = nil) -> () -> [TitlebarBandButton] {
         let toolbar = AppToolbarButtons()
-        toolbar.follow(self, in: host, reveal: reveal)
+        toolbar.follow(self, in: host, reveal: reveal, registry: registry)
         return { toolbar.buttons }
     }
 }
