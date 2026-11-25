@@ -643,6 +643,9 @@ impl Peer {
         let _open = crate::gauges::Held::on(&crate::gauges::links().links_open);
         self.set_serving(Some(via));
         self.start_probes();
+        // The transport's reads, also after the link ends: how long it heard nothing.
+        #[cfg(feature = "hub-carrier")]
+        let link_heard = opened.heard.clone();
         let heard = Some(opened.heard);
         let end = match opened.ws {
             carriers::OpenedWs::Boxed(ws) => self.serve_heard(*ws, out_rx, heard).await,
@@ -668,6 +671,12 @@ impl Peer {
         match end {
             // The path died while another answers: the link moves there without an outage.
             Err(error) if !self.stop.load(Ordering::SeqCst) => {
+                // A hub link that went silent leaves no dead kept circuit for its redial to
+                // wait `ANSWER_SUSPECT` on (`HubCarrier::close_kept_silent_for`).
+                #[cfg(feature = "hub-carrier")]
+                if via == Via::Hub {
+                    self.hub_link_ended_silent(link_heard.silent()).await;
+                }
                 self.path_failed(via);
                 if self.another_path_alive(via) && self.link().is_ready() {
                     self.went_down(Some(crate::protocol::peer_state::DialFail::PathChanged));
@@ -1018,8 +1027,9 @@ impl Peer {
         tokio::pin!(handshake_deadline);
         // After this computer slept, the link's monotonic timers say its last frame came moments
         // ago, while its ssh tunnel has often died: a ping goes out at once, and the link is
-        // dropped (and redialed) when nothing answers within `WAKE_PROBE`, rather than after the
-        // ssh keepalive or the whole silence budget. Stops with the link.
+        // dropped (and redialed) when nothing answers within `peer_link::wake_probe` (2 s; 30 s
+        // for a peer that proved slow), rather than after the ssh keepalive or the whole silence
+        // budget. Stops with the link.
         let mut wake_watch = SleepWatch::now();
         let mut wake_check = tokio::time::interval_at(
             tokio::time::Instant::now() + SleepWatch::EVERY,
@@ -1043,12 +1053,22 @@ impl Peer {
             () => {
                 if let Some(slept) = wake_watch.check() {
                     tracing::info!(peer = %self.name, "this computer slept {}s; checking the link", slept.as_secs());
-                    // One deadline for the ping to go out and its answer to come back.
-                    let deadline = tokio::time::Instant::now() + WAKE_PROBE;
+                    // One deadline for the ping to go out and its answer to come back: 2 s, or
+                    // `WAKE_PROBE` for a peer that proved slow (`peer_link::wake_probe`).
+                    let short = self.with_silence(|b| b.may_probe());
+                    let probe = crate::peer_link::wake_probe(short, network::NETWORK_PROBE);
+                    let deadline = tokio::time::Instant::now() + probe;
                     match tokio::time::timeout_at(deadline, sink.send(Frame::Ping(Vec::new().into()))).await {
-                        Ok(Ok(())) => (wake_probe, probe_cause, request_probe) = (Some(deadline), None, false),
+                        // A short probe that drops the link tells the budget, as a request's does:
+                        // if the link reopens at once the peer was slow, and its next wake gets
+                        // the long bound. It also waits on while bytes still arrive.
+                        Ok(Ok(())) => {
+                            wake_probe = Some(deadline);
+                            request_probe = short;
+                            probe_cause = Some(format!("no answer {}s after this computer woke", probe.as_secs()));
+                        }
                         Ok(Err(e)) => break Err(e.to_string()),
-                        Err(_) => break Err(self.deadline_passed(stopped_reading(WAKE_PROBE))),
+                        Err(_) => break Err(self.deadline_passed(stopped_reading(probe))),
                     }
                 }
             };

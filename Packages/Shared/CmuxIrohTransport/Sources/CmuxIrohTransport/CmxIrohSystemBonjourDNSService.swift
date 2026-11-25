@@ -1,3 +1,4 @@
+#if canImport(dnssd)
 @preconcurrency import Dispatch
 import dnssd
 import Foundation
@@ -335,3 +336,4 @@ final class CmxIrohBonjourSystemDNSService: CmxIrohBonjourDNSService, @unchecked
         )
     }
 }
+#endif

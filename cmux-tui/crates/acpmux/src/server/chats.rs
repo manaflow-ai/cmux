@@ -254,6 +254,11 @@ pub(super) async fn route(
         if conn.origin != Origin::Local {
             return Err(RpcError::method_not_found(&format!("{m} (local socket only)")));
         }
+        // A move's finish may carry the owner's login for the chat's agent (`transfer_in.rs`),
+        // taken as `session/new` takes one: never from an agent's own connection.
+        if params.get(crate::agent_credentials::FIELD).is_some() {
+            crate::agent_credentials::admit(true, conn.caller())?;
+        }
         return heap(|| hub.transfer_request(m, &params)).await;
     }
     // An incognito workspace's chats, ended and deleted (`workspace_purge.rs`): local only.

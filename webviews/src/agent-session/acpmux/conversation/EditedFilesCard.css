@@ -67,12 +67,18 @@ div.acpmux-edited {
   flex: none;
   color: var(--agent-muted);
 }
-/* The diff opened inside the card, drawn as an opened edit call's (EditDiff), inset from the card's edges. */
-.acpmux-edited .acpmux-edited-diff {
-  padding: 0 var(--ds-space-2) var(--ds-space-2);
-}
+/* The diff opened inside the card sits directly on it (EditDiff `flat`), edge to edge: one container,
+   never a second bordered box inset in this one (#56442). A hairline parts it from the file row above;
+   under the card's head, the head's own line does. */
 .acpmux-edited .acpmux-edited-diff > .cv-edit-diff {
-  margin: var(--ds-space-2) 0 0;
+  box-shadow: inset 0 1px 0 var(--ds-surface-card-line);
+}
+.acpmux-edited .acpmux-edited-head + * > .acpmux-edited-diff > .cv-edit-diff {
+  box-shadow: none;
+}
+/* The row after an opened diff takes a hairline over it, so the diff ends where the next file starts. */
+.acpmux-edited .acpmux-edited-entry:has(.acpmux-edited-diff) + :is(.acpmux-edited-entry, .acpmux-edited-file, .acpmux-edited-more) {
+  box-shadow: inset 0 1px 0 var(--ds-surface-card-line);
 }
 
 /* A Markdown file's row: the row's own button (its diff) and, at its end, Open (its Markdown page),
