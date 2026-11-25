@@ -1185,7 +1185,12 @@ impl Hub {
         }
         // The prompt is recorded and acknowledged above before the agent is started again (it
         // died, or the daemon restarted), so a client hears prompt_accepted at once.
-        self.wake_cause(session, "prompt");
+        // Logged on the `woke` line: who sent the prompt that woke the chat (`idle_governor.rs`).
+        let person = super::prompt_sender::person_turn(&run, provenance.as_ref());
+        self.wake_cause(
+            session,
+            super::idle_governor::prompt_wake_cause(person, provenance.as_ref()),
+        );
         // A start for this turn asks for suggestions only when a person's prompt starts it.
         session
             .start_for
