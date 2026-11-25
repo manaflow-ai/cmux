@@ -479,6 +479,11 @@ def gated(prompt, base):
                   "result": "API Error: Connection error.", "duration_api_ms": 5})
             return
         if how == "overload":
+            # As Claude Code ends a turn its retries gave up on: its own synthetic API error
+            # line, then a result that does not say it failed.
+            send({"type": "assistant", "message": {"id": "api-error", "model": "<synthetic>",
+                  "role": "assistant", "content": [{"type": "text",
+                  "text": "API Error: Repeated 529 Overloaded errors"}]}})
             send({"type": "result", "subtype": "success", "is_error": False, "num_turns": 1,
                   "result": "API Error: Repeated 529 Overloaded errors", "duration_api_ms": 5})
             return
