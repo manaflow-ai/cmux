@@ -36,6 +36,9 @@
 //! compaction (a person's `/compact` reports no usage after it, yet its cache is new); it holds
 //! only weak references, so a dropped session or hub ends it at its deadline without effect.
 //!
+//! Tuning: [`ENV_ENABLED`] (`0|1`) and [`ENV_MIN_CONTEXT`] (a percent) in the daemon's
+//! environment beat the two settings (the crate's README, "Tuning compaction").
+//!
 //! A turn of [`KIND`] that fails is not continued by `auto_resume.rs` (`turns.rs`): the next
 //! turn's usage arms the timer again, and a continuation would be a model call nobody asked for.
 
@@ -70,31 +73,55 @@ static GENERATION: AtomicU64 = AtomicU64::new(0);
 type TimerMap = HashMap<String, (u64, tokio::task::AbortHandle)>;
 pub const SETTING_ENABLED: &str = "agents.cacheCompact.enabled";
 pub const SETTING_MIN_CONTEXT: &str = "agents.cacheCompact.minContextPercent";
+/// `0|1` in the daemon's environment: [`SETTING_ENABLED`], whatever the settings file says.
+pub const ENV_ENABLED: &str = "ACPMUX_CACHE_COMPACT";
+/// A percent: [`SETTING_MIN_CONTEXT`], whatever the settings file says.
+pub const ENV_MIN_CONTEXT: &str = "ACPMUX_CACHE_COMPACT_MIN_CONTEXT_PERCENT";
 const DEFAULT_MIN_CONTEXT: f64 = 30.0;
 const MIN_CONTEXT_RANGE: (f64, f64) = (10.0, 95.0);
 
-/// The Settings keys as the daemon reads them: None when off (only an explicit
-/// `agents.cacheCompact.enabled: false`), else the context share (0-1) a chat must reach. No
-/// document (no settings file) is the defaults: on, at [`DEFAULT_MIN_CONTEXT`].
+/// The Settings keys as the daemon reads them, the settings file alone.
+#[cfg(test)]
 pub(crate) fn settings_threshold(doc: Option<&Value>) -> Option<f64> {
+    settings_threshold_with(doc, |_| None)
+}
+
+/// The Settings keys and their environment overrides (`env`, which wins) as the daemon reads
+/// them: None when off (only an explicit `agents.cacheCompact.enabled: false` or
+/// `ACPMUX_CACHE_COMPACT=0`), else the context share (0-1) a chat must reach. No document (no
+/// settings file) is the defaults: on, at [`DEFAULT_MIN_CONTEXT`].
+pub(crate) fn settings_threshold_with(
+    doc: Option<&Value>,
+    env: impl Fn(&str) -> Option<String>,
+) -> Option<f64> {
     let get = |key: &str| doc.and_then(|doc| crate::user_settings::value(doc, key));
-    if get(SETTING_ENABLED).and_then(|v| v.as_bool()) == Some(false) {
+    let enabled = super::super::cold_wake::env_flag(env(ENV_ENABLED).as_deref())
+        .or_else(|| get(SETTING_ENABLED).and_then(|v| v.as_bool()));
+    if enabled == Some(false) {
         return None;
     }
-    let percent = get(SETTING_MIN_CONTEXT)
-        .and_then(|v| v.as_f64())
+    let percent = env(ENV_MIN_CONTEXT)
+        .and_then(|v| v.trim().parse::<f64>().ok())
+        .or_else(|| get(SETTING_MIN_CONTEXT).and_then(|v| v.as_f64()))
         .filter(|n| n.is_finite())
         .map_or(DEFAULT_MIN_CONTEXT, |n| n.clamp(MIN_CONTEXT_RANGE.0, MIN_CONTEXT_RANGE.1));
     Some(percent / 100.0)
 }
 
 fn read_threshold() -> Option<f64> {
+    let env = |var: &str| std::env::var(var).ok();
     match crate::user_settings::read() {
-        crate::user_settings::Settings::Parsed(doc) => settings_threshold(Some(&doc)),
-        crate::user_settings::Settings::Missing => settings_threshold(None),
+        crate::user_settings::Settings::Parsed(doc) => settings_threshold_with(Some(&doc), env),
+        crate::user_settings::Settings::Missing => settings_threshold_with(None, env),
         // A file that exists but cannot be parsed may hold an explicit `false`: arm nothing until
-        // it reads again rather than override what it may say.
-        crate::user_settings::Settings::Unreadable(_) => None,
+        // it reads again rather than override what it may say (unless the environment says on).
+        crate::user_settings::Settings::Unreadable(_) => {
+            if super::super::cold_wake::env_flag(env(ENV_ENABLED).as_deref()) == Some(true) {
+                settings_threshold_with(None, env)
+            } else {
+                None
+            }
+        }
     }
 }
 
