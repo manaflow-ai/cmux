@@ -515,10 +515,25 @@ impl Hub {
     }
 
     pub(super) async fn transfer_receive(&self, params: &Value) -> Result<Value, RpcError> {
+        self.receive_guarded(params, false).await
+    }
+
+    /// `transfer_receive`, and for `owner` (a hub move between the same person's daemons, set
+    /// only by `hub/transfer_pull.rs`, never by a request) a peer guard that keeps the chat's
+    /// own origin (`Guard::owner`).
+    pub(super) async fn receive_guarded(
+        &self,
+        params: &Value,
+        owner: bool,
+    ) -> Result<Value, RpcError> {
         let manifest = params.get("manifest").cloned().unwrap_or(Value::Null);
         manifest_epoch(&manifest)?;
         let guard = match params.get("guard") {
-            Some(g) => Some(Guard::parse(g).await?),
+            Some(g) => {
+                let mut g = Guard::parse(g).await?;
+                g.owner = owner && g.control == super::web_control::Control::Peer;
+                Some(g)
+            }
             None => None,
         };
         self.receive_admission(&manifest, guard.as_ref(), false).await?;
