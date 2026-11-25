@@ -259,7 +259,7 @@ pub(super) fn restored_moving(scanned: bool, moving: Option<String>) -> Option<S
 /// Whether a `moving` mark names a move (its transfer id), not a mark that only freezes the
 /// chat (`MOVED_AWAY`, `LOG_UNREADABLE`, `IMPORTING`).
 pub(super) fn names_a_move(mark: &str) -> bool {
-    mark != MOVED_AWAY && mark != LOG_UNREADABLE && mark != IMPORTING
+    mark != MOVED_AWAY && mark != LOG_UNREADABLE && mark != IMPORTING && mark != super::AUTO_AWAY
 }
 
 /// Where a move's begin token is kept, in its bundle folder.
@@ -283,6 +283,9 @@ pub(super) fn moving_begin_token(transfer_id: &str) -> Option<String> {
     is_begin_token(token).then(|| token.to_owned())
 }
 
+#[cfg(test)]
+#[path = "auto_startup_tests.rs"]
+mod auto_startup_tests;
 #[cfg(test)]
 #[path = "restore_freeze_tests.rs"]
 mod restore_freeze_tests;
@@ -465,6 +468,20 @@ impl Hub {
             "forget" => self.transfer_forget(params).await,
             _ => Err(RpcError::method_not_found(m)),
         }
+    }
+
+    /// This machine's route back as the owner of its agent memory, for a chat leaving it
+    /// (`memory_follow::route_back`): its `remoteDaemon` through its hub carrier. A config being
+    /// written right now reads as no route, as a machine with none does.
+    fn memory_route_back(&self) -> Option<crate::memory_follow::Followed> {
+        #[cfg(feature = "hub-carrier")]
+        {
+            let remote_daemon = self.config.try_read().ok()?.remote_daemon.clone();
+            let key = self.hub_carrier.get().map(|c| c.public_key());
+            crate::memory_follow::route_back(remote_daemon.as_deref(), key.as_deref())
+        }
+        #[cfg(not(feature = "hub-carrier"))]
+        None
     }
 
     /// Freezes the chat for its move and makes its bundle. With `after_turn` (how long to wait), a
@@ -826,6 +843,23 @@ impl Hub {
         });
         if let Some(id) = carried {
             answer.set("continues", json!(id));
+        }
+        // The chat's agent memory goes with it (`memory_follow.rs`).
+        let settings = crate::user_settings::text();
+        let memory = crate::memory_follow::outgoing(
+            settings.as_deref(),
+            &session.meta().session_env,
+            self.memory_route_back(),
+        );
+        if let Some(memory) = memory {
+            answer.set(crate::memory_follow::MANIFEST_FIELD, memory);
+        }
+        // The agent program its harness runs here: a receiver with no harness of that name
+        // checks `--as` against it and names its own one for the same agent (`transfer_in.rs`).
+        let meta = session.meta();
+        let family = self.config.read().await.family(&meta.harness).or(meta.family);
+        if let Some(family) = family {
+            answer.set("harnessFamily", json!(family));
         }
         if let Some(p) = prefix {
             let named =

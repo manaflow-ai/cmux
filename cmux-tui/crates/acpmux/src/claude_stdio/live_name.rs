@@ -25,10 +25,6 @@ pub const RENAME_UNSUPPORTED: &str = "rename: this Claude Code has no /rename";
 /// the next rename is written, and a late result answers nothing.
 const STALE: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// At most this many `/rename` lines with no result: a Claude Code that answers none is not
-/// written more.
-const MAX_UNANSWERED: usize = 4;
-
 /// A `/rename` line written to Claude Code and not yet answered, oldest first in `renaming`.
 #[derive(Debug)]
 pub(super) struct Rename {
@@ -67,7 +63,8 @@ impl Translator {
             tracing::debug!("rename: the last /rename had no result; writing the next");
             given_up.id = None;
         }
-        if renaming.iter().any(|r| r.id.is_some()) || renaming.len() >= MAX_UNANSWERED {
+        // Given-up ones stay until an echo drains them: one a STALE at most, about 100 bytes each.
+        if renaming.iter().any(|r| r.id.is_some()) {
             return Outbound::Reply(Message::err(
                 id.clone(),
                 RpcError::invalid_params(RENAME_IN_FLIGHT),
