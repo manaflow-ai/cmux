@@ -744,6 +744,7 @@ struct AgentChatLoadingState: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(Self.text(store)))
         .accessibilityIdentifier("agentChat.loadingHistory")
+        .loadProbePlaceholder()
     }
 }
 
