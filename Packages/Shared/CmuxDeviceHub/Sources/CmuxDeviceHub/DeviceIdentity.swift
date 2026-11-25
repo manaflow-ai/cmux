@@ -1,4 +1,8 @@
+#if canImport(CryptoKit)
 public import CryptoKit
+#else
+@preconcurrency public import Crypto // swift-crypto marks its key types Sendable only on Apple platforms
+#endif
 public import Foundation
 
 /// The two P-256 private keys of this device (docs/device-hub/PROTOCOL.md,
@@ -14,6 +18,7 @@ public protocol DeviceKeyMaterial: Sendable {
     func open(_ ciphertext: Data, encapsulatedKey: Data, info: Data) throws -> Data
 }
 
+#if canImport(Security)
 /// This device's keys in the Secure Enclave. Only the enclave's encrypted
 /// key blobs are stored (``DeviceKeychain``); the private keys never leave it.
 public struct EnclaveDeviceKeys: DeviceKeyMaterial {
@@ -33,6 +38,7 @@ public struct EnclaveDeviceKeys: DeviceKeyMaterial {
         return try recipient.open(ciphertext)
     }
 }
+#endif
 
 /// Software keys kept in the Keychain as raw private keys: only where there is
 /// no Secure Enclave and the device is not a real one (the iOS simulator), so a
@@ -135,6 +141,12 @@ public struct DeviceIdentity: Sendable {
     }
 }
 
+#if !canImport(Security)
+/// Security's status code, for ``DeviceIdentity/Failure/keychain(_:)`` where Security is unavailable.
+public typealias OSStatus = Int32
+#endif
+
+#if canImport(Security)
 extension DeviceIdentity {
     /// This app's identity: the device id and the Secure Enclave key blobs in
     /// the Keychain under `<bundleIdentifier>.device-hub`, created on first
@@ -196,3 +208,4 @@ extension DeviceIdentity {
     static let signingAccount = "device-signing-key"
     static let agreementAccount = "device-agreement-key"
 }
+#endif
