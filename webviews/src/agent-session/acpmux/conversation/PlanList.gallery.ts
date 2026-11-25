@@ -12,6 +12,7 @@ import { agentPaneEntry } from "../../../gallery/format";
 import { pinKindsHead } from "../../../gallery/fixtures/kindsHead";
 import { activity, assistant, chat, row, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import type { AcpmuxPlanEntry } from "../model";
+import { earlierPlanHat } from "../subagents/earlierPlanHat.experiment";
 
 const todo = (content: string, status: AcpmuxPlanEntry["status"]): AcpmuxPlanEntry => ({ content, status });
 
@@ -42,7 +43,10 @@ export default pinKindsHead(
     title: "Todo list",
     area: "Agent pane",
     height: 420,
+    // What the hat shows of an earlier turn's plan after a new message (`earlier-*`; view Compare arms).
+    experiment: { definition: earlierPlanHat, script: [] },
     covers: [
+      "agent-session/acpmux/subagents/earlierPlanHat.experiment.ts",
       "agent-session/acpmux/conversation/PlanList.tsx",
       "agent-session/acpmux/conversation/ActivityLine.tsx",
       "agent-session/acpmux/subagents/SubagentTray.tsx",
@@ -219,8 +223,38 @@ export default pinKindsHead(
         },
         snapshot: earlierTurn(),
       },
+      "earlier-reminder": {
+        note: 'Leo, 2026-11-25, on "Earlier plan · 0 of 1 / From before your last message" over one pending item, an agent\'s deferred reminder: "uhh do we still want these tasks? should we just remove them?" / "well do we want to render it like that tho in teh composer hat is the question". An earlier plan with no step in progress leaves the hat (earlierPlanHat.experiment.ts `chip`); it stays folded in the turn that wrote it.',
+        play: async (ctx) => {
+          await ctx.waitFor(() => ctx.document.querySelector(".acpmux-composer"));
+          const title = ctx.document.querySelector(".acpmux-running-tray__title")?.textContent ?? "";
+          if (title.includes("Earlier plan")) throw new Error(`unexpected hat: ${title}`);
+          if (ctx.document.querySelector(".cv-plan[data-earlier]")) throw new Error("a reminder list carried over");
+        },
+        snapshot: chat(
+          [
+            user("Merge it and tell me when the nightly has it", 8),
+            row("plan", 7.9, { plan: [todo("Check back on the nightly build", "pending")] }),
+            assistant("Merged. I'll check the nightly when it's built.", 7),
+            summary(7, { status: "completed", durationMs: 41_000, toolCount: 3 }),
+            user("Also rename the setting", 0.4),
+            assistant("Renaming it.", 0.2),
+          ],
+          { isWorking: true },
+        ),
+      },
+      "earlier-chip-folded": {
+        note: "A step still in progress: the earlier plan is a collapsed chip, folded even when the person left this chat's hat open, with no banner, no spinner and no turn clock.",
+        play: async (ctx) => {
+          await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray[data-earlier-chip]"));
+          if (ctx.document.querySelector(".acpmux-running-tray[data-open]"))
+            throw new Error("the chip opened by default");
+          if (ctx.document.querySelector(".cv-plan__earlier")) throw new Error("no banner");
+        },
+        snapshot: earlierTurn(),
+      },
       "earlier-hat-open": {
-        note: 'The hat opened on the earlier list: its line says "From before your last message", the steps read muted and nothing spins.',
+        note: "The person clicked the chip: the earlier list opens, its steps read muted and nothing spins; no 'From before your last message' banner.",
         play: async (ctx) => {
           await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
           await ctx.click({ selector: ".acpmux-running-tray__head" });

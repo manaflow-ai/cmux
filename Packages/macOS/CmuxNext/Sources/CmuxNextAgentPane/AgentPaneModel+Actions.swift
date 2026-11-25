@@ -46,7 +46,8 @@ extension AgentPaneModel {
     /// The chat header's place controls (cloud/auto/evacuate): Local, Cloud and Auto (`chatPlace.set` with a `mode`), Cancel and Retry of the
     /// move the chat shows (`chatMove.cancel`, `chatMove.retry`) and Evacuate to Cloud. The app's Rust decides each; they move chats, so
     /// they need the person's gesture.
-    static let placeActions: Set<String> = ["chatPlace.set", "chatMove.cancel", "chatMove.retry", "cloudEvacuate", "cloudEvacuate.cancel", "cloudBringBackAll"]
+    /// Keep Running (`chatPriority.set` with a `priority`, high or normal) is one of them: it can move the chat when this Mac goes away.
+    static let placeActions: Set<String> = ["chatPlace.set", "chatPriority.set", "chatMove.cancel", "chatMove.retry", "cloudEvacuate", "cloudEvacuate.cancel", "cloudBringBackAll"]
 
     /// A model the person cannot use (Leo 2026-10-26: "if user picks a model they don't have api key,
     /// we offer them to add credits or add their own api key"): Add Credits… takes the one paid-plan
@@ -72,7 +73,7 @@ extension AgentPaneModel {
     /// (its own toast).
     func runAction(_ id: String, session: String? = nil, environment: String? = nil, handoff: String? = nil, app: String? = nil,
                    repo: String? = nil, returnTo: String? = nil, org: String? = nil, mode: String? = nil,
-                   queued: Int? = nil, hasDraft: Bool? = nil, sessions: [String]? = nil) -> [String: Any] {
+                   queued: Int? = nil, hasDraft: Bool? = nil, sessions: [String]? = nil, priority: String? = nil) -> [String: Any] {
         let screenShare = id == "session.screenShare"
         let gated = Self.connectActions.contains(id) || Self.accessActions.contains(id) || Self.cloudStartActions.contains(id)
             || Self.terminalSwitchActions.contains(id) || Self.folderActions.contains(id) || Self.placeActions.contains(id)
@@ -90,6 +91,7 @@ extension AgentPaneModel {
         var arguments = Self.connectArguments[id] ?? Self.accessArguments[id] ?? [:]
         if screenShare || Self.placeActions.contains(id), let session { arguments["session"] = session }
         if let mode { arguments["mode"] = mode }
+        if let priority { arguments["priority"] = priority }
         if let queued { arguments["queued"] = String(queued) }
         if let hasDraft { arguments["hasDraft"] = String(hasDraft) }
         if let environment { arguments["environment"] = environment }
