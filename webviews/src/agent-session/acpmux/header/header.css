@@ -364,6 +364,11 @@
 :root:is([data-agent-motion="off"], [data-cmux-motion="off"]) .acpmux-header-preview {
   animation: none;
 }
+/* The One hover look (experiments.hoverLook = one, ui/hoverLook.css): it shows and goes in one frame,
+   as every hover surface does (Leo, 2026-11-11, softened: "the fade-in, the fade-out" is pointless). */
+:root[data-hover-look="one"] .acpmux-header-preview {
+  animation: none;
+}
 :root:is([data-agent-motion="reduced"], [data-cmux-motion="reduced"]) .acpmux-header-preview {
   animation-name: acpmux-header-preview-fade;
 }
