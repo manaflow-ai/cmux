@@ -15,7 +15,7 @@ final class CloudUploads {
     nonisolated static var pastes: URL? { AgentPaneCloudAttachments.pastes }
 
     /// Where one tab's upload goes: the chat's session, its machine and its work root.
-    private struct Target {
+    struct Target {
         var session: String
         var machine: CloudMachineSession
         var remoteRoot: String
@@ -56,7 +56,8 @@ final class CloudUploads {
         }
     }
 
-    private static func target(tab: String, services: AppServices) -> Target? {
+    /// Where chat tab `tab`'s files go on its Cloud machine (also Sources > Add Folder, ``CloudFolderAdd``).
+    static func target(tab: String, services: AppServices) -> Target? {
         guard !services.machines.isFeatureDisabled(.cloud), let binary = services.cloud.move.cli, pastes != nil else { return nil }
         for chat in services.cloud.movedChats.all() where chat.broughtBack == nil {
             guard let machine = services.machines.session(chat.machineID), machine.daemon.connection != nil,
