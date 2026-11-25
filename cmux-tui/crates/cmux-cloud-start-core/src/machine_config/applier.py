@@ -706,16 +706,20 @@ def apply_once(request):
         # never overrides a declared value.
         # Every declared secret name is unset first, so a shell that sources this again drops a value that
         # was revoked (no longer in machine-secrets.env), and a later apply knows the names (previous_env_names).
-        if config["secrets"]:
-            lines += ["unset " + " ".join(config["secrets"])]
+        # An ALWAYS_DELIVERED name the file holds is unset first too (never one it doesn't: the person's own
+        # profile may set it), so a token removed on the Mac and delivered away leaves re-sourcing shells.
+        have = delivered()
+        held = sorted((ALWAYS_DELIVERED & have) - set(config["secrets"]))
+        if config["secrets"] or held:
+            lines += ["unset " + " ".join(config["secrets"] + held)]
         lines += ['if [ -z "${CMUX_MACHINE_SETUP:-}" ] && [ -f "$HOME/.config/cmux/machine-secrets.env" ] && [ ! -L "$HOME/.config/cmux/machine-secrets.env" ]; then . "$HOME/.config/cmux/machine-secrets.env"; fi']
-        stale = stale_secrets(delivered(), config["secrets"])
+        stale = stale_secrets(have, config["secrets"])
         if stale:
             lines += ["unset " + " ".join(stale)]
         # Names an earlier apply exported (or already unset) and this config no longer declares: a shell
         # that loaded the old file keeps them otherwise.
         # All of them, every time (never a newest one dropped): previous_env_names reads them back.
-        gone = sorted(previous_env_names() - set(config["env"]) - set(config["secrets"]) - ALWAYS_DELIVERED)
+        gone = sorted(previous_env_names() - set(config["env"]) - set(config["secrets"]) - (ALWAYS_DELIVERED & have))
         if gone:
             lines += ["unset " + " ".join(gone)]
         lines += [f"export {k}={quoted(v)}" for k, v in config["env"].items()]

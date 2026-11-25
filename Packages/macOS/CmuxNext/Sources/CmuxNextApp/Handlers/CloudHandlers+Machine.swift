@@ -507,17 +507,16 @@ extension CloudHandlers {
                 answer["status"] = .string("unchanged")
                 return answer
             }
-            let values = try await keychainValues(items)
             // Sealed on this Mac to the machine's daemon key and opened only there (`cmux carrier secrets`):
-            // no value crosses the platform, a file API, a terminal or a log.
-            let delivered = try await cloud.machineAPI.deliverSealedSecrets(machineID, values: values)
+            // no value crosses the platform, a file API, a terminal or a log. An older daemon refuses an undeclared name.
+            let (delivered, sent) = try await CloudMachineSecrets.deliver(items, declared: declared) { try await cloud.machineAPI.deliverSealedSecrets(machineID, values: Self.keychainValues($0)) }
             guard case .wrote(let count) = delivered else {
                 throw ActionFailure(message: CloudStrings.secretsNotDelivered(Self.sealedReason(delivered)))
             }
             // The values are on the machine either way; a ledger not written only means the next run delivers again.
-            try? await work.run(.userBlocking, mayBlock: .files) { try CloudMachineSecrets.Ledger.record(items, on: machineID, at: ledgerURL) }
+            try? await work.run(.userBlocking, mayBlock: .files) { try CloudMachineSecrets.Ledger.record(sent, on: machineID, at: ledgerURL) }
             answer["status"] = .string("delivered")
-            answer["delivered"] = .array(items.map { .string($0.name) })
+            answer["delivered"] = .array(sent.map { .string($0.name) })
             answer["written"] = .int(count)
             answer["next"] = .string("cmux cloud apply-machine-config --target machine:\(machineID)")
             return answer

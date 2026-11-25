@@ -61,6 +61,16 @@ public struct CloudMachineSecrets: Equatable, Sendable {
         }
     }
 
+    /// Delivers `items` with `send`. A machine whose daemon predates ``alwaysDelivered`` refuses an undeclared
+    /// name (`bad-name`) and with it the whole set, so its declared items then go alone. Answers what was sent.
+    public static func deliver(_ items: [Item], declared: [String], isolation: isolated (any Actor)? = #isolation,
+                               send: ([Item]) async throws -> CloudDaemon.SealedDelivery) async throws -> (CloudDaemon.SealedDelivery, [Item]) {
+        let answer = try await send(items)
+        let declaredOnly = items.filter { declared.contains($0.name) }
+        guard case .failed(_, .some("bad-name"), _) = answer, declaredOnly.count < items.count else { return (answer, items) }
+        return (try await send(declaredOnly), declaredOnly)
+    }
+
     /// The secret names the machine's last finished apply declared (``CloudMachineConfig/statusPath``);
     /// nil while none has finished, or for a status that does not say (never read as "no secrets").
     public static func declared(status data: Data?) -> [String]? {
