@@ -722,8 +722,9 @@ pub struct HubEvent {
 }
 
 /// A [`HubEvent`]'s cells its receivers share: its row without its tools, with them, and with
-/// them but no time breakdown (a client that draws none, `omitTimeBreakdown`), and the clock of
-/// its fan-out to the connections (`gauges::FanoutClock`).
+/// them but no time breakdown (a client that draws none: its `initialize`'s `omitTimeBreakdown`,
+/// or an attach's, `SubOpts::omit_time_breakdown`), and the clock of its fan-out to the
+/// connections (`gauges::FanoutClock`).
 #[derive(Debug, Default)]
 pub struct EventRow {
     pub cells: [SharedRow; 3],
