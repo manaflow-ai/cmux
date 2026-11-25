@@ -2,6 +2,7 @@
 // header, transcript, side panels, asks, composer slot and dialogs), moved out of App.tsx as it was.
 // A plain render function AcpmuxPane calls inline for its `pane`, so React sees the same element
 // tree (no component boundary of its own); every hook stays in AcpmuxPane, and this holds no state.
+import type { HatPillPlace } from "../hatPillPlace.experiment";
 import type React from "react";
 import type { createCloudPlanSubscribe } from "../cloudPlanSubscribe";
 import type { sideChatRow } from "../header/sideChatRow";
@@ -97,6 +98,8 @@ import { sandboxRetryable, type SandboxTab, type RunModeRows, type SandboxRun } 
 import { SandboxRunView } from "../lazyScreens";
 import { PaneFeatureTips } from "../featureTips";
 import { callNative } from "../callNative";
+import type { EvacuateState } from "../place/placeModel";
+import type { EvacuateActions } from "../place/usePlace";
 import { openOfferChat } from "../rows/rowActions";
 import { VirtualTranscript } from "../VirtualTranscript";
 import { LiveTreePill } from "../header/LiveTreePill";
@@ -195,6 +198,8 @@ export type PaneBodyDeps = NewTabShown &
     previewBeside: boolean;
     jumpPlaceArm: "center" | "end" | "start" | "corner";
     trayHandle: TrayHandleSide;
+    /** The hat-pill-place arm while the tucked hat's pill shows (jumpPlace.css), else undefined. */
+    hatPill: HatPillPlace | undefined;
     chatMinimapBeside: boolean;
     hasBottomAsk: boolean;
     setPaneMain: (element: HTMLDivElement | null) => void;
@@ -340,6 +345,7 @@ export type PaneBodyDeps = NewTabShown &
     parkedVisible: boolean;
     chatName: string;
     renameFromTitle: (() => void) | undefined;
+    titleTrail: readonly string[] | undefined;
     /// What the header names (subagentPanes.ts `paneHeading`): a subagent's own pane heads with the
     /// subagent, never its chat's title and summary.
     heading: { title: string; renamable: boolean };
@@ -375,6 +381,8 @@ export type PaneBodyDeps = NewTabShown &
     turnWorking: boolean;
     summaryPanel: React.JSX.Element;
     underHeader: UnderHeaderLines;
+    /// An Auto chat's line and kept-changes notice, built by App.tsx; null when there is none.
+    autoBanner: React.JSX.Element | null;
     checkpoints: ReturnType<typeof useCheckpoints>;
     cloudUnavailable: ChatUnavailable | undefined;
     cloudRecovery: ReturnType<typeof useCloudChatRecovery>;
@@ -408,12 +416,18 @@ export type PaneBodyDeps = NewTabShown &
     tourHere: boolean;
     startTourTask: (task: TourTask) => Promise<string>;
     transcript: React.JSX.Element;
+    /// The floating preview window of the chat's newest frame (liveFrames/FramesDock.tsx).
+    framesDock?: React.JSX.Element;
     displayAnchor: HTMLElement | null;
     setDisplayAnchor: React.Dispatch<React.SetStateAction<HTMLElement | null>>;
     closeInspector: () => void;
     sendPerf: PerfSend;
     setDock: React.Dispatch<React.SetStateAction<HTMLElement | null>>;
     paneToasts: NoticeQueue;
+    /// The chat list's place and Evacuate calls (place/usePlace.ts).
+    chatListPlace: EvacuateActions;
+    /// The running Evacuate, for the chat list (`pane.tabState.evacuate`).
+    chatListEvacuate: EvacuateState | undefined;
     toastTop: HTMLDivElement | null;
     asks: React.JSX.Element | null;
     hostLine: React.JSX.Element;
@@ -502,6 +516,7 @@ export function drawPaneBody({
   previewBeside,
   jumpPlaceArm,
   trayHandle,
+  hatPill,
   chatMinimapBeside,
   hasBottomAsk,
   setPaneMain,
@@ -617,6 +632,7 @@ export function drawPaneBody({
   parkedVisible,
   chatName,
   renameFromTitle,
+  titleTrail,
   heading,
   tabRowTools,
   liveTreeEnabled,
@@ -649,6 +665,7 @@ export function drawPaneBody({
   turnWorking,
   summaryPanel,
   underHeader,
+  autoBanner,
   checkpoints,
   cloudUnavailable,
   cloudRecovery,
@@ -682,12 +699,15 @@ export function drawPaneBody({
   tourHere,
   startTourTask,
   transcript,
+  framesDock,
   displayAnchor,
   setDisplayAnchor,
   closeInspector,
   sendPerf,
   setDock,
   paneToasts,
+  chatListPlace,
+  chatListEvacuate,
   toastTop,
   asks,
   hostLine,
@@ -804,12 +824,16 @@ export function drawPaneBody({
           }
           // The transcript runs the pane's height under the bottom stack (bottomStack.css) while the
           // stage shows it; a new chat's hero, a handoff review, the diff and the inspector keep it in flow.
-          data-dock={!reviewing && !freshView && !inspectorOpen ? "float" : undefined}
+          // An open chat's stack in flow is `flow`: its composer keeps the floating one's place
+          // (composerLocation.css), so it does not move as the stage over it switches.
+          data-dock={!reviewing && !freshView && !inspectorOpen ? "float" : !freshView ? "flow" : undefined}
           data-summary={summaryCard.column ? "inline" : "popover"}
           data-cu-preview={previewBeside ? "" : undefined}
           // The jump stack's place and side (jumpPlace.css): the whole stack moves together.
           data-jump-place={jumpPlaceArm}
           data-jump-side={jumpSide(jumpPlaceArm, trayHandle)}
+          // The tucked hat's pill and how it shares the center line with the disc (jumpPlace.css).
+          data-hat-pill={hatPill}
           data-vscode-minimap={chatMinimapBeside ? "" : undefined}
           // A question or permission card in the bottom stack (conversation.css). An attribute, not a
           // `:has()` over the pane: that would be checked again for every node a streamed chunk inserts
@@ -819,6 +843,7 @@ export function drawPaneBody({
           ref={setPaneMain}
         >
           <div ref={setToastTop} className="acpmux-toasts-top" />
+          {framesDock}
           {!harnessesOpen && showNewTab && !newTab.history && pageStyle(shownTemplate(newTab)) !== "minimal" && (
             <StyleSwitch
               current={pageStyle(shownTemplate(newTab))}
@@ -1134,6 +1159,16 @@ export function drawPaneBody({
                           Promise.reject(new Error(translate("error.notOpen"))),
                       }
                     : {})}
+                  // A chat card's place and Evacuate rows: the app moves the chats (chatPlace.set, cloudEvacuate).
+                  {...(snapshot.origin !== "remote" && snapshot.origin !== "peer"
+                    ? {
+                        onPlace: chatListPlace.setMode,
+                        onEvacuate: chatListPlace.evacuate,
+                        onCancelEvacuate: chatListPlace.cancelEvacuate,
+                        onBringBack: chatListPlace.bringBack,
+                        ...(chatListEvacuate ? { evacuate: chatListEvacuate } : {}),
+                      }
+                    : {})}
                 />
               </Activity>
               {harnessesOpen && harnessesPage}
@@ -1263,6 +1298,9 @@ export function drawPaneBody({
               <div
                 className={`acpmux-stage${inspectorOpen ? " acpmux-inspecting" : ""}`}
                 data-solo-tab={soloUnder ? "" : undefined}
+                // The stack under it ends in the quiet row (the dock's `data-foot`): in flow the stage
+                // keeps the floating stack's floor for it (bottomStack.css), so the composer keeps its height.
+                data-foot={dockFoot ? "" : undefined}
                 style={parkStyle ?? (inTabRow ? tabRowStyle(tabRow) : undefined)}
                 inert={parkedVisible || undefined}
               >
@@ -1280,6 +1318,7 @@ export function drawPaneBody({
                           key={snapshot.sessionId}
                           title={heading.title}
                           onRename={heading.renamable ? renameFromTitle : undefined}
+                          trail={heading.renamable ? titleTrail : undefined}
                           icon={heading.renamable ? snapshot.summary?.icon : undefined}
                           formerNames={heading.renamable ? snapshot.summary?.formerNames : undefined}
                         />
@@ -1480,11 +1519,16 @@ export function drawPaneBody({
                     noteDelayMs={snapshot.peerKinds?.[snapshot.peerCopy.peer] === "ssh" ? LINK_DOWN_SAID_MS : undefined}
                   />
                 )}
+                {underHeader.autoSession && autoBanner}
                 {/* Computer use's live preview: the app this chat's agent drives, at the top right. Always
                       mounted: with no card it draws the last one's exit, then nothing (cardMotion.ts). */}
                 <ComputerUsePreviewCard
                   preview={previewShown ? computerUsePreview : null}
                   onClose={() => ignoreFailure(callNative("chat.computerUsePreview", { action: "close" }))}
+                  onMove={(_session, move) =>
+                    ignoreFailure(callNative("chat.computerUsePreview", { action: "place", ...move }))
+                  }
+                  onShow={() => ignoreFailure(callNative("chat.computerUsePreview", { action: "show" }))}
                 />
                 {environmentCardNode}
                 {underHeader.watching &&

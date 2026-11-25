@@ -279,7 +279,8 @@ public final class CmuxRemoteService {
         Task {
             do {
                 _ = try await hub.client.anchorDevice()
-                await devices.anchored(userID: userID, hubURL: hubURL)
+                // The space the device was anchored in: the worker renews there with the app quit.
+                await devices.anchored(userID: userID, hubURL: hubURL, buildSpace: hub.client.buildSpace.headerValue)
             } catch {
                 remoteLogger.notice("cmux Remote anchor failed: \(String(describing: error), privacy: .public)")
             }

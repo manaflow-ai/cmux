@@ -185,6 +185,11 @@ export const PAGES = {
       },
       // Settings > Accounts' device sign-in and account list (logins done right).
       { file: "webviews/src/pages/shared/signIn/Localizable.xcstrings" },
+      {
+        // Connect Claude's one click and its progress line, the chat's connect card's own words.
+        file: "webviews/src/agent-session/acpmux/Localizable.xcstrings",
+        keys: (all) => all.filter((key) => key.startsWith("connect.")),
+      },
     ],
   },
   history: {
@@ -227,6 +232,11 @@ export const PAGES = {
   stash: {
     out: "webviews/src/pages/stash/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/stash/Localizable.xcstrings" }],
+  },
+  // The Forum page (the team's hosted agent forum; behind experiments.forum).
+  forum: {
+    out: "webviews/src/pages/forum/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/forum/Localizable.xcstrings" }],
   },
   // The Feed page (plans/cmux-next/feed-page.md): its table moved next to it when the Swift Feed
   // module was deleted (the same keys and values), with the refusal toast's `toast.dismiss`.

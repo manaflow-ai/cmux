@@ -2,7 +2,7 @@
 
 > Leo, 2026-11-22: "i want all these to just be super accessible and usable, from human to agent to what we expect on our end."
 
-One table: for each way the [Start page](https://cmux.com/docs/nightly/next/start) offers to get from nothing to a
+One table: for each way the [Start page](start.md) offers to get from nothing to a
 working agent on cmux Cloud, how many steps it takes (commands, waits, and things only the person can do) and how
 long the Cloud part takes on staging. One harness makes it, so the worst level can be fixed and measured again with
 the same tool.

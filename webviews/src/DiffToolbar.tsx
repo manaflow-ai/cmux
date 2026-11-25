@@ -10,6 +10,7 @@ import "./ui/popupSurface.css";
 import type { DiffItem } from "./diff-stream";
 import { diffStatParts } from "./file-tree-stats";
 import { Icon, type IconName } from "./icons";
+import { sourcePillTooltip, viewedProgressSuffix } from "./viewed-files";
 import type { DiffViewerLabelResolver } from "./labels";
 import {
   jumpToFileRows,
@@ -123,6 +124,8 @@ export function SourceMenu({
   label,
   model,
   onSelect,
+  progressLook = "tooltip",
+  viewedProgress = null,
 }: {
   /** Null while the diff is still loading: the counts keep their place but show no made-up +0 -0. */
   additions: number | null;
@@ -130,6 +133,10 @@ export function SourceMenu({
   label: DiffViewerLabelResolver;
   model: SourceMenuModel;
   onSelect: (target: SourceTarget) => void;
+  /** How the pill shows the review's progress (diff-viewer/viewedProgress.experiment.ts). */
+  progressLook?: "tooltip" | "suffix";
+  /** How many files are marked viewed; null while loading. */
+  viewedProgress?: { viewed: number; total: number } | null;
 }) {
   const [open, setOpen] = useState(false);
   const [committedOpen, setCommittedOpen] = useState(false);
@@ -157,8 +164,16 @@ export function SourceMenu({
   };
   const selectedText = model.selected ? entryText(model.selected) : label("diffTarget");
   const stats = additions == null || deletions == null ? null : diffStatParts({ added: additions, deleted: deletions });
+  const tooltip = sourcePillTooltip({
+    source: selectedText,
+    stats,
+    progress: viewedProgress,
+    template: label("filesViewedProgress"),
+  });
+  const suffix = progressLook === "suffix" ? viewedProgressSuffix(viewedProgress) : null;
   return (
-    <div id="source-menu" className="source-pill">
+    // tooltip-allow: the review's progress ("3 of 30 files viewed"), which the pill does not show (hq #19495)
+    <div id="source-menu" className="source-pill" title={tooltip ?? undefined}>
       <button
         ref={buttonRef}
         id="source-menu-button"
@@ -189,6 +204,11 @@ export function SourceMenu({
         <span className="source-pill-stats" aria-label={label("diffStats")}>
           {stats.added ? <span className="source-pill-additions">{stats.added}</span> : null}
           {stats.deleted ? <span className="source-pill-deletions">{stats.deleted}</span> : null}
+        </span>
+      ) : null}
+      {suffix ? (
+        <span className="source-pill-progress" aria-hidden="true">
+          · {suffix}
         </span>
       ) : null}
       {open && style
@@ -239,6 +259,7 @@ export function SourceMenu({
                           <div
                             ref={submenuRef}
                             // The rows fade inside; the glass, rim and shadow stay whole (popupSurface.css).
+                            // one-material-allow: a submenu is a floating menu of its own beside its parent, not a control on the parent's glass; the parent's tree holds it for hover and focus
                             className="toolbar-menu ui-popup ui-glass toolbar-submenu ui-popup-scroll-shell"
                             role="menu"
                             tabIndex={-1}
@@ -624,12 +645,15 @@ function OverflowMenuRow({
 /** A plain options-menu row (for the view options under the main rows). */
 export function ViewMenuButton({
   checked,
+  detail,
   icon,
   id,
   label,
   onClick,
 }: {
   checked?: boolean;
+  /** Quiet text after the label ("3 of 30 viewed"). */
+  detail?: string | null;
   icon: IconName;
   id?: string;
   label: string;
@@ -642,10 +666,12 @@ export function ViewMenuButton({
       role={checked === undefined ? "menuitem" : "menuitemcheckbox"}
       className="menu-item toolbar-menu-item"
       aria-checked={checked}
+      data-detail={detail ? "" : undefined}
       onClick={onClick}
     >
       <Icon name={icon} />
       <span className="menu-label">{label}</span>
+      {detail ? <span className="menu-detail">{detail}</span> : null}
       <span className="menu-check">{checked ? <Icon name="check" /> : null}</span>
     </button>
   );
