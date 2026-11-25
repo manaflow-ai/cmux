@@ -973,6 +973,7 @@ public final class TerminalModel {
     }
 
     func removeAttachment(_ id: ComposerAttachment.ID) {
+        if isUploading { cancelAttachmentSend() }
         attachments.removeAll { $0.id == id }
         syncAttachmentUploads()
         if attachments.isEmpty { attachmentError = nil }
