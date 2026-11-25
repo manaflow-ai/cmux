@@ -36,6 +36,11 @@
 //!   a folder (the person's `editor.default`, else the first installed).
 //! - [`update_idle`]: whether Update When Idle installs a staged app update
 //!   now, or why it waits (input, a running turn, an unsent draft).
+//! - [`onboarding_steps`]: the onboarding window's Computer Use step (which
+//!   permission is next, what Allow does, when the step is done) and its
+//!   Agents step (which agents list, sign-in and install marks).
+//! - [`external_open`]: what cmux does with a URL or file macOS hands it
+//!   (browser tab, terminal, SSH, man page, chat picture, share link).
 
 pub mod appearance;
 pub mod browser;
@@ -43,10 +48,12 @@ pub mod chat;
 pub mod close;
 pub mod closed;
 pub mod editors;
+pub mod external_open;
 pub mod files;
 pub mod history;
 pub mod launch;
 pub mod notifications;
+pub mod onboarding_steps;
 pub mod remote;
 pub mod restore;
 pub mod screen_share;
