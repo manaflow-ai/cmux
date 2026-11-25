@@ -226,6 +226,9 @@ enum Way {
     Relay,
 }
 
+/// What acpmux's refusal of a bundle file a guarded move does not take says.
+const UNTAKEN_FILE: &str = "is not a file a guarded move takes";
+
 /// A move that failed, as its JSON line reports it.
 struct Failed {
     code: String,
@@ -255,9 +258,30 @@ impl Failed {
     /// `<side>_unreachable` when no answer came.
     fn call(side: &str, error: &CallError) -> Self {
         match error {
+            CallError::Refused { message, .. }
+                if side == "target" && message.contains(UNTAKEN_FILE) =>
+            {
+                Self::untaken_file(message)
+            }
             CallError::Refused { code, message, .. } => Self::new(code.clone(), message.clone()),
             CallError::Lost(message) => Self::new(format!("{side}_unreachable"), message.clone()),
         }
+    }
+
+    /// A target that refuses a file of the bundle (acpmux `transfer_guard.rs`, `transfer_in.rs`)
+    /// runs a cmux-tui older than the source's, which wrote the file: [`taken_by_target`] leaves
+    /// such files out when it can ask the target, so this is the move it could not ask. It reads
+    /// as the machine being outdated (the app says "update the machine"), never the raw
+    /// `transfer.path` line; the source's chat is untouched (2026-11-24 kill-mid-move drills).
+    fn untaken_file(message: &str) -> Self {
+        let mut failed = Self::new(
+            super::machine_gate::OUTDATED,
+            format!(
+                "the machine runs an older cmux-tui that refused a file of this chat ({message}); update the machine"
+            ),
+        );
+        failed.side = Some("target");
+        failed
     }
 
     fn bad_answer(error: impl Into<String>) -> Self {
@@ -562,6 +586,12 @@ fn resolve(args: &Args, records: &Records, mut record: Record) -> Result<Option<
         return Err(unresolved(&record, error));
     }
     if !same_chat(args, &record) {
+        // The source's commit closes the chat, so a tab that no longer shows it is what a run
+        // killed after that commit finds: the move is over when the target says the chat
+        // landed. Only the tail of the commit is left (the seed record), never a second commit.
+        if record.landed == Some(true) && ask_landed(&record) == Some(true) {
+            return Ok(Some(commit_landed(args, records, &record, 0, true)));
+        }
         let error = "cannot confirm the tab still shows the chat this move took; nothing was ended";
         return Err(unresolved(&record, error));
     }
@@ -890,7 +920,10 @@ fn sync_frozen(sync: &Sync) -> Result<(), Failed> {
                 .map_err(|e| {
                     Failed::new(
                         super::seed_cli::failure_code(&e),
-                        format!("the folder's last changes: {e:#}"),
+                        format!(
+                            "the folder's last changes: {}",
+                            super::seed_cli::failure_message(&e)
+                        ),
                     )
                 });
         }
@@ -901,7 +934,7 @@ fn sync_frozen(sync: &Sync) -> Result<(), Failed> {
             let failed = |e: anyhow::Error| {
                 Failed::new(
                     super::seed_cli::failure_code(&e),
-                    format!("the folder's last changes: {e:#}"),
+                    format!("the folder's last changes: {}", super::seed_cli::failure_message(&e)),
                 )
             };
             // A folder the bulk pass sent as git sends its last changes as git too ([`relay_bulk`]).
@@ -1193,7 +1226,7 @@ fn ask_landed(record: &Record) -> Option<bool> {
         match ask_landed_once(record) {
             Asked::Settled(landed) => return Some(landed),
             Asked::Finishing | Asked::Restarting if Instant::now() < deadline => {
-                std::thread::sleep(FINISHING_PAUSE)
+                std::thread::sleep(FINISHING_PAUSE);
             }
             Asked::Finishing | Asked::Restarting | Asked::NoAnswer => return None,
         }
@@ -1277,6 +1310,17 @@ fn commit(
         let error = format!("the chat landed there but did not close here: {}", error.message());
         return Err(unresolved(record, error));
     }
+    Ok(commit_landed(args, records, record, bytes, resolved))
+}
+
+/// What follows the source's commit: the seed record follows the chat, the pump's record clears.
+fn commit_landed(
+    args: &Args,
+    records: &Records,
+    record: &Record,
+    bytes: u64,
+    resolved: bool,
+) -> Moved {
     // Bring Back Local from the new machine merges against the seed this Mac sent the first one.
     // Before the record clears: a run that dies here moves it on its next run.
     for sync in &args.syncs {
@@ -1303,12 +1347,12 @@ fn commit(
         }
     }
     records.clear();
-    Ok(Moved {
+    Moved {
         session_id: record.session_id.clone().unwrap_or_default(),
         transfer_id: record.transfer_id.clone(),
         bytes,
         resolved,
-    })
+    }
 }
 
 /// The record a begin with a token leaves before it is sent: no transfer id yet, the token
