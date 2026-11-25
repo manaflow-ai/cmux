@@ -623,6 +623,11 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final FlushLaunchSnapshotResult flushLaunchSnapshot() throws CmuxException {
+        Object result = execute(Commands.FLUSH_LAUNCH_SNAPSHOT, Map.of());
+        return FlushLaunchSnapshotResult.fromWire(result);
+    }
+
     public final FocusDirectionResult focusDirection(FocusDirectionRequest request) throws CmuxException {
         Object result = execute(Commands.FOCUS_DIRECTION, request.toWire());
         return FocusDirectionResult.fromWire(result);
