@@ -36,7 +36,7 @@ impl Hub {
     /// `needsRun` for `session`: a turn running, a prompt queued, or a background task at work
     /// (`idle.rs` `at_work`). Reads the chat's process records, so call it off the async workers.
     pub(crate) fn auto_needs_run(&self, session: &Session) -> bool {
-        self.at_work(session).is_some()
+        self.at_work(session, crate::store::now_ms()).is_some()
     }
 
     /// Changes each time a continuation of a cut turn stops waiting for `session`
@@ -100,7 +100,8 @@ impl Hub {
             }
         }
         let (hub, followed) = (self.clone(), session.clone());
-        tokio::spawn(async move {
+        // Owned by the hub's scope: its close ends a follow still running (check-spawn-owner).
+        self.scope.spawn_named("auto-activate-follow", async move {
             hub.follow_policy(&followed).await;
             followed.queue_moved.notify_waiters();
         });

@@ -100,7 +100,8 @@ import Testing
         return FileManager.default.fileExists(atPath: root.appendingPathComponent(PageDescriptor.history.entry).path)
     }
 
-    @Test(.enabled(if: Self.packagedPagesFixtureReady, "needs generated packaged page resources"))
+    // The resources are read on the main actor, so the trait awaits them (a condition is evaluated off it).
+    @Test(.enabled("needs generated packaged page resources") { await Self.packagedPagesFixtureReady })
     func packagedTerminalHistoryDocumentAndSharedEntryAreServed() async throws {
         let page = PageDescriptor.terminalHistory
         let root = try #require(page.pagesBundleRoot)
