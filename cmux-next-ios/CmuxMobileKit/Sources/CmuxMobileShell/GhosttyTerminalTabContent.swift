@@ -928,7 +928,7 @@ struct TerminalTabSlotCard: View {
         let content = card.content
         card
             .id(ObjectIdentifier(slot.host))
-            .modifier(TabCardFaceRecord(tabID: tabID, face: content == .placeholder && known != nil ? "lastKnown" : "\(content)"))
+            .modifier(TabCardFaceRecord(tabID: tabID, face: content == .nothing && known != nil ? "lastKnown" : "\(content)"))
     }
 }
 #endif

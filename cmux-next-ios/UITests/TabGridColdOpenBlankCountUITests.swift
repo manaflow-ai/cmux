@@ -59,7 +59,7 @@ final class TabGridColdOpenBlankCountUITests: XCTestCase {
         print("CMUX_TAB_BLANK launch1 end: \(written.raw)")
         if drops {
             // The rows lost their pictures while the cards were up: none went blank.
-            let blankNow = written.faces.filter { Self.kind($0.key) != "agent" && ($0.value.now == "placeholder" || $0.value.now == "connecting") }
+            let blankNow = written.faces.filter { Self.kind($0.key) != "agent" && ["nothing", "placeholder", "connecting"].contains($0.value.now) }
             XCTAssertEqual(blankNow.keys.sorted(), [], "launch 1: cards went blank when the Mac's rows dropped their pictures: \(written.raw)")
         }
         first.terminate()
