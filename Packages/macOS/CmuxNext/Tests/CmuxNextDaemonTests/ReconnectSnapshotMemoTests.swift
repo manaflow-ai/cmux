@@ -15,14 +15,14 @@ import Testing
     }
 
     private static func session(_ count: Int, generation: DaemonGeneration? = "boot-a", changing changed: Int? = nil) -> DaemonTree {
-        DaemonTree(workspaces: (0..<count).map { workspace($0, title: $0 == changed ? "renamed" : "t") },
-                   generation: generation, registryID: "reg")
+        DaemonTree(generation: generation, registryID: "reg",
+                   workspaces: (0..<count).map { workspace($0, title: $0 == changed ? "renamed" : "t") })
     }
 
     private static func reconnect(_ store: DaemonStore, serial: UInt64, generation: String = "boot-a") {
         _ = store.apply(.disconnected(reason: "link dropped"))
         let envelope = DaemonEventEnvelope(sequence: DaemonEventEnvelope.sequence(serial: serial, index: 0),
-                                           event: .connected(DaemonIdentity(generation: generation), generationChanged: false),
+                                           event: .connected(DaemonIdentity(generation: DaemonGeneration(rawValue: generation)), generationChanged: false),
                                            sourceID: UUID())
         _ = store.apply(batch: [envelope])
     }
