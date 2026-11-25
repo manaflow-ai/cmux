@@ -444,6 +444,7 @@ fn the_shipped_theme_files_apply_with_no_refusals() {
         "meadow",
         "lily-pond",
         "minimal-sessions",
+        "miku",
     ] {
         assert!(list.iter().any(|name| name == look), "{look} in {list:?}");
     }

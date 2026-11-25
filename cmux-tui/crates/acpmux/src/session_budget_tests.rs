@@ -57,12 +57,23 @@ fn memory_has_a_floor_and_a_ceiling_of_half_the_ram() {
 }
 
 #[test]
-fn disk_defaults_to_the_lane_share_else_a_tenth_of_home_clamped() {
+fn disk_defaults_to_the_lane_share_else_a_tenth_with_lanes_else_half_clamped() {
     assert_eq!(disk_default(&lane_host()), 8 * GIB);
-    let no_lanes = Host { disk_total: 247 * GIB, ..Host::default() };
-    assert_eq!(disk_default(&no_lanes), 247 * GIB / 10);
+    // A shared host with a lane cap and no per-lane share: a tenth.
+    let capped = Host { disk_total: 247 * GIB, lanes: Some(8), ..Host::default() };
+    assert_eq!(disk_default(&capped), 247 * GIB / 10);
+    // One person's machine (no lane cap): half. A 20 GiB Cloud VM gets 10 GiB, not the 2 GiB
+    // floor a tenth gave (under one blobless cmux clone plus its build).
+    assert_eq!(disk_default(&Host { disk_total: 20 * GIB, ..Host::default() }), 10 * GIB);
     assert_eq!(disk_default(&Host { disk_total: 2000 * GIB, ..Host::default() }), 64 * GIB);
-    assert_eq!(disk_default(&Host { disk_total: 10 * GIB, ..Host::default() }), 2 * GIB);
+    assert_eq!(
+        disk_default(&Host { disk_total: 2000 * GIB, lanes: Some(8), ..Host::default() }),
+        64 * GIB
+    );
+    assert_eq!(
+        disk_default(&Host { disk_total: 10 * GIB, lanes: Some(8), ..Host::default() }),
+        2 * GIB
+    );
     // Unknown disk: still the floor, never more than the disk when it is known.
     assert_eq!(disk_default(&Host::default()), 2 * GIB);
     assert_eq!(disk_default(&Host { disk_total: GIB, ..Host::default() }), GIB);

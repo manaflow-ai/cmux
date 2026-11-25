@@ -751,6 +751,7 @@ fn the_bundle_copy_is_private_and_removed() {
     assert!(!snapshot.bundle.exists(), "the upload is removed");
 }
 
+mod borrow;
 mod carry;
 mod dogfood;
 mod export;
@@ -787,6 +788,7 @@ fn agent_service(world: &World) -> GitSeedService {
             ],
         },
         credentials: Some(vec![Credential::CmuxGithub(HELPER.into())]),
+        mirrors: world.mirrors.clone(),
     };
     GitSeedService::with_config(Roots::new([world.home.path.clone()]), config)
 }

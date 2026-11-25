@@ -30,6 +30,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// A new chat's typed text before it has a session (`chat.unsentDraft`, cx-z5vd): the App
     /// keeps it with the tab, so a relaunch opens the chat with it.
     case unsentDraft(String)
+    /// The messages a person sent with Return while their Cloud start was still on its way
+    /// (`chat.cloudStartQueue {text}`, Leo 2026-11-25: "playable vs fully installed... or just go"): the
+    /// started chat's first prompt carries them after the start's own, so nothing waits on the machine.
+    /// Empty text: none queued (a failed start put them back in the composer).
+    case cloudStartQueue(String)
     /// What a new chat leaves when its tab opens another chat (`chat.leftover`, cmux#32276): its
     /// typed text and prompts held for a trust answer, kept for its window's next new chat.
     case newChatLeftover(String)

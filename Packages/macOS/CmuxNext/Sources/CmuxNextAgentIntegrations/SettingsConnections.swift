@@ -2,6 +2,7 @@ public import CmuxNextPages
 public import CmuxNextSettings
 public import Foundation
 public import Observation
+import CmuxNextCompat
 
 /// Settings > Integrations > Connections: the remote MCP servers a person connects once in cmux (cmux platform
 /// `/v1/mcp-servers`), whose tools every agent chat then gets through cmux's hosted MCP server.
@@ -86,7 +87,7 @@ public final class SettingsConnections: PageProvider {
         let stdin: Data? = words.contains("--key-stdin") ? SettingsIntegrationsHub.keyData(params) : nil
         if words.contains("--key-stdin"), stdin == nil { throw PageError.invalidParams("paste the server's key") }
         guard let cli = await cli() else { throw PageError(code: "cmux.page.unavailable", message: "no bundled cmux CLI") }
-        let reply = try? await runCLI(cli, ["mcp-servers"] + words + ["--json"], stdin)
+        let reply = try? await awaitConcurrently({ try await runCLI(cli, ["mcp-servers"] + words + ["--json"], stdin) })
         let answer = reply.flatMap { SettingsIntegrationsHub.lastLine($0.1) }
         if let answer, answer["ok"]?.boolValue == true {
             lastError = nil
@@ -166,7 +167,7 @@ public final class SettingsConnections: PageProvider {
         generation += 1
         let mine = generation
         loading = true
-        let reply = try? await runCLI(cli, ["mcp-servers", "catalog", "--json"], nil)
+        let reply = try? await awaitConcurrently({ try await runCLI(cli, ["mcp-servers", "catalog", "--json"], nil) })
         guard mine == generation else { return }
         loading = false
         guard let reply, let value = SettingsIntegrationsHub.lastLine(reply.1) else {

@@ -147,6 +147,11 @@ on:
       - "**/Cargo.toml"
       - "**/Cargo.lock"
       - scripts/cmux-next/cargo-locks.py
+      # The iPhone app's uniffi Swift bindings (base-autofix.sh --ios-ffi).
+      - cmux-next-ios/rust/crates/**
+      - cmux-next-ios/rust/rust-toolchain.toml
+      - cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/**
+      - scripts/ios-ffi-bindings.sh
 
 permissions: {}
 
@@ -550,6 +555,11 @@ jobs:
 
       # The package's resources include the web bundles (cmux-next.yml's
       # generated-files job builds them the same way).
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -559,7 +569,13 @@ jobs:
       - name: Give this job its own bun
         run: scripts/cmux-next/private-bun.sh
 
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
+
       - name: Setup Node
+        timeout-minutes: 5
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
@@ -569,6 +585,8 @@ jobs:
         run: echo "key=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
 
       - name: Restore the web bundles built for this source key
+        timeout-minutes: 5
+        continue-on-error: true
         id: web-bundle-cache
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -700,6 +718,11 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -707,7 +730,13 @@ jobs:
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       # `vp` runs on Node and needs ^22.18 or ^24.11.
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
+
       - name: Setup Node
+        timeout-minutes: 5
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
@@ -913,11 +942,24 @@ jobs:
             printf '%s\n' "$changed" > "$RUNNER_TEMP/changed.txt"
           fi
 
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        if: steps.areas.outputs.strings == 'true'
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
+
       - name: Setup Node
+        timeout-minutes: 5
         if: steps.areas.outputs.strings == 'true'
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
+
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        if: steps.areas.outputs.shortcuts == 'true' || steps.areas.outputs.apphost == 'true' || (needs.pushed-exports.outputs.hit == 'true' && needs.pushed-exports.outputs.exports || needs.action-exports.outputs.exports) == 'true' || steps.areas.outputs.cloud == 'true'
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - name: Setup Bun
         if: steps.areas.outputs.shortcuts == 'true' || steps.areas.outputs.apphost == 'true' || (needs.pushed-exports.outputs.hit == 'true' && needs.pushed-exports.outputs.exports || needs.action-exports.outputs.exports) == 'true' || needs.action-exports-linux.outputs.exports == 'true' || steps.areas.outputs.cloud == 'true'
@@ -1000,7 +1042,7 @@ jobs:
           add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui -> target
-          shared-key: cmux-tui-pr-clippy
+          shared-key: cmux-tui-pr-clippy-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
           save-if: false
 
       - name: Download the webviews formatting patch
@@ -1045,6 +1087,7 @@ jobs:
           RATCHETS: ${{ steps.areas.outputs.ratchets }}
           CLOUD: ${{ steps.areas.outputs.cloud }}
           LOCKS: ${{ steps.areas.outputs.locks }}
+          IOSFFI: ${{ steps.areas.outputs.iosffi }}
           FMT: ${{ steps.areas.outputs.fmt }}
           CLIPPY: ${{ steps.areas.outputs.clippy }}
           CLIPPY_CHANGED: ${{ runner.temp }}/changed.txt
@@ -1151,6 +1194,7 @@ jobs:
           RATCHETS: ${{ steps.areas.outputs.ratchets }}
           CLOUD: ${{ steps.areas.outputs.cloud }}
           LOCKS: ${{ steps.areas.outputs.locks }}
+          IOSFFI: ${{ steps.areas.outputs.iosffi }}
           FMT: ${{ steps.areas.outputs.fmt }}
           CLIPPY: ${{ steps.areas.outputs.clippy }}
           CLIPPY_CHANGED: ${{ runner.temp }}/changed.txt

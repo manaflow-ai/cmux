@@ -3776,6 +3776,27 @@ button.menu-disclosure {
   list-style: none;
 }
 
+/* Updates > App Update's Go Back to Previous Build (PreviousBuildRow). `line`: an inline link-weight
+   button after the sentence; `panel`: the build in a box of its own. */
+.previous-build-line .previous-build-link {
+  min-height: 0;
+  padding: 0 var(--ds-space-1);
+  vertical-align: baseline;
+  color: var(--accent-text);
+  background: transparent;
+}
+
+.previous-build-panel .previous-build-box {
+  padding: var(--ds-space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-md);
+  background: var(--input-bg);
+}
+
+.previous-build-version {
+  font-variant-numeric: tabular-nums;
+}
+
 /* Settings > General's Customize cmux card (CustomizeProgressCard): progress, then the steps left, each
  * with a check and an Open link to where it is done. */
 .customize-progress {
@@ -3872,7 +3893,6 @@ button.menu-disclosure {
   inset: 0;
   margin: 0;
   opacity: 0;
-  cursor: pointer;
 }
 
 .customize-progress__check input:disabled {

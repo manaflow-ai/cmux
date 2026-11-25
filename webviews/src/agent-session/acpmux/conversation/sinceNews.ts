@@ -20,6 +20,7 @@ import {
 } from "../model";
 import { PERMISSION_RECORD } from "../permissions/record";
 import { QUESTION_RECORD } from "../question/record";
+import { indexOfRow } from "../transcript/rowIndex";
 
 /// How many rows under the line are read at most: a run of status lines longer than this is rare
 /// enough to count as news, and keeps the scan bounded however long the chat grows.
@@ -38,15 +39,43 @@ export function isNews(row: AcpmuxRow): boolean {
   return row.kind === QUESTION_RECORD || row.kind === PERMISSION_RECORD;
 }
 
+/// Whether `row` came from someone else: another person's or agent's message (on its own, in a batch,
+/// in a "Received N messages" run, waiting in the queue, or folded under a turn's line as its
+/// prompt). The agent's own replies and asks in a running turn are not (`HeldSpan`).
+export function isOthersNews(row: AcpmuxRow): boolean {
+  if (row.foldedPrompt && isOthersNews(row.foldedPrompt)) return true;
+  if (row.kind === MESSAGE_RUN) return (row.messageRun?.received ?? 0) > 0;
+  if (row.kind === LANE_NOTICE_BATCH || row.kind === QUEUED_MESSAGE || row.kind === PENDING_MESSAGES) return true;
+  if (row.kind !== "user") return false;
+  const kind = row.incoming?.kind;
+  return kind === "message" || kind === "notice" || kind === "inbox";
+}
+
+/// A turn's own rows, held back from the line: indices [from, to) of the drawn rows. Leo,
+/// 2026-11-25: "i think the new messages thing may be redundant if there is an unfinished turn.
+/// like dont mark it as new if it's still going". While the agent's turn runs, what it writes is
+/// not new, and a turn that ends while the reader is at its bottom was read as it came
+/// (`SinceTurnHold`). Only other people's and agents' messages in a held span count (`isOthersNews`).
+export type HeldSpan = { from: number; to: number };
+const NO_SPANS: readonly HeldSpan[] = [];
+
+/// Whether `row` at `at` is news to the line: held rows count only when they came from others.
+const newsAt = (row: AcpmuxRow, at: number, held: readonly HeldSpan[]): boolean => {
+  for (const span of held) if (at >= span.from && at < span.to) return isOthersNews(row);
+  return isNews(row);
+};
+
 /// Whether the line at `index` in `rows` (the drawn rows) has news under it. Stops at the first
-/// news row, so a chat that answered reads one or two rows.
-export function sinceNews(rows: readonly AcpmuxRow[], index: number): boolean {
+/// news row, so a chat that answered reads one or two rows. `held`: spans of turns whose own rows
+/// are not news (`HeldSpan`).
+export function sinceNews(rows: readonly AcpmuxRow[], index: number, held: readonly HeldSpan[] = NO_SPANS): boolean {
   const line = rows[index];
   if (line?.kind !== SINCE_DIVIDER) return false;
   if (line.since?.recap) return true;
   const end = Math.min(rows.length, index + 1 + SINCE_NEWS_REACH);
-  for (let at = index + 1; at < end; at += 1) if (isNews(rows[at]!)) return true;
-  return end < rows.length;
+  for (let at = index + 1; at < end; at += 1) if (newsAt(rows[at]!, at, held)) return true;
+  // Past the reach, a run of rows still counts as news, unless all of it is a held turn.
+  return end < rows.length && !held.some((span) => span.from <= end && span.to >= rows.length);
 }
 
 /// The most messages the line counts: past it the label reads "999+", and counting stays bounded
@@ -68,14 +97,100 @@ const messagesIn = (row: AcpmuxRow): number =>
 /// costs the same per update as one that ran a minute: past `cap` it answers `cap` + 1 (the label's
 /// "999+"); past `ROWS_PER_MESSAGE` times as many rows of any kind it answers `undefined` (the label
 /// reads "New": no number it cannot stand by). `undefined` too when `index` is not the line.
-export function sinceCount(rows: readonly AcpmuxRow[], index: number, cap = SINCE_COUNT_CAP): number | undefined {
+/// `held`: spans of turns whose own rows are not counted (`HeldSpan`).
+export function sinceCount(
+  rows: readonly AcpmuxRow[],
+  index: number,
+  cap = SINCE_COUNT_CAP,
+  held: readonly HeldSpan[] = NO_SPANS,
+): number | undefined {
   if (rows[index]?.kind !== SINCE_DIVIDER) return undefined;
   const stop = Math.max(index, rows.length - 1 - cap * ROWS_PER_MESSAGE);
   let count = 0;
   for (let at = rows.length - 1; at > stop; at -= 1) {
     const row = rows[at]!;
-    if (isNews(row)) count += messagesIn(row);
+    if (newsAt(row, at, held)) count += messagesIn(row);
     if (count > cap) return cap + 1;
   }
   return stop === index ? count : undefined;
+}
+
+/// The most rows `runningTurnFrom` reads back from the end: a running turn longer than this is held
+/// from the line down, so the scan stays bounded however long the turn runs.
+const RUNNING_TURN_REACH = SINCE_COUNT_CAP * ROWS_PER_MESSAGE;
+
+/// Where the running turn starts in `rows` (the drawn rows), at or after the row under the line at
+/// `index`: the row after the last turn's end (its footer, `turnSummary`), or after the last row of
+/// another turn (`turnId`). Read from the end back, bounded.
+export function runningTurnFrom(rows: readonly AcpmuxRow[], index: number): number {
+  const floor = Math.max(index, rows.length - 1 - RUNNING_TURN_REACH);
+  let turn: string | undefined;
+  for (let at = rows.length - 1; at > floor; at -= 1) {
+    const row = rows[at]!;
+    if (row.kind === "turnSummary") return at + 1;
+    if (row.kind === "assistant" && row.turnId !== undefined) {
+      turn ??= row.turnId;
+      if (row.turnId !== turn) return at + 1;
+    }
+  }
+  return index + 1;
+}
+
+/// Which turns' own rows the line holds back (`HeldSpan`; Leo, 2026-11-25: "dont mark it as new if
+/// it's still going"). One per transcript, read once per render with the line's mark:
+/// - while a turn runs, its rows under the line are held: its replies draw no line, no count and no
+///   banner, while others' messages in it still do;
+/// - when it ends with the reader at the latest row, they read it as it came: it stays held for that
+///   mark, so the line does not light up over it after the fact;
+/// - when it ends with the reader scrolled away, it is let go: what they did not see is new.
+/// Rows are kept by id, so a page loaded above or shed rows never move a span. O(spans) per render,
+/// plus one bounded scan back to the running turn's start while one runs.
+export class SinceTurnHold {
+  private mark?: string;
+  /// The running turn's first news row under the line, while one runs.
+  private running?: string;
+  /// Turns that ended while the reader followed: their first and last news rows.
+  private read: { from: string; through: string; hints: [{ current: number }, { current: number }] }[] = [];
+
+  spans(
+    rows: readonly AcpmuxRow[],
+    index: number,
+    mark: string | undefined,
+    working: boolean,
+    following: boolean,
+  ): readonly HeldSpan[] {
+    if (mark !== this.mark) {
+      this.mark = mark;
+      this.running = undefined;
+      this.read = [];
+    }
+    if (mark === undefined || index < 0) return NO_SPANS;
+    if (!working && this.running !== undefined) {
+      // The turn's own news it ended on: its first and last reply (ids that stay, never a live line's).
+      const hint = { current: -1 };
+      const start = indexOfRow(rows, this.running, hint);
+      let through: string | undefined;
+      for (let at = rows.length - 1; at >= start && start >= 0 && through === undefined; at -= 1)
+        if (isNews(rows[at]!)) through = rows[at]!.id;
+      if (following && through !== undefined)
+        this.read.push({ from: this.running, through, hints: [hint, { current: -1 }] });
+      this.running = undefined;
+    }
+    const spans: HeldSpan[] = [];
+    for (const turn of this.read) {
+      const from = indexOfRow(rows, turn.from, turn.hints[0]);
+      const through = indexOfRow(rows, turn.through, turn.hints[1]);
+      if (from >= 0 && through >= from) spans.push({ from, to: through + 1 });
+    }
+    if (working) {
+      const from = runningTurnFrom(rows, index);
+      if (from < rows.length) {
+        if (this.running === undefined)
+          for (let at = from; at < rows.length && this.running === undefined; at += 1)
+            if (isNews(rows[at]!)) this.running = rows[at]!.id;
+        spans.push({ from, to: rows.length });
+      }
+    }
+    return spans.length > 0 ? spans : NO_SPANS;
+  }
 }

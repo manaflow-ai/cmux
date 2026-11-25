@@ -170,7 +170,8 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
         var revealRequest: ColumnCenterRequest?
         var centerMode: CenterFocusedColumn
         var attention: [PaneID: AttentionMark]
-        /// ``LayoutModel/holdsAttentionUntilShown``: the rings keep their marks (a blink starts) but draw nothing yet.
+        /// ``LayoutModel/holdsAttentionUntilShown``: the rings take ``LayoutModel/attentionWhileHeld`` (a ring the switch read
+        /// stays, so it blinks out when the hold ends, in a frame that shows it) but draw nothing yet (cmux#46908, cmux#56125).
         var holdsAttention: Bool
         var scrollbar: StripScrollbarMode
         var rowOps: Bool
@@ -371,9 +372,6 @@ public final class LayoutRootView: NSView, FrameNoticeReadersHosting {
     func syncBatched(_ snapshot: Snapshot) {
         let previous = lastSnapshot
         var snapshot = snapshot
-        // A layout just shown keeps its chrome's rings as they were while it is held (cmux#46908): a ring the switch read
-        // blinks out when the hold ends, in a frame that shows it, not hidden under the hold. The release syncs the change.
-        if snapshot.holdsAttention, let previous { snapshot.attention = previous.attention }
         lastSnapshot = snapshot
         // A newly earned ring, or the ring moving to another pane by key, measures pointer travel from
         // zero (``handlePointerTravel(_:)``).
@@ -786,7 +784,7 @@ extension LayoutRootView.Snapshot {
         self.init(screens: model.screens, activeScreen: model.activeScreenID, focused: model.focusedPane,
                   focusRingEarned: model.focusRingEarned, dimsInactive: model.dimsInactivePanes,
                   style: model.style, gestureActive: model.isGestureActive, centerRequest: model.centerRequest,
-                  revealRequest: model.revealRequest, centerMode: model.centerFocusedColumn, attention: model.attention, holdsAttention: model.holdsAttentionUntilShown,
+                  revealRequest: model.revealRequest, centerMode: model.centerFocusedColumn, attention: model.holdsAttentionUntilShown ? model.attentionWhileHeld : model.attention, holdsAttention: model.holdsAttentionUntilShown,
                   scrollbar: model.stripScrollbar, rowOps: model.acceptsRowOps, canvases: model.canvases)
     }
 }

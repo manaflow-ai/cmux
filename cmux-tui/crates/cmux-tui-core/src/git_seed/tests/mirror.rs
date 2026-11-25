@@ -226,9 +226,63 @@ fn eight_adds_at_once_share_one_mirror() {
         .unwrap()
         .flatten()
         .map(|entry| entry.file_name().to_string_lossy().into_owned())
-        .filter(|name| !name.ends_with(".lock"))
+        .filter(|name| !name.ends_with(".lock") && !name.ends_with(".fetched"))
         .collect();
     assert_eq!(mirrors, vec![format!("{}.git", mirror::key(URL))], "one mirror, no leftovers");
+}
+
+/// An add that waited for the mirror while another add fetched into it makes no fetch of its
+/// own: it proves its access with one `ls-remote` and borrows what that fetch brought. (A crowd
+/// of 8 adds used to fetch in turn, each past the lock's wait, and 7 of them cloned directly.)
+/// An add the remote refuses still never borrows.
+#[test]
+fn an_add_that_waited_for_a_fetch_reaches_the_remote_and_skips_its_own() {
+    use cmux_file_lock::{FileLock, Kind};
+    let world = World::new("mirror-crowd");
+    let status = seed(&world, &clone_params(&world.home.join("first"), None));
+    assert_eq!(status["state"], "done", "{status}");
+    let mirror = mirror_of(&world);
+    let lock_path = mirror.with_extension("lock");
+    let take = || {
+        let file = std::fs::OpenOptions::new().read(true).write(true).open(&lock_path).unwrap();
+        FileLock::take_within(
+            file,
+            Kind::Exclusive,
+            Duration::from_secs(5),
+            Duration::from_millis(10),
+        )
+        .unwrap()
+    };
+
+    // A new commit on the remote the waiting add would fetch, were it to fetch.
+    write(&world.mac.join("a"), "a\nlater\n");
+    git(&world.mac, &["commit", "-q", "-a", "-m", "later"]);
+    git(&world.mac, &["push", "-q", "origin", "main"]);
+
+    let held = take();
+    let service = world.service();
+    let waiting = world.home.join("waiting");
+    let job = start(&service, &clone_params(&waiting, None)).unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    // The holder's fetch lands after the waiting add asked.
+    std::fs::write(mirror.with_extension("fetched"), b"").unwrap();
+    drop(held);
+    let status = wait(&service, &job);
+    assert_eq!(status["state"], "done", "{status}");
+    assert_eq!(status["mirror"], "hit", "{status}");
+    assert_eq!(status["head"], world.base.as_str(), "no fetch of its own: {status}");
+
+    let held = take();
+    let refused = service_at(&world, &world.home.join("no-access.git"));
+    let folder = world.home.join("refused");
+    let job = start(&refused, &clone_params(&folder, None)).unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    std::fs::write(mirror.with_extension("fetched"), b"").unwrap();
+    drop(held);
+    let status = wait(&refused, &job);
+    assert_eq!(status["state"], "failed", "{status}");
+    assert!(notes(&status).contains(&"seed.mirror.fallback".to_owned()), "{status}");
+    assert!(!folder.exists(), "nothing of the mirror reached the folder");
 }
 
 /// The numbers for the PR (`scripts/measure/cloud-add-repo-mirror.sh`): Cloud "Add repository"
@@ -254,9 +308,13 @@ fn measure_add_repository_cold_and_warm() {
             Config { credentials: Some(vec![Credential::Anonymous]), mirrors, ..Config::default() };
         std::sync::Arc::new(GitSeedService::with_config(Roots::new([home.path.clone()]), config))
     };
-    let params = |folder: &Path| json!({ "folder": folder, "url": url, "repo": "measure", "ref": null, "lfs": false });
+    // `repo` is the URL's OWNER/NAME, as `check_url` requires.
+    let repo = url.trim_start_matches("https://github.com/").trim_end_matches(".git").to_owned();
+    let params = |folder: &Path| json!({ "folder": folder, "url": url, "repo": repo, "ref": null, "lfs": false });
     let finish = |service: &GitSeedService, job: &str| {
-        let deadline = Instant::now() + Duration::from_secs(1800);
+        let started = Instant::now();
+        let deadline = started + Duration::from_secs(1800);
+        let mut said = started;
         loop {
             let status = service.call("git.seed.status", &json!({ "job": job })).unwrap();
             if status["state"] != "running" {
@@ -264,6 +322,14 @@ fn measure_add_repository_cold_and_warm() {
                 return status;
             }
             assert!(Instant::now() < deadline, "{status}");
+            // A line every 30 s, so a stall reads apart from a slow clone.
+            if said.elapsed() >= Duration::from_secs(30) {
+                said = Instant::now();
+                println!(
+                    "WAIT job={job} after={:.0}s status={status}",
+                    started.elapsed().as_secs_f64()
+                );
+            }
             std::thread::sleep(Duration::from_millis(100));
         }
     };
@@ -280,7 +346,7 @@ fn measure_add_repository_cold_and_warm() {
         let rx = received();
         let started = Instant::now();
         let jobs: Vec<String> =
-            folders.iter().map(|f| start(&service, &params(f)).unwrap()).collect();
+            folders.iter().map(|f| start(&service, &params(f)).expect("git.seed.start")).collect();
         let states: Vec<String> = jobs
             .iter()
             .map(|job| finish(&service, job)["mirror"].as_str().unwrap_or("-").to_owned())
@@ -294,6 +360,7 @@ fn measure_add_repository_cold_and_warm() {
         }
         (seconds, own + mirror_after.saturating_sub(mirror_before), rx, states.join(","))
     };
+    let begin = |name: &str, run: usize| println!("START mode={name} run={run}");
     let row = |name: &str,
                run: usize,
                (seconds, bytes, rx, states): (f64, u64, Option<u64>, String)| {
@@ -305,15 +372,22 @@ fn measure_add_repository_cold_and_warm() {
     };
     println!("URL {url} runs={runs} crowd={crowd}");
     for run in 1..=runs {
+        begin("off", run);
         row("off", run, add(&None, 1));
         let mirrors = Some(home.join(&format!("mirrors-{run}")));
+        begin("cold", run);
         row("cold", run, add(&mirrors, 1));
+        begin("warm", run);
         row("warm", run, add(&mirrors, 1));
     }
-    row(&format!("off-x{crowd}"), 1, add(&None, crowd));
-    let mirrors = Some(home.join("mirrors-crowd"));
-    row(&format!("cold-x{crowd}"), 1, add(&mirrors, crowd));
-    row(&format!("warm-x{crowd}"), 1, add(&mirrors, crowd));
+    if crowd > 1 {
+        let mirrors = Some(home.join("mirrors-crowd"));
+        for (name, mirrors) in [("off", None), ("cold", mirrors.clone()), ("warm", mirrors)] {
+            let name = format!("{name}-x{crowd}");
+            begin(&name, 1);
+            row(&name, 1, add(&mirrors, crowd));
+        }
+    }
 }
 
 /// The bytes of the files under `path`.

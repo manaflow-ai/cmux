@@ -394,18 +394,13 @@ impl Git {
         for (name, value) in env {
             command.env(name, value);
         }
-        if input.is_some() {
-            command.stdin(Stdio::piped());
+        if let Some(input) = input {
+            // From a file, not a pipe a thread writes: git may fill stderr before it reads all
+            // of stdin, and a file never blocks either side.
+            command.stdin(Stdio::from(input_file(input)?));
         }
         let mut child =
             command.spawn().map_err(|error| Failure::of(format!("cannot run git: {error}")))?;
-        // Written from its own thread: git may fill stderr before it reads all of stdin.
-        let writer = input.map(<[u8]>::to_vec).zip(child.stdin.take()).map(|(bytes, mut stdin)| {
-            std::thread::spawn(move || {
-                use std::io::Write as _;
-                let _ = stdin.write_all(&bytes);
-            })
-        });
         let mut stdout = child.stdout.take();
         let reader = std::thread::spawn(move || {
             let mut bytes = Vec::new();
@@ -439,9 +434,6 @@ impl Git {
             }
         }
         let status = child.wait();
-        if let Some(writer) = writer {
-            let _ = writer.join();
-        }
         let stdout = reader.join().unwrap_or_default();
         match status {
             Ok(status) if status.success() => Ok(stdout),
@@ -483,3 +475,27 @@ fn keep(
 #[cfg(test)]
 #[path = "git_tests.rs"]
 mod tests;
+
+/// `bytes` in an unlinked temporary file, read from its start: git's stdin for
+/// [`Git::run_input`].
+fn input_file(bytes: &[u8]) -> Result<std::fs::File, Failure> {
+    use std::io::{Seek as _, Write as _};
+    let fail = |error: std::io::Error| Failure::of(format!("cannot stage git's input: {error}"));
+    let path = std::env::temp_dir().join(format!(
+        "cmux-git-input-{}-{}",
+        std::process::id(),
+        INPUT_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .map_err(fail)?;
+    let _ = std::fs::remove_file(&path);
+    file.write_all(bytes).map_err(fail)?;
+    file.rewind().map_err(fail)?;
+    Ok(file)
+}
+
+static INPUT_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);

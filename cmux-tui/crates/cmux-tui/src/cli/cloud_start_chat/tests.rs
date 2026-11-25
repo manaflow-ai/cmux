@@ -19,6 +19,8 @@ fn request(words: &[&str]) -> Request {
 
 #[path = "clone_wait_tests.rs"]
 mod clone_wait;
+#[path = "direct_tests.rs"]
+mod direct_route;
 #[path = "drill_start_tests.rs"]
 mod drill_start;
 #[path = "folder_tests.rs"]
@@ -1288,7 +1290,10 @@ fn a_failed_turn_read_through_exec_answers_its_error_not_the_last_reply() {
     };
     assert_eq!(exit, 1);
     assert_eq!(error["code"], "chat.turn_failed");
-    assert_eq!(error["message"], "You've hit your weekly limit");
+    // The turn's own error, explained (account_limit.rs, cmux#55066), never the turn before's reply.
+    let message = error["message"].as_str().unwrap();
+    assert!(message.contains("weekly usage limit"), "{message}");
+    assert!(!message.contains("PONG-2350"), "{message}");
     assert_eq!(error["details"]["turn"]["status"], "failed");
     assert!(error["details"].get("reply").is_none(), "{error}");
 }

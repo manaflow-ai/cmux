@@ -34,7 +34,8 @@
 //!   on, and a 100 MB/s cap took the neighbor's fsync p99 from 231-336 ms to 779-859 ms. The disk
 //!   watcher (`hub/session_budget_watch.rs`) is the session's disk limit.
 //! - disk: `ACPMUX_SESSION_DISK_MB` / `session.diskMb`, default this host's registry
-//!   `lanes.disk_per_lane_gb`, else a tenth of the home filesystem between 2 and 64 GiB. The
+//!   `lanes.disk_per_lane_gb`, else a tenth of the home filesystem on a host with a lane cap or half
+//!   on one without (one person's machine: a Cloud VM, a Mac), between 2 and 64 GiB. The
 //!   kernel has no per-scope disk limit here, so `hub/session_budget_watch.rs` measures it.
 //! - store: what a chat keeps in acpmux's own store (its event log and background output),
 //!   `ACPMUX_SESSION_STORE_MB`, default an eighth of the disk budget (`session_store.rs`).
@@ -205,10 +206,17 @@ pub(crate) fn memory_default(host: &Host) -> u64 {
 }
 
 /// A session's default disk budget on `host` (0: unknown).
+///
+/// A host with a lane cap shares its disk, so a session gets the registry's per-lane share,
+/// else a tenth. A host with none is one person's machine (a Cloud VM, a Mac): half its disk.
+/// A tenth of a 20 GiB Cloud VM was the 2 GiB floor, under one blobless cmux clone (1.3 GiB)
+/// plus its build.
 pub(crate) fn disk_default(host: &Host) -> u64 {
+    let share =
+        if host.lanes.is_some_and(|n| n > 0) { host.disk_total / 10 } else { host.disk_total / 2 };
     host.disk_per_lane
         .filter(|n| *n > 0)
-        .unwrap_or_else(|| (host.disk_total / 10).clamp(2 * GIB, 64 * GIB))
+        .unwrap_or_else(|| share.clamp(2 * GIB, 64 * GIB))
         .min(if host.disk_total > 0 { host.disk_total } else { u64::MAX })
 }
 

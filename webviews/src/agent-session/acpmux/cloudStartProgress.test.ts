@@ -55,6 +55,8 @@ test("the host's push fills the card, field by field, each checked", () => {
   });
   expect(pushed).toEqual({
     advancedAt: expect.any(Number),
+    // The step moved past the machine: the page stamps when it saw the machine done.
+    machineFinishedAt: expect.any(Number),
     key: "k-1",
     task: "fix the build",
     state: "starting",
@@ -481,4 +483,27 @@ test("a failed start's way on: the folder, a new Cloud chat, Retry, or This Mac;
     expect(cloudStartWayOn(failed(code)), code).toEqual([]);
   expect(cloudStartWayOn(failed("cloud_start_failed", { retryable: true }))).toEqual([]);
   expect(cloudStartWayOn({ key: "k", task: "t", state: "starting" })).toEqual([]);
+});
+
+test("each step's clock starts when the page saw it begin, and a running copy keeps its start", () => {
+  let start: CloudStartProgress | undefined = cloudStartBegun("k", "fix the build", "/Users/me/paint");
+  start = cloudStartPushed(start, { key: "k", step: "machine" }, 1_000);
+  expect(start?.machineStartedAt).toBe(1_000);
+  // A repeat of the step stamps nothing new.
+  start = cloudStartPushed(start, { key: "k", step: "machine", machine: "paint-dev" }, 4_000);
+  expect(start?.machineStartedAt).toBe(1_000);
+  start = cloudStartPushed(start, { key: "k", step: "folder", clone: { state: "running", startedAt: 9_000 } }, 9_500);
+  expect(start?.machineFinishedAt).toBe(9_500);
+  // The copy's later lines carry no start time: it keeps the first one.
+  start = cloudStartPushed(start, { key: "k", step: "folder", clone: { state: "running", phase: "copy" } }, 12_000);
+  expect(start?.clone?.startedAt).toBe(9_000);
+  start = cloudStartPushed(start, { key: "k", step: "opening" }, 20_000);
+  expect(start?.harnessStartedAt).toBe(20_000);
+  // The host's own times win over the page's.
+  const hosted = cloudStartPushed(
+    cloudStartBegun("h", "hi", undefined),
+    { key: "h", step: "machine", machineStartedAt: 500 },
+    2_000,
+  );
+  expect(hosted?.machineStartedAt).toBe(500);
 });
