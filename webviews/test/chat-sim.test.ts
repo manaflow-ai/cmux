@@ -24,9 +24,10 @@ const broken = (result: SimResult, prefix: string) =>
 // notice or message opens drew "Working for" flush (0px) under it (transcriptGap's "two one-line rows sit
 // flush" rule). Now "Working for", the "Worked for" that replaces it and the live "Thinking" line all stand
 // the gap "Worked for" stands under any one-line row (ROW_GAP_LOOKS.shipped.workedAfterLine, 16, #48591).
+// Rule i (one message is one whole bubble) runs under the same describe, so the a and b tests keep their names.
 describe("chat simulator: (a) a turn's first rows keep their gaps, (b) nothing folds before its turn ends", () => {
   for (const [name, make] of Object.entries(SCENARIOS)) {
-    for (const rule of ["a-", "b-"]) {
+    for (const rule of ["a-", "b-", "i-"]) {
       test(`${name}: rule ${rule.slice(0, 1)}`, () => {
         expect(broken(runSimulation(make()), rule)).toEqual([]);
       });
@@ -185,3 +186,32 @@ test(`chat simulator: a ${LONG ? "monstrously " : ""}long run (${LONG ? "10k+" :
   expect(result.virtualMs).toBeGreaterThan((LONG ? 30 : 6) * 3_600_000);
   expect(broken(result, "b-")).toEqual([]);
 }, 300_000);
+
+// Leo, 2026-11-25: "the animation for compaction and a message sent/steered during compaction is weird. the worked for
+// collapsing the compaction and then the next worked for + thinking is weird. layout shifts and awkward looking
+// animations". A /compact turn the person steers while it compacts draws one "Worked for" at every step, under the
+// steer, never over the compaction note: the note and the steer keep their places while the steer's work comes in.
+test("chat simulator: compact-steer: one Worked for, under the steer, at every step", () => {
+  const result = runSimulation(SCENARIOS["compact-steer"]!());
+  let seen = false;
+  for (const step of result.traces) {
+    const own = (step.rows ?? []).filter((row) => row.turn >= 2);
+    const headers = own.filter((row) => row.kind === "worked").length;
+    expect({ step: step.step, headers: Math.min(headers, 2) }).toEqual({
+      step: step.step,
+      headers: Math.min(headers, 1),
+    });
+    const steer = own.findIndex((row) => row.kind === "user" && row.text?.startsWith("then add a test"));
+    const header = own.findIndex((row) => row.kind === "worked");
+    if (header >= 0) {
+      seen = true;
+      expect({ step: step.step, under: steer >= 0 && header > steer }).toEqual({ step: step.step, under: true });
+    }
+  }
+  expect(seen).toBe(true);
+  const last = result.traces
+    .at(-1)!
+    .rows!.filter((row) => row.turn >= 2)
+    .map((row) => row.kind);
+  expect(last.slice(0, 4)).toEqual(["user", "compaction", "user", "worked"]);
+});

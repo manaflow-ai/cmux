@@ -12,7 +12,6 @@ use super::ClientScope;
 
 const DIAL_TIMEOUT: Duration = Duration::from_secs(10);
 const RESOLVE_TIMEOUT: Duration = Duration::from_secs(5);
-const MAX_ROUTES: usize = 1_024;
 
 #[derive(Debug, Clone)]
 struct Route {
@@ -49,13 +48,8 @@ impl RouteManager {
             return Err(RpcError::new("invalid-route", "route port cannot be zero"));
         }
         resolve_allowed(&host, port, policy).await?;
+        // A route is a dial target (a host and a port); it holds no socket until a dial.
         let mut routes = self.routes.write().await;
-        if routes.len() >= MAX_ROUTES {
-            return Err(RpcError::new(
-                "resource-exhausted",
-                format!("route limit of {MAX_ROUTES} reached"),
-            ));
-        }
         let id = RouteId(self.next_id.fetch_add(1, Ordering::Relaxed));
         routes.insert(id, Arc::new(Route { owner, workspace, host: host.clone(), port, policy }));
         Ok(WorkspaceResponse::RouteCreated { route: id, host, port })
