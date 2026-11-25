@@ -423,7 +423,7 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let mut config: Config = serde_json::from_value(json!({
             "store": {"mode": "memory"},
-            "harnesses": {"claude": {"argv": ["/bin/false"], "kind": "claude-stdio",
+            "harnesses": {"claude": {"argv": ["/usr/bin/false"], "kind": "claude-stdio",
                 "env": {"CLAUDE_CONFIG_DIR": home.path()}}},
             "defaultHarness": "claude"
         }))
