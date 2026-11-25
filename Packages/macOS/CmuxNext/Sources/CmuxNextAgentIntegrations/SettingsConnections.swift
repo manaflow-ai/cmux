@@ -9,7 +9,9 @@ import CmuxNextCompat
 /// The state is the bundled `cmux mcp-servers catalog --json`; Connect, Reconnect, Disconnect and
 /// Enable run `cmux mcp-servers ...`, only on the person's click. The CLI owns every request, error
 /// and label (cmux-tui `cli/mcp_servers.rs`): this type only relays, and opens a provider's sign-in
-/// page in the system browser with a `return_to` link back to this page (`<scheme>://settings/integrations`).
+/// page in a cmux browser tab (as Settings > MCP Servers does; the system browser when no window can take it)
+/// with a `return_to` link back to this page (`<scheme>://settings/integrations`), which the tab hands to the
+/// app with no prompt before it closes (`BrowserExternalApps.isFlowReturn`).
 ///
 /// A key-auth server's key goes to the CLI's stdin and nowhere else: never an argument, the
 /// environment, the state or a log.
@@ -102,6 +104,13 @@ public final class SettingsConnections: PageProvider {
         }
         await refresh()
         return answer ?? .object([:])
+    }
+
+    /// Whether `url` is this page's settings link, the one a provider's sign-in returns to
+    /// (`<scheme>://settings/integrations` or `/connections`, any of this build's schemes).
+    public nonisolated static func isReturn(_ url: URL) -> Bool {
+        guard url.host?.lowercased() == "settings" else { return false }
+        return ["/integrations", "/integrations/", "/connections", "/connections/"].contains(url.path.lowercased())
     }
 
     /// The sign-in page to open: https only.
