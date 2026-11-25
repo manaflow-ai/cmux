@@ -26,6 +26,18 @@ try {
     }
   }, widths);
   await run([760, 700]);
+  console.log("images", JSON.stringify(await page.evaluate(() => {
+    const out: Record<string, number> = {};
+    for (const el of document.querySelectorAll<HTMLElement>("#root *")) {
+      const cs = getComputedStyle(el);
+      for (const p of ["backgroundImage", "maskImage", "webkitMaskImage", "listStyleImage", "borderImageSource"] as const) {
+        const v = (cs as any)[p];
+        if (v && v !== "none") { const k = `${p} ${el.closest(".acpmux-row") ? "row" : "chrome"} ${String(v).slice(0, 50)}`; out[k] = (out[k] ?? 0) + 1; }
+      }
+      if (el.tagName === "IMG" || el.tagName === "svg" || el.tagName === "CANVAS") { const k = el.tagName + (el.closest(".acpmux-row") ? " row" : " chrome"); out[k] = (out[k] ?? 0) + 1; }
+    }
+    return out;
+  })));
   if (process.argv[3] === "cv") {
     const n = await page.evaluate(() => {
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
@@ -49,12 +61,35 @@ try {
     const trace = JSON.parse((await browser.stopTracing()).toString()) as { traceEvents: any[] };
     const main = trace.traceEvents.find((e) => e.name === "thread_name" && e.args?.name === "CrRendererMain");
     const ev = trace.traceEvents.filter((e) => e.tid === main.tid && e.pid === main.pid);
-    const sum = new Map<string, number>();
-    const count = new Map<string, number>();
-    for (const e of ev) if (e.ph === "X" && e.dur) { sum.set(e.name, (sum.get(e.name) ?? 0) + e.dur / 1000); count.set(e.name, (count.get(e.name) ?? 0) + 1); }
-    const names = ["RunTask", "ThreadControllerImpl::RunTask", "FunctionCall", "TimerFire", "FireAnimationFrame", "UpdateLayoutTree", "Layout", "PrePaint", "Paint", "Layerize", "UpdateLayer", "ParseHTML", "ScheduleStyleRecalculation", "HitTest", "MajorGC", "MinorGC", "V8.GC_MC_BACKGROUND_MARKING", "v8.run", "EventDispatch", "BeginMainThreadFrame", "Commit", "ResizeObserver::BroadcastObservations", "LocalFrameView::NotifyResizeObservers", "IntersectionObserverController::computeIntersections", "ComputeIntersections", "UpdateLayerTree"];
-    console.log(`widths=${widths} per step:`);
-    for (const [n, ms] of [...sum.entries()].sort((a, b) => b[1] - a[1]).slice(0, 30)) console.log(`  ${(ms / 20).toFixed(2)} ms  x${((count.get(n) ?? 0) / 20).toFixed(1)}  ${n}`);
-    void names;
+    ev.sort((x, y) => x.ts - y.ts || (y.dur ?? 0) - (x.dur ?? 0));
+    const tasks = ev.filter((e) => e.ph === "X" && e.name === "RunTask" && e.dur);
+    const byKind = new Map<string, number>();
+    const selfIn = new Map<string, number>();
+    let j = 0;
+    for (const t of tasks) {
+      const end = t.ts + t.dur;
+      const inner = [];
+      while (j < ev.length && ev[j].ts < t.ts) j += 1;
+      for (let k = j; k < ev.length && ev[k].ts < end; k += 1) if (ev[k].ph === "X" && ev[k] !== t) inner.push(ev[k]);
+      const first = inner.find((e) => ["TimerFire", "FunctionCall", "FireAnimationFrame", "BeginMainThreadFrame", "EventDispatch", "RunMicrotasks", "MajorGC", "MinorGC", "ParseHTML", "UpdateLayoutTree", "Layout", "Paint"].includes(e.name));
+      const fn = first?.args?.data?.functionName || first?.args?.data?.url?.slice(-30) || "";
+      const kind = first ? `${first.name}${fn ? ` ${fn}:${first.args?.data?.lineNumber ?? ""}` : ""}` : `(none:${inner[0]?.name ?? "-"})`;
+      byKind.set(kind, (byKind.get(kind) ?? 0) + t.dur / 1000);
+      // Leaf-ish attribution: per-name self time inside this task.
+      const stack: any[] = [];
+      for (const e of inner) {
+        while (stack.length && stack.at(-1).end <= e.ts) stack.pop();
+        if (stack.length) stack.at(-1).child += e.dur ?? 0;
+        const rec = { name: e.name, end: e.ts + (e.dur ?? 0), dur: e.dur ?? 0, child: 0 };
+        stack.push(rec);
+        (e as any).__rec = rec;
+      }
+      for (const e of inner) { const r = (e as any).__rec; selfIn.set(r.name, (selfIn.get(r.name) ?? 0) + (r.dur - r.child) / 1000); }
+    }
+    console.log(`widths=${widths} per step, tasks by kind:`);
+    for (const [n, ms] of [...byKind.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12)) console.log(`  ${(ms / 20).toFixed(2)} ms  ${n}`);
+    console.log(`  self time by event:`);
+    for (const [n, ms] of [...selfIn.entries()].sort((a, b) => b[1] - a[1]).slice(0, 18)) console.log(`  ${(ms / 20).toFixed(2)} ms  ${n}`);
+
   }
 } finally { await browser.close(); await served.close(); }

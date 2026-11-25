@@ -100,6 +100,21 @@ function printProfile(profile: Profile, steps: number, top = TOP) {
       inclusive.set(up, (inclusive.get(up) ?? 0) + ms);
     }
   }
+  // Which task a sample ran in: the first named function under the root (the task's entry).
+  const entry = new Map<string, number>();
+  const rootId = profile.nodes[0]!.id;
+  for (const node of profile.nodes) {
+    const ms = byNode.get(node.id);
+    if (ms === undefined || ms <= 0 || keyOf.get(node.id) === "(idle)") continue;
+    const path: string[] = [];
+    for (let at: number | undefined = node.id; at !== undefined && at !== rootId; at = parent.get(at)) path.unshift(keyOf.get(at)!);
+    const key = path.slice(0, 3).join(" > ") || "(root)";
+    entry.set(key, (entry.get(key) ?? 0) + ms);
+  }
+  console.log(`| task entry ms | entry (first 3 frames) |`);
+  console.log(`|---|---|`);
+  for (const [key, ms] of [...entry.entries()].sort((a, b) => b[1] - a[1]).slice(0, top))
+    console.log(`| ${Math.round(ms)} | ${key} |`);
   console.log(`resize-profile sampled ${Math.round(total)} ms of main-thread work (idle excluded)`);
   if (steps > 0) console.log(`resize-step main-thread work per step ${(total / steps).toFixed(1)} ms`);
   console.log("");
@@ -183,6 +198,18 @@ try {
     };
     // Warm: the first steps at each width build what later steps reuse.
     await runSteps();
+    if (process.env.CV_FAR) console.log("cv far", await page.evaluate(() => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const view = scroller.getBoundingClientRect();
+      let n = 0;
+      for (const r of document.querySelectorAll<HTMLElement>(".acpmux-row")) {
+        const b = r.getBoundingClientRect();
+        if (b.bottom < view.top - view.height || b.top > view.bottom + view.height) {
+          r.style.contentVisibility = "auto"; r.style.containIntrinsicSize = `auto ${b.height}px`; n += 1;
+        }
+      }
+      return n;
+    }));
     const untimed = await runSteps();
     console.log(
       `resize-step steps=${untimed.length} frame p50/p95/max=${stepAt(untimed, 0.5)}/${stepAt(untimed, 0.95)}/${stepAt(untimed, 1)} ms (no profiler)`,
