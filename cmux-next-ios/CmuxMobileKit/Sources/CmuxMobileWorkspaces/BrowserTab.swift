@@ -1,6 +1,7 @@
 #if os(iOS)
 import enum CmuxMobileModel.UserFacingError
 import Observation
+import CmuxMobileDesign
 import SwiftUI
 import UIKit
 import WebKit

@@ -44,6 +44,7 @@ public struct CloudMachinesScreen: View {
             CmuxSpinner(label: Text("Loading Cloud machines…"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityIdentifier("cloudMachines.loading")
+                .placeholderBound("cloud.machines.loading", .milliseconds(2000))
         case .failed(let message):
             ContentUnavailableView {
                 Label("Couldn't load Cloud machines", systemImage: "exclamationmark.triangle")
