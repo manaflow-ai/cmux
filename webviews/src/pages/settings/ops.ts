@@ -1057,6 +1057,15 @@ export type TailnetState = {
   error?: string;
 };
 
+/** Result of adding or removing one Cloud machine from the person's tailnet. The auth key is never returned. */
+export type TailnetVMReply = {
+  ok: boolean;
+  vm?: string;
+  node?: { dnsName?: string; ips?: string[]; tags?: string[]; online?: boolean };
+  errorCode?: "missing_vm" | "missing_key" | "cli_unavailable";
+  error?: string;
+};
+
 /** One entry of the customize library (`cmux --json customize library`; cmux-customize
  * `library.rs` `Listed`): something the person applied, kept as a layer they turn on and off. */
 export type LibraryEntry = {
@@ -2288,6 +2297,26 @@ export type SettingsOps = {
   "cmux.settings.tailnet.login": [Record<string, never>, TailnetState | null];
   /** Native, the person's click: signs the node out and closes its listeners. */
   "cmux.settings.tailnet.logout": [Record<string, never>, TailnetState | null];
+  /** Native: joins one Cloud machine using a key supplied only for this gesture via stdin. */
+  "cmux.settings.tailnet.joinVM": [
+    {
+      vm: string;
+      key: string;
+      oauth?: boolean;
+      loginServer?: string;
+      hostname?: string;
+      tags?: string[];
+      ssh?: boolean;
+      ephemeral?: boolean;
+      servePorts?: string[];
+      /** The person ticked "Allow plain HTTP" for an http:// login server (`--allow-http`). */
+      allowHttp?: boolean;
+      switch?: boolean;
+    },
+    TailnetVMReply,
+  ];
+  /** Native: removes one Cloud machine from the person's tailnet. */
+  "cmux.settings.tailnet.leaveVM": [{ vm: string }, TailnetVMReply];
   /** Native: one `cmux customize` verb through the bundled CLI, for the try-on bar. */
   "cmux.settings.customize.run": [{ verb: "status" | "keep" | "revert" }, CustomizeAnswer];
   /** Settings > Team > Compute: the team's Cloud allotment, who uses what, and the scheduler's

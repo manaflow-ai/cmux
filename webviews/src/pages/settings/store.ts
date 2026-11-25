@@ -112,6 +112,7 @@ import {
   type ConnectionsState,
   type ArchivedRun,
   type ArchivedState,
+  type TailnetVMReply,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -1171,6 +1172,18 @@ export class SettingsStore {
   async tailnet(verb: "state" | "start" | "login" | "logout"): Promise<TailnetState | null> {
     const reply = await this.request(`cmux.settings.tailnet.${verb}`, {});
     return reply.ok ? reply.value : null;
+  }
+
+  /** Adds one Cloud machine to the person's tailnet. The key is sent once and the page drops it after this call. */
+  async joinTailnetVM(params: SettingsOps["cmux.settings.tailnet.joinVM"][0]): Promise<TailnetVMReply> {
+    const reply = await this.request("cmux.settings.tailnet.joinVM", params);
+    return reply.ok ? reply.value : { ok: false, error: userMessage(reply.error, SETTINGS_SENTENCES) };
+  }
+
+  /** Removes one Cloud machine from the person's tailnet. */
+  async leaveTailnetVM(vm: string): Promise<TailnetVMReply> {
+    const reply = await this.request("cmux.settings.tailnet.leaveVM", { vm });
+    return reply.ok ? reply.value : { ok: false, error: userMessage(reply.error, SETTINGS_SENTENCES) };
   }
 
   /** Revokes each share in `ids` in turn (one for Revoke, every live one for Revoke All); the first

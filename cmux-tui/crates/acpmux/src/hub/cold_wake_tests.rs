@@ -48,8 +48,9 @@ fn the_window_grows_with_the_context_and_the_cold() {
 
 #[test]
 fn a_large_cold_batch_compacts_first_and_its_compaction_is_acpmuxs() {
-    assert!(compacts(COMPACT_ABOVE_TOKENS));
-    assert!(!compacts(COMPACT_ABOVE_TOKENS - 1));
+    assert!(compacts(DEFAULT_COMPACT_ABOVE_TOKENS, DEFAULT_COMPACT_ABOVE_TOKENS));
+    assert!(!compacts(DEFAULT_COMPACT_ABOVE_TOKENS - 1, DEFAULT_COMPACT_ABOVE_TOKENS));
+    assert!(compacts(80_000, 80_000) && !compacts(79_999, 80_000), "the line moves with the knob");
     let ours = json!({"kind": KIND});
     assert!(is_own(Some(&ours)));
     assert!(!super::super::inbox::persons_prompt(None, Some(&ours)), "nobody's words");
@@ -57,16 +58,64 @@ fn a_large_cold_batch_compacts_first_and_its_compaction_is_acpmuxs() {
 
 #[test]
 fn both_settings_are_on_by_default_and_compacting_first_needs_batching() {
-    assert_eq!(settings(None), (true, true));
-    assert_eq!(settings(Some(&json!({}))), (true, true));
+    let on = |a, b| Knobs { enabled: a, compact: b, compact_above: DEFAULT_COMPACT_ABOVE_TOKENS };
+    assert_eq!(settings(None), on(true, true));
+    assert_eq!(settings(Some(&json!({}))), on(true, true));
     let no_compact = json!({"agents": {"coldWake": {"compact": false}}});
-    assert_eq!(settings(Some(&no_compact)), (true, false));
+    assert_eq!(settings(Some(&no_compact)), on(true, false));
     let off = json!({"agents.coldWake.enabled": false});
-    assert_eq!(settings(Some(&off)), (false, false));
+    assert_eq!(settings(Some(&off)), on(false, false));
+}
+
+#[test]
+fn the_compaction_line_is_a_setting_clamped_to_its_range_and_50k_by_default() {
+    let line = |doc: Value| settings(Some(&doc)).compact_above;
+    assert_eq!(settings(None).compact_above, 50_000, "the default stays 50K");
+    assert_eq!(line(json!({"agents": {"coldWake": {"compactAboveTokens": 80_000}}})), 80_000);
+    assert_eq!(line(json!({"agents.coldWake.compactAboveTokens": 120_000})), 120_000);
+    assert_eq!(line(json!({"agents.coldWake.compactAboveTokens": 1})), COMPACT_ABOVE_RANGE.0);
+    assert_eq!(line(json!({"agents.coldWake.compactAboveTokens": 9e9})), COMPACT_ABOVE_RANGE.1);
+    assert_eq!(line(json!({"agents.coldWake.compactAboveTokens": "big"})), 50_000, "junk");
+}
+
+#[test]
+fn the_environment_beats_the_settings_file() {
+    let env = |pairs: &'static [(&'static str, &'static str)]| {
+        move |var: &str| pairs.iter().find(|(k, _)| *k == var).map(|(_, v)| v.to_string())
+    };
+    let file = json!({"agents": {"coldWake": {"enabled": false, "compactAboveTokens": 80_000}}});
+    let k = settings_with(Some(&file), env(&[(ENV_ENABLED, "1"), (ENV_COMPACT_ABOVE, "100000")]));
+    assert_eq!(k, Knobs { enabled: true, compact: true, compact_above: 100_000 });
+    let k = settings_with(None, env(&[(ENV_COMPACT, "0")]));
+    assert_eq!((k.enabled, k.compact), (true, false), "ACPMUX_COLD_WAKE_COMPACT=0");
+    let k = settings_with(None, env(&[(ENV_ENABLED, "off"), (ENV_COMPACT, "1")]));
+    assert_eq!((k.enabled, k.compact), (false, false), "compacting first needs batching");
+    let k = settings_with(Some(&file), env(&[(ENV_ENABLED, "junk"), (ENV_COMPACT_ABOVE, "x")]));
+    assert_eq!((k.enabled, k.compact_above), (false, 80_000), "junk in the env: the file decides");
+    let k = settings_with(None, env(&[(ENV_COMPACT_ABOVE, "5")]));
+    assert_eq!(k.compact_above, COMPACT_ABOVE_RANGE.0, "the env is clamped too");
+}
+
+const SOURCE: &str = include_str!("../../../../../schemas/settings/source/agent-cache.json");
+
+#[test]
+fn the_settings_source_matches_the_daemon() {
+    let doc: Value = serde_json::from_str(SOURCE).unwrap();
+    let rows = doc["lists"][0]["rows"].as_array().unwrap();
+    let row = |key: &str| rows.iter().find(|r| r["key"] == key).unwrap().clone();
+    assert_eq!(row(SETTING_ENABLED)["default"], json!(true));
+    assert_eq!(row(SETTING_COMPACT)["default"], json!(true));
+    let line = row(SETTING_COMPACT_ABOVE);
+    assert_eq!(line["default"], json!(DEFAULT_COMPACT_ABOVE_TOKENS));
+    assert_eq!(line["range"]["min"], json!(COMPACT_ABOVE_RANGE.0));
+    assert_eq!(line["range"]["max"], json!(COMPACT_ABOVE_RANGE.1));
+    assert!(line["note"].as_str().unwrap().contains(ENV_COMPACT_ABOVE), "the note names its env");
 }
 
 // Surgery before `/compact` (`surgery.rs`): a cold batch masks old tool output when that alone
 // takes the chat under the compaction line, and compacts as before otherwise.
+
+const LINE: u64 = DEFAULT_COMPACT_ABOVE_TOKENS;
 
 fn dry(masked: u64, after: Option<u64>) -> Result<Value, RpcError> {
     Ok(json!({"applied": false, "dryRun": true, "maskedResults": masked, "tokensAfter": after}))
@@ -75,7 +124,9 @@ fn dry(masked: u64, after: Option<u64>) -> Result<Value, RpcError> {
 #[test]
 fn surgery_applied_sends_no_compact() {
     // Masking takes 150K under the line: surgery runs.
-    assert!(surgery_suffices(&dry(12, Some(COMPACT_ABOVE_TOKENS - 1))));
+    assert!(surgery_suffices(&dry(12, Some(LINE - 1)), LINE));
+    // A higher line (the setting raised) takes the same dry run as enough.
+    assert!(surgery_suffices(&dry(12, Some(LINE + 10_000)), LINE + 20_000));
     let applied = Ok(json!({"applied": true, "agentSessionId": "copy", "maskedResults": 12,
         "tokensBefore": 150_000, "tokensAfter": 90_000}));
     assert!(surgery_applied(&applied), "applied: the batch goes in with no /compact");
@@ -87,11 +138,11 @@ fn surgery_refused_or_failed_compacts_as_before() {
         ["mid-turn", "not a stored Claude conversation", "nothing to mask", "no transcript"]
     {
         let refused = Ok(json!({"applied": false, "reason": reason}));
-        assert!(!surgery_suffices(&refused), "{reason}: no dry run answer");
+        assert!(!surgery_suffices(&refused, LINE), "{reason}: no dry run answer");
         assert!(!surgery_applied(&refused), "{reason}: /compact");
     }
     let failed: Result<Value, RpcError> = Err(RpcError::internal("boom"));
-    assert!(!surgery_suffices(&failed));
+    assert!(!surgery_suffices(&failed, LINE));
     assert!(!surgery_applied(&failed));
     // A dry run is never an applied surgery.
     assert!(!surgery_applied(&dry(12, Some(1))));
@@ -99,9 +150,9 @@ fn surgery_refused_or_failed_compacts_as_before() {
 
 #[test]
 fn surgery_that_leaves_the_chat_above_the_line_compacts_instead() {
-    assert!(!surgery_suffices(&dry(12, Some(COMPACT_ABOVE_TOKENS))), "still at the line");
-    assert!(!surgery_suffices(&dry(12, None)), "no estimate");
-    assert!(!surgery_suffices(&dry(0, Some(1))), "nothing masked");
+    assert!(!surgery_suffices(&dry(12, Some(LINE)), LINE), "still at the line");
+    assert!(!surgery_suffices(&dry(12, None), LINE), "no estimate");
+    assert!(!surgery_suffices(&dry(0, Some(1)), LINE), "nothing masked");
 }
 
 #[test]
@@ -111,7 +162,7 @@ fn surgery_switched_off_compacts() {
     assert!(!super::super::surgery::enabled_with(None, Some("0")));
     // `Hub::surgery` answers a switched-off chat this way, dry run or not.
     let answer = Ok(json!({"applied": false, "reason": "off"}));
-    assert!(!surgery_suffices(&answer));
+    assert!(!surgery_suffices(&answer, LINE));
     assert!(!surgery_applied(&answer));
 }
 
@@ -130,6 +181,6 @@ async fn a_chat_surgery_refuses_falls_back_to_compact() {
     hub.begin_startup(false);
     let session = hub.resolve("cold-s").unwrap();
     let answer = hub.surgery(&session, None, true).await;
-    assert!(!surgery_suffices(&answer), "{answer:?}");
-    assert!(!hub.cold_wake_surgery(&session, 150_000).await, "refused: /compact as before");
+    assert!(!surgery_suffices(&answer, LINE), "{answer:?}");
+    assert!(!hub.cold_wake_surgery(&session, 150_000, LINE).await, "refused: /compact as before");
 }
