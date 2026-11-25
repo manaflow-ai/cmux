@@ -1579,6 +1579,7 @@ inputs = [
   "scripts/ci/ios_app_package_paths.py",
   "scripts/ci/ios_link_ffi_key.py",
   "scripts/ci/ios_sim_udid.py",
+  "scripts/ci/ios-kit-sim-pool.sh",
   ".github/actions/setup-cmux-tui-rust/**",
   ".github/actions/runner-cargo-home/**",
   "cmux-tui/rust-toolchain.toml",
@@ -1610,6 +1611,26 @@ swift test --package-path cmux-next-ios/CmuxMobileKit --no-parallel --filter Ter
 # LiveCoordinator, the banner and the FFI-backed transport are iOS only, so their tests run only on the simulator.
 # Coverage off: its profiler crashes Swift 6.3.3 on an isolated deinit. arm64 only: the xcframework has no x86_64
 # simulator slice.
+# With CMUX_IOS_SIM_LINUX=on (pr-pipeline.yml's ios job sets CMUX_KIT_SIM_POOL) the fleet pool's run, which the job
+# submitted before ci/run from this Mac's build for testing, is the verdict: this step waits for it and keeps the
+# simulator free. A pool run with no verdict (none submitted, queue or VM trouble) falls back to the simulator here,
+# so a stored pass always holds a simulator verdict (scripts/ci/ios-kit-sim-pool.sh).
+pool=none
+if [[ "${CMUX_KIT_SIM_POOL:-}" == on && -f "${RUNNER_TEMP:-/nonexistent}/sim-linux/started" ]]; then
+  pool_out="$RUNNER_TEMP/sim-linux/verdict.txt"
+  GITHUB_OUTPUT="$pool_out" bash scripts/ci/ios-kit-sim-pool.sh result
+  pool="$(sed -n 's/^verdict=//p' "$pool_out" 2>/dev/null | tail -1)"
+  pool="${pool:-none}"
+fi
+if [[ "$pool" == pass ]]; then
+  echo "iOS simulator tests: the fleet pool passed them"
+  exit "$status"
+elif [[ "$pool" == fail ]]; then
+  echo "::error title=iOS simulator tests (fleet pool)::the pool run failed; its failures are above"
+  exit 1
+elif [[ "${CMUX_KIT_SIM_POOL:-}" == on ]]; then
+  echo "::warning title=iOS simulator tests::the fleet pool gave no verdict; running them on this Mac"
+fi
 udid="$(python3 -I scripts/ci/ios_sim_udid.py)"
 bundle="${RUNNER_TEMP:-$CI_TOOLS}/ios-sim.xcresult"
 rm -rf "$bundle"
