@@ -177,6 +177,7 @@ jobs:
             CI_DEPLOY_SKIP_FLEET=${{ vars.CI_DEPLOY_SKIP_FLEET }}
             CI_EVAL_STEP_GATEWAY=${{ vars.CI_EVAL_STEP_GATEWAY }}
             CI_FFI_RELEASE_POOL=${{ vars.CI_FFI_RELEASE_POOL }}
+            CI_FORK_LINUX_RUNNER=${{ vars.CI_FORK_LINUX_RUNNER }}
             CI_GATE_SKIP_FLEET=${{ vars.CI_GATE_SKIP_FLEET }}
             CI_IOS_INTERNAL_RUNNER=${{ vars.CI_IOS_INTERNAL_RUNNER }}
             CI_LIGHT_LANE_RUNNER=${{ vars.CI_LIGHT_LANE_RUNNER }}
