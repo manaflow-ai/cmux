@@ -61,6 +61,8 @@ class Prune(unittest.TestCase):
             archive("xcode-compilation-release-macOS-ARM64-fp-b", 0.5),
             archive("git-seed-v1-" + "a" * 40, 2),
             archive("git-seed-v1-" + "b" * 40, 0.5),
+            archive("cmux-next-daemon-tests-cargo-v1-0123456789abcdef-20261122h8", 2),
+            archive("cmux-next-daemon-tests-cargo-v1-0123456789abcdef-20261124h8", 0.5),
             archive("spm-a", 31),
             archive("spm-b", 29),
             archive("spm-c", 2),
@@ -70,6 +72,7 @@ class Prune(unittest.TestCase):
             f"{NS}/objects/admission-derived-data-v1-macOS-ARM64-fp-a.tar.zst",
             f"{NS}/objects/xcode-compilation-release-macOS-ARM64-fp-a.tar.zst",
             f"{NS}/objects/git-seed-v1-{'a' * 40}.tar.zst",
+            f"{NS}/objects/cmux-next-daemon-tests-cargo-v1-0123456789abcdef-20261122h8.tar.zst",
             f"{NS}/objects/spm-a.tar.zst",
         ]))
 
