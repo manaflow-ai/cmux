@@ -35,6 +35,9 @@ export type CloudStartProgress = {
   key: string;
   /// The person's message.
   task: string;
+  /// Messages sent with Return while the start ran ("just go", cloudStartJustGo): they show under the
+  /// message and go with the started chat's first prompt (the host joins them, `chat.cloudStartQueue`).
+  queued?: string[];
   state: "starting" | "failed";
   /// The agent and model the start runs (`harness` id, `model` id): the composer's model chip names them while the
   /// start shows, so it never reads the picker's default (Opus) for a start that went as GPT-6.1 Sol (cmux#45774).
