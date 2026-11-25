@@ -96,7 +96,9 @@ SHELL_LINKED = {"CmuxNextUiLayerPreview", "CmuxNextSettings", "CmuxNextCompat"}
 WEB_CAP = 4
 SWIFT_SPARSE = ("Packages/", "Prototypes/", "Resources/", "vendor/")
 WEB_SPARSE = ("webviews/", "design/", "first-party-apps/", "scripts/cmux-next/", "cmux-tui/frontends/",
-              "Resources/", "package.json", "bun.lock")
+              "Resources/", "package.json", "bun.lock",
+              # webviews postinstall (gen-strings -> gen-feature-tips) reads the What's New highlights.
+              "release-notes/next/")
 GALLERY_PORT = 4217
 KEEP_H = 36
 # Bounds, seconds.
