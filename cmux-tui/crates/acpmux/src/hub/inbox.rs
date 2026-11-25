@@ -1018,7 +1018,8 @@ fn wakes(meta: &SessionMeta, item: &Item) -> bool {
                 || wakes_as(
                     meta,
                     item.class,
-                    item.report || item.waited,
+                    item.report,
+                    item.waited,
                     item.from_session.as_deref(),
                 )
         }
@@ -1067,13 +1068,21 @@ fn ordinary_fyi(item: &Item) -> bool {
 }
 
 /// [`wakes`] for a message of `class` from session `from` not in the inbox yet; `report` is a
-/// report of work this chat gave, or a message that waited for this machine
-/// (`prompt_provenance::waited`).
-fn wakes_as(meta: &SessionMeta, class: PromptClass, report: bool, from: Option<&str>) -> bool {
+/// report of work this chat gave, `waited` a message that waited for this machine
+/// (`prompt_provenance::waited`). A waited message wakes the chat whatever its class, an FYI
+/// too: an idle chat takes no flush turn for what wakes nobody (#55196), so a message sent while
+/// the hub was down (an unclassed one files as an FYI) would otherwise never run.
+fn wakes_as(
+    meta: &SessionMeta,
+    class: PromptClass,
+    report: bool,
+    waited: bool,
+    from: Option<&str>,
+) -> bool {
     match class {
         PromptClass::Block | PromptClass::Question => true,
-        PromptClass::Fyi => false,
-        PromptClass::Result => meta.turn_count == 0 || report || controls(meta, from),
+        PromptClass::Fyi => waited,
+        PromptClass::Result => meta.turn_count == 0 || report || waited || controls(meta, from),
     }
 }
 
@@ -1427,12 +1436,7 @@ impl Hub {
         let waited = crate::prompt_provenance::waited(provenance);
         let surge_on = self.surge_inbox_on();
         let wakes_before_rule = (surge_on && fire_notice(provenance.and_then(|p| p.get("notice"))))
-            || wakes_as(
-                &meta_now,
-                class,
-                is_report(provenance) || waited,
-                sender_session.as_deref(),
-            );
+            || wakes_as(&meta_now, class, is_report(provenance), waited, sender_session.as_deref());
         // A chat on the coordinator list wakes only for a page (`inbox_page_rule.rs`).
         // Read the catalog snapshot. Reload publishes page-rule names while holding the config
         // writer, so inbox admission never guesses during a write and never waits on it.
