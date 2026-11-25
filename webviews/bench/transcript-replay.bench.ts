@@ -428,6 +428,7 @@ async function openRound(ctx: Ctx, log: ReplayLog): Promise<Open> {
   const { page } = await openPage(ctx, daemon, log, log.events.length, status, last + 1000);
   try {
     await page.addInitScript(sampleRows);
+    page.on("console", (m) => { if (m.text().startsWith("SPDBG")) console.log(m.text()); });
     await page.goto(ctx.url(log, daemon));
     await page.locator("[data-row-id]").first().waitFor({ timeout: 60_000 });
     await rest(page);
@@ -642,6 +643,7 @@ async function startLive(ctx: Ctx, daemon: Daemon, log: ReplayLog): Promise<Live
   const { page, cdp, play } = await openPage(ctx, daemon, log, 0, "running", first);
   const started = performance.now();
   try {
+    page.on("console", (m) => { if (m.text().startsWith("SPDBG")) console.log(m.text()); });
     await page.goto(ctx.url(log, daemon));
     await page.locator(".acpmux-scroll").waitFor({ timeout: 60_000 });
     for (let tries = 0; !play.socket && tries < 600; tries++) await paint(page, 1);

@@ -123,6 +123,7 @@ export class Stabilizer {
   /// `seen`: the places of the parent's read, which this place joins.
   private value(next: unknown, place: Place, depth: number, seen?: Set<Place>): unknown {
     seen?.add(place);
+    { const g = globalThis as any; const m = (g.__spdbg ??= new Map()); let p: any = place; const path: unknown[] = []; while (p && p.parent) { path.unshift(p.step); p = p.parent; } const k = path.slice(0, 3).join("/"); m.set(k, (m.get(k) ?? 0) + 1); }
     if (typeof next === "function") return this.caller(place, next as Fn);
     if (depth >= MAX_DEPTH) return next;
     const element = isValidElement(next);
@@ -224,6 +225,7 @@ export function useStableProps<P extends object>(
     results[name] = calls.map((args) => (fn as Fn)(...args));
   }
   const stable = stabilizer.run({ props: root, results });
+  { const g = globalThis as any; g.__spruns = (g.__spruns ?? 0) + 1; if (g.__spruns % 400 === 0 && g.__spdbg) { console.warn("SPDBG " + g.__spruns + " " + JSON.stringify([...g.__spdbg].sort((a: any, b: any) => b[1] - a[1]).slice(0, 12))); g.__spdbg = new Map(); } }
   const out = { ...(stable.props as Record<string, unknown>) };
   const kept = stable.results as Record<string, unknown[]>;
   for (const [name, calls] of Object.entries(eager ?? {}) as [string, unknown[][] | undefined][]) {
