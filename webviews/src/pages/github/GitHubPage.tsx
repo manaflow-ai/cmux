@@ -42,7 +42,7 @@ import { ReadinessBlock, type ReadinessLayout } from "./ReadinessBlock";
 import { ReviewBox, ThreadActions } from "./ReviewBox";
 import type { Blocker } from "./readiness";
 import type { GitHubSnapshot, GitHubStore } from "./store";
-import type { ConversationEntry, FilePatch, LinkedPullRequest, PullRequestDetails } from "./types";
+import type { ConversationEntry, FilePatch, LinkedPullRequest, PullRequestDetails, WriteState } from "./types";
 
 /** The empty page's button: the person's open pull requests on GitHub, in a cmux tab. */
 const PULLS_URL = "https://github.com/pulls";
@@ -522,6 +522,7 @@ const Conversation = memo(function Conversation({
   );
   if (!details) return null;
   const { t } = strings;
+  const threadsOpen = snapshot.pullRequest?.state === "open";
   const filters: [ConversationFilter, string][] = [
     ["all", "github.conversation.all"],
     ["unresolved", "github.conversation.unresolved"],
@@ -573,7 +574,8 @@ const Conversation = memo(function Conversation({
             <Entry
               key={entry.url ?? index}
               entry={entry}
-              snapshot={snapshot}
+              threadsOpen={threadsOpen}
+              write={snapshot.write}
               store={store}
               replyOpen={replyOpen}
               strings={strings}
@@ -588,10 +590,13 @@ const Conversation = memo(function Conversation({
   );
 });
 
-/** One comment or review; drawn again only when its entry changes (the store keeps unchanged ones). */
+/** One comment or review; drawn again only when its entry changes (the store keeps unchanged ones).
+ *  It takes the two parts of the snapshot it reads, never the snapshot, which is new on every
+ *  change to the page (a file's toggle, a re-read) and would draw every entry again. */
 const Entry = memo(function Entry({
   entry,
-  snapshot,
+  threadsOpen,
+  write,
   store,
   replyOpen,
   strings,
@@ -599,7 +604,8 @@ const Entry = memo(function Entry({
   open,
 }: {
   entry: ConversationEntry;
-  snapshot: GitHubSnapshot;
+  threadsOpen: boolean;
+  write: WriteState;
   store: GitHubStore;
   replyOpen?: string;
   strings: Strings;
@@ -632,11 +638,11 @@ const Entry = memo(function Entry({
                 {comment.line != null && `:${comment.line}`}
               </span>
               <GitHubMarkdown source={comment.body} html={comment.html} open={open} />
-              {comment.thread && snapshot.pullRequest?.state === "open" && (
+              {comment.thread && threadsOpen && (
                 <ThreadActions
                   thread={comment.thread}
                   resolved={comment.resolved === true}
-                  snapshot={snapshot}
+                  write={write}
                   store={store}
                   strings={strings}
                   initialReplying={replyOpen === comment.thread}

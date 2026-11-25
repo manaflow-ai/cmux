@@ -4,7 +4,7 @@
 import { useId, useState } from "react";
 import type { Strings } from "../shared/i18n";
 import type { GitHubSnapshot, GitHubStore } from "./store";
-import type { ReviewEvent } from "./types";
+import type { ReviewEvent, WriteState } from "./types";
 
 const EVENTS: [ReviewEvent, string][] = [
   ["COMMENT", "github.review.comment"],
@@ -81,14 +81,14 @@ export function ReviewBox({
 export function ThreadActions({
   thread,
   resolved,
-  snapshot,
+  write,
   store,
   strings,
   initialReplying = false,
 }: {
   thread: string;
   resolved: boolean;
-  snapshot: GitHubSnapshot;
+  write: WriteState;
   store: GitHubStore;
   strings: Strings;
   initialReplying?: boolean;
@@ -96,7 +96,6 @@ export function ThreadActions({
   const { t } = strings;
   const [replying, setReplying] = useState(initialReplying);
   const [body, setBody] = useState("");
-  const { write } = snapshot;
   const mine = write.phase !== "idle" && write.what === thread;
   const sending = write.phase === "sending";
   const reply = async () => {
