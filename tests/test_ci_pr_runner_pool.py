@@ -1124,6 +1124,36 @@ class OwnedPools(unittest.TestCase):
         self.assertEqual(owned_choice(fleet(), owned_slots="").runner, LARGE)
         self.assertEqual(owned_choice(fleet(), machines=0).runner, LARGE)
 
+    def test_a_pool_the_janitor_saw_starved_is_skipped_when_the_runners_are_unread(self):
+        # 2026-11-25 (cmux#55844): the routing token got HTTP 403 listing runners, the slots still counted
+        # the offline minis, and compile admission waited 66 min on a root label the janitor had listed starved.
+        slots = json.dumps({MINI: 11, "glaeda-root-std-xcode-26.6": 4, LIGHT: 4})
+        snap = fleet()
+        snap["starved"] = [{"label": "glaeda-root-std-xcode-26.6", "oldest_queued_minutes": 60, "queued": 4}]
+        self.assertEqual(pool.starved_pools(snap, NOW), {MINI: 60})
+        choice = owned_choice(snap, owned_slots=slots)
+        self.assertEqual(choice.runner, LIGHT)
+        self.assertIn("skipped starved owned pool(s) glaeda-std-xcode-26.6 (oldest job waiting 60 min)", choice.reason)
+        # Both owned pools starved (a joined key names each part): the run overflows to Blacksmith.
+        snap["starved"].append({"label": "glaeda-side-light-xcode-26.6+glaeda-ram-16", "oldest_queued_minutes": 12})
+        self.assertEqual(pool.starved_pools(snap, NOW), {MINI: 60, LIGHT: 12})
+        self.assertEqual(owned_choice(snap, owned_slots=slots).runner, LARGE)
+        # Only Blacksmith labels starved, an empty list, or no list (an older janitor): nothing is skipped.
+        for starved in ([{"label": SMALL, "oldest_queued_minutes": 30}], [], None):
+            other = fleet()
+            if starved is not None:
+                other["starved"] = starved
+            self.assertEqual(pool.starved_pools(other, NOW), {})
+            self.assertEqual(owned_choice(other, owned_slots=slots).runner, MINI)
+        # A stale snapshot proves nothing about the label now.
+        stale = fleet(age=pool.MAX_SNAPSHOT_MINUTES + 1)
+        stale["starved"] = snap["starved"]
+        self.assertEqual(pool.starved_pools(stale, NOW), {})
+        # With the runners read live, the online runners decide; the snapshot's starved list does not.
+        live = owned_choice(snap, owned_slots=slots, live_owned={MINI: 11, "glaeda-root-std-xcode-26.6": 4})
+        self.assertEqual(live.runner, MINI)
+        self.assertNotIn("starved", live.reason)
+
     def test_a_pool_the_janitor_saw_no_job_on_is_idle(self):
         self.assertEqual(owned_choice(backlog()).runner, MINI)
 
