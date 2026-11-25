@@ -267,8 +267,8 @@ jobs:
           fi
 
       # The repair job is deliberately a rerun after a red, so its second checkout can consume this
-      # small handoff from the already-complete Linux preflight. A failed upload only takes the old
-      # path and keeps the repair correct.
+      # small helper-tree handoff from the already-complete Linux preflight. A failed upload only
+      # takes the old path and keeps the repair correct; changed paths are recomputed by repair.
       - name: Pack PR autofix context
         id: context
         if: always() && steps.areas.outcome == 'success'
@@ -281,7 +281,6 @@ jobs:
           mkdir -p "$context/scripts"
           cp -R "$RUNNER_TEMP/autofix/scripts/cmux-next" "$context/scripts/"
           cp -R "$RUNNER_TEMP/autofix/scripts/ci" "$context/scripts/"
-          cp "$RUNNER_TEMP/changed.txt" "$context/changed.txt"
           : > "$context/generator-inputs-verified"
 
       - name: Upload PR autofix context
@@ -1023,6 +1022,8 @@ jobs:
 
       - name: Download the PR autofix context
         if: needs.action-areas.outputs.context == 'true'
+        continue-on-error: true
+        timeout-minutes: 2
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: pr-autofix-context
