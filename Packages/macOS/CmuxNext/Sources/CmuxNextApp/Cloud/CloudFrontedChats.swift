@@ -16,13 +16,7 @@ import Observation
 @MainActor
 @Observable
 final class CloudFrontedChats {
-    /// The Cloud chat a Mac tab shows: its machine, tab and the workspace that holds it there.
-    struct Front: Codable, Hashable, Sendable {
-        let machine: String
-        let key: String
-        let workspace: String
-        var tab: AgentTabKey { AgentTabKey(machine: machine, key: key) }
-    }
+    typealias Front = AgentTabCloudFront
 
     private struct Entry: Codable { let machine: String; let key: String; let front: Front }
 
@@ -35,10 +29,8 @@ final class CloudFrontedChats {
     @ObservationIgnored var defaults: @MainActor () -> UserDefaults? = { nil }
     /// Ends a Cloud chat whose Mac tab closed: its workspace on its machine.
     @ObservationIgnored var closeCloud: @MainActor (Front) -> Void = { _ in }
-    /// Draws Mac tab `key` again (its panes' `showSelected`), once it shows a different page.
-    @ObservationIgnored var reshow: @MainActor (AgentTabKey) -> Void = { _ in }
-    /// Mac tab `mac`'s Cloud chat, Cloud tab `cloud`, went: before its own page draws again (cmux#55066).
-    @ObservationIgnored var ended: @MainActor (_ mac: AgentTabKey, _ cloud: AgentTabKey) -> Void = { _, _ in }
+    /// Draws Mac tab `mac` again (its panes' `showSelected`) once Cloud tab `cloud`, the chat it showed, went.
+    @ObservationIgnored var reshow: @MainActor (_ mac: AgentTabKey, _ cloud: AgentTabKey) -> Void = { _, _ in }
 
     var isEmpty: Bool { fronts.isEmpty && making.isEmpty }
 
@@ -73,8 +65,7 @@ final class CloudFrontedChats {
         } else if let mac = mac(showing: tab) {
             fronts[mac] = nil
             persist()
-            ended(mac, tab)
-            reshow(mac)
+            reshow(mac, tab)
         }
     }
 
@@ -102,15 +93,13 @@ extension CloudFrontedChats {
             // task-owner: one close request; the workspace's row never showed, so nothing waits on it
             Task { _ = try? await connection.closeWorkspace(WorkspaceKey(rawValue: front.workspace)) }
         }
-        // The Mac tab's new page says the Cloud chat ended, the start's prompt back in its composer: never a blank chat (cmux#55066).
-        fronts.ended = { [weak services] mac, cloud in
-            guard let tabs = services?.agentTabs else { return }
-            let started = tabs.pageChats.cloudStarted.removeValue(forKey: cloud)
-            if let seed = AgentPaneCloudStarted.endedSeed(started, machine: services?.machines.session(cloud.machine)?.machine.title) { tabs.seeds[mac] = seed }
-        }
+        // Its new page says the Cloud chat ended, the start's prompt back in its composer: never a blank chat (cmux#55066).
         // After the release that dropped the front: a show now would make the Mac tab's page inside that release.
         // task-owner: one main hop; it shows nothing once the app's services went
-        fronts.reshow = { [weak services] mac in Task { @MainActor [weak services] in if let services { showSelected(mac.key, services: services) } } }
+        fronts.reshow = { [weak services] mac, cloud in
+            if let tabs = services?.agentTabs, let seed = AgentPaneCloudStarted.endedSeed(tabs.pageChats.cloudStarted.removeValue(forKey: cloud), machine: services?.machines.session(cloud.machine)?.machine.title) { tabs.seeds[mac] = seed }
+            Task { @MainActor [weak services] in if let services { showSelected(mac.key, services: services) } }
+        }
         fronts.restore()
     }
 

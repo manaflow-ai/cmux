@@ -29,7 +29,7 @@ struct CloudFrontedChatsTests {
         let fronts = CloudFrontedChats()
         var closed: [CloudFrontedChats.Front] = [], reshown: [AgentTabKey] = []
         fronts.closeCloud = { closed.append($0) }
-        fronts.reshow = { reshown.append($0) }
+        fronts.reshow = { mac, _ in reshown.append(mac) }
         fronts.front(mac, with: front)
         fronts.gone(mac)
         #expect(closed == [front])
@@ -42,7 +42,7 @@ struct CloudFrontedChatsTests {
         let fronts = CloudFrontedChats()
         var closed: [CloudFrontedChats.Front] = [], reshown: [AgentTabKey] = []
         fronts.closeCloud = { closed.append($0) }
-        fronts.reshow = { reshown.append($0) }
+        fronts.reshow = { mac, _ in reshown.append(mac) }
         fronts.front(mac, with: front)
         fronts.gone(AgentTabKey(machine: "vm-1", key: "other"))
         #expect(fronts.front(of: mac) == front)
@@ -53,19 +53,18 @@ struct CloudFrontedChatsTests {
     }
 
     /// cmux#55066: the Cloud tab going (its first turn failed on a used-up limit, its machine stopped) tells the app
-    /// which Mac tab and Cloud chat ended before the Mac tab draws its own page again, so that page says so and gets
-    /// the start's prompt back, never a blank chat.
-    @Test func theCloudTabGoingSaysWhichChatEndedBeforeTheMacTabDrawsAgain() {
+    /// which Mac tab and which Cloud chat ended, so the Mac tab's page says so and gets the start's prompt back,
+    /// never a blank chat.
+    @Test func theCloudTabGoingSaysWhichChatEndedWhenTheMacTabDrawsAgain() {
         let fronts = CloudFrontedChats()
         var events: [String] = []
-        fronts.ended = { mac, cloud in events.append("ended \(mac.key) \(cloud.key)") }
-        fronts.reshow = { events.append("reshow \($0.key)") }
+        fronts.reshow = { mac, cloud in events.append("reshow \(mac.key) after \(cloud.key)") }
         fronts.front(mac, with: front)
         fronts.gone(mac)
         #expect(events.isEmpty, "closing the Mac tab ends the chat on purpose: no notice")
         fronts.front(mac, with: front)
         fronts.gone(front.tab)
-        #expect(events == ["ended mac-tab cloud-tab", "reshow mac-tab"])
+        #expect(events == ["reshow mac-tab after cloud-tab"])
     }
 
     @Test func frontsLastAcrossARelaunch() throws {
