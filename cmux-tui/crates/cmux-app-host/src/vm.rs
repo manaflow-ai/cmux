@@ -925,7 +925,15 @@ fn install_native<'js>(
             }
             let (mount, ops) = (text(&mount)?, text(&ops)?);
             let bytes = mount.len() + ops.len();
-            s.borrow_mut().push(FromHost::Scene { mount, ops: parse(&ops) }, bytes);
+            let mut ops = parse(&ops);
+            // `Particles {choreography}` (particles.rs): a refused document goes out as null,
+            // with a log line naming the first bad path.
+            let refused = crate::particles::sanitize_scene_ops(&mut ops);
+            let mut shared = s.borrow_mut();
+            for message in refused {
+                shared.log("warn", &message);
+            }
+            shared.push(FromHost::Scene { mount, ops }, bytes);
             Ok(())
         })?,
     )?;

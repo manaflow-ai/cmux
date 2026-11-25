@@ -3,7 +3,7 @@
 //! defaults and the disk, observes its main-actor state, and asks here what each means.
 
 use cmux_cloud_start_core::moves::{
-    autosize, cli, folder, ledger, pin, progress, seed, targets, wait,
+    autosize, cli, folder, ledger, pin, place, priority, progress, seed, targets, wait,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -500,6 +500,88 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
         b"cloud_move_plan_request" => {
             let facts: wait::PlanFacts = read(request)?;
             json!({ "request": wait::plan_request(&facts) })
+        }
+        // Where a chat runs and moving it (`moves/place.rs`): the move's state machine and its
+        // view, the Auto rule, Evacuate's plan and the own-VM pick.
+        b"cloud_move_place_reduce" => {
+            #[derive(Deserialize)]
+            struct Request {
+                flow: Option<place::Flow>,
+                event: place::Event,
+            }
+            let request: Request = read(request)?;
+            let (flow, next) = place::reduce(request.flow, request.event);
+            json!({ "flow": flow, "next": next })
+        }
+        b"cloud_move_place_view" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                flow: place::Flow,
+                now_ms: u64,
+            }
+            let request: Request = read(request)?;
+            to_value(place::view(&request.flow, request.now_ms))?
+        }
+        b"cloud_move_place_auto" => {
+            #[derive(Deserialize)]
+            struct Request {
+                mode: place::Mode,
+                chat: place::ChatState,
+                signals: place::Signals,
+            }
+            let request: Request = read(request)?;
+            to_value(place::auto(request.mode, &request.chat, &request.signals))?
+        }
+        b"cloud_move_place_evacuate" => {
+            #[derive(Deserialize)]
+            struct Request {
+                chats: Vec<place::EvacuateChat>,
+                #[serde(default)]
+                selected: Option<Vec<String>>,
+                /// `toCloud` (Evacuate, the default) or `toLocal` (Bring Back All).
+                #[serde(default)]
+                direction: Option<place::Direction>,
+            }
+            let request: Request = read(request)?;
+            to_value(place::evacuate_toward(
+                &request.chats,
+                request.selected.as_deref(),
+                request.direction.unwrap_or(place::Direction::ToCloud),
+            ))?
+        }
+        // One chat's cloud control: blocked (signed out, no plan) or every slot held
+        // (`moves/priority.rs` `control`, from `Admit`). The app sends facts; the state is Rust's.
+        b"cloud_move_place_control" => {
+            let facts: priority::ControlFacts = read(request)?;
+            to_value(priority::control(&facts))?
+        }
+        b"cloud_move_place_vm_failure" => {
+            let error: place::VmError = read(request)?;
+            to_value(serde_json::json!({ "cause": place::vm_failure_cause(&error) }))?
+        }
+        b"cloud_move_place_own_machine" => {
+            #[derive(Deserialize)]
+            struct Request {
+                session: String,
+                #[serde(default)]
+                before: Option<String>,
+                #[serde(default)]
+                machines: Vec<place::Machine>,
+            }
+            let request: Request = read(request)?;
+            to_value(place::own_machine(
+                &request.session,
+                request.before.as_deref(),
+                &request.machines,
+            ))?
+        }
+        b"cloud_move_place_steps" => {
+            let steps: Vec<_> = place::Step::ALL
+                .iter()
+                .map(|step| json!({ "step": step.name(), "cancellable": step.cancellable(), "landed": step.landed(), "agentMovePhases": step.agent_move_phases() }))
+                .collect();
+            json!({ "steps": steps, "budgetMs": place::BUDGET_MS })
         }
         _ => return Err(ERR_INVALID),
     };
