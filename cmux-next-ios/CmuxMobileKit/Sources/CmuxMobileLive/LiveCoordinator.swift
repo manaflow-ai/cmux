@@ -101,6 +101,10 @@ public final class LiveCoordinator {
     public internal(set) var relayAvailable: Bool?
     /// The focused Mac's theme and wallpaper for the chrome (ask-87d30da8e5).
     @ObservationIgnored let appearance = MacAppearanceFeed()
+    #if canImport(CmuxMobileLinkFFI)
+    /// Other devices waiting for a linked Mac's Allow, answered from this phone (ask-45c37458ea).
+    public let pairRequests = MacPairRequests()
+    #endif
     /// Every linked Mac's tabs as its `tabs` service pushes them: what the grid's cards show
     /// of tabs this phone never opened. The shell sets its sink (the phone's card store).
     @ObservationIgnored public let tabs = MacTabsFeed()
@@ -501,6 +505,9 @@ public final class LiveCoordinator {
     private func restoreSnapshot() {
         guard let snapshot = snapshots.loadFirstScreen(accountID: userID) else { return }
         self.snapshot = snapshot
+        // A chat opened before its workspace is listed (a notification while the list loads, a
+        // row past the first screen) draws from the saved copy, not "Loading chat…".
+        store.savedWorkspace = { [weak self] id in self?.savedWorkspace(id: id) }
         store.teams = [Team(id: snapshot.teamID, name: snapshot.teamName, macs: snapshot.macs)]
         store.activeTeamID = snapshot.teamID
         var workspaces: [Workspace] = []
@@ -534,6 +541,25 @@ public final class LiveCoordinator {
         startedTeamID = snapshot.teamID
         feedTeamID = snapshot.teamID
         teamTask = Task { [weak self] in await self?.startTeam(snapshot.teamID, warm: true) }
+    }
+
+    /// The rest of the saved rows, read at most once by ``savedWorkspace(id:)`` ahead of `restoreRest`.
+    @ObservationIgnored private var savedRestRead: [String: LiveSnapshot.MacWorkspaces]?
+
+    /// The workspace `id` as the snapshot on disk saved it: the first screen's rows, else the rest
+    /// (read now, once, when `restoreRest` has not landed yet). Nil when it was never saved.
+    func savedWorkspace(id: String) -> Workspace? {
+        guard let snapshot, !stopped, snapshot.teamID == store.activeTeamID else { return nil }
+        for list in snapshot.workspaces.values {
+            if let found = list.workspaces.first(where: { $0.id == id }) { return found }
+        }
+        guard snapshot.workspaces.values.contains(where: { !$0.isComplete }) else { return nil }
+        let rest = savedRestRead ?? snapshots.restNow(snapshot, accountID: userID)
+        savedRestRead = rest
+        for list in rest.values {
+            if let found = list.workspaces.first(where: { $0.id == id }) { return found }
+        }
+        return nil
     }
 
     /// The rest of the cached rows, read after the first screen: each Mac still showing exactly
@@ -1171,6 +1197,9 @@ public final class LiveCoordinator {
         for session in sessions.values { session.link.send(.background) }
         discovery.pause()
         presence?.backgrounded = true
+        #if canImport(CmuxMobileLinkFFI)
+        pairRequests.background()
+        #endif
     }
 
     /// The app's process (not a test): the connectivity incident watch follows UIKit's app state,
@@ -1243,6 +1272,9 @@ public final class LiveCoordinator {
         discovery.resume()
         // How long iOS kept the app away decides whether the links are kept (LinkMachine.shortSuspend).
         for session in sessions.values { session.link.send(away.map { .resumed(after: $0) } ?? .resume) }
+        #if canImport(CmuxMobileLinkFFI)
+        pairRequests.foreground()
+        #endif
     }
 
 }
@@ -1324,8 +1356,7 @@ final class PendingAgentSource: AgentSessionSource {
         guard let index = held.firstIndex(where: { $0.at == sentAt }) else { return }
         let dropped = held[index...]
         held.removeSubrange(index...)
-        let seconds = max(1, Int(holdWindow.components.seconds))
-        let reason = "Not sent: \(summary.macName) was unreachable for more than \(seconds) seconds. Send again when it's back."
+        let reason = "Not sent: \(summary.macName) is offline."
         for (intent, _) in dropped {
             guard case .prompt(let text, let attachments, _, let promptID, _) = intent else { continue }
             for continuation in continuations {

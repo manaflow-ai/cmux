@@ -190,8 +190,10 @@ JOBS = {
         required=(),
         flags=("daemon_tests", "include_windows", "macos_runner"),
         inputs=(
+            "cmux-tui",
+            ".github/workflows/cmux-tui-build-package.yml",
             "scripts/ci/job_input_fingerprint.py", "scripts/ci/job_reuse.py", "scripts/ci/cmux_next_route.py",
-            "scripts/ci/select_package_tests.py", "scripts/ci/gh_expressions.py",
+            "scripts/ci", "scripts/cmux-next", "scripts/install-zig-ci.sh", "scripts/ghostty-zig-version.sh",
             "scripts/cmux-next/cmux-tui-tree-inputs.txt",
         ),
         workflow=".github/workflows/cmux-tui-artifacts.yml",

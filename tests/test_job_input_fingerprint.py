@@ -60,7 +60,9 @@ REGISTRY = """{"entries": [
 FILES = {
     ".github/workflows/cmux-next.yml": WORKFLOW,
     ".github/workflows/cmux-tui-artifacts.yml": "name: cmux-tui artifacts\n",
+    ".github/workflows/cmux-tui-build-package.yml": "name: cmux-tui build package\n",
     "scripts/cmux-next/cmux-tui-tree-inputs.txt": "tree cmux-tui\n",
+    "scripts/cmux-next/cmux-tui-build-profiles.json": "{}\n",
     "cmux-tui/Cargo.lock": "# lock\n",
     "scripts/cmux-next/fast-tier.json": REGISTRY,
     "scripts/cmux-next/fast-tier.py": "print('tier')\n",
@@ -230,6 +232,8 @@ class JobInputFingerprint(unittest.TestCase):
         self.assertNotEqual(base, self.artifact_key(include_windows="true"))
         self.assertNotEqual(base, self.artifact_key(macos_runner="macos-15"))
         self.assertTrue(self.changes("cmux-tui-artifacts", "cmux-tui/Cargo.lock"))
+        self.assertTrue(self.changes("cmux-tui-artifacts", "scripts/cmux-next/cmux-tui-build-profiles.json"))
+        self.assertTrue(self.changes("cmux-tui-artifacts", ".github/workflows/cmux-tui-build-package.yml"))
 
     def test_the_runner_pool_counts(self):
         # Owned minis, Blacksmith and hosted Macs differ in settings such as Reduce Motion/Transparency.

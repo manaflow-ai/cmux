@@ -1,4 +1,5 @@
 import CmuxMobileArtifacts
+import CmuxMobileTransport
 import Foundation
 
 /// A terminal tab whose session on the Mac does not exist yet (the link or
@@ -73,7 +74,12 @@ public enum TerminalSessionChoice {
             if ProcessInfo.processInfo.arguments.contains("-cmux-mobile-term-fake-codex-idle") { return FakeCodexSession(idleRedraw: true) }
             // `-cmux-mobile-term-no-intro`: the prompt at once, no scripted commands (LaunchTTIUITests types into it).
             let intro = !ProcessInfo.processInfo.arguments.contains("-cmux-mobile-term-no-intro")
-            return MockTerminalSession(playsIntro: intro, roundTrip: .milliseconds(Self.mockRoundTripMilliseconds))
+            // `CMUX_MOBILE_MOCK_LINK`: slow answers each key a burst later; down is offline.
+            let link = MockLinkCondition.current
+            let roundTrip: Duration = link == .slow
+                ? max(MockLinkCondition.burst, .milliseconds(Self.mockRoundTripMilliseconds))
+                : .milliseconds(Self.mockRoundTripMilliseconds)
+            return MockTerminalSession(playsIntro: intro, roundTrip: roundTrip, offline: link == .down)
             #else
             return MockTerminalSession(instantIntro: true)
             #endif
