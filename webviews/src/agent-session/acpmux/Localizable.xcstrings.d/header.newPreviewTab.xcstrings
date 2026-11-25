@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "header.newPreviewTab" : {
+      "comment" : "Agent pane chat header: the New menu's preview of the New Tab page",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opens the New Tab page right of the chat: start a chat, or open a terminal, a browser or a page."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يفتح صفحة علامة التبويب الجديدة على يمين الدردشة: ابدأ دردشة، أو افتح طرفيةً أو متصفحًا أو صفحة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Otvara stranicu nove kartice desno od chata: započnite chat ili otvorite terminal, preglednik ili stranicu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Åbner siden Ny fane til højre for chatten: start en chat, eller åbn en terminal, en browser eller en side."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Öffnet die Seite „Neuer Tab“ rechts neben dem Chat: Starte einen Chat oder öffne ein Terminal, einen Browser oder eine Seite."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abre la página Nueva pestaña a la derecha del chat: inicia un chat o abre un terminal, un navegador o una página."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ouvre la page Nouvel onglet à droite du chat : démarrez un chat, ou ouvrez un terminal, un navigateur ou une page."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apre la pagina Nuova scheda a destra della chat: avvia una chat oppure apri un terminale, un browser o una pagina."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "チャットの右側に新規タブページを開きます。チャットを始めるか、ターミナル、ブラウザ、ページを開けます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បើកទំព័រផ្ទាំងថ្មីនៅខាងស្ដាំការជជែក៖ ចាប់ផ្ដើមការជជែក ឬបើកទែមីណាល់ កម្មវិធីរុករក ឬទំព័រ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "채팅 오른쪽에 새 탭 페이지를 엽니다. 채팅을 시작하거나 터미널, 브라우저 또는 페이지를 여세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Åpner Ny fane-siden til høyre for chatten: start en chat, eller åpne en terminal, en nettleser eller en side."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Otwiera stronę Nowa karta na prawo od czatu: rozpocznij czat albo otwórz terminal, przeglądarkę lub stronę."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Abre a página Nova aba à direita do chat: inicie um chat ou abra um terminal, um navegador ou uma página."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Открывает страницу новой вкладки справа от чата: начните чат или откройте терминал, браузер или страницу."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เปิดหน้าแท็บใหม่ทางขวาของแชต: เริ่มแชต หรือเปิดเทอร์มินัล เบราว์เซอร์ หรือหน้าเว็บ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Yeni Sekme sayfasını sohbetin sağında açar: bir sohbet başlatın ya da bir terminal, tarayıcı veya sayfa açın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Відкриває сторінку нової вкладки праворуч від чату: почніть чат або відкрийте термінал, браузер чи сторінку."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mở trang Tab mới bên phải cuộc trò chuyện: bắt đầu trò chuyện, hoặc mở terminal, trình duyệt hay một trang."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在对话右侧打开新建标签页：开始对话，或打开终端、浏览器或页面。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在對話右側開啟新增分頁頁面：開始對話，或開啟終端機、瀏覽器或頁面。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
