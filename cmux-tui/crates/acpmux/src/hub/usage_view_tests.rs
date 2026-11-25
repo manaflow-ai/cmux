@@ -333,7 +333,7 @@ async fn a_no_model_profiles_chat_reads_zero_tokens_not_null() {
     assert_eq!(chief_stats.tokens_by_model_previous_utc_hour, Some(Default::default()));
     assert!(stats("echo").is_none(), "a profile that declares nothing stays unmeasured");
     assert!(stats("bench-old").is_none(), "closed two days ago: not read");
-    let rows = crate::cli::harness::list_rows(&hub.config.read().await);
+    let rows = crate::cli::harness::list_rows(&*hub.config.read().await);
     let no_model = |id: &str| {
         let row = rows.iter().find(|r| r.id == id).unwrap();
         serde_json::to_value(row).unwrap()["noModel"].clone()
