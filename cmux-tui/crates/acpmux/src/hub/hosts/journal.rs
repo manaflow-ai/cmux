@@ -535,6 +535,7 @@ impl WorkFold {
                 work.turn_line = e.msg.get("promptLine").and_then(Value::as_str).map(str::to_owned);
                 work.turn_device = e.msg.get("device").and_then(Value::as_str).map(str::to_owned);
                 work.turn_trigger = e.msg.get("trigger") == Some(&Value::Bool(true));
+                work.turn_trust_gate = e.msg.get("trustGate") != Some(&Value::Bool(false));
                 work.turn_persons = e.msg.get("persons") == Some(&Value::Bool(true));
                 work.turn_at = e.at;
                 work.turn_carried = e.msg.get("carried").is_some_and(|c| !c.is_null());
