@@ -11534,6 +11534,10 @@ export class AcpmuxDirectClient {
   snapshot(): void {
     this.emit();
   }
+  /** How far the shown chat's log runs (the seq of its newest record), for the perf capture's size read. */
+  get eventSeq(): number {
+    return this.lastSeq;
+  }
   /** The session this pane shows, if any. */
   get selectedSession(): string | undefined {
     return this.selectedSessionId;
