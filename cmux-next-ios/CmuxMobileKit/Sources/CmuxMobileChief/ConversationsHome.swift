@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxChiefList
 import CmuxConversationCore
 import CmuxMobileAgentChat
 import CmuxMobileDesign
@@ -67,7 +68,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     }
 
     /// The listed Macs (one per computer, whatever builds run on it: ``MacRoster``).
-    private var macs: [MacDevice] { macText.roster(store.activeTeam?.macs ?? []).visible }
+    private var macs: [MacDevice] { macText.roster(store.activeTeam).visible }
 
     private var labels: HomeMacLabels {
         HomeMacLabels(macs: macs, scope: macFilter.scope(in: store.activeTeam),
@@ -100,30 +101,42 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     /// Rows show in the list (the kept ones a Delete Conversation from List did not hide).
     private var keptRowsShow: Bool { !hiddenRows.visible(feed.rows ?? []).isEmpty }
 
-    /// The connection toast over kept rows, the states Workspaces' toast uses (``ConnectionBannerState``).
+    /// The connection chip over kept rows, the states Workspaces' banner uses
+    /// (``ConnectionBannerState``). Every state but a Mac known to be offline waits out the shared
+    /// quiet bound (``homeQuiet``): a retry or a redial that answers within it draws nothing over
+    /// the kept rows.
     private var homeBanner: ConnectionBannerState? {
         guard let status = connectionStatus, keptRowsShow else { return nil }
         let mac = macTag ?? String(localized: "your Mac")
-        if status.isRetrying { return .reconnecting(to: mac, identity: homeMacID) }
+        if status.kind != .macOffline, !homeQuiet.isShown { return nil }
         switch status.kind {
         case .macOffline: return .macOffline(mac, identity: homeMacID)
-        case .unreachable: return ConnectionBannerState.connectionFailed.identified(homeMacID)
+        case .unreachable, .connecting: return ConnectionBannerState.connectionFailed.identified(homeMacID)
         case .failed: return .refreshFailed(identity: homeMacID)
-        case .connecting: return .connecting(to: mac, identity: homeMacID)
         }
     }
 
+    /// Holds Home's quiet link states (connecting, can't reach, a failed read) for the shared bound
+    /// (``QuietStatusGate/threshold``) before anything is drawn for them.
+    ///
+    /// Leo, 2026-11-23: "i dont wanna see connecting to cosmic-gray... with the spinner, i want it
+    /// to just work."
+    @State private var homeQuiet = QuietStatusGate()
+
     /// Workspaces' empty state stands in for the list (nothing kept to show, no search or filter).
+    /// A link that is still coming up draws no empty state until the quiet bound (``homeQuiet``);
+    /// a Mac known to be offline shows at once.
     private func showsProblemEmptyState(searching: Bool) -> Bool {
-        connectionStatus != nil && !keptRowsShow && !searching
+        guard let status = connectionStatus, !keptRowsShow, !searching else { return false }
+        return status.kind == .macOffline || homeQuiet.isShown
     }
 
     /// The status the arrival retry last ran for: returning to Home in the same state (from a
     /// kept conversation, say) does not dial again; the Mac's link reconnects on its own.
     @State private var autoRetriedFor: String?
 
-    /// Retry (the empty state's, or arriving at Home while it is not live). The status stays
-    /// "Updating…" until the retry answers: reconnecting clears the offline state first.
+    /// Retry (the empty state's, or arriving at Home while it is not live). Nothing new is drawn
+    /// while it runs: the kept rows stay, and the empty state's Retry shows its spinner.
     private func retryHome() async {
         guard homeRetries == 0 else { return }
         homeRetries += 1
@@ -188,11 +201,21 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         return homeInitials(row.title)
     }
 
-    /// The tag after a row's name, as the Mac's list draws it (`HomeChiefRoster.tag`): "Main" for
-    /// the main Chief (the Cloud Chief when there is one, else this Mac's), then where a Chief runs.
-    private func tag(_ row: MacHomeRow) -> String? {
+    /// Every Chief this Home lists, through the Mac's own rule (``HomeChiefs``, CmuxChiefList): the
+    /// Mac's Chief rows and every Cloud Chief, which one is Main and where each runs.
+    private var chiefs: HomeChiefs {
+        // Every row, as the Mac's roster reads its store's rows: hiding a row here never moves Main.
+        let names = sources.serverNames
+        return HomeChiefs(macRows: feed.rows, macChief: sources.mac.conversationID ?? feed.macChiefID,
+                          cloud: sources.isCloudReady ? sources.cloudChiefs : [], open: sources.cloudChief,
+                          serverName: { names[$0] })
+    }
+
+    /// The tag after a row's name, as the Mac's list draws it (`HomeChiefRoster.tag`, the same
+    /// ``ChiefList`` rule): "Main" for the main Chief, then where a Chief runs.
+    private func tag(_ row: MacHomeRow, chiefs: HomeChiefs) -> String? {
         guard row.kind == .chief else { return nil }
-        return chiefTag(main: !sources.isCloudReady && isMacChief(row), place: macTag)
+        return chiefs.tag(for: row.id, macName: macTag)
     }
 
     private func chiefTag(main: Bool, place: String?) -> String? {
@@ -200,17 +223,32 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         return parts.isEmpty ? nil : parts.joined(separator: " \u{00B7} ")
     }
 
-    /// One row of Home: a row of the Mac's list, the Cloud Chief, or the Mac Chief before the list arrives.
+    /// One row of Home: a row of the Mac's list, the open Cloud Chief, another Cloud Chief, or the
+    /// Mac Chief before the list arrives.
     enum Entry: Identifiable {
         case row(MacHomeRow)
         case cloud
+        case otherCloud(CloudChief)
         case macChief
         var id: String {
             switch self {
             case let .row(row): row.id
             case .cloud: "cloud-chief"
+            case let .otherCloud(chief): "cloud-chief.\(chief.id)"
             case .macChief: "mac-chief"
             }
+        }
+    }
+
+    /// The account's other Cloud Chiefs, each a row as the Mac lists every cloud Chief (before, the
+    /// phone listed only the open one): those with a conversation that match the search.
+    private var otherCloudChiefs: [CloudChief] {
+        guard sources.isCloudReady else { return [] }
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let macRows = Set((feed.rows ?? []).map(\.id))
+        return sources.cloudChiefs.filter { chief in
+            chief.id != sources.cloudChief?.id && chief.mainConversation.map { !macRows.contains($0) } == true
+                && (needle.isEmpty || ChiefPickerItems.name(chief).localizedStandardContains(needle))
         }
     }
 
@@ -224,6 +262,12 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         }
         if let mac = fallbackMacChief { place(.macChief, at: mac.lastMessage?.sentAt ?? .distantPast) }
         if showsCloudChief { place(.cloud, at: sources.cloud.lastMessage?.sentAt ?? .distantPast) }
+        // The other Cloud Chiefs right after the open one: the phone reads no message time for them.
+        let others = otherCloudChiefs.map(Entry.otherCloud)
+        if !others.isEmpty {
+            let after = entries.firstIndex { if case .cloud = $0 { return true }; return false }.map { $0 + 1 }
+            entries.insert(contentsOf: others, at: after ?? entries.endIndex)
+        }
         return entries
     }
 
@@ -231,9 +275,10 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     public var body: some View {
         let stamp = MessagesStamp()
         let list = list
+        let chiefs = chiefs
         let searching = !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         List {
-            let tiles = pinnedTiles(list)
+            let tiles = pinnedTiles(list, chiefs: chiefs)
             if !tiles.isEmpty {
                 // Messages' three across every phone (359 pt on a 375 pt iPhone to 424 pt on a 440 pt
                 // one: a 112 pt minimum fits three, never four); a wider screen (an unfolded
@@ -244,7 +289,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 .padding(.horizontal, 8)
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
-                .listRowBackground(theme.colors.bg.color)
+                .listRowBackground(CmuxMobileBackdrop.listRow)
             }
             // New Chief's Create was tapped: the new Chief shows at once, as a row with a spinner,
             // until the read after its create and turn-on lands (``ChiefSources/creatingChief``).
@@ -258,7 +303,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                     CmuxSpinner().controlSize(.small)
                 }
                 .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
-                .listRowBackground(theme.colors.bg.color)
+                .listRowBackground(CmuxMobileBackdrop.listRow)
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("home.chief.creating")
                 .transition(.opacity)
@@ -283,7 +328,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 .padding(.bottom, 8)
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
-                .listRowBackground(theme.colors.bg.color)
+                .listRowBackground(CmuxMobileBackdrop.listRow)
                 .animation(theme.motion.smooth.animation.unlessReduceMotion, value: card)
             } else if !searching, let status = sources.cloudStatus {
                 // The Cloud Chief could not take the pin: say why.
@@ -299,7 +344,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 .padding(.bottom, 8)
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
-                .listRowBackground(theme.colors.bg.color)
+                .listRowBackground(CmuxMobileBackdrop.listRow)
             } else if !searching, let error = sources.changeError {
                 // A refused switch or create while the Cloud Chief is open.
                 Text(error)
@@ -310,7 +355,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                     .padding(.bottom, 8)
                     .listRowInsets(EdgeInsets())
                     .listRowSeparator(.hidden)
-                    .listRowBackground(theme.colors.bg.color)
+                    .listRowBackground(CmuxMobileBackdrop.listRow)
                     .accessibilityIdentifier("home.chief.changeError")
             }
             let entries = entries(list)
@@ -319,11 +364,11 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 case let .row(row):
                     // Plain values: SwiftUI skips the rows that did not change.
                     // The list-row traits outside the Equatable view, where List sees them.
-                    let model = rowModel(row, stamp: stamp)
+                    let model = rowModel(row, stamp: stamp, chiefs: chiefs)
                     HomeListRow(model: model, open: open, feed: feed, delete: askToDelete)
                         .equatable()
                         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
-                        .listRowBackground(theme.colors.bg.color)
+                        .listRowBackground(CmuxMobileBackdrop.listRow)
                         // Trailing only, as Workspaces' rows: a rightward swipe belongs to the
                         // team drawer, and while these are open it closes them instead
                         // (SidebarContainer finds the slid List row, RowSwipeActions).
@@ -332,10 +377,14 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                                                 id: model.id, feed: feed)
                         }
                 case .cloud:
-                    sessionRow(sources.cloud, name: primaryName, tag: chiefTag(main: true, place: String(localized: "Cloud")),
+                    sessionRow(sources.cloud, name: primaryName,
+                               tag: chiefs.tag(for: sources.cloudChief?.mainConversation, macName: macTag) ?? String(localized: "Cloud"),
                                stamp: stamp, identifier: "home.chief", place: .cloud) { cloudTileMenu }
+                case let .otherCloud(chief):
+                    otherCloudRow(chief, tag: chiefs.tag(for: chief.mainConversation, macName: macTag))
                 case .macChief:
-                    sessionRow(sources.mac, name: String(localized: "Chief"), tag: chiefTag(main: !sources.isCloudReady, place: macTag),
+                    sessionRow(sources.mac, name: String(localized: "Chief"),
+                               tag: chiefs.tag(for: sources.mac.conversationID ?? feed.macChiefID, macName: macTag) ?? macTag,
                                stamp: stamp, identifier: "home.chief.mac", place: .mac) { CallChiefItem(chief: sources.mac) }
                 }
             }
@@ -350,21 +399,19 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                         .padding(.top, 80)
                         .listRowInsets(EdgeInsets())
                         .listRowSeparator(.hidden)
-                        .listRowBackground(theme.colors.bg.color)
+                        .listRowBackground(CmuxMobileBackdrop.listRow)
                         .accessibilityElement(children: .contain)
                         .accessibilityIdentifier("home.note.problem")
-                } else {
-                    loadingNote(HomeConnectionStatus.connectingTitle(macName: macTag), identifier: "home.note.connecting")
                 }
             } else if !showsHomeProblem {
                 // Rows that exist but are still loading never show as an empty list.
                 switch listNote(searching: searching) {
-                case .connecting:
-                    loadingNote(String(localized: "Connecting to \(macTag ?? String(localized: "your Mac"))…"),
-                                identifier: "home.note.connecting")
                 case .loading:
                     loadingNote(String(localized: "Loading conversations…"), identifier: "home.note.loading")
-                case .updating, .none:
+                        .placeholderBound("home.conversations.loading", .milliseconds(2000))
+                case .connecting, .updating, .none:
+                    // `.connecting` draws nothing (Leo, 2026-11-23: "i dont wanna see connecting to
+                    // cosmic-gray... with the spinner, i want it to just work."): the rows come with the link.
                     EmptyView()
                 }
             }
@@ -383,7 +430,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 .padding(.vertical, 8)
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
-                .listRowBackground(theme.colors.bg.color)
+                .listRowBackground(CmuxMobileBackdrop.listRow)
                 .accessibilityIdentifier("home.showHidden")
             }
             // A search over the top of the list waits for the rest before it says "none".
@@ -397,32 +444,15 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                     .padding(.top, 120)
                     .listRowInsets(EdgeInsets())
                     .listRowSeparator(.hidden)
-                    .listRowBackground(theme.colors.bg.color)
+                    .listRowBackground(CmuxMobileBackdrop.listRow)
                     .accessibilityIdentifier("home.empty")
             }
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
-        .background(theme.colors.bg.color.ignoresSafeArea())
-        // Kept rows show while the Mac's list loads: say they are being updated, over the
-        // list (no row moves when it goes).
-        .overlay(alignment: .bottom) {
-            if listNote(searching: searching) == .updating {
-                HStack(spacing: 6) {
-                    CmuxSpinner().controlSize(.small)
-                    Text("Updating…")
-                        .font(.footnote)
-                        .foregroundStyle(theme.colors.label2.color)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(.regularMaterial, in: .capsule)
-                .padding(.bottom, 8)
-                .allowsHitTesting(false)
-                .accessibilityElement(children: .combine)
-                .accessibilityIdentifier("home.note.updating")
-            }
-        }
+        .background(CmuxMobileBackdrop().ignoresSafeArea())
+        // Kept rows show while the Mac's list loads, with no note over them (Leo, 2026-11-12:
+        // "just show the cache"); a list that cannot load says so past the quiet bound.
         // Arriving at Home while its list is not live dials the Mac again (Workspaces dials a
         // failed Mac again on a choice); the Mac's link also reconnects on its own.
         .task(id: homeMacID) {
@@ -439,6 +469,9 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         // 2026-11-13: "reuse the toast strategy"). It takes its own room and covers no row; a
         // swipe hides it. With nothing kept, the empty state says it instead.
         .cmuxMobileBanner(homeBanner, retry: { Task { await retryHome() } })
+        .onChange(of: connectionStatus.map { $0.kind != .macOffline } ?? false, initial: true) { _, quiet in
+            homeQuiet.update(down: quiet)
+        }
         .onChange(of: connectionStatus?.kind, initial: true) { old, kind in
             // VoiceOver hears that Home is not live when it stops being live (also on arriving
             // with the Mac already away), not on each retry.
@@ -513,8 +546,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
             Color.clear
                 .alert("New Chief", isPresented: $namingChief) {
                     TextField("Name", text: $newChiefName)
-                        // Names and prompts are code-like: no autocorrect, no capitals (full verify D5).
-                        .autocorrectionDisabled()
+                        // Names and prompts are code-like: no capitals (full verify D5); autocorrect stays on, as on every GUI field (Leo, 2026-11-23).
                         .textInputAutocapitalization(.never)
                         .accessibilityIdentifier("home.chief.newName")
                     Button("Cancel", role: .cancel) {}
@@ -535,8 +567,8 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         .animation(theme.motion.smooth.animation.unlessReduceMotion, value: showsHomeProblem)
     }
 
-    private func rowModel(_ row: MacHomeRow, stamp: MessagesStamp) -> HomeListRow.Model {
-        HomeListRow.Model(id: row.id, title: row.title, subtitle: tag(row), preview: row.preview,
+    private func rowModel(_ row: MacHomeRow, stamp: MessagesStamp, chiefs: HomeChiefs) -> HomeListRow.Model {
+        HomeListRow.Model(id: row.id, title: row.title, subtitle: tag(row, chiefs: chiefs), preview: row.preview,
                           stamp: row.activityAt > .distantPast ? stamp.string(for: row.activityAt) : "",
                           isUnread: row.unreadCount > 0, isMuted: row.isMuted, isTyping: row.isWorking,
                           isPinned: row.isPinned, avatar: avatarText(row), isMacChief: isMacChief(row), route: route(row))
@@ -544,11 +576,11 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
 
     /// The grid's tiles: the Mac's pinned conversations in the owner's order.
     /// Each tile is its own button, so a tap opens that tile only.
-    private func pinnedTiles(_ list: MacHomeList) -> [HomeTile] {
+    private func pinnedTiles(_ list: MacHomeList, chiefs: HomeChiefs) -> [HomeTile] {
         var tiles: [HomeTile] = []
         for row in list.pinned {
             let macChief = isMacChief(row)
-            tiles.append(HomeTile(id: row.id, avatar: avatarText(row), name: row.title, detail: tag(row),
+            tiles.append(HomeTile(id: row.id, avatar: avatarText(row), name: row.title, detail: tag(row, chiefs: chiefs),
                                   unread: row.unreadCount > 0, working: row.isWorking,
                                   bubble: row.unreadCount > 0 && !row.preview.isEmpty ? row.preview : nil,
                                   muted: row.isMuted, identifier: macChief ? "home.chief.mac" : "home.pin.\(row.id)",
@@ -570,7 +602,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         }
         .buttonStyle(.cmuxPressFill)
         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
-        .listRowBackground(theme.colors.bg.color)
+        .listRowBackground(CmuxMobileBackdrop.listRow)
         // Trailing only, as every Home row (the drawer keeps the rightward swipe).
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             if chief.conversationID != nil {
@@ -584,6 +616,25 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         }
         .contextMenu { menu() }
         .accessibilityIdentifier(identifier)
+    }
+
+    /// Another of the account's Cloud Chiefs: a tap opens that Chief's own conversation (New Message's
+    /// route to it), as the Mac's list opens any Chief row; the Chief this phone has open stays the same.
+    private func otherCloudRow(_ chief: CloudChief, tag: String?) -> some View {
+        let name = ChiefPickerItems.name(chief)
+        return Button {
+            guard let conversation = chief.mainConversation else { return }
+            open(.cloud(CloudConversationRoute(conversationID: conversation, title: name, chief: chief.id)))
+        } label: {
+            MessagesRow(title: name, subtitle: tag, preview: "", stamp: "", isUnread: false, isMuted: false,
+                        needsYou: false, isTyping: false) { size in
+                ChiefAvatar(text: homeInitials(name), size: size)
+            }
+        }
+        .buttonStyle(.cmuxPressFill)
+        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
+        .listRowBackground(CmuxMobileBackdrop.listRow)
+        .accessibilityIdentifier("home.chief.cloud.\(chief.id)")
     }
 
     /// The Mac's row menu, the actions that are the person's list state:
@@ -614,7 +665,8 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     /// What Home says while the Mac's list is not in (``HomeListNote``).
     private func listNote(searching: Bool) -> HomeListNote {
         HomeListNote.make(rows: feed.rows, showingKept: feed.isShowingKeptRows, homeMacID: homeMacID,
-                          macsMayExist: store.activeTeam == nil || !macs.isEmpty,
+                          macsMayExist: HomeListNote.macsMayAnswer(live: store.tracksMacData, macsKnown: store.activeTeam != nil,
+                                                                   anyOnline: macs.contains(where: \.isOnline)),
                           searching: searching, failing: feed.problem != nil || homeIsOffline)
     }
 
@@ -631,7 +683,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         .padding(.vertical, 8)
         .listRowInsets(EdgeInsets())
         .listRowSeparator(.hidden)
-        .listRowBackground(theme.colors.bg.color)
+        .listRowBackground(CmuxMobileBackdrop.listRow)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier(identifier)
     }
@@ -688,8 +740,8 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     }
 
     /// Who New Message lists, as the Mac's list draws them: the Chiefs, main
-    /// first (the Cloud Chief when there is one, else this Mac's), each tagged
-    /// "Chief · Main · Cloud" or "Chief · <Mac>"; the agent chats of the
+    /// first (``HomeChiefs``: the Mac's rule), each tagged as Home tags it
+    /// ("Chief · Main · Cloud", "Chief · <Mac>"); the agent chats of the
     /// active workspaces for typed text. The team is read by New Message.
     private func newMessageSnapshot() -> HomeRecipientSnapshot {
         let chiefWord = String(localized: "Chief")
@@ -700,34 +752,37 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                                                             handles: [HomeNewMessageDirectory.cmuxHandle], detail: detail),
                                kind: kind, activity: activity)
         }
-        var chiefs: [HomeRecipientEntry] = []
-        var macChief: HomeRecipientEntry?
+        // The same list as Home's (``HomeChiefs``, the Mac's rule): every Chief, the main one first, each tagged alike.
+        let list = self.chiefs
+        var chiefs: [(conversation: String?, entry: HomeRecipientEntry)] = []
         if sources.isCloudReady {
-            chiefs.append(entry("chief:cloud", primaryName, sources.cloud.avatar, line(chiefTag(main: true, place: String(localized: "Cloud"))),
-                                .chief(.cloud), sources.cloud.lastMessage?.sentAt))
+            let open = sources.cloudChief?.mainConversation
+            chiefs.append((open, entry("chief:cloud", primaryName, sources.cloud.avatar,
+                                       line(list.tag(for: open, macName: macTag) ?? String(localized: "Cloud")),
+                                       .chief(.cloud), sources.cloud.lastMessage?.sentAt)))
             for other in sources.cloudChiefs where other.id != sources.cloudChief?.id {
                 guard let conversation = other.mainConversation else { continue }
                 let name = other.displayName.isEmpty ? chiefWord : other.displayName
-                chiefs.append(entry("chief:cloud:\(other.id)", name, homeInitials(name), line(chiefTag(main: false, place: String(localized: "Cloud"))),
-                                    .cloudChief(agentID: other.id, conversation: conversation), nil))
+                chiefs.append((conversation, entry("chief:cloud:\(other.id)", name, homeInitials(name),
+                                                   line(list.tag(for: conversation, macName: macTag)),
+                                                   .cloudChief(agentID: other.id, conversation: conversation), nil)))
             }
         }
+        var listsMacChief = false
         for row in hiddenRows.visible(feed.rows ?? []) where row.kind == .chief {
             if isMacChief(row) {
-                macChief = entry("chief:mac", row.title, sources.mac.avatar, line(tag(row)), .chief(.mac), row.activityAt)
+                listsMacChief = true
+                chiefs.append((row.id, entry("chief:mac", row.title, sources.mac.avatar, line(tag(row, chiefs: list)), .chief(.mac), row.activityAt)))
             } else {
-                chiefs.append(entry("chief:mac:\(row.id)", row.title, homeInitials(row.title), line(tag(row)),
-                                    .macChief(MacConversationRoute(conversationID: row.id, chief: row.chief, title: row.title)), row.activityAt))
+                chiefs.append((row.id, entry("chief:mac:\(row.id)", row.title, homeInitials(row.title), line(tag(row, chiefs: list)),
+                                             .macChief(MacConversationRoute(conversationID: row.id, chief: row.chief, title: row.title)), row.activityAt)))
             }
         }
-        if macChief == nil, feed.rows == nil, sources.mac.macName != nil || !sources.isCloudReady {
+        if !listsMacChief, feed.rows == nil, sources.mac.macName != nil || !sources.isCloudReady {
             // The Mac's list is not in yet: its Chief stays reachable, as on Home.
-            macChief = entry("chief:mac", chiefWord, sources.mac.avatar, line(chiefTag(main: !sources.isCloudReady, place: macTag)),
-                             .chief(.mac), sources.mac.lastMessage?.sentAt)
-        }
-        if let macChief {
-            // The main Chief leads (the Mac's `HomeChiefRoster.mainFirst`): this Mac's when there is no Cloud Chief.
-            if sources.isCloudReady { chiefs.insert(macChief, at: min(1, chiefs.count)) } else { chiefs.insert(macChief, at: 0) }
+            let id = sources.mac.conversationID ?? feed.macChiefID
+            chiefs.append((id, entry("chief:mac", chiefWord, sources.mac.avatar, line(list.tag(for: id, macName: macTag) ?? macTag),
+                                     .chief(.mac), sources.mac.lastMessage?.sentAt)))
         }
         var tabs: [HomeRecipientEntry] = []
         for workspace in store.activeWorkspaces {
@@ -741,7 +796,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         }
         let team = store.activeTeam
         return HomeRecipientSnapshot(
-            chiefs: HomeNewMessageDirectory.withLines(chiefs), team: [], agentTabs: tabs,
+            chiefs: HomeNewMessageDirectory.withLines(list.mainFirst(chiefs) { $0.conversation }.map(\.entry)), team: [], agentTabs: tabs,
             teamName: inviteToTeam == nil ? nil : team.flatMap { $0.id.hasPrefix("personal-") ? nil : $0.name },
             canCreateChief: newChiefAction != nil, canInvite: true,
             openCloudChiefAgent: sources.cloudChief?.id
@@ -960,15 +1015,21 @@ struct HomeTile: View, Identifiable {
     let open: () -> Void
     let menu: AnyView?
 
-    @ScaledMetric(relativeTo: .body) private var scaledClearance: CGFloat = 10
-    private var bubbleClearance: CGFloat { min(max(scaledClearance, 10), 18) }
+    /// The bubble's height as laid out (one or two lines; the typing dots).
+    @State private var bubbleHeight: CGFloat = 0
     private var showsBubble: Bool { working || bubble != nil }
+    /// How far the bubble's bottom tucks over the avatar's top edge, as in
+    /// Messages. Only this much: a bubble that reached down over the avatar's
+    /// letters, or up over the row above, read as overlapping labels (iOS
+    /// release bar read-back: "Home offline: no overlapping labels").
+    static let bubbleTuck: CGFloat = 6
 
     var body: some View {
         Button(action: open) {
             tile
                 .frame(maxWidth: .infinity)
-                .padding(.top, showsBubble ? 14 + bubbleClearance : 14)
+                // The bubble's room above the avatar is the tile's own, so it never reaches the row above.
+                .padding(.top, 14 + (showsBubble ? max(0, bubbleHeight - Self.bubbleTuck) : 0))
                 .padding(.bottom, 10)
                 .contentShape(.rect)
         }
@@ -988,28 +1049,42 @@ struct HomeTile: View, Identifiable {
         return Text("\(name), pinned")
     }
 
+    /// The typing or preview bubble over the avatar's top-leading corner, its
+    /// bottom `bubbleTuck` below the avatar's top. An overlay: it moves
+    /// nothing; the tile's top padding makes its room.
+    @ViewBuilder private var bubbleView: some View {
+        Group {
+            if working {
+                TypingBubble()
+                    .offset(x: -14)
+                    .transition(Self.bubbleTransition)
+            } else if let bubble {
+                Text(bubble)
+                    .font(.caption2)
+                    // A glance, not the message: it stays a small bubble at accessibility sizes too.
+                    .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+                    .lineLimit(2)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .frame(maxWidth: 100, alignment: .leading)
+                    .background(theme.colors.surfaceRaised.color, in: .rect(cornerRadius: 12, style: .continuous))
+                    // Up to 100 pt wide, though the overlay offers the avatar's 72.
+                    .frame(width: 100, alignment: .leading)
+                    .offset(x: -24)
+                    .transition(Self.bubbleTransition)
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { bubbleHeight = $0 }
+        .alignmentGuide(.top) { $0[.bottom] - Self.bubbleTuck }
+    }
+
+    private static let bubbleTransition: AnyTransition = .scale(scale: 0.6, anchor: .bottomTrailing).combined(with: .opacity)
+
     private var tile: some View {
         VStack(spacing: 6) {
-            ZStack(alignment: .topLeading) {
-                ChiefAvatar(text: avatar, size: 72)
-                if working {
-                    TypingBubble()
-                        .offset(x: -14, y: -18)
-                        .transition(.scale(scale: 0.6, anchor: .bottomTrailing).combined(with: .opacity))
-                } else if let bubble {
-                    Text(bubble)
-                        .font(.caption2)
-                        // A glance, not the message: it stays a small bubble at accessibility sizes too.
-                        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
-                        .lineLimit(2)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 5)
-                        .frame(maxWidth: 100, alignment: .leading)
-                        .background(theme.colors.surfaceRaised.color, in: .rect(cornerRadius: 12, style: .continuous))
-                        .offset(x: -24, y: -26)
-                        .transition(.scale(scale: 0.6, anchor: .bottomTrailing).combined(with: .opacity))
-                }
-            }
+            ChiefAvatar(text: avatar, size: 72)
+                .overlay(alignment: .topLeading) { bubbleView }
             HStack(spacing: 4) {
                 if unread {
                     Circle().fill(theme.colors.label.color).frame(width: 8, height: 8)
@@ -1067,7 +1142,8 @@ struct MacConversationScreen: View {
         Group {
             // One branch for the kept and the live session: the screen stays as it goes live.
             // A failed first open shows the conversation too (its title, what this phone kept and
-            // the composer) under its bar's "Not connected" and Try Again, never a full-screen error.
+            // the composer), never a full-screen error; a normal reconnect says nothing over it, and
+            // only past the quiet bound is it marked not live (``MacConversationLoader``).
             if let session = loader.session ?? shownKept {
                 ChiefConversationScreen(session: session)
             } else {

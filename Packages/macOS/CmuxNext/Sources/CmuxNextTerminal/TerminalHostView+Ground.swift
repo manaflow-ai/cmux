@@ -80,7 +80,10 @@ extension TerminalHostView {
             return
         }
         let own = tokens.surfaceBackground.withAlpha(1)
-        layer?.backgroundColor = theme == nil || own == around ? nil : own.withAlpha(backdrop.tintOpacity).cgColor
+        // Over a floating pane's solid card the window's sheet is not under the host: its own background is opaque
+        // there. At the window's tint it would mix with the card's color under the text.
+        let alpha = owner?.hasSolidGroundUnder == true ? 1 : backdrop.tintOpacity
+        layer?.backgroundColor = theme == nil || own == around ? nil : own.withAlpha(alpha).cgColor
     }
 
     /// The terminal background under the Sized for hatch: the user's terminal surface color, else the program's

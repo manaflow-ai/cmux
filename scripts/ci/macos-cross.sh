@@ -188,7 +188,7 @@ current-version: 7
 compatibility-version: 7
 ...
 EOF
-  # Apple framework stubs (CoreFoundation, CFNetwork, Security, CoreServices) from our own binaries' imports.
+  # Apple framework stubs (CoreFoundation, CFNetwork, Security, CoreServices, CoreGraphics, IOKit) from our own binaries' imports.
   python3 "$repo_root/scripts/ci/macos_stubs.py" install "$STUBS_DIR" "$SYSROOT"
   # The SDK version clang records in LC_BUILD_VERSION; the caller passes the Mac build's.
   cat > "$SYSROOT/SDKSettings.json" <<EOF
@@ -197,6 +197,14 @@ EOF
  "LLVMTargetTripleVendor":"apple","DefaultDeploymentTarget":"$sdk","MinimumDeploymentTarget":"10.13",
  "MaximumDeploymentTarget":"$sdk.99","PlatformFamilyName":"macOS"}}}
 EOF
+  # rustc strips release binaries for Apple targets with its own rust-objcopy, whose
+  # RUNPATH ($ORIGIN/../lib) finds libLLVM only in rustlib/<host>/lib, which the
+  # llvm-tools component installs. Without it each strip fails ("libLLVM.so...: cannot
+  # open shared object file") and the binaries ship with debug info.
+  (cd "$repo_root/cmux-tui" && rustup component add llvm-tools >/dev/null)
+  local objcopy
+  objcopy="$(cd "$repo_root/cmux-tui" && rustc --print sysroot)/lib/rustlib/$(cd "$repo_root/cmux-tui" && rustc -vV | awk '/^host:/{print $2}')/bin/rust-objcopy"
+  "$objcopy" --version >/dev/null || die "$objcopy does not run; rustc cannot strip the macOS binaries"
   "$LLVM_BIN/clang" --version | head -1
   echo "sysroot: $SYSROOT (zig $(zig version), SDK version label $sdk)"
 }

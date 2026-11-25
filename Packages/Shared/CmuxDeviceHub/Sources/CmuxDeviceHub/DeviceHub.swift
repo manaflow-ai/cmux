@@ -100,9 +100,10 @@ public final class DeviceHub {
     /// The user's other devices.
     public var otherDevices: [HubDevice] { devices.filter { $0.id != identity.id } }
 
-    /// What `viewer` may do on `host`'s screen; `ask` when no permission is stored.
+    /// What `viewer` may do on `host`'s screen; `full` when no permission is stored (the hub's default
+    /// for the account's own devices, PROTOCOL.md).
     public func scope(host: String, viewer: String) -> DeviceScope {
-        permissions[host]?.first { $0.viewerId == viewer }?.scope ?? .ask
+        permissions[host]?.first { $0.viewerId == viewer }?.scope ?? .full
     }
 
     // MARK: Lifecycle
@@ -322,6 +323,11 @@ public final class DeviceHub {
     public func setMacScreenShared(_ shared: Bool) async throws {
         let device = try await perform { try await $0.setMacScreenShared(shared) }
         replace(device)
+    }
+
+    /// Carries a signed share approval to `target` (``DeviceHubClient/sendShareApproval(target:approvalJSON:)``).
+    public func sendShareApproval(target: String, approvalJSON: String) async throws {
+        try await perform { try await $0.sendShareApproval(target: target, approvalJSON: approvalJSON) }
     }
 
     public func setPermission(host: String, viewer: String, scope: DeviceScope) async throws {

@@ -34,11 +34,6 @@ public nonisolated protocol AgentPaneHostProviding: Sendable {
     /// app's. Only while `owner`, the binary the refusal named, still holds the socket. True when
     /// it stopped.
     func restartAcpmux(owner: AcpmuxSocketOwner) async -> Bool
-    /// A person asked to restart this app's own acpmux while the pane of `sessionId` waits for it
-    /// (the pane's "Restart agent service"): stops that daemon, keeping its sessions, so the next
-    /// handshake starts a new one. Only the host the pane's handshake goes to, only one that
-    /// starts its daemon, and only while a lookup waits on it. True when it stopped.
-    func restartStuckAcpmux(sessionId: String?) async -> Bool
     /// The person's click on a request this app's running acpmux lacks (it is older than the app):
     /// restarts this app's own daemon on the app's build, keeping its chats, and answers the socket of
     /// the new one. Nil when nothing restarted: no daemon of this host's own, an attached or Chief
@@ -71,9 +66,6 @@ extension AgentPaneHostProviding {
 
     /// Hosts without a daemon have none to restart.
     public func restartAcpmux(owner: AcpmuxSocketOwner) async -> Bool { false }
-
-    /// Hosts without a daemon have none to restart.
-    public func restartStuckAcpmux(sessionId: String?) async -> Bool { false }
 
     /// Hosts without a daemon have none to restart.
     public func restartOutdatedAcpmux(sessionId: String?) async -> String? { nil }
@@ -149,9 +141,6 @@ public nonisolated enum AgentPaneHostError: Error, Equatable, Sendable {
 public actor AcpmuxHost: AgentPaneHostProviding {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.acpmux")
     private let resolveEnvironment: @Sendable () -> AcpmuxEnvironment?
-    /// The Computer Use socket and agent token now (`AcpmuxEnvironment.computerUse`),
-    /// read at each daemon start, since Computer Use turns on and off while the app runs.
-    private let computerUse: @Sendable () -> [String: String]
     /// Whether the daemon gets the session offer tools now (`AcpmuxEnvironment.offersSessionTools`:
     /// ``AgentPaneSuggestedTasks/forNextDaemon``: `sessions.promptSuggestions` or the forcing tunable), read at each
     /// daemon start: a change applies to the next daemon this app starts, never to the one running.
@@ -161,9 +150,6 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     private let agentPairGuard: @Sendable () -> Bool
     /// The guard's cap and window in seconds now (`agent.pairCap`, `agent.pairWindow`), read with it.
     private let agentPairCap: @Sendable () -> (messages: Int, windowSeconds: Int)
-    /// Called with the daemon socket after each successful find or start, so
-    /// the Computer Use helper v2 can register this daemon.
-    private let daemonReady: @Sendable (String) async -> Void
     /// Kept only once found, so acpmux installed after the first chat is picked up.
     private var environment: AcpmuxEnvironment?
     /// The lookup in flight, by whether it may start a daemon.
@@ -195,10 +181,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// The app's local daemons (``AcpmuxLocalDaemons``): its marks say restarting in Settings while
     /// a handoff runs; it keeps two Restart acpmux from stopping two daemons.
     private let daemons: AcpmuxLocalDaemons
-    /// Stops this app's own daemon when a person asks (``restartStuckAcpmux(sessionId:)``); one per host.
+    /// Stops this app's own daemon for ``restartOutdatedAcpmux(sessionId:)``; one per host.
     private let daemonStop = AcpmuxDaemonStop()
-    /// Sends the Computer Use endpoint to the daemon (`AcpmuxComputerUse.enroll`; a recorder in tests).
-    private let enrollComputerUse: @Sendable (AcpmuxEnvironment) async -> Void
     /// Gets this Mac's approver key to each daemon this host connects (``AgentPanePeerApprover``); nil: none.
     private let peerApprover: AgentPanePeerApprover?
     /// Whether a lookup waits for this launch's build-home adoption (``AcpmuxAdoptionGate``; a stand-in in tests).
@@ -215,13 +199,10 @@ public actor AcpmuxHost: AgentPaneHostProviding {
                 healReplaced: (@Sendable () async -> Bool)? = nil,
                 startOwner: (@Sendable () async -> Bool)? = nil, peerApprover: AgentPanePeerApprover? = nil) {
         self.resolveEnvironment = { environment }
-        self.computerUse = { [:] }
         // The setting, as the resolving initializer reads it: an environment never carries it.
         self.offersSessionTools = { AgentPaneSuggestedTasks.forNextDaemon.isOn }
         self.agentPairGuard = { environment?.agentPairGuard ?? true }
         self.agentPairCap = { (environment?.agentPairCap ?? 20, environment?.agentPairWindowSeconds ?? 600) }
-        self.daemonReady = { _ in }
-        self.enrollComputerUse = { await AcpmuxComputerUse.enroll($0) }
         self.startsDaemons = startsDaemons
         self.healReplaced = healReplaced
         self.startOwner = startOwner
@@ -233,41 +214,36 @@ public actor AcpmuxHost: AgentPaneHostProviding {
 
     /// Looks for acpmux (bundled, PATH, install directories) on the actor,
     /// off the main thread, at the first handshake that needs it. `daemons`: the app's one
-    /// ``AcpmuxLocalDaemons``, shared by every host.
+    /// ``AcpmuxLocalDaemons``, shared by every host. Computer Use needs nothing from the app:
+    /// acpmux asks the cmux-tui daemon for the Computer Use worker's endpoint.
     public init(daemons: AcpmuxLocalDaemons, resolve: @escaping @Sendable () -> AcpmuxEnvironment?,
-                computerUse: @escaping @Sendable () -> [String: String] = { [:] },
                 offersSessionTools: @escaping @Sendable () -> Bool = { AgentPaneSuggestedTasks.forNextDaemon.isOn },
                 agentPairGuard: @escaping @Sendable () -> Bool = { AgentPaneTunables.agentPairGuard.value },
                 agentPairCap: @escaping @Sendable () -> (messages: Int, windowSeconds: Int) = {
                     (Int(AgentPaneTunables.agentPairCap.value), Int(AgentPaneTunables.agentPairWindow.value))
                 },
-                daemonReady: (@Sendable (String) async -> Void)? = nil, peerApprover: AgentPanePeerApprover? = nil) {
-        self.init(daemons: daemons, resolve: resolve, computerUse: computerUse, offersSessionTools: offersSessionTools,
-                  agentPairGuard: agentPairGuard, agentPairCap: agentPairCap, daemonReady: daemonReady,
-                  enrollComputerUse: { await AcpmuxComputerUse.enroll($0) }, peerApprover: peerApprover)
+                peerApprover: AgentPanePeerApprover? = nil) {
+        self.init(daemons: daemons, resolve: resolve, offersSessionTools: offersSessionTools,
+                  agentPairGuard: agentPairGuard, agentPairCap: agentPairCap, peerApprover: peerApprover,
+                  lookup: nil, adoption: .live)
     }
 
-    /// `enrollComputerUse` sends the Computer Use endpoint and `lookup` runs one lookup with the
-    /// environment and whether it may start a daemon (recorders in tests; nil: the real lookup); `adoption`
-    /// says when a lookup waits for the build-home adoption (a stand-in in tests).
+    /// `lookup` runs one lookup with the environment and whether it may start a daemon (a recorder
+    /// in tests; nil: the real lookup); `adoption` says when a lookup waits for the build-home
+    /// adoption (a stand-in in tests).
     init(daemons: AcpmuxLocalDaemons, resolve: @escaping @Sendable () -> AcpmuxEnvironment?,
-         computerUse: @escaping @Sendable () -> [String: String] = { [:] },
          offersSessionTools: @escaping @Sendable () -> Bool = { AgentPaneSuggestedTasks.forNextDaemon.isOn },
          agentPairGuard: @escaping @Sendable () -> Bool = { AgentPaneTunables.agentPairGuard.value },
          agentPairCap: @escaping @Sendable () -> (messages: Int, windowSeconds: Int) = {
              (Int(AgentPaneTunables.agentPairCap.value), Int(AgentPaneTunables.agentPairWindow.value))
          },
-         daemonReady: (@Sendable (String) async -> Void)? = nil,
-         enrollComputerUse: @escaping @Sendable (AcpmuxEnvironment) async -> Void, peerApprover: AgentPanePeerApprover? = nil,
+         peerApprover: AgentPanePeerApprover? = nil,
          lookup: (@Sendable (AcpmuxEnvironment, Bool) async throws -> AcpmuxWebEndpoint)? = nil,
          adoption: AcpmuxAdoptionGate = .live) {
         self.resolveEnvironment = resolve
-        self.computerUse = computerUse
         self.offersSessionTools = offersSessionTools
         self.agentPairGuard = agentPairGuard
         self.agentPairCap = agentPairCap
-        self.daemonReady = daemonReady ?? { _ in }
-        self.enrollComputerUse = enrollComputerUse
         self.startsDaemons = true
         self.healReplaced = nil
         self.startOwner = nil
@@ -275,23 +251,6 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         self.peerApprover = peerApprover
         self.lookup = lookup
         self.adoption = adoption
-    }
-
-    /// The Computer Use endpoint changed (`ComputerUseHelperDaemon.onEndpointChange`: a replaced
-    /// agent token, or the endpoint published or withdrawn): gives it to this app's running acpmux
-    /// now. acpmux reads it only at a lookup, and connected panes do not look again, so it kept a
-    /// replaced token and the helper refused every new chat until a pane reconnected. Chats already
-    /// running keep the token their computer use server started with. Only a signed daemon this
-    /// host owns and that runs: an attached daemon keeps its owner's endpoint, and an unsigned DEV
-    /// daemon took its endpoint at spawn and refuses enrollment.
-    public func computerUseChanged() async {
-        if environment == nil { environment = resolveEnvironment() }
-        guard startsDaemons, var environment, !environment.isAttached, !environment.passesPersonKeyAtSpawn else { return }
-        // A lookup in flight enrolls the endpoint it read when it started: send the current one after it.
-        for task in inFlight.values { _ = try? await task.value }
-        guard FileManager.checked.fileExists(atPath: environment.socketPath) else { return }
-        environment.computerUse = computerUse()
-        await enrollComputerUse(environment)
     }
 
     public func handshake(sessionId: String?) async throws -> AgentPaneHandshake {
@@ -373,19 +332,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         if environment == nil { environment = resolveEnvironment() }
         guard let environment, !environment.isAttached, owner.socketPath == environment.socketPath else { return false }
         prewarmed.drop()
+        daemons.noteStoppedByPerson(home: environment.home)
         return await AcpmuxSocketOwner.takeOver(environment: environment, owner: owner, daemons: daemons)
-    }
-
-    /// The person's "Restart agent service" while a pane waits for this host's daemon: only this
-    /// app's own daemon (never an attached one, never the Chief home's), and only while a lookup
-    /// waits on it, so the page cannot stop a daemon that answers. The lookup that waits ends when
-    /// the daemon exits, and the page's next handshake starts a new one.
-    public func restartStuckAcpmux(sessionId: String?) async -> Bool {
-        guard startsDaemons, !inFlight.isEmpty else { return false }
-        if environment == nil { environment = resolveEnvironment() }
-        guard let environment, !environment.isAttached else { return false }
-        prewarmed.drop()
-        return await daemonStop.restart(environment)
     }
 
     /// Restarts this app's own daemon after a request it lacked, then starts the bundled one (a
@@ -401,6 +349,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         let pid = daemon.pid
         prewarmed.drop()
         Self.logger.info("acpmux \(pid, privacy: .public) lacks a request the app made; restarting it on the app's build")
+        daemons.noteStoppedByPerson(home: environment.home)
         // Gone already (it exited on its own meanwhile) counts as stopped: the bundled one starts below.
         let stopped = daemonStop.terminate(daemon) ? await AgentPaneProcessExit(pid: pid).event(within: .seconds(15)) : !agentPaneProcessIsRunning(pid)
         daemons.endStop(pid)
@@ -413,6 +362,25 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         }
         guard (try? await endpoint(startsDaemon: true)) != nil else { return nil }
         return environment.socketPath
+    }
+
+    /// The install check's canary (``AcpmuxInstallCanary``) against this host's own daemon, started
+    /// on this build when none runs (an older one is handed off to it). Nil when this host starts no
+    /// daemon or its daemon is attached (another app's).
+    public func installCanary() async -> AcpmuxInstallCanary.Outcome? {
+        guard startsDaemons else { return nil }
+        if environment == nil { environment = resolveEnvironment() }
+        guard let environment, !environment.isAttached else { return nil }
+        guard (try? await endpoint(startsDaemon: true)) != nil else { return .inconclusive("the agent service did not start") }
+        // The lookup can hand back an older build's daemon: one whose handoff request failed, that
+        // did not exit within the handoff's wait, or whose socket this launch already handed off
+        // once (AcpmuxVersionHandoff.handOffIfStale returns false and the lookup serves it). Its
+        // answer says nothing about this build.
+        if let bundled = await AcpmuxVersionHandoff.bundledBuild(environment) {
+            let running = (try? await Self.lookupStatus(socketPath: environment.socketPath))?.build
+            if running != bundled { return .inconclusive("the agent service runs build \(running ?? "?"), not \(bundled)") }
+        }
+        return await AcpmuxInstallCanary.run(socketPath: environment.socketPath)
     }
 
     /// This host's own daemon, only when `socket` is its socket: the Chief home's host answers for
@@ -440,11 +408,9 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         // A reconnect during a start waits for that daemon instead of
         // reporting it stopped.
         if !startsDaemon, let task = inFlight[true] { return try await AcpmuxSharedWait.value(of: task) }
-        environment.computerUse = computerUse()
         environment.offersSessionTools = offersSessionTools()
         environment.agentPairGuard = agentPairGuard()
         (environment.agentPairCap, environment.agentPairWindowSeconds) = agentPairCap()
-        let daemonSocket = environment.socketPath
         Self.logger.info("acpmux environment resolved executable=\(environment.executable.path, privacy: .public) home=\(environment.home.path, privacy: .public) socket=\(environment.socketPath, privacy: .public) startsDaemon=\(startsDaemon, privacy: .public)")
         // task-owner: stored in inFlight and cleared when it settles; callers await its value
         var heal: (@Sendable (Int32) async -> Bool)?
@@ -452,16 +418,13 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             heal = { @Sendable (pid: Int32) async -> Bool in await self.healOnce(pid: pid, healReplaced) }
         }
         let (startOwner, approver, daemons, adoption) = (startOwner, peerApprover, daemons, adoption)
-        let (daemonReady, lookup) = (daemonReady, lookup)
-        // The lookup itself tells `daemonReady`, so a caller that stops waiting (its cancel) never
-        // skips it for the others.
+        let lookup = lookup
         let task = Task {
             let endpoint = if let lookup { try await lookup(environment, startsDaemon) } else {
                 try await Self.findOrStart(environment, daemons: daemons, startsDaemon: startsDaemon, owned: owned,
                                            heal: heal, startOwner: startOwner, approver: approver, adoption: adoption)
             }
             Self.markLookup("lookup_end", owned: owned)
-            await daemonReady(daemonSocket)
             return endpoint
         }
         inFlight[startsDaemon] = task
@@ -669,10 +632,9 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             // this launch's person key (a signed daemon takes it by this app's signature), so
             // the reconnected pane's allows keep working.
             guard startsDaemon else {
-                // An attached daemon keeps its owner's person key and Computer Use endpoint.
+                // An attached daemon keeps its owner's person key.
                 if !environment.isAttached {
                     _ = await AcpmuxPersonKey.enroll(status, environment: environment, mayHandOff: false)
-                    await AcpmuxComputerUse.enroll(environment)
                     approver?.register(environment)
                 }
                 // A daemon that only runs an old version an update replaced: its owner
@@ -707,7 +669,6 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             if stale { Self.markLookup("handed_off", owned: owned) }
             let stopped = stale ? true : await AcpmuxPersonKey.enroll(status, environment: environment)
             guard stopped else {
-                await AcpmuxComputerUse.enroll(environment)
                 approver?.register(environment)
                 return try await Self.verifiedEndpoint(environment)
             }
@@ -722,7 +683,17 @@ public actor AcpmuxHost: AgentPaneHostProviding {
                 if !owned, !environment.isAttached, let startOwner, await startOwner() {
                     throw AgentPaneHostError.chiefStarting
                 }
-                throw owned || environment.isAttached ? AgentPaneHostError.daemonStopped : AgentPaneHostError.chiefStopped
+                guard owned || environment.isAttached else { throw AgentPaneHostError.chiefStopped }
+                // A handoff (another host of this home), or a person's restart from any pane, is
+                // stopping it: the start that follows ends this without the person, so the pane
+                // stays quiet meanwhile. An attached daemon is another app's to start, never this
+                // app's Retry: its stop stays quiet too, and the pane finds it when it is back.
+                if daemons.isRestarting(home: environment.home) || daemons.stoppedByPerson(home: environment.home)
+                    || environment.isAttached {
+                    throw AgentPaneHostError.daemonRestarting
+                }
+                // Stopped, and no reconnect starts it again (cx-6bgzj): only the line's Retry does.
+                throw AgentPaneHostError.daemonStopped
             }
         } catch AcpmuxStatusClient.Failure.noWebSocket {
             logger.error("acpmux status returned no websocket socket=\(environment.socketPath, privacy: .public)")
@@ -750,7 +721,6 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             if let status = await Self.startedStatus(environment), status.serves(home: environment.home) {
                 _ = await AcpmuxPersonKey.enroll(status, environment: environment,
                                                  mayHandOff: Self.mayHandOff(after: launched))
-                await AcpmuxComputerUse.enroll(environment)
                 approver?.register(environment)
             }
             return launched.endpoint
@@ -768,7 +738,6 @@ public actor AcpmuxHost: AgentPaneHostProviding {
                 }
                 guard status.serves(home: environment.home) else { throw Self.foreignHome(status, environment) }
                 _ = await AcpmuxPersonKey.enroll(status, environment: environment, mayHandOff: false)
-                await AcpmuxComputerUse.enroll(environment)
                 approver?.register(environment)
                 return try await Self.verifiedEndpoint(environment)
             } catch let error as AgentPaneHostError {

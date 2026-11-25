@@ -88,8 +88,11 @@ async fn handle(hub: &Arc<Hub>, conn: &Conn, m: &str, params: &Value) -> Result<
             hub.bg_start(&session, command, cwd, description, notify, result_line, subagent).await
         }
         method::MUX_BG_LIST => Ok(hub.bg_list_as(&session, &scope("all")?)),
+        // The chat's own agent reading a task's end (`bg_output`, or `run_wait` given a task)
+        // is told it (`hub::Hub::bg_output_as`); `all` reads no wider, so it takes no part.
         method::MUX_BG_OUTPUT => {
-            hub.bg_output(&session, id()?, byte("fromByte")?, byte("maxBytes")?)
+            let scope = if own_agent { BgScope::Caller(subagent.clone()) } else { BgScope::Every };
+            hub.bg_output_as(&session, id()?, byte("fromByte")?, byte("maxBytes")?, &scope)
         }
         _ => hub.bg_stop_as(&session, id()?, &scope("force_other_owner")?).await,
     }

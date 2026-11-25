@@ -51,6 +51,9 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     var updateMachine: (@Sendable () async -> Bool)?
     /// The chat runs on the person's own Cloud VM (``RemoteAcpmuxWire/ownerCloud(_:served:)``).
     var ownerCloud: RemoteAcpmuxWire.OwnerCloud?
+    /// A new Cloud chat's steps to its first token on the composer send's timeline (``CloudSendTimelines``, cmux#45953):
+    /// its first prompt out, its start answered (with the machine's own phases) and its agent's first text.
+    var cloudSendMark: (@Sendable (_ step: String, _ phases: [String: Int]?) -> Void)?
 
     func cloudRepository(method: String, params: [String: any Sendable], timeout: Duration?) async throws -> Data {
         try await AgentSessionAttachClient.forwardingCloudRepository(surface: surface, reconnect: reconnect, endpoint: endpoint,
@@ -100,21 +103,22 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
             // A new chat: nothing runs on that machine until the page's first send (cx-k21v). The
             // page shows the New Tab page or an empty chat; its `session/new` starts the chat.
             route = AgentPaneRemoteRoute(machine: machine, hostID: hostID, approvals: approvals) { [endpoint, reconnect] in
-                RemoteAcpmuxWire(start: { [approvals = approvals, servesKeyedReason, updateMachine] cwd, harness, model in
+                RemoteAcpmuxWire(start: { [approvals = approvals, servesKeyedReason, updateMachine, cloudSendMark, restartsInStart = cloudMachineID == nil] cwd, harness, model in
                     let started: AgentTabRemoteStart.Started
                     do {
                         started = try await AgentRemoteStartCoordinator(approvals: approvals, servesKeyedReason: servesKeyedReason,
-                                                                  updateMachine: updateMachine)
+                                                                  updateMachine: updateMachine, restartsInStart: restartsInStart)
                             .keyedStart(cwd, harness, model, proceed: Self.proceedAlways, start: start)
                     } catch let refusal as AgentRemoteStartRefusal {
                         throw AgentSessionRemoteError(code: refusal.code, message: servesTrust ? refusal.userMessage : refusal.withoutTrust.userMessage, folder: refusal.folder, facts: refusal.pageFacts)
                     }
+                    cloudSendMark?("start", started.phases)
                     let client = AgentSessionAttachClient(surface: started.surface, reconnect: reconnect, endpoint: endpoint)
                     return (AgentTabRemoteClient(client: client, mode: .attach), started.session, started.surface)
                 }, host: hostID, linksAlias: linksHost, trust: servesTrust ? ask : nil, ownerCloud: ownerCloud,
                 cloudRepositoryStart: AgentSessionAttachClient.forwardingStartedCloudRepository(reconnect: reconnect, endpoint: endpoint),
                 servesLogin: servesLogin, servesSide: servesSide, machineSignIn: cloudMachineID == nil,
-                machineLogin: servesMachineLogin ? machineLogin : nil)
+                machineLogin: servesMachineLogin ? machineLogin : nil, milestone: cloudSendMark.map { mark -> RemoteAcpmuxWire.Milestone in { step in mark(step, nil) } })
             }
         } else {
             throw AgentRemoteStartRefusal.startUnsupported(machine: machine)
@@ -141,7 +145,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     /// try): its throw stops the start there, and what it threw is what this throws.
     func startNow(cwd: String?, harness: String, model: String? = nil, proceed: @escaping @Sendable () async throws -> Void) async throws -> AgentTabRemoteStart.Started {
         guard let start else { throw AgentRemoteStartRefusal.startUnsupported(machine: machine) }
-        return try await AgentRemoteStartCoordinator(approvals: approvals, servesKeyedReason: servesKeyedReason, updateMachine: updateMachine)
+        return try await AgentRemoteStartCoordinator(approvals: approvals, servesKeyedReason: servesKeyedReason, updateMachine: updateMachine, restartsInStart: cloudMachineID == nil)
             .keyedStart(cwd, harness, model, proceed: proceed, start: start)
     }
 

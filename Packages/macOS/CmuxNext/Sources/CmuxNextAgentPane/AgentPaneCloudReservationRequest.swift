@@ -9,14 +9,22 @@ public nonisolated struct AgentPaneCloudReservationRequest: Equatable, Sendable 
     public let release: Bool
     public let params: JSONValue
     public let composeKey: String?
+    /// The page's empty local chat the compose's Send would replace (webviews App.tsx `emptyLocalChat`, the
+    /// same id `cloud.startChat` sends as `replacesChat`): the pane reserves for it only while it shows that
+    /// chat (``AgentPaneModel/reserveReplaces(_:)``). Nil: a compose with no chat. Never forwarded to Rust.
+    public let replacesChat: String?
 
     init?(method: String, params: [String: Any]?) {
+        var object = params ?? [:]
+        let replaces = object.removeValue(forKey: "replacesChat")
+        if let replaces, !((replaces as? String).map { !$0.isEmpty && $0.count <= 128 } ?? false) { return nil }
         guard Self.methods.contains(method),
-              let data = try? JSONSerialization.data(withJSONObject: params ?? [:]),
+              let data = try? JSONSerialization.data(withJSONObject: object),
               let params = try? JSONDecoder().decode(JSONValue.self, from: data) else { return nil }
         release = method == "cloud.releaseReservation"
         self.params = params
         composeKey = params["composeKey"]?.stringValue
+        replacesChat = replaces as? String
     }
 
     /// Supplies only the native client's trusted platform and human-session credentials to Rust. `install` is the
@@ -64,5 +72,16 @@ public nonisolated struct AgentPaneCloudReservationRequest: Equatable, Sendable 
         } catch {
             return AgentPaneReply.failure(code: "unavailable", message: "unavailable")
         }
+    }
+}
+
+extension AgentPaneModel {
+    /// A reserve for the pane's empty local chat (``AgentPaneCloudReservationRequest/replacesChat``), taken under
+    /// the checks `cloud.startChat` applies to a start replacing that chat (``AgentPaneHandOff``'s `cloudChecked`
+    /// and `held`): a Cloud start runner, a chat on this Mac, the pane showing that very chat, and no start or open
+    /// of another chat out in it (a harness switch), whose session would replace the chat the reserve names.
+    func reserveReplaces(_ chat: String?) -> Bool {
+        guard let chat, chat == sessionId, onCloudStartChat != nil, !chatIsElsewhere else { return false }
+        return transport.replacements.admits(replacingOpened: true)
     }
 }

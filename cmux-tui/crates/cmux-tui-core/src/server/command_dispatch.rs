@@ -114,38 +114,51 @@ fn dispatch_command(
         | Command::ListTerminalCommands(_)
         | Command::DeleteTerminalCommands(_)) => command_history::handle(mux, client, command),
         Command::ServerStats { include } => cmd_server::server_stats(mux, client, include),
+        Command::ProcessCensus => cmd_server::process_census(mux, client),
         Command::BrowserHostProvider => cmd_browser::browser_host_provider(mux, client),
         Command::RemoteHostStatus => remote_host_command::status(mux, client),
         Command::RemoteHostCall { method, params } => {
             remote_host_command::call(mux, client, &method, params)
         }
         Command::RemoteHostConfig { computer_use, screen_sharing, headless, app_permissions } => {
-            remote_host_command::config(
-                mux,
-                client,
-                json!({"computer_use": computer_use, "screen_sharing": screen_sharing, "headless": headless}),
-                app_permissions,
-            )
+            let update = json!({"computer_use": computer_use, "screen_sharing": screen_sharing, "headless": headless});
+            remote_host_command::config(mux, client, update, app_permissions)
         }
         Command::RemoteHostApp => remote_host_command::app(mux, client),
+        Command::ComputerUseEndpoint => computer_use_command::endpoint(mux, client),
+        Command::ComputerUseConfig { config } => computer_use_command::config(mux, client, config),
+        Command::ComputerUseApprovals { action, app_id, id, answer } => {
+            computer_use_command::approvals(
+                mux,
+                client,
+                json!({"action": action, "app_id": app_id, "id": id, "answer": answer}),
+            )
+        }
         Command::DeviceSetup { device, verb, allow_agents, dry_run } => {
             device_setup_command::handle(mux, client, writer, device, &verb, allow_agents, dry_run)
         }
         Command::Identify { machine_metadata, revisions } => {
             cmd_server::identify(mux, machine_metadata, revisions)
         }
-        Command::ShutdownDaemon { pid, generation, force, end_terminals, keep_layout, restart } => {
-            cmd_server::shutdown_daemon(
-                mux,
-                client,
-                pid,
-                generation,
-                force,
-                end_terminals,
-                keep_layout,
-                restart,
-            )
-        }
+        Command::ShutdownDaemon {
+            pid,
+            generation,
+            force,
+            end_terminals,
+            keep_layout,
+            restart,
+            if_idle,
+        } => cmd_server::shutdown_daemon(
+            mux,
+            client,
+            pid,
+            generation,
+            force,
+            end_terminals,
+            keep_layout,
+            restart,
+            if_idle,
+        ),
         Command::Ping => cmd_server::ping(),
         Command::SetClientInfo {
             name,
@@ -157,6 +170,7 @@ fn dispatch_command(
             device_name,
             device_id,
             api_revision,
+            api_version,
             version,
             install,
             remote,
@@ -172,6 +186,7 @@ fn dispatch_command(
             device_name,
             device_id,
             api_revision,
+            api_version,
             version,
             install,
             remote.unwrap_or(false),
@@ -242,12 +257,13 @@ fn dispatch_command(
         Command::ReloadConfig => cmd_server::reload_config(mux),
         Command::SetWindowTitle { title } => cmd_server::set_window_title(mux, title),
         Command::ClearWindowTitle => cmd_server::clear_window_title(mux),
-        Command::ListWorkspaces { known, limit } => cmd_workspaces::list_workspaces(
+        Command::ListWorkspaces { known, limit, after } => cmd_workspaces::list_workspaces(
             mux,
             client,
             writer.lines_written(),
             known.as_ref(),
             limit,
+            after,
         ),
         Command::GetFrontendProjection { frontend, scope, subject_key } => {
             cmd_frontend::get_frontend_projection(mux, frontend, scope, subject_key)
@@ -289,6 +305,28 @@ fn dispatch_command(
         Command::ReadScrollback { surface, start, count } => {
             cmd_terminal_io::read_scrollback(mux, surface, start, count)
         }
+        Command::TerminalFind {
+            surface,
+            query,
+            case_sensitive,
+            whole_word,
+            regex,
+            before,
+            epoch,
+            page_rows,
+            max_matches,
+        } => cmd_terminal_find::terminal_find(
+            mux,
+            surface,
+            cmd_terminal_find::FindRequest {
+                query,
+                options: cmux_terminal_find::FindOptions { case_sensitive, whole_word, regex },
+                before,
+                epoch,
+                page_rows,
+                max_matches,
+            },
+        ),
         Command::SidebarPlugin { cols, rows, relaunch } => {
             cmd_frontend::sidebar_plugin(mux, cols, rows, relaunch)
         }
@@ -565,6 +603,9 @@ fn dispatch_command(
         Command::SetRowHeights(params) => cmd_panes::set_row_heights(mux, client, params),
         Command::MoveColumn(params) => column_move::move_column(mux, client, params),
         Command::FloatPane(params) => floating_panes::float_pane(mux, client, actor, params),
+        Command::QuickTerminal(params) => {
+            floating_panes::quick_terminal(mux, client, actor, params)
+        }
         Command::MoveTabToNewWorkspace { surface, group, index, name, transaction } => {
             cmd_tabs::move_tab_to_new_workspace(
                 mux,
@@ -634,7 +675,9 @@ fn dispatch_command(
             cmd_tabs::reopen_saved_tab_group(mux, actor, saved, pane, transaction)
         }
         Command::AckTabNotifications { surface } => cmd_tabs::ack_tab_notifications(mux, surface),
-        Command::ListNotifications { limit } => cmd_frontend::list_notifications(mux, limit),
+        Command::ListNotifications { limit, stats } => {
+            cmd_frontend::list_notifications(mux, limit, stats)
+        }
         Command::SetTabPinned { surface, pinned } => {
             cmd_tabs::set_tab_pinned(mux, actor, surface, pinned)
         }
@@ -689,6 +732,10 @@ fn dispatch_command(
             conversations::link_resolve(mux, client, params)
         }
         Command::ConversationInboxOp(params) => conversations::inbox_op(mux, client, params),
+        Command::ConversationScheduledList(params) => {
+            conversation_scheduled::list(mux, client, params)
+        }
+        Command::ConversationScheduledOp(params) => conversation_scheduled::op(mux, client, params),
         Command::HomeInbox(params) => conversations::home_inbox(mux, client, params),
         Command::ConversationSearch(params) => conversations::search(mux, client, params),
         Command::HistorySearch(params) => history_search::search(mux, client, params),
@@ -944,6 +991,7 @@ fn dispatch_command(
         Command::RenameWorkspace { request, mutation } => {
             cmd_workspaces::rename_workspace(mux, client, request, mutation)
         }
+        Command::ReleaseWorkspaceNames {} => cmd_workspaces::release_workspace_names(mux, actor),
         Command::RenameProviderManagedWorkspace { workspace, key, name, authority } => {
             cmd_workspaces::rename_provider_managed_workspace(
                 mux, actor, workspace, key, name, authority,
@@ -1004,6 +1052,9 @@ fn dispatch_command(
             replay_history_start,
             hybrid_stream,
             hybrid_frame,
+            resume_offset,
+            resume_generation,
+            resume_max_bytes,
             snapshot,
         } => {
             // A sized attach is a size report: it starts (or renews) the
@@ -1025,6 +1076,7 @@ fn dispatch_command(
                 output_coalesce_ms,
                 replay_history_start,
                 (hybrid_stream, hybrid_frame),
+                (resume_offset, resume_generation, resume_max_bytes),
                 snapshot,
             )
         }

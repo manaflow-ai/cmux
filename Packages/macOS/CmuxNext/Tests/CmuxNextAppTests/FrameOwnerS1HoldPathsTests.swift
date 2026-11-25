@@ -175,8 +175,8 @@ struct FrameOwnerS1HoldPathsTests {
     /// `PaneHostView.endKeyResizeHold`). The change is one commit: the areas let go at once and the key spring lands with
     /// it, so nothing is on a spring after the change's turn. The one frame tick that shows the change puts every pane at
     /// its rest rect and every strip on its pane; no frame after it moves, nothing holds and each content is at its
-    /// area's size. A split shows at the first frame tick. A zoom shows at the tick at which the dim that comes over the
-    /// other pane is at its end: until then each tick asks for the next one and no pane is on a spring.
+    /// area's size. A split shows at the first frame tick. A zoom shows as any change does, with no dim before it: a
+    /// tick before the one that shows it asks for the next one and puts no pane on a spring.
     @Test(arguments: Takeover.allCases)
     func aSplitOrZoomTakingOverAKeySpringLetsTheAreasGo(_ takeover: Takeover) throws {
         let rig = Rig(Self.pair)
@@ -195,8 +195,7 @@ struct FrameOwnerS1HoldPathsTests {
         let held = rig.provider.views.filter { $0.value.contentHost.isHolding }.keys.map(\.rawValue).sorted()
         #expect(held.isEmpty, "the \(takeover.rawValue) did not end the key hold of \(held)")
         #expect(!screen.hasMotion && !screen.holdsContentForKeyResize, "the \(takeover.rawValue) left the key spring running")
-        // The frame ticks up to the one that shows the change, which asks for no more: none before it for a split, the
-        // dim's for a zoom.
+        // The frame ticks up to the one that shows the change, which asks for no more: none before it for a split.
         var waited = 0
         while waited < 40, rig.root.advanceFrame(1.0 / 120) {
             waited += 1

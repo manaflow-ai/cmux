@@ -91,7 +91,14 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         /// The latest model, mode or option pick: the next one waits for it, so picks reach the
         /// daemon in the order the person made them (a model switch can reset its options).
         var lastPick: Task<Void, Never>?
+        /// The ``Milestone``s already told, each once.
+        var told: Set<String> = []
     }
+
+    /// A new chat's first prompt out (`prompt`), its start answered (`start`) and its agent's first text
+    /// (`first token`), each told once: a Cloud send's timeline to the first token (CmuxNextCloud
+    /// `CloudSendTimeline`, cmux#45953). Names only.
+    public typealias Milestone = @Sendable (_ step: String) -> Void
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.remote")
     private let start: Start?
@@ -113,6 +120,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     private let cloudRepositoryRequest: CloudRepository?
     private let cloudRepositoryStart: CloudRepositoryStart?
     private let host: String?
+    private let milestone: Milestone?
     /// The daemon's own store host (`registry:<id>`) when the tab's `host` names another (an
     /// `install:` tab of that machine): its links are noted under both, so a lookup by either finds them.
     private let linksAlias: String?
@@ -123,6 +131,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
                 trust: Trust? = nil, ownerCloud: OwnerCloud? = nil, cloudRepository: CloudRepository? = nil,
                 cloudRepositoryStart: CloudRepositoryStart? = nil, machineSignIn: Bool = true) {
         start = nil
+        milestone = nil
         servesLogin = false
         self.machineSignIn = machineSignIn
         machineLogin = nil
@@ -140,8 +149,9 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     public init(start: @escaping Start, host: String? = nil, linksAlias: String? = nil, trust: Trust? = nil,
                 ownerCloud: OwnerCloud? = nil, cloudRepository: CloudRepository? = nil,
                 cloudRepositoryStart: CloudRepositoryStart? = nil, servesLogin: Bool = false, servesSide: Bool = false,
-                machineSignIn: Bool = true, machineLogin: MachineLogin? = nil) {
+                machineSignIn: Bool = true, machineLogin: MachineLogin? = nil, milestone: Milestone? = nil) {
         self.start = start
+        self.milestone = milestone
         self.servesLogin = servesLogin && machineSignIn
         self.machineSignIn = machineSignIn
         // A Cloud machine holds no provider login, so it never offers the on-machine sign-in.
@@ -227,7 +237,12 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             run(id) { client in try await client.typing(on); return Data("{}".utf8) }
         case "_acpmux/view":
             guard names(params["sessionId"]), let visible = params["visible"] as? Bool else { return refuse(id, method) }
-            run(id) { client in try await client.view(visible); return Data("{}".utf8) }
+            let attending = params["attending"] as? Bool
+            let seenSeq = (params["seenSeq"] as? NSNumber).flatMap { UInt64(exactly: $0) }
+            run(id) { client in
+                try await client.view(visible, attending: attending, seenSeq: seenSeq)
+                return Data("{}".utf8)
+            }
         case "_acpmux/watch" where state.withLock({ $0.client == nil }):
             // A new chat before its first send: no session on that machine yet.
             reply(id, ["sessions": [Any]()])
@@ -252,6 +267,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             ]])
         case "session/prompt":
             guard !isReadOnly else { return refuseReadOnly(id, method) }
+            tell("prompt")
             guard names(params["sessionId"]), let blocks = params["prompt"] as? [[String: Any]], !blocks.isEmpty,
                   let content = try? JSONSerialization.data(withJSONObject: blocks) else { return refuse(id, method) }
             let text = Self.text(blocks)
@@ -664,7 +680,8 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         let kinds = (params["kinds"] as? [Any])?.compactMap { $0 as? String }
         if method == "_acpmux/watch" { return watchPage }
         return AgentSessionPage(afterSeq: number("afterSeq"), beforeSeq: number("beforeSeq"),
-                                limit: (params["limit"] as? NSNumber)?.intValue, kinds: kinds)
+                                limit: (params["limit"] as? NSNumber)?.intValue, kinds: kinds,
+                                maxBytes: (params["maxBytes"] as? NSNumber)?.intValue)
     }
 
     // MARK: Pushes
@@ -823,6 +840,20 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         guard let text else { return }
         let onFrame = state.withLock { $0.closed ? nil : $0.onFrame }
         onFrame?(text)
+        if milestone != nil, Self.isFirstToken(text) { tell("first token") }
+    }
+
+    /// Tells ``milestone`` `step` once.
+    func tell(_ step: String) {
+        guard let milestone, state.withLock({ $0.told.insert(step).inserted }) else { return }
+        milestone(step)
+    }
+
+    /// An agent's text or thinking on its way to the page: the model's first token, once the chat's first prompt went out
+    /// (the person's own words echoed back are a `user_message_chunk`, never this).
+    static func isFirstToken(_ frame: String) -> Bool {
+        frame.utf8Contains(#""session/update""#)
+            && frame.utf8ContainsAny([#""agent_message_chunk""#, #""agent_thought_chunk""#])
     }
 
     /// A JSON-RPC id as its JSON text (number or string), so the reply carries the same id.

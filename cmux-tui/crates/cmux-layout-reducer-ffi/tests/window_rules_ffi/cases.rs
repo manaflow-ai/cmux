@@ -897,3 +897,86 @@ fn launch_snapshot_verdict_names_another_sessions_snapshot_stale() {
     assert_eq!(call_json(c"window_launch_snapshot_verdict", &own).1, json!({"verdict": "current"}));
     assert_eq!(call(c"window_launch_snapshot_verdict", b"[").0, ERR_INVALID);
 }
+
+/// cmuxterm-hq#12660: the registry id this home recorded, read through the one Rust reader.
+#[test]
+fn launch_current_registry_reads_this_homes_file() {
+    let root = std::env::temp_dir().join(format!("ffi-launch-registry-{}", std::process::id()));
+    std::fs::create_dir_all(root.join("cmux-next")).expect("temporary folder");
+    std::fs::write(root.join("cmux-next/launch-snapshot-registry.cmux-app"), "9e1f\n")
+        .expect("write");
+    let request = json!({"appSupport": root.to_string_lossy(), "session": "cmux-app"});
+    assert_eq!(
+        call_json(c"window_launch_current_registry", &request),
+        (OK, json!({"registryId": "9e1f"}))
+    );
+    let other = json!({"appSupport": root.to_string_lossy(), "session": "cmux-app-other"});
+    assert_eq!(call_json(c"window_launch_current_registry", &other).1, json!({"registryId": null}));
+    assert_eq!(call(c"window_launch_current_registry", b"{}").0, ERR_INVALID);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// Leo ask-b7aac8d3f9: a relaunch lands on the last workspace and tab, a first launch on Home.
+#[test]
+fn launch_landing_reopens_the_last_workspace_and_tab() {
+    let kept = json!({"last": {"kind": "workspace", "workspace": "w2", "pane": "p1", "tab": "t3"},
+                      "workspaceLive": true, "tab": "ended"});
+    assert_eq!(
+        call_json(c"window_launch_landing", &kept),
+        (OK, json!({"kind": "workspace", "workspace": "w2", "pane": "p1", "tab": "t3"}))
+    );
+    assert_eq!(
+        call_json(c"window_launch_landing", &json!({})).1,
+        json!({"kind": "home", "why": "firstLaunch"})
+    );
+    assert_eq!(
+        call_json(c"window_launch_landing", &json!({"last": {"kind": "home"}})).1,
+        json!({"kind": "home", "why": "lastWasHome"})
+    );
+    assert_eq!(call(c"window_launch_landing", b"[").0, ERR_INVALID);
+}
+
+/// Open in Editor: the table the app reads, and the pick with the person's `editor.default`.
+#[test]
+fn editors_table_and_pick_answer_the_app() {
+    let (code, body) = call_json(c"window_editors_table", &json!({}));
+    assert_eq!(code, OK);
+    let first = &body["editors"][0];
+    assert_eq!(first["id"], "vscode");
+    assert_eq!(first["bundleIds"][0], "com.microsoft.VSCode");
+    assert_eq!(first["remoteScheme"], "vscode");
+    assert_eq!(
+        call_json(
+            c"window_editors_pick",
+            &json!({"installed": ["zed", "vscode"], "configured": "zed"})
+        ),
+        (OK, json!({"default": "zed", "ordered": ["zed", "vscode"]}))
+    );
+    assert_eq!(
+        call_json(
+            c"window_editors_pick",
+            &json!({"installed": ["zed", "vscode"], "configured": null})
+        ),
+        (OK, json!({"default": "vscode", "ordered": ["vscode", "zed"]}))
+    );
+    assert_eq!(
+        call_json(c"window_editors_pick", &json!({"installed": [], "configured": "nova"})),
+        (OK, json!({"default": null, "ordered": []}))
+    );
+}
+
+/// Leo ask-b7aac8d3f9: a fresh launch lands on Home, a New Tab workspace when no saved window is open, and waits
+/// while Home is not ensured yet.
+#[test]
+fn launch_fresh_landing_answers_home_new_tab_or_wait() {
+    let empty = json!({"emptyTree": true, "homeEnsured": true});
+    assert_eq!(call_json(c"window_launch_fresh_landing", &empty), (OK, json!({"kind": "home"})));
+    let none_open = json!({"noSavedWindowOpen": true, "homeEnsured": true});
+    assert_eq!(call_json(c"window_launch_fresh_landing", &none_open).1, json!({"kind": "newTab"}));
+    let waiting = json!({"emptyTree": true, "homeNotEnsuredYet": true});
+    assert_eq!(
+        call_json(c"window_launch_fresh_landing", &waiting).1,
+        json!({"kind": "waitForHome"})
+    );
+    assert_eq!(call(c"window_launch_fresh_landing", b"[").0, ERR_INVALID);
+}

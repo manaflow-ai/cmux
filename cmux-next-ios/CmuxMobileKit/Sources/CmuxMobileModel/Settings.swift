@@ -158,6 +158,8 @@ public final class SettingsStore {
     public var terminalFontSize: Int { didSet { save(terminalFontSize, "terminalFontSize") } }
     /// Read by the agent composer (`CmuxMobilePreferences`) through the same key.
     public var dismissKeyboardAfterSend: Bool { didSet { save(dismissKeyboardAfterSend, "dismissKeyboardAfterSend") } }
+    /// Read by every composer's text view (`CmuxMobilePreferences.swipeDownCollapsesComposer`) through the same key.
+    public var swipeDownCollapsesComposer: Bool { didSet { save(swipeDownCollapsesComposer, "swipeDownCollapsesComposer") } }
     /// Read by the agent composer: Steer sends a message typed while the
     /// agent works as acpmux `steer`, Queue sends it after the turn.
     public var followUp: FollowUpBehavior { didSet { save(followUp.rawValue, "followUp") } }
@@ -167,11 +169,23 @@ public final class SettingsStore {
     public var keyClicks: Bool { didSet { save(keyClicks, "keyClicks") } }
     /// Read by the terminal composer (`CmuxMobilePreferences.terminalJumpToBottom`).
     public var terminalJumpToBottom: Bool { didSet { save(terminalJumpToBottom, "terminalJumpToBottom") } }
+    /// Read by the terminal composer, which also toggles it from its + menu
+    /// (`CmuxMobilePreferences.terminalComposerAutocorrect`).
+    public var terminalComposerAutocorrect: Bool {
+        didSet { save(terminalComposerAutocorrect, "terminalComposerAutocorrect") }
+    }
     /// Settings → Terminal → Terminal and Chat Toggle (off by default). Read by the workspace tabs
     /// (`CmuxMobilePreferences.terminalChatToggle`) through the same key.
     public var terminalChatToggle: Bool { didSet { save(terminalChatToggle, "terminalChatToggle") } }
     /// Read by the terminal (`CmuxMobilePreferences.predictiveEcho`) through the same key.
     public var predictiveEcho: Bool { didSet { save(predictiveEcho, "predictiveEcho") } }
+    /// Settings → Terminal → Predictive Echo in Full-Screen Apps (off by default). Read by the
+    /// terminal (`CmuxMobilePreferences.predictiveEchoFullScreen`) through the same key.
+    public var predictiveEchoFullScreen: Bool {
+        didSet { save(predictiveEchoFullScreen, "predictiveEchoFullScreen") }
+    }
+    /// Read by the terminal (`CmuxMobilePreferences.terminalFitToPhone`) when a page opens.
+    public var terminalFitToPhone: Bool { didSet { save(terminalFitToPhone, "terminalFitToPhone") } }
     /// Read at each WireGuard dial (`FFIMacLinkDialer`) through the same key. Auto by default:
     /// Rust sends repair data only after it sees loss, capped while the network is cellular.
     public var ultra: UltraConnection { didSet { save(ultra.rawValue, "ultra") } }
@@ -190,6 +204,10 @@ public final class SettingsStore {
     /// Workspaces shows one line per workspace (the Mac's Compact Workspace List); read by the
     /// list through `CmuxMobilePreferences.Key.compactWorkspaceList`.
     public var compactWorkspaceList: Bool { didSet { save(compactWorkspaceList, "compactWorkspaceList") } }
+    /// Needs You Look (the Mac's `notifications.attention.mark`): a waiting workspace row's dot, or a
+    /// glow until it is opened. Badge by default; read by the list through
+    /// `CmuxMobilePreferences.Key.attentionMark`.
+    public var attentionMark: AttentionMarkLook { didSet { save(attentionMark.rawValue, "attentionMark") } }
 
     /// The terminal's key row zooms by writing the font size directly.
     @ObservationIgnored private var defaultsObserver: (any NSObjectProtocol)?
@@ -214,6 +232,8 @@ public final class SettingsStore {
         hapticsEnabled = bool("hapticsEnabled", true)
         terminalFontSize = defaults.object(forKey: "cmuxMobile.settings.terminalFontSize") as? Int ?? Self.defaultTerminalFontSize
         dismissKeyboardAfterSend = bool("dismissKeyboardAfterSend", true)
+        swipeDownCollapsesComposer = defaults.object(forKey: "cmuxMobile.settings.swipeDownCollapsesComposer") == nil
+            ? false : defaults.bool(forKey: "cmuxMobile.settings.swipeDownCollapsesComposer")
         followUp = string("followUp").flatMap(FollowUpBehavior.init(rawValue:)) ?? .queue
         wrapCode = bool("wrapCode", false)
         keyClicks = bool("keyClicks", true)
@@ -221,9 +241,14 @@ public final class SettingsStore {
         // (CmuxMobilePreferences.terminalJumpToBottom reads the key the same way).
         terminalJumpToBottom = defaults.object(forKey: "cmuxMobile.settings.terminalJumpToBottom") == nil
             ? true : defaults.bool(forKey: "cmuxMobile.settings.terminalJumpToBottom")
+        terminalComposerAutocorrect = defaults.object(forKey: "cmuxMobile.settings.terminalComposerAutocorrect") == nil
+            ? false : defaults.bool(forKey: "cmuxMobile.settings.terminalComposerAutocorrect")
         terminalChatToggle = defaults.object(forKey: "cmuxMobile.settings.terminalChatToggle") == nil
             ? false : defaults.bool(forKey: "cmuxMobile.settings.terminalChatToggle")
         predictiveEcho = bool("predictiveEcho", true)
+        predictiveEchoFullScreen = defaults.object(forKey: "cmuxMobile.settings.predictiveEchoFullScreen") == nil
+            ? false : defaults.bool(forKey: "cmuxMobile.settings.predictiveEchoFullScreen")
+        terminalFitToPhone = bool("terminalFitToPhone", false)
         // The earlier "Ultra mode on cellular" switch: on reads as Always.
         let ultra = string("ultra").flatMap(UltraConnection.init(rawValue:))
             ?? (bool("ultraOnCellular", false) ? .always : .auto)
@@ -242,9 +267,22 @@ public final class SettingsStore {
         notifyPreviews = bool("notifyPreviews", true)
         requireFaceID = bool("requireFaceID", false)
         compactWorkspaceList = bool("compactWorkspaceList", false)
+        attentionMark = AttentionMarkLook(stored: string("attentionMark"))
+        #if canImport(Darwin)
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: defaults, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.reloadTerminalFontSize() }
         }
+        #else
+        // swift-corelibs-foundation posts to `queue: .main` and waits for it, which deadlocks a post from the
+        // main actor (the Linux test build): deliver on the posting thread, hopping to main from elsewhere.
+        defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: defaults, queue: nil) { [weak self] _ in
+            guard Thread.isMainThread else {
+                DispatchQueue.main.async { MainActor.assumeIsolated { self?.reloadTerminalFontSize() } }
+                return
+            }
+            MainActor.assumeIsolated { self?.reloadTerminalFontSize() }
+        }
+        #endif
         // Retired settings that never took effect (a terminal theme the phone
         // cannot read from the Mac, and a connection-details switch).
         for key in Self.retiredKeys { defaults.removeObject(forKey: "cmuxMobile.settings.\(key)") }

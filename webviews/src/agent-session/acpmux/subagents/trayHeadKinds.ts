@@ -17,7 +17,13 @@ import { subagentStatus } from "../summary/subagentStatusListModel";
 import { sessionRetry } from "./retryState";
 import { harnessFamily } from "./agentRuns";
 import { commandStatus, type TrayItem } from "./runningTray";
-import { COMMAND_KINDS, COMMAND_KIND_COUNT, type CommandKind, commandKind } from "./trayCommandKinds";
+import {
+  COMMAND_KINDS,
+  COMMAND_KIND_COUNT,
+  COMMAND_KIND_ICON,
+  type CommandKind,
+  commandKind,
+} from "./trayCommandKinds";
 
 export type TrayHeadKindsArm = "kinds" | "plain" | "sub" | "running";
 
@@ -39,7 +45,8 @@ export function trayHead(
     items,
     finished,
     waiting,
-    working,
+    // Running work is its mark and count now, never "Running in background" (Leo, 2026-11-23).
+    working: _working,
     chatHarness,
     arm,
     separator = " · ",
@@ -77,8 +84,9 @@ export function trayHead(
     else agents += 1;
   }
   const parts: (string | false)[] = [
-    working ? agents > 0 && t("subagents.allRunning", { n: agents }) : items.length > 0 && t("bgWork.running"),
-    !working && agents > 0 && t("subagents.count", { n: agents }),
+    // Between turns too, the work is counted, never headed "Running in background" (Leo, 2026-11-23:
+    // "there's no point in even saying it's running").
+    agents > 0 && t("subagents.count", { n: agents }),
     sessions > 0 && t("turn.working.sessions", { n: sessions }),
     waitingOnYou > 0 && t("summary.subagents.waiting", { n: waitingOnYou }),
     ...(arm === "running"
@@ -154,3 +162,123 @@ function otherFamilies(items: readonly TrayItem[], chatHarness: string | undefin
   }
   return marks;
 }
+
+/// One kind in the header's `kinds` arm (trayFoldHead.experiment.ts): its mark, its count in words and
+/// the items it counts, so hovering the mark names them (Leo, 2026-11-21, on the open header's "1
+/// message · 1 wait": it "almost makes more sense to have at baseline", folded too, its icons "like
+/// before" to hover across).
+export type TrayHeadPart = {
+  key: string;
+  /// The kind's mark: a command kind's (trayCommandKinds.ts), a subagent's, a session's, a state's.
+  icon: string;
+  /// Its count in words ("1 wait", "2 subagents").
+  text: string;
+  /// What it counts, in list order; the hover names them.
+  items: readonly TrayItem[];
+  /// A failed count draws in the danger colour, what waits on the person in its tone.
+  tone?: "failed" | "waiting";
+  /// The tally arm: the subagents' harness, whose mark this part draws (one part per family).
+  harness?: string;
+};
+
+/// The header's kinds, in the order `trayHead` counts them: what runs (subagents, sessions, what waits
+/// on the person, the commands by kind), then what ended (done, stopped, failed). Computed when the
+/// tray's lists change, never per tick.
+export function trayHeadParts(
+  t: Translate,
+  {
+    items,
+    finished,
+    waiting,
+  }: {
+    items: readonly TrayItem[];
+    finished: readonly TrayItem[];
+    waiting: ReadonlySet<string>;
+  },
+  /// The tally arm (trayFoldHead.experiment.ts): subagents counted per harness family, and what ended
+  /// counted only when it needs the person (failed); done and stopped need nothing, so they go.
+  tally = false,
+  chatHarness?: string,
+): readonly TrayHeadPart[] {
+  const agents: TrayItem[] = [];
+  const sessions: TrayItem[] = [];
+  const waits: TrayItem[] = [];
+  const byKind = new Map<CommandKind, TrayItem[]>();
+  for (const item of items) {
+    if (item.kind === "command") {
+      const kind = commandKind(item.command.command);
+      const list = byKind.get(kind);
+      if (list) list.push(item);
+      else byKind.set(kind, [item]);
+    } else if (
+      item.kind === "agent" ? subagentStatus(item.agent, waiting) === "waiting" : item.session.state === "waiting"
+    )
+      waits.push(item);
+    else if (item.kind === "session") sessions.push(item);
+    else agents.push(item);
+  }
+  const done: TrayItem[] = [];
+  const stopped: TrayItem[] = [];
+  const failed: TrayItem[] = [];
+  let doneOthers = false;
+  for (const item of finished) {
+    const status =
+      item.kind === "agent"
+        ? subagentStatus(item.agent, waiting)
+        : item.kind === "session"
+          ? item.session.state === "failed"
+            ? "failed"
+            : item.session.state === "idle"
+              ? "done"
+              : undefined
+          : commandStatus(item.command);
+    if (status === "failed") failed.push(item);
+    else if (status === "stopped") stopped.push(item);
+    else if (status === "done") {
+      done.push(item);
+      if (item.kind !== "agent") doneOthers = true;
+    }
+  }
+  const parts: TrayHeadPart[] = [];
+  const add = (key: string, icon: string, list: readonly TrayItem[], text: string, tone?: TrayHeadPart["tone"]) => {
+    if (list.length > 0) parts.push({ key, icon, text, items: list, ...(tone ? { tone } : {}) });
+  };
+  const n = (list: readonly TrayItem[]) => ({ n: list.length });
+  if (tally) {
+    // One part per harness family, in the order each first appears (the longest-running first).
+    const families = new Map<string, { harness: string | undefined; list: TrayItem[] }>();
+    for (const item of agents) {
+      const harness = item.kind === "agent" ? (item.agent.harness ?? chatHarness) : chatHarness;
+      const family = harness ? harnessFamily(harness) : "";
+      const entry = families.get(family);
+      if (entry) entry.list.push(item);
+      else families.set(family, { harness, list: [item] });
+    }
+    for (const [family, { harness, list }] of families) {
+      const text = t("subagents.count", n(list));
+      parts.push({ key: `agents:${family}`, icon: SUBAGENT_ICON, text, items: list, ...(harness ? { harness } : {}) });
+    }
+  } else add("agents", SUBAGENT_ICON, agents, t("subagents.count", n(agents)));
+  add("sessions", "agent.session", sessions, t("turn.working.sessions", n(sessions)));
+  add("waiting", "status.needsinput", waits, t("summary.subagents.waiting", n(waits)), "waiting");
+  for (const kind of COMMAND_KINDS) {
+    const list = byKind.get(kind) ?? [];
+    add(kind, COMMAND_KIND_ICON[kind], list, t(COMMAND_KIND_COUNT[kind], n(list)));
+  }
+  if (tally) {
+    add("failed", "status.failure", failed, t("summary.subagents.failed", n(failed)), "failed");
+    return parts;
+  }
+  add(
+    "done",
+    "status.complete",
+    done,
+    doneOthers ? t("summary.subagents.done", n(done)) : t("subagents.allDone", n(done)),
+  );
+  add("stopped", "task.status.canceled", stopped, t("summary.subagents.stopped", n(stopped)));
+  add("failed", "status.failure", failed, t("summary.subagents.failed", n(failed)), "failed");
+  return parts;
+}
+
+/// A subagent's mark when the header draws no harness logo for it (agentIdentityModel.ts).
+const SUBAGENT_ICON = "task.ai";

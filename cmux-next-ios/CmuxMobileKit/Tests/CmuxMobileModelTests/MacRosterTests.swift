@@ -81,6 +81,28 @@ import Testing
     }
 
     /// The offline build that comes back online is listed instead.
+    /// The phone paired a dev build by its code beside another build of the same computer
+    /// (2026-11-18: the tag's Mac 2b48… lost to a long-running dev build 0ae8… on id order, so the
+    /// phone never focused the Mac whose code it redeemed). The picked build stands for its computer.
+    @Test func thePickedBuildStandsForItsComputer() {
+        let first = MacDevice(id: "0ae8", name: "Aziz's MacBook Pro", isOnline: true, lastSeenAt: now, ownerUserID: "me", machineID: machine)
+        let tag = MacDevice(id: "2b48", name: "Aziz's MacBook Pro", isOnline: true, lastSeenAt: now, ownerUserID: "me", machineID: machine)
+        #expect(MacRoster([first, tag]).visible.map(\.id) == ["0ae8"])
+        let picked = MacRoster([first, tag], preferring: "2b48")
+        #expect(picked.visible.map(\.id) == ["2b48"])
+        #expect(picked.otherBuilds == ["2b48": [first]])
+        var team = Team(id: "t", name: "T", macs: [first, tag])
+        team.pickedMacID = "2b48"
+        #expect(team.listedMacs.map(\.id) == ["2b48"])
+    }
+
+    /// A picked build that is offline never hides a running build of its computer.
+    @Test func anOfflinePickDoesNotHideARunningBuild() {
+        let running = MacDevice(id: "0ae8", name: "Mini", isOnline: true, lastSeenAt: now, ownerUserID: "me", machineID: machine)
+        let quit = MacDevice(id: "2b48", name: "Mini", isOnline: false, lastSeenAt: now - 60, ownerUserID: "me", machineID: machine)
+        #expect(MacRoster([running, quit], preferring: "2b48").visible.map(\.id) == ["0ae8"])
+    }
+
     @Test func aBuildBackOnlineIsListed() {
         let current = MacDevice(id: "a", name: "Mini", isOnline: false, lastSeenAt: now - 60, machineID: machine)
         var other = MacDevice(id: "b", name: "Mini", isOnline: false, lastSeenAt: now - 3600, machineID: machine)

@@ -211,15 +211,24 @@ class RealMapTests(unittest.TestCase):
     def setUp(self) -> None:
         self.document = resolver.load_map(REAL_MAP)
 
-    def test_the_repository_owner_routes_to_blacksmith(self) -> None:
+    def test_the_repository_owner_routes_to_the_owned_fleet(self) -> None:
+        # Leo, 2026-11-14: owned fleet first, not Blacksmith. The x86_64 Linux keys take the one owned
+        # Linux label, cmux-linux; arm64 and macOS keep Blacksmith, which nothing owned answers as a fixed label yet.
         fleet, _, labels = resolver.resolve(map_path=REAL_MAP, owner="manaflow-ai")
 
-        self.assertEqual(fleet, "blacksmith")
-        self.assertEqual(labels["linux"], "blacksmith-4vcpu-ubuntu-2404")
+        self.assertEqual(fleet, "owned")
+        for capability in ("linux", "linux_16", "linux_32"):
+            self.assertEqual(labels[capability], "cmux-linux")
         self.assertEqual(labels["macos_15"], "blacksmith-6vcpu-macos-15")
         self.assertEqual(labels["macos_26"], "blacksmith-6vcpu-macos-26")
         self.assertEqual(labels["macos_26_ios"], "blacksmith-6vcpu-macos-26")
         self.assertEqual(labels["macos_26_large"], "blacksmith-12vcpu-macos-26")
+
+    def test_blacksmith_stays_an_explicit_opt_in(self) -> None:
+        fleet, _, labels = resolver.resolve(map_path=REAL_MAP, owner="manaflow-ai", forced_fleet="blacksmith")
+
+        self.assertEqual(fleet, "blacksmith")
+        self.assertEqual(labels["linux"], "blacksmith-4vcpu-ubuntu-2404")
 
     def test_a_fork_never_lands_on_organization_only_capacity(self) -> None:
         _, _, labels = resolver.resolve(map_path=REAL_MAP, owner="some-personal-account")
@@ -331,17 +340,54 @@ class TheResolverStartsAnywhere(unittest.TestCase):
 
         workflow = Path(__file__).resolve().parents[1] / ".github/workflows/resolve-runners.yml"
         jobs = yaml.safe_load(workflow.read_text(encoding="utf-8"))["jobs"]
-        # A fork takes GitHub-hosted Linux first. In manaflow-ai the resolver
-        # is a declared light job: GitHub-hosted Ubuntu on attempt 1, the
-        # CI_TRUSTED_RUNNER selector on a re-run, so neither a stalled Blacksmith
-        # size nor a GitHub billing block stops the graph this job starts.
+        # A fork takes GitHub-hosted Linux first. In manaflow-ai a same-repository
+        # event's attempt 1 takes the owned persistent pool (cmux-linux); a fork
+        # pull request and every attempt 2+ take the CI_TRUSTED_RUNNER selector,
+        # else Blacksmith, as overflow only (Leo, 2026-11-19: "stop ... relying
+        # on it"; 2026-11-21 11:44Z: this job queued on Blacksmith 4 vCPU on
+        # attempt 1 beside 1,311 idle owned runners).
+        trusted = ('contains(fromJSON(\'["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]\'), '
+                   'vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\'')
         for name, job in jobs.items():
             with self.subTest(job=name):
                 self.assertEqual(
                     workflow_jobs.runs_on_cells(job),
-                    ['${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || github.run_attempt == 1 && \'ubuntu-24.04\' || contains(fromJSON(\'["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}'],
+                    ['${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || github.run_attempt == 1 '
+                     '&& !(github.event_name == \'pull_request\' && github.event.pull_request.head.repo.full_name '
+                     '!= github.repository) && \'cmux-linux\' || ' + trusted + ' }}'],
                 )
 
+    def test_the_resolver_takes_owned_runners_first_and_blacksmith_only_as_overflow(self):
+        # Evaluate the runs-on for each case that matters, so the order (owned on
+        # attempt 1, Blacksmith on a fork or a re-run) is checked, not only the text.
+        import yaml
+
+        workflow = Path(__file__).resolve().parents[1] / ".github/workflows/resolve-runners.yml"
+        job = yaml.safe_load(workflow.read_text(encoding="utf-8"))["jobs"]["resolve"]
+        expression = workflow_jobs.runs_on_cells(job)[0]
+
+        def route(owner="manaflow-ai", attempt=1, event="pull_request", head="manaflow-ai/cmux", trusted=""):
+            body = expression.removeprefix("${{").removesuffix("}}")
+            body = (body.replace("github.repository_owner", repr(owner))
+                    .replace("github.run_attempt", str(attempt))
+                    .replace("github.event_name", repr(event))
+                    .replace("github.event.pull_request.head.repo.full_name", repr(head))
+                    .replace("github.repository", repr("manaflow-ai/cmux"))
+                    .replace("vars.CI_TRUSTED_RUNNER", repr(trusted))
+                    .replace("fromJSON(", "json.loads(").replace("contains(", "_contains(")
+                    .replace("!=", "<>").replace("!(", "not (").replace("<>", "!=")
+                    .replace("&&", " and ").replace("||", " or "))
+            import json
+            return eval(body, {"json": json, "_contains": lambda xs, x: x in xs})  # noqa: S307 (test-only)
+
+        self.assertEqual(route(owner="someone"), "ubuntu-24.04")
+        self.assertEqual(route(), "cmux-linux")
+        self.assertEqual(route(event="push", head=""), "cmux-linux")
+        self.assertEqual(route(event="workflow_dispatch", head=""), "cmux-linux")
+        self.assertEqual(route(attempt=2), "blacksmith-4vcpu-ubuntu-2404")
+        self.assertEqual(route(attempt=2, trusted="blacksmith-2vcpu-ubuntu-2404"), "blacksmith-2vcpu-ubuntu-2404")
+        self.assertEqual(route(head="contributor/cmux"), "blacksmith-4vcpu-ubuntu-2404")
+        self.assertEqual(route(head="contributor/cmux", trusted="cmux-linux"), "blacksmith-4vcpu-ubuntu-2404")
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -1,5 +1,5 @@
 /* A sub-session's card (AgentCard.tsx): the glass the received-message card has
-   (conversation.css .cv-received__body), never a solid fill; tool rows' font and detail size. States
+   (design/chat-surfaces.md), never a solid fill; tool rows' font and detail size. States
    take the Ghostty theme's colours: waiting on the person the warning yellow, failed the red. */
 .cv-agent-card {
   box-sizing: border-box;
@@ -9,11 +9,9 @@
   display: flex;
   flex-direction: column;
   gap: var(--grid-gap-inner);
-  background: color-mix(in srgb, var(--agent-text, var(--cv-text)) 6%, transparent);
-  box-shadow:
-    inset 0 0 0 var(--cmux-hairline, 0.5px)
-      color-mix(in srgb, var(--agent-accent) 22%, var(--acpmux-composer-edge, transparent)),
-    inset 0 1px 0 color-mix(in srgb, #fff 5%, transparent);
+  /* The card level and its line, as every transcript card (design/chat-surfaces.md). */
+  background: var(--ds-surface-card);
+  box-shadow: inset 0 0 0 1px var(--ds-surface-card-line);
   color: var(--cv-text);
   min-width: 0;
 }
@@ -29,9 +27,11 @@
   flex: 0 1 auto;
   max-width: none;
 }
-/* An agent session's own avatar (agentAvatar.ts), in place of its harness mark: also the sender chip's. */
+/* An agent session's own avatar (agentAvatar.ts), in place of its harness mark: also the sender chip's.
+   It never shrinks beside a long name in a flex row, so it stays a circle, not an oval. */
 .cv-agent-avatar {
   display: block;
+  flex: none;
   border-radius: 50%;
   object-fit: cover;
 }
@@ -93,15 +93,17 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-/* A Chief's text avatar (chiefFace.ts): its letters or emoji where its picture would be. */
+/* A Chief's text avatar (chiefFace.ts): its letters or emoji where its picture would be.
+   Like a picture avatar, it never shrinks beside long text. */
 .cv-chief-text-avatar {
   display: inline-flex;
+  flex: none;
   width: 16px;
   aspect-ratio: 1;
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  background: var(--cv-card-fill);
+  background: var(--ds-surface-card);
   font-size: var(--text-detail);
   line-height: 1;
 }

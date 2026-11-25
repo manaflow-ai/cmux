@@ -40,7 +40,7 @@ public struct PaletteSection: Hashable, Sendable {
 extension PaletteCommand {
     /// The command runs and keeps the palette open (a toggle row).
     public var togglesInPlace: Bool {
-        if case .performKeepingOpen = effect { return true }
+        if usesSpaceToActivate, case .performKeepingOpen = effect { return true }
         return false
     }
 }
@@ -79,12 +79,16 @@ public struct PaletteCommand: Identifiable {
     public var symbol: String?
     public var isDestructive: Bool
     public var effect: PaletteEffect
+    /// Toggle commands can use Space on an empty query. Other keep-open commands can opt out.
+    public var usesSpaceToActivate: Bool
 
-    public init(id: String, title: String, symbol: String? = nil, isDestructive: Bool = false, effect: PaletteEffect) {
+    public init(id: String, title: String, symbol: String? = nil, isDestructive: Bool = false, usesSpaceToActivate: Bool = true,
+                effect: PaletteEffect) {
         self.id = id
         self.title = title
         self.symbol = symbol
         self.isDestructive = isDestructive
+        self.usesSpaceToActivate = usesSpaceToActivate
         self.effect = effect
     }
 }

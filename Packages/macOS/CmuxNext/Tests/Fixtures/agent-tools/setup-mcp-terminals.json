@@ -1,0 +1,21 @@
+{
+  "scope": "terminals",
+  "state": "ok",
+  "clients": [
+    {
+      "id": "claude",
+      "name": "Claude Code",
+      "installed": true,
+      "state": "terminals",
+      "user_action": null
+    },
+    {
+      "id": "codex",
+      "name": "Codex",
+      "installed": true,
+      "state": "terminals",
+      "user_action": null
+    }
+  ],
+  "manual": {"commands": 2}
+}

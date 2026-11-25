@@ -12,8 +12,10 @@
 // `cloud.startChat {cwd}`; the machine clones it.
 //
 // One small store per page (useSyncExternalStore, as cloudMachines.ts), driven by the menu's own
-// events: opening the menu reads the status, Connect to GitHub opens GitHub and then reads the status
-// again each time the page becomes the key one (pageKey.ts), until it says ready. No timers, no polls.
+// events: Add project opening reads the status, and the repositories once it is ready (nothing is read
+// before the person asks for them, cmux#53226; the repositories stay as read), Connect to GitHub opens
+// GitHub and then reads the status again each time the page becomes the key one (pageKey.ts), until
+// it says ready. No timers, no polls.
 import { useSyncExternalStore } from "react";
 import { githubRepository } from "./githubRepository";
 import { postNative } from "./native";
@@ -24,18 +26,23 @@ import { errorMessage } from "./transportErrors";
 export type GitHubConnection = "ready" | "not_connected" | "unavailable";
 /// Why GitHub is `unavailable`: signed out of the Cloud service, no GitHub App on this Cloud service, or the
 /// check did not answer (an older host sends no reason: read as `unreachable`).
-export type GitHubUnavailableReason = "signed_out" | "not_configured" | "unreachable";
+export type GitHubUnavailableReason = "signed_out" | "not_configured" | "not_allowed" | "unreachable";
 export type GitHubStatus = {
   state: GitHubConnection;
   reposScope: "all" | "selected" | null;
   /// Only while `unavailable`.
   reason?: GitHubUnavailableReason;
+  /// Only while `not_connected`, when Connect needs more than its title: the host's words for why (a suspended or
+  /// uninstalled App, a link in progress, a connection in error, a link the API refused), the Connect row's second line.
+  message?: string;
+  pendingApproval?: boolean;
+  connecting?: boolean;
 };
 export type GitHubRepo = { fullName: string; private: boolean; defaultBranch: string | null };
 
-/// What the folder menu draws. `status` undefined: not read yet (nothing shows); `not_connected` or
-/// `unavailable`: one Connect to GitHub row whose click connects (the host opens the install page, or
-/// sign-in), its failure on that row.
+/// What the folder menu draws. `status` undefined: not read yet (nothing shows); `not_connected`, or
+/// `unavailable` because signed out: one Connect to GitHub row whose click connects (the host opens the
+/// install page, or sign-in), its failure on that row, else the status's own `message` (why Connect is needed again). Any other `unavailable` shows no row.
 export type GitHubPickerState = {
   status?: GitHubStatus;
   /// The repositories read for `query` (undefined: none read yet).
@@ -45,10 +52,14 @@ export type GitHubPickerState = {
   loading: boolean;
   /// `github.repos.list` failed with anything but `github.not_connected`: one line with Retry.
   error?: string;
-  /// Connect to GitHub opened GitHub: the row waits until the status says ready.
+  /// Connect to GitHub opened GitHub: the status is read again each time the page is back, until it
+  /// says ready. Not drawn: GitHub's own page is the one wait (#46018).
   waiting: boolean;
   /// `github.connect` was refused: the host's words, the Connect to GitHub row's second line.
   connectError?: string;
+  connecting?: boolean;
+  rateLimited?: boolean;
+  retryAfter?: number;
 };
 
 /// The folder menu's handle on the store (a gallery or test passes its own).
@@ -79,12 +90,31 @@ export function githubFolderRepo(folder: string | undefined): string | undefined
 }
 
 export function githubStatusFromReply(reply: unknown): GitHubStatus {
-  const raw = (reply ?? {}) as { state?: unknown; repos_scope?: unknown; reason?: unknown };
+  const raw = (reply ?? {}) as {
+    state?: unknown;
+    repos_scope?: unknown;
+    reason?: unknown;
+    message?: unknown;
+    pending_approval?: unknown;
+    connecting?: unknown;
+  };
   const state: GitHubConnection = raw.state === "ready" || raw.state === "not_connected" ? raw.state : "unavailable";
   const reposScope = raw.repos_scope === "all" || raw.repos_scope === "selected" ? raw.repos_scope : null;
+  if (state === "not_connected") {
+    const message = typeof raw.message === "string" ? raw.message.trim() : undefined;
+    return {
+      state,
+      reposScope,
+      ...(message ? { message } : {}),
+      ...(raw.connecting === true ? { connecting: true } : {}),
+      ...(raw.pending_approval === true ? { pendingApproval: true } : {}),
+    };
+  }
   if (state !== "unavailable") return { state, reposScope };
   const reason: GitHubUnavailableReason =
-    raw.reason === "signed_out" || raw.reason === "not_configured" ? raw.reason : "unreachable";
+    raw.reason === "signed_out" || raw.reason === "not_configured" || raw.reason === "not_allowed"
+      ? raw.reason
+      : "unreachable";
   return { state, reposScope, reason };
 }
 
@@ -92,6 +122,7 @@ export function githubStatusFromReply(reply: unknown): GitHubStatus {
 const CONNECT_REFUSAL_REASON: Record<string, GitHubUnavailableReason> = {
   "github.signed_out": "signed_out",
   "github.not_configured": "not_configured",
+  "github.not_allowed": "not_allowed",
   "github.unavailable": "unreachable",
 };
 
@@ -129,11 +160,24 @@ const INITIAL: GitHubPickerState = { query: null, truncated: false, loading: fal
 
 type Call = (method: string, params: Record<string, unknown>) => Promise<unknown>;
 
+/// The host's word that GitHub changed under this page (the app finished an install GitHub handed back to it, #46018):
+/// `cmux-github-changed` on the window. Returns the unwatch. With no window (a store a module builds when it loads, read
+/// by bun with no DOM: the gallery's manifest and a server render) there is no host to hear, and nothing to watch.
+export function watchGitHubChanged(
+  run: () => void,
+  view: Window | undefined = typeof window === "undefined" ? undefined : window,
+): () => void {
+  if (!view) return () => undefined;
+  view.addEventListener("cmux-github-changed", run);
+  return () => view.removeEventListener("cmux-github-changed", run);
+}
+
 /// The store: `call` is the host (postNative), `watchKey`/`isKey` the page's key state (pageKey.ts).
 export function createGitHubPicker(
   call: Call = postNative,
   watchKey: (run: () => void) => () => void = watchPageKey,
   isKey: () => boolean = pageIsKey,
+  watchChanged: (run: () => void) => () => void = watchGitHubChanged,
 ) {
   let state = INITIAL;
   const listeners = new Set<() => void>();
@@ -141,6 +185,8 @@ export function createGitHubPicker(
   let statusTurn = 0;
   let reposTurn = 0;
   let unwatch: (() => void) | undefined;
+  // A status read is out: an open while it is waits for that answer rather than asking twice.
+  let statusOut = false;
   // The status the latest Connect was clicked in: the wait ends when the status moves off it.
   let waitingFrom: string | undefined;
   const set = (next: Partial<GitHubPickerState>) => {
@@ -153,7 +199,7 @@ export function createGitHubPicker(
   };
   const listRepos = (query: string | null) => {
     const turn = ++reposTurn;
-    set({ loading: true, error: undefined, query });
+    set({ loading: true, error: undefined, rateLimited: undefined, retryAfter: undefined, query });
     call("github.repos.list", { query }).then(
       (reply) => {
         if (turn !== reposTurn) return;
@@ -166,15 +212,28 @@ export function createGitHubPicker(
           set({ loading: false, repos: undefined, status: { state: "not_connected", reposScope: null } });
           return;
         }
-        set({ loading: false, error: errorMessage(error).trim() || translate("composer.githubReposFailed") });
+        const failure = error as { code?: unknown; details?: { retry_after?: unknown } } | null;
+        const rateLimited = failure?.code === "github.rate_limited" || failure?.code === "rate_limited";
+        const retry = failure?.details?.retry_after;
+        set({
+          loading: false,
+          error: errorMessage(error).trim() || translate("composer.githubReposFailed"),
+          ...(rateLimited ? { rateLimited } : {}),
+          ...(rateLimited && typeof retry === "number" && Number.isFinite(retry) && retry > 0
+            ? { retryAfter: retry }
+            : {}),
+        });
       },
     );
   };
-  const readStatus = () => {
+  // `relist`: list the repositories again even when some are shown (the installation's repositories changed).
+  const readStatus = (relist = false) => {
+    statusOut = true;
     const turn = ++statusTurn;
     call("github.status", {}).then(
       (reply) => {
         if (turn !== statusTurn) return;
+        statusOut = false;
         const status = githubStatusFromReply(reply);
         const ready = status.state === "ready";
         // The wait goes on only while the browser's work is not done: still not installed, or still
@@ -186,16 +245,26 @@ export function createGitHubPicker(
           (status.state === "not_connected" || status.reason === "signed_out");
         if (!stays) stopWaiting();
         set({ status, ...(stays ? {} : { waiting: false }) });
-        if (ready && (state.repos === undefined || state.error !== undefined)) listRepos(state.query);
+        // A list still out for the same words (an earlier open's, Add project opened again under it) answers this
+        // read too: a second would drop the first and keep the Loading row up longer (cmux#53226).
+        const listing = state.loading && !relist;
+        if (ready && !listing && (relist || state.repos === undefined || state.error !== undefined))
+          listRepos(state.query);
       },
       () => {
         // A host that does not serve it (an older app) or refused it: GitHub can't be reached.
         if (turn !== statusTurn) return;
+        statusOut = false;
         stopWaiting();
         set({ status: { state: "unavailable", reposScope: null, reason: "unreachable" }, waiting: false });
       },
     );
   };
+  // The app finished a connection (or a Reconfigure changed it): a menu that read the status reads it again, and its
+  // repositories with it, with no restart and no click.
+  watchChanged(() => {
+    if (state.status !== undefined) readStatus(true);
+  });
   const picker = {
     snapshot: () => state,
     subscribe(listener: () => void): () => void {
@@ -205,12 +274,14 @@ export function createGitHubPicker(
     open() {
       // A fresh open says nothing of an earlier refusal.
       if (state.connectError !== undefined) set({ connectError: undefined });
-      readStatus();
+      if (!statusOut) readStatus();
     },
     connect() {
-      set({ connectError: undefined });
+      if (state.connecting) return;
+      set({ connectError: undefined, connecting: true });
       call("github.connect", {}).then(
         (reply) => {
+          set({ connecting: false });
           // Already connected (the host found it so as it re-read the status): read it here too.
           if ((reply as { opened?: unknown } | null)?.opened === false) {
             readStatus();
@@ -227,6 +298,7 @@ export function createGitHubPicker(
           const code = (error as { code?: unknown } | null)?.code;
           const reason = typeof code === "string" ? CONNECT_REFUSAL_REASON[code] : undefined;
           set({
+            connecting: false,
             connectError: errorMessage(error).trim() || translate("composer.githubConnectFailed"),
             // The refusal says why GitHub is unavailable: the row's words follow it.
             ...(reason && state.status?.state === "unavailable" ? { status: { ...state.status, reason } } : {}),
