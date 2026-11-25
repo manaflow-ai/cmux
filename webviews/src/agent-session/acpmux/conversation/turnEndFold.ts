@@ -19,9 +19,9 @@
 // Animations: the swap applies at once and nothing here runs. The work is bounded by the rows
 // mounted now (the view's window), never the whole chat.
 import {
-  MOTION_MS,
   MOTION_SETTLE,
   MOTION_SETTLE_MS,
+  MOTION_MS,
   MOTION_SPRING,
   MOTION_SPRING_STEP,
   MOTION_EASE_OUT,
@@ -139,11 +139,11 @@ export const TURN_END_SNAPSHOT_ATTR = "data-fold-snapshot";
 /// How the turn's closing recap (the wrap-up's next-step card, wrapUp.ts) comes in under the answer as
 /// the turn ends, in the sliding looks. Leo, 2026-11-22: "that's the recap". It arrives with the fold
 /// and waits until no row that moves crosses its box (`clearFraction`), then:
-/// - `hold` (shipped): fades in over the fold's clock;
+/// - `hold`: fades in over the fold's clock;
 /// - `rise`: fades in as it rises half a line into its place, on the house ease-out;
 /// - `unfurl`: opens down from its top edge (a clip) as it fades in, as if poured into its room;
 /// - `bead`: fades in as it grows from 96% of its size from its top, the way a drop joins the surface.
-/// - `place`: drawn at full ink in its place in the frame it comes, no entrance at all.
+/// - `place` (shipped): drawn at full ink in its place in the frame it comes, no entrance at all.
 /// - `open`: full ink from its first frame, its room opening down from its top edge (a clip, no fade),
 ///   while the rows above rise into the room on the follow's chase at a line a frame, instead of the
 ///   card's whole height in one frame (VirtualTranscript `recapCame`). Nothing fades up from below.
@@ -226,6 +226,8 @@ type Drawn = {
   id: string;
   top: number;
   height?: number;
+  /// The row is a message the person sent (`isPersonMessage`).
+  person?: boolean;
   replacesHeader?: boolean;
   copy?: HTMLElement;
   /// A kept row's picture as drawn at the swap, for the looks that replace it in place.
@@ -263,6 +265,29 @@ export type TurnEndFold = {
 };
 
 const mounted = (thread: HTMLElement) => thread.querySelectorAll<HTMLElement>(":scope > .acpmux-row[data-row-id]");
+
+/// A message the person sent, drawn as their bubble: the prompt or a steer, never the line another
+/// agent's message or a notice draws (model.ts `isLineRow`).
+const isPersonMessage = (node: HTMLElement) =>
+  node.classList.contains("acpmux-user") && !node.classList.contains("acpmux-row--line");
+
+/// Whether the fold after `capture` would play across a message the person sent: the swap takes
+/// away a row drawn above one of their messages that stays, or takes one of their messages away.
+/// Such a swap applies in the frame it renders, with no motion (`playTurnEnd`): the rows over the
+/// message and the rows under it would move by different amounts, the bubble between them sliding
+/// over the place the folded work drew while its copies faded there (Leo, 2026-11-22: "it tries to
+/// fold and it folds up past my [...] steer ... the way i see that [...] passing over my [...]
+/// message is so dumb"). A fold plays only under the person's newest message drawn then. Read off
+/// the capture alone: no layout, O(rows drawn).
+export function foldCrossesPerson(capture: TurnEndCapture): boolean {
+  let lowest = -Infinity;
+  for (const row of capture.rows) {
+    if (!row.person) continue;
+    if (row.copy) return true;
+    lowest = Math.max(lowest, row.top);
+  }
+  return capture.rows.some((row) => row.copy !== undefined && row.top < lowest);
+}
 const heightOf = (node: HTMLElement) => node.offsetHeight;
 
 /// What the fold's passes cost, counted for tests and benches (turn-end-fold-restyle.browser.test.ts):
@@ -349,6 +374,7 @@ export function captureTurnEnd(
       id,
       top: box.top,
       height: box.height,
+      ...(isPersonMessage(node) && { person: true }),
       ...(header && kept.has(id) && { replacesHeader: true }),
       ...(clip > 0 && { clip, shown: box.bottom - clip }),
       ...(!kept.has(id) && { copy: ghostOf(node) }),
@@ -365,12 +391,12 @@ function snapshotOf(node: HTMLElement, id: string): HTMLElement {
   return copy;
 }
 
-/// The recap entrance set over `node`, else the dev setting's, else the shipped `hold`.
+/// The recap entrance set over `node`, else the dev setting's, else the shipped `place`.
 export function turnEndRecap(node: Element): TurnEndRecap {
   const set = node.closest(`[${TURN_END_RECAP_ATTR}]`)?.getAttribute(TURN_END_RECAP_ATTR);
   if (TURN_END_RECAPS.includes(set as TurnEndRecap)) return set as TurnEndRecap;
   const arm = experimentArm(turnEndRecapLook);
-  return TURN_END_RECAPS.includes(arm) ? arm : "hold";
+  return TURN_END_RECAPS.includes(arm) ? arm : "place";
 }
 
 /// The attribute a recap card that arrives live carries: its entrance (conversation.css plays it).
@@ -1114,6 +1140,8 @@ export function playTurnEnd(
   // Out of the reader's view there is nothing to play: its caller has settled what the turn's end
   // settles (the fold before it, the follow motion, the tail glide) and the swap is already drawn.
   if (capture.silent || capture.sessionId !== sessionId || foldMs(thread) <= 0) return undefined;
+  // Never across a message the person sent: the swap stays as it rendered, in one frame.
+  if (foldCrossesPerson(capture)) return undefined;
   const look = turnEndLook(thread);
   if (REPLACE_LOOKS.has(look)) return playReplace(thread, capture, look, scroller);
   const recapLook = turnEndRecap(thread);

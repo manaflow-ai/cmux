@@ -1,5 +1,9 @@
 @testable import CmuxTabsKit
+#if canImport(CoreGraphics)
 import CoreGraphics
+#else
+import Foundation
+#endif
 import Testing
 
 /// The accessory row (composer, key row) is part of the page <-> grid zoom:

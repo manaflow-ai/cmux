@@ -59,6 +59,8 @@ cmux customize: change cmux by asking, watch it change, keep it or put it back.
   cmux customize profiles                     The saved profiles
   cmux customize recipes [--open]             Ready-made changes to try with `use` (--open: the guide, in cmux)
   cmux customize library [VERB]               Everything you applied, kept as layers: list|status|on|off|order|export|import|remove
+  cmux customize checklist [--has NAME]...    The customizations checklist: each step, done or not, and n of m
+                                              (--has models|mcp|github|phone: a connection the caller knows of)
   cmux customize doctor                       What changes your customization unexpectedly: stale layers, broken,
                                               shadowed, leftover or misplaced files, unknown keys, values off their default; `fix ID ...`, `recover`
   cmux customize library refresh             Every code layer against what is published and this app; with
@@ -113,6 +115,7 @@ const VERBS: &[&str] = &[
     "keep",
     "revert",
     "library",
+    "checklist",
     "doctor",
     "paths",
     "brief",
@@ -185,6 +188,11 @@ pub(super) enum Request {
         open: bool,
     },
     Library(library::Request),
+    /// The customizations checklist, with the connections the caller
+    /// reports (`--has NAME`).
+    Checklist {
+        connected: Vec<String>,
+    },
     Doctor(doctor::Request),
     Paths,
     Schema {
@@ -243,6 +251,7 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
         },
         "try" | "try-on" => try_of(rest),
         "library" | "lib" => library::parse(rest).map(Request::Library),
+        "checklist" => checklist_of(rest),
         "doctor" | "dr" => doctor::parse(rest).map(Request::Doctor),
         "paths" => none(Request::Paths),
         "apply" => Ok(Request::Apply { note: (!rest.is_empty()).then(|| rest.join(" ")) }),
@@ -329,6 +338,26 @@ fn try_of(words: &[String]) -> Result<Request, String> {
         }
     }
     Ok(Request::Try { source, duration_ms: (minutes * 60_000.0).round() as u64 })
+}
+
+/// `checklist [--has NAME]...`: each NAME one of the checklist's connections.
+fn checklist_of(words: &[String]) -> Result<Request, String> {
+    let mut connected = Vec::new();
+    let mut iter = words.iter();
+    while let Some(word) = iter.next() {
+        if word != "--has" {
+            return Err(format!("customize checklist takes only --has NAME, got {word:?}"));
+        }
+        let name = value_of(&mut iter, word)?;
+        if !cmux_customize::checklist::facts().any(|known| known == name) {
+            let known: Vec<&str> = cmux_customize::checklist::facts().collect();
+            return Err(format!("--has takes one of {}, got {name:?}", known.join(", ")));
+        }
+        if !connected.contains(&name) {
+            connected.push(name);
+        }
+    }
+    Ok(Request::Checklist { connected })
 }
 
 /// `schema [PART] [--typescript|--rust]`.
@@ -724,6 +753,10 @@ pub(super) fn execute(
         Request::Profiles => Answer::Profiles(customize.profiles()?),
         Request::Recipes { open } => recipes(customize, open, chat)?,
         Request::Library(request) => library::execute(customize, request, origin, now_ms)?,
+        Request::Checklist { connected } => Answer::Checklist(cmux_customize::checklist::read(
+            customize,
+            &connected.into_iter().collect(),
+        )?),
         Request::Doctor(request) => doctor::execute(customize, request, origin, now_ms)?,
         Request::Paths => Answer::Paths(customize.roots().clone()),
         Request::Schema { section, format } => Answer::Schema(Schema::current(), section, format),

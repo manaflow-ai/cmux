@@ -517,9 +517,7 @@ public final class TerminalLaunchFrames {
     /// colors and text, ``CGImage/unfilteredPNGData()``), else a JPEG; nil when it does not encode or is larger than the
     /// read takes (`maximumBytes`), so a frame is never saved as a file the next launch refuses.
     nonisolated static func encoded(_ frame: CGImage, maximumBytes: Int = maximumBytes) -> Data? {
-        let data = frame.showsClearPixels ? frame.unfilteredPNGData() : frame.pageImageData(png: false, jpegQuality: jpegQuality)
-        guard let data, data.count <= maximumBytes else { return nil }
-        return data
+        LaunchFrameFiles.encoded(frame, jpegQuality: jpegQuality, maximumBytes: maximumBytes)
     }
 
     /// Writes one terminal's frame (the keeper), replacing the key's file at any scale; with `keeping`, also removes the
@@ -617,17 +615,10 @@ public final class TerminalLaunchFrames {
 
     /// The tab key of a saved frame (`<key>@<scale>x.jpg`, scale 1 to 3); nil for any other file, such as Foundation's
     /// atomic-write file beside one before its rename (`<key>@2x.jpg.sb-<id>`).
-    nonisolated static func owner(of file: String) -> String? {
-        guard file.hasSuffix("x.jpg"), let at = file.lastIndex(of: "@") else { return nil }
-        let scale = file[file.index(after: at)..<file.index(file.endIndex, offsetBy: -"x.jpg".count)]
-        guard scale.count == 1, let digit = scale.first, ("1"..."3").contains(digit) else { return nil }
-        return String(file[..<at])
-    }
+    nonisolated static func owner(of file: String) -> String? { LaunchFrameFiles.owner(of: file) }
 
     /// Tab keys are `tab_<hex>`; anything else never becomes a path.
-    nonisolated static func isFileSafe(_ key: String) -> Bool {
-        !key.isEmpty && key.count <= 128 && key.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_" || $0 == "-") }
-    }
+    nonisolated static func isFileSafe(_ key: String) -> Bool { LaunchFrameFiles.isFileSafe(key) }
 }
 
 /// A terminal's frame from the last quit, in its pane before the surface exists: top-left at its point size, as

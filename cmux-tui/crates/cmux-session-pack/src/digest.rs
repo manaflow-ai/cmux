@@ -1,5 +1,7 @@
-//! A range of an acpmux log as text an agent can read: what was asked, what the agent said, each
-//! tool call and the start of its result, with the name that brings the whole result back.
+//! A range of an acpmux log or a Claude Code transcript as text an agent can read: what was
+//! asked, what the agent said, each tool call and the start of its result, with the command that
+//! brings the whole result back (`session-pack seq` for an acpmux record, `session-pack range`
+//! of the one line for a transcript's).
 //!
 //! This is what partial decompaction hands back by default. A compacted agent holds a summary
 //! and the range names of the turns it summarized ([`outline`]); it asks for one and reads a few
@@ -7,6 +9,7 @@
 //! one tool result whole by its `seq`.
 
 use crate::Result;
+use crate::claude;
 use crate::manifest::RangeId;
 use crate::read::Pack;
 use serde_json::Value;
@@ -62,8 +65,13 @@ pub fn digest(pack: &Pack, range: &RangeId, limits: Limits) -> Result<String> {
     let mut out = String::new();
     let (mut say, mut thought) = (String::new(), 0usize);
     let _ = writeln!(out, "# {range}: {} records", lines.len());
-    for line in &lines {
+    for (line_no, line) in (range.first..).zip(&lines) {
         let Ok(v) = serde_json::from_slice::<Value>(line) else { continue };
+        if v.get("kind").is_none() && v.get("type").is_some() {
+            let at = Line { name, line: line_no, limits };
+            transcript_line(&mut out, &mut say, &mut thought, &v, &at);
+            continue;
+        }
         let seq = v.get("seq").and_then(Value::as_u64).unwrap_or(0);
         let kind = v.get("kind").and_then(Value::as_str).unwrap_or("");
         let update = v.pointer("/msg/params/update");
@@ -166,24 +174,198 @@ pub fn digest(pack: &Pack, range: &RangeId, limits: Limits) -> Result<String> {
     Ok(out)
 }
 
+/// Where a transcript line is, for the commands a digest gives.
+struct Line<'a> {
+    name: &'a str,
+    line: u64,
+    limits: Limits,
+}
+
+impl Line<'_> {
+    /// The note under something cut short: how much was left out and the command that reads it.
+    fn more(&self, out: &mut String, more: usize) {
+        if more > 0 {
+            let (n, l) = (self.name, self.line);
+            let _ = writeln!(out, "  [{more} more bytes: session-pack range {n}@{l}-{l}]");
+        }
+    }
+}
+
+/// A text block list's text, with what is not text named in brackets.
+fn blocks_text(content: &Value) -> String {
+    match content {
+        Value::String(s) => s.clone(),
+        Value::Array(blocks) => {
+            let mut text = String::new();
+            for b in blocks {
+                match b.get("text").and_then(Value::as_str) {
+                    Some(t) => text.push_str(t),
+                    None => {
+                        let kind = b.get("type").and_then(Value::as_str).unwrap_or("content");
+                        let _ = write!(text, "[{kind}]");
+                    }
+                }
+            }
+            text
+        }
+        _ => String::new(),
+    }
+}
+
+/// One line of a Claude Code transcript: a person's prompt, the assistant's text, thinking and
+/// tool calls, a tool's result, a compaction's summary, a notice the harness sent.
+fn transcript_line(
+    out: &mut String,
+    say: &mut String,
+    thought: &mut usize,
+    v: &Value,
+    at: &Line<'_>,
+) {
+    let set = |k: &str| v.get(k).and_then(Value::as_bool) == Some(true);
+    // A subagent's lines are its own conversation; the parent's tool call and result hold what
+    // it was asked and what it said.
+    if set("isSidechain") {
+        return;
+    }
+    let (n, l) = (at.name, at.line);
+    let content = v.pointer("/message/content");
+    match v.get("type").and_then(Value::as_str).unwrap_or("") {
+        "assistant" => {
+            let Some(Value::Array(blocks)) = content else { return };
+            for b in blocks {
+                match b.get("type").and_then(Value::as_str).unwrap_or("") {
+                    "text" => {
+                        if !say.is_empty() {
+                            say.push('\n');
+                        }
+                        say.push_str(b.get("text").and_then(Value::as_str).unwrap_or(""));
+                    }
+                    "thinking" | "redacted_thinking" => {
+                        *thought += b
+                            .get("thinking")
+                            .or_else(|| b.get("data"))
+                            .and_then(Value::as_str)
+                            .map_or(0, str::len);
+                    }
+                    "tool_use" => {
+                        flush(out, say, thought);
+                        let tool = b.get("name").and_then(Value::as_str).unwrap_or("tool");
+                        let input = b.get("input").map(Value::to_string).unwrap_or_default();
+                        let (shown, more) = cut(&input, at.limits.input);
+                        let _ = writeln!(
+                            out,
+                            "tool {tool} (line {l}): {shown}{}",
+                            if more > 0 { format!(" [{more} more bytes]") } else { String::new() }
+                        );
+                    }
+                    _ => {}
+                }
+            }
+        }
+        "user" if set("isCompactSummary") => {
+            flush(out, say, thought);
+            let len = content.map_or(0, |c| blocks_text(c).len());
+            let _ = writeln!(
+                out,
+                "\n(context compacted here; its summary, {len} bytes: session-pack range {n}@{l}-{l})"
+            );
+        }
+        "user" if set("isMeta") => {}
+        "user" => {
+            let results: Vec<&Value> = match content {
+                Some(Value::Array(blocks)) => blocks
+                    .iter()
+                    .filter(|b| b.get("type").and_then(Value::as_str) == Some("tool_result"))
+                    .collect(),
+                _ => Vec::new(),
+            };
+            if !results.is_empty() {
+                flush(out, say, thought);
+                for r in results {
+                    let text = r.get("content").map(blocks_text).unwrap_or_default();
+                    let status = if r.get("is_error").and_then(Value::as_bool) == Some(true) {
+                        "error"
+                    } else {
+                        "ok"
+                    };
+                    let (shown, more) = cut(&text, at.limits.result);
+                    let _ = writeln!(out, "  result ({status}, {} bytes): {shown}", text.len());
+                    at.more(out, more);
+                }
+                return;
+            }
+            let text = content.map(blocks_text).unwrap_or_default();
+            if text.is_empty() {
+                return;
+            }
+            flush(out, say, thought);
+            let (shown, more) = match claude::asked(v) {
+                Some(asked) => {
+                    let (shown, more) = cut(&asked, at.limits.prompt);
+                    let _ = writeln!(out, "\nuser (line {l}): {shown}");
+                    (String::new(), more)
+                }
+                // A notice the harness sent in the user's place (a background task's result, an
+                // interrupt, a command's output).
+                None => {
+                    let (shown, more) = cut(&text, at.limits.input);
+                    (format!("notice (line {l}): {shown}"), more)
+                }
+            };
+            if !shown.is_empty() {
+                let _ = writeln!(out, "{shown}");
+            }
+            at.more(out, more);
+        }
+        _ => {}
+    }
+}
+
+/// `s` on one line: each run of whitespace a single space.
+fn one_line(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 /// One line a turn: its range name, when it started (ms since 1970), how many records it holds,
 /// and the start of what was asked.
 pub fn outline(pack: &Pack) -> Result<String> {
     let m = &pack.manifest;
     let starts: Vec<u64> = m.marks().collect();
     let mut out = String::new();
-    // Long strings are left out, so no blob chunk is read: the prompt's first line is short.
+    // Long strings are left out, so no blob chunk is read: an acpmux prompt's first line is
+    // short. A transcript holds only the whole prompt, so one that is a long string is read
+    // again with its blobs, and only those lines' blob chunks are read.
     let all = pack.skim_lines(&starts)?;
-    for (i, first) in starts.iter().enumerate() {
-        let last = starts.get(i + 1).copied().unwrap_or(m.lines) - 1;
-        let line = all.get(i).ok_or("a turn's first line is missing")?;
+    let mut rows = Vec::with_capacity(starts.len());
+    let mut again = Vec::new();
+    for (i, line) in all.iter().enumerate() {
         let v: Value = serde_json::from_slice(line).unwrap_or(Value::Null);
-        let prompt = v
-            .pointer("/msg/promptLine")
-            .or_else(|| v.pointer("/msg/prompt"))
-            .and_then(Value::as_str)
-            .unwrap_or("");
-        let at = v.get("at").and_then(Value::as_u64).unwrap_or(0);
+        let row = if v.get("kind").is_none()
+            && let Some(asked) = claude::asked(&v)
+        {
+            if asked.trim().is_empty() {
+                again.push(i);
+            }
+            (claude::timestamp_ms(&v).unwrap_or(0), one_line(&asked))
+        } else {
+            let prompt = v
+                .pointer("/msg/promptLine")
+                .or_else(|| v.pointer("/msg/prompt"))
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            (v.get("at").and_then(Value::as_u64).unwrap_or(0), prompt.to_owned())
+        };
+        rows.push(row);
+    }
+    let lines: Vec<u64> = again.iter().filter_map(|i| starts.get(*i).copied()).collect();
+    for (i, line) in again.iter().zip(pack.lines_at(&lines)?) {
+        let v: Value = serde_json::from_slice(&line).unwrap_or(Value::Null);
+        if let (Some(row), Some(asked)) = (rows.get_mut(*i), claude::asked(&v)) {
+            row.1 = one_line(&asked);
+        }
+    }
+    for (i, (first, (at, prompt))) in starts.iter().zip(&rows).enumerate() {
+        let last = starts.get(i + 1).copied().unwrap_or(m.lines) - 1;
         let _ = writeln!(
             out,
             "{}\t{at}\t{}\t{}",

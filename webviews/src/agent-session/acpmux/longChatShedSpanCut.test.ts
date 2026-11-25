@@ -3,7 +3,7 @@
 // left), and the cut stepping back to it found the same record again and spun with the main thread held: Leo's
 // NIGHTLY renderer at 100% CPU and 14 GB, every chat page in it frozen and unclosable.
 import { expect, test } from "bun:test";
-import type { EventRecord } from "./direct";
+import type { EventRecord } from "./eventRecord";
 import { heldAtOrBefore, midTurnCut, spanCut } from "./direct";
 
 const held = (seqs: readonly number[]): EventRecord[] =>

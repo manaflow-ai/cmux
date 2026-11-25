@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'ff109c9258bc97c65a775fe89e2b5875d370cde9932c0307db008cf8feb995b3'
+IR_SHA256 = 'e1620065e298c750f8c38bb7def1d193f5724e07b50b491a3312be5fb6ffd9e0'
 
 
 @dataclass(frozen=True)
@@ -108,6 +108,7 @@ COMMANDS = {
             'replay_history_rows': CommandFieldMetadata(None, 'attach-replay-history-rows-v1'),
             'replay_history_start': CommandFieldMetadata(None, 'attach-replay-history-window-v1'),
             'resume_generation': CommandFieldMetadata(None, 'terminal-resume-v1'),
+            'resume_max_bytes': CommandFieldMetadata(None, 'terminal-resume-bounded-v1'),
             'resume_offset': CommandFieldMetadata(None, 'terminal-resume-v1'),
             'rows': CommandFieldMetadata(None, 'attach-initial-size'),
             'snapshot': CommandFieldMetadata(None, 'terminal-snapshot-v1'),
@@ -1080,6 +1081,7 @@ COMMANDS = {
         {
             'conversation': CommandFieldMetadata(None, None),
             'op': CommandFieldMetadata(None, None),
+            'op_id': CommandFieldMetadata(None, None),
         },
     ),
     'conversation-link-resolve': CommandMetadata(
@@ -1674,6 +1676,16 @@ COMMANDS = {
             'y': CommandFieldMetadata(None, None),
         },
     ),
+    'flush-launch-snapshot': CommandMetadata(
+        'flush-launch-snapshot',
+        'control',
+        12,
+        'launch-snapshot-flush-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+        },
+    ),
     'focus-direction': CommandMetadata(
         'focus-direction',
         'control',
@@ -1923,6 +1935,7 @@ COMMANDS = {
         None,
         {
             'limit': CommandFieldMetadata(None, None),
+            'stats': CommandFieldMetadata(None, None),
         },
     ),
     'list-personal': CommandMetadata(
@@ -2008,6 +2021,7 @@ COMMANDS = {
             'after': CommandFieldMetadata(12, 'list-workspaces-page-v1'),
             'known': CommandFieldMetadata(12, 'list-workspaces-known-v1'),
             'limit': CommandFieldMetadata(12, 'list-workspaces-limit-v1'),
+            'since': CommandFieldMetadata(None, 'workspace-list-delta-v1'),
         },
     ),
     'machine-listening-tcp': CommandMetadata(
@@ -2838,6 +2852,16 @@ COMMANDS = {
             'surface': CommandFieldMetadata(None, None),
         },
     ),
+    'release-workspace-names': CommandMetadata(
+        'release-workspace-names',
+        'control',
+        12,
+        None,
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+        },
+    ),
     'reload-config': CommandMetadata(
         'reload-config',
         'control',
@@ -3268,6 +3292,7 @@ COMMANDS = {
         None,
         {
             'api_revision': CommandFieldMetadata(12, None),
+            'api_version': CommandFieldMetadata(12, None),
             'capabilities': CommandFieldMetadata(None, None),
             'device_id': CommandFieldMetadata(12, 'shared-sizing-v1'),
             'device_kind': CommandFieldMetadata(12, 'shared-sizing-v1'),
@@ -3823,6 +3848,25 @@ COMMANDS = {
         None,
         {
             'after_revision': CommandFieldMetadata(None, None),
+        },
+    ),
+    'terminal-find': CommandMetadata(
+        'terminal-find',
+        'control',
+        7,
+        None,
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'before': CommandFieldMetadata(None, None),
+            'case_sensitive': CommandFieldMetadata(None, None),
+            'epoch': CommandFieldMetadata(None, None),
+            'max_matches': CommandFieldMetadata(None, None),
+            'page_rows': CommandFieldMetadata(None, None),
+            'query': CommandFieldMetadata(None, None),
+            'regex': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+            'whole_word': CommandFieldMetadata(None, None),
         },
     ),
     'terminal-history': CommandMetadata(

@@ -54,6 +54,16 @@ impl ClientRegistry {
         state.clients.values().filter(|record| !record.owner_plugin).count()
     }
 
+    /// A connection that declared role `main` (the app's frontend) is
+    /// connected now (the reaper's relaunch hold, terminal_reap.rs).
+    pub(crate) fn main_frontend_connected(&self) -> bool {
+        let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state
+            .clients
+            .values()
+            .any(|record| record.origin.role == crate::request_origin::HelloRole::Main)
+    }
+
     /// Records that a connection declared role `main` (the app's frontend)
     /// and tells the presence observers the first time: an app session's
     /// owner is held only by its keepers from then on (owner_keepers.rs).

@@ -237,7 +237,7 @@ async fn exact_prompt_stop_fences_admission_before_turn_without_stopping_next_pe
         "workflow-dequeued~resume-1",
         Control::Local,
     );
-    assert!(hub.start_turn(&session, None, false, false, turn).is_err());
+    assert!(hub.start_turn(&session, None, None, false, false, turn).is_err());
     hub.shutdown_all().await;
 }
 
@@ -327,7 +327,7 @@ async fn exact_prompt_stop_survives_malformed_lines_and_an_unterminated_log_tail
         Control::Local,
     );
     assert!(
-        hub.start_turn(&session, None, false, false, turn).is_err(),
+        hub.start_turn(&session, None, None, false, false, turn).is_err(),
         "acknowledged stop was lost inside the malformed tail"
     );
     hub.shutdown_all().await;
