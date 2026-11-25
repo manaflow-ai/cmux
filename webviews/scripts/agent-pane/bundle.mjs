@@ -29,6 +29,7 @@ import { tailwindPlugin } from "./tailwindCompile.mjs";
 import { jsonParsePlugin } from "./jsonParsePlugin.mjs";
 import { katexStylePlugin } from "./katexStylePlugin.mjs";
 import { writeFrameSites } from "./frameSites.mjs";
+import { classicScript } from "./classicScript.mjs";
 
 const [entry, shikiAlias, outfile, ...rest] = process.argv.slice(2);
 if (!entry || !shikiAlias || !outfile) {
@@ -38,6 +39,14 @@ if (!entry || !shikiAlias || !outfile) {
 const reportIndex = rest.indexOf("--report");
 const reportFile = reportIndex >= 0 ? rest[reportIndex + 1] : undefined;
 const split = rest.includes("--split");
+// --classic (with --split): the entry and the chunks it imports statically become one classic script, and only
+// the lazy chunks stay ES modules (classicScript.mjs): V8 serves a classic script from its code cache on a
+// warm load and an ES module never. The page loads pane.js with <script src>, and there is nothing to preload.
+const classic = rest.includes("--classic");
+if (classic && !split) {
+  console.error("--classic needs --split");
+  process.exit(2);
+}
 const cssInputsIndex = rest.indexOf("--css-inputs");
 const cssInputsFile = cssInputsIndex >= 0 ? rest[cssInputsIndex + 1] : undefined;
 const cssInputsOnly = rest.includes("--css-inputs-only");
@@ -117,12 +126,24 @@ const result = await build({
         jsonParsePlugin,
         katexStylePlugin({ split }),
       ],
-  metafile: Boolean(cssInputsFile || metafileOut || preloadFile || frameSitesFile),
+  metafile: Boolean(cssInputsFile || metafileOut || preloadFile || frameSitesFile || classic),
   // External maps add no comment to the scripts: they are the same code, and only the chunks'
   // content hashes (their names) change, as esbuild hashes a chunk with its map.
   ...(frameSitesFile && !cssInputsOnly ? { sourcemap: "external" } : {}),
 });
 if (!cssInputsOnly) await refuseRawImportMetaEnv();
+if (classic && !cssInputsOnly) {
+  const entryOut = Object.keys(result.metafile.outputs).find(
+    (output) => path.resolve(output) === path.resolve(outfile),
+  );
+  await classicScript({
+    outdir: path.resolve(path.dirname(outfile)),
+    outputs: result.metafile.outputs,
+    staticOut: staticChunks(result.metafile.outputs, entryOut),
+    entryOut,
+    maps: Boolean(frameSitesFile),
+  });
+}
 if (frameSitesFile && !cssInputsOnly) {
   const outdir = path.resolve(path.dirname(outfile));
   const outputs = Object.keys(result.metafile.outputs)
@@ -138,7 +159,7 @@ if (preloadFile) {
   );
   await writeFile(
     preloadFile,
-    staticChunks(result.metafile.outputs, entryOut)
+    (classic ? [] : staticChunks(result.metafile.outputs, entryOut))
       .map((output) => path.relative(outdir, path.resolve(output)) + "\n")
       .join(""),
   );

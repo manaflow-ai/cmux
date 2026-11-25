@@ -136,3 +136,27 @@ is as sharp as OpenH264 at a rate the link carries. Pages on a 10 Mbps link, and
   VP9 23.0 fps at 10.4 Mbps and 27.6 dB.
 - AV1 (rav1e, speed 10) reaches 0 on-time fps: 22-51 ms per frame to encode.
 - Verdict: no VP9 or AV1 setting; H.264 stays.
+
+## Linux host encode against its floor (goal screen-share-linux-pairs)
+
+a Linux lane VM (AMD EPYC 7003, 32 vCPU), feat-cmux-next b653865c327, 2026-11-22. Every row is pinned to 4 cores
+(`taskset`), page, scroll, drag and typing at 1080p30, 0% loss. OpenH264 is this crate's build (its SSE2/AVX2
+assembly linked in, as in Cisco's binary). x264 0.164 codes the very same frames (`scene-dump`), ultrafast with
+zerolatency, sliced threads and a one-frame VBV at 8 Mbps; x264 prints a throughput, so its rows are the mean ms per
+frame. `scripts/measure/linux-encode-floor.sh` reruns the shipped and floor rows and prints the ratio.
+
+| Encode ms per 1080p frame, 4 cores | page | scroll | drag | typing |
+| --- | --- | --- | --- | --- |
+| OpenH264 shipped (screen usage, p50) | 14.0 | 17.0 | 14.7 | 11.4 |
+| OpenH264 shipped, 32 cores and threads | 12.1 | 15.8 | 14.4 | 11.8 |
+| OpenH264, 1 core and thread | 15.6 | 17.7 | 17.8 | 12.0 |
+| OpenH264, `complexity=1` | 11.7 | 15.1 | 13.2 | 10.1 |
+| OpenH264, camera usage | 4.5 | 3.9 | 3.8 | 3.3 |
+| x264 ultrafast, zerolatency (mean): the floor | 5.2 | 4.7 | 3.8 | 3.8 |
+| x264 superfast, zerolatency (mean) | 6.6 | 6.5 | 4.8 | 4.8 |
+
+- The shipped encoder is 2.7x to 3.8x its floor (page 2.7x, scroll 3.6x, drag 3.8x, typing 3.0x).
+- The cost is screen usage, not threads or effort: 1 to 32 threads moves the p50 by at most 1.3x, `complexity=1`
+  by 1.1x, while camera usage on the same frames is at the floor. Its price: scroll at 4.7 Mbps against 1.5.
+- Verdict: no default changes here. The cut is more frames in camera usage where the link has bitrate to spare;
+  it lands with its own text-PSNR and bitrate rows.

@@ -699,10 +699,14 @@ class GalleryRenderPlanTests(unittest.TestCase):
                 {"id": "g", "role": "before", "state": "a.b/y", "parent": "q", "commit": "d"}]
         files = {"p": "y: {}\n", "c": "y: {}\nx: {}\n", "q": "x: {}\n", "d": "x: {}\n"}
         out, missing = self.tool.resolve(rows, cases, lambda rev, path: files.get(rev), {})
-        self.assertEqual(missing[1:], [])
-        self.assertIn("g before: a.b/y is new in its commit", missing[0])  # not in its own commit either
-        self.assertEqual([(r["state"], r["parent"], r["overlay"]) for r in out],
-                         [("a.b/x", "p", "webviews/src/a.gallery.tsx")])
+        self.assertEqual(missing, [])
+        # g's file names y nowhere, at its commit either (a generated name, as settings.gallery.ts's per-category
+        # variants): rendered at its parent with no overlay.
+        self.assertEqual([(r["state"], r["parent"], r.get("overlay")) for r in out],
+                         [("a.b/x", "p", "webviews/src/a.gallery.tsx"), ("a.b/y", "q", None)])
+        # At q the parent render decides: a checkout with no such state names it missing, never another one.
+        self.assertEqual(self.tool.manifest(out, [cases[0]], "q"), ([], ["g: no gallery state a.b/y at q"]))
+        out = out[:1]
         # At the parent, the same state from that checkout's cases (the overlaid file draws it there).
         self.assertEqual(self.tool.manifest(out, cases, "p")[0], [{**cases[0], "id": "h--before"}])
         with tempfile.TemporaryDirectory() as tmp:

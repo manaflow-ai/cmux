@@ -1,5 +1,6 @@
-// Shared pieces of the onboarding steps: the page context (strings and store) and a host image.
-import { createContext, useContext, type CSSProperties } from "react";
+// Shared pieces of the onboarding steps: the page context (strings and store), a host image, and
+// whether the webview is online.
+import { createContext, useContext, useSyncExternalStore, type CSSProperties } from "react";
 import type { Strings } from "../shared/i18n";
 import type { HostImage } from "./ops";
 import type { OnboardingStore } from "./store";
@@ -15,6 +16,26 @@ export function useOnboarding(): OnboardingContextValue {
   const value = useContext(OnboardingContext);
   if (!value) throw new Error("OnboardingContext is missing");
   return value;
+}
+
+function subscribeOnline(changed: () => void): () => void {
+  window.addEventListener("online", changed);
+  window.addEventListener("offline", changed);
+  return () => {
+    window.removeEventListener("online", changed);
+    window.removeEventListener("offline", changed);
+  };
+}
+
+/** The webview's own network state (`navigator.onLine`, live through its online and offline
+ * events), so the page can say the Mac is offline and drop the line by itself when it is back.
+ * Rendered without a window (server markup), it reads online. */
+export function useOnline(): boolean {
+  return useSyncExternalStore(
+    subscribeOnline,
+    () => navigator.onLine,
+    () => true,
+  );
 }
 
 /** An image the host drew. A template mark takes the text color (a mask over `currentColor`); any

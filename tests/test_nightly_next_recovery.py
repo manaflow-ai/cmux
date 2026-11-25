@@ -491,8 +491,6 @@ class FailureIssueTests(unittest.TestCase):
         publish_outputs = {f"publish_{key}": value for key, value in published.items()}
         # The loop run: published-build passes its own jobs through (run_tail false), and the rest of the tail skips.
         push = {name: outcome[name] for name in self.PUSH_JOBS}
-        # The run that signs and publishes (a sign run, or a run that signs in-run) dispatches no sign run.
-        push["dispatch-nightly-next-sign"] = "skipped"
         push["nightly-next-one"] = "skipped"  # NIGHTLY_NEXT_ONE_JOB unset
         push["early-nightly-webviews"] = "skipped"  # one-job mode only
         push.update(dict.fromkeys(self.TAIL_JOBS, "skipped"))
@@ -512,7 +510,7 @@ class FailureIssueTests(unittest.TestCase):
             record = dict(decide, cross_run="true", run_tail="true", publish_result=push["publish-nightly"],
                           push_clean="false" if any(push[n] in ("failure", "cancelled") for n in dispatch_needs) else "true",
                           **publish_outputs)
-            tail = dict.fromkeys((*self.PUSH_JOBS, "dispatch-nightly-next-sign", "nightly-next-one", "early-nightly-webviews"), "skipped")
+            tail = dict.fromkeys((*self.PUSH_JOBS, "nightly-next-one", "early-nightly-webviews"), "skipped")
             tail.update({name: outcome[name] for name in self.TAIL_JOBS})
             reports |= job_runs("report-nightly-failure", tail, {"published-build": record})
             closes |= job_runs("close-nightly-failure-issue", tail, {"published-build": record})
@@ -895,6 +893,8 @@ def run_gate(variables: dict, *, token: str = "app-token", track: str = "nightly
             # (tests/test_nightly_publish_guard.py drives both checks).
             WEBVIEW_CHECK="success",
             WEBVIEW_CHECK_SHA="a" * 40,
+            SHELF_CHECK="success",
+            SHELF_CHECK_SHA="a" * 40,
             NIGHTLY_KNOWN_BAD_LIST_FILE=str(work / "known-bad.json"),
         )
         (work / "known-bad.json").write_text('{"pairs": []}')

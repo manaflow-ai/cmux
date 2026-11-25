@@ -202,3 +202,56 @@ async fn a_rescan_that_finds_a_fresh_install_tells_the_watchers() {
     let _ = std::fs::remove_file(&claude);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A Cloud start reads the catalog before `session/new` (cmux-tui `ready_catalog`) and refuses
+/// `agent_session.harness_missing` from it, so the rediscovery `session/new` does came too late:
+/// a Claude the daemon's startup PATH missed refused the chat (prod app-chat probe, 5 starts in
+/// 24 h on 2026-11-24, "Claude (`claude`) isn't installed on that machine"). A read that says it
+/// is for a start (`forStart`, with its harness) resolves the harness first; a plain read (the
+/// Harnesses page, the composer's picker) does not reload the catalog.
+#[tokio::test]
+async fn a_start_catalog_read_finds_a_claude_the_startup_path_missed() {
+    let _home_bin = HOME_BIN.lock().await;
+    let home = std::path::PathBuf::from(std::env::var_os("HOME").expect("hermetic HOME"));
+    let root = std::env::temp_dir().join(format!("acpmux-start-catalog-{}", uuid::Uuid::now_v7()));
+    let state = root.join("acpmux");
+    std::fs::create_dir_all(&state).unwrap();
+    let claude = home.join(".local/bin/claude");
+    assert!(!claude.exists(), "the hermetic HOME holds no claude");
+    let path = state.join("config.json");
+    Config {
+        path: Some(path.clone()),
+        profile_sources: ProfileSources::none(),
+        permission_policy: PermissionPolicy::ApproveAll,
+        ..Config::default()
+    }
+    .save()
+    .unwrap();
+    let mut cfg = Config::load_from_with(&path, &ProfileSources::none()).unwrap();
+    assert!(cfg.resolve_harness("claude").is_err(), "no claude at the daemon's start");
+    cfg.store.mode = StoreMode::Memory;
+    let store = acpmux::store::open(&cfg.store, &state).unwrap();
+    let hub = Hub::new(cfg, store);
+    let mut c = Client::connect(&hub);
+    c.request(method::INITIALIZE, json!({"protocolVersion": 1, "clientInfo": {"name": "test"}}))
+        .await
+        .unwrap();
+
+    std::fs::create_dir_all(claude.parent().unwrap()).unwrap();
+    let script = format!("#!/bin/sh\nexec python3 {} \"$@\"\n", daemon_env::sh_quote(FAKE_CLAUDE));
+    std::fs::write(&claude, script).unwrap();
+    std::fs::set_permissions(&claude, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let has_claude = |view: &Value| view["harnesses"].get("claude").is_some();
+    let plain = c.request(method::MUX_HARNESSES, json!({})).await.unwrap();
+    assert!(!has_claude(&plain), "a plain read reloads nothing: {plain}");
+    let for_start = c
+        .request(method::MUX_HARNESSES, json!({"forStart": true, "harness": "claude"}))
+        .await
+        .unwrap();
+    assert!(has_claude(&for_start), "a start's read finds the installed claude: {for_start}");
+    assert_eq!(for_start["harnesses"]["claude"]["family"], "claude", "{for_start}");
+
+    let _ = std::fs::remove_file(&claude);
+    let _ = std::fs::remove_dir_all(&root);
+}

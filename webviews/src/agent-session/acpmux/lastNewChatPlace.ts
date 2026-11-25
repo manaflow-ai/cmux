@@ -6,10 +6,11 @@
 /// pick on one workspace's page reaches the next workspace's page. Only the person's own picks are
 /// written (the composer's Where menu, the New Tab page's location row, New Cloud Chat); a default
 /// from a folder's history or an automation's run mode never is. Sandboxed is a one-off run, never
-/// a place, so it leaves what is kept as it was.
+/// a place, so it leaves what is kept as it was. Auto (autoWhereModel.ts) is kept as itself: the next
+/// new chat is Auto too, and its Send asks where.
 import type { RunLocation } from "./runLocationDefault";
 
-export type PickedPlace = { kind: "local" } | { kind: "cloud" } | { kind: "machine"; peer: string };
+export type PickedPlace = { kind: "local" } | { kind: "cloud" } | { kind: "auto" } | { kind: "machine"; peer: string };
 
 export type PlaceStore = {
   getItem(name: string): string | null;
@@ -31,7 +32,7 @@ export function lastNewChatPlace(store: PlaceStore | undefined = pageStore()): P
   try {
     const value: unknown = JSON.parse(store?.getItem(KEY) ?? "null");
     if (!value || typeof value !== "object" || !("kind" in value)) return undefined;
-    if (value.kind === "local" || value.kind === "cloud") return { kind: value.kind };
+    if (value.kind === "local" || value.kind === "cloud" || value.kind === "auto") return { kind: value.kind };
     if (value.kind === "machine" && "peer" in value && typeof value.peer === "string" && value.peer)
       return { kind: "machine", peer: value.peer };
   } catch {
@@ -55,9 +56,10 @@ export function placeOfRunMode(mode: "persistent" | "cloud" | "sandboxed"): Pick
 }
 
 /// Where a new chat runs by the last pick (runLocationDefault.ts newChatRunLocation): Cloud for
-/// Cloud; This Mac for This Mac and for another machine, whose chat is not a Cloud start.
+/// Cloud; This Mac for This Mac and for another machine, whose chat is not a Cloud start. Auto names
+/// no run location: the daemon picks on Send, and until then the folder's default holds.
 export function pickedRunLocation(place: PickedPlace | undefined): RunLocation | undefined {
-  if (!place) return undefined;
+  if (!place || place.kind === "auto") return undefined;
   return place.kind === "cloud" ? "cloud" : "local";
 }
 
