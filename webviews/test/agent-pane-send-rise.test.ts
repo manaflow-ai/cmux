@@ -1,5 +1,6 @@
 // l10n-allow-file: browser fixture diagnostics, not shipped UI.
 // cmux-web-test-timeout: 600
+// cmux-web-test-alone
 // Leo, 2026-11-22, after the send pop: "actually, i think the send pop and whatever... well it's made me
 // aware of another situation, which is that the chat transcript above doesn't quite smoothly account
 // for things." Each variant of the gallery's agent-pane.send-rise turns the pop on, sends with one rise
@@ -53,9 +54,14 @@ await requireBrowserLane("agent-pane-send-rise.test.ts", async () => {
 
   /// The chat's line (px) in the mock pane: no frame of a smooth rise moves the rows above more than it.
   const LINE = 24;
+  /// The most of their travel the rows above move in one 60 Hz frame. `quick` is the motion scale's
+  /// large step, shorter than the pop by design, so a frame carries more of it. Run alone (the mark
+  /// above): beside 32 other files a runner drops frames, and these are frame measurements.
   const STEP = 0.15;
-  /// The rows above rest no sooner than this (ms into the sample) on the pop's 475 ms clock.
-  const RISE_REST_MS = 400;
+  const QUICK_STEP = 0.2;
+  /// The rows above rest no sooner than this after the press on the pop's 450 ms clock; `none`
+  /// (before) rests ~200 ms after it. Timed from the press, a loaded frame only makes it later.
+  const RISE_REST_MS = 320;
   for (const arm of ["pop", "settle", "quick", "none"])
     for (const shape of ["1-line-idle", "3-lines-idle", "5-lines-idle"]) {
       const variant = `${arm}-${shape}`;
@@ -83,7 +89,7 @@ await requireBrowserLane("agent-pane-send-rise.test.ts", async () => {
           expect(result.travel).toBeGreaterThan(LINE);
           // A send now takes the sent prompt to the top (#47801), so the rows above travel most of a
           // viewport: a smooth rise spreads it, at most STEP of it in any frame; `none` moves it whole.
-          const smooth = result.jump <= result.travel * STEP;
+          const smooth = result.jump <= result.travel * (arm === "quick" ? QUICK_STEP : STEP);
           // `none` (before): the send step's own ~200 ms motion moves more than STEP of the way in some
           // frame (25-36% on feat-cmux-next after #52754/#53483; a 644 px one-frame jump before them).
           if (arm === "none") expect(result.jump).toBeGreaterThan(result.travel * STEP);
@@ -95,9 +101,9 @@ await requireBrowserLane("agent-pane-send-rise.test.ts", async () => {
             });
             // The pop's arms rest with the bubble, within two 60 Hz frames of it.
             if (arm !== "quick") expect(Math.abs(result.prevRest - result.sentRest)).toBeLessThanOrEqual(40);
-            // And on the pop's clock (475 ms from the send's first frame, ~67 ms into the sample): a
-            // tall prompt's rows rested at 283 ms when a pass's move fell off the rise (followChase
-            // `joinsRise`) and the composer's collapse played on the fold's 180 ms (motionTransaction).
+            // And on the pop's clock: a tall prompt's rows rested ~200 ms after the press when a pass's
+            // move fell off the rise (followChase `joinsRise`) and the composer's collapse played on the
+            // fold's 180 ms (motionTransaction).
             if (arm !== "quick") expect(result.prevRest).toBeGreaterThanOrEqual(RISE_REST_MS);
           }
         } finally {
