@@ -30,6 +30,9 @@ export interface Env {
   readonly STACK_SECRET_SERVER_KEY?: string
   readonly TURN_KEY_ID?: string
   readonly TURN_KEY_API_TOKEN?: string
+  /** Our own TURN relay (deploy/turn): comma list of turn:/turns: URLs and its shared secret. When both are set, Cloudflare TURN is not used. */
+  readonly TURN_SELF_URLS?: string
+  readonly TURN_SELF_SECRET?: string
   readonly ICE_TTL_SECONDS?: string
   /** APNs (src/push.ts): all three or none. */
   readonly APNS_KEY_P8?: string

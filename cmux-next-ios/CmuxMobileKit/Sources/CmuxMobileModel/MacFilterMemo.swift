@@ -16,6 +16,8 @@ public final class MacFilterMemo {
         public let id: String
         public let title: String
         public let detail: String
+        /// The account's presence for the Mac: its dot in the menu is green, else red.
+        public var isOnline: Bool = false
     }
 
     /// Everything a Filter row's text depends on. `minute` makes offline
@@ -95,7 +97,7 @@ public final class MacFilterMemo {
             let presence = stamp.presence(isOnline: mac.isOnline, lastSeenAt: mac.lastSeenAt)
             let status = MacStatusLine.make(mac: mac, connection: input.connection[mac.id], live: input.live, presence: presence).text
             let detail = input.linkStatus[mac.id] ?? status
-            return Entry(id: mac.id, title: names.displayName(mac), detail: detail)
+            return Entry(id: mac.id, title: names.displayName(mac), detail: detail, isOnline: mac.isOnline)
         }
         entriesKey = input
         entryComputations += 1

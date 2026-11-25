@@ -24,8 +24,11 @@ let package = Package(
     products: [
         .library(name: "CmuxDeviceHub", targets: ["CmuxDeviceHub"]),
     ],
+    dependencies: [
+        .package(path: "../CmuxEgress"),
+    ],
     targets: [
-        .target(name: "CmuxDeviceHub", swiftSettings: swiftSettings),
+        .target(name: "CmuxDeviceHub", dependencies: [.product(name: "CmuxEgress", package: "CmuxEgress")], swiftSettings: swiftSettings),
         .testTarget(name: "CmuxDeviceHubTests", dependencies: ["CmuxDeviceHub"], swiftSettings: swiftSettings),
     ]
 )
