@@ -11,7 +11,7 @@ nonisolated extension AcpmuxPaneMethods {
         // no chat connects at all (the pane reconnects every few seconds, ask-0e0d5a479b). An
         // acpmux key missing here is stripped, not refused (``strippingInitializeOptIns``); still
         // list each one the page sends, or the daemon never sees the opt-in.
-        "initialize": (["protocolVersion", "clientInfo", "clientCapabilities", "_meta"], ["peerRowBatches"]),
+        "initialize": (["protocolVersion", "clientInfo", "clientCapabilities", "_meta"], ["peerRowBatches", "chunkDeltas", "sessionChangedDelta"]),
         // `noProject` is the pane's own (Do not work in a project): AcpmuxPathPolicy reads and strips it.
         // Never `workspaceId`: the host adds the pane's own after this rule (AcpmuxPathPolicy+Workspace).
         // `model`: a chat on another machine starts on the model the page showed (direct.ts
@@ -189,6 +189,7 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/archive": (["sessionId", "archived"], []),
         "_acpmux/cold_archive": (["sessionId", "archived"], []),
         "_acpmux/prompt_coach": (["sessionId", "coachId"], []),
+        "_acpmux/customize_run": (["run", "_meta"], []),
         // Auto (plans/cmux-next/auto-mode/DESIGN.md): `keepInCloud` only while the Cloud runs the chat.
         "_acpmux/auto_session/set": (["sessionId", "auto", "keepInCloud"], []),
         // `action`: show, apply or discard.

@@ -247,14 +247,14 @@ public final class SettingsStore {
         // (it used to get WebRTC; verify/hybrid-link.md).
         transport = string("transport").flatMap(TransportKind.init(rawValue:)) ?? .fallback
         appearance = string("appearance").flatMap(AppearanceMode.init(rawValue:)) ?? .system
-        hapticsEnabled = bool("hapticsEnabled", true)
+        hapticsEnabled = bool("hapticsEnabled", false)
         terminalFontSize = defaults.object(forKey: "cmuxMobile.settings.terminalFontSize") as? Int ?? Self.defaultTerminalFontSize
         dismissKeyboardAfterSend = bool("dismissKeyboardAfterSend", true)
         swipeDownCollapsesComposer = defaults.object(forKey: "cmuxMobile.settings.swipeDownCollapsesComposer") == nil
             ? false : defaults.bool(forKey: "cmuxMobile.settings.swipeDownCollapsesComposer")
         followUp = string("followUp").flatMap(FollowUpBehavior.init(rawValue:)) ?? .queue
         wrapCode = bool("wrapCode", false)
-        keyClicks = bool("keyClicks", true)
+        keyClicks = bool("keyClicks", false)
         // `bool(forKey:)` also reads a launch argument's "NO"/"YES" string
         // (CmuxMobilePreferences.terminalJumpToBottom reads the key the same way).
         terminalJumpToBottom = defaults.object(forKey: "cmuxMobile.settings.terminalJumpToBottom") == nil
