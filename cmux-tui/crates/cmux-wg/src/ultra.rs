@@ -87,6 +87,9 @@ const PARITY_HEADER: usize = 16;
 /// Type, receiver index and counter in front of a WireGuard data message's
 /// ciphertext.
 const WG_DATA_HEADER: usize = 16;
+/// A WireGuard keepalive: a data message with an empty payload, so its
+/// ciphertext is only the 16-byte Poly1305 tag.
+const WG_KEEPALIVE_LEN: usize = WG_DATA_HEADER + 16;
 /// Received data datagrams kept for rebuilding. Parity follows its group
 /// within one pass, so a few groups' worth is enough.
 const KEEP: usize = 256;
@@ -394,6 +397,17 @@ pub(crate) fn data_id(datagram: &[u8]) -> Option<([u8; 4], u64)> {
     let index: [u8; 4] = datagram.get(4..8)?.try_into().ok()?;
     let counter: [u8; 8] = datagram.get(8..16)?.try_into().ok()?;
     Some((index, u64::from_le_bytes(counter)))
+}
+
+/// A WireGuard keepalive past a session's first message: it carries nothing,
+/// and a lost one is replaced by the next (the air floor sends one every few
+/// seconds on an idle link), so it gets no copies, parity or group. Before,
+/// Auto's floor or repair made each idle keepalive its own group with one or
+/// two 32-byte parities: two or three datagrams per keepalive on the radio.
+/// Counter 0 keeps its repair: an initiator's first keepalive confirms a new
+/// handshake, and the responder cannot send until it arrives.
+fn is_idle_keepalive(datagram: &[u8]) -> bool {
+    datagram.len() == WG_KEEPALIVE_LEN && data_id(datagram).is_some_and(|(_, counter)| counter > 0)
 }
 
 /// Datagrams the loss window spans before it halves.
@@ -765,6 +779,9 @@ pub(crate) struct UltraUnderlay {
     /// The staged datagram was rebuilt from parity.
     staged_rebuilt: bool,
     counters: Arc<UltraCounters>,
+    /// Measurement only (`testing::set_receive_tap`): the wire size of each
+    /// parity datagram consumed here since the driver last took them.
+    tapped_parity: Vec<usize>,
 }
 
 impl UltraUnderlay {
@@ -793,7 +810,14 @@ impl UltraUnderlay {
             staged_bytes: Vec::new(),
             staged_rebuilt: false,
             counters,
+            tapped_parity: Vec::new(),
         }
+    }
+
+    /// Measurement only: the parity datagrams `poll_recv` consumed since the
+    /// last call, by wire size (empty unless a receive tap is set).
+    pub(crate) fn take_tapped_parity(&mut self) -> Vec<usize> {
+        std::mem::take(&mut self.tapped_parity)
     }
 
     /// Carry on over a new carrier after a network change; the mode stays.
@@ -845,7 +869,7 @@ impl UltraUnderlay {
     fn send_with(&mut self, datagram: &[u8], priority: Option<Priority>) {
         self.forward(datagram, priority);
         UltraCounters::add(&self.counters.data_bytes, datagram.len() as u64);
-        if !self.repairs(priority) {
+        if is_idle_keepalive(datagram) || !self.repairs(priority) {
             return;
         }
         // Repaired screen state groups with input.
@@ -1160,6 +1184,10 @@ impl Underlay for UltraUnderlay {
         UltraCounters::add(&self.counters.data_bytes, datagram.len() as u64);
     }
 
+    fn hold_routine_probes(&mut self, floor: Option<Instant>) {
+        self.inner.hold_routine_probes(floor);
+    }
+
     fn poll_probes(&mut self, now: Instant) -> DueProbes {
         self.inner.poll_probes(now)
     }
@@ -1212,6 +1240,9 @@ impl Underlay for UltraUnderlay {
                 if self.trusts(received.origin) {
                     let datagram = datagram.to_vec();
                     self.on_parity(&datagram, received.origin);
+                }
+                if crate::testing::tapping() {
+                    self.tapped_parity.push(received.len);
                 }
                 parities += 1;
                 if parities >= PARITY_PER_POLL {
