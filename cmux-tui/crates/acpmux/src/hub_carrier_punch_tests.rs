@@ -58,12 +58,11 @@ async fn both_sides_opening_toward_each_other_connect_from_their_listening_ports
     let (pa, pb) = (a.local_addr().unwrap().port(), b.local_addr().unwrap().port());
     let to_b: SocketAddr = format!("127.0.0.1:{pb}").parse().unwrap();
     let to_a: SocketAddr = format!("127.0.0.1:{pa}").parse().unwrap();
-    let (from_a, from_b) = tokio::join!(
-        open_toward(pa, &[to_b], PUNCH_WINDOW),
-        open_toward(pb, &[to_a], PUNCH_WINDOW)
-    );
+    let (to_b, to_a) = ([to_b], [to_a]);
+    let (from_a, from_b) =
+        tokio::join!(open_toward(pa, &to_b, PUNCH_WINDOW), open_toward(pb, &to_a, PUNCH_WINDOW));
     let (tcp, at) = from_a.expect("A connected");
-    assert_eq!(at, to_b);
+    assert_eq!(at, to_b[0]);
     assert_eq!(tcp.local_addr().unwrap().port(), pa, "from the listening port");
     assert!(from_b.is_some());
 }

@@ -430,6 +430,9 @@ impl Mux {
                     self.carry_admitted(id, ours, events, credit)
                 );
             }
+            Ok(CircuitService::DirectOffer) => {
+                refuse(ServiceRefusal::new("service.unknown", "no such service")).await
+            }
             Ok(CircuitService::TransferSource) => match incoming.transfer(from).await {
                 Ok((local, serving)) => {
                     tokio::join!(serving, self.carry_admitted(id, local, events, credit));
