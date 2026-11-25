@@ -19,6 +19,8 @@ import { chatTaskListOf, type ChatTaskList } from "./chatTaskList";
 import { UNKNOWN_AUTH, type SessionAuthQuery } from "./sessionAuth";
 import { sameJson } from "./sameJson";
 import { autoResumeAttempt, autoResumeStatus } from "./autoResumeStatus";
+import { autoSessionOf, type AutoSession } from "./autoSession/autoSession";
+import { leftoverShown, type LeftoverAction, type LeftoverShown } from "./autoSession/leftover";
 import { readCapacityWait } from "./capacityWait";
 import { extraFoldersParam, summaryExtraFolders, type ExtraFolderDraft } from "./extraFolders";
 import { parseJsonObjectFrame } from "../../protocol/jsonFrame";
@@ -903,10 +905,26 @@ const PROMPT_COACH_CAPABILITY = "prompt-coach-v1";
 /// The feature a chat on another machine names (Cloud, SSH: the app's RemoteAcpmuxWire) where that
 /// machine opens the chat's side chats there, with `_acpmux/side_chat`.
 const SIDE_CHAT_FEATURE = "side_chat";
+/// acpmux takes a `requestId` on every fork and answers a retry with the fork the first request
+/// made (cmux-tui acpmux hub/fork_request.rs, #50084); an older one refuses it without a boundary.
+const FORK_REQUEST_FEATURE = "forkRequestId";
 const SECRET_GONE = ["no secret request with that id", "the agent stopped waiting"];
+/// The capability id an acpmux that forks a subagent's own context into a chat of its own names
+/// (`acp.session.fork` with `subagentId`, hub/fork.rs): without it a subagent's chips offer no fork.
+export const SUBAGENT_FORK_CAPABILITY = "acp.session.fork.subagent.v1";
 /// The capability id an acpmux that keeps a turn's before and after picture of the chat's page names
 /// (`_acpmux/turn_shots`, hub/turn_shots.rs): without it no turn reads its pictures.
 const TURN_SHOTS_CAPABILITY = "turn-shots-v1";
+
+/// The subagent a `forked` record says the fork was made of (`subagentName`, or acpmux's `forkOf.name`).
+export function forkedSubagentName(msg: Record<string, unknown> | undefined): string | undefined {
+  if (!msg) return undefined;
+  const named = typeof msg.subagentName === "string" ? msg.subagentName.trim() : "";
+  if (named) return named;
+  const forkOf = msg.forkOf && typeof msg.forkOf === "object" ? (msg.forkOf as Record<string, unknown>) : undefined;
+  const name = typeof forkOf?.name === "string" && forkOf.subagentId ? forkOf.name.trim() : "";
+  return name || undefined;
+}
 
 /// Whether listed chat `session` is the one `name` names: its name, its short name, or, for a chat
 /// on another machine (listed as `<peer>/<name>`), its bare name, which its messages sign with.
@@ -1309,12 +1327,16 @@ export class AcpmuxDirectClient {
   private summaryUsage?: SessionUsageStats;
   /// The snapshot summary's `taskList`, kept while acpmux's list is the same (chatTaskListOf).
   private publishedTaskList?: ChatTaskList;
+  /// The snapshot summary's `autoSession`, kept while acpmux's row says the same (autoSessionOf).
+  private publishedAuto?: AutoSession;
   private publishedSummaryOf?: {
     summary: unknown;
     usage: unknown;
     start: AcpmuxSessionStart | undefined;
     value: AcpmuxSnapshot["summary"];
   };
+  /// The scale-up warning from a just-completed `session/new`, before the attach starts the chat.
+  private startupAdmission?: AcpmuxSnapshot["startupAdmission"];
   /// The usage read in flight (refreshUsage).
   private usageRead?: Promise<void>;
   private selectedSessionId?: string;
@@ -2993,6 +3015,8 @@ export class AcpmuxDirectClient {
       this.shownBefore = this.drawn;
     }
     this.cancelTrustStart?.();
+    if (this.startupAdmission && this.startupAdmission.sessionId !== this.selectedSessionId)
+      this.startupAdmission = undefined;
     // A pane left on no chat (`leave`, a chat gone missing) closes the store's sub of the chat it
     // showed, keeping its last window; a switch to another chat closes it in `choose`.
     if (this.selectedSessionId === undefined) this.chatRows.close();
@@ -6595,6 +6619,7 @@ export class AcpmuxDirectClient {
     // the session, its newest seq and presence of the reply. None of v1's page fold runs for it.
     if (sent.hold) {
       this.summary = attachedDetail(result);
+      if (this.startupAdmission?.sessionId === sessionId) this.startupAdmission = undefined;
       this.lastSeq =
         this.configSeq =
         this.limitsSeq =
@@ -6756,6 +6781,7 @@ export class AcpmuxDirectClient {
         ? result.lastSeq
         : undefined;
     this.summary = detail;
+    if (this.startupAdmission?.sessionId === sessionId) this.startupAdmission = undefined;
     this.configSeq = Array.isArray(detail.configOptions) && typeof result?.lastSeq === "number" ? result.lastSeq : 0;
     this.limitsSeq = typeof result?.lastSeq === "number" ? result.lastSeq : 0;
     this.usageLimitsSeq = this.limitsSeq;
@@ -9768,14 +9794,20 @@ export class AcpmuxDirectClient {
         // turn it was forked at.
         const parent =
           typeof msg.parentId === "string" ? this.sessions.find((s) => s.sessionId === msg.parentId) : undefined;
+        // A fork of a subagent (Fork with <model>… on its chips) names the subagent and its chat.
+        const subagent = forkedSubagentName(msg);
         this.rows.set(`forked-from-${event.seq}`, {
           id: `forked-from-${event.seq}`,
           version: 1,
           at: event.at,
           kind: "notice",
-          text: parent
-            ? translate("notice.forkedFrom", { chat: sessionTitle(parent) })
-            : translate("notice.forkedFromGone"),
+          text: subagent
+            ? parent
+              ? translate("notice.forkedFromSubagent", { subagent, chat: sessionTitle(parent) })
+              : translate("notice.forkedFromSubagentGone", { subagent })
+            : parent
+              ? translate("notice.forkedFrom", { chat: sessionTitle(parent) })
+              : translate("notice.forkedFromGone"),
         });
         // An agent that could not fork the working chat: the fork's agent reads the chat's
         // transcript instead, and the fork says so in one line (acpmux `hub/fork.rs`).
@@ -11303,6 +11335,10 @@ export class AcpmuxDirectClient {
           machine: text(summary.machine),
           peer: text(summary.peer),
           hostKind: hostKind(summary.hostKind),
+          // Auto (autoSession/autoSession.ts): the same object while acpmux's row says the same.
+          ...((this.publishedAuto = autoSessionOf(summary.autoSession, this.publishedAuto)) && {
+            autoSession: this.publishedAuto,
+          }),
           // acpmux's session detail names the folder's branch `gitBranch` (when the session started).
           branch: text(summary.branch) ?? text(summary.gitBranch),
           worktree: text(summary.worktree),
@@ -11496,6 +11532,7 @@ export class AcpmuxDirectClient {
       ...(this.forkedAtSeq !== undefined ? { forkedAtSeq: this.forkedAtSeq } : {}),
       ...(this.surge ? { surge: this.surge } : {}),
       summary: this.publishedSummary(summary, effort, limits),
+      ...(this.startupAdmission ? { startupAdmission: this.startupAdmission } : {}),
       connection,
       ...(this.daemonWaitingSince !== undefined ? { daemonWaitingSince: this.daemonWaitingSince } : {}),
       ...(this.forkPendingSince !== undefined && this.forkPendingFrom === this.actingSessionId
@@ -11548,6 +11585,7 @@ export class AcpmuxDirectClient {
       // Only a peer runs on another clock; this computer's own sessions need no correction.
       ...(summary?.peer && this.clockOffset !== undefined ? { clockOffsetMs: this.clockOffset } : {}),
       canFork: this.canFork,
+      ...(this.canFork && this.capabilities?.has(SUBAGENT_FORK_CAPABILITY) ? { canForkSubagent: true as const } : {}),
       ...(this.features.has(SIDE_CHAT_FEATURE) ? { sideChatOnMachine: true as const } : {}),
       canHandoff: this.handoffSupported,
       handoff: this.handoff.state,
@@ -11676,6 +11714,13 @@ export class AcpmuxDirectClient {
   private heldStartMode?: { modeId: string; ticket?: Promise<string | undefined>; generation: number };
   holdStartMode(modeId: string, ticket?: Promise<string | undefined>): void {
     this.heldStartMode = { modeId, ticket, generation: this.selectionGeneration };
+  }
+  /// The next start on this selection is Auto's (App.tsx `autoSendGate`): its `session/new` says
+  /// `autoPlace`, so acpmux may wait for a machine being added (hub/admission.rs). Any other send
+  /// clears it; another chat selected drops it.
+  private autoPlaceStart?: number;
+  holdAutoPlace(on: boolean): void {
+    this.autoPlaceStart = on ? this.selectionGeneration : undefined;
   }
 
   /// The agent a sessionless chat's first send starts (the pane's host config), when it names one.
@@ -13280,6 +13325,66 @@ export class AcpmuxDirectClient {
     }
     return toolApplied(result?.applied);
   }
+  /// Auto for the shown chat `sessionId` (autoSession/autoSession.ts; acpmux
+  /// `_acpmux/auto_session/set`): on or off, and with `keepInCloud` whether a chat the Cloud runs
+  /// stays there when this Mac is back. acpmux answers the chat's `autoSession`, which the pane
+  /// takes at once (the row's change notice says the same, later).
+  async setAutoSession(sessionId: string, auto: boolean, keepInCloud?: boolean): Promise<void> {
+    if (!sessionId || sessionId !== this.selectedSessionId) throw new Error(translate("error.notOpen"));
+    const generation = this.selectionGeneration;
+    const result = await this.request(
+      "_acpmux/auto_session/set",
+      { sessionId, auto, ...(keepInCloud !== undefined ? { keepInCloud } : {}) },
+      15_000,
+    );
+    this.takeAutoSession(sessionId, generation, autoSessionOf(result?.autoSession));
+  }
+  /// What happens to the changes this Mac made after the shown chat `sessionId` moved to the Cloud
+  /// (autoSession/leftover.ts; acpmux `_acpmux/auto_session/leftover`). Show answers them; Apply
+  /// and Discard end the notice, from acpmux's answer or, when it names none, at once.
+  async autoLeftover(sessionId: string, action: LeftoverAction): Promise<LeftoverShown | undefined> {
+    if (!sessionId || sessionId !== this.selectedSessionId) throw new Error(translate("error.notOpen"));
+    const generation = this.selectionGeneration;
+    const result = await this.request("_acpmux/auto_session/leftover", { sessionId, action }, 60_000);
+    if (action === "show") return leftoverShown(result);
+    const kept = autoSessionOf(this.summary?.autoSession);
+    const { leftover: _settled, ...rest } = kept ?? ({} as Partial<AutoSession>);
+    this.takeAutoSession(
+      sessionId,
+      generation,
+      autoSessionOf(result?.autoSession) ?? (kept ? (rest as AutoSession) : undefined),
+    );
+    return undefined;
+  }
+  /// The Cloud's events of the shown chat `sessionId` after seq `after`, while the Cloud runs it
+  /// (acpmux `_acpmux/auto_session/transcript`, version 1): a read-only projection, never this
+  /// Mac's log. `undefined` when there is none to show: the chat runs here (`projection: null`),
+  /// or acpmux, the host or the read's version predates it, so the pane shows the local log as today.
+  async autoTranscript(
+    sessionId: string,
+    after = 0,
+  ): Promise<{ projection: Record<string, unknown>; events: unknown[]; more: boolean } | undefined> {
+    if (!sessionId || sessionId !== this.selectedSessionId) throw new Error(translate("error.notOpen"));
+    let result: any;
+    try {
+      result = await this.request("_acpmux/auto_session/transcript", { sessionId, after, version: 1 }, 15_000);
+    } catch (error) {
+      const { code, reason } = (error ?? {}) as { code?: unknown; reason?: unknown };
+      if (code === METHOD_NOT_FOUND || code === "transport.method_refused" || reason === "auto.transcript_version")
+        return undefined;
+      throw error;
+    }
+    const projection = result?.projection;
+    if (!projection || typeof projection !== "object") return undefined;
+    return { projection, events: Array.isArray(result.events) ? result.events : [], more: result.more === true };
+  }
+  /// `auto` is the shown chat's `autoSession` now, unless the pane left the chat meanwhile.
+  private takeAutoSession(sessionId: string, generation: number, auto: AutoSession | undefined): void {
+    if (!auto || generation !== this.selectionGeneration || this.selectedSessionId !== sessionId || !this.summary)
+      return;
+    this.summary = { ...this.summary, autoSession: auto };
+    this.emit("session changed");
+  }
   /// The shown chat's offer `offerId` (cx-807da), while its card is drawn.
   offer(offerId: string): AcpmuxSessionOffer | undefined {
     const row = this.rows.get(this.offerRows.get(offerId) ?? "");
@@ -14322,12 +14427,22 @@ export class AcpmuxDirectClient {
     const folders = this.newChatFolders;
     const onMachine = folders && folders.machine === (startHost.peer || "local") ? folders.folders : undefined;
     const pending = { peer: startHost.peer, generation: this.selectionGeneration };
+    // Auto's start here (holdAutoPlace): never one on a named machine or an adopt.
+    const autoPlace = this.autoPlaceStart === pending.generation && !startHost.peer && !startHost.adopt;
     this.pendingPeerTrust = pending;
     this.refusedPeerTrust = undefined;
     this.waitingTrust = undefined;
     this.emit();
     const result = await this.newSession(
-      newSessionParams(startHost, harness, noProject, model, extraFoldersParam(onMachine, startHost.cwd), restricted),
+      newSessionParams(
+        startHost,
+        harness,
+        noProject,
+        model,
+        extraFoldersParam(onMachine, startHost.cwd),
+        restricted,
+        autoPlace,
+      ),
       again,
       () => this.pendingPeerTrust === pending && (!pending.peer || !this.selectedSessionId),
       (error) => {
@@ -14341,6 +14456,12 @@ export class AcpmuxDirectClient {
       // A local start's caller fences it (`create`, HarnessSwitch); a peer start is fenced below.
       Boolean(pending.peer),
     );
+    const admission = result?._meta?.acpmux?.admission;
+    this.startupAdmission =
+      typeof result?.sessionId === "string" && admission?.scalingUp === true
+        ? { sessionId: result.sessionId, scalingUp: true }
+        : undefined;
+    if (this.startupAdmission) this.emit();
     // A deferred local harness switch intentionally leaves the displayed chat at first Send;
     // HarnessSwitch owns that start's cancellation. Only peer starts use this route fence.
     if (
@@ -15348,7 +15469,8 @@ export class AcpmuxDirectClient {
     }
     try {
       const boundary = throughSeq === "live" ? { sessionId, live: true } : { sessionId, throughSeq };
-      const result = await this.request(FORK_OP, cancelToken ? { ...boundary, cancelToken } : boundary);
+      const params = { ...boundary, ...this.forkRequestId(), ...(cancelToken ? { cancelToken } : {}) };
+      const result = await this.request(FORK_OP, params);
       if (this.forkCancelled) {
         if (result?.sessionId) this.takeBackFork(String(result.sessionId));
         return undefined;
@@ -15398,6 +15520,11 @@ export class AcpmuxDirectClient {
     }
     this.emit();
   }
+  /// One id for one person's fork (a click), where acpmux takes it: the same request sent again
+  /// (a reconnect's resend) gets the fork the first one made, never a second chat (#50084).
+  private forkRequestId(): { requestId?: string } {
+    return this.features.has(FORK_REQUEST_FEATURE) ? { requestId: crypto.randomUUID() } : {};
+  }
   /// Removes a fork nobody used: its chat, and the conversation copy its agent made (acpmux
   /// `hub/fork_cancel.rs`). Not waited on: the pane already went back to the chat.
   private takeBackFork(sessionId: string): void {
@@ -15416,7 +15543,7 @@ export class AcpmuxDirectClient {
     const generation = this.selectionGeneration;
     try {
       const boundary = throughSeq === "live" ? { sessionId, live: true } : { sessionId, throughSeq };
-      const result = await this.request(FORK_OP, boundary);
+      const result = await this.request(FORK_OP, { ...boundary, ...this.forkRequestId() });
       if (!result?.sessionId) return undefined;
       if (generation !== this.selectionGeneration) {
         this.takeBackFork(String(result.sessionId));
@@ -15450,6 +15577,7 @@ export class AcpmuxDirectClient {
         live: true,
         harness: target.harness,
         ...(target.model ? { model: target.model } : {}),
+        ...this.forkRequestId(),
       });
       const forked = typeof result?.sessionId === "string" ? result.sessionId : "";
       // l10n-allow: as above.
@@ -15463,6 +15591,37 @@ export class AcpmuxDirectClient {
       await this.select(forked);
       // l10n-allow: as above.
       if (this.selectedSessionId !== forked) throw new Error("the fork did not open");
+      return forked;
+    } finally {
+      this.forking = false;
+    }
+  }
+  /// Fork with <model>… or <mode>… on a subagent's composer chips (subagents/SubagentForkChips.tsx;
+  /// Leo 2026-11-22: "does it make sense to be able to reveal the fork or whatever switching model
+  /// behaviour for it?"): acpmux forks the subagent's own context, as it is now, into a chat of its
+  /// own on `model` or in `mode` (`acp.session.fork {sessionId, subagentId, live}`), linked back to
+  /// the subagent and its chat (`forkOf`). The chat and the subagent go on as they were. Answers the
+  /// fork's id, for the caller to open in a tab of its own; rejects with acpmux's reason.
+  async forkSubagent(target: { subagentId: string; model?: string; harness?: string; mode?: string }): Promise<string> {
+    const sessionId = this.actingSessionId;
+    // l10n-allow: a developer error; the caller shows notice.forkFailed.
+    if (!this.canFork || !sessionId || this.capabilities?.has(SUBAGENT_FORK_CAPABILITY) !== true)
+      throw new Error("acpmux cannot fork a subagent");
+    // l10n-allow: as above.
+    if (this.forking) throw new Error("a fork is already running");
+    this.forking = true;
+    try {
+      const result = await this.request(FORK_OP, {
+        sessionId,
+        subagentId: target.subagentId,
+        live: true,
+        ...(target.model ? { model: target.model } : {}),
+        ...(target.harness ? { harness: target.harness } : {}),
+        ...(target.mode ? { mode: target.mode } : {}),
+      });
+      const forked = typeof result?.sessionId === "string" ? result.sessionId : "";
+      // l10n-allow: as above.
+      if (!forked) throw new Error("the fork made no chat");
       return forked;
     } finally {
       this.forking = false;

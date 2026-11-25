@@ -1550,9 +1550,14 @@ opens, so a change applies without a restart (the variable needs the daemon rest
 |---|---|---|---|---|
 | Compact before the cache expires | `agents.cacheCompact.enabled` | `ACPMUX_CACHE_COMPACT=0\|1` | on | on, off |
 | Only above context used (%) | `agents.cacheCompact.minContextPercent` | `ACPMUX_CACHE_COMPACT_MIN_CONTEXT_PERCENT=N` | 30 | 10-95 |
+| Or above context used (tokens) | `agents.cacheCompact.minContextTokens` | `ACPMUX_CACHE_COMPACT_MIN_CONTEXT_TOKENS=N` | 60000 | 10000-500000 |
 | Batch wakes of cold chats | `agents.coldWake.enabled` | `ACPMUX_COLD_WAKE=0\|1` | on | on, off |
 | Compact cold chats before waking (needs batching on) | `agents.coldWake.compact` | `ACPMUX_COLD_WAKE_COMPACT=0\|1` | on | on, off |
-| Compact cold chats above (tokens) | `agents.coldWake.compactAboveTokens` | `ACPMUX_COLD_COMPACT_ABOVE_TOKENS=N` | 50000 | 10000-500000 |
+| Compact cold chats above (tokens) | `agents.coldWake.compactAboveTokens` | `ACPMUX_COLD_COMPACT_ABOVE_TOKENS=N` | 100000 | 10000-500000 |
+
+The warm timer arms at the percent or the token count, whichever a chat reaches first (a
+percent alone sat above Claude Code's autocompact on a 1M-token window). Cold compaction pays
+from about 76K tokens: it costs about the context plus 76K, a plain wake about twice the context.
 
 On/off variables take `1`, `true`, `on` or `0`, `false`, `off`. Context surgery itself (masking old
 tool output instead of `/compact`) is `agents.harnessMagic.surgery.enabled`, off with
