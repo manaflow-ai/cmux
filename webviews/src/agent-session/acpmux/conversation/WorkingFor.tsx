@@ -30,6 +30,7 @@ import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
 import { StatusVerb } from "./StatusVerb";
 import { LiveShimmer } from "./LiveShimmer";
 import { workingParts, WorkingCountsContext } from "./workingForModel";
+import { clockSizerAcrossUnits } from "../../../ui/Typography";
 /// Over the work (`row.below` false), `onToggle` opens and closes the running turn's work under the
 /// key its "Worked for" takes when it ends (turns.ts `shapeLiveRows`, #50987): the label is the toggle,
 /// with the chevron "Worked for" draws, and the counts stay buttons of their own beside it.
@@ -69,6 +70,13 @@ export function WorkingFor({
   // A new call changes the words as Claude desktop's line does (ui/motion/useTextSwap.ts).
   const words = useTextSwap<HTMLSpanElement>(waiting ? undefined : (doing ?? ""));
   const toggles = onToggle !== undefined && !row.below;
+  // The ticking "Working for 42s" the toggle holds room for: the same words at the widest time of
+  // its shape across units, so a tick, "59s" into "1m 0s" too, moves nothing after the toggle.
+  const ms = Math.max(0, until - row.at);
+  const sizer =
+    toggles && !held && !waiting && !doing && !row.thinkingNow && ms >= 1000
+      ? t("turn.working", { time: clockSizerAcrossUnits(formatDuration(ms)) })
+      : undefined;
   const label = (
     <>
       {!waiting && doing && row.doingCommand && !sending && (
@@ -100,10 +108,9 @@ export function WorkingFor({
             <TimedLabel
               text={(time) => t("turn.working", { time })}
               time={Math.max(0, until - row.at)}
-              // A chevron follows the words over the work: a clock that held the minutes' width would
-              // park it a gap away from them (Leo, 2026-11-25: "chevron spacing bad"). The line's
-              // tabular numerals keep each tick in place; only a new unit moves it.
-              ticking={!held && row.below === true}
+              // As the toggle, its chevron follows the time with no room between (#55615): the
+              // widest time's room goes after the chevron instead (`cv-worked__toggle-sizer`).
+              ticking={!held && !toggles}
             />
           )}
         </span>
@@ -117,9 +124,19 @@ export function WorkingFor({
     // room (`is-toggle`, conversation.css), so the turn's end swaps the words and nothing moves.
     <div className={row.below ? "cv-worked is-below" : "cv-worked has-divider is-toggle"} data-find-skip>
       {toggles ? (
+        // The label and its chevron hug (`cv-worked__hug`); an unseen copy at the widest time
+        // (`cv-worked__toggle-sizer`) shares their grid cell, so the toggle keeps its width while
+        // the seconds tick and the slack sits after the chevron, never between it and the words.
+        // Its chevron is the ended line's slot held unseen (turnFold.ts `isLiveClockNode`).
         <button type="button" className="cv-worked__toggle" aria-expanded={expanded} onClick={onToggle}>
-          {label}
-          <DisclosureChevron open={expanded} look="worked" />
+          <span className="cv-worked__hug">
+            {label}
+            <DisclosureChevron open={expanded} look="worked" />
+          </span>
+          <span className="cv-worked__toggle-sizer" aria-hidden="true">
+            {sizer && <span className="cv-worked__label">{sizer}</span>}
+            <DisclosureChevron open={false} look="worked" reserved />
+          </span>
         </button>
       ) : (
         label
@@ -139,8 +156,7 @@ export function WorkingFor({
       {!waiting && row.doingCommand && !row.doingDraft && <BackgroundHint key={row.doing} />}
       {/* Over the work it is the turn's header in its running phase (turns.ts `turnHeaderId`): the
           ended "Worked for"'s chevron has its slot already, right after the words as it draws
-          there, unseen until the turn ends and the line opens what it folded. A line that toggles
-          already draws it in its button. */}
+          there, unseen until the turn ends and the line opens what it folded. */}
       {!row.below && !toggles && <DisclosureChevron open={false} look="worked" reserved />}
     </div>
   );
