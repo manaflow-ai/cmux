@@ -34,6 +34,24 @@ public struct PagePushLedger: Sendable {
     public private(set) var stalled = false
     /// Times the host stopped pushing (tests, the bench).
     public private(set) var stalls = 0
+    /// The newest seq the host pushed on this connection; an ack past it names a push never made.
+    public private(set) var newestPushed: Int?
+    /// Acks past ``newestPushed`` that were ignored (tests, the bench).
+    public private(set) var acksPastNewest = 0
+    /// One ignored ack was already reported since the last stall began (or the connection opened).
+    private var reportedPastNewest = false
+
+    /// What an ack did.
+    public enum Ack: Sendable, Equatable {
+        /// The acked push and every one before it are applied; the host was not holding.
+        case applied
+        /// It ended a stall: the page runs again, and the held push's completion runs.
+        case resumed
+        /// Its seq is past ``PagePushLedger/newestPushed``: nothing changed and nothing resumes.
+        /// `report` is true once per stall episode, so a misbehaving page shows in the log
+        /// without flooding it.
+        case pastNewestPush(newest: Int?, report: Bool)
+    }
 
     public init(bounds: Bounds = Bounds()) {
         self.bounds = bounds
@@ -48,6 +66,7 @@ public struct PagePushLedger: Sendable {
     public mutating func pushed(seq: Int, bytes: Int) {
         unacked.append(Push(seq: seq, bytes: bytes))
         unackedBytes += bytes
+        newestPushed = max(newestPushed ?? seq, seq)
     }
 
     /// The ack deadline passed with no ack. True: the next push may go, as before. False: the
@@ -58,20 +77,31 @@ public struct PagePushLedger: Sendable {
         if !stalled {
             stalled = true
             stalls += 1
+            reportedPastNewest = false
         }
         return false
     }
 
     /// The page acked push `seq`. Pushes ack in order, so it and every one before it are applied.
-    /// True when this ended a stall: the page runs again, and the held push's completion runs.
-    @discardableResult
-    public mutating func acked(seq: Int) -> Bool {
+    /// An ack past ``newestPushed`` names a push the host never made: a buggy page. It changes
+    /// nothing and ends no stall, else such a page would walk past the bound (``Ack/pastNewestPush``).
+    public mutating func ack(seq: Int) -> Ack {
+        guard let newest = newestPushed, seq <= newest else {
+            acksPastNewest += 1
+            let report = !reportedPastNewest
+            reportedPastNewest = true
+            return .pastNewestPush(newest: newestPushed, report: report)
+        }
         if let last = unacked.lastIndex(where: { $0.seq <= seq }) {
             for push in unacked[...last] { unackedBytes -= push.bytes }
             unacked.removeFirst(last + 1)
         }
-        return resume()
+        return resume() ? .resumed : .applied
     }
+
+    /// ``ack(seq:)``, true when it ended a stall.
+    @discardableResult
+    public mutating func acked(seq: Int) -> Bool { ack(seq: seq) == .resumed }
 
     /// The page sent something: its script runs, so it drains again, though no ack came (an
     /// older page that never acks). True when this ended a stall.
@@ -83,6 +113,8 @@ public struct PagePushLedger: Sendable {
         unacked.removeAll()
         unackedBytes = 0
         stalled = false
+        newestPushed = nil
+        reportedPastNewest = false
     }
 
     private mutating func resume() -> Bool {
