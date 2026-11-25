@@ -391,3 +391,31 @@ fn expiry_reads_as_time_left() {
     assert_eq!(relative(10_000, 0), "in 1 minutes");
     assert_eq!(relative(0, 5), "expired");
 }
+
+/// Seeded secrets on the wire (cmux_egress::capture) through the link's platform client: the
+/// person's credential rides only in `Authorization` and the team only in the `team` query.
+/// tests/egress_seeded.json names this test for `cmux_tui::cli::runnable_link`.
+#[test]
+fn seeded_secrets_ride_only_where_the_platform_needs_them() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    cmux_egress::capture::install().unwrap();
+    let token = "SEEDlinkCredential-5b1e";
+    let team = "SEEDlinkTeam-a07c";
+    let mut http = Http {
+        client: http_client().unwrap(),
+        origin: cmux_cloud_environment::PRODUCTION_PLATFORM.trim_end_matches('/').to_owned(),
+        team: Some(team.to_owned()),
+        token: Zeroizing::new(token.to_owned()),
+    };
+    // The capture server answers `200 {}` to every request.
+    let answer =
+        run_async(http.call("POST", "/api/runnable-links", Some(json!({"machine": "vm_seeded"}))));
+    assert_eq!(answer.map(|(status, _)| status), Ok(200));
+    assert!(!cmux_egress::capture::requests().is_empty(), "the call reached the capture server");
+    let places = cmux_egress::capture::leaks(token);
+    assert!(!places.is_empty());
+    assert!(places.iter().all(|p| p.ends_with(": header authorization")), "{places:?}");
+    let places = cmux_egress::capture::leaks(team);
+    assert!(!places.is_empty());
+    assert!(places.iter().all(|p| p.ends_with(": target")), "{places:?}");
+}

@@ -8,6 +8,9 @@
   "acpmux::range_fetch": {
    "todo": true
   },
+  "acpmux::send_trace": {
+   "none": "one POST of a send's two timing spans (trace id, millisecond stamps, a cold flag, the VM's vm_ id) to the VM's own platform edge: no credential (the edge adds the machine's), no prompt text or person data"
+  },
   "chatmux_relay": {
    "todo": true
   },
@@ -34,6 +37,9 @@
   },
   "cmux_coderouter": {
    "todo": true
+  },
+  "cmux_git_cache::server": {
+   "test": "cmux-tui/crates/cmux-git-cache/tests/seeded_secret.rs::the_callers_credential_rides_only_in_authorization_to_github"
   },
   "cmux_projection::peers": {
    "todo": true
@@ -103,6 +109,9 @@
   },
   "cmux_tui::cli::machine_join": {
    "todo": true
+  },
+  "cmux_tui::cli::runnable_link": {
+   "test": "cmux-tui/crates/cmux-tui/src/cli/runnable_link_tests.rs::seeded_secrets_ride_only_where_the_platform_needs_them"
   },
   "cmux_tui::cli::video": {
    "none": "a GET of the URL the person typed (cmux video open URL): it sends nothing but that URL"

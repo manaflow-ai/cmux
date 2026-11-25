@@ -146,7 +146,9 @@ pub struct State {
 impl State {
     pub fn new(cfg: Config) -> Result<Arc<Self>, String> {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let http = reqwest::Client::builder()
+        // Through the egress gate (docs/privacy.md, Egress gate): github.com and crates.io are
+        // listed hosts; the edge and peers are private-network names.
+        let http = cmux_egress::client_builder("cmux_git_cache::server")
             .connect_timeout(Duration::from_secs(15))
             .redirect(reqwest::redirect::Policy::limited(5))
             .user_agent("git/cmux-git-cache")
