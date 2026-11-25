@@ -267,10 +267,12 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
         .and_then(|s| s.get("cwd").and_then(Value::as_str))
         .unwrap_or("")
         .to_owned();
+    let wait = crate::capacity_wait::of_row(app.selected_session());
     let Some(t) = app.transcripts.get_mut(&id) else {
         buf.set_stringn(inner.x, inner.y, "loading…", inner.width as usize, c.dim());
         return;
     };
+    crate::capacity_wait::sync(t, wait);
     if t.items.is_empty() && t.status != "running" {
         let project = project_label(&cwd);
         let headline = if project.is_empty() {
