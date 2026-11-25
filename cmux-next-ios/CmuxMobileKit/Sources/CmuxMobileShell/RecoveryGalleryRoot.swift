@@ -49,6 +49,9 @@ import SwiftUI
 /// - `reconnect`: a list riding out a dropped or quiet connection to the Mac with its rows kept
 ///   (Leo 2026-11-21: no "didn't answer in time"): A, the line the Chats list shows
 ///   (`ListStatusRow`), in its three states, then the variants it was picked from, B and C.
+/// - `agentmark`: a terminal agent's avatar beside a GUI agent chat's (Leo 2026-11-24: "both of them rn
+///   are just claude icon"), every variant side by side; `agentmark-a` ... `agentmark-d`, one variant on
+///   Feed-like rows (`AgentAvatarHostGallery`).
 public struct RecoveryGalleryRoot: View {
     public static var isRequested: Bool {
         ProcessInfo.processInfo.arguments.contains("-cmux-mobile-recovery-gallery")
@@ -64,7 +67,7 @@ public struct RecoveryGalleryRoot: View {
         let index = arguments.firstIndex(of: "-cmux-mobile-recovery-gallery")
         let named = index.flatMap { i in arguments.indices.contains(i + 1) ? arguments[i + 1] : nil } ?? "states"
         let parts = named.split(separator: "-", maxSplits: 1).map(String.init)
-        if ["chip", "chiplist", "stills", "skeleton"].contains(parts[0]), parts.count == 2 {
+        if ["chip", "chiplist", "stills", "skeleton", "agentmark"].contains(parts[0]), parts.count == 2 {
             scene = parts[0]
             variant = parts[1]
         } else {
@@ -117,6 +120,8 @@ public struct RecoveryGalleryRoot: View {
                     }
             case "lastsent":
                 TerminalLastSentGallery()
+            case "agentmark":
+                AgentAvatarHostGallery(variant: variant)
             default:
                 states
             }
@@ -198,15 +203,15 @@ public struct RecoveryGalleryRoot: View {
         }
     }
 
-    /// A (picked): spinner, what it waits on, and the bound, counted up past 5 s.
+    /// A (picked): nothing while it connects; the chats fill in (Leo, 2026-11-24, item 3: no
+    /// connecting indicators). Was: spinner, what it waits on, and the bound, counted up past 5 s.
     /// B: an empty state with the bound and no motion (reads as stopped).
     /// C: an inline row with a determinate bar (implies progress the link does not report).
     private var cloud: some View {
-        let since = Date.now.addingTimeInterval(-12)
-        return ScrollView {
+        ScrollView {
             VStack(spacing: 28) {
                 galleryLabel("A · picked")
-                CloudChatsConnecting(machine: "atlas-dev", mac: "Aziz's Mac Studio", since: since)
+                CloudChatsConnecting()
                 galleryLabel("B")
                 VStack(spacing: 6) {
                     Image(systemName: "cloud").font(.title2).foregroundStyle(.secondary)
