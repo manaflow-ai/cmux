@@ -161,7 +161,6 @@ export function ScrollMap({
   }));
 
   if (!shown) return null;
-  const geometry = layoutGeometry(layout);
 
   const railY = (clientY: number) => clientY - (rail.current?.getBoundingClientRect().top ?? 0);
   /// Scrolls to `key`'s message: a prompt as the compact rail's click, a reply to its top.
