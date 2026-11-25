@@ -9,6 +9,7 @@
 // a field-for-field mapping of them and nothing else in the pane changes.
 import {
   isLineRow,
+  onlyQuietThoughts,
   pathKey,
   SINCE_DIVIDER,
   TURN_RETRY,
@@ -16,14 +17,14 @@ import {
   type AcpmuxFileDiff,
   type AcpmuxPlanEntry,
   type AcpmuxRow,
-  onlyQuietThoughts,
 } from "../model";
 import type { Folds } from "./viewFolds";
 import { continuesTurn, opensTurn } from "../turnStart";
 import { AFTER_SEND, findRowIndex } from "./chatFind";
 import { cutLongRuns } from "./runParts";
-import { keptPrefix, PrefixFilter, noteKeptPrefix } from "./prefixFlatMap";
+import { keptPrefix, noteKeptPrefix, PrefixFilter } from "./prefixFlatMap";
 import { renderCall } from "./renderCall";
+import { compactShortTurnsOn } from "./compactShortTurns";
 import { hasTimestamp, showsTimestamp, type TurnTimes } from "./timestamps";
 import { isRunGroup, isSubagentGroup, WORKFLOW_CARD, SUBAGENT_DONE, SUBAGENT_STARTED } from "../subagents/subagentRows";
 import { STARTED_SESSIONS } from "../started/startedSessions";
@@ -55,7 +56,7 @@ import { startedTasks, startsTask, TASK_LINE } from "./taskLines";
 import { isWaitingMessage } from "./pendingMessages";
 import { appendLaneNotice } from "./laneNoticeBatches";
 import { agentMessage } from "./agentMessages";
-import { turnCopyParts, turnCopySaid, turnCallParts } from "./turnCopy";
+import { turnCopyParts, turnCallParts, turnCopySaid } from "./turnCopy";
 import { turnEndActions } from "./turnEndActions.experiment";
 import { turnWork } from "./waterfallSpans";
 import { isVisiblyEmptyMessage, isVisiblyEmptyText } from "./visibleMessage";
@@ -81,7 +82,7 @@ import {
   openMessageRuns,
 } from "./messageRuns";
 import { backgroundRunFoldFor, backgroundRunRowId, foldBackgroundRuns, openBackgroundRuns } from "./backgroundRuns";
-import { turnFoldStyle, type TurnFoldStyle } from "./turnFoldStyle";
+import { turnFoldStyle, type TurnFoldStyle, CLAUDE_IN_PLACE } from "./turnFoldStyle";
 import { resendsAttachments } from "../inlinePrompt";
 import { answerClaim, askKey, CLAIM_SLACK_MS } from "./waitingAskStore";
 import { canonicalCall } from "../toolNames";
@@ -1180,6 +1181,8 @@ type ShapedTurn = {
   messagesArm: string;
   /// What its closed "Worked for" says besides its time (workedLine.experiment.ts).
   lineArm: string;
+  /// Whether it was shaped with the compact short-turn summary on (compactShortTurns.ts).
+  compact: boolean;
   /// The person's own prompt opened the next turn (`supersededFooters`).
   endedByPerson: boolean;
   rows: AcpmuxRow[];
@@ -1254,6 +1257,7 @@ type TurnArms = {
   steeredArm: string;
   messagesArm: string;
   lineArm: string;
+  compact: boolean;
 };
 const turnArms = (agentFamily: string | undefined): TurnArms => ({
   foldStyle: turnFoldStyle(agentFamily),
@@ -1261,6 +1265,7 @@ const turnArms = (agentFamily: string | undefined): TurnArms => ({
   steeredArm: experimentArm(turnFoldSteered),
   messagesArm: experimentArm(workedForMessages),
   lineArm: experimentArm(workedLine),
+  compact: compactShortTurnsOn(),
 });
 
 /// The drawn rows of the turn at `rows[start]` (its prompt) up to `end`, then its held prompts.
@@ -1279,7 +1284,7 @@ function shapedTurn(
   trayAgents = 0,
   retryTarget = false,
   turnStartedAtMs?: number,
-  { foldStyle, repliesArm, steeredArm, messagesArm, lineArm }: TurnArms = turnArms(agentFamily),
+  { foldStyle, repliesArm, steeredArm, messagesArm, lineArm, compact }: TurnArms = turnArms(agentFamily),
 ): AcpmuxRow[] {
   const user = rows[start]!;
   // A running turn changes with every event: it is neither read from nor kept in the cache, so its
@@ -1310,6 +1315,7 @@ function shapedTurn(
     cached.steeredArm === steeredArm &&
     cached.messagesArm === messagesArm &&
     cached.lineArm === lineArm &&
+    cached.compact === compact &&
     cached.endedByPerson === endedByPerson &&
     cached.source.length === source.length
   ) {
@@ -1471,6 +1477,7 @@ function shapedTurn(
       steeredArm,
       messagesArm,
       lineArm,
+      compact,
       endedByPerson,
       rows: shaped,
     });
@@ -1563,6 +1570,53 @@ const isDialogue = (row: AcpmuxRow) =>
 /// A turn's rows hold no work to fold, open or closed: the rows a fold leaves in sight, and dialogue.
 const repliesOnly = (rows: readonly AcpmuxRow[]) =>
   rows.every((row) => isFinalAnswer(row) || staysOut(row) || isDialogue(row));
+
+/// A turn folds under "Worked for" only when the fold hides something worth hiding: at least
+/// `FOLD_MIN_ROWS` work rows (calls, and rows the harness or another agent wrote), or at least
+/// `FOLD_MIN_MS` of thinking and tools. Otherwise its rows draw flat, with no line and no chevron,
+/// and a turn under `FLOOR_MS` never has a header at all (Leo, 2026-11-24, on a wake's "Report from
+/// Subagent" under "Worked for 0s": "honestly in these cases should we just... not do our folding
+/// situation? this edge case? cuz otherwise it's so weird"). A turn that failed or was stopped keeps
+/// its line: it says how it ended. An unknown time leaves the rows to decide.
+export const FOLD_MIN_ROWS = 3;
+// motion-allow: how long a turn ran before its work folds, not a motion
+export const FOLD_MIN_MS = 5_000;
+// motion-allow: the shortest turn that folds, not a motion
+export const FLOOR_MS = 1_000;
+
+/// The rows a fold would hide: each tool call, and each row another agent wrote
+/// (the turn's own prompt among them). Thinking counts by its time, not as a row.
+const foldsAsWork = (row: AcpmuxRow) => isAgentPrompt(row);
+export function workRowCount(user: AcpmuxRow, body: readonly AcpmuxRow[]): number {
+  let count = foldsAsWork(user) ? 1 : 0;
+  for (const row of body) {
+    if (row.kind === "activity") count += (row.items ?? []).filter((item) => item.tool).length;
+    else if (row.kind === "user" && foldsAsWork(row)) count += 1;
+  }
+  return count;
+}
+
+export function worthFolding(rows: number, durationMs: number | undefined): boolean {
+  if (durationMs === undefined) return rows >= FOLD_MIN_ROWS;
+  if (durationMs < FLOOR_MS) return false;
+  return rows >= FOLD_MIN_ROWS || durationMs >= FOLD_MIN_MS;
+}
+
+function foldsTurn(
+  user: AcpmuxRow,
+  body: readonly AcpmuxRow[],
+  summary: AcpmuxRow,
+  turnStartedAtMs: number | undefined,
+): boolean {
+  if (summary.status !== "completed") return true;
+  // The harness's own measure of the turn counts too: a wake that came after the answer moves the
+  // clock's start to itself, so the clock alone reads 0 over work the turn did before it.
+  const clock = turnClock(user, body, turnStartedAtMs, summary).durationMs;
+  // A span stamped at one moment measured nothing (`spanDuration`): a synthesized end, such as a
+  // background turn's, reads 0, which is no time known, so its rows decide.
+  const measured = Math.max(clock ?? 0, summary.durationMs ?? 0);
+  return worthFolding(workRowCount(user, body), measured > 0 ? measured : undefined);
+}
 
 /// Where `body` draws the "Worked for" of the turn `user` opened, or -1 for none.
 const fold = (body: readonly AcpmuxRow[], user: AcpmuxRow) =>
@@ -2102,7 +2156,14 @@ function shapeTurn(
   // too lossy if you do it for Claude"); its whole-turn "Worked for" is an opt-in only.
   // The family's row of the one table (turnFoldStyle.ts) says how: Codex and ChatGPT under one
   // "Worked for", Claude, Gemini and Muse with no turn fold.
-  const style = turnFoldStyle(agentFamily);
+  // A turn with little to hide draws flat, as the in-place family does (`foldsTurn`).
+  const family = turnFoldStyle(agentFamily);
+  // Flat: the family folds turns, but this one has too little to hide. Its replies stay plain replies
+  // (no `settled`, no `foldedReply`): no fold holds them, so every answer reads as drawn
+  // (replyAlwaysVisible.test.ts), unlike the `runs` arm, whose earlier replies draw as folded notes.
+  const flat =
+    family.conclusion && compactShortTurnsOn() && !foldsTurn(user, body, summary, live ? turnStartedAtMs : undefined);
+  const style = flat ? CLAUDE_IN_PLACE : family;
   // Other agents' messages that started the turn fold into its "Worked for" once it ends, as its
   // first entries (Leo, 2026-11-07: "fold the receiving and sending messages into the worked for as
   // well? Like the nearest one?"); shapedTurn draws them there.
@@ -2377,10 +2438,10 @@ function shapeTurn(
           ...[...merge(before), ...(inPlace ? [said] : []), ...merge(after)].flatMap(withoutDrafts).map((row) => ({
             ...endedPlan(row),
             id: isEdit(row) ? `${row.id}${FOLDED}` : row.id,
-            settled: true,
+            ...(!(flat && replies.has(row.id)) && { settled: true }),
             // A finished turn's earlier replies fold here too; each keeps its action row, while a
             // short note stays quiet (Leo, 2026-10-29: replies keep their action row).
-            ...(replies.has(row.id) && row !== said && { foldedReply: true }),
+            ...(replies.has(row.id) && row !== said && !flat && { foldedReply: true }),
             // A folded run draws otherwise, so its version moves (memos compare versions).
             ...(row.kind === "activity" && { foldRun: true, version: row.version * RUN_STATES + 3 }),
             // A steered turn's run lines open with its Worked for (`runsOpen`): the open fold's state,
