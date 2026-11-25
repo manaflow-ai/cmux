@@ -512,6 +512,9 @@ export type AcpmuxRow = {
   version: number;
   at: number;
   kind: string;
+  /// The row-store group whose children this activity row comes from. Closed groups are paged on
+  /// demand when their transcript disclosure opens.
+  foldId?: number;
   /// The acpmux event a turn summary came from, where a fork through that turn ends.
   seq?: number;
   /// The daemon's stable identity for a turn. Turn results can be replayed with a new seq, so
@@ -562,6 +565,11 @@ export type AcpmuxRow = {
   background?: AcpmuxBackgroundTurn;
   /// A row a background turn made: that turn's id, so its line can fold it (backgroundTurns.ts).
   inBackground?: string;
+  /// A row of the running turn that was already there when the chat was opened or reloaded (a v1
+  /// chat: direct.ts `noteReadWork`), with how many of its items were (an activity row's; 0 for any
+  /// other row). The running turn draws what of it its fold will hold folded from the first frame,
+  /// as the row store sends an open turn's settled work (turns.ts `withoutReadWork`).
+  readAtOpen?: number;
   /// An agent reply to the person's own prompt (conversation/turns.ts answeringPerson): its text
   /// draws even when it is only punctuation (visibleMessage.ts).
   answersPerson?: true;
@@ -720,6 +728,9 @@ export type AcpmuxRow = {
   runOpen?: true;
   /// A "Worked for" line that names the work it holds after its time (turnFoldSteered `header` arm).
   workedRuns?: AcpmuxActivity[];
+  /// The calls a "Worked for" hides, which its line counts with the Fold Summary Counts switch on
+  /// (conversation/turns.ts `workedCountsText`, `FOLD_COUNTS_SWITCH`).
+  foldCalls?: AcpmuxActivity[];
   /// A run of one-line rows carrying messages between agents, folded under one line
   /// (conversation/messageRuns.ts): what its line counts and the rows it folds.
   messageRun?: AcpmuxMessageRun;
@@ -1002,6 +1013,10 @@ export type AcpmuxActivity = {
     /// The harness metadata that names a built-in tool. Titles are user-visible labels and are
     /// not sufficient to identify plumbing calls with names such as ToolSearch.
     provenance?: { claudeTool?: string; claudeCodeToolName?: string };
+    /// The name of the subagent a SendMessage call goes to, as the daemon's subagent list names
+    /// it (`_meta.acpmux.recipient`, acpmux subagents.rs `recipient`): the "Sent to" row reads it
+    /// when the page holds no row of the subagent's Agent call.
+    recipient?: string;
   };
 };
 
@@ -1295,8 +1310,10 @@ export type AcpmuxTimeBreakdown = {
 
 export type AcpmuxSnapshot = {
   type: "snapshot";
-  /// The one-shot admission warning returned by `session/new`, while its chat is starting.
-  startupAdmission?: { sessionId: string; scalingUp: true };
+  /// The one-shot admission warning of an Auto start: with no `sessionId` while `session/new` waits
+  /// for a machine being added (`_acpmux/admission_waiting`), then the one `session/new` returned,
+  /// while its chat is starting.
+  startupAdmission?: { sessionId?: string; scalingUp: true };
   /** The selected chat's daemon-owned retry, including the last automatic attempt. */
   autoResume?: AutoResumeStatus;
   /** The chat acpmux holds for capacity (hub/capacity_wait.rs): one calm state, never red. */
@@ -1574,6 +1591,9 @@ export type AcpmuxSnapshot = {
   clockOffsetMs?: number;
   /// acpmux serves `acp.session.fork` (operations.ts), so a turn can be forked from.
   canFork?: boolean;
+  /// acpmux forks a subagent's own context into a chat of its own (`acp.session.fork.subagent.v1`):
+  /// a subagent's chips offer Fork with <model>… and Fork with <mode>… (SubagentForkChips.tsx).
+  canForkSubagent?: true;
   /// The chat's own machine (a Cloud or SSH chat) opens its side chats there: New side chat and
   /// `/side` (direct.ts `sideChatOnMachine`).
   sideChatOnMachine?: true;
@@ -3846,10 +3866,50 @@ function pickedPromptHeight(
 /// `scale` is the Interface Size it was measured at (gridScale), which a remembered height must share.
 /// `open` is the row's state signature then (conversation/rowOpenState.ts): an estimate taken with a
 /// run, group, call or message open is never reused for the row once it is closed, or the other way.
-export type RowHeights = WeakMap<
-  AcpmuxRow,
-  { width: number; height: number; edge?: string; scale?: number; open?: string }
->;
+/// `width` and `height` are the newest measure; `older` holds the ones before it at other widths, newest
+/// first, up to ROW_HEIGHT_WIDTHS in all: a divider dragged narrow and back finds every row's height at
+/// the width it comes back to and measures none of them again. The older ones share the newest's edge,
+/// scale and open state (`withHeight` drops them when one changes).
+export type RowHeights = WeakMap<AcpmuxRow, RowHeight>;
+export interface RowHeight {
+  width: number;
+  height: number;
+  edge?: string;
+  scale?: number;
+  open?: string;
+  older?: readonly { width: number; height: number }[];
+}
+/// How many widths a row's estimated height is kept at (`RowHeight.older`).
+export const ROW_HEIGHT_WIDTHS = 4;
+/// The row's kept height at `width`, when it was measured there at this edge and scale.
+function heightAt(
+  kept: RowHeight | undefined,
+  width: number,
+  edge: string | undefined,
+  scale: number,
+): number | undefined {
+  if (!kept || kept.edge !== edge || (kept.scale ?? 1) !== scale) return undefined;
+  if (kept.width === width) return kept.height;
+  return kept.older?.find((entry) => entry.width === width)?.height;
+}
+/// The row's entry with `height` at `width` as its newest measure; its other widths stay while the edge,
+/// scale and open state do.
+function withHeight(
+  kept: RowHeight | undefined,
+  width: number,
+  height: number,
+  edge: string | undefined,
+  scale: number,
+  open: string | undefined,
+): RowHeight {
+  if (!kept || kept.edge !== edge || (kept.scale ?? 1) !== scale || (kept.open ?? "") !== (open ?? ""))
+    return { width, height, edge, scale, open };
+  if (kept.width === width) return { ...kept, height };
+  const older = [{ width: kept.width, height: kept.height }];
+  for (const entry of kept.older ?? [])
+    if (entry.width !== width && older.length < ROW_HEIGHT_WIDTHS - 1) older.push(entry);
+  return { width, height, edge, scale, open, older };
+}
 
 /// A footer with nothing to show at rest (turns.ts isEmptyFooter) lays its hover controls over the gap
 /// and takes no height. A reply's footer is a row of its own: ChatGPT's 32 line of buttons, 8 under
@@ -3886,7 +3946,10 @@ export function layoutConversation(
   /// view and the cached ones, not the whole chat. This is Chromium's `content-visibility: auto` with
   /// `contain-intrinsic-size: auto`: content off screen keeps its last remembered size and is laid out
   /// again as it is rendered; here the row's drawn height replaces it once it mounts.
-  near?: { from: number; to: number },
+  /// `all`: every row away from the view keeps its last height, prepared or not, whatever it draws: a
+  /// new box width (a divider that held, a window edge, a sidebar) then costs the rows near the view
+  /// whatever the chat's length, not every prepared row and every row with no text again.
+  near?: { from: number; to: number; all?: boolean },
   /// A cold open at the chat's end: the rows within this many px of the end are measured, and every
   /// row above them with no known height takes its rough height (`fallbackRowHeight`, no text is
   /// prepared). The layout is then `rough`, and the transcript lays it out whole after the first
@@ -3969,8 +4032,9 @@ export function layoutConversation(
     // one taken in another open state is estimated again, from the same stores the DOM opens from.
     const open = kept ? rowOpenState(sessionId, row) : undefined;
     const keptOpen = kept !== undefined && (kept.open ?? "") === open;
+    const keptHere = heightAt(kept, width, edge, scale);
     let height: number;
-    if (kept && keptOpen && kept.width === width && kept.edge === edge) height = kept.height;
+    if (keptOpen && keptHere !== undefined) height = keptHere;
     else if (
       resizing &&
       (resizing.layout.scale ?? 1) === scale &&
@@ -3981,7 +4045,14 @@ export function layoutConversation(
       // Out of view during a live resize: its height at the last width, never recorded as this width's.
       height = resizing.layout.heights[index]!;
     else {
-      const customHeight = measureOverride?.(row, width);
+      const away =
+        near !== undefined &&
+        kept !== undefined &&
+        keptOpen &&
+        kept.edge === edge &&
+        (kept.scale ?? 1) === scale &&
+        (index < near.from || index >= near.to);
+      const customHeight = away && near.all ? undefined : measureOverride?.(row, width);
       const custom = customHeight !== undefined && Number.isFinite(customHeight) && customHeight >= 0;
       if (
         !custom &&
@@ -4004,18 +4075,8 @@ export function layoutConversation(
         if (height > 0) height += statusDelta(row, statusEdge(row, rows[nextDrawn], prev));
         rough = true;
         remembered = true;
-      } else if (
-        !custom &&
-        near &&
-        kept &&
-        keptOpen &&
-        kept.edge === edge &&
-        (kept.scale ?? 1) === scale &&
-        (index < near.from || index >= near.to) &&
-        row.text &&
-        !cache.has(row.id)
-      ) {
-        // Away from the view, with its prepared text gone (PREPARED_ROWS): its last height, never
+      } else if (away && (near.all || (!custom && row.text && !cache.has(row.id)))) {
+        // Away from the view, at a new width or with its prepared text gone (PREPARED_ROWS): its last height, never
         // recorded as this width's. Its drawn height replaces it once it mounts, and a layout that
         // measures it (near the view, after a change above it) records this width's.
         height = kept.height;
@@ -4043,7 +4104,7 @@ export function layoutConversation(
         }
         // A row that draws nothing stays at 0; a custom renderer's height is its own.
         if (!custom && height > 0) height += statusDelta(row, statusEdge(row, rows[nextDrawn], prev));
-        if (known) known.set(row, { width, height, edge, scale, open: open ?? rowOpenState(sessionId, row) });
+        known?.set(row, withHeight(kept, width, height, edge, scale, open ?? rowOpenState(sessionId, row)));
       }
     }
     if (height > 0) {
@@ -4395,10 +4456,10 @@ export function mergeRowRanges(ranges: RowRange[]): RowRange[] {
 export const PREDICTED_JITTER = 0.05;
 
 /// The rows a transcript at `scrollTop` mounts while it moves `delta` per scroll: the view and
-/// `steps` scrolls of motion ahead of it, capped at `maxLead`. A scroll past the cap (a fling or a
-/// scrollbar drag that moves several viewports a frame) also mounts each view the next `steps`
-/// frames reach (a jump past the cap itself, only the next one), with a margin for uneven frames:
-/// the rows between them are never on screen, so they are not built (cx-j33s4).
+/// `steps` scrolls of motion ahead of it, capped at `maxLead`. A scroll whose lead runs past the cap
+/// also mounts each view the next `steps` frames reach, with a margin for uneven frames: the rows
+/// between them are never on screen, so they are not built (cx-j33s4). A jump (more than a view a
+/// frame: a fling or a scrollbar drag) mounts its view alone.
 /// A moving scroll within the cap also keeps `trail` px behind the view mounted: the rows the
 /// reader just passed, already drawn. Dropping them the moment they left the view made a quick
 /// reversal (up and down fast) scroll the compositor into bare background for a frame before its
@@ -4425,8 +4486,8 @@ export function scrollLeadRanges(
     const top = delta < 0 ? scrollTop - lead : scrollTop - behind;
     return [visibleLayoutRange(layoutModel, top, viewportHeight + lead + behind)];
   }
-  // A jump lands past the rows between the views, so each of its frames mounts the view and the view
-  // the next frame reaches, not the rows it jumps over: a fling of tens of viewports a frame (a god
+  // A jump lands past the rows between the views, so each of its frames mounts its view, not the rows
+  // it jumps over: a fling of tens of viewports a frame (a god
   // session) built 5 viewports of rows a frame that no frame showed. A view it lands short of (a drag
   // that stops) is mounted by the commit that draws it.
   const contiguous = jumping ? 0 : lead;
@@ -4440,17 +4501,19 @@ export function scrollLeadRanges(
       overscan,
     ),
   ];
-  // A jump builds one window ahead, so it takes a viewport of margin either side: a paced fling's
-  // frames vary by a fifth of a 5-viewport jump, past the half viewport a two-window lead used.
-  const margin = Math.min(Math.abs(delta) / 4, jumping ? viewportHeight : viewportHeight / 2);
+  // A jump builds no view ahead of it. The view the next frame would reach, with the viewport of
+  // margin either side its frame-to-frame unevenness needed, was three views of rows built and
+  // measured (each new row's height read back from layout) in the commit of a frame that showed one;
+  // a fling's next frame builds its own view in its own commit anyway. In one harness at 3,000 rows,
+  // dropping it took fling React p95 from 57 to 24 ms (Chromium) and 30 to 22 ms (WebKit, 7 pairs),
+  // with no blank frame either way (2026-11-24).
+  if (jumping) return ranges;
+  const margin = Math.min(Math.abs(delta) / 4, viewportHeight / 2);
   // The next views are built only while their margin holds a frame's unevenness (a few percent of
   // its jump): past that, the next frame lands outside the window it built as often as in it, and
   // the view it lands on is built in its own commit anyway.
   if (margin < Math.abs(delta) * PREDICTED_JITTER) return ranges;
-  // A jump builds only the next frame's view: the commit after it builds the one after that, and a
-  // second window ahead doubled the rows a frame built (and drew again as rows above them measured).
-  const predicted = jumping ? 1 : steps;
-  for (let step = 1; step <= predicted; step += 1)
+  for (let step = 1; step <= steps; step += 1)
     ranges.push(
       visibleLayoutRange(layoutModel, scrollTop + delta * step - margin, viewportHeight + 2 * margin, overscan),
     );
