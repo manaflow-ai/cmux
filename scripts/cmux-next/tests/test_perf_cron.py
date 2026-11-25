@@ -4239,6 +4239,24 @@ class PartRowsStoredAtOnceTests(unittest.TestCase):
             self.assertEqual(state["part_stored"]["stress"]["sha"], "a" * 40)
             self.assertNotIn("motion", state["part_stored"])
 
+    def test_an_incomplete_part_keeps_its_finished_benches_rows(self):
+        # web-ui-god on 2026-11-24: transcript-replay-god timed out, the other benches measured (rest wakeups 0).
+        report = {"rows": [{"name": "chat_switch.god.read_ahead.rest_wakeups", "p50": 0, "p95": 0, "unit": "count",
+                            "target": 0, "floor": 0.5}],
+                  "failed": ["transcript-replay-god: timed out after 420 s"],
+                  "incomplete": [{"bench": "transcript-replay-god", "why": "timed out after 420 s"}]}
+        with tempfile.TemporaryDirectory() as d:
+            state = self.state_with(["web-ui-god", "motion"])
+            state = self.report(d, state, [self.part_dir(d, "web-ui-god",
+                                                         {"state": "done", "worker": cron.LINUX_FLEET_CLASS}, report)])
+            rows = state.get("part_rows") or {}
+            name = "webui.chat_switch.god.read_ahead.rest_wakeups@" + cron.LINUX_FLEET_CLASS
+            self.assertIn(name, rows, "a finished bench's row is stored although another bench of the part timed out")
+            self.assertEqual((rows[name]["p95"], rows[name]["sha"]), (0, "a" * 40))
+            stored = state["part_stored"]["web-ui-god"]
+            self.assertIn("transcript-replay-god", stored["incomplete"], "the store says which bench was missing")
+            self.assertFalse(state.get("row_history"), "an incomplete part is still judged only at the finish")
+
     def test_a_measurement_still_running_shows_its_finished_parts(self):
         with tempfile.TemporaryDirectory() as d:
             state = self.state_with(["stress", "motion"])

@@ -4548,8 +4548,14 @@ def store_part_rows(state, cur, name, p, report, mod, budgets, run_url, t):
     instead of only when the whole measurement ends: a part that finishes keeps its rows when another part fails, the
     host goes quiet or the tip is replaced (rows and comparison at the end of the measurement are unchanged: this
     store feeds neither row_history nor any regression). A complete part only (an incomplete one is judged at the
-    finish); a bisect step measures an old commit, not the tip. Returns the number of rows stored."""
-    if cur.get("kind") != "tip" or report_is_incomplete(PART_BY_NAME[name], report):
+    finish); a bisect step measures an old commit, not the tip. Returns the number of rows stored.
+
+    An incomplete part (a bench of it failed or timed out) stores the rows its finished benches measured: its report
+    carries no row of the failed bench, whose own rows keep their older date. On 2026-11-24 web-ui-god's
+    transcript-replay-god timed out at 420 s and the 87 rows its four other benches measured (the rest-wakeup rows
+    among them) were dropped, so those rows read 3 days old while each tick measured them. part_stored names what
+    was missing, and its date still moves, so a part that keeps failing one bench does not take every Linux turn."""
+    if cur.get("kind") != "tip":
         return 0
     named, _ = part_rows_named(cur, name, p, report, mod, budgets, p.get("worker"))
     store = state.setdefault("part_rows", {})
@@ -4558,7 +4564,10 @@ def store_part_rows(state, cur, name, p, report, mod, budgets, run_url, t):
         if isinstance(row, dict) and isinstance(row.get("p95"), (int, float)):
             store[row_name] = {**{k: v for k, v in row.items() if k in keep},
                                "sha": cur["sha"], "at": iso(t), "run_url": run_url, "part": name}
-    state.setdefault("part_stored", {})[name] = {"sha": cur["sha"], "at": iso(t), "run_url": run_url, "rows": len(named)}
+    stored = {"sha": cur["sha"], "at": iso(t), "run_url": run_url, "rows": len(named)}
+    if report_is_incomplete(PART_BY_NAME[name], report):
+        stored["incomplete"] = incomplete_why(report)
+    state.setdefault("part_stored", {})[name] = stored
     return len(named)
 
 
