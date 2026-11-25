@@ -163,7 +163,7 @@ pub fn rows(entries: &[Entry], style: Style, strings: &Strings) -> Vec<Row> {
             }
         }
         Style::Grouped => {
-            let mut layout = open.clone();
+            let mut layout = open;
             layout.sort_by_key(|&index| entries[index].order);
             let mut group_order: HashMap<String, i64> = HashMap::new();
             for index in layout {
