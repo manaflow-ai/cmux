@@ -9,9 +9,10 @@ GITHUB_ACTIONS is set) and always exits 0, even when the lint itself crashes.
 
     --body   the PR body: a text file, or `-` for stdin. Text that parses as a JSON object with a "body" key
              (`gh pr view N --json body`) uses that key.
-    MEDIA    png/jpg/gif/mp4/mov files. A sidecar `<media>.media.json` (or `<stem>.media.json`), written by
+    MEDIA    png/jpg/gif/mp4/mov/webm files. A sidecar `<media>.media.json` (or `<stem>.media.json`), written by
              scripts/media/media_polish.py, is read when present: source, crop_bounds, scale, dims{w,h}, margin,
-             variable, control, runs, window_frames{start,end}, viewport, split, labels (missing means null).
+             variable, control, runs, window_frames{start,end}, viewport, split, labels, duration,
+             trim{start,end,diverge_start,diverge_end,source_duration} (missing means null).
 
 Rules:
     uncropped-full-display        a still or clip the size of a whole display (or its retina half), with no
@@ -22,8 +23,15 @@ Rules:
                                   window or viewport; or whose measurements are all ~0 (measured nothing is
                                   suspect, not a pass: the event may have been off screen).
     sidecar-gaps                  a sidecar whose variable, control or runs is null.
+    clip-too-long                 a clip (mp4/mov/webm/gif) longer than 20 s: trim it to the event
+                                  (scripts/media/media_polish.py trim, or sbs for a before/after pair).
+    clip-no-early-difference      a clip whose first 3 s show no visible change: cut to the event.
+    clip-pair-sbs                 a before/after pair of clips: media_polish.py sbs BEFORE AFTER --out X.mp4
+                                  makes one side-by-side clip trimmed to where they differ.
 
-Dimensions come from the PNG/GIF/JPEG headers, and from ffprobe for mp4/mov (skipped quietly without it).
+Dimensions come from the PNG/GIF/JPEG headers, and from ffprobe for mp4/mov/webm (skipped quietly without it).
+Clip durations come from ffprobe, else the sidecar's duration or trim; the early-difference check decodes the
+first 3 s with ffmpeg. Without ffmpeg/ffprobe those checks are skipped quietly.
 """
 from __future__ import annotations
 
@@ -39,8 +47,16 @@ from pathlib import Path
 from typing import Iterable, TextIO
 
 STILLS = frozenset({".png", ".jpg", ".jpeg", ".gif"})
-CLIPS = frozenset({".mp4", ".mov"})
+CLIPS = frozenset({".mp4", ".mov", ".webm"})
 MEDIA_SUFFIXES = STILLS | CLIPS
+# A gif's size comes from its header, but for duration and motion it is a clip.
+MOVING = CLIPS | {".gif"}
+
+CLIP_MAX_SECONDS = 20.0
+EARLY_SECONDS = 3.0
+EARLY_FPS = 4
+EARLY_SIZE = (64, 48)  # decoded gray frame size for the early-difference check
+EARLY_THRESHOLD = 1.0  # mean absolute difference (0-255) that counts as a visible change
 
 _DISPLAYS = ((1440, 900), (1512, 982), (1728, 1117), (1920, 1080), (2560, 1440), (2880, 1800), (3024, 1964),
              (3456, 2234), (3840, 2160))
@@ -124,6 +140,63 @@ def _ffprobe(path: Path) -> tuple[int, int] | None:
         return None
     m = re.match(r"(\d+)x(\d+)", out.stdout.strip())
     return (int(m.group(1)), int(m.group(2))) if out.returncode == 0 and m else None
+
+
+# --- clip timing ----------------------------------------------------------------------------------------------
+
+def _run(args: list[str], timeout: int = 60) -> subprocess.CompletedProcess | None:
+    try:
+        return subprocess.run(args, capture_output=True, timeout=timeout, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def clip_duration(path: Path, side: dict | None = None) -> float | None:
+    """Seconds from ffprobe, else the sidecar's duration or trim end - start; None when unknown."""
+    exe = shutil.which("ffprobe")
+    if exe:
+        out = _run([exe, "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)], 30)
+        if out is not None and out.returncode == 0:
+            try:
+                seconds = float(out.stdout.decode("utf-8", "replace").strip())
+            except ValueError:
+                seconds = None
+            if seconds is not None and seconds > 0:
+                return seconds
+    if side is None:
+        return None
+    trim = side.get("trim")
+    try:
+        if isinstance(trim, dict) and trim.get("end") is not None:
+            return float(trim["end"]) - float(trim.get("start") or 0)
+        if side.get("duration") is not None:
+            return float(side["duration"])
+    except (TypeError, ValueError):
+        return None
+    return None
+
+
+def early_change(path: Path) -> float | None:
+    """The largest mean absolute gray difference in the first EARLY_SECONDS, frame to frame or against the first
+    frame (0-255); None when ffmpeg is absent or cannot decode at least two frames."""
+    exe = shutil.which("ffmpeg")
+    if not exe:
+        return None
+    w, h = EARLY_SIZE
+    out = _run([exe, "-v", "error", "-nostdin", "-t", f"{EARLY_SECONDS:g}", "-i", str(path), "-an",
+                "-vf", f"fps={EARLY_FPS},scale={w}:{h},format=gray", "-f", "rawvideo", "-"])
+    if out is None or out.returncode != 0:
+        return None
+    size = w * h
+    frames = [out.stdout[i:i + size] for i in range(0, len(out.stdout) - size + 1, size)]
+    if len(frames) < 2:
+        return None
+    first, prev, most = frames[0], frames[0], 0.0
+    for frame in frames[1:]:
+        for ref in (first, prev):
+            most = max(most, sum(abs(a - b) for a, b in zip(frame, ref)) / size)
+        prev = frame
+    return most
 
 
 # --- sidecars -------------------------------------------------------------------------------------------------
@@ -285,6 +358,43 @@ def sidecar_gaps(name: str, side: dict | None) -> list[Warning]:
     return out
 
 
+def clip_too_long(name: str, seconds: float | None) -> list[Warning]:
+    if seconds is None or seconds <= CLIP_MAX_SECONDS:
+        return []
+    return [(name, "clip-too-long",
+             f"the clip is {seconds:.1f} s long (over {CLIP_MAX_SECONDS:g} s); cut it to the seconds where the "
+             "change shows (scripts/media/media_polish.py trim, or media_polish.py sbs BEFORE AFTER --out X.mp4 "
+             "for a before/after pair)")]
+
+
+def clip_no_early_difference(name: str, path: Path, seconds: float | None) -> list[Warning]:
+    if seconds is not None and seconds < EARLY_SECONDS:
+        return []
+    change = early_change(path)
+    if change is None or change >= EARLY_THRESHOLD:
+        return []
+    return [(name, "clip-no-early-difference",
+             f"the first {EARLY_SECONDS:g} s are static (no visible change); cut to the event so the clip opens on "
+             "it (scripts/media/media_polish.py trim)")]
+
+
+def clip_pairs(names: list[str]) -> list[Warning]:
+    groups: dict[str, dict[str, str]] = {}
+    for name in names:
+        key = pair_key(name)
+        if key and key[0].endswith(".clip"):
+            groups.setdefault(key[0], {})[key[1]] = name
+    out = []
+    for sides in groups.values():
+        for first, second in PAIR_TOKENS:
+            if first in sides and second in sides:
+                a, b = sides[first], sides[second]
+                out.append((b, "clip-pair-sbs",
+                            f"{a} and {b} are a before/after pair; scripts/media/media_polish.py sbs {a} {b} --out "
+                            "X.mp4 makes one labeled side-by-side clip trimmed to where they differ"))
+    return out
+
+
 def lint(media: Iterable[tuple[str, Path]], body: str | None = None) -> list[Warning]:
     """Every warning for media (shown name, local file) and the PR body."""
     out: list[Warning] = []
@@ -304,7 +414,12 @@ def lint(media: Iterable[tuple[str, Path]], body: str | None = None) -> list[War
         sized.append((name, dims))
         out += uncropped(name, dims, side)
         out += sidecar_gaps(name, side)
+        if suffix in MOVING:
+            seconds = clip_duration(local, side)
+            out += clip_too_long(name, seconds)
+            out += clip_no_early_difference(name, local, seconds)
     out += mismatched_pairs(sized)
+    out += clip_pairs([name for name, _ in sized])
     out += measurement_table(body)
     return out
 
@@ -335,7 +450,7 @@ def main(argv: list[str] | None = None, stdin: TextIO = sys.stdin, out: TextIO =
     try:
         parser = argparse.ArgumentParser(prog="pr_media_lint.py", description="Warn-only PR media lint; exits 0.")
         parser.add_argument("--body", help="the PR body: a file, or - for stdin (text or {\"body\": ...})")
-        parser.add_argument("media", nargs="*", help="png/jpg/gif/mp4/mov files")
+        parser.add_argument("media", nargs="*", help="png/jpg/gif/mp4/mov/webm files")
         args = parser.parse_args(argv)
         report(lint([(m, Path(m)) for m in args.media], read_body(args.body, stdin)), out)
     except SystemExit as stop:  # --help, or bad arguments: argparse has printed why
