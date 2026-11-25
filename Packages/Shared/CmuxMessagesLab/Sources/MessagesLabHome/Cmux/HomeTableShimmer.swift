@@ -29,7 +29,7 @@ final class HomeTableShimmer {
                   !(payload.table.loading ?? [:]).isEmpty else { continue }
             let body = RowDraw.bodyRect(spec).offsetBy(dx: cell.rowSnap.x, dy: cell.rowSnap.y)
             let grid = HomeTableGrid(payload.table, available: body.width)
-            for slot in grid.pictureRects(at: body.origin) where slot.loading {
+            for slot in grid.pictureRects(at: grid.cardOrigin(body.origin)) where slot.loading {
                 wanted.updateValue((cell, slot.rect), forKey: "\(p.ref.messageId):\(p.ref.partIndex):\(slot.source)") // crash program: dictionary write
             }
         }
