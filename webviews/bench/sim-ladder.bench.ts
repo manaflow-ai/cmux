@@ -37,6 +37,7 @@
 // read hidden fails the run.
 // Linux only (it reads /proc); prints SIM-LADDER lines and PERF_ROW lines (sim_ladder.*).
 /// <reference types="bun" />
+import { sceneTurns } from "./sceneSize";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -79,6 +80,12 @@ function fromProfile(...keys: string[]): number | null {
 }
 const SESSIONS = Number(flag("--sessions") ?? fromProfile("listed_sessions", "listed") ?? 3000);
 const ROWS = Number(flag("--rows") ?? 120);
+// The shown chats' log lengths from a profile (perf_sensor.py `transcript_events`); null when it carries none.
+const TRANSCRIPT_EVENTS: number[] | null = (() => {
+  const list = PROFILE?.transcript_events;
+  const events = Array.isArray(list) ? list.filter((n): n is number => typeof n === "number" && n > 0) : [];
+  return events.length ? events : null;
+})();
 // --full-seed: seed chats with the mock's full load turns (tool calls, diffs, long replies) instead of light ones. The
 // fidelity mode always does: at the 13:03Z NIGHTLY profile light seeds drew frames at 100 ms p95, full ones at 66.6
 // against the app's 66.3.
@@ -580,15 +587,20 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
     await focused.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, {
       timeout: 60_000,
     });
-    const seed = async (page: Page) => {
+    // `slot`: the chat's place among the shown chats (0 the focused one), whose log lengths a profile lists as
+    // transcript_events; a hidden chat takes the last one listed (the sensor reads only shown chats). Without
+    // the field every chat keeps ROWS / 2 turns.
+    const seed = async (page: Page, slot = Number.MAX_SAFE_INTEGER) => {
+      const turns = sceneTurns(TRANSCRIPT_EVENTS, slot, Math.max(1, Math.round(ROWS / 2)));
       const seeded = (await page.evaluate(
-        ([turns, light]) => (window as any).cmuxAcpmuxDebug.loadSeed(turns, { light }),
-        [Math.max(1, Math.round(ROWS / 2)), !FULL_SEED] as const,
+        ([count, light]) => (window as any).cmuxAcpmuxDebug.loadSeed(count, { light }),
+        [turns, !FULL_SEED] as const,
       )) as Record<string, any>;
+      report.seed_turns = [...((report.seed_turns as number[] | undefined) ?? []), turns];
       if (seeded.error) throw new Error(`loadSeed: ${seeded.error}`);
       await page.locator(PROMPT).first().waitFor({ timeout: 60_000 });
     };
-    await seed(focused);
+    await seed(focused, 0);
     await focused.bringToFront();
     const items: Item[] = [{ page: focused, cdp: await context.newCDPSession(focused), awake: true }];
     await items[0]!.cdp.send("Performance.enable");
@@ -649,7 +661,7 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
         ]);
         await page.goto(url);
         await page.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, { timeout: 60_000 });
-        await seed(page);
+        await seed(page, index);
         const cdp = await context.newCDPSession(page);
         await cdp.send("Performance.enable");
         items.push({ page, cdp, awake: true });
@@ -766,6 +778,7 @@ async function runProfile() {
     tabs,
     stream_ms: streamMs,
     sessions: SESSIONS,
+    transcript_events: TRANSCRIPT_EVENTS,
     rate: RATE,
     hogs,
   };
