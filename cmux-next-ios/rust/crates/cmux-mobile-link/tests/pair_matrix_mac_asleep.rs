@@ -362,6 +362,7 @@ async fn mac_asleep(
     row.emit("ttfc_ms", result.map(|(v, _)| v), serde_json::json!({ "attempts": attempts }));
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn mac_asleep_resume(
     base: &Base,
     mac: &Mac,
@@ -915,10 +916,10 @@ async fn pair_matrix_mac_asleep() {
                     match condition.as_str() {
                         "mac-asleep" => mac_asleep(&base, &mac, &phone, page, duress, wake, &row).await,
                         "mac-asleep-resume" => {
-                            mac_asleep_resume(&base, &mac, &phone, page, duress, wake, away, &row).await
+                            mac_asleep_resume(&base, &mac, &phone, page, duress, wake, away, &row).await;
                         }
                         "mac-asleep-send" => {
-                            mac_asleep_send(&base, &mac, &phone, page, duress, wake, &row).await
+                            mac_asleep_send(&base, &mac, &phone, page, duress, wake, &row).await;
                         }
                         other => panic!("unknown condition {other}"),
                     }
