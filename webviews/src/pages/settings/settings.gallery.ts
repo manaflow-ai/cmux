@@ -11,7 +11,7 @@ import type {
   ProviderAccount,
 } from "./ops";
 import { pageDensities, pageDensityPlay } from "../../gallery/pageDensityFixtures";
-import { minutesAgo } from "../../gallery/clock";
+import { GALLERY_NOW, minutesAgo } from "../../gallery/clock";
 import { categories, categoryOf, defaultCategory, isCategory } from "./categories";
 import { MockTeams } from "./mockTeams";
 import { mockThemeColors } from "./mockThemes";
@@ -417,6 +417,10 @@ const longProfiles = longRows.map((r, i) => ({
   source: "Imported sample browser profile",
 }));
 
+/// A window's reset time `minutes` after the stage clock (installGalleryClock, GALLERY_NOW), so the
+/// reset labels and even-pace marks read the same in every capture.
+const resetsIn = (minutes: number) => GALLERY_NOW / 1000 + minutes * 60;
+
 // Synthetic accounts only (example.com addresses): the CLI logins and one added Codex account.
 const providerAccounts: ProviderAccount[] = [
   {
@@ -431,11 +435,12 @@ const providerAccounts: ProviderAccount[] = [
     email: "alex@example.com",
     enabled: true,
     builtin: true,
-    // Read when Settings opened (`_acpmux/account/usage`); no reset times, so the capture holds still.
+    // Read when Settings opened (`_acpmux/account/usage`); reset times on the stage clock, so the
+    // capture holds still. Both under even pace (40% and 71% of their windows gone).
     usage: {
       windows: [
-        { id: "session", usedPercent: 22, windowMins: 300 },
-        { id: "weekly", usedPercent: 41, windowMins: 10080 },
+        { id: "session", usedPercent: 22, windowMins: 300, resetsAt: resetsIn(180) },
+        { id: "weekly", usedPercent: 41, windowMins: 10080, resetsAt: resetsIn(2 * 1440) },
       ],
       plan: "pro",
       credits: { balance: "56766" },
@@ -453,7 +458,11 @@ const providerAccounts: ProviderAccount[] = [
     email: "sam@example.com",
     enabled: false,
     builtin: false,
-    usage: { windows: [{ id: "session", usedPercent: 87.5, windowMins: 300 }], plan: "plus" },
+    // Ahead of even pace: 87.5% used with 20% of the 5 hours gone.
+    usage: {
+      windows: [{ id: "session", usedPercent: 87.5, windowMins: 300, resetsAt: resetsIn(240) }],
+      plan: "plus",
+    },
   },
   {
     id: "claude-login",
@@ -467,6 +476,14 @@ const providerAccounts: ProviderAccount[] = [
     email: "alex@example.com",
     enabled: true,
     builtin: true,
+    // Claude's windows carry no length (claude_stdio/usage_limits.rs); the mark reads it by id. The
+    // 5-hour window is near its reset (80% gone, 58% used); the week is ahead (29% gone, 70% used).
+    usage: {
+      windows: [
+        { id: "session", usedPercent: 58, resetsAt: resetsIn(60) },
+        { id: "weekly", usedPercent: 70, resetsAt: resetsIn(5 * 1440) },
+      ],
+    },
   },
 ];
 
@@ -485,7 +502,7 @@ const codexHarness: HarnessesState["harnesses"] = [
 
 Object.assign(variants, {
   "agents-harnesses-registry": variant("agents", {
-    note: "Harnesses: found on PATH, a profile file, an installed ACP Registry agent, a terminal-only harness, and acpmux's problem text. Codex and Claude Code say whose login they use and its plan, list every account routing may use with its switch and, for Codex, its plan's 5-hour and weekly usage read at rest, and Codex offers Add account.",
+    note: "Harnesses: found on PATH, a profile file, an installed ACP Registry agent, a terminal-only harness, and acpmux's problem text. Codex and Claude Code say whose login they use and its plan, list every account routing may use with its switch and each signed-in account's 5-hour and weekly usage read at rest, with an even-pace mark on every bar (ChatGPT 2's and Claude's week run ahead of it, in the warning color), and Codex offers Add account.",
     harnesses: {
       loading: false,
       problem: null,
