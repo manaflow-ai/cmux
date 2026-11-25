@@ -499,8 +499,36 @@ def background(run, count, measured):
 # One transition: a frame strip of the gesture with the motion trace around it.
 
 def record(run, gesture, label, content="focused", static=True):
+    tracker0 = cef_tracker(run)
     strip, trace = record_raw(run, gesture, label, content)
-    return ssm.transition(strip, trace, opts.strip_tolerance, static=static)
+    row = ssm.transition(strip, trace, opts.strip_tolerance, static=static)
+    cef = cef_delta(tracker0, cef_tracker(run))
+    if cef and isinstance(row, dict):
+        row["cef"] = cef
+    return row
+
+
+CEF_FIELDS = ("fence", "commit", "detaches", "attaches", "geometry_posts", "hosted_pages")
+
+
+def cef_tracker(run):
+    """The CEF tracker's counters (`debug.cef` tracker), {} with no engine: read around each round, untimed, so a row
+    says where a browser cell's frames went (fence joins, presented, missed, expired, join seconds, commit waits,
+    detaches) without an A/B run per guess."""
+    reply = run.rpc("debug.cef") or {}
+    tracker = reply.get("tracker") if isinstance(reply, dict) else None
+    return tracker if isinstance(tracker, dict) else {}
+
+
+def cef_delta(before, after):
+    """The round's change in each counter `CEF_FIELDS` names; nothing that did not move."""
+    delta = {}
+    for name, value in after.items():
+        if isinstance(value, (int, float)) and any(name.startswith(f) for f in CEF_FIELDS):
+            moved = round(value - (before.get(name) or 0), 4)
+            if moved:
+                delta[name] = moved
+    return delta
 
 
 def record_raw(run, gesture, label, content="focused", at=None):
