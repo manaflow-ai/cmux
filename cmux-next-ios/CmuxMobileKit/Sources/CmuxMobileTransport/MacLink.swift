@@ -18,6 +18,9 @@ public enum LinkPathKind: String, Sendable {
     case direct, turn
     /// TURN whose leg to the server is TLS (a network that blocks UDP).
     case turnTLS
+    /// cmux's own WebSocket relay over HTTPS (WireGuard): neither UDP nor
+    /// the TURN host gets through (PROTOCOL.md "WebSocket relay").
+    case httpsRelay
     /// No working route at the moment (WireGuard).
     case noPath
 }
@@ -52,6 +55,7 @@ extension LinkPathKind {
         case .direct: "direct"
         case .turn: "TURN"
         case .turnTLS: "TURN over TLS"
+        case .httpsRelay: "cmux relay"
         case .noPath: "no path"
         }
     }
@@ -117,6 +121,23 @@ public protocol MacLink: AnyObject, Sendable {
     /// is idle: with Align Keepalives on, the heartbeat probes it on the
     /// keepalive beat (``KeepaliveBeat``).
     var trafficAgo: Duration? { get }
+    /// The WireGuard static public keys this link's tunnel handshook with
+    /// (nil: not a tunnel). The phone's `auth` signs them and checks the Mac's
+    /// identity proof over them (``TunnelKeys``).
+    var tunnelKeys: TunnelKeys? { get }
+}
+
+/// The two WireGuard static public keys of a tunnel (base64, as in `wg-init`
+/// and `wg-resp`): the dialer's (this phone's) and the answerer's (the Mac's).
+/// A v2 `auth`'s identity proofs cover them (cmux-mobile-host `pairing.rs`).
+public struct TunnelKeys: Sendable, Equatable {
+    public var dialer: String
+    public var answerer: String
+
+    public init(dialer: String, answerer: String) {
+        self.dialer = dialer
+        self.answerer = answerer
+    }
 }
 
 extension MacLink {
@@ -124,6 +145,7 @@ extension MacLink {
     public var peerScope: String { "" }
     public var receivedAgo: Duration? { nil }
     public var trafficAgo: Duration? { nil }
+    public var tunnelKeys: TunnelKeys? { nil }
     public func probeTimeout(floor: Duration) -> Duration { floor }
     public func setForegroundProbe(_ on: Bool) {}
 
@@ -160,10 +182,15 @@ public protocol LinkChannel: AnyObject, Sendable {
     func close(code: String, reason: String) async
     /// Why the Mac closed the channel, once `receive()` returned nil (nil: unknown).
     var closedBy: LinkError? { get }
+    /// Payload bytes the link has taken from this channel so far; it moves while a long write
+    /// drains and stops when the link stalls (nil: not known). ``DaemonClient/submit`` reads it
+    /// as progress.
+    var sentBytes: UInt64? { get }
 }
 
 public extension LinkChannel {
     var closedBy: LinkError? { nil }
+    var sentBytes: UInt64? { nil }
 }
 
 public struct LinkError: Error, Equatable, Sendable {
@@ -246,6 +273,9 @@ public struct LinkEndpoint: Sendable, Hashable {
     /// Debug "simulate a network that blocks UDP": WireGuard rides TURN over
     /// TLS (path `turnTLS`). WebRTC ignores it.
     public var blockUDP: Bool
+    /// Debug "Relay via cmux (HTTPS) only": WireGuard rides cmux's WebSocket
+    /// relay alone (path `httpsRelay`). WebRTC ignores it.
+    public var forceRelay: Bool = false
     /// Debug baseline: do not offer the media lane, so browser video rides
     /// its reliable channel even over WebRTC (verify/browser-video-track.md).
     public var browserVideoOnChannel: Bool
