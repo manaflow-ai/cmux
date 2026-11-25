@@ -147,9 +147,16 @@ def _posted_from(args: dict) -> str:
     return f"{func or '?'} ({file or '?'})"
 
 
-def cef_trace_tasks(trace, skip_s: float = 30.0, top: int = 40) -> dict:
-    """Tasks per second of a Chromium JSON trace after its first `skip_s` seconds (the startup), for each process,
-    thread and posting place, busiest first."""
+def cef_trace_seconds(minutes: float, windows: int, window: float) -> int:
+    """How long the trace runs from the launch: through the idle period and every measured window, 30 s to spare (the
+    launch), at most 600 s (a longer run's later windows go untraced, and the window says so)."""
+    return int(min(600, minutes * 60 + windows * window + 30))
+
+
+def cef_trace_tasks(trace, skip_s: float = 30.0, top: int = 40, window=None) -> dict:
+    """Tasks per second of a Chromium JSON trace for each process, thread and posting place, busiest first: between
+    `window`'s monotonic seconds (the measured windows; Chromium stamps with the same clock) when the trace reaches
+    them, else after its first `skip_s` seconds (the startup). `window` in the answer says which."""
     events = trace.get("traceEvents", []) if isinstance(trace, dict) else trace
     processes = {e.get("pid"): (e.get("args") or {}).get("name", "?") for e in events
                  if e.get("ph") == "M" and e.get("name") == "process_name"}
@@ -157,8 +164,14 @@ def cef_trace_tasks(trace, skip_s: float = 30.0, top: int = 40) -> dict:
                if e.get("ph") == "M" and e.get("name") == "thread_name"}
     stamps = [e["ts"] for e in events if e.get("ph") != "M" and isinstance(e.get("ts"), (int, float))]
     if not stamps:
-        return {"seconds": 0.0, "tasks": []}
+        return {"seconds": 0.0, "tasks": [], "window": "unmatched" if window is not None else None}
     start, end = min(stamps) + skip_s * 1e6, max(stamps)
+    which = None
+    if window is not None:
+        which = "unmatched"
+        low, high = max(window[0] * 1e6, min(stamps)), min(window[1] * 1e6, max(stamps))
+        if high - low >= 1e6:
+            start, end, which = low, high, "measured"
     seconds = max((end - start) / 1e6, 1e-3)
     counts: dict = {}
     for e in events:
@@ -195,7 +208,11 @@ def cef_trace_tasks(trace, skip_s: float = 30.0, top: int = 40) -> dict:
     event_rows.sort(key=lambda r: (-r["count"], r["thread"], r["name"]))
     url_rows = [{"process": p, "url": u, "count": c, "per_s": round(c / seconds, 2)} for (p, u), c in urls.items()]
     url_rows.sort(key=lambda r: (-r["count"], r["process"], r["url"]))
-    return {"seconds": round(seconds, 1), "tasks": rows[:top], "events": event_rows[:top], "urls": url_rows[:top]}
+    got = {"seconds": round(seconds, 1), "tasks": rows[:top], "events": event_rows[:top], "urls": url_rows[:top]}
+    if which:
+        got["window"] = which
+        got["trace_span_s"] = [round(min(stamps) / 1e6, 1), round(max(stamps) / 1e6, 1)]
+    return got
 
 
 def _settled(path: str, wait_s: float = 3.0) -> bool:
@@ -205,13 +222,13 @@ def _settled(path: str, wait_s: float = 3.0) -> bool:
     return os.path.getsize(path) == size and size > 0
 
 
-def read_cef_trace(folder: str, skip_s: float = 30.0) -> dict:
+def read_cef_trace(folder: str, skip_s: float = 30.0, window=None) -> dict:
     """cef_trace_tasks of `folder`/cef-trace.json, or {"error"}; the folder is removed either way."""
     path = os.path.join(folder, "cef-trace.json")
     try:
         with open(path, encoding="utf-8", errors="replace") as handle:
             trace = json.load(handle)
-        got = cef_trace_tasks(trace, skip_s)
+        got = cef_trace_tasks(trace, skip_s, window=window)
         got["bytes"] = os.path.getsize(path)
         return got
     except (OSError, ValueError) as error:
@@ -633,8 +650,12 @@ def rows_of(procs: dict, spans: list) -> list[dict]:
             if u0 is None or u1 is None:
                 continue
             span = max(t1 - t0, 1e-3)
+            # Package-idle and interrupt wakeups apart (bench_memory.usage): on a busy Mac the first reads near 0.
+            idle = (u1[5] - u0[5]) if len(u0) > 5 and len(u1) > 5 else None
             per.append({"cpu_pct": round(100 * (u1[3] - u0[3]) / 1e9 / span, 3),
                         "wakeups_per_s": round((u1[4] - u0[4]) / span, 2),
+                        "idle_wakeups_per_s": round(idle / span, 2) if idle is not None else None,
+                        "interrupt_wakeups_per_s": round((u1[4] - u0[4] - idle) / span, 2) if idle is not None else None,
                         "switches_per_s": round((c1 - c0) / span, 2) if c0 is not None and c1 is not None else None})
         if not per:
             continue
@@ -644,6 +665,8 @@ def rows_of(procs: dict, spans: list) -> list[dict]:
             return values[len(values) // 2] if values else None
         rows.append({"pid": pid, "kind": kind, "command": cmd[:200], "windows": per,
                      "cpu_pct": mid("cpu_pct"), "wakeups_per_s": mid("wakeups_per_s"),
+                     "idle_wakeups_per_s": mid("idle_wakeups_per_s"),
+                     "interrupt_wakeups_per_s": mid("interrupt_wakeups_per_s"),
                      "switches_per_s": mid("switches_per_s")})
     rows.sort(key=lambda row: -(row["cpu_pct"] or 0))
     return rows
@@ -1008,8 +1031,10 @@ def main(argv: list[str] | None = None) -> int:
         with host_load(args.host_load) as loops:
             if loops:
                 log(f"idle-cpu: {len(loops)} busy loops run through the windows (--host-load)")
+            measured_from = time.monotonic()
             rows = measure(process.pid, bundle, args.windows, args.window,
                            each if args.sample_each_window and not args.no_sample else None, threads, renderer_threads)
+            measured_to = time.monotonic()
         result["processes"] = rows
         if args.wake_trace:
             import thread_wakes
@@ -1026,7 +1051,8 @@ def main(argv: list[str] | None = None) -> int:
             target = os.path.join(cef_trace_dir, "cef-trace.json")
             while time.monotonic() < deadline and not (os.path.exists(target) and _settled(target)):
                 time.sleep(2)
-            result["cef_trace"] = read_cef_trace(cef_trace_dir)
+            result["cef_trace"] = read_cef_trace(cef_trace_dir, window=(measured_from, measured_to))
+            result["cef_trace"]["measured_s"] = [round(measured_from, 1), round(measured_to, 1)]
             log("IDLE-CPU-CEF-TRACE " + json.dumps({k: v for k, v in result["cef_trace"].items()
                                                     if k not in ("events", "urls")})[:6000])
             # One line per event: its naming arguments make a row long, and a cut line hides the rest.
@@ -1051,6 +1077,7 @@ def main(argv: list[str] | None = None) -> int:
                         f"{entry['name']!r}x{entry['threads']}={entry['cpu_ms_per_s']}" for entry in groups[:16]))
         for row in rows:
             log(f"IDLE-CPU {row['kind']} pid={row['pid']} cpu_pct={row['cpu_pct']} wakeups_per_s={row['wakeups_per_s']} "
+                f"idle_wakeups_per_s={row['idle_wakeups_per_s']} interrupt_wakeups_per_s={row['interrupt_wakeups_per_s']} "
                 f"switches_per_s={row['switches_per_s']} windows={json.dumps([[w['cpu_pct'], w['wakeups_per_s']] for w in row['windows']])}")
         kinds: dict = {}
         for row in rows:
@@ -1106,6 +1133,8 @@ def main(argv: list[str] | None = None) -> int:
         if free < thread_wakes.MIN_FREE:
             raise SystemExit(f"idle-cpu: only {free >> 30} GiB free; --cef-trace needs {thread_wakes.MIN_FREE >> 30} GiB")
         cef_trace_dir = tempfile.mkdtemp(prefix="cef-trace-")
+        # Through the measured windows, not only the settle before them (557acd48).
+        args.cef_trace = max(args.cef_trace, cef_trace_seconds(args.minutes, args.windows, args.window))
         args.cef_switches = join_switches(args.cef_switches, cef_trace_switches(
             os.path.join(cef_trace_dir, "cef-trace.json"), args.cef_trace))
     # A person's home has a login keychain: without one Chromium's Safe Storage dialog sits there (cmuxterm-hq#11994).

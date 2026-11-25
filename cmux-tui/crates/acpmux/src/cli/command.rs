@@ -378,6 +378,15 @@ pub enum Command {
     /// stdout (`placement/sub_fork_run.rs`; the parent's runner starts it over ssh).
     #[command(name = "sub-fork-job", hide = true)]
     SubForkJob,
+    /// Run a heavy build or test on a fork of this Cloud machine (RFD 0144 piece 3,
+    /// `placement/run_vm.rs`): its output streams here, its file changes come back. Runs here
+    /// when AutoCloud is off, this is no Cloud machine, or the command is not a heavy class.
+    #[command(name = "run-vm", hide = true)]
+    RunVm {
+        /// The shell command, after `--`.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
+        command: Vec<String>,
+    },
     /// Execute one authenticated Cloud trigger operation from a JSON stdin envelope.
     #[command(name = "trigger-chat", hide = true)]
     TriggerChat {
@@ -535,6 +544,11 @@ pub enum Command {
         /// wait for the reply.
         #[arg(long, conflicts_with_all = ["wait", "quiet", "timeout", "tag"])]
         gather: bool,
+        /// Deliver it within this long (90s, 5m, 1h): a message the receiver's inbox holds wakes
+        /// the receiver by its deadline, at the latest 15 minutes for a result (an action) and
+        /// 60 for an FYI (a block or a question wakes it at once). This only tightens that.
+        #[arg(long, value_name = "DURATION", value_parser = crate::prompt_class::parse_within)]
+        within: Option<u64>,
     },
     /// Team-scoped durable messages. Needs a team hub (`meshRelay`); on there by default.
     #[command(aliases = aliases::INBOX)]
@@ -1153,7 +1167,7 @@ pub enum Command {
         /// permission mode every new chat starts in, `permissions.codex=ask` for
         /// one harness, `session.memory_mb=6144`, `session.swap_mb=2048`,
         /// `session.tasks_max=8192`, `session.sessions_tasks_max=131072`,
-        /// `session.cpu_class=normal`, `remote_daemon=127.0.0.1:PORT` or
+        /// `session.cpu_class=background`, `remote_daemon=127.0.0.1:PORT` or
         /// `lane_gh_broker=~/.cache/lane-gh-broker/broker.sock`). A value the
         /// daemon would refuse to start with is refused and config.json is left as it was:
         /// `transport.wireguard=true` needs `transport.wireguardStatic` in config.json first.

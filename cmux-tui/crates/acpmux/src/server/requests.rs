@@ -1591,6 +1591,7 @@ async fn dispatch_request_with_identity(
                 method::CHAT_FIX_FROM_LINK_PREPARE,
                 method::MUX_PROJECT_NEW,
                 method::MUX_PLACE_CHAT,
+                method::MUX_TURN_FRAMES,
                 method::MUX_PERF,
                 method::MUX_CALLERS,
                 method::MUX_FELT_SNAPSHOT,
@@ -2417,6 +2418,10 @@ async fn dispatch_request_with_identity(
                 }
                 _ => p,
             });
+            // The sender's own delivery deadline (`acpmux send --within`, `hub/inbox.rs`
+            // "Deadlines"), kept on the provenance so the inbox record keeps it.
+            let within = crate::prompt_class::within(&params);
+            let provenance = provenance.map(|p| crate::prompt_provenance::mark_within(p, within));
             // Another agent's message with no provenance (`hub/digest.rs`): one that names its
             // sender, or one from a connection that proved it runs in an acpmux session.
             let agent = notice_sender
@@ -4088,6 +4093,14 @@ async fn dispatch_request_with_identity(
             let turn = str_param(&params, "turnId")
                 .ok_or_else(|| RpcError::invalid_params("turnId is required"))?;
             Ok(crate::hub::turn_shots::turn_shots(&s.id, turn).await)
+        }
+        // A read, for whoever may read the log; `look` captures the page now (the `look` tool).
+        method::MUX_TURN_FRAMES => {
+            let s = hub.resolve(session_key(&params)?)?;
+            if params.get("look").and_then(Value::as_bool) == Some(true) {
+                return Ok(crate::hub::turn_frames::look(&s.id).await);
+            }
+            Ok(crate::hub::turn_frames::turn_frames(&s.id, &params).await)
         }
         // The person's own click on a wrap-up card (`customize_run.rs`): an allowlisted
         // `cmux customize` argv, no shell. Never offered to a read-only connection. Only the
