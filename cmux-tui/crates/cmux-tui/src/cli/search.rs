@@ -204,9 +204,6 @@ fn gather(global: &GlobalArgs, options: &Options) -> (Vec<Row>, Vec<Value>) {
             scope.spawn(|| sidebar_and_scrollback(global, query, limit, wants(Kind::Terminal)))
         });
         let browser = wants(Kind::Browser).then(|| scope.spawn(|| browser(global, query, limit)));
-        let join = |handle: std::thread::ScopedJoinHandle<'_, _>| {
-            handle.join().unwrap_or_else(|_| Err("the search thread panicked".to_owned()))
-        };
         (sessions.map(join), daemon.map(join), browser.map(join))
     });
     let mut rows = Vec::new();
@@ -245,6 +242,10 @@ fn gather(global: &GlobalArgs, options: &Options) -> (Vec<Row>, Vec<Value>) {
         None => {}
     }
     (rows, incomplete)
+}
+
+fn join<T>(handle: std::thread::ScopedJoinHandle<'_, Result<T, String>>) -> Result<T, String> {
+    handle.join().unwrap_or_else(|_| Err("the search thread panicked".to_owned()))
 }
 
 /// The rows ranked by the Search page's engine, grouped by kind in [`KINDS`] order, at most
