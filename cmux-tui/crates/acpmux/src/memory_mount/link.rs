@@ -219,13 +219,13 @@ pub async fn apply(links: &[Link], client: Option<&Client>, host: &str) -> Resul
             }
         }
         if !single {
-            std::fs::create_dir_all(&link.to)
+            crate::home_fs::create_dirs(&link.to)
                 .with_context(|| format!("create {}", link.to.display()))?;
         }
         let name =
             link.from.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let kept = link.from.with_file_name(format!("{name}.pre-mount-{stamp}"));
-        std::fs::rename(&link.from, &kept)
+        crate::home_fs::rename(&link.from, &kept)
             .with_context(|| format!("move {} to {}", link.from.display(), kept.display()))?;
         symlink(&link.to, &link.from)?;
         out.push(Applied {
@@ -272,7 +272,7 @@ fn modified(path: &Path) -> std::time::SystemTime {
 
 #[cfg(unix)]
 fn symlink(target: &Path, link: &Path) -> Result<()> {
-    std::os::unix::fs::symlink(target, link)
+    crate::home_fs::symlink(target, link)
         .with_context(|| format!("link {} to {}", link.display(), target.display()))
 }
 

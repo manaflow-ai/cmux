@@ -89,10 +89,10 @@ impl Engine {
     pub fn new(client: Client, scope: Scope, root: &Path, host: String) -> Result<Engine> {
         let dir = super::scope_dir(root, scope);
         let state_dir = super::state_dir(root, scope);
-        std::fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
-        std::fs::create_dir_all(state_dir.join("bases"))
+        crate::home_fs::create_dirs(&dir).with_context(|| format!("create {}", dir.display()))?;
+        crate::home_fs::create_dirs(state_dir.join("bases"))
             .with_context(|| format!("create {}", state_dir.display()))?;
-        let lock_file = std::fs::OpenOptions::new()
+        let lock_file = crate::home_fs::OpenOptions::new()
             .create(true)
             .truncate(false)
             .write(true)
@@ -361,7 +361,7 @@ impl Engine {
             let name = entry.file_name();
             let name = name.to_string_lossy();
             if !keep.contains(name.as_ref()) && name.len() == 64 {
-                let _ = std::fs::remove_file(entry.path());
+                let _ = crate::home_fs::remove_file(entry.path());
             }
         }
     }
@@ -393,17 +393,18 @@ impl Engine {
     fn write_local(&self, rel: &str, bytes: &[u8], expect: Option<&str>) -> Result<bool> {
         let path = self.dir.join(rel);
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
+            crate::home_fs::create_dirs(parent)
                 .with_context(|| format!("create {}", parent.display()))?;
         }
         let temp = temp_beside(&path);
-        std::fs::write(&temp, bytes).with_context(|| format!("write {}", temp.display()))?;
+        crate::home_fs::write(&temp, bytes).with_context(|| format!("write {}", temp.display()))?;
         let now = self.read_local(rel)?.map(|b| sha256_hex(&b));
         if now.as_deref() != expect {
-            let _ = std::fs::remove_file(&temp);
+            let _ = crate::home_fs::remove_file(&temp);
             return Ok(false);
         }
-        std::fs::rename(&temp, &path).with_context(|| format!("rename into {}", path.display()))?;
+        crate::home_fs::rename(&temp, &path)
+            .with_context(|| format!("rename into {}", path.display()))?;
         Ok(true)
     }
 
@@ -411,7 +412,8 @@ impl Engine {
         let now = self.read_local(rel)?.map(|b| sha256_hex(&b));
         if now.as_deref() == expect {
             let path = self.dir.join(rel);
-            std::fs::remove_file(&path).with_context(|| format!("remove {}", path.display()))?;
+            crate::home_fs::remove_file(&path)
+                .with_context(|| format!("remove {}", path.display()))?;
         }
         Ok(())
     }
@@ -572,12 +574,12 @@ fn temp_beside(path: &Path) -> PathBuf {
 /// Write through a hidden temp beside `path`, then rename over it.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
+        crate::home_fs::create_dirs(parent)?;
     }
     let temp = temp_beside(path);
-    std::fs::write(&temp, bytes)?;
-    std::fs::rename(&temp, path).inspect_err(|_| {
-        let _ = std::fs::remove_file(&temp);
+    crate::home_fs::write(&temp, bytes)?;
+    crate::home_fs::rename(&temp, path).inspect_err(|_| {
+        let _ = crate::home_fs::remove_file(&temp);
     })
 }
 
