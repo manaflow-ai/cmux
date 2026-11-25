@@ -221,6 +221,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/tailnet/placement",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/status",
       "params": {
         "$ref": "#/types/StatusParams"
@@ -3443,15 +3449,15 @@
             "null"
           ]
         },
-        "quietHidden": {
-          "description": "True: the client draws nothing of the chat while it is hidden (`visible: false`), so the\nagent's `session/update` stream is left out until `_acpmux/view` shows it, which then sends\none `_acpmux/lagged` naming the chat (`server/view.rs`); default false.",
+        "omitTimeBreakdown": {
+          "description": "True from a client that never draws the breakdown (the phone): the reply's `session`\nleaves `timeBreakdown` out whatever its version (`server/requests/time_breakdown_gate.rs`).",
           "type": [
             "boolean",
             "null"
           ]
         },
-        "omitTimeBreakdown": {
-          "description": "True from a client that never draws the breakdown (the phone): the reply's `session`\nleaves `timeBreakdown` out whatever its version (`server/requests/time_breakdown_gate.rs`).",
+        "quietHidden": {
+          "description": "True: the client draws nothing of the chat while it is hidden (`visible: false`), so the\nagent's `session/update` stream is left out until `_acpmux/view` shows it, which then sends\none `_acpmux/lagged` naming the chat (`server/view.rs`); default false.",
           "type": [
             "boolean",
             "null"
@@ -5539,7 +5545,7 @@
             }
           ],
           "default": null,
-          "description": "Why the route last went down (a failed dial, or a path that died while another\nanswered); null before any did, or when no failure so far had a type. Kept while the\nlink is up again, so a surface can say why it moved."
+          "description": "Why the route last went down (a failed dial, or a path that died while another\nanswered); null before any did, or when no failure so far had a type. Kept while the\nlink is up again, so a surface can say why it moved. A word this build does not know (a\nnewer daemon's) reads as null, so the rest of the note still lands."
         },
         "error": {
           "description": "Why the link is down, when it is.",
