@@ -5,6 +5,7 @@ import {
   type CloudStartupSetup,
 } from "./cloudStartProgress";
 import { fileSizeLabel } from "./fileAttachmentModel";
+import { githubFolderRepo } from "./githubRepos";
 import { paneLanguage, type StringKey, type Translate } from "./i18n";
 
 type ChecklistStatus = "done" | "running" | "pending" | "skipped" | "error";
@@ -326,7 +327,10 @@ export function quietStage(
     current.id === "machine"
       ? (current.detail ?? t("cloudStart.stage.machine"))
       : current.id === "clone"
-        ? t("cloudStart.stage.clone")
+        ? // A GitHub repository is cloned on the machine, nothing of this Mac copied: the line says so (cmux#53226).
+          githubFolderRepo(start.cwd)
+          ? t("cloudStartup.phase.clone")
+          : t("cloudStart.stage.clone")
         : current.id === "setup"
           ? t("cloudStart.stage.setup")
           : current.label;
