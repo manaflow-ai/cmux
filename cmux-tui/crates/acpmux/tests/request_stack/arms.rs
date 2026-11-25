@@ -443,6 +443,14 @@ pub fn table() -> Vec<(&'static str, Ask)> {
             ),
         ),
         (method::MUX_TURN_SHOTS, Run(json!({"sessionId": "$S", "turnId": "t1"}))),
+        (method::MUX_TURN_FRAMES, Run(json!({"sessionId": "$S", "turnId": "t1"}))),
+        (
+            method::MUX_CUSTOMIZE_RUN,
+            Any(
+                json!({"run": {"customize": "try", "target": "--help"}}),
+                "target must be pr:N, branch:B, sha:S, dir:PATH or a profile name (invalid params)",
+            ),
+        ),
         (method::MUX_QUEUE_TEXT, Run(json!({"sessionId": "$S", "promptId": "p1"}))),
         (
             method::MUX_MAIL_SEND,
@@ -476,6 +484,10 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (
             method::MUX_TEAM_ACK,
             Any(json!({"id": "x"}), "team messaging is off without a mesh relay (invalid params)"),
+        ),
+        (
+            method::MUX_TEAM_LISTEN,
+            Any(json!({"op": "ls"}), "team messaging is off without a mesh relay (invalid params)"),
         ),
         (
             method::MUX_REGISTER,

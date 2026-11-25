@@ -228,6 +228,11 @@ pub struct SessionSummary {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(default)]
     pub has_draft: bool,
+    /// A person pinned it (`_acpmux/pin`), on any of their replicas (`hub/synced.rs`). Absent
+    /// otherwise, and from a peer on an older acpmux.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(default)]
+    pub pinned: bool,
     /// Work runs below it with no turn open: a background subagent, a harness background process,
     /// or a sub-session at work (what keeps the idle pass from ending it, `hub/idle.rs`). An app
     /// update that installs when idle waits for it. Absent otherwise, and from a peer on an older
@@ -386,6 +391,15 @@ pub struct SessionSummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(default)]
     pub time_breakdown: Option<crate::time_breakdown::TimeBreakdown>,
+    /// The composer footer's status dot and quiet metadata, decided from this row's own fields
+    /// (`protocol/composer_status.rs`); set on the row after it is built, and again by this
+    /// daemon on a peer's row (with `peer`). Whole on a read with tools (attach, info, the
+    /// attached chat's `session_changed`); a census row carries it only with an item or a live
+    /// fact, and without the facts that repeat its own fields (`composer_status::census`).
+    /// Absent from an older acpmux.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub composer_status: Option<super::composer_status::ComposerStatus>,
 }
 
 /// The bounded diagnosis shown beside a looping chat. The daemon emits one event when this
@@ -720,6 +734,14 @@ pub struct QueuedPromptSummary {
     #[serde(default)]
     #[schemars(default)]
     pub inbox_notice: Option<Value>,
+    /// Who put it in the queue, from its provenance alone (`hub/queue_origin.rs`): `person` (the
+    /// composer's steer rows), `agent` (another agent's message or acpmux's notice of such), or
+    /// `acpmux` (the daemon's own prompt: a surge digest, a subagent's resume, a cut turn's
+    /// continuation), which an app draws apart from the person's rows with none of their actions.
+    /// Absent from an older acpmux.
+    #[serde(default)]
+    #[schemars(default)]
+    pub origin: Option<crate::hub::queue_origin::QueueOrigin>,
 }
 
 /// The subagent a queued resume asks the agent to resume (`QueuedPromptSummary.subagentRetry`).

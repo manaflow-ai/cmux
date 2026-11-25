@@ -119,6 +119,16 @@ struct OverviewLayout: Equatable, Sendable {
         (0..<count).first { card($0).insetBy(dx: -8, dy: -16).contains(point) }
     }
 
+    /// This layout holding at least `index + 1` cards. The zoom's card end
+    /// and the live page's card take the grid's own layout through this, so
+    /// they land on the slot the grid draws (one tab plus the new tab's
+    /// placeholder is two cards, not the lone centred card).
+    func holding(_ index: Int) -> OverviewLayout {
+        var grid = self
+        grid.count = max(count, index + 1)
+        return grid
+    }
+
     func zoomEndpoint(_ index: Int, contentOrigin: CGPoint?, fallbackOffset: CGFloat) -> CGRect {
         let origin = contentOrigin ?? CGPoint(x: 0, y: -fallbackOffset)
         return card(index).offsetBy(dx: origin.x, dy: origin.y)
