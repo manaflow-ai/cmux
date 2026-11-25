@@ -335,7 +335,7 @@ const colo = (req: Request): string | null => {
 
 /** Where a request entered Cloudflare: colo, country and continent codes (`req.cf`), each null when unknown. */
 const ingressOf = (req: Request): Ingress => {
-  const cf = (req as Request & { cf?: { colo?: unknown; country?: unknown; continent?: unknown; latitude?: unknown; longitude?: unknown } }).cf
+  const cf = (req as Request & { cf?: { colo?: unknown; country?: unknown; continent?: unknown; latitude?: unknown; longitude?: unknown; asn?: unknown } }).cf
   const code = (v: unknown) => (typeof v === "string" && /^[A-Z0-9]{2,4}$/.test(v) ? v : null)
   // Rounded to 0.1 degree (about 11 km): enough to place a relay, never a street.
   const deg = (v: unknown, max: number) => {
@@ -343,6 +343,8 @@ const ingressOf = (req: Request): Ingress => {
     return Number.isFinite(n) && Math.abs(n) <= max ? Math.round(n * 10) / 10 : null
   }
   const out: Ingress = { colo: code(cf?.colo), country: code(cf?.country), continent: code(cf?.continent), lat: deg(cf?.latitude, 90), lon: deg(cf?.longitude, 180) }
+  // Its network's AS number: the hub's central region pick keys a user's network pair on it (region-pick.ts).
+  if (typeof cf?.asn === "number" && Number.isInteger(cf.asn) && cf.asn > 0 && cf.asn < 2 ** 32) out.asn = cf.asn
   // The client's netcheck (`?netcheck=wnam:31,enam:72`, PROTOCOL.md "Relay placement"), when it sent one.
   const rtt = parseNetcheck(new URL(req.url).searchParams.get("netcheck"))
   if (rtt) out.rtt = rtt

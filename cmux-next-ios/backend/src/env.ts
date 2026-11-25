@@ -33,6 +33,13 @@ export interface Env {
    * `relay_cache_off` and a client keeps today's path (the live link).
    */
   readonly LINK_RELAY_CACHE?: string
+  /**
+   * `on` turns on the hub's central relay region pick (RFD 0142 O2, src/region-pick.ts): each user's TeamHub learns
+   * the relayed link's round trip per network pair and region from the phone's `link_stat` and places the next
+   * relay where it ran fastest. Absent or anything else: off (the default); relays are placed by
+   * `relayPlacement` alone, as before.
+   */
+  readonly LINK_RELAY_CENTRAL_PICK?: string
   /** The three-way hub (RFD 0142 R6): "off" refuses every hub join with 503 hub_off; clients keep their per-source path. */
   readonly HUB_RELAY: DurableObjectNamespace<HubRelay>
   readonly HUB_RELAY_MODE?: string
