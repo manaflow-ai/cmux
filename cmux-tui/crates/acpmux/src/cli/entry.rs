@@ -636,6 +636,10 @@ async fn async_main(parsed: Parsed) -> Result<()> {
             Ok(())
         }
         // No daemon: what this binary serves (`capabilities.rs`).
+        Some(Command::SubForkJob) => match crate::placement::sub_fork_run::job_main().await {
+            Ok(()) => Ok(()),
+            Err(e) => errors::exit_with(&e, cli.json),
+        },
         Some(Command::TriggerChat { protocol, principal_fd }) => {
             match crate::cli::trigger_chat::run(&protocol, principal_fd).await {
                 Ok(()) => Ok(()),
