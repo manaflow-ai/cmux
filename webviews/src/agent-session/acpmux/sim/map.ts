@@ -148,7 +148,6 @@ export const EVERYWHERE: {
     check: (run) => landed(landings(run).filter((each) => !isHeader(each.kind))),
     known: {
       "received-sent-as-activity": "received-drawn-late",
-      "messages-mid-turn": "received-drawn-late",
       "steer-mid-turn": "cut-reply-footer-late",
       "permission-wait": "denial-receipt-order",
     },

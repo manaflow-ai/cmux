@@ -12,7 +12,7 @@ import { runSimulation, type RowProbe, type SimResult } from "../src/agent-sessi
 import { parseRecords, sanitizeRecords, scrubText } from "../src/agent-session/acpmux/sim/sanitize";
 import { replayScenario, SIM_SESSION } from "../src/agent-session/acpmux/sim/script";
 import { SCENARIOS, longRun } from "../src/agent-session/acpmux/sim/scenarios";
-import { TRANSCRIPT_BLOCK_GAP } from "../src/agent-session/acpmux/transcriptGrid";
+import { TRANSCRIPT_BLOCK_GAP, TRANSCRIPT_LIVE_STEP_GAP } from "../src/agent-session/acpmux/transcriptGrid";
 
 const FIXTURES = join(import.meta.dir, "fixtures", "chat-sim");
 const broken = (result: SimResult, prefix: string) =>
@@ -42,14 +42,14 @@ describe("chat simulator: (d) received lines on the tool rows' pitch", () => {
   }
 });
 
-/** Turn 2's rows at the first step its live line and a call stand under the line that opened it. */
+/** Turn 2's rows at the first step its live line stands under the line that opened it (its calls fold into the live line). */
 const openedTurn = (name: string) => {
   for (const step of runSimulation(SCENARIOS[name]!()).traces) {
     const rows = step.rows ?? [];
     const at = rows.findIndex((row) => row.turn === 2 && row.received && row.opens);
-    if (at > 0 && rows.slice(at).some((row) => row.kind === "activity")) return { rows, at };
+    if (at > 0 && rows[at + 1]?.kind === "thinking") return { rows, at };
   }
-  throw new Error(`${name}: no step with turn 2's call drawn`);
+  throw new Error(`${name}: no step with turn 2's live line under its received line`);
 };
 
 // Leo, 2026-11-22: "sometimes you get these way-too-big gaps. i think it's the message recieving not
@@ -65,7 +65,7 @@ for (const name of ["incoming-notice-turn", "incoming-message-turn"])
     expect(head.id).toBe(`worked-${rows[at]!.id}`);
     expect(head.gap).toBe(TRANSCRIPT_BLOCK_GAP);
     expect(rows[at]!.gap).toBe(0);
-    expect(rows[at + 1]!.gap).toBe(0);
+    expect(rows[at + 1]!.gap).toBe(TRANSCRIPT_LIVE_STEP_GAP);
     expect(broken(runSimulation(SCENARIOS[name]!()), "d-")).toEqual([]);
   });
 
