@@ -631,6 +631,47 @@ fn an_outage_end_holds_the_rate_and_stops_waiting_for_stale_acks() {
     assert!(e.damage(0, small, 425_000).is_some(), "the gate no longer waits for the stale frame");
 }
 
+/// A shard the viewer NACKed and the host repaired was lost on the path: the
+/// repair reuses its transport sequence, so the viewer later reports that
+/// sequence as arrived. The host's loss (the stats' `loss_pct`, and what
+/// sizes FEC) must still count it; at 1% loss with every gap repaired it
+/// read 0.0% all run (fleet Mac pair, 2026-11-16).
+#[test]
+fn a_shard_repaired_after_a_nack_still_counts_as_lost() {
+    use cmux_rd_proto::Arrival;
+    let mut e = engine();
+    let first = e.start(0).expect("first");
+    let sent = send(&mut e, &first, true, 30_000, 0);
+    let seq = |d: &Vec<u8>| DatagramHeader::decode(d).expect("header").0.transport_seq;
+    let lost = 2;
+    let arrivals: Vec<Arrival> = sent
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| *i != lost)
+        .map(|(_, d)| Arrival { transport_seq: seq(d), arrival_us: 5_000 })
+        .collect();
+    let nacks = vec![Nack { frame: first.frame, indexes: vec![lost as u16] }];
+    let out = e.on_datagram(
+        &feedback(&Feedback { arrivals, nacks, ..Feedback::default() }),
+        false,
+        10_000,
+    );
+    assert!(out.datagrams.contains(&sent[lost]), "the NACKed shard is resent");
+    // The repair arrives well inside the meter's reorder grace.
+    e.on_datagram(
+        &feedback(&Feedback {
+            acked_frame: first.frame,
+            arrivals: vec![Arrival { transport_seq: seq(&sent[lost]), arrival_us: 15_000 }],
+            ..Feedback::default()
+        }),
+        false,
+        20_000,
+    );
+    // Settle every receipt.
+    e.on_datagram(&feedback(&Feedback::default()), false, 400_000);
+    assert!(e.stats().loss > 0.0, "a repaired loss is a loss: {}", e.stats().loss);
+}
+
 /// D12 drop: an engine whose path worked (a keyframe of `keyframe` bytes answered in
 /// 10 ms) and that then sent a P-frame of `started` bytes whose first 8 datagrams left
 /// before the radio went away, and a P-frame of `unstarted` bytes that never left.

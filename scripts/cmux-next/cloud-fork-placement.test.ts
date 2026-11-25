@@ -12,6 +12,8 @@ import {
   workCommand,
   type RunRow,
   p95,
+  divergenceVerdict,
+  divergenceWriteCommand,
 } from "./cloud-fork-placement.ts";
 
 const row = (over: Partial<RunRow>): RunRow => ({
@@ -70,5 +72,31 @@ describe("cloud fork placement", () => {
     expect(notFound(404, { _tag: "MachineNotFound", code: "machine.not_found" })).toBe(true);
     expect(notFound(404, { code: "route.not_found" })).toBe(false);
     expect(notFound(401, { code: "machine.not_found" })).toBe(false);
+  });
+  test("divergence: billed as diverged only when the paused copy is cheaper than its parent", () => {
+    const parent = { paused_hourly_rate_usd: 0.002 };
+    const d = divergenceVerdict(1024, 9000, { paused_hourly_rate_usd: 0.002 }, { status: "paused", paused_hourly_rate_usd: 0.0001 }, parent);
+    expect(d.ratio).toBe(0.05);
+    expect(d.billed_as_diverged).toBe(true);
+    // Whole disk billed (the meter off, or never read): same rate as the parent.
+    expect(divergenceVerdict(1024, 9000, null, { status: "paused", paused_hourly_rate_usd: 0.002 }, parent).billed_as_diverged).toBe(false);
+    // Not paused, or no rate, proves nothing.
+    expect(divergenceVerdict(1024, 9000, null, { status: "running", paused_hourly_rate_usd: 0.0001 }, parent).billed_as_diverged).toBe(false);
+    expect(divergenceVerdict(1024, null, null, null, parent).ratio).toBe(null);
+  });
+
+  test("divergence: the verdict fails a run whose copy was not billed as diverged", () => {
+    const off = divergenceVerdict(1024, 1, null, { status: "paused", paused_hourly_rate_usd: 0.002 }, { paused_hourly_rate_usd: 0.002 });
+    const on = divergenceVerdict(1024, 1, null, { status: "paused", paused_hourly_rate_usd: 0.0001 }, { paused_hourly_rate_usd: 0.002 });
+    expect(verdict([row({ divergence: on })], {}).pass).toBe(true);
+    expect(verdict([row({ divergence: off })], {}).pass).toBe(false);
+    expect(verdict([row({ divergence: null })], {}).pass).toBe(false);
+  });
+
+  test("divergence: the write is random bytes, synced, sized as asked", () => {
+    const c = divergenceWriteCommand(64);
+    expect(c).toContain("if=/dev/urandom");
+    expect(c).toContain("count=64");
+    expect(c).toContain("conv=fsync");
   });
 });

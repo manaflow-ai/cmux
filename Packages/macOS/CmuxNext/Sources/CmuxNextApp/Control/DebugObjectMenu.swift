@@ -75,14 +75,14 @@ enum DebugObjectMenu {
                 guard let pane = controller.focusedPane, case .browser(let entry) = pane.currentContent else {
                     return failure("the focused pane shows no browser page")
                 }
-                let shown = BrowserToolbarHandlers.profileMenu(for: entry, services: services)
+                let shown = BrowserToolbarHandlers.profileMenu(forTab: entry.key, services: services)
                 let anchor: NSView = entry.chrome ?? pane.view
                 let at = NSPoint(x: anchor.bounds.maxX - 120, y: anchor.isFlipped ? 40 : anchor.bounds.maxY - 40)
                 DelayedPopUp(menu: shown, at: at, in: anchor).schedule()
                 services.debugFixtures.objectMenu = shown
                 answer["menu"] = .string(menu)
             case "customizations":
-                let item = CustomizationsMenu.item(settings: { [weak services] in services?.settings },
+                let item = CustomizationsMenu.item(registry: services.registry, settings: { [weak services] in services?.settings },
                                                    openAll: { [weak services] in try? services?.settingsWindow.show(section: nil, route: SettingsDeepLink.customizeRoute) })
                 guard let shown = item.submenu, let content = window.contentView else { return failure("no customizations menu") }
                 shown.delegate?.menuNeedsUpdate?(shown) // its rows now, so a later `choose` counts them

@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { experimentArm } from "../../experiments/experiment";
 import { usePageNow } from "../../ui/pageClock";
 import { cloudStartLook, cloudStartQuietLook } from "./cloudStart.experiment";
@@ -11,9 +11,11 @@ import {
   type CloudStartAsk as Ask,
   type CloudStartProgress,
 } from "./cloudStartProgress";
-import { AlertCircle, Check, ChevronDown, ChevronRight, Folder, Spinner } from "./conversation/icons";
+import { AlertCircle, Check, ChevronDown, ChevronRight, Folder } from "./conversation/icons";
 
+import { DelayedSpinner, SPINNER_DELAY_MS } from "./conversation/DelayedSpinner";
 import { ShimmerText } from "./conversation/ShimmerText";
+import { cloudStartGoes } from "./cloudStartJustGo.experiment";
 import { Thinking } from "./conversation/Thinking";
 import { formatDuration } from "./conversation/turns";
 import { CloudSetupCard } from "./conversation/CloudSetupCard";
@@ -32,7 +34,7 @@ import {
   cloudPlanMachineWords,
 } from "./cloudPlans";
 import { useCloudPlanSubscribe, type CloudPlanSubscribeStore } from "./cloudPlanSubscribe";
-import { useGitHubPicker, type GitHubPickerStore } from "./githubRepos";
+import { gitHubPickerStore, githubFullName, useGitHubPicker, type GitHubPickerStore } from "./githubRepos";
 import "./cloudStart.css";
 import { type ChecklistStep, startupChecklist, type QuietStage, quietStage } from "./cloudStartViewModel";
 import { CLOUD_SIGN_IN_ANSWERS } from "./cloudSignIn";
@@ -79,6 +81,10 @@ function StageLine({ stage, look, now }: { stage: QuietStage; look: Exclude<Quie
     </div>
   );
 }
+/// A start's spinners wait 300 ms (Leo, 2026-11-25, "just go"); the `hold` arm shows them at once.
+function spinnerDelay(): number {
+  return cloudStartGoes() ? SPINNER_DELAY_MS : 0;
+}
 function mark(step: ChecklistStep, t: Translate) {
   if (step.status === "done")
     return (
@@ -90,7 +96,7 @@ function mark(step: ChecklistStep, t: Translate) {
   if (step.status === "running")
     return (
       <>
-        <Spinner size={16} loading />
+        <DelayedSpinner size={16} delayMs={spinnerDelay()} />
         <span className="visually-hidden">{t("cloudStartup.state.running")}</span>
       </>
     );
@@ -479,9 +485,48 @@ function TooBigActions({
 /// A start that connecting GitHub would let go on (`seed.needs_github`: a folder too big to copy whose way is a GitHub
 /// clone, or a picked repository the cmux GitHub App does not reach): Connect GitHub opens the install or its settings
 /// (`github.connect`, the folder menu's own call), then Retry runs the same start. A refused call says why under it.
-function ConnectGitHubAction({ store }: { store?: GitHubPickerStore }) {
+///
+/// The click names the start's repository (#55104), so the API reuses a connection that already covers it or sends the
+/// person through GitHub's authorize page, which comes back to the app. Then the start goes again by itself: at once
+/// when a connection covered it, else once the app says it finished the connection.
+function ConnectGitHubAction({
+  store,
+  repository,
+  onConnected,
+}: {
+  store?: GitHubPickerStore;
+  repository?: string;
+  onConnected?: () => void;
+}) {
   const t = useT();
-  const github = useGitHubPicker(store);
+  const picker = store ?? gitHubPickerStore();
+  const github = useGitHubPicker(picker);
+  const waiting = useRef<(() => void) | undefined>(undefined);
+  const retry = useRef(onConnected);
+  useEffect(() => {
+    retry.current = onConnected;
+  }, [onConnected]);
+  // Unmounted (the start went on, or the chat closed): a connect still out retries nothing.
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      waiting.current?.();
+      waiting.current = undefined;
+    };
+  }, []);
+  const connect = () => {
+    void picker.connectRepo(githubFullName(repository)).then((outcome) => {
+      if (!mounted.current) return;
+      if (outcome === "connected") retry.current?.();
+      else if (outcome === "opened" && !waiting.current)
+        waiting.current = picker.afterChange(() => {
+          waiting.current = undefined;
+          retry.current?.();
+        });
+    });
+  };
   return (
     <>
       <button
@@ -489,7 +534,7 @@ function ConnectGitHubAction({ store }: { store?: GitHubPickerStore }) {
         className="acpmux-cloud-ask__button"
         data-role="default"
         data-action="connect-github"
-        onClick={() => github.onConnect()}
+        onClick={connect}
       >
         {t("cloudRepository.connect")}
       </button>
@@ -675,7 +720,7 @@ export function CloudStartView({
   const waitingForSignIn = !failed && start.signingIn === true;
   const signInStatus = (
     <output className="acpmux-cloud-start__status" data-signing-in="true" aria-busy="true">
-      <Spinner size={14} loading />
+      <DelayedSpinner size={14} delayMs={spinnerDelay()} />
       <span>{t("cloudStart.waitingForSignIn")}</span>
     </output>
   );
@@ -828,6 +873,13 @@ export function CloudStartView({
           <div className="ui-glass cv-user__bubble selectable">{start.task}</div>
         </div>
       )}
+      {/* What Return queued during the start: it goes with the started chat's first prompt. */}
+      {bubble &&
+        start.queued?.map((text, index) => (
+          <div className="cv-user" key={index} data-queued="true">
+            <div className="ui-glass cv-user__bubble selectable">{text}</div>
+          </div>
+        ))}
       {waitingForSignIn && signInStatus}
       {stalled && !start.ask && (
         <output className="acpmux-cloud-start__status" data-stalled="true">
@@ -841,7 +893,7 @@ export function CloudStartView({
       )}
       {!failed && !stalled && !waitingForSignIn && !start.initialized && (
         <output className="acpmux-cloud-start__status">
-          <Spinner size={14} loading />
+          <DelayedSpinner size={14} delayMs={spinnerDelay()} />
           <span>{t("cloudStart.preparing")}</span>
         </output>
       )}
@@ -1006,7 +1058,13 @@ export function CloudStartView({
       )}
       {failed && !planTeamRefusal && !sizeLocked && ((start.retryable && onRetry) || needsGitHub) && (
         <span className="acpmux-cloud-ask__actions">
-          {needsGitHub && <ConnectGitHubAction {...(githubStore ? { store: githubStore } : {})} />}
+          {needsGitHub && (
+            <ConnectGitHubAction
+              {...(githubStore ? { store: githubStore } : {})}
+              {...(start.repository ? { repository: start.repository } : {})}
+              {...(start.retryable && onRetry ? { onConnected: onRetry } : {})}
+            />
+          )}
           {start.retryable && onRetry && (
             <button
               type="button"

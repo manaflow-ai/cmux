@@ -79,6 +79,7 @@ cmux-cloud-handlers.workspace = true
 cmux-apps.workspace = true
 cmux-cloud-environment.workspace = true
 cmux-cloud-machine.workspace = true
+cmux-cloud-disk.workspace = true
 cmux-cloud-wire.workspace = true
 # `cmux chat --repo`: the repository spec `cloud new-machine --repo` reads (cli/chat_start/local_repo.rs).
 cmux-cloud-start-core.workspace = true
@@ -98,6 +99,9 @@ cmux-sdk = { path = "../../bindings/rust", default-features = false }
 # Only for `hotpatch` (see the feature).
 cmux-terminal-client = { path = "../cmux-terminal-client", optional = true }
 cmux-git.workspace = true
+# The three-tree sync rule and the synced-revision store (link sync pull, base.rs).
+cmux-sync.workspace = true
+cmux-migrate.workspace = true
 cmux-conversation.workspace = true
 cmux-process.workspace = true
 cmux-scope.workspace = true
@@ -166,6 +170,7 @@ parking_lot.workspace = true
 sha2.workspace = true
 # `cmux link sync pull` merges a text file both sides changed by line.
 diffy.workspace = true
+cmux-sync.workspace = true
 uuid.workspace = true
 wait-timeout.workspace = true
 # Verifies the signed invite-wave flags (feature_flags.rs); tests sign with it.
@@ -181,6 +186,7 @@ acpmux-build-id = { path = "../acpmux-build-id" }
 # `cmux acp attach` (the app's chat-in-a-terminal-tab, `acp.rs` `chat_tab_command`) and the
 # bundle's `acpmux` symlink open it (acpmux `src/tui_entry.rs`).
 acpmux-tui = { path = "../acpmux-tui" }
+cmux-autocloud = { path = "../cmux-autocloud" }
 # A device row's kind and glyph (`devices/model.rs`).
 cmux-device-kind = { path = "../cmux-device-kind" }
 
@@ -191,6 +197,9 @@ cmux-device-kind = { path = "../cmux-device-kind" }
 cmux-computer-use = { workspace = true, features = ["desktop", "server"] }
 
 [target.'cfg(unix)'.dependencies]
+# The UI-loop watchdog's stack sample of the loop thread (ui_watchdog/sampler.rs); the lockfile
+# already has it through other crates.
+backtrace = "0.3"
 # The browser host and the app host run from this binary, chosen by argv[0]
 # (`cmux-browser-host`, `cmux-app-host` links beside bin/cmux; `main` in
 # src/main.rs): one copy of std, serde and QuickJS instead of three.
@@ -254,6 +263,8 @@ futures-util.workspace = true
 rusqlite.workspace = true
 # `cmux machine add|list`: the platform's RFC 3339 times; already in the graph via acpmux.
 cmux-chat-index.workspace = true
+# `cmux repro` (cmuxterm-hq#23808): repro capsules, replayed on a Cloud machine by the journey.
+cmux-repro = { path = "../cmux-repro" }
 
 [target.'cfg(windows)'.dependencies]
 tokio.workspace = true
