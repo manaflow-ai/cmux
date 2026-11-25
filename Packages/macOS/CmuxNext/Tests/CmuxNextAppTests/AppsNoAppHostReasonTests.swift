@@ -9,7 +9,7 @@ import Testing
 /// “Needs a newer cmux”").
 @Suite struct AppsNoAppHostReasonTests {
     @Test func aDaemonWithoutAppsV1SaysAppsCannotRunInThisBuild() throws {
-        let reason = try #require(DaemonAppsTransport.unavailableReason(capabilities: ["identify-v1"]))
+        let reason = try #require(AppsUnavailableReason.daemon(capabilities: ["identify-v1"]))
         #expect(reason.text == "Apps can’t run in this build of cmux")
         #expect(AppStoreHandlers.unavailable(reason).message == reason.text)
     }

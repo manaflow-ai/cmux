@@ -5,9 +5,9 @@ package import Foundation
 package nonisolated struct FileExplorerStrings {
     package nonisolated init() {}
     /// The bundle that holds `Resources/FileExplorer.xcstrings` (this module's), for tests.
-    package static var bundle: Bundle { .module }
+    package static var bundle: Bundle { .localizedModule }
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "FileExplorer", bundle: .module)
+        String(localized: key, defaultValue: value, table: "FileExplorer", bundle: .localizedModule)
     }
 
     package static var noSelection: String { text("fileExplorer.noSelection", "Select a file or folder in the file explorer first.") }

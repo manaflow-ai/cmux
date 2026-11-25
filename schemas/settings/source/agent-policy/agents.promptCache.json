@@ -1,0 +1,4 @@
+{
+  "agent": "userOnly",
+  "why": "How long Claude Code chats keep their prompt cache: it moves the person's model bill."
+}

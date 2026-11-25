@@ -1,0 +1,96 @@
+{
+  "$comment": "The layout-motion contract of cmux NEXT. Leo, 2026-11-18: \"I was thinking we'd be able to calculate each beforehand everything that would move and just go ok well nothing else usually should and the things that move we only expect at certain times etc ... Fundamentally\" (and 2026-11-07: \"we should be able to calculate this beforehand\"). Every surface names where its size comes from before it mounts (`size`), and the only events on which a box of it may move or resize once it has drawn (`moves`). Any other move is undeclared. The detector (webviews/src/layout/motionJudge.ts) reads this file and flags every undeclared move; vectors.json holds the cases every judge of it must agree on. Gallery health fails a state with an undeclared move that scripts/gallery-matrix/undeclared-baseline.json does not list (undeclared-baseline.ts). Handbook: cmuxterm-hq docs/handbook/undeclared-layout-move.md.",
+  "restFrames": 2,
+  "slackPx": 0.5,
+  "events": {
+    "load": "The surface's first frames. A box that has not drawn twice in the same place is still mounting and no move of it counts; a box that rested and then moves is a shift, whatever the load is doing.",
+    "stream-append": "A reply grows at the end of the transcript. The growing last row may grow; rows above it rise with it only while the view follows the end.",
+    "user-scroll": "The person scrolls (wheel, keys, a jump button, a scroll a play makes). Everything in the scroller moves together.",
+    "resize": "The window, a split divider or the sidebar toggle changes a surface's width or height. Each box may move once, to its new place; a second move in the same resize is a bounce.",
+    "expand": "The person opens or closes a fold, a group, a tool row or a card. The opened element, what it holds, and what follows it pushed straight down may move; the rows above rise only when the fold is at the very bottom of a followed transcript.",
+    "older-history": "An older page of the transcript lands above the view. The view keeps the rows on screen in place (the scroll anchor), so on screen nothing moves.",
+    "composer-growth": "The composer's field gains or loses a line. The composer box and the rows the list lifts with it move together, on the field's curve.",
+    "menu": "A menu, popover or picker opens or closes. Only the popup and its rows move.",
+    "reorder": "The person or the model moves an item to a new place in a list (a drag, a pin, a move to top). The moved rows and the rows between the old and new place move once.",
+    "status": "A row's status changes (working, waiting, done, unread). Nothing moves: badges and marks have reserved slots.",
+    "enter": "An element enters (mounts) or leaves. Its own box is not judged until it rests; nothing else may move because of it unless another event is declared."
+  },
+  "sizes": {
+    "pretext": "Measured from its text before paint (Pretext with the named font, model.ts layout), so a row mounts at its final height.",
+    "record": "Read from the record that carries the media (width and height stored with the id, cmuxterm-hq handbook media-without-stored-size).",
+    "reserved": "A fixed slot from the layout grid (schemas/layout-grid/layout-grid.json) that its content never changes.",
+    "model": "Computed from data in Rust before the view draws (the sidebar's row layout, cmux-layout-reducer)."
+  },
+  "surfaces": [
+    {
+      "id": "transcript-row",
+      "platform": "web",
+      "selector": "[data-row-id]",
+      "size": "pretext",
+      "moves": ["stream-append", "user-scroll", "resize", "expand", "older-history", "composer-growth"]
+    },
+    {
+      "id": "chat-media",
+      "platform": "web",
+      "selector": ".cv-img, .cv-media, .cv-image-placeholder, .cv-user__inline-image, .cv-user__video, .cv-video-frames__frame",
+      "size": "record",
+      "moves": ["stream-append", "user-scroll", "resize", "expand", "older-history", "composer-growth"]
+    },
+    {
+      "id": "composer",
+      "platform": "web",
+      "selector": ".acpmux-composer-box, .acpmux-composer-bar",
+      "size": "reserved",
+      "moves": ["resize", "composer-growth"]
+    },
+    {
+      "id": "popup",
+      "platform": "web",
+      "selector": "[role='menu'], [role='listbox'], [role='menuitem'], [role='menuitemradio'], [role='menuitemcheckbox'], [role='option']",
+      "size": "reserved",
+      "moves": ["menu", "user-scroll", "resize"]
+    },
+    {
+      "id": "list-row",
+      "platform": "web",
+      "selector": "[role='row'], [role='treeitem']",
+      "size": "reserved",
+      "moves": ["user-scroll", "resize", "expand", "reorder"]
+    },
+    {
+      "id": "tab",
+      "platform": "web",
+      "selector": "[role='tab']",
+      "size": "reserved",
+      "moves": ["resize", "reorder"]
+    },
+    {
+      "id": "tracked",
+      "platform": "web",
+      "selector": "[data-gallery-track]",
+      "size": "reserved",
+      "moves": ["user-scroll", "resize", "expand", "menu"]
+    },
+    {
+      "id": "sidebar-row",
+      "platform": "native",
+      "view": "SidebarListView row (workspace, group header, folder, section header)",
+      "size": "model",
+      "moves": ["user-scroll", "resize", "expand", "reorder"]
+    },
+    {
+      "id": "sidebar-badge",
+      "platform": "native",
+      "view": "A sidebar row's badge, status mark and unread dot (RowBadgeView, RowControlSlot)",
+      "size": "reserved",
+      "moves": ["user-scroll", "resize", "expand", "reorder"]
+    },
+    {
+      "id": "sidebar-list",
+      "platform": "native",
+      "view": "The sidebar's list, its header and footer",
+      "size": "reserved",
+      "moves": ["resize"]
+    }
+  ]
+}

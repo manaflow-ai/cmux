@@ -15,6 +15,7 @@ pub(super) struct Counters {
     pub peak_active_bytes: AtomicU64,
     pub peak_excess_bytes: AtomicU64,
     pub oldest_seq: AtomicU64,
+    pub damaged_snapshot_frames: AtomicU64,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -64,6 +65,12 @@ impl Drop for Job {
 }
 
 impl Hub {
+    /// Damaged frames found by the active snapshot's single hydration walk.
+    /// Page and seek reads do not count; a clean snapshot install resets it.
+    pub fn damaged_snapshot_frames(&self) -> u64 {
+        self.compaction_counters.damaged_snapshot_frames.load(Ordering::Relaxed)
+    }
+
     pub fn compaction_stats(&self) -> CompactionStats {
         let stats = &self.compaction_counters;
         CompactionStats {
@@ -101,6 +108,7 @@ impl HubWriter {
             || self.maintenance.is_some()
             || !self.retry_log.is_empty()
             || !self.origins.retry.is_empty()
+            || self.mirror.retry_pending()
         {
             return;
         }
@@ -175,6 +183,7 @@ impl HubWriter {
         let Some(result) = job.ready.take() else { return };
         match result {
             Ok(Ok(result)) => {
+                self.log_errors.fetch_add(result.skipped_snapshot_rows as u64, Ordering::Relaxed);
                 if result.cleanup_errors == 0 {
                     self.compaction_backoff = 0;
                     self.next_compaction = None;
@@ -203,8 +212,12 @@ impl HubWriter {
                 {
                     self.turn_measure.overlay_ns = overlay_began.elapsed().as_nanos();
                 }
-                self.retire_origin_sources(&current, &next);
+                let freed = self.retire_origin_sources(&current, &next);
                 self.published.store(Arc::new(next));
+                if freed {
+                    self.origin_slot_freed();
+                }
+                self.compaction_counters.damaged_snapshot_frames.store(0, Ordering::Relaxed);
                 self.hydration = None;
                 // Only the obsolete shadow root is retired, never rebuilt maps.
                 // Its last drop can visit every key, so it stays off the turn.
@@ -234,10 +247,19 @@ impl HubWriter {
         let Some(work) = self.maintenance.as_mut() else { return };
         let current = self.published.load_full();
         let mut next = current.as_ref().clone();
+        let mut touched = std::collections::BTreeSet::new();
         for _ in 0..256 {
             if let Some(row) = work.missing_hot.pop_front() {
+                if let Some(folder) = acpmux_book::index::FolderKey::of(&row) {
+                    touched.insert(folder);
+                }
                 next.hydrate_compacted(row);
             } else if let Some(key) = work.cold_keys.pop_front() {
+                if let Some(row) = next.get_row(&key)
+                    && let Some(folder) = acpmux_book::index::FolderKey::of(&row)
+                {
+                    touched.insert(folder);
+                }
                 work.evicted_rows += usize::from(next.evict_compacted(&key));
             } else {
                 break;
@@ -247,14 +269,14 @@ impl HubWriter {
                 self.turn_measure.maintenance_keys += 1;
             }
         }
-        self.published.store(Arc::new(next));
+        let folder_ops = folders::changed_folders(&current, &next, touched);
+        // Publish below after releasing the maintenance borrow.
+        let folder_publish = next;
         // Installation may finish startup through this captured hot-row
         // stream instead of the original snapshot iterator. Publish readiness
         // only after its last missing live row is installed.
         let waiting = *self.hydrated.borrow() != disk::HydrationState::Ready;
-        if work.missing_hot.is_empty() && waiting {
-            self.hydrated.send_replace(disk::HydrationState::Ready);
-        }
+        let hydration_done = work.missing_hot.is_empty() && waiting;
         // The current root can still own paths removed by this batch. Drop it
         // before the worker returns free pages, so the measurement includes them.
         drop(current);
@@ -267,6 +289,10 @@ impl HubWriter {
                     drop((cold_keys, missing_hot));
                     retire_shadow(shadow, evicted);
                 }));
+                self.publish_folder_index(folder_publish, &folder_ops);
+                if hydration_done {
+                    self.hydrated.send_replace(disk::HydrationState::Ready);
+                }
                 return;
             }
             self.compaction_counters.duration_ns.store(
@@ -282,6 +308,10 @@ impl HubWriter {
             }
             self.compaction_counters.completed.fetch_add(1, Ordering::Relaxed);
             self.maintenance = None;
+        }
+        self.publish_folder_index(folder_publish, &folder_ops);
+        if hydration_done {
+            self.hydrated.send_replace(disk::HydrationState::Ready);
         }
     }
 }
@@ -308,3 +338,7 @@ fn retire_shadow(shadow: ChangedRows, evicted: usize) {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "compaction_folder_eviction_tests.rs"]
+mod folder_eviction_tests;

@@ -8,7 +8,8 @@ public import CmuxNextDesign
 /// presenter's own limits hold (three per window, a closed notice stays quiet for a while). The
 /// title is the toast's text and the message its detail (shown when the pointer is on it),
 /// followed by the app's id. `tone`
-/// is accepted and not drawn yet: the presenter has one look until the unified notice system lands.
+/// marks the toast in the styles that show a tone (``CmuxToastStyle/v2``): `working` leads with a spinner and
+/// stays until the app's next toast takes its slot, so one card reports a long task from start to result.
 /// Local and non-network, so the op needs no scope (`scopes.json` scope `none`).
 public nonisolated struct ToastAppOps: AppHostCapabilityHandler {
     /// Shows `toast` in the active window; false when no window can show it.
@@ -31,7 +32,7 @@ public nonisolated struct ToastAppOps: AppHostCapabilityHandler {
 
     static let maxTitle = 200
     static let maxMessage = 1_000
-    static let tones: Set<String> = ["success", "warning", "danger"]
+    static let tones: [String: CmuxToastTone] = ["success": .success, "warning": .warning, "danger": .error, "working": .working]
 
     public var families: Set<String> { ["toast"] }
 
@@ -53,11 +54,17 @@ public nonisolated struct ToastAppOps: AppHostCapabilityHandler {
         if let message, message.count > maxMessage {
             throw AppHostCapabilityError(code: "invalid_params", message: "a toast message is at most \(maxMessage) characters")
         }
-        if let tone = request.params["tone"]?.stringValue, !tones.contains(tone) {
-            throw AppHostCapabilityError(code: "invalid_params", message: "a toast tone is success, warning or danger")
+        var tone: CmuxToastTone?
+        if let name = request.params["tone"]?.stringValue {
+            guard let known = tones[name] else {
+                throw AppHostCapabilityError(code: "invalid_params", message: "a toast tone is success, warning, danger or working")
+            }
+            tone = known
         }
         // The detail names the app, so an app's notice never passes for one of cmux's own.
         let source = AppsStrings.toastSource(request.app)
-        return CmuxToast(id: "app:\(request.app)", message: title, detail: message.map { "\($0)\n\(source)" } ?? source)
+        // A working toast waits for its result (the app's next toast, in its slot), or its close button.
+        return CmuxToast(id: "app:\(request.app)", message: title, detail: message.map { "\($0)\n\(source)" } ?? source,
+                         duration: tone == .working ? CmuxToast.untilClosed : .seconds(6), tone: tone)
     }
 }

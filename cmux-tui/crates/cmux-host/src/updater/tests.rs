@@ -295,6 +295,23 @@ fn gc_keeps_the_baked_current_and_newest_profiles() {
     assert!(paths.at(store::STORE_DIR).join(&ours[2]).exists());
 }
 
+/// The lead (2026-11-13): "machine id and updater outcome (seen, held with reason, busy with
+/// reason, swapped) in sawBuild, so the slow mode gets read instead of inferred." Each check
+/// saves its outcome as codes beside its log line, for the Cloud status report (`look.rs`).
+#[cfg(target_os = "linux")]
+#[test]
+fn a_check_saves_its_outcome_as_codes_for_the_cloud_report() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = image(dir.path());
+    fs::create_dir_all(paths.at("/etc/cmux")).unwrap();
+    fs::write(paths.at(OFF_FILE), "").unwrap();
+    let (outcome, _) = role::check(&paths, gate::Honor::All);
+    assert!(matches!(outcome, role::Outcome::Off(_)), "{outcome:?}");
+    let look = load_state(&paths).look.expect("the check saved its look");
+    assert_eq!(look.outcome, "off");
+    assert!(look.at > 0);
+}
+
 #[test]
 fn off_when_marked_or_when_the_app_replaced_the_link() {
     let dir = tempfile::tempdir().unwrap();
@@ -381,6 +398,35 @@ fn state_and_pending_round_trip() {
     assert_eq!(load_pending(&paths), None);
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn restart_reads_the_running_cmux_units_from_systemd() {
+    let listed = "cmux-host.service loaded active running cmux host\n\
+                  cmux-app-server@a.service loaded active running app\n\
+                  cmux-host.service loaded active running cmux host\n\
+                  ssh.service loaded active running OpenSSH\n\
+                  \n";
+    assert_eq!(
+        role::running_units(listed),
+        vec!["cmux-host.service".to_owned(), "cmux-app-server@a.service".to_owned()]
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn restart_picks_units_whose_exec_start_runs_cmux_tui() {
+    assert!(role::starts_cmux_tui(
+        "{ path=/home/cmux/.cmux/bin/cmux-tui ; argv[]=/home/cmux/.cmux/bin/cmux-tui host app-server a ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }"
+    ));
+    assert!(!role::starts_cmux_tui(
+        "{ path=/usr/bin/cmux-tui-hook ; argv[]=/usr/bin/cmux-tui-hook ; ignore_errors=no }"
+    ));
+    assert!(!role::starts_cmux_tui(
+        "{ path=/bin/sh ; argv[]=/bin/sh -c cmux-tui ; ignore_errors=no }"
+    ));
+    assert!(!role::starts_cmux_tui(""));
+}
+
 // `role` is Linux only (updater/mod.rs), the tests module every unix: on macOS this did not compile.
 #[cfg(target_os = "linux")]
 #[test]
@@ -412,16 +458,19 @@ fn a_resume_holds_the_restart_while_the_first_link_comes_up() {
 
     let gate_dir = tempfile::tempdir().unwrap();
     let held = gate::Gate::new(&Paths::new(gate_dir.path()));
-    held.hold(T0_MS, role::CONNECT_HOLD, gate::HoldKind::Connect);
-    assert_eq!(held.held_left(T0_MS), Some(role::CONNECT_HOLD));
-    assert_eq!(held.held_left(T0_MS + 60_000), Some(role::CONNECT_HOLD - Duration::from_secs(60)));
+    held.hold(T0_MS, role::CONNECT_HOLD, gate::HoldKind::Connect).unwrap();
+    assert_eq!(held.held_left(T0_MS).unwrap(), Some(role::CONNECT_HOLD));
+    assert_eq!(
+        held.held_left(T0_MS + 60_000).unwrap(),
+        Some(role::CONNECT_HOLD - Duration::from_secs(60))
+    );
     let end = T0_MS + role::CONNECT_HOLD.as_millis() as u64;
-    assert_eq!(held.held_left(end), None);
+    assert_eq!(held.held_left(end).unwrap(), None);
     // A later resume extends the hold; an earlier one never shortens it.
-    held.hold(T0_MS + 120_000, role::CONNECT_HOLD, gate::HoldKind::Connect);
-    assert_eq!(held.held_left(end), Some(Duration::from_secs(120)));
-    held.hold(T0_MS, role::CONNECT_HOLD, gate::HoldKind::Connect);
-    assert_eq!(held.held_left(end), Some(Duration::from_secs(120)));
+    held.hold(T0_MS + 120_000, role::CONNECT_HOLD, gate::HoldKind::Connect).unwrap();
+    assert_eq!(held.held_left(end).unwrap(), Some(Duration::from_secs(120)));
+    held.hold(T0_MS, role::CONNECT_HOLD, gate::HoldKind::Connect).unwrap();
+    assert_eq!(held.held_left(end).unwrap(), Some(Duration::from_secs(120)));
 
     let dir = tempfile::tempdir().unwrap();
     let paths = image(dir.path());
@@ -544,6 +593,7 @@ fn attached_carrier_sessions_are_connected_or_reconnecting() {
 fn a_new_carrier_session_starts_the_connect_hold() {
     use std::time::Duration;
 
+    let _shared = SHARED_CARRIER_HOLD.lock().unwrap_or_else(|e| e.into_inner());
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths::new(dir.path());
     assert_eq!(role::carrier_busy_from(&paths, Ok(Vec::new())), None);
@@ -634,12 +684,12 @@ fn a_pause_the_watch_found_starts_the_connect_hold() {
     // An ordinary minute, the watch looking every 10 s: no hold.
     watch.looked(at(60).0, false);
     assert!(!role::hold_if_paused(&paths, &watch, &handled, at(65)));
-    assert_eq!(gate.held_left(at(65).1), None);
+    assert_eq!(gate.held_left(at(65).1).unwrap(), None);
     // Paused 40 minutes in its pool, then claimed: the watch found it.
     watch.looked(at(65 + 2400).0, true);
     let resumed = at(65 + 2401);
     assert!(role::hold_if_paused(&paths, &watch, &handled, resumed));
-    assert_eq!(gate.held_left(resumed.1), Some(role::CONNECT_HOLD));
+    assert_eq!(gate.held_left(resumed.1).unwrap(), Some(role::CONNECT_HOLD));
     // Handled: the next look, with the watch fresh, holds no more.
     assert!(!role::hold_if_paused(&paths, &watch, &handled, at(65 + 2405)));
 }
@@ -700,7 +750,7 @@ fn a_pause_the_watch_has_not_woken_from_yet_holds() {
     assert!(!role::hold_if_paused(&paths, &watch, &handled, at(25)));
     // 3 minutes since: the machine was stopped.
     assert!(role::hold_if_paused(&paths, &watch, &handled, at(180)));
-    assert!(gate::Gate::new(&paths).held_left(at(180).1).is_some());
+    assert!(gate::Gate::new(&paths).held_left(at(180).1).unwrap().is_some());
 }
 
 /// Design review of #39049 (cloud-v0-lead): a spare paused 3 minutes during
@@ -722,7 +772,7 @@ fn a_three_minute_pause_during_a_check_that_returns_early_holds() {
         role::Outcome::Busy(vec!["acpmux: timed out".to_owned()])
     });
     assert!(matches!(outcome, role::Outcome::Busy(_)), "{outcome:?}");
-    assert_eq!(gate::Gate::new(&paths).held_left(at(182).1), Some(role::CONNECT_HOLD));
+    assert_eq!(gate::Gate::new(&paths).held_left(at(182).1).unwrap(), Some(role::CONNECT_HOLD));
 
     // A quick check that returns early holds nothing.
     let dir = tempfile::tempdir().unwrap();
@@ -731,7 +781,7 @@ fn a_three_minute_pause_during_a_check_that_returns_early_holds() {
     let handled = AtomicU64::new(watch.pause_seq());
     let quick = || at(2);
     role::check_step(&paths, &watch, &handled, &quick, || role::Outcome::Current("abc".to_owned()));
-    assert_eq!(gate::Gate::new(&paths).held_left(at(2).1), None);
+    assert_eq!(gate::Gate::new(&paths).held_left(at(2).1).unwrap(), None);
 }
 
 #[cfg(target_os = "linux")]
@@ -748,7 +798,7 @@ fn a_three_minute_pause_during_a_check_holds_its_flip() {
     let mut last = Some(0);
     assert!(role::flip_look(&paths, &watch, &handled, None, &mut last, 0, at(182)));
     let gate = gate::Gate::new(&paths);
-    assert_eq!(gate.held_left(at(182).1), Some(role::CONNECT_HOLD));
+    assert_eq!(gate.held_left(at(182).1).unwrap(), Some(role::CONNECT_HOLD));
     // The flip runs inside the gate, which refuses it while the hold is on.
     assert!(gate.run(at(182).1, gate::Honor::All, |_| ()).is_err(), "the flip ran under the hold");
 }
@@ -811,7 +861,7 @@ fn another_process_keeps_its_own_restore_look() {
         3_600 * SECOND_NS,
         at(5),
     ));
-    assert_eq!(gate::Gate::new(&paths).held_left(at(5).1), Some(role::CONNECT_HOLD));
+    assert_eq!(gate::Gate::new(&paths).held_left(at(5).1).unwrap(), Some(role::CONNECT_HOLD));
 }
 
 /// Review F2 of #39049: a pause the watch found after the previous wait's
@@ -835,7 +885,7 @@ fn a_pause_found_between_two_steps_holds() {
     // The check starts after that and returns early; its look still holds.
     let clock = || at(255);
     role::check_step(&paths, &watch, &handled, &clock, || role::Outcome::Current("abc".to_owned()));
-    assert_eq!(gate::Gate::new(&paths).held_left(at(255).1), Some(role::CONNECT_HOLD));
+    assert_eq!(gate::Gate::new(&paths).held_left(at(255).1).unwrap(), Some(role::CONNECT_HOLD));
 }
 
 /// Review F1 of #39049: where a restore stops the boot clock, the pause watch
@@ -867,7 +917,7 @@ fn a_restore_the_supervisor_has_not_dispatched_holds_the_flip() {
         offset + 3600 * SECOND_NS,
         at(7)
     ));
-    assert_eq!(gate::Gate::new(&paths).held_left(at(7).1), Some(role::CONNECT_HOLD));
+    assert_eq!(gate::Gate::new(&paths).held_left(at(7).1).unwrap(), Some(role::CONNECT_HOLD));
 }
 
 /// Review F2 of #38326: the health timeout's rollback waits while carrier
@@ -884,12 +934,18 @@ fn the_health_timeout_rollback_waits_for_carrier_sessions() {
     let (tx, rx_checks) = std::sync::mpsc::channel();
     tx.send(role::Msg::Check).unwrap();
     tx.send(role::Msg::Check).unwrap();
-    assert!(role::timeout_rollback_waits(&mut carrier, &rx_checks), "it rolls back once idle");
+    assert!(
+        resolve::timeout_rollback_waits(&mut carrier, || None, &rx_checks),
+        "it rolls back once idle"
+    );
     assert!(looks.is_empty(), "it looked until the sessions left");
 
     let mut attached = || Some("1 carrier session(s) attached".to_owned());
     tx.send(role::Msg::Stop).unwrap();
-    assert!(!role::timeout_rollback_waits(&mut attached, &rx_checks), "a stop ends the wait");
+    assert!(
+        !resolve::timeout_rollback_waits(&mut attached, || None, &rx_checks),
+        "a stop ends the wait"
+    );
 }
 
 /// Review F2 of #38326: the guard's rollback waits for carrier sessions too,
@@ -906,16 +962,20 @@ fn the_guard_rollback_waits_for_carrier_sessions_up_to_the_bound() {
     let mut hold = carrier::CarrierHold::default();
     let mut carrier = || hold.look(clock.get(), Ok(vec!["stuck/session".to_owned()])).busy;
     let mut slept = Duration::ZERO;
-    role::guard_rollback_waits(&mut carrier, |d| {
-        slept += d;
-        clock.set(clock.get() + d);
-    });
+    resolve::guard_rollback_waits(
+        &mut carrier,
+        || None,
+        |d| {
+            slept += d;
+            clock.set(clock.get() + d);
+        },
+    );
     assert!(slept >= carrier::CARRIER_MAX_HOLD, "it rolled back after {slept:?}");
     assert!(slept < carrier::CARRIER_MAX_HOLD + Duration::from_secs(120), "{slept:?}");
 
     let mut idle = || None;
     let mut slept = Duration::ZERO;
-    role::guard_rollback_waits(&mut idle, |d| slept += d);
+    resolve::guard_rollback_waits(&mut idle, || None, |d| slept += d);
     assert_eq!(slept, Duration::ZERO, "no session, no wait");
 }
 
@@ -986,7 +1046,7 @@ fn failed_reads_then_an_attached_session_start_the_connect_hold() {
     let dir = tempfile::tempdir().unwrap();
     let held = gate::Gate::new(&Paths::new(dir.path()));
     let start = || {
-        held.hold(T0_MS, role::CONNECT_HOLD, gate::HoldKind::Connect);
+        held.hold(T0_MS, role::CONNECT_HOLD, gate::HoldKind::Connect).unwrap();
     };
     let t0 = Instant::now();
     let mut hold = CarrierHold::default();
@@ -995,12 +1055,13 @@ fn failed_reads_then_an_attached_session_start_the_connect_hold() {
         let look = hold.look(at, Err("its admin channel answered exit status: 1".to_owned()));
         role::act_on_look(look, start);
     }
-    assert_eq!(held.held_left(T0_MS), None, "failed reads start no connect hold");
+    assert_eq!(held.held_left(T0_MS).unwrap(), None, "failed reads start no connect hold");
 
     let at = t0 + CARRIER_MAX_HOLD + Duration::from_secs(120);
     let look = hold.look(at, Ok(vec!["mac/s1#1".to_owned()]));
     role::act_on_look(look, start);
-    let left = held.held_left(T0_MS).expect("the first readable session starts the connect hold");
+    let left =
+        held.held_left(T0_MS).unwrap().expect("the first readable session starts the connect hold");
     assert_eq!(left, role::CONNECT_HOLD);
 }
 
@@ -1025,17 +1086,22 @@ fn a_cli_check_sees_the_service_connect_hold_and_does_not_flip() {
 
     let (_dir, service, cli) = gate_handles();
     assert!(
-        service.hold(T0_MS, gate::CONNECT_HOLD, gate::HoldKind::Connect),
+        service.hold(T0_MS, gate::CONNECT_HOLD, gate::HoldKind::Connect).unwrap(),
         "a bind with no restart pending goes"
     );
     let mut ran = false;
     let held = cli.run(T0_MS + 60_000, gate::Honor::All, |_| ran = true);
-    assert!(held.is_err_and(|left| left == gate::CONNECT_HOLD - Duration::from_secs(60)));
+    assert!(
+        matches!(held, Err(gate::Refused::Held(left)) if left == gate::CONNECT_HOLD - Duration::from_secs(60))
+    );
     assert!(!ran, "the CLI flipped during the service's connect hold");
-    assert_eq!(cli.held_left(T0_MS + 60_000), Some(gate::CONNECT_HOLD - Duration::from_secs(60)));
+    assert_eq!(
+        cli.held_left(T0_MS + 60_000).unwrap(),
+        Some(gate::CONNECT_HOLD - Duration::from_secs(60))
+    );
 
     let after = T0_MS + gate::CONNECT_HOLD.as_millis() as u64;
-    assert_eq!(cli.held_left(after), None);
+    assert_eq!(cli.held_left(after).unwrap(), None);
     assert!(cli.run(after, gate::Honor::All, |_| ran = true).is_ok());
     assert!(ran, "past the hold the CLI flips");
 }
@@ -1047,17 +1113,17 @@ fn a_cli_queued_restart_refuses_binds_until_the_service_restarts() {
     let (_dir, service, cli) = gate_handles();
     assert!(cli.run(T0_MS, gate::Honor::All, |inside| inside.restart_queued(T0_MS)).is_ok());
     assert!(
-        !service.hold(T0_MS + 1_000, gate::CONNECT_HOLD, gate::HoldKind::Connect),
+        !service.hold(T0_MS + 1_000, gate::CONNECT_HOLD, gate::HoldKind::Connect).unwrap(),
         "a bind went out with a restart pending"
     );
     assert!(
-        !service.hold(T0_MS + 30_000, gate::CONNECT_HOLD, gate::HoldKind::Connect),
+        !service.hold(T0_MS + 30_000, gate::CONNECT_HOLD, gate::HoldKind::Connect).unwrap(),
         "still pending 30 s on"
     );
     // The restarted cmux-host clears the mark before it accepts binds.
     service.service_started();
     assert!(
-        service.hold(T0_MS + 31_000, gate::CONNECT_HOLD, gate::HoldKind::Connect),
+        service.hold(T0_MS + 31_000, gate::CONNECT_HOLD, gate::HoldKind::Connect).unwrap(),
         "the restarted service binds"
     );
 }
@@ -1073,9 +1139,9 @@ fn a_pending_restart_mark_expires_after_its_bound() {
         "a rollback runs under no hold too"
     );
     let bound = gate::RESTART_PENDING_FOR.as_millis() as u64;
-    assert!(!service.hold(T0_MS + bound - 1, gate::CONNECT_HOLD, gate::HoldKind::Connect));
+    assert!(!service.hold(T0_MS + bound - 1, gate::CONNECT_HOLD, gate::HoldKind::Connect).unwrap());
     assert!(
-        service.hold(T0_MS + bound, gate::CONNECT_HOLD, gate::HoldKind::Connect),
+        service.hold(T0_MS + bound, gate::CONNECT_HOLD, gate::HoldKind::Connect).unwrap(),
         "the mark outlived its bound"
     );
 }
@@ -1102,11 +1168,9 @@ fn a_bind_waits_for_another_process_gate_and_sees_its_restart() {
             })
         });
         window.recv().unwrap();
-        let may_bind = gate::Gate::new(&Paths::new(dir.path())).hold(
-            T0_MS + 100,
-            gate::CONNECT_HOLD,
-            gate::HoldKind::Connect,
-        );
+        let may_bind = gate::Gate::new(&Paths::new(dir.path()))
+            .hold(T0_MS + 100, gate::CONNECT_HOLD, gate::HoldKind::Connect)
+            .unwrap();
         let bind_done = Instant::now();
         let queued_at = cli.join().unwrap().unwrap();
         assert!(bind_done >= queued_at, "the bind did not wait for the gate");
@@ -1146,6 +1210,139 @@ fn a_malformed_connection_list_fails_closed() {
     assert_eq!(carrier::attached_sessions_in(&fine), Some(vec!["d/s#1".to_owned()]));
 }
 
+/// Review F2 of #38483: a gate state that can't be read (here, unparsable)
+/// fails closed. No update flips on it, a bind that would go out is refused,
+/// and the gate replaces it with a held, restart-pending state that lapses
+/// on its own, so a machine never wedges on a bad file.
+#[test]
+fn an_unreadable_gate_state_fails_closed_then_recovers() {
+    let (dir, service, cli) = gate_handles();
+    let paths = Paths::new(dir.path());
+    std::fs::create_dir_all(paths.at(gate::GATE_FILE).parent().unwrap()).unwrap();
+    std::fs::write(paths.at(gate::GATE_FILE), b"{not json").unwrap();
+    let mut flipped = false;
+    assert!(cli.run(T0_MS, gate::Honor::All, |_| flipped = true).is_err());
+    assert!(!flipped, "an update flipped on an unreadable gate state");
+    assert!(
+        !service.hold(T0_MS, gate::CONNECT_HOLD, gate::HoldKind::Connect).unwrap(),
+        "a bind went out on an unreadable gate state"
+    );
+    let later = T0_MS + gate::CONNECT_HOLD.as_millis() as u64 + 1;
+    assert!(
+        service.hold(later, gate::CONNECT_HOLD, gate::HoldKind::Connect).unwrap(),
+        "the gate never recovered"
+    );
+    let mut ran = false;
+    let after_hold = later + gate::CONNECT_HOLD.as_millis() as u64 + 1;
+    assert!(cli.run(after_hold, gate::Honor::All, |_| ran = true).is_ok());
+    assert!(ran);
+}
+
+/// Review F1 of #38483: a rollback refused by a bind in flight looks at
+/// carrier sessions again (the bound machine's first link may be one) and
+/// retries; it rolls back once the bind is done and no session holds it.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_rollback_refused_by_a_bind_in_flight_looks_again_and_retries() {
+    use std::time::Duration;
+
+    let mut looks = vec![None, Some("1 carrier session(s) attached".to_owned()), None];
+    let mut carrier = || looks.pop().flatten();
+    let mut tries = vec![None, Some(Duration::from_secs(5))];
+    let mut waited = Vec::new();
+    assert!(resolve::rollback_when_clear(
+        &mut carrier,
+        || tries.pop().flatten(),
+        |d| {
+            waited.push(d);
+            true
+        }
+    ));
+    assert!(tries.is_empty(), "it did not retry after the bind");
+    assert!(looks.is_empty(), "it did not look at carrier sessions again");
+    assert_eq!(waited, [Duration::from_secs(5), role::BUSY_RETRY]);
+}
+
+/// Review F1 of #38483: a rollback the gate refused for a bind in flight
+/// marks the restart pending, so no new bind starts and the wait is bounded
+/// by the one in flight.
+#[test]
+fn a_rollback_refused_by_a_bind_in_flight_stops_new_binds() {
+    let (_dir, service, cli) = gate_handles();
+    assert!(service.begin_bind(T0_MS).unwrap());
+    let mut ran = false;
+    let refused = cli.run(T0_MS + 1_000, gate::Honor::Nothing, |_| ran = true);
+    assert!(matches!(refused, Err(gate::Refused::BindInFlight(_))), "{refused:?}");
+    assert!(!ran);
+    assert!(!service.begin_bind(T0_MS + 2_000).unwrap(), "a new bind started under the rollback");
+    service.end_bind(T0_MS + 3_000).unwrap();
+    assert!(cli.run(T0_MS + 4_000, gate::Honor::Nothing, |_| ran = true).is_ok());
+    assert!(ran, "the rollback did not go once the bind was done");
+    // A bind whose process died before clearing its mark holds for the bound only.
+    let (_dir, service, cli) = gate_handles();
+    assert!(service.begin_bind(T0_MS).unwrap());
+    let lapsed = T0_MS + gate::BIND_IN_FLIGHT_FOR.as_millis() as u64;
+    assert!(
+        cli.run(lapsed, gate::Honor::Nothing, |_| ()).is_ok(),
+        "a dead bind's mark outlived its bound"
+    );
+}
+
+/// Review of #38731: repairing an unparsable gate state keeps the bind
+/// barrier. The bind that was in flight when the file broke may still be,
+/// so a rollback waits for a fresh in-flight bound before it flips.
+#[test]
+fn a_repaired_gate_state_keeps_a_bind_in_flight() {
+    let (dir, _service, cli) = gate_handles();
+    let paths = Paths::new(dir.path());
+    std::fs::create_dir_all(paths.at(gate::GATE_FILE).parent().unwrap()).unwrap();
+    std::fs::write(paths.at(gate::GATE_FILE), b"{not json").unwrap();
+    let mut ran = false;
+    let refused = cli.run(T0_MS, gate::Honor::Nothing, |_| ran = true);
+    assert!(matches!(refused, Err(gate::Refused::BindInFlight(_))), "{refused:?}");
+    assert!(!ran, "a rollback flipped over a repaired gate state");
+    let lapsed = T0_MS + gate::BIND_IN_FLIGHT_FOR.as_millis() as u64;
+    assert!(cli.run(lapsed, gate::Honor::Nothing, |_| ran = true).is_ok());
+    assert!(ran, "the repaired barrier outlived its bound");
+}
+
+/// The tests that drive the forward update's carrier hold (a global) take
+/// this, so they never see each other's sessions.
+#[cfg(target_os = "linux")]
+static SHARED_CARRIER_HOLD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Review of #38483 (P2): a rollback's wait has its own carrier hold, started
+/// when the wait begins. Past the forward update's 30-minute bound, a
+/// session that just reconnected still holds the rollback, for the
+/// rollback's own bound.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_rollback_wait_after_the_forward_hold_expired_still_holds_a_new_session() {
+    use std::time::{Duration, Instant};
+
+    let _shared = SHARED_CARRIER_HOLD.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let t0 = Instant::now();
+    let past_bound = t0 + carrier::CARRIER_MAX_HOLD + Duration::from_secs(60);
+    // The forward update held for a stuck session until its bound passed.
+    assert!(role::carrier_busy_at(&paths, t0, Ok(vec!["d1/a#1".to_owned()])).is_some());
+    assert_eq!(role::carrier_busy_at(&paths, past_bound, Ok(vec!["d1/a#1".to_owned()])), None);
+
+    // The rollback's wait begins; the session just reconnected.
+    let mut rollback = role::RollbackCarrier::default();
+    let reconnected = || Ok(vec!["d1/a#2".to_owned()]);
+    assert!(
+        rollback.look(&paths, past_bound, reconnected()).is_some(),
+        "the rollback restarted under a session that just reconnected"
+    );
+    let later = past_bound + carrier::CARRIER_MAX_HOLD - Duration::from_secs(60);
+    assert!(rollback.look(&paths, later, reconnected()).is_some(), "held under its own bound");
+    let after = past_bound + carrier::CARRIER_MAX_HOLD + Duration::from_secs(1);
+    assert_eq!(rollback.look(&paths, after, reconnected()), None, "its own bound passed");
+    assert_eq!(rollback.look(&paths, after, Err("unreadable".to_owned())), None);
+}
+
 /// The flip a held check must never make.
 #[cfg(target_os = "linux")]
 fn no_flip(_: &gate::Inside) -> Result<(), ()> {
@@ -1161,7 +1358,7 @@ fn a_resume_hold_alone_flips_with_the_flag() {
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths::new(dir.path());
     let gate = gate::Gate::new(&paths);
-    gate.hold(T0_MS, gate::CONNECT_HOLD, gate::HoldKind::Resume);
+    gate.hold(T0_MS, gate::CONNECT_HOLD, gate::HoldKind::Resume).unwrap();
     let mut flipped = false;
     let (gated, skipped) = role::flip_in_gate(
         &paths,
@@ -1203,7 +1400,7 @@ fn a_resume_hold_alone_flips_with_the_flag() {
 fn a_resume_hold_without_the_flag_is_busy() {
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths::new(dir.path());
-    gate::Gate::new(&paths).hold(T0_MS, gate::CONNECT_HOLD, gate::HoldKind::Resume);
+    gate::Gate::new(&paths).hold(T0_MS, gate::CONNECT_HOLD, gate::HoldKind::Resume).unwrap();
     let (gated, skipped) = role::flip_in_gate(
         &paths,
         || T0_MS + 1_000,
@@ -1241,8 +1438,11 @@ fn a_resume_hold_without_the_flag_is_busy() {
 fn a_bind_or_carrier_connect_hold_with_the_flag_is_busy() {
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths::new(dir.path());
-    gate::Gate::new(&paths).hold(T0_MS, gate::CONNECT_HOLD, gate::HoldKind::Resume);
-    assert!(gate::hold_connects(&paths, T0_MS + 60_000, gate::HoldKind::Connect), "the bind goes");
+    gate::Gate::new(&paths).hold(T0_MS, gate::CONNECT_HOLD, gate::HoldKind::Resume).unwrap();
+    assert!(
+        gate::hold_connects(&paths, T0_MS + 60_000, gate::HoldKind::Connect).unwrap(),
+        "the bind goes"
+    );
     let end = T0_MS + 60_000 + gate::CONNECT_HOLD.as_millis() as u64;
     let (gated, skipped) = role::flip_in_gate(
         &paths,
@@ -1262,7 +1462,7 @@ fn a_bind_or_carrier_connect_hold_with_the_flag_is_busy() {
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths::new(dir.path());
     let now = role::wall_ms();
-    gate::Gate::new(&paths).hold(now, gate::CONNECT_HOLD, gate::HoldKind::Resume);
+    gate::Gate::new(&paths).hold(now, gate::CONNECT_HOLD, gate::HoldKind::Resume).unwrap();
     let id = format!("claimer/{}#1", T0_MS + 7);
     assert!(role::carrier_busy_from(&paths, Ok(vec![id])).is_some());
     let (gated, _) = role::flip_in_gate(
@@ -1280,8 +1480,8 @@ fn a_bind_or_carrier_connect_hold_with_the_flag_is_busy() {
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths::new(dir.path());
     let gate = gate::Gate::new(&paths);
-    gate.hold(T0_MS, gate::CONNECT_HOLD, gate::HoldKind::Connect);
-    gate.hold(T0_MS + 120_000, gate::CONNECT_HOLD, gate::HoldKind::Resume);
+    gate.hold(T0_MS, gate::CONNECT_HOLD, gate::HoldKind::Connect).unwrap();
+    gate.hold(T0_MS + 120_000, gate::CONNECT_HOLD, gate::HoldKind::Resume).unwrap();
     let connect_end = T0_MS + gate::CONNECT_HOLD.as_millis() as u64;
     assert!(gate.run(connect_end - 1, gate::Honor::AllButResume, |_| ()).is_err());
     assert_eq!(
@@ -1299,7 +1499,7 @@ fn an_attached_carrier_session_with_the_flag_is_busy() {
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths::new(dir.path());
     let now = role::wall_ms();
-    gate::Gate::new(&paths).hold(now, gate::CONNECT_HOLD, gate::HoldKind::Resume);
+    gate::Gate::new(&paths).hold(now, gate::CONNECT_HOLD, gate::HoldKind::Resume).unwrap();
     let id = format!("mac/{}#1", T0_MS + 11);
     // Seen by an earlier look (its connect hold went to another root), so
     // this look finds it attached, not new.
@@ -1332,7 +1532,7 @@ fn a_carrier_session_attaching_before_the_flip_is_seen_inside_the_gate() {
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths::new(dir.path());
     let now = role::wall_ms();
-    gate::Gate::new(&paths).hold(now, gate::CONNECT_HOLD, gate::HoldKind::Resume);
+    gate::Gate::new(&paths).hold(now, gate::CONNECT_HOLD, gate::HoldKind::Resume).unwrap();
     let lock_path = paths.at(gate::GATE_LOCK);
     let id = format!("claimer/{}#1", T0_MS + 13);
     let (gated, _) = role::flip_in_gate(
@@ -1362,7 +1562,7 @@ fn a_carrier_session_attaching_before_the_flip_is_seen_inside_the_gate() {
 fn the_off_file_with_the_flag_stops_the_flip() {
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths::new(dir.path());
-    gate::Gate::new(&paths).hold(T0_MS, gate::CONNECT_HOLD, gate::HoldKind::Resume);
+    gate::Gate::new(&paths).hold(T0_MS, gate::CONNECT_HOLD, gate::HoldKind::Resume).unwrap();
     let off = paths.at(OFF_FILE);
     fs::create_dir_all(off.parent().unwrap()).unwrap();
     fs::write(&off, "").unwrap();
@@ -1459,7 +1659,7 @@ fn an_old_gate_file_is_a_full_hold() {
     fs::write(&file, json!({"held_until_ms": until}).to_string()).unwrap();
     let gate = gate::Gate::new(&paths);
     assert!(gate.run(T0_MS, gate::Honor::AllButResume, |_| ()).is_err());
-    gate.hold(T0_MS + 30_000, gate::CONNECT_HOLD, gate::HoldKind::Resume);
+    gate.hold(T0_MS + 30_000, gate::CONNECT_HOLD, gate::HoldKind::Resume).unwrap();
     assert!(gate.run(until - 1, gate::Honor::AllButResume, |_| ()).is_err(), "the old hold shrank");
     assert_eq!(
         gate.run(until, gate::Honor::AllButResume, |inside| inside.skipped()),
@@ -1491,7 +1691,7 @@ fn a_pause_published_during_the_read_still_holds() {
         role::hold_if_paused(&paths, &watch, &handled, at(181)),
         "a pause published during the read was missed"
     );
-    assert_eq!(gate::Gate::new(&paths).held_left(at(181).1), Some(role::CONNECT_HOLD));
+    assert_eq!(gate::Gate::new(&paths).held_left(at(181).1).unwrap(), Some(role::CONNECT_HOLD));
 }
 
 /// A spare paused 40 minutes in its pool (its watch's last look at `B0`),
@@ -1507,7 +1707,7 @@ fn resumed_spare() -> (tempfile::TempDir, Paths, crate::agent::PauseWatch) {
     let service = crate::agent::PauseWatch::new();
     service.persist_to(file);
     service.looked(B0, false);
-    gate::Gate::new(&paths).hold(at(2400).1, gate::CONNECT_HOLD, gate::HoldKind::Resume);
+    gate::Gate::new(&paths).hold(at(2400).1, gate::CONNECT_HOLD, gate::HoldKind::Resume).unwrap();
     (dir, paths, service)
 }
 
@@ -1731,7 +1931,11 @@ fn a_carrier_read_that_times_out_inside_the_gate_is_busy() {
             no_flip,
         );
         assert!(matches!(gated, role::Gated::Busy(_)), "{honor:?}: {gated:?}");
-        assert_eq!(gate::Gate::new(&paths).held_left(T0_MS), None, "a timeout is no new session");
+        assert_eq!(
+            gate::Gate::new(&paths).held_left(T0_MS).unwrap(),
+            None,
+            "a timeout is no new session"
+        );
     }
 }
 
@@ -1996,4 +2200,655 @@ fn a_304_to_an_unconditional_read_is_refused() {
     let cache = std::sync::Mutex::new(channel::Cache::new());
     let err = role::read_channel_from(&cache, &origin.url, "=http", &keys(), 5_000).unwrap_err();
     assert!(err.contains("no verified file is kept"), "{err}");
+}
+
+/// `realtime - boottime` at the own-flip tests' flip.
+#[cfg(target_os = "linux")]
+const FLIP_OFFSET_NS: i128 = 1_794_000_000 * SECOND_NS - 86_400 * SECOND_NS;
+
+/// An update's flip at `at_ms` (its last step inside the gate, with no
+/// carrier session), the service's restart `restart_after_ms` later and the
+/// restarted updater's start hold: true when the start took no hold.
+#[cfg(target_os = "linux")]
+fn own_flip_then_restart(paths: &Paths, at_ms: u64, restart_after_ms: u64) -> bool {
+    let (gated, _) = role::flip_in_gate(
+        paths,
+        || at_ms,
+        gate::Honor::All,
+        || Ok(Vec::new()),
+        || false,
+        |inside| {
+            inside.flip_restart_queued(at_ms, FLIP_OFFSET_NS);
+            Ok::<(), ()>(())
+        },
+    );
+    assert!(matches!(gated, role::Gated::Flipped), "{gated:?}");
+    let gate = gate::Gate::new(paths);
+    gate.service_started();
+    role::start_hold(paths, at_ms + restart_after_ms, FLIP_OFFSET_NS + SECOND_NS / 10)
+}
+
+/// Builds merging less than 5 min apart: the machine that took the first
+/// restarts into it and, with no carrier session or bind since, keeps looking
+/// at the channel during what was the connect hold. A build the channel
+/// shows at any time in those 5 minutes flips at the worker's next look, one
+/// poll interval later, not after the hold.
+#[cfg(target_os = "linux")]
+#[test]
+fn an_own_flip_restart_with_no_session_picks_up_a_build_within_one_poll_interval() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let restart = T0_MS + 4_000;
+    assert!(own_flip_then_restart(&paths, T0_MS, 4_000), "the own flip's restart took a hold");
+    let gate = gate::Gate::new(&paths);
+    let poll = role::next_look(&role::Outcome::Current(COMMIT.to_owned()), u64::MAX);
+    assert!(poll <= std::time::Duration::from_secs(20), "{poll:?}");
+    let poll_ms = poll.as_millis() as u64;
+    let hold_ms = gate::CONNECT_HOLD.as_millis() as u64;
+    for published in [restart, restart + 30_000, restart + 120_000, restart + hold_ms - poll_ms] {
+        // The worker's loop waits out `held_for` before it looks: nothing here.
+        let look = published + poll_ms;
+        assert_eq!(
+            gate.held_left(published).unwrap(),
+            None,
+            "a hold at {} s",
+            (published - restart) / 1000
+        );
+        let mut flipped = false;
+        let (gated, _) = role::flip_in_gate(
+            &paths,
+            || look,
+            gate::Honor::All,
+            || Ok(Vec::new()),
+            || false,
+            |_| {
+                flipped = true;
+                Ok::<(), ()>(())
+            },
+        );
+        assert!(
+            matches!(gated, role::Gated::Flipped) && flipped,
+            "a build published {} s after the restart did not flip at the next look: {gated:?}",
+            (published - restart) / 1000
+        );
+    }
+}
+
+/// The own flip's restart skips the start hold only until a person's link
+/// shows up: a bind (also one queued while the restart was pending) or a new
+/// carrier session takes the full connect hold, and no flip goes inside it.
+#[cfg(target_os = "linux")]
+#[test]
+fn an_own_flip_restart_with_a_connect_inside_the_hold_does_not_swap() {
+    let hold_ms = gate::CONNECT_HOLD.as_millis() as u64;
+
+    // A bind 60 s after the restart (`hold_then_bind`).
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    assert!(own_flip_then_restart(&paths, T0_MS, 4_000), "the own flip's restart took a hold");
+    let gate = gate::Gate::new(&paths);
+    assert!(gate.run(T0_MS + 10_000, gate::Honor::All, |_| ()).is_ok(), "no connect yet: it flips");
+    let bind = T0_MS + 64_000;
+    assert!(gate::hold_connects(&paths, bind, gate::HoldKind::Connect).unwrap(), "the bind goes");
+    for look in [bind + 15_000, T0_MS + 4_000 + hold_ms, bind + hold_ms - 1] {
+        let (gated, _) = role::flip_in_gate(
+            &paths,
+            || look,
+            gate::Honor::All,
+            || Ok(Vec::new()),
+            || false,
+            no_flip,
+        );
+        assert!(matches!(gated, role::Gated::Held(_)), "{gated:?}");
+    }
+    assert_eq!(
+        gate.held_left(bind).unwrap(),
+        Some(gate::CONNECT_HOLD),
+        "the bind's hold is a full one"
+    );
+
+    // A bind that came while the flip's restart was pending (it waits for the
+    // restarted service, but its hold is on before the restart).
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let gate = gate::Gate::new(&paths);
+    let (gated, _) = role::flip_in_gate(
+        &paths,
+        || T0_MS,
+        gate::Honor::All,
+        || Ok(Vec::new()),
+        || false,
+        |inside| {
+            inside.flip_restart_queued(T0_MS, FLIP_OFFSET_NS);
+            Ok::<(), ()>(())
+        },
+    );
+    assert!(matches!(gated, role::Gated::Flipped), "{gated:?}");
+    assert!(!gate::hold_connects(&paths, T0_MS + 1_000, gate::HoldKind::Connect).unwrap());
+    gate.service_started();
+    role::start_hold(&paths, T0_MS + 4_000, FLIP_OFFSET_NS);
+    assert!(gate.run(T0_MS + 20_000, gate::Honor::All, |_| ()).is_err(), "it flipped");
+
+    // A carrier session that attaches after the restart: the flip's look
+    // inside the gate finds it, takes the full hold and never flips; nor
+    // does a look after it detached.
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let now = role::wall_ms();
+    let gate = gate::Gate::new(&paths);
+    assert!(own_flip_then_restart(&paths, now, 4_000), "the own flip's restart took a hold");
+    let id = format!("own-flip/{}#1", T0_MS + 11);
+    let (gated, _) = role::flip_in_gate(
+        &paths,
+        || now + 30_000,
+        gate::Honor::All,
+        || Ok(vec![id.clone()]),
+        || false,
+        no_flip,
+    );
+    assert!(matches!(gated, role::Gated::Busy(_)), "{gated:?}");
+    assert_eq!(gate.held_left(now + 30_000).unwrap(), Some(gate::CONNECT_HOLD), "a full hold");
+    let (gated, _) = role::flip_in_gate(
+        &paths,
+        || now + 45_000,
+        gate::Honor::All,
+        || Ok(Vec::new()),
+        || false,
+        no_flip,
+    );
+    assert!(matches!(gated, role::Gated::Held(_)), "{gated:?}");
+}
+
+/// A start that is not the own flip's restart takes the 5 min hold: a cold
+/// boot, a start whose mark is older than the restart's bound, from the
+/// future, from before a reboot or a snapshot restore, or already taken by
+/// an earlier start, and the restart a rollback queued. The own flip's
+/// restart, from the same marks, takes none.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_cold_start_keeps_the_five_minute_hold() {
+    let flip_dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(flip_dir.path());
+    assert!(own_flip_then_restart(&paths, T0_MS, 4_000), "the own flip's restart took a hold");
+    assert_eq!(gate::Gate::new(&paths).held_left(T0_MS + 4_000).unwrap(), None);
+    // The next start takes it no more: the mark is gone.
+    assert!(!role::start_hold(&paths, T0_MS + 9_000, FLIP_OFFSET_NS));
+    assert_eq!(gate::Gate::new(&paths).held_left(T0_MS + 9_000).unwrap(), Some(gate::CONNECT_HOLD));
+
+    let cold = |mark: Option<(u64, i128)>, start_ms: u64, offset_ns: i128, what: &str| {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::new(dir.path());
+        let gate = gate::Gate::new(&paths);
+        if let Some((at_ms, at_offset)) = mark {
+            assert!(
+                gate.run(at_ms, gate::Honor::All, |i| i.flip_restart_queued(at_ms, at_offset))
+                    .is_ok()
+            );
+            gate.service_started();
+        }
+        assert!(!role::start_hold(&paths, start_ms, offset_ns), "{what}: no start hold");
+        assert_eq!(gate.held_left(start_ms).unwrap(), Some(gate::CONNECT_HOLD), "{what}");
+        let (gated, _) = role::flip_in_gate(
+            &paths,
+            || start_ms + 299_000,
+            gate::Honor::All,
+            || Ok(Vec::new()),
+            || false,
+            no_flip,
+        );
+        assert!(matches!(gated, role::Gated::Held(_)), "{what}: {gated:?}");
+    };
+    let pending_ms = gate::RESTART_PENDING_FOR.as_millis() as u64;
+    cold(None, T0_MS, FLIP_OFFSET_NS, "a cold boot");
+    cold(
+        Some((T0_MS, FLIP_OFFSET_NS)),
+        T0_MS + pending_ms + 1,
+        FLIP_OFFSET_NS,
+        "a mark past the restart's bound",
+    );
+    cold(Some((T0_MS + 60_000, FLIP_OFFSET_NS)), T0_MS, FLIP_OFFSET_NS, "a mark from the future");
+    cold(
+        Some((T0_MS, FLIP_OFFSET_NS)),
+        T0_MS + 30_000,
+        FLIP_OFFSET_NS + 3_600 * SECOND_NS,
+        "a reboot since the mark",
+    );
+    cold(
+        Some((T0_MS, FLIP_OFFSET_NS)),
+        T0_MS + 30_000,
+        FLIP_OFFSET_NS + 5 * SECOND_NS,
+        "a snapshot restore since the mark",
+    );
+
+    // A rollback's restart leaves no mark.
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let gate = gate::Gate::new(&paths);
+    assert!(gate.run(T0_MS, gate::Honor::Nothing, |i| i.restart_queued(T0_MS)).is_ok());
+    gate.service_started();
+    assert!(!role::start_hold(&paths, T0_MS + 4_000, FLIP_OFFSET_NS), "a rollback's restart");
+    assert_eq!(gate.held_left(T0_MS + 4_000).unwrap(), Some(gate::CONNECT_HOLD));
+}
+
+/// The step's effects, by hand: the channel it reads, the files it downloads, and
+/// what it armed and restarted.
+#[cfg(target_os = "linux")]
+struct FirstIo {
+    read: Box<dyn FnMut() -> Result<Payload, String>>,
+    files: Vec<(String, Vec<u8>)>,
+    reads: usize,
+    armed: Vec<u64>,
+    restarted: Vec<std::path::PathBuf>,
+}
+
+#[cfg(target_os = "linux")]
+impl FirstIo {
+    fn serving(payload: Payload, files: Vec<(String, Vec<u8>)>) -> FirstIo {
+        FirstIo {
+            read: Box::new(move || Ok(payload.clone())),
+            files,
+            reads: 0,
+            armed: Vec::new(),
+            restarted: Vec::new(),
+        }
+    }
+}
+
+/// The channel build's two files, as [`FirstIo`] serves them.
+#[cfg(target_os = "linux")]
+fn first_files(tui: &str, hook: &str) -> Vec<(String, Vec<u8>)> {
+    vec![(tui.to_owned(), b"new".to_vec()), (hook.to_owned(), b"hok".to_vec())]
+}
+
+#[cfg(target_os = "linux")]
+impl first_ready::Io for FirstIo {
+    fn read_channel(&mut self) -> Result<Payload, String> {
+        self.reads += 1;
+        (self.read)()
+    }
+    fn download(&mut self, bin: &Binary, to: &Path) -> Result<(), String> {
+        let (_, bytes) =
+            self.files.iter().find(|(sha, _)| *sha == bin.sha256).ok_or("no such file")?;
+        fs::write(to, bytes).map_err(|e| e.to_string())
+    }
+    fn arm_guard(&mut self, pending: &Pending) -> Result<(), String> {
+        self.armed.push(pending.to);
+        Ok(())
+    }
+    fn disarm_guard(&mut self) {}
+    fn restart_others(&mut self, old: &Path) {
+        self.restarted.push(old.to_owned());
+    }
+}
+
+/// A machine an image made, the image's build a roll behind the channel
+/// (2026-11-13: 7d3458da, 96db467d and 04824385 first reported, each swapped
+/// about 5 min later): the step before its first ready flips `current` to the
+/// channel's build, so the unit's command (`<current>/bin/cmux host run`), which
+/// the process execs before any role starts, is the channel's build. That is the
+/// build that binds and sends the first report (ready), and the session host its
+/// work link starts.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_machine_made_on_an_old_image_reports_ready_already_on_the_channel_build() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = image(dir.path());
+    // The image's store has neither binary of the channel's build: both download.
+    let (new_tui, new_hook) = (sha(b"new"), sha(b"hok"));
+    let payload: Payload = serde_json::from_value(payload_json(&new_tui, &new_hook)).unwrap();
+    let mut io = FirstIo::serving(payload, first_files(&new_tui, &new_hook));
+    let deadline = std::time::Instant::now() + first_ready::BOUND;
+    let first = first_ready::before_ready(&paths, TARGET, deadline, &mut io);
+    assert_eq!(first, first_ready::First::Flipped(COMMIT.to_owned()));
+    let current = store::current_generation(&paths).unwrap();
+    assert_eq!(current, 2);
+    // The unit's command, the session host's link and acpmux: the channel's build.
+    for name in ["cmux", "cmux-tui", "acpmux"] {
+        assert_eq!(store::linked_package(&paths, current, name).unwrap(), new_tui, "{name}");
+    }
+    assert_eq!(store::linked_package(&paths, current, "cmux-tui-hook").unwrap(), new_hook);
+    // The exec'd process proves it or rolls it back, as after any flip.
+    let pending = load_pending(&paths).expect("the update is pending its health check");
+    assert_eq!((pending.from, pending.to, pending.cmux_tui.as_str()), (1, 2, new_tui.as_str()));
+    assert_eq!(io.armed, vec![2]);
+    assert_eq!(io.restarted, vec![role::store_binary(OLD_TUI)]);
+    assert!(load_state(&paths).last.unwrap().starts_with("before the first ready: updating"));
+    let report = look::report(&paths).unwrap();
+    let timing = &report["first_ready"];
+    assert_eq!(timing["image_behind"], true);
+    assert_eq!(timing["from_version"], OLD_TUI);
+    assert_eq!(timing["to_version"], new_tui);
+    assert_eq!(timing["channel_commit"], COMMIT);
+    assert_eq!(timing["outcome"], "updated");
+    assert!(timing["update_ms"].as_u64().unwrap() > 0);
+    // The next process reloads the same durable observation before its first report.
+    let again = first_ready::before_ready(&paths, TARGET, deadline, &mut io);
+    assert!(matches!(again, first_ready::First::NotFirst(_)));
+    assert_eq!(&look::report(&paths).unwrap()["first_ready"], timing);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn first_ready_current_image_reports_no_update() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = image(dir.path());
+    let payload: Payload = serde_json::from_value(payload_json(OLD_TUI, OLD_HOOK)).unwrap();
+    let mut io = FirstIo::serving(payload, Vec::new());
+    let deadline = std::time::Instant::now() + first_ready::BOUND;
+    assert_eq!(
+        first_ready::before_ready(&paths, TARGET, deadline, &mut io),
+        first_ready::First::Current(COMMIT.to_owned())
+    );
+    let report = look::report(&paths).unwrap();
+    let timing = &report["first_ready"];
+    assert_eq!(timing["image_behind"], false);
+    assert_eq!(timing["from_version"], OLD_TUI);
+    assert_eq!(timing["to_version"], OLD_TUI);
+    assert_eq!(timing["update_ms"], 0);
+    assert_eq!(timing["outcome"], "current");
+    assert!(load_pending(&paths).is_none());
+    assert!(io.restarted.is_empty());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn first_ready_failed_channel_is_unknown_not_current() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = image(dir.path());
+    let payload: Payload = serde_json::from_value(payload_json(OLD_TUI, OLD_HOOK)).unwrap();
+    let mut io = FirstIo::serving(payload, Vec::new());
+    io.read = Box::new(|| Err("unavailable".to_owned()));
+    let first = first_ready::before_ready(&paths, TARGET, std::time::Instant::now(), &mut io);
+    assert!(matches!(first, first_ready::First::OnImage(_)));
+    let report = look::report(&paths).unwrap();
+    let timing = report.get("first_ready").unwrap();
+    assert_eq!(timing["image_behind"], serde_json::Value::Null);
+    assert_eq!(timing["update_ms"], serde_json::Value::Null);
+    assert_eq!(timing["to_version"], serde_json::Value::Null);
+    assert_eq!(timing["outcome"], "on_image");
+}
+
+/// Once the step flipped, nothing flips after the ready on this path: the exec'd
+/// process (an update pending) takes no second step and reads no channel, and the
+/// updater's first check after the commit finds its build current. A machine
+/// already bound to Cloud (it may have reported ready, a claim may hold it), or one
+/// whose session host runs, never takes the step: its updater keeps its holds.
+#[cfg(target_os = "linux")]
+#[test]
+fn no_flip_after_ready_on_the_first_ready_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = image(dir.path());
+    let (new_tui, new_hook) = (sha(b"new"), sha(b"hok"));
+    let payload: Payload = serde_json::from_value(payload_json(&new_tui, &new_hook)).unwrap();
+    let mut io = FirstIo::serving(payload.clone(), first_files(&new_tui, &new_hook));
+    let deadline = std::time::Instant::now() + first_ready::BOUND;
+    let flipped = first_ready::before_ready(&paths, TARGET, deadline, &mut io);
+    assert_eq!(flipped, first_ready::First::Flipped(COMMIT.to_owned()));
+    // The exec'd `cmux host run`: the update is pending, no second step.
+    let again = first_ready::before_ready(&paths, TARGET, deadline, &mut io);
+    assert!(matches!(again, first_ready::First::NotFirst(_)), "{again:?}");
+    assert_eq!(io.reads, 1, "the restarted process read the channel again");
+    // Its health check commits; the updater's checks after the ready find it current.
+    let pending = load_pending(&paths).unwrap();
+    clear_pending(&paths);
+    let state = State {
+        applied_commit: Some(pending.commit),
+        applied_committed_at: pending.committed_at,
+        ..load_state(&paths)
+    };
+    assert_eq!(decide(&paths, &state, &payload, TARGET).unwrap(), Decision::Current);
+
+    // A bound machine, and one with a session host from an earlier start: no step.
+    for file in [crate::cloud::wire::BOUND_FILE, crate::config::DAEMON_PID_FILE] {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = image(dir.path());
+        let marker = paths.at(file);
+        fs::create_dir_all(marker.parent().unwrap()).unwrap();
+        fs::write(&marker, "{}").unwrap();
+        let mut io = FirstIo::serving(payload.clone(), first_files(&new_tui, &new_hook));
+        let first = first_ready::before_ready(&paths, TARGET, deadline, &mut io);
+        assert!(matches!(first, first_ready::First::NotFirst(_)), "{file}: {first:?}");
+        assert_eq!((io.reads, store::current_generation(&paths).unwrap()), (0, 1), "{file}");
+    }
+}
+
+/// A channel that never answers (a real read through curl, to an origin that
+/// takes the connection and sends nothing): the step gives up at its bound and the
+/// machine reports ready on the image's build, with nothing pending, so the normal
+/// held updater takes the channel's build later.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_channel_read_failure_still_reports_ready_within_the_bound() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering::SeqCst};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url =
+        format!("http://{}/cmux-tui/channels/cloud-machine.json", listener.local_addr().unwrap());
+    let connections = Arc::new(AtomicUsize::new(0));
+    let seen = connections.clone();
+    std::thread::spawn(move || {
+        let mut held = Vec::new();
+        for stream in listener.incoming().flatten() {
+            seen.fetch_add(1, SeqCst);
+            held.push(stream);
+        }
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let paths = image(dir.path());
+    let cache = Arc::new(std::sync::Mutex::new(channel::Cache::new()));
+    let mut io = FirstIo::serving(
+        serde_json::from_value(payload_json(OLD_TUI, OLD_HOOK)).unwrap(),
+        Vec::new(),
+    );
+    io.read = Box::new(move || role::read_channel_from(&cache, &url, "=http", &keys(), 5_000));
+    let bound = std::time::Duration::from_secs(3);
+    let started = std::time::Instant::now();
+    let deadline = started + bound;
+    let first =
+        role::within(deadline, || first_ready::before_ready(&paths, TARGET, deadline, &mut io));
+    let took = started.elapsed();
+    eprintln!(
+        "an unanswered channel: {first:?} after {} ms (bound {} ms)",
+        took.as_millis(),
+        bound.as_millis()
+    );
+    assert!(matches!(first, first_ready::First::OnImage(_)), "{first:?}");
+    assert!(connections.load(SeqCst) >= 1, "the step never asked the channel");
+    assert!(took < bound + std::time::Duration::from_millis(1_500), "past the bound: {took:?}");
+    assert_eq!(store::current_generation(&paths).unwrap(), 1);
+    assert!(load_pending(&paths).is_none());
+}
+
+/// The added time to ready, from the production channel: the step's own cost on a
+/// machine whose image is behind (the channel read, both downloads, their sha256
+/// checks and the profile build and flip, into a temporary store), N times, and the
+/// read alone (what a machine already current adds). Run with
+/// `CMUX_FIRST_READY_RUNS=N cargo test -p cmux-host first_ready_cost -- --ignored --nocapture`.
+#[cfg(target_os = "linux")]
+#[test]
+#[ignore = "reads the production channel and downloads about 200 MB per run"]
+fn first_ready_cost_from_the_production_channel() {
+    struct Real;
+    impl first_ready::Io for Real {
+        fn read_channel(&mut self) -> Result<Payload, String> {
+            let cache = std::sync::Mutex::new(channel::Cache::new());
+            role::read_channel_from(
+                &cache,
+                channel::CHANNEL_URL,
+                "=https",
+                &channel::trusted_keys(),
+                role::now(),
+            )
+        }
+        fn download(&mut self, bin: &Binary, to: &Path) -> Result<(), String> {
+            role::fetch(&bin.url, bin.size, Some(to)).map(drop)
+        }
+        fn arm_guard(&mut self, _: &Pending) -> Result<(), String> {
+            Ok(())
+        }
+        fn disarm_guard(&mut self) {}
+        fn restart_others(&mut self, _: &Path) {}
+    }
+    let runs: usize =
+        std::env::var("CMUX_FIRST_READY_RUNS").ok().and_then(|n| n.parse().ok()).unwrap_or(10);
+    let target = channel::local_target().unwrap();
+    let pct = |v: &mut Vec<u128>, p: usize| {
+        v.sort_unstable();
+        v[(v.len() * p).div_ceil(100).saturating_sub(1)]
+    };
+    let (mut behind, mut current) = (Vec::new(), Vec::new());
+    for run in 0..runs {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = image(dir.path());
+        let started = std::time::Instant::now();
+        let deadline = started + first_ready::BOUND;
+        let first = role::within(deadline, || {
+            first_ready::before_ready(&paths, target, deadline, &mut Real)
+        });
+        let ms = started.elapsed().as_millis();
+        assert!(matches!(first, first_ready::First::Flipped(_)), "run {run}: {first:?}");
+        behind.push(ms);
+        // The same machine again, now current (its update committed): the read alone.
+        clear_pending(&paths);
+        let started = std::time::Instant::now();
+        let first = role::within(deadline, || {
+            first_ready::before_ready(&paths, target, deadline, &mut Real)
+        });
+        current.push(started.elapsed().as_millis());
+        assert!(matches!(first, first_ready::First::Current(_)), "run {run} again: {first:?}");
+        eprintln!("run {run}: behind {ms} ms, current {} ms", current.last().unwrap());
+    }
+    eprintln!(
+        "first-ready step, {runs} runs: image behind p50 {} ms p90 {} ms; image current p50 {} ms p90 {} ms",
+        pct(&mut behind, 50),
+        pct(&mut behind, 90),
+        pct(&mut current, 50),
+        pct(&mut current, 90),
+    );
+}
+
+/// Leo's item 1 ("no first-boot self-update"): "A spare whose services are restarting is not
+/// claimable." An update's flip, inside the gate, sends its `stopping` report before it
+/// restarts the services, and a report that fails or never answers still restarts them, within
+/// the report's bound (2026-11-15 04:23Z: a warm spare flipped at 04:23:23Z, was claimed 41 s
+/// later, and its chat never connected).
+#[cfg(target_os = "linux")]
+#[test]
+fn a_flip_reports_stopping_before_it_restarts_the_services() {
+    use std::cell::RefCell;
+    use std::time::{Duration, Instant};
+
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let steps = RefCell::new(Vec::new());
+    let (gated, _) = role::flip_in_gate(
+        &paths,
+        || T0_MS,
+        gate::Honor::All,
+        || Ok(Vec::new()),
+        || false,
+        |inside| {
+            steps.borrow_mut().push("flip");
+            inside.flip_restart_queued(T0_MS, FLIP_OFFSET_NS);
+            role::report_then_restart(
+                || {
+                    steps.borrow_mut().push("stopping");
+                    Ok(())
+                },
+                || steps.borrow_mut().push("restart"),
+            );
+            Ok::<(), ()>(())
+        },
+    );
+    assert!(matches!(gated, role::Gated::Flipped), "{gated:?}");
+    assert_eq!(*steps.borrow(), ["flip", "stopping", "restart"], "the stopping report goes first");
+
+    // A refused report is logged, and the services restart anyway.
+    let restarted = RefCell::new(false);
+    role::report_then_restart(|| Err("HTTP 503".to_owned()), || *restarted.borrow_mut() = true);
+    assert!(*restarted.borrow(), "a failed stopping report stopped the restart");
+
+    // A report that never answers holds the restart for its bound, no longer.
+    let (_hang, hung) = std::sync::mpsc::channel::<()>();
+    let started = Instant::now();
+    let restarted = RefCell::new(false);
+    role::report_then_restart(
+        || {
+            crate::cloud::role::within(Duration::from_millis(200), move || {
+                let _ = hung.recv();
+                Ok(())
+            })
+        },
+        || *restarted.borrow_mut() = true,
+    );
+    assert!(*restarted.borrow(), "a hung stopping report stopped the restart");
+    assert!(started.elapsed() < Duration::from_secs(2), "the restart waited past the bound");
+    assert_eq!(crate::cloud::role::STOPPING_REPORT_BOUND, Duration::from_secs(2));
+}
+
+/// The real [`role::restart_after_flip`] (the restart every flip, `adopt` and rollback run),
+/// driven inside the gate as the check's flip runs it: its stopping report goes out first, then
+/// the restarts of what runs the old binary. Its two effects are the test's record
+/// (`role::after_flip`), so a body that skips the report fails here.
+#[cfg(target_os = "linux")]
+#[test]
+fn restart_after_flip_sends_the_stopping_report_before_the_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths::new(dir.path());
+    let old = role::store_binary(OLD_TUI);
+    role::after_flip::CALLS.with(|c| c.borrow_mut().clear());
+    let (gated, _) = role::flip_in_gate(
+        &paths,
+        || T0_MS,
+        gate::Honor::All,
+        || Ok(Vec::new()),
+        || false,
+        |inside| {
+            inside.flip_restart_queued(T0_MS, FLIP_OFFSET_NS);
+            role::restart_after_flip(&paths, &old);
+            Ok::<(), ()>(())
+        },
+    );
+    assert!(matches!(gated, role::Gated::Flipped), "{gated:?}");
+    let calls = role::after_flip::CALLS.with(|c| c.borrow().clone());
+    assert_eq!(
+        calls,
+        [format!("stopping {}", paths.at("/").display()), format!("restart {}", old.display())],
+        "restart_after_flip must report stopping, then restart"
+    );
+}
+
+/// The app's own pinned build (`cmux host update install`): installed over another
+/// build, left alone when the profile already links it, never older than the last build
+/// applied here, never one rolled back here.
+#[test]
+fn a_pinned_build_installs_only_when_new_newer_and_never_rolled_back() {
+    let pinned =
+        Pinned { sha256: "a".repeat(64), size: 10, commit: "c".repeat(40), committed_at: 2_000 };
+    let state = State { applied_committed_at: 1_000, ..State::default() };
+    assert_eq!(pinned_decision(&"b".repeat(64), &state, &pinned), None, "another build: update");
+    assert_eq!(pinned_decision(&pinned.sha256, &state, &pinned), Some(Decision::Current));
+    let newer = State { applied_committed_at: 3_000, ..State::default() };
+    assert_eq!(pinned_decision(&"b".repeat(64), &newer, &pinned), Some(Decision::Older));
+    let rolled = State { rolled_back: vec![pinned.sha256.clone()], ..State::default() };
+    assert_eq!(pinned_decision(&"b".repeat(64), &rolled, &pinned), Some(Decision::RolledBack));
+}
+
+/// The plan for a pinned build changes only cmux-tui: the profile keeps its hook.
+#[test]
+fn a_pinned_build_replaces_only_cmux_tui() {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = image(dir.path());
+    let pinned =
+        Pinned { sha256: "a".repeat(64), size: 10, commit: "c".repeat(40), committed_at: 2_000 };
+    let Ok(Decision::Update(plan)) = decide_pinned(&paths, &State::default(), &pinned) else {
+        panic!("an update")
+    };
+    assert_eq!(plan.replacements(), vec![(OLD_TUI.to_owned(), pinned.sha256.clone())]);
+    assert_eq!(plan.cmux_tui_hook.sha256, OLD_HOOK);
+    assert_eq!((plan.from, plan.to), (1, 2));
+    let current = Pinned { sha256: OLD_TUI.to_owned(), ..pinned.clone() };
+    assert_eq!(decide_pinned(&paths, &State::default(), &current), Ok(Decision::Current));
+    let no_commit = Pinned { commit: "x".into(), ..pinned };
+    assert!(decide_pinned(&paths, &State::default(), &no_commit).is_err());
 }

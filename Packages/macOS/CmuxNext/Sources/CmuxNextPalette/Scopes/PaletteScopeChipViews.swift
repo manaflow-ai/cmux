@@ -83,7 +83,8 @@ final class PaletteScopeChipView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel(PaletteStrings.chipAccessibility(chip.title))
-        themedToolTip = isTop ? PaletteStrings.chipAccessibility(chip.title) : PaletteStrings.backTo(chip.title)
+        // The chip shows its title: no tooltip (a1315's cut 2). VoiceOver hears where a click goes.
+        setAccessibilityHelp(isTop ? nil : PaletteStrings.backTo(chip.title))
         setAccessibilityIdentifier("palette.scopeChip.\(chip.scope.rawValue)")
     }
 
@@ -133,7 +134,7 @@ final class PaletteScopeChipView: NSView {
                 }
                 layer?.borderColor = Palette.separator.cgColor
                 layer?.borderWidth = ink.outlined ? Metrics.dividerThickness : 0
-                layer?.cornerRadius = bounds.height / 2
+                layer?.cornerRadius = Metrics.buttonCornerRadius(fitting: bounds.size)
             } else {
                 layer?.backgroundColor = nil
                 layer?.borderWidth = 0

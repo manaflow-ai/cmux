@@ -10,7 +10,8 @@ an entry of the map, and every requirement of each matching entry must hold:
   first-party      Contents/Resources/LICENSE is a non-empty file
   section:<id>     Contents/Resources/THIRD_PARTY_LICENSES.md has the marker
                    `<!-- notices-section: <id> -->`
-  file:<path>      <app>/<path> is a non-empty file
+  file:<path>      <app>/<path> is a non-empty file (a <path> ending in .gz
+                   must decompress to non-empty text)
   ghostty-license-tree:<path>
                    <app>/<path> is a Ghostty dependency license tree that
                    verify-ghostty-license-bundle.py accepts, for the Ghostty
@@ -19,7 +20,8 @@ an entry of the map, and every requirement of each matching entry must hold:
                    revision in the tree's own SOURCE-MANIFEST.json)
   rust-std         every `/rustc/<commit>/` path inside the Mach-O names a
                    rustc that toolchains.json reviews, and that rustc's
-                   COPYRIGHT-library.html is bundled unchanged under
+                   COPYRIGHT-library.html is bundled unchanged (gzip-compressed,
+                   compared decompressed) under
                    Contents/Resources/toolchain-licenses (toolchain_notices.py)
   zig-std          every reviewed Zig LICENSE is bundled unchanged there
 An entry with `copy_of: <path>` covers binaries that may be a copy of the
@@ -39,6 +41,7 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import gzip
 import importlib.util
 import json
 from pathlib import Path
@@ -268,8 +271,9 @@ def check(
             if not requirement_holds(need, owner, rel):
                 errors.append(missing(rel, need))
         # Rust code can land in a binary that the map does not expect (Xcode
-        # merges Iroh.framework's static code into Contents/MacOS/cmux in
-        # Release), so every Mach-O is scanned for rustc's std paths.
+        # merges a framework's static code, as it once did Iroh.framework's,
+        # into Contents/MacOS/cmux in Release), so every Mach-O is scanned
+        # for rustc's std paths.
         if "rust-std" not in seen:
             module, _ = toolchain_manifest()
             commits = module.rustc_commits(app / rel)
@@ -279,7 +283,16 @@ def check(
 
 
 def _non_empty(path: Path) -> bool:
-    return path.is_file() and path.stat().st_size > 0
+    """A non-empty file; a `.gz` one (a notice shipped gzip-compressed, like
+    CEF's CREDITS.html.gz) must decompress whole to non-empty text."""
+    if not (path.is_file() and path.stat().st_size > 0):
+        return False
+    if path.suffix != ".gz":
+        return True
+    try:
+        return len(gzip.decompress(path.read_bytes())) > 0
+    except (OSError, EOFError):
+        return False
 
 
 def main(argv: list[str]) -> int:

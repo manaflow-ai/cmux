@@ -1,6 +1,7 @@
 //! The remote backup of the text export (decision 2026-10-06): pushed to a
 //! bare repository after each turn's commit, held on a possible secret,
-//! retried with backoff when the remote is unreachable, never forced.
+//! retried with bounded jittered backoff when the remote is unreachable, never
+//! forced over another writer's history.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -157,19 +158,22 @@ fn an_unreachable_remote_is_retried_with_backoff() {
         panic!("the push must fail while the remote is missing")
     };
     assert!(backup.due().is_some());
-    let Outcome::Failed { retry: second, .. } = backup.run(&s.chat) else {
-        panic!("still missing")
+    let Outcome::Waiting { retry: second, .. } = backup.run(&s.chat) else {
+        panic!("a turn before due must not retry the push")
     };
-    assert_eq!(second, first * 2);
+    assert!(second <= first, "the pending retry should count down");
     assert_eq!(status(&s)["state"], "retrying");
-    // The remote comes back: the next try pushes and the retry is cleared.
+    // A remote becoming available does not bypass the backoff. A fresh
+    // persister retries it after a restart, and clears the retry state.
     init_bare(&s.bare);
-    assert!(matches!(backup.run(&s.chat), Outcome::Pushed { .. }));
-    assert!(backup.due().is_none());
+    assert!(matches!(backup.run(&s.chat), Outcome::Waiting { .. }));
+    let mut recovered = Backup::new(s.config.clone());
+    assert!(matches!(recovered.run(&s.chat), Outcome::Pushed { .. }));
+    assert!(recovered.due().is_none());
 }
 
 #[test]
-fn a_remote_with_other_history_is_never_forced() {
+fn a_remote_with_other_history_is_merged_without_force() {
     let s = setup();
     init_bare(&s.bare);
     // Someone else's history in the backup repository.
@@ -187,8 +191,81 @@ fn a_remote_with_other_history_is_never_forced() {
     let theirs = git(&s.bare, &["rev-parse", "main"]);
     let mut backup = Backup::new(s.config.clone());
     turn(&s.chat, &["hello"], "turn:optchat:0:1");
-    assert!(matches!(backup.run(&s.chat), Outcome::Failed { .. }));
-    assert_eq!(git(&s.bare, &["rev-parse", "main"]), theirs);
+    assert!(matches!(backup.run(&s.chat), Outcome::Pushed { .. }));
+    assert_ne!(git(&s.bare, &["rev-parse", "main"]), theirs);
+    let merged = git(&s.bare, &["show", "main:main/2026-10-06.jsonl"]);
+    assert!(merged.contains("not this chief"));
+    assert!(merged.contains("hello"));
+}
+
+#[test]
+fn two_checkouts_reconcile_a_moved_branch_without_losing_memory_lines() {
+    let s = setup();
+    init_bare(&s.bare);
+    let mut first = Backup::new(s.config.clone());
+    turn(&s.chat, &["base"], "turn:optchat:0:1");
+    assert!(matches!(first.run(&s.chat), Outcome::Pushed { .. }));
+
+    let second = s.chat.with_file_name("second");
+    std::fs::create_dir_all(&second).unwrap();
+    git(
+        s.chat.parent().unwrap(),
+        &[
+            "clone",
+            "-q",
+            s.bare.to_str().unwrap(),
+            second.to_str().unwrap(),
+        ],
+    );
+    turn(&s.chat, &["base", "first writer"], "turn:optchat:1:2");
+    assert!(matches!(first.run(&s.chat), Outcome::Pushed { .. }));
+
+    let mut second_backup = Backup::new(s.config.clone());
+    turn(&second, &["base", "second writer"], "turn:optchat:1:2");
+    assert!(matches!(second_backup.run(&second), Outcome::Pushed { .. }));
+    let merged = git(&s.bare, &["show", "main:main/2026-10-06.jsonl"]);
+    assert!(merged.contains("first writer"));
+    assert!(merged.contains("second writer"));
+}
+
+#[test]
+fn a_permanent_push_failure_becomes_visible_and_stops_retrying() {
+    let s = setup();
+    let mut backup = Backup::new(s.config.clone());
+    turn(&s.chat, &["hello"], "turn:optchat:0:1");
+    let mut now = std::time::Instant::now();
+    for _ in 0..7 {
+        assert!(matches!(
+            backup.run_at(&s.chat, now),
+            Outcome::Failed { .. }
+        ));
+        now = backup.due().unwrap() + std::time::Duration::from_secs(1);
+    }
+    let Outcome::Blocked { attempts, .. } = backup.run_at(&s.chat, now) else {
+        panic!("the retry budget must end in a visible blocked state")
+    };
+    assert_eq!(attempts, 8);
+    assert!(backup.due().is_none());
+    assert_eq!(status(&s)["state"], "blocked");
+    init_bare(&s.bare);
+    assert!(matches!(
+        backup.run_at(&s.chat, now),
+        Outcome::Blocked { .. }
+    ));
+    let remote_head = Command::new("git")
+        .args([
+            "-C",
+            s.bare.to_str().unwrap(),
+            "show-ref",
+            "--verify",
+            "refs/heads/main",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        !remote_head.status.success(),
+        "blocked backup must not retry"
+    );
 }
 
 #[test]

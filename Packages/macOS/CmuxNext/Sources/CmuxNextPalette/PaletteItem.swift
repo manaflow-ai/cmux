@@ -1,6 +1,8 @@
 public import CmuxNextActions
 public import CmuxNextDesign
 public import CoreGraphics
+import CmuxAgentBrands
+import Foundation
 
 /// One row of palette results.
 public struct PaletteItem: Identifiable {
@@ -78,6 +80,9 @@ public struct PaletteItem: Identifiable {
     /// one of them, or its digits (`612`), puts the row first, above every text match. Not keywords,
     /// so a handle's letters never match other rows' words.
     public var handles: [String] = []
+    /// Phrases that name the row (the catalog's built-in aliases, `ActionDescriptor.paletteAliases`):
+    /// the ranker ranks the row for a query that is one of them as it ranks a `palette.aliases` match.
+    public var aliases: [String] = []
     /// Scalar offsets into `subtitle` drawn emphasized: the words a row was found by when the subtitle
     /// is a snippet of what matched (the chats page's match in what was said). Empty draws it plain.
     public var subtitleHighlights: [Int] = []
@@ -91,6 +96,9 @@ public struct PaletteItem: Identifiable {
     public var readsToggleState: (@MainActor () -> Bool)?
     /// The title and icon of a row with ``readsToggleState`` before its style adds the state.
     public var toggleBase: (title: String, symbol: String?)?
+    /// The facts the preview pane lists for this row (`experiments.palettePreview`): read only for the row the pane
+    /// shows, when it shows it, never for every row. Nil: the pane lists what the row itself says (``PaletteFacts/of(_:)``).
+    public var facts: (@MainActor () -> [PaletteFact])?
 
     public init(
         id: String,
@@ -137,5 +145,113 @@ public struct PaletteItem: Identifiable {
         commands += secondary
         if let closeCommand { commands.append(closeCommand) }
         return commands
+    }
+}
+
+/// One line of the preview pane's Information list: a label and its value.
+public nonisolated struct PaletteFact: Equatable, Sendable {
+    public var label: String
+    public var value: String
+
+    public init(_ label: String, _ value: String) {
+        self.label = label
+        self.value = value
+    }
+}
+
+/// The facts the preview pane lists for a row (`experiments.palettePreview`), from what the app already has for it: a
+/// workspace's folder, tab and agent counts, a tab's kind, place and agent, a command's shortcut and category. Built
+/// for the one row the pane shows, when it shows it.
+enum PaletteFacts {
+    /// The row's facts: its own (``PaletteItem/facts``), else what its title, kind, subtitle and keys say.
+    static func of(_ item: PaletteItem) -> [PaletteFact] {
+        if let facts = item.facts { return facts() }
+        return list([
+            (PaletteStrings.factKind, item.accessory),
+            (PaletteStrings.factDetails, item.subtitle),
+            (PaletteStrings.factShortcut, item.keycaps?.joined()),
+            (PaletteStrings.factCategory, item.section.title),
+        ])
+    }
+
+    /// A Go to Workspace row's facts.
+    static func workspace(_ workspace: PaletteWorkspace, now: Date) -> [PaletteFact] {
+        list([
+            (PaletteStrings.factName, workspace.title),
+            (PaletteStrings.factDirectory, workspace.directory.map(abbreviatePath)),
+            (PaletteStrings.factTabs, workspace.tabCount.map { String($0) }),
+            (PaletteStrings.factAgents, workspace.agentCount.flatMap { $0 > 0 ? String($0) : nil }),
+            (PaletteStrings.factBranch, workspace.branch),
+            (PaletteStrings.factGroup, workspace.groupName),
+            (PaletteStrings.factMachine, workspace.machineName),
+            (PaletteStrings.factStatus, workspace.isSelected ? PaletteStrings.current
+                : (workspace.unreadCount > 0 ? PaletteStrings.unreadCount(workspace.unreadCount) : nil)),
+            (PaletteStrings.factLastActive, workspace.lastUsed.map { relative($0, now: now) }),
+        ])
+    }
+
+    /// A group, pane or tab row's facts (terminal, agent chat, browser and the other tab kinds).
+    static func navigation(_ entry: PaletteNavigationEntry, now: Date) -> [PaletteFact] {
+        let kind: String = switch entry.kind {
+        case .group: PaletteStrings.kindGroup
+        case .pane: PaletteStrings.kindPane
+        case .tab(let tab): NavigationPaletteProvider.kindLabel(tab)
+        }
+        var workspaces: String?
+        if case .group(let count) = entry.kind { workspaces = String(count) }
+        return list([
+            (PaletteStrings.factTitle, entry.title),
+            (PaletteStrings.factKind, kind),
+            (PaletteStrings.sectionWorkspaces, workspaces),
+            (PaletteStrings.factWorkspace, entry.workspaceTitle),
+            (PaletteStrings.factGroup, entry.groupTitle),
+            (PaletteStrings.factDirectory, entry.cwd.map(abbreviatePath)),
+            (PaletteStrings.factAddress, entry.url),
+            (PaletteStrings.factAgent, entry.agent.map { AgentBrandCatalog.spec(forAgent: $0)?.name ?? $0 }),
+            (PaletteStrings.factSession, entry.sessionID),
+            (PaletteStrings.factStatus, entry.isCurrent ? PaletteStrings.current : nil),
+            (PaletteStrings.factLastActive, entry.lastUsed.map { relative($0, now: now) }),
+        ])
+    }
+
+    /// A Go to Tab row's facts.
+    static func tab(_ tab: PaletteTab) -> [PaletteFact] {
+        let kind: String = switch tab.kind {
+        case .terminal: PaletteStrings.kindTerminal
+        case .browser: PaletteStrings.kindBrowser
+        case .other: PaletteStrings.kindTab
+        }
+        return list([
+            (PaletteStrings.factTitle, tab.title),
+            (PaletteStrings.factKind, kind),
+            (PaletteStrings.factWorkspace, tab.workspaceTitle),
+            (PaletteStrings.factStatus, tab.isSelected ? PaletteStrings.current : nil),
+        ])
+    }
+
+    /// A command row's facts: its name, shortcut, category and what it does.
+    static func command(name: String, keycaps: [String]?, category: String?, description: String?) -> [PaletteFact] {
+        list([
+            (PaletteStrings.factCommand, name),
+            (PaletteStrings.factShortcut, keycaps?.joined()),
+            (PaletteStrings.factCategory, category),
+            (PaletteStrings.factDescription, description),
+        ])
+    }
+
+    /// The pairs with a value, in order.
+    private static func list(_ pairs: [(String, String?)]) -> [PaletteFact] {
+        pairs.compactMap { label, value in
+            guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
+            return PaletteFact(label, value)
+        }
+    }
+
+    /// "5 min. ago", "yesterday": how long ago `date` was.
+    static func relative(_ date: Date, now: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        formatter.dateTimeStyle = .named
+        return formatter.localizedString(for: min(date, now), relativeTo: now)
     }
 }

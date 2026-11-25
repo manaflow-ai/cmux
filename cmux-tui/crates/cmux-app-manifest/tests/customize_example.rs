@@ -126,9 +126,15 @@ mod apps {
                 "clock-weather",
                 "command-button",
                 "design-links",
+                "media-player",
                 "my-prs",
+                "newtab-calm",
+                "newtab-cards",
+                "newtab-console",
+                "newtab-threads",
                 "pane",
                 "sidebar-section",
+                "start-page",
                 "starter",
                 "threads"
             ]
@@ -148,7 +154,17 @@ mod apps {
             );
             let exported = exported_names(&script);
             let implements = manifest["implements"].as_object().expect("implements");
-            assert!(implements.contains_key("cmux.section/1"), "{name} has a sidebar section");
+            // A sidebar section, or a whole New Tab page (the newtab-* templates: the New Tab
+            // layouts cmux no longer ships, which a person builds and picks with tabs.newTabApp).
+            if name.starts_with("newtab-") {
+                assert_eq!(
+                    implements.keys().map(String::as_str).collect::<Vec<_>>(),
+                    ["cmux.newtab/1"],
+                    "{name} is a New Tab page"
+                );
+            } else {
+                assert!(implements.contains_key("cmux.section/1"), "{name} has a sidebar section");
+            }
             for (interface, entry) in implements {
                 let export =
                     entry["export"].as_str().unwrap_or_else(|| panic!("{name}: {interface}"));

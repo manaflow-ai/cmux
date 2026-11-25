@@ -90,7 +90,7 @@ extension CloudMoveCLI.StartChatPlan {
     public nonisolated static func strands(_ error: any Error) -> Bool {
         if error is CancellationError { return false }
         if let failure = error as? CloudMoveFailure { return failure.retry == nil }
-        return true
+        return !(error is any CloudStartRetriesOnMachine)
     }
 
     /// Whether this plan's machine was made for its start: the App made it (the plan named none) or the platform created it now.
@@ -109,3 +109,23 @@ extension CloudMoveCLI.StartChatPlan {
         }
     }
 }
+
+extension CloudMoveCLI {
+    /// `body`, a start's steps between its machine being chosen and the start owning it (the pin, the attach). When one
+    /// strands the start (``CloudMoveCLI/StartChatPlan/strands(_:)``), `made` (the machine made for send `key`, or nil for
+    /// one the start found) is still in the account it began in (`sameAccount`), and no other send took it
+    /// (``strandThenDelete(key:account:machine:delete:)``), `delete` deletes it. The error goes on.
+    @MainActor public func releasing<T>(made: String?, key: String, account: String, sameAccount: @MainActor () -> Bool,
+                                        delete: @MainActor (String) async throws -> Void, _ body: @MainActor () async throws -> T) async throws -> T {
+        do {
+            return try await body()
+        } catch {
+            if let made, StartChatPlan.strands(error), sameAccount() { try? await strandThenDelete(key: key, account: account, machine: made, delete: delete) }
+            throw error
+        }
+    }
+}
+
+/// A start's failure whose Retry runs on the same machine (a clone the person fixes by connecting GitHub):
+/// it never strands the start, so its machine is kept (``CloudMoveCLI/StartChatPlan/strands(_:)``).
+public protocol CloudStartRetriesOnMachine: Error {}

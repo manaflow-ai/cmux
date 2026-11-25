@@ -46,6 +46,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+from typing import Callable
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'cmux-next'))
@@ -59,6 +60,7 @@ except ImportError:  # a copy of this script outside scripts/: the same helper (
             pass
 
 ROOT = Path(__file__).resolve().parents[2]
+RUNNER_ROOT = ROOT  # this runner's own checkout; ROOT moves to --root's
 WORKFLOW = ROOT / ".github/workflows/ci-guards.yml"
 GUARD_JOBS = (
     "workflow-guard-submodule-forward-only",
@@ -99,6 +101,9 @@ FAST_GROUPS = ("ci",)
 # profile). They run in CI; a macOS run skips them and says so.
 LINUX_ONLY_STEPS = {
     "Validate CMUX workload profile contract",
+    # Their pinned zizmor and gitleaks release binaries are Linux builds (scripts/static-analysis/).
+    "Fail on a workflow security hole this change adds (zizmor)",
+    "Fail on a secret this change commits (gitleaks)",
 }
 # Linux-only wrappers whose payload is portable: off Linux, run the payload.
 # The workload profile runner refuses macOS, but ci-guard.sh's commands (the
@@ -145,6 +150,22 @@ def stop_running() -> None:
             os.killpg(pid, signal.SIGKILL)
         except (ProcessLookupError, PermissionError):
             pass
+
+
+
+def interrupt_on_term(signum, frame) -> None:
+    """SIGTERM (a caller's `timeout`) stops the run as Ctrl-C does: the running steps'
+    process groups are killed, not left behind as orphans."""
+    raise KeyboardInterrupt
+
+
+TIMED_OUT = threading.Event()
+
+
+def time_out() -> None:
+    """--deadline passed: stop the run the way SIGTERM does (a mini has no GNU `timeout` to do it from outside)."""
+    TIMED_OUT.set()
+    os.kill(os.getpid(), signal.SIGTERM)
 
 
 def cache_root() -> Path:
@@ -347,11 +368,67 @@ def is_stateful(unit: Unit) -> bool:
     return any(hands_state(step) for step in unit.steps)
 
 
+def ordered_split(unit: Unit) -> int:
+    """How many of a stateful group's steps run in order; the rest run in parallel after them.
+
+    A step reads what the steps before it handed on, so the steps up to the last one that hands state
+    keep their order. After it, a step hands nothing on, so the rest are independent, as a stateless
+    group's are, and wait only for that ordered head. release-notary initializes ghostty-next in its
+    first step and nothing after it hands state, yet ran its 124 steps one by one, the guard group's
+    longest chain. State passed through GITHUB_ENV or GITHUB_PATH lives in the ordered head's own
+    sandbox, so such a group keeps every step in order."""
+    if any("GITHUB_ENV" in step.run or "GITHUB_PATH" in step.run for step in unit.steps):
+        return len(unit.steps)
+    last = max(index for index, step in enumerate(unit.steps) if hands_state(step))
+    return last + 1
+
+
 def needs_clean_tree(steps: list[Step]) -> bool:
     """The workload profile runner refuses a checkout with source changes, and
     other steps (a submodule init) change the shared checkout while they run,
-    so a task holding it runs alone, before the parallel steps."""
+    so a task holding it runs in a clean copy of HEAD of its own (run_in_clean_copy)."""
     return any("cmux_workload_profile.py run" in step.run for step in steps)
+
+
+def run_in_clean_copy(
+    unit: Unit,
+    steps: list[Step],
+    base_env: dict[str, str],
+    base_sha: str,
+    keep_going: bool,
+    on_result: Callable[[StepResult], None] | None = None,
+) -> list[StepResult]:
+    """Run a clean-tree task in a detached worktree of HEAD, beside the parallel steps.
+
+    It ran alone before every other step, so 15 of 16 workers sat idle through its 146-168 s (the canonical
+    guard profile, cmux-next guard group logs, 2026-11-21). A worktree of its own is clean whatever the other
+    steps write. Its output names the shared checkout, so the head's and the base's failures still compare.
+    No worktree (git refuses): it runs in the shared checkout, and may see what the other steps write."""
+    scratch = Path(tempfile.mkdtemp(prefix="guard-clean-"))
+    copy = scratch / "tree"
+    made = subprocess.run(
+        ["git", "worktree", "add", "--quiet", "--detach", str(copy), "HEAD"],
+        cwd=ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+    )
+    if made.returncode != 0:
+        safe_print(f"cmux guards: no clean worktree for {unit.label} ({made.stdout.strip()[-200:]}); "
+                   "it runs in the shared checkout", flush=True)
+        subprocess.run(["rm", "-rf", str(scratch)], check=False)
+        return run_steps(unit, steps, base_env, base_sha, keep_going, on_result)
+
+    def named_here(result: StepResult) -> StepResult:
+        return dataclasses.replace(result, output=result.output.replace(str(copy), str(ROOT)))
+
+    try:
+        return [named_here(r) for r in run_steps(
+            unit, steps, base_env, base_sha, keep_going,
+            (lambda r: on_result(named_here(r))) if on_result is not None else None, root=copy)]
+    finally:
+        subprocess.run(["git", "worktree", "remove", "--force", str(copy)], cwd=ROOT, stdin=subprocess.DEVNULL,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        subprocess.run(["rm", "-rf", str(scratch)], check=False)
+        subprocess.run(["git", "worktree", "prune"], cwd=ROOT, stdin=subprocess.DEVNULL,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
 
 
 def skipped_here(step: Step) -> bool:
@@ -364,8 +441,11 @@ def run_steps(
     base_env: dict[str, str],
     base_sha: str,
     keep_going: bool,
+    on_result: Callable[[StepResult], None] | None = None,
+    root: Path | None = None,
 ) -> list[StepResult]:
-    """Run steps in order in one job-like sandbox (RUNNER_TEMP, GITHUB_ENV...)."""
+    """Run steps in order in one job-like sandbox (RUNNER_TEMP, GITHUB_ENV...), in ROOT or ROOT's clean copy."""
+    root = root or ROOT
     results: list[StepResult] = []
     # Not "cmux-": tests rewrite the workflows' fixed /tmp/cmux-* paths, and on
     # Linux this directory is under /tmp, so a nested temp path would match.
@@ -383,14 +463,17 @@ def run_steps(
                 "GITHUB_PATH": str(path_file),
                 "GITHUB_OUTPUT": str(temp_path / "github_output"),
                 "GITHUB_STEP_SUMMARY": str(temp_path / "github_step_summary"),
-                "GITHUB_WORKSPACE": str(ROOT),
+                "GITHUB_WORKSPACE": str(root),
             }
         )
         if unit.job == "workflow-guard-history":
             env["PACKAGE_RESOLVED_POLICY_BASE_REF"] = base_sha
         for step in steps:
             if skipped_here(step):
-                results.append(StepResult(unit, step, None, 0.0, ""))
+                result = StepResult(unit, step, None, 0.0, "")
+                results.append(result)
+                if on_result is not None:
+                    on_result(result)
                 continue
             started = time.monotonic()
             step_env = dict(env)
@@ -399,19 +482,25 @@ def run_steps(
             if extra_path:
                 step_env["PATH"] = os.pathsep.join(list(reversed(extra_path)) + [step_env["PATH"]])
             step_env.update(step.env)
-            cwd = ROOT / step.working_directory if step.working_directory else ROOT
+            cwd = root / step.working_directory if step.working_directory else root
             if sys.platform != "linux" and step.name in PORTABLE_SUBSTITUTES:
-                if not (ROOT / PORTABLE_SUBSTITUTES[step.name]).exists():
+                if not (root / PORTABLE_SUBSTITUTES[step.name]).exists():
                     # An older checkout (--root) that predates the substitute.
-                    results.append(StepResult(unit, step, None, 0.0, ""))
+                    result = StepResult(unit, step, None, 0.0, "")
+                    results.append(result)
+                    if on_result is not None:
+                        on_result(result)
                     continue
                 step = dataclasses.replace(step, run=PORTABLE_SUBSTITUTES[step.name])
             check_file = temp_path / "step-checks.tsv"
             check_file.unlink(missing_ok=True)
             step_env[CHECK_RESULTS_ENV] = str(check_file)
             returncode, output = run_step(step, cwd, step_env, temp_path / "step.log")
-            results.append(StepResult(unit, step, returncode == 0, time.monotonic() - started, output,
-                                      read_check_results(check_file)))
+            result = StepResult(unit, step, returncode == 0, time.monotonic() - started, output,
+                                read_check_results(check_file))
+            results.append(result)
+            if on_result is not None:
+                on_result(result)
             if returncode != 0 and not keep_going:
                 break
     return results
@@ -518,6 +607,48 @@ def select_steps(units: list[Unit], names: set[str]) -> list[Unit]:
     return selected
 
 
+def affected_units(units: list[Unit], base: str) -> list[Unit]:
+    """Only the steps the change from `base` can reach (guard_step_inputs.py), with the steps that hand them
+    state. No base, a change to the selection itself, or a selection that fails keeps every step."""
+    try:
+        return _affected_units(units, base)
+    except Exception as error:  # noqa: BLE001 - a broken selection fails open: every step runs
+        safe_print(f"affected guard steps: the selection failed ({type(error).__name__}: {error}); every step runs",
+                   flush=True)
+        return units
+
+
+def _affected_units(units: list[Unit], base: str) -> list[Unit]:
+    import guard_step_inputs  # noqa: PLC0415 - the selection, beside this script
+
+    if not base:
+        safe_print("affected guard steps: no base to compare with; every step runs", flush=True)
+        return units
+    try:
+        changed = guard_step_inputs.changed_paths(base, root=ROOT, worktree=True)
+    except subprocess.CalledProcessError:
+        safe_print(f"affected guard steps: cannot diff {base[:12]}; every step runs", flush=True)
+        return units
+    reason = guard_step_inputs.everything_reason(changed)
+    if reason:
+        safe_print(f"affected guard steps: every step runs: {reason}", flush=True)
+        return units
+    # The base resolved into a step's env (its sha) reads as the base to the selection.
+    steps = {(s.name, s.run, s.working_directory,
+              tuple(sorted((k, v.replace(base, "BASE_SHA") if base else v) for k, v in s.env.items())))
+             for u in units for s in u.steps}
+    picked = guard_step_inputs.select(guard_step_inputs.Tree(ROOT), sorted(steps, key=lambda s: s[0]), changed)
+    kept = select_steps(units, set(picked))
+    total = sum(len(u.steps) for u in units)
+    always = sum(1 for why in picked.values() if why.startswith("always"))
+    safe_print(
+        f"affected guard steps: {len(changed)} changed paths reach {len(picked) - always} steps; {always} always run "
+        f"(inputs not readable); {total - sum(len(u.steps) for u in kept)} of {total} skipped as unchanged",
+        flush=True,
+    )
+    return kept
+
+
 def feat_routed_groups(changed_files: str) -> tuple[str, ...]:
     """The groups a feat-cmux-next change routes to; an unreadable list routes every one."""
     import detect_linux_guard_changes  # noqa: PLC0415 - the router, beside this script
@@ -610,6 +741,63 @@ def write_results(path: str, head_sha: str, base_sha: str, units: list[Unit],
     Path(path).write_text(json.dumps(body, indent=2) + "\n")
 
 
+FAILURE_LINES = 2000  # the tail of a red step's output kept for guards_new_reds.py
+
+
+def failures_path(results: Path) -> Path:
+    """Where --results' red steps' output goes: beside it, `<results>.failures.json`."""
+    return results.with_name(results.name + ".failures.json")
+
+
+class IncrementalResults:
+    """Persist each completed step so an outer timeout keeps the evidence it already has."""
+
+    def __init__(self, path: Path, root: Path) -> None:
+        self.path = path
+        self.root = root
+        self._lock = threading.Lock()
+        self._outcome: dict[str, bool] = {}
+        self._failures: dict[str, list[str]] = {}
+
+    def add(self, result: StepResult) -> None:
+        if STOPPING.is_set() and result.ok is False:
+            return  # stopped by an interrupt or the deadline: no verdict, never a red
+        with self._lock:
+            if result.ok is not None:
+                self._outcome[result.step.name] = self._outcome.get(result.step.name, True) and bool(result.ok)
+                for check, ok in result.checks.items():
+                    key = f"{result.step.name}{CHECK_SEPARATOR}{check}"
+                    self._outcome[key] = self._outcome.get(key, True) and ok
+            if result.ok is False:
+                # The checkout first (--root's may sit inside the runner's, as .guard-base does), then the runner's own.
+                text = result.output.replace(str(self.root), "<root>").replace(str(RUNNER_ROOT), "<root>")
+                self._failures.setdefault(result.step.name, []).extend(text.splitlines()[-FAILURE_LINES:])
+            self._write(False)
+
+    def complete(self) -> None:
+        with self._lock:
+            self._write(True)
+
+    def _write(self, complete: bool) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        temp = self.path.with_name(f".{self.path.name}.tmp")
+        body = {"_cmux_complete": complete, **self._outcome}
+        temp.write_text(json.dumps(body, indent=2, sort_keys=True) + "\n")
+        os.replace(temp, self.path)
+        failures = failures_path(self.path)
+        failure_temp = failures.with_name(f".{failures.name}.tmp")
+        failure_temp.write_text(json.dumps(self._failures, indent=1, sort_keys=True) + "\n")
+        os.replace(failure_temp, failures)
+
+
+def write_step_results(path: Path, results: list[StepResult], root: Path) -> None:
+    """Write --results and its failure sidecar from a completed result list."""
+    writer = IncrementalResults(path, root)
+    for result in results:
+        writer.add(result)
+    writer.complete()
+
+
 def main(argv: list[str]) -> int:
     global ROOT, WORKFLOW
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -623,6 +811,10 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--step", action="append", default=[], help="run only this step (exact name); repeatable, no stamp")
     parser.add_argument("--root", help="run this checkout's guard steps instead of the runner's own (no stamp)")
     parser.add_argument("--results", help="write {step name: passed} as JSON to this file")
+    parser.add_argument(
+        "--deadline", type=float, metavar="SECONDS",
+        help="stop every step after SECONDS and exit 124; --results then has the finished steps and is "
+             "marked incomplete (guards_new_reds.py --tip reports a timeout)")
     parser.add_argument("--json", dest="json_path", help="write the plan and every step's result to this file")
     parser.add_argument(
         "--feat-routes", metavar="FILE",
@@ -630,9 +822,13 @@ def main(argv: list[str]) -> int:
              "feat-cmux-next change (detect_linux_guard_changes.classify_feat); no stamp",
     )
     parser.add_argument(
+        "--affected", nargs="?", const="", metavar="BASE",
+        help="run only the steps whose inputs the change from BASE (default: the base this runner compares with) "
+             "reaches, and every step whose inputs cannot be read (guard_step_inputs.py); no stamp",
+    )
+    parser.add_argument(
         "--skip-group", action="append", default=[], metavar="GROUP",
-        help="leave out this group or job even when --feat-routes picks it (a feat-cmux-next push runs "
-             "release-notary in nightly-guards, judged at its tip)",
+        help="leave out this group or job even when --feat-routes picks it",
     )
     args = parser.parse_args(argv)
     if args.root:
@@ -684,6 +880,16 @@ def main(argv: list[str]) -> int:
                 write_results(args.json_path, head_sha, base_sha, [], [], 0.0)
             return 3
 
+    if args.affected is not None and not args.root:
+        units = affected_units(units, args.affected or base_sha)
+        if not units:
+            safe_print("cmux guards: the change reaches no guard step's inputs; nothing to run")
+            if args.results:
+                write_step_results(Path(args.results), [], ROOT)
+            if args.json_path:
+                write_results(args.json_path, head_sha, base_sha, [], [], 0.0)
+            return 0
+
     if args.list:
         for unit in units:
             mode = "in order" if is_stateful(unit) else "in parallel"
@@ -709,23 +915,59 @@ def main(argv: list[str]) -> int:
     )
     # A stateless group's steps are independent tasks; a group whose steps
     # pass state along (GITHUB_ENV, GITHUB_PATH, a bun install) is one task.
+    # A stateful group's steps after its last state-handing step are that ordered head's
+    # follow-ups: each is its own task, queued once the head has run (ordered_split).
     tasks: list[tuple[Unit, list[Step]]] = []
+    follow_ups: dict[int, list[tuple[Unit, list[Step]]]] = {}
     for unit in units:
         if is_stateful(unit):
-            tasks.append((unit, unit.steps))
+            split = ordered_split(unit)
+            head = (unit, unit.steps[:split])
+            tasks.append(head)
+            if split < len(unit.steps):
+                follow_ups[id(head)] = [(unit, [step]) for step in unit.steps[split:]]
         else:
             tasks.extend((unit, [step]) for step in unit.steps)
-    tasks.sort(key=lambda task: -len(task[1]))
-    # Tasks that need a clean checkout run one at a time first; then the rest share the pool.
-    batches = [[task] for task in tasks if needs_clean_tree(task[1])]
-    batches.append([task for task in tasks if not needs_clean_tree(task[1])])
+    # A task that needs a clean checkout starts first, in a clean copy of its own (run_in_clean_copy); the longest
+    # ordered groups next.
+    tasks.sort(key=lambda task: (not needs_clean_tree(task[1]), -len(task[1])))
+    batches = [tasks]
     results: list[StepResult] = []
+    writer = IncrementalResults(Path(args.results), ROOT) if args.results else None
+    signal.signal(signal.SIGTERM, interrupt_on_term)
+    deadline = threading.Timer(args.deadline, time_out) if args.deadline else None
+    if deadline is not None:
+        deadline.daemon = True
+        deadline.start()
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.jobs))
     try:
+        def submit(task: tuple[Unit, list[Step]]) -> concurrent.futures.Future:
+            runner = run_in_clean_copy if needs_clean_tree(task[1]) else run_steps
+            future = pool.submit(runner, task[0], task[1], env, base_sha, args.keep_going,
+                                 writer.add if writer is not None else None)
+            pending[future] = task
+            return future
+
+        def finished():
+            """Each task as it ends; an ordered head that ends queues its follow-ups (a failed
+            head without --keep-going stops its group there, as an in-order run does)."""
+            while pending:
+                done, _ = concurrent.futures.wait(pending, return_when=concurrent.futures.FIRST_COMPLETED)
+                for future in done:
+                    task = pending.pop(future)
+                    step_results = future.result()
+                    head_ok = len(step_results) == len(task[1]) and all(r.ok is not False for r in step_results)
+                    if head_ok or args.keep_going:
+                        for follow_up in follow_ups.get(id(task), ()):
+                            submit(follow_up)
+                    yield step_results
+
+        pending: dict[concurrent.futures.Future, tuple[Unit, list[Step]]] = {}
         for batch in batches:
-            futures = [pool.submit(run_steps, unit, steps, env, base_sha, args.keep_going) for unit, steps in batch]
-            for future in concurrent.futures.as_completed(futures):
-                for result in future.result():
+            for task in batch:
+                submit(task)
+            for step_results in finished():
+                for result in step_results:
                     results.append(result)
                     if result.ok is False:
                         safe_print(f"  FAIL {result.seconds:6.1f}s  {result.unit.label}: {result.step.name}", flush=True)
@@ -739,29 +981,28 @@ def main(argv: list[str]) -> int:
     except KeyboardInterrupt:
         pool.shutdown(wait=False, cancel_futures=True)
         stop_running()
+        if TIMED_OUT.is_set():
+            safe_print(f"cmux guards: timed out after {args.deadline:.0f}s: {len(results)} steps finished, "
+                       "the running ones were stopped and have no result", flush=True)
+            return 124
         safe_print("cmux guards: interrupted", file=sys.stderr)
         return 130
+    if deadline is not None:
+        deadline.cancel()
     pool.shutdown()
     seconds = time.monotonic() - started
     failed = [r for r in results if r.ok is False]
     skipped = sorted({r.step.name for r in results if r.ok is None})
     passed = sum(1 for r in results if r.ok)
     if args.results:
-        outcome: dict[str, bool] = {}
-        for result in results:
-            if result.ok is not None:
-                outcome[result.step.name] = outcome.get(result.step.name, True) and bool(result.ok)
-                for check, ok in result.checks.items():
-                    key = f"{result.step.name}{CHECK_SEPARATOR}{check}"
-                    outcome[key] = outcome.get(key, True) and ok
-        Path(args.results).write_text(json.dumps(outcome, indent=2, sort_keys=True) + "\n")
+        write_step_results(Path(args.results), results, ROOT)
     safe_print(f"cmux guards: {passed} steps passed, {len(failed)} failed, {len(skipped)} skipped (Linux only) in {seconds:.1f}s")
     if args.json_path:
         write_results(args.json_path, head_sha, base_sha, units, results, seconds)
     if failed:
         safe_print("failed: " + "; ".join(f"{r.unit.label}: {r.step.name}" for r in failed), file=sys.stderr)
         return 1
-    if args.no_stamp or args.group or args.step or args.root or args.feat_routes:
+    if args.no_stamp or args.group or args.step or args.root or args.feat_routes or args.affected is not None:
         return 0
     if not (clean_at_start and tree_is_clean()) or git("rev-parse", "HEAD") != head_sha:
         safe_print("tree has uncommitted or untracked files (or HEAD moved); no pass stamp written. Commit, then rerun to stamp.")

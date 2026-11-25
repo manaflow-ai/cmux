@@ -517,7 +517,7 @@ class NothingWaitsOnTheSmokeTests(unittest.TestCase):
         self.assertIsNotNone(cells, "smoke: runs-on has a matrix value nothing resolves")
         self.assertEqual(len(cells), 1, cells)
         runs_on = cells[0]
-        self.assertTrue(runs_on.rstrip(" }").endswith("fromJSON(vars.RUNNER_POOLS).macos_26"))
+        self.assertTrue(runs_on.rstrip(" }").endswith("(vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26)"))
         self.assertLess(runs_on.index("CI_SIDE_LANE_RUNNER"), runs_on.rindex("fromJSON(vars.RUNNER_POOLS).macos_26"))
         for label in re.findall(r"'(macos-[^']+)'", runs_on):
             self.assertIn(f"github.repository_owner != 'manaflow-ai' && '{label}'", runs_on)
@@ -588,6 +588,48 @@ class InFlightTests(unittest.TestCase):
             self.assertIn("::warning", stderr.getvalue())
             self.assertIn("in-flight state unknown", summary.read_text(encoding="utf-8"))
             self.assertIn("next scheduled tick", summary.read_text(encoding="utf-8"))
+
+    def test_a_refused_token_falls_back_to_an_anonymous_read(self) -> None:
+        import urllib.error
+        from email.message import Message
+        seen: list[str] = []
+
+        class Answer(io.BytesIO):
+            def __enter__(self): return self
+            def __exit__(self, *_): return False
+
+        def urlopen(request, timeout=0):
+            token = request.headers.get("Authorization", "")
+            seen.append(token)
+            if token == "Bearer job":
+                headers = Message(); headers["x-ratelimit-remaining"] = "0"
+                raise urllib.error.HTTPError(request.full_url, 403, "Forbidden", headers,
+                                             io.BytesIO(b'{"message": "API rate limit exceeded"}'))
+            if "/runs?" in request.full_url:
+                return Answer(json.dumps({"workflow_runs": [{"id": 7, "status": "in_progress"}]}).encode())
+            return Answer(json.dumps({"jobs": [{"name": "smoke 200", "conclusion": None}]}).encode())
+
+        env = {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_RUN_ID": "9", "GH_TOKEN": "job"}
+        with mock.patch.object(smoke.urllib.request, "urlopen", side_effect=urlopen):
+            self.assertEqual(smoke.read_in_flight(200, env), 7)
+        self.assertEqual(seen[0], "Bearer job")
+        self.assertEqual(set(seen[1:]), {""})
+
+    def test_every_read_refused_names_why(self) -> None:
+        import urllib.error
+        from email.message import Message
+
+        def urlopen(request, timeout=0):
+            headers = Message(); headers["x-ratelimit-remaining"] = "0"
+            raise urllib.error.HTTPError(request.full_url, 403, "Forbidden", headers,
+                                         io.BytesIO(b'{"message": "API rate limit exceeded for installation"}'))
+
+        env = {"GITHUB_REPOSITORY": "manaflow-ai/cmux", "GH_TOKEN": "job"}
+        with mock.patch.object(smoke.urllib.request, "urlopen", side_effect=urlopen):
+            with self.assertRaises(RuntimeError) as caught:
+                smoke.read_in_flight(200, env)
+        self.assertIn("HTTP 403: API rate limit exceeded for installation: rate limit remaining 0", str(caught.exception))
+        self.assertEqual(str(caught.exception).count("HTTP 403"), 2)
 
 
 class PrePublishGateTests(unittest.TestCase):

@@ -16,7 +16,7 @@ fn initial_window(mss: usize) -> usize {
     (10 * mss).min((2 * mss).max(14600))
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Cubic {
     w_max: usize, // window size prior to loss
@@ -116,7 +116,11 @@ impl Controller for Cubic {
             return;
         } else if self.cwnd < self.ssthresh {
             // Slow start: increase `cwnd` by 1 MSS per ACK.
-            self.cwnd = self.cwnd.saturating_add(segment).min(self.rwnd).max(self.mss);
+            self.cwnd = self
+                .cwnd
+                .saturating_add(segment)
+                .min(self.rwnd)
+                .max(self.mss);
             return;
         }
 
@@ -148,7 +152,11 @@ impl Controller for Cubic {
         // RFC 9438 §4.3: advance our reno-like suggested cwnd.
         // When cwnd exceeds prior cwnd, change α_cubic to match Reno's AIMD.
         let w_est = {
-            let alpha = if self.w_est >= self.cwnd_prior as f64 { 1.0 } else { ALPHA_CUBIC };
+            let alpha = if self.w_est >= self.cwnd_prior as f64 {
+                1.0
+            } else {
+                ALPHA_CUBIC
+            };
 
             // cmux patch: RFC 9438 counts all newly acknowledged bytes in
             // congestion avoidance. The one-MSS cap belongs to slow start;

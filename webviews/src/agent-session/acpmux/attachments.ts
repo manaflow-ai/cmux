@@ -2,8 +2,16 @@
 /// Images get a metadata-free preview as an ACP image block plus their original session path.
 /// Existing document/text chips remain readable for persisted drafts from older versions.
 import { base64 } from "./composer/imageWork";
+import type { localDraftShape, LocalDraftShape } from "./composer/draftMediaShape";
 import type { DictationRecording } from "./dictationText";
-import { decoded, keepThumb, prepareImageOffThread, thumbnailOffThread } from "./composer/imagePool";
+import {
+  decoded,
+  keepThumb,
+  localImagePreview,
+  prepareImageOffThread,
+  thumbnailOffThread,
+  type previewForFile,
+} from "./composer/imagePool";
 import { liftInlineImages } from "./inlineImages";
 import { PASTE_FILE_CHARS, pastedTextBlocks } from "./pastedText";
 
@@ -13,6 +21,8 @@ import { videoFrameBlocks } from "./composer/videoPrompt";
 import type { VideoTranscript } from "./composer/videoTranscript";
 
 export type ComposerAttachment = {
+  [localDraftShape]?: LocalDraftShape;
+  [localImagePreview]?: ReturnType<typeof previewForFile>;
   id: string;
   /** `pasted`: a large paste kept as a chip (pastedText.ts), its `text` sent as a text block of its own. */
   kind: "image" | "text" | "document" | "link" | "audio" | "pasted";
@@ -48,6 +58,11 @@ export type ComposerAttachment = {
   transcript?: VideoTranscript;
   /** The app it came from, as the host said (composer/attachmentSources.ts); none when unknown. */
   source?: AttachmentSource;
+  /**
+   * A browser pick's element crop (designSelection.ts), base64 without the data: prefix: the one
+   * chip carries it, and it goes as an image block right after the chip's text.
+   */
+  shot?: { mimeType: string; data: string };
 };
 
 /// The app an attachment came from (AttachmentSource.swift): its name ("Google Chrome",
@@ -556,8 +571,14 @@ export function orderedDraftParts(
   return parts;
 }
 
+/// A browser pick's crop as the image block after its text (designSelection.ts); none for others.
+function shotBlocks(attachment: ComposerAttachment): PromptBlock[] {
+  const shot = attachment.kind === "text" ? attachment.shot : undefined;
+  return shot ? [{ type: "image", mimeType: shot.mimeType, data: shot.data, name: `${attachment.name}.png` }] : [];
+}
+
 export function attachmentBlocks(attachment: ComposerAttachment): PromptBlock[] {
-  const blocks: PromptBlock[] = [];
+  const blocks: PromptBlock[] = shotBlocks(attachment);
   if (attachment.kind === "image" && attachment.data)
     blocks.push({ type: "image", mimeType: attachment.mimeType, data: attachment.data, name: attachment.name });
   else if (attachment.kind === "document" && attachment.data)
@@ -604,6 +625,7 @@ export function promptBlocks(
     if (part.attachment.kind === "text") {
       const body = promptText("", [part.attachment]);
       if (body) blocks.push({ type: "text", text: body });
+      blocks.push(...shotBlocks(part.attachment));
     } else if (part.attachment.kind === "pasted" && part.attachment.text) {
       blocks.push({ type: "text", text: part.attachment.text, _meta: { cmux: { pasted: true } } });
     } else blocks.push(...attachmentBlocks(part.attachment));
@@ -613,11 +635,15 @@ export function promptBlocks(
 
 /// A file or folder on this computer that a link chip names (``linkAttachment``).
 export type LinkItem = { path: string; folder: boolean };
+/// The host's paths for a gesture's files, by index: a file it named no path for has none.
+export type KnownPaths = readonly (LinkItem | undefined)[];
 
 /// How files came in from the person's own gesture, for the host's record of where they are
 /// (`chat.attach.dropped`): a drop on the page, a paste, or the person's pick in the composer's
-/// file input (+ > Attach files), which a chat on this Mac links in place as it does a drop.
-export type DroppedKind = "drop" | "paste" | "choose";
+/// file input (+ > Attach files), which a chat on this Mac links in place as it does a drop, or
+/// files another app sent to the chat (`external`: the Send to cmux Chat service, an image opened
+/// with cmux), which the page takes from the host as a drop's (composer/externalAttach.ts).
+export type DroppedKind = "drop" | "paste" | "choose" | "external";
 /// The gesture whose source the host is asked for (`chat.attach.source`): the same gestures.
 export type SourceKind = DroppedKind;
 

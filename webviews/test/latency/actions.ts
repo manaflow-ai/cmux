@@ -5,6 +5,12 @@ import type { Page } from "playwright";
 import type { Instrumentation, LatencyAction, LatencyPageSpec } from "./measure";
 import { measureRailFlow, RAIL_DRAG_CASE } from "./rail-flow";
 import { measureRailSweep } from "./rail-sweep";
+import { MODEL_PICKER, PLUS_PICKER } from "../../src/agent-session/acpmux/composerSelectors";
+import {
+  SESSION_INFO,
+  SESSION_INFO_SHOWN,
+  SESSION_INFO_TOGGLE,
+} from "../../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 /** After a run (not measured): resolves once the page holds still, 10 painted frames with no DOM
  *  change and nothing animating (a new session streaming its patch, a slide, a menu closing), so
@@ -216,10 +222,14 @@ const diffActions: LatencyAction[] = [
       await helpers(page);
       const values = (await page.evaluate("window.__lh.overflows()")) as string[];
       const target = values[0] === "wrap" ? "scroll" : "wrap";
+      // Word wrap is a row of the "..." menu (toolbar-model.ts overflowMenuItems); the menu opens
+      // before the measured click.
+      if (!(await page.$('[data-option="word-wrap"]'))) await page.click("#options-button");
+      await page.waitForSelector('[data-option="word-wrap"]');
       return `(() => { const t = window.__lh.overflows(); return t.length > 0 && t.every((x) => x === ${js(target)}); })()`;
     },
     async input(page) {
-      await page.click("#wrap-toggle");
+      await page.click('[data-option="word-wrap"]');
     },
     settle: quiet,
   },
@@ -230,6 +240,11 @@ const diffActions: LatencyAction[] = [
       await page.keyboard.press("Escape");
       const atTop = (await page.evaluate(`window.__lh.headerAtTop("file150.ts")`)) as boolean;
       const target = atTop ? "file030.ts" : "file150.ts";
+      // Jump to file shows while the files list is hidden (toolbar-model.ts jumpToFileShown).
+      if ((await attr(page, "body", "data-files-hidden")) !== "true") {
+        await page.click("#files-toggle");
+        await page.waitForFunction(() => !document.querySelector<HTMLElement>("#files-sidebar")?.dataset.filesMotion);
+      }
       await page.click("#jump-to-file-button");
       await page.waitForSelector(".jump-palette-input");
       await page.fill(".jump-palette-input", target.replace(".ts", ""));
@@ -510,12 +525,12 @@ const agentPaneActions: LatencyAction[] = [
   {
     name: "model menu open",
     async prepare(page) {
-      await page.waitForSelector(".acpmux-model .acpmux-picker-button");
+      await page.waitForSelector(MODEL_PICKER);
       await page.keyboard.press("Escape");
       return `document.querySelector(".acpmux-quick-menu") !== null`;
     },
     async input(page) {
-      await page.click(".acpmux-model .acpmux-picker-button");
+      await page.click(MODEL_PICKER);
     },
     async settle(page) {
       await page.keyboard.press("Escape");
@@ -656,9 +671,9 @@ async function flowChat(page: Page): Promise<void> {
   await page.waitForSelector(composerEditor);
   await page.waitForFunction(() => !document.querySelector(".nt-screen"));
   await page.keyboard.press("Escape");
-  if (await page.$("aside.acpmux-session-info")) {
+  if (await page.$(SESSION_INFO)) {
     await page.evaluate(() => window.cmuxAcpmuxBridge!.command!("toggleSessionInfo"));
-    await page.waitForSelector("aside.acpmux-session-info", { state: "detached" });
+    await page.waitForSelector(SESSION_INFO, { state: "detached" });
   }
   await clearComposer(page);
   await quiet(page);
@@ -781,16 +796,11 @@ function draftTyping(chars: number, turns: number): LatencyAction {
 }
 
 const flowActions: LatencyAction[] = [
-  pickerOpen(
-    "chat.picker.model.pointer",
-    "model picker open (pointer)",
-    ".acpmux-model .acpmux-picker-button",
-    ".acpmux-model .acpmux-mp",
-  ),
+  pickerOpen("chat.picker.model.pointer", "model picker open (pointer)", MODEL_PICKER, ".acpmux-model .acpmux-mp"),
   pickerOpen(
     "chat.picker.model.keyboard",
     "model picker open (keyboard)",
-    ".acpmux-model .acpmux-picker-button",
+    MODEL_PICKER,
     ".acpmux-model .acpmux-mp",
     true,
   ),
@@ -800,12 +810,7 @@ const flowActions: LatencyAction[] = [
     ".acpmux-access .acpmux-picker-button",
     ".acpmux-access-menu",
   ),
-  pickerOpen(
-    "chat.menu.add.open",
-    "add menu open",
-    ".acpmux-composer-plus .acpmux-picker-button",
-    ".acpmux-menu.acpmux-composer-plus[role='menu']",
-  ),
+  pickerOpen("chat.menu.add.open", "add menu open", PLUS_PICKER, ".acpmux-menu.acpmux-composer-plus[role='menu']"),
   composerMenu("chat.menu.slash.open", "slash menu open", "/", ".acpmux-slash-menu:not(.acpmux-mention-menu)"),
   composerMenu("chat.menu.mention.open", "mention menu open", "@", ".acpmux-mention-menu"),
   {
@@ -859,15 +864,13 @@ const flowActions: LatencyAction[] = [
       await flowChat(page);
       if (!open) {
         await page.evaluate(() => window.cmuxAcpmuxBridge!.command!("toggleSessionInfo"));
-        await page.waitForSelector("aside.acpmux-session-info[data-presence='shown']");
+        await page.waitForSelector(SESSION_INFO_SHOWN);
         await quiet(page);
       }
-      return open
-        ? shown("aside.acpmux-session-info[data-presence='shown']")
-        : `document.querySelector("aside.acpmux-session-info") === null`;
+      return open ? shown(SESSION_INFO_SHOWN) : `document.querySelector("aside.acpmux-session-info") === null`;
     },
     async input(page) {
-      await page.click("button.acpmux-session-info-toggle");
+      await page.click(SESSION_INFO_TOGGLE);
     },
     settle: quiet,
   })),
@@ -878,7 +881,7 @@ const flowActions: LatencyAction[] = [
     requiredInstrumentation: requiredProfiled,
     async prepare(page) {
       await flowChat(page);
-      return shown("aside.acpmux-session-info[data-presence='shown']");
+      return shown(SESSION_INFO_SHOWN);
     },
     async input(page) {
       // The same bridge used by the native palette, with native command lookup/IPC excluded.
@@ -996,18 +999,21 @@ const railTicks = new WeakMap<Page, RailTick>();
 /** What the rail shows now, for an error that says why a case could not start. */
 const railState = (page: Page) =>
   page
-    .evaluate(() => {
-      const rail = document.querySelector(".acpmux-minimap__rail");
-      const list = document.querySelector<HTMLElement>(".acpmux-minimap__list");
-      return JSON.stringify({
-        rail: !!rail,
-        occluded: rail?.hasAttribute("data-occluded") ?? null,
-        ticks: document.querySelectorAll("[data-tick]").length,
-        list: list ? [list.scrollTop, list.scrollHeight, list.clientHeight] : null,
-        card: !!document.querySelector(".acpmux-minimap__card"),
-        sessionInfo: !!document.querySelector("aside.acpmux-session-info"),
-      });
-    })
+    .evaluate(
+      ({ SESSION_INFO }) => {
+        const rail = document.querySelector(".acpmux-minimap__rail");
+        const list = document.querySelector<HTMLElement>(".acpmux-minimap__list");
+        return JSON.stringify({
+          rail: !!rail,
+          occluded: rail?.hasAttribute("data-occluded") ?? null,
+          ticks: document.querySelectorAll("[data-tick]").length,
+          list: list ? [list.scrollTop, list.scrollHeight, list.clientHeight] : null,
+          card: !!document.querySelector(".acpmux-minimap__card"),
+          sessionInfo: !!document.querySelector(SESSION_INFO),
+        });
+      },
+      { SESSION_INFO },
+    )
     .catch((error: unknown) => `unreadable: ${String(error)}`);
 
 async function railAway(page: Page): Promise<void> {
@@ -1023,9 +1029,9 @@ async function railRestTick(page: Page, above = 0): Promise<RailTick> {
   try {
     // The flows fixture opens Session Info. On older builds the rail stepped aside for it; closed,
     // every build draws the rail beside the text, so every arm measures the same rail.
-    if (await page.$("aside.acpmux-session-info")) {
+    if (await page.$(SESSION_INFO)) {
       await page.evaluate(() => window.cmuxAcpmuxBridge!.command!("toggleSessionInfo"));
-      await page.waitForSelector("aside.acpmux-session-info", { state: "detached", timeout: 5_000 });
+      await page.waitForSelector(SESSION_INFO, { state: "detached", timeout: 5_000 });
     }
     await page.waitForSelector(RAIL_LIST, { state: "attached", timeout: 10_000 });
     await page.evaluate((selector) => {
@@ -1241,9 +1247,9 @@ function chatSwitch(arm: string): LatencyPageSpec {
         async prepare(page) {
           await page.evaluate("window.__latencyFlows.restoreChat()");
           await page.waitForSelector(".acpmux-scroll .acpmux-row");
-          if (!(await page.$("aside.acpmux-session-info")))
+          if (!(await page.$(SESSION_INFO)))
             await page.evaluate(() => window.cmuxAcpmuxBridge!.command!("toggleSessionInfo"));
-          await page.waitForSelector("aside.acpmux-session-info[data-presence='shown']");
+          await page.waitForSelector(SESSION_INFO_SHOWN);
           await quiet(page);
           const from = await page.evaluate(() => document.querySelector(".acpmux-thread-title")?.textContent ?? "");
           // Landed and settled: another title, rows drawn, and no part of the switch still moving.

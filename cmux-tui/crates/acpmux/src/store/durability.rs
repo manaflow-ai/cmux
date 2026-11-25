@@ -7,8 +7,11 @@
 //! renaming never wait for a disk sync. A kept change's records are `Stream` records, which the
 //! journal writes in its next batch: a line that shows the change waits for that write (a kill
 //! -9 of every process then keeps it). They are appended as kept records
-//! (`cmux_journal::Journal::append_kept`), which the journal syncs in its idle time (10 ms with no
-//! record), with the next acknowledged batch, or the stream sync delay (1 s) later, whichever
+//! (`cmux_journal::Journal::append_kept`), which the journal syncs in its idle time (500 ms with no
+//! record: longer than the gap between two typed keys, so typing costs about two syncs a second, a
+//! barrier and a full one,
+//! rather than one per key, cmuxterm-hq#11322), with the next acknowledged batch (a send), or the
+//! stream sync delay (1 s) later, whichever
 //! comes first; so an OS crash or a power loss takes back at most that last second of drafts and
 //! names, always a suffix, and the next acknowledged change (a prompt) does not sync a burst of
 //! them in its turn (probe job 01189fd6: 316 records, 1.17 MB, 7.3 ms). Before (journal on,
@@ -42,13 +45,28 @@ pub struct Durability {
     pub kept: Arc<AtomicU64>,
     /// The journal's written LSN (`cmux_journal::Journal::on_written`); closed with `durable`.
     pub written: tokio::sync::watch::Receiver<u64>,
+    /// Asks the journal to sync through an LSN now (`cmux_journal::Journal::ask_durable`): a
+    /// connection holds a line until it is durable (`server/durable_gate.rs`).
+    pub ask: Arc<dyn Fn(u64) + Send + Sync>,
     /// Called with how long a line has waited each time it waits another stall interval for the
     /// journal (`server/durable_gate.rs`). When the journal's writer is failing (a write or sync
     /// returned an error: it retries without end) the store asks the daemon to stop for a restart
     /// and this returns true; when the writer is only slow (a sync under way on a saturated disk)
     /// it logs the wait and returns false, and the line keeps waiting.
     pub stalled: Arc<dyn Fn(std::time::Duration) -> bool + Send + Sync>,
+    /// While the store is in its full-disk state (`journal_store/space.rs`), the refusal its
+    /// writes get (`disk.full`); else None. A line that waited [`FULL_WAIT`] for the journal
+    /// while it is full is answered with it (a reply) or never sent (any other line), instead of
+    /// waiting for space that may not come (`server/durable_gate.rs`).
+    pub full: Arc<dyn Fn() -> Option<String> + Send + Sync>,
 }
+
+/// How long a reply waits for the journal while the disk is full before it is answered with the
+/// store's `disk.full` refusal instead: the writer's first retries (100 ms, then 200 ms) write the
+/// records already appended into the room the freed reserve leaves, so a reply usually goes out
+/// with its real answer within it; past it the disk had no room for them either, and every
+/// waiter gets its refusal at once rather than waiting for space without bound.
+pub const FULL_WAIT: std::time::Duration = std::time::Duration::from_millis(400);
 
 /// A streamed agent line: a `Stream` record, synced with the next acked batch or a second later,
 /// and shown at once (DESIGN.md C4). Every other line is acknowledged (`Ack`). The hub's tap logs
@@ -63,7 +81,8 @@ pub(crate) fn streamed(record: &EventRecord) -> bool {
 pub(crate) enum RecordClass {
     /// Agent output: shown at once, raises no gate (C4).
     Stream,
-    /// The line of a kept change (a chat's `renamed`): shown once written ([`ShowAfter::Written`]).
+    /// The line of a kept change (a chat's `renamed`, and the `titled` a rename writes with it):
+    /// shown once written ([`ShowAfter::Written`]), so a rename never waits for the disk.
     Kept,
     /// Every other line: shown once durable.
     Acked,
@@ -72,7 +91,7 @@ pub(crate) enum RecordClass {
 pub(crate) fn record_class(record: &EventRecord) -> RecordClass {
     if agent_output(record) {
         RecordClass::Stream
-    } else if record.dir == "mux" && record.kind == "renamed" {
+    } else if record.dir == "mux" && matches!(record.kind.as_str(), "renamed" | "titled") {
         RecordClass::Kept
     } else {
         RecordClass::Acked

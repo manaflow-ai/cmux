@@ -3,20 +3,17 @@ import Foundation
 
 /// T-SCROLL-12: a vertical drag over a full-screen app (the alternate
 /// screen) scrolls the app, like a Mac trackpad in Ghostty, and never the
-/// page. The phone turns the finger into precise wheel deltas in points, in
-/// the natural direction (a finger moving down scrolls toward older content,
-/// a wheel up), and a release with speed into momentum deltas that decay.
-/// The surface scales them to pixels and Ghostty's own scroll path decides
-/// what the app gets: SGR wheel reports (buttons 64/65) at the finger when
-/// it asked for the mouse (DECSET 1000/1002/1003 + 1006), cursor up/down on
-/// the alternate screen with alternate scroll (DECSET 1007, Ghostty's
-/// default), and nothing otherwise.
-///
-/// Like a Mac trackpad's accelerated deltas, a fast finger moves the wheel
-/// further than the finger (``gain(speed:)``): 1:1 up to ``preciseSpeed``,
-/// so a slow drag still scrolls line by line, rising to ``maximumGain`` at
-/// ``fullSpeed``. Without it a flick through a long Claude Code transcript
-/// moved about a quarter of what the same flick moves on the Mac.
+/// page. The drag is an ordinary UIScrollView scroll (Leo, 2026-11-25: "for
+/// scrolling on iphone ... we can just treat the scroll like any pedestrian
+/// scroll"): each change of the scroll view's offset, the finger's and then
+/// UIKit's deceleration, is one precise wheel delta in points, 1:1, in the
+/// natural direction (a finger moving down lowers the offset and scrolls
+/// toward older content, a wheel up); the deceleration's are momentum. The
+/// surface scales them to pixels and Ghostty's own scroll path decides what
+/// the app gets: SGR wheel reports (buttons 64/65) at the finger when it
+/// asked for the mouse (DECSET 1000/1002/1003 + 1006), cursor up/down on the
+/// alternate screen with alternate scroll (DECSET 1007, Ghostty's default),
+/// and nothing otherwise.
 public struct TerminalTUIScroll: Equatable, Sendable {
     /// Ghostty's momentum phases (`ghostty_input_mouse_momentum_e`).
     public enum Momentum: Int32, Sendable {
@@ -37,39 +34,35 @@ public struct TerminalTUIScroll: Equatable, Sendable {
         }
     }
 
-    /// Finger speeds (points per second) up to this scroll 1:1.
-    public static let preciseSpeed: CGFloat = 300
-    /// From this speed on the wheel moves ``maximumGain`` times the finger.
-    public static let fullSpeed: CGFloat = 3000
-    public static let maximumGain: CGFloat = 3
-
-    private var lastTranslation: CGFloat = 0
+    private var lastOffset: CGFloat = 0
+    private var momentumBegan = false
 
     public init() {}
 
-    /// How far the wheel moves per point of finger at `speed` (points per
-    /// second, either sign): 1 up to ``preciseSpeed``, then linear up to
-    /// ``maximumGain`` at ``fullSpeed``.
-    public static func gain(speed: CGFloat) -> CGFloat {
-        let speed = abs(speed)
-        guard speed > preciseSpeed else { return 1 }
-        let fraction = min(1, (speed - preciseSpeed) / (fullSpeed - preciseSpeed))
-        return 1 + (maximumGain - 1) * fraction
+    /// The scroll view's offset is `offset` and no scroll is under way (a
+    /// new drag, or the offset moved back to the middle of its range).
+    public mutating func reset(offset: CGFloat) {
+        lastOffset = offset
     }
 
-    /// A drag began: its translation counts from here.
-    public mutating func began() {
-        lastTranslation = 0
-    }
-
-    /// The drag's running vertical translation and the finger's vertical
-    /// speed: the wheel for the movement since the last report, scaled by
-    /// ``gain(speed:)`` (nil when the finger did not move vertically).
-    public mutating func moved(translationY: CGFloat, velocityY: CGFloat = 0) -> Wheel? {
-        let delta = translationY - lastTranslation
-        lastTranslation = translationY
+    /// The scroll view's offset moved to `offset`, under the finger when
+    /// `tracking`, else in its deceleration: the wheel for the movement
+    /// since the last report (nil when it did not move).
+    public mutating func scrolled(to offset: CGFloat, tracking: Bool) -> Wheel? {
+        let delta = lastOffset - offset
+        lastOffset = offset
         guard delta != 0 else { return nil }
-        return Wheel(dy: delta * Self.gain(speed: velocityY), momentum: .none)
+        guard !tracking else { return Wheel(dy: delta, momentum: .none) }
+        defer { momentumBegan = true }
+        return Wheel(dy: delta, momentum: momentumBegan ? .changed : .began)
+    }
+
+    /// The scroll ended (the finger lifted with no fling, the fling stopped
+    /// or was stopped): the end of the momentum phase, once, if one began.
+    public mutating func ended() -> Wheel? {
+        guard momentumBegan else { return nil }
+        momentumBegan = false
+        return Wheel(dy: 0, momentum: .ended)
     }
 
     /// Ghostty's packed scroll mods (src/input/mouse.zig ScrollMods): bit 0
@@ -84,47 +77,6 @@ public struct TerminalTUIScroll: Equatable, Sendable {
     public static func takesDrag(motion: CGPoint) -> Bool {
         let vertical = abs(motion.y), horizontal = abs(motion.x)
         return vertical > 0 && vertical > horizontal
-    }
-}
-
-/// The fling after a TUI drag: wheel deltas from the release speed times the
-/// drag's gain (``TerminalTUIScroll/gain(speed:)``), decaying like the
-/// browser stream's momentum (0.95 per 1/60 s), as macOS momentum events
-/// (began, changed..., ended).
-public struct TerminalTUIMomentum: Equatable, Sendable {
-    /// Releases slower than this (points per second) stop where they are.
-    public static let minimumVelocity: CGFloat = 200
-    /// The fling ends once it is this slow.
-    public static let stopVelocity: CGFloat = 20
-
-    private var velocity: CGFloat
-    private var began = false
-    public private(set) var isFinished = false
-
-    public init?(velocityY: CGFloat) {
-        guard abs(velocityY) >= Self.minimumVelocity else { return nil }
-        velocity = velocityY * TerminalTUIScroll.gain(speed: velocityY)
-    }
-
-    /// One display frame of `dt` seconds: its wheel, the end once the fling
-    /// is slow enough, then nil.
-    public mutating func step(dt: CFTimeInterval) -> TerminalTUIScroll.Wheel? {
-        guard !isFinished else { return nil }
-        let dt = max(0, min(0.05, dt))
-        velocity *= CGFloat(pow(0.95, dt * 60))
-        if abs(velocity) < Self.stopVelocity {
-            isFinished = true
-            return began ? TerminalTUIScroll.Wheel(dy: 0, momentum: .ended) : nil
-        }
-        defer { began = true }
-        return TerminalTUIScroll.Wheel(dy: velocity * CGFloat(dt), momentum: began ? .changed : .began)
-    }
-
-    /// A touch or leaving the app stops the fling: its end, once.
-    public mutating func stop() -> TerminalTUIScroll.Wheel? {
-        guard !isFinished else { return nil }
-        isFinished = true
-        return began ? TerminalTUIScroll.Wheel(dy: 0, momentum: .ended) : nil
     }
 }
 
@@ -172,116 +124,5 @@ public struct TerminalTUITapClick: Equatable, Sendable {
         if let lastWheel, downAt - lastWheel < Self.quietAfterScroll { return .ignore }
         guard upAt - downAt <= Self.maximumHold, moved <= Self.maximumMovement else { return .focusOnly }
         return .click
-    }
-}
-
-/// Where a finger's vertical drag over the terminal goes: the one rule every
-/// pan, fling and wheel on the phone follows (Leo, 2026-11-12: "this terminal
-/// projection nigh unusable due to me scroll and thumb land on subagent
-/// depiction", then on less and man no longer scrolling: "Okay. But can't we
-/// do something here?").
-///
-/// A drag is a scroll. On the primary screen it moves the phone's own copy of
-/// the scrollback (the shell's page, Claude Code's inline transcript),
-/// sending nothing. On the alternate screen the history lives in the app:
-/// the drag reaches it as wheel reports when it asked for the mouse (DECSET
-/// 1000/1002/1003), which is the app saying a wheel scrolls it.
-///
-/// Without mouse reporting, Ghostty on the Mac turns the wheel into cursor
-/// up/down keys (alternate scroll, DECSET 1007, on by default), which is
-/// how a trackpad scrolls less, man and vim there. The phone does the same,
-/// through Ghostty's own path (it reads 1007 and DECCKM itself), but only
-/// for a program that pages with those keys (``TerminalAlternateScroll``):
-/// Claude Code's full-screen renderer without mouse capture sets exactly
-/// less's modes, and arrows there walked its prompt history and its
-/// background-agent list. Every other program, and a program not known
-/// yet, gets nothing: the page stays put and no byte goes out.
-public enum TerminalPanRoute: Equatable, Sendable {
-    /// The phone's own scrollback scrolls; nothing is sent.
-    case localScrollback
-    /// The app gets wheel reports (it asked for the mouse).
-    case wheelReports
-    /// The app gets Ghostty's alternate scroll: one cursor up/down key per
-    /// row (a pager or an editor on the alternate screen, no mouse reporting).
-    case cursorKeys
-    /// Nothing moves and nothing is sent (any other alternate-screen app
-    /// without mouse reporting).
-    case none
-
-    /// `foregroundProgram`: the terminal's foreground program on the Mac
-    /// (``TerminalAlternateScroll/program(processInfo:)``), nil while not known.
-    public static func route(alternateScreen: Bool, appReportsMouse: Bool, foregroundProgram: String? = nil) -> TerminalPanRoute {
-        guard alternateScreen else { return .localScrollback }
-        if appReportsMouse { return .wheelReports }
-        return TerminalAlternateScroll.pagesWithArrows(foregroundProgram) ? .cursorKeys : .none
-    }
-
-    /// Whether the drag (and its fling) reaches the app.
-    public var reachesApp: Bool { self == .wheelReports || self == .cursorKeys }
-}
-
-/// Which foreground programs a drag scrolls with cursor keys on the
-/// alternate screen (``TerminalPanRoute/cursorKeys``), and the whole rows a
-/// drag moves.
-///
-/// The program is the Mac's own reading of the terminal's foreground job
-/// (`process-info` `foreground_program`: the foreground process group
-/// leader's name, or the script a leading shell runs), never a guess from the screen: Claude Code without mouse
-/// capture and less set the same modes (alternate screen, application cursor
-/// keys, no mouse). So the list names programs that page or edit with the
-/// arrows, and anything else (claude, codex, node, ssh, tmux, a wrapper
-/// script's sh) keeps a drag at zero bytes. git is here for its pager
-/// (`git log`, `git diff`: git leads the job, less runs under it), as are
-/// systemctl and journalctl. man on macOS is a shell script: its leader is
-/// sh, and the Mac names the job by the script it runs (`man`).
-public enum TerminalAlternateScroll {
-    public static let programs: Set<String> = [
-        "less", "more", "most", "pg", "man", "info", "pinfo",
-        "git", "bat", "batcat", "delta", "journalctl", "systemctl",
-        "vim", "vi", "nvim", "view", "vimdiff", "nvi", "elvis",
-    ]
-
-    /// The foreground program a `process-info` reply's data names:
-    /// `foreground_program` (the job's program; a shell script's own name,
-    /// `man` on macOS), else `foreground_executable` (the job leader's
-    /// executable) from a Mac that predates it. Nil when neither is there.
-    public static func program(processInfo reply: [String: Any]) -> String? {
-        let data = reply["data"] as? [String: Any] ?? reply
-        return data["foreground_program"] as? String ?? data["foreground_executable"] as? String
-    }
-
-    /// Whether `program` (a path or a name) pages with cursor keys.
-    public static func pagesWithArrows(_ program: String?) -> Bool {
-        guard let program, !program.isEmpty else { return false }
-        var name = program.split(separator: "/").last.map(String.init) ?? program
-        if name.hasPrefix("-") { name.removeFirst() }
-        return programs.contains(name)
-    }
-
-    /// The whole rows of a drag, for ``TerminalPanRoute/cursorKeys``: one key
-    /// per row the wheel moved, the part of a row kept for the next move,
-    /// and nothing carried into the next drag (a drag and its fling end on a
-    /// row). Ghostty drops the part of a row left over whenever it scrolls,
-    /// so a wheel it gets is always whole rows plus ``slack``.
-    public struct Rows: Equatable, Sendable {
-        /// A sliver over the whole rows, so float rounding never loses one.
-        public static let slack: CGFloat = 0.01
-        private var pending: CGFloat = 0
-
-        public init() {}
-
-        /// A new drag: no row left over from the last one.
-        public mutating func began() { pending = 0 }
-
-        /// The wheel for `dy` points of movement with rows `rowHeight`
-        /// points tall: whole rows (positive up), or nil until a row is due.
-        public mutating func take(_ dy: CGFloat, rowHeight: CGFloat) -> CGFloat? {
-            guard rowHeight > 0 else { return nil }
-            pending += dy
-            let rows = (pending / rowHeight).rounded(.towardZero)
-            guard rows != 0 else { return nil }
-            pending -= rows * rowHeight
-            return (rows + (rows > 0 ? Self.slack : -Self.slack)) * rowHeight
-        }
     }
 }

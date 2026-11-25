@@ -14,9 +14,13 @@ public nonisolated enum ExternalOpenRoute: Equatable, Sendable {
     /// the App's confirmation (`ExternalLinkGate`): a page must not make
     /// cmux connect to a host it picks without the person's answer.
     case ssh(SSHLinkTarget)
+    /// Images opened with cmux or dropped on its Dock icon, or sent by the Send to cmux Chat
+    /// service: they go into an agent chat's composer as an unsent draft (the focused chat, else a
+    /// new one). `from`: the bundle id of the app they came from, when known.
+    case attachImages([URL], from: String?)
     /// Any other file: the shared file opener (`file.open`), which shows
     /// Markdown in the Markdown page, text and code in the code editor page,
-    /// and images, PDFs and media in a browser tab.
+    /// and PDFs and media in a browser tab (images go to a chat: ``attachImages(_:from:)``).
     case file(URL)
     /// A link in this build's scheme (`cmux://tab/…`): the caller runs the
     /// `link.open` action with it, which only navigates.
@@ -50,6 +54,16 @@ public nonisolated struct ExternalOpenRouter: Sendable {
 
     /// A path shaped like a chat share page (`/g/<id>` or `/i/<id>`); the daemon decides whether its host
     /// is a share room's, so any other site's page of that shape still opens as a browser tab.
+    /// A run's screen link's web form (`https://cmux.com/deeplink/screen?device=&display=`, a
+    /// universal link): `link.open` opens that device's Screen Sharing tab.
+    static func isScreenLink(_ url: URL) -> Bool {
+        guard url.scheme?.lowercased() == "https", let host = url.host(percentEncoded: false)?.lowercased(),
+              host == "cmux.com" || host == "www.cmux.com" else { return false }
+        var path = url.path(percentEncoded: false)
+        while path.count > 1, path.hasSuffix("/") { path.removeLast() }
+        return path == "/deeplink/screen"
+    }
+
     static func isSharePagePath(_ path: String) -> Bool {
         var parts = path.split(separator: "/", omittingEmptySubsequences: false)
         if parts.last == "", parts.count == 4 { parts.removeLast() }
@@ -101,6 +115,7 @@ public nonisolated struct ExternalOpenRouter: Sendable {
         }
         switch url.scheme?.lowercased() {
         case "https" where Self.isSharePagePath(url.path(percentEncoded: true)): return .shareLink(url)
+        case "https" where Self.isScreenLink(url): return .deepLink(url)
         case "http", "https": return .browserTab(url)
         case "file": return routeFile(url.path)
         case "ssh": return ssh(url)
@@ -128,6 +143,7 @@ public nonisolated struct ExternalOpenRouter: Sendable {
         guard activityType == NSUserActivityTypeBrowsingWeb, let url = webpageURL,
               let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return .unsupported }
         if scheme == "https", Self.isSharePagePath(url.path(percentEncoded: true)) { return .shareLink(url) }
+        if Self.isScreenLink(url) { return .deepLink(url) }
         return .browserTab(url)
     }
 
@@ -147,7 +163,14 @@ public nonisolated struct ExternalOpenRouter: Sendable {
             return .terminal(cwd: folder, command: isExecutable(path) ? quoted : "\(shell) \(quoted)")
         }
         if ext.isEmpty, isExecutable(path) { return .terminal(cwd: folder, command: ShellQuote.quote(path)) }
+        // A picture (a screenshot, a photo) goes to a chat; SVG stays a page (``pageExtensions``).
+        if Self.isImage(ext) { return .attachImages([URL(fileURLWithPath: path)], from: nil) }
         return .file(URL(fileURLWithPath: path))
+    }
+
+    /// Whether a file of extension `ext` is a picture (PNG, JPEG, HEIC, TIFF, GIF and the rest).
+    static func isImage(_ ext: String) -> Bool {
+        !ext.isEmpty && UTType(filenameExtension: ext)?.conforms(to: .image) == true
     }
 
     /// `ssh://[user@]host[:port]`, as Terminal handles it. The host and

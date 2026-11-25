@@ -2,7 +2,7 @@ import Foundation
 
 /// Who a device's connectivity events are recorded for, from the signed-in account's email.
 ///
-/// The cmux team (an account whose email domain is `manaflow.ai` or `cmux.com`, or a subdomain
+/// The cmux team (an account whose email domain is `manaflow.ai`, `manaflow.com` or `cmux.com`, or a subdomain
 /// of one) gets ``team``: every event, its free-text detail (error text, endpoints, peer ids) and
 /// no sampling. Everyone else, and a signed-out device, gets ``everyone``: fixed-vocabulary
 /// fields only, sampled and budgeted (``ConnectivityPolicy``).
@@ -10,8 +10,9 @@ public enum ConnectivityAudience: String, Sendable, Equatable, Codable, CaseIter
     case team
     case everyone
 
-    /// The email domains of the cmux team.
-    public static let teamDomains: [String] = ["manaflow.ai", "cmux.com"]
+    /// The email domains of the cmux team (the mobile service's connectivity alerts use the same list:
+    /// cmux-next-ios/backend/src/connectivity-alerts.ts `TEAM_DOMAINS`).
+    public static let teamDomains: [String] = ["manaflow.ai", "manaflow.com", "cmux.com"]
 
     /// The audience of a signed-in account.
     ///

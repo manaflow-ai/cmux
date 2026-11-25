@@ -6,10 +6,10 @@ import Testing
 #if os(iOS)
 import UIKit
 
-/// ask-87d30da8e5: the phone's chrome takes the Mac's theme and wallpaper. The palette is derived
-/// from the theme the Mac sends with the Mac's own code, kept on disk so launch and offline paint
-/// it before any link, replaced by what a connected Mac sends, and never overrides a look the
-/// person chose on the phone (Match Mac theme off, an accent picked, an explicit Light or Dark).
+/// ask-87d30da8e5: the phone's chrome and accent follow the Mac's theme by default. The palette
+/// is derived from the theme the Mac sends with the Mac's own code, kept on disk so launch and
+/// offline have it before any link, replaced by what a connected Mac sends, and never overrides a
+/// look the person chose on the phone (Match Mac theme off, an accent picked, an explicit Light or Dark).
 @MainActor
 @Suite struct MacThemeTests {
     static func defaults() -> UserDefaults {
@@ -34,13 +34,6 @@ import UIKit
         background: "#fdf6e3", foreground: "#657b83",
         palette: ["#073642", "#dc322f", "#859900", "#b58900", "#268bd2", "#d33682", "#2aa198", "#eee8d5"],
         accent: "blue"))
-
-    static func png() -> Data {
-        UIGraphicsImageRenderer(size: CGSize(width: 4, height: 4)).pngData { context in
-            UIColor.systemTeal.setFill()
-            context.fill(CGRect(x: 0, y: 0, width: 4, height: 4))
-        }
-    }
 
     static func contrast(_ a: CmuxMobileRGBA, _ b: CmuxMobileRGBA) -> Double {
         let over = { (c: CmuxMobileRGBA) in ThemeRGB(red: c.red, green: c.green, blue: c.blue, alpha: c.alpha).composited(over: ThemeRGB(red: b.red, green: b.green, blue: b.blue)) }
@@ -78,27 +71,64 @@ import UIKit
         #expect(CmuxMobileMacAppearance.decode(Data(##"{"theme":{"background":"red","foreground":"#ffffff","palette":[],"accent":"neutral","background_opacity":1},"wallpaper":null}"##.utf8)) == nil)
     }
 
-    /// Launch and offline: the last theme and wallpaper are read from disk before any link.
+    /// The Mac's window blur crosses the wire (none from a Mac that predates it) and the phone's
+    /// picture is blurred by it, as the Mac frosts what shows through its window.
+    @Test func theMacsBlurDecodesAndBlursThePicture() throws {
+        let frame = ##"{"theme":{"background":"#1e1e2e","foreground":"#cdd6f4","palette":["#000000","#111111","#222222","#333333","#444444","#555555","#666666","#777777"],"accent":"neutral","background_opacity":0.8,"background_blur":-1},"wallpaper":null}"##
+        #expect(try #require(CmuxMobileMacAppearance.decode(Data(frame.utf8))).theme.backgroundBlur == -1)
+        #expect(Self.mocha.theme.backgroundBlur == nil)
+        #expect(CmuxMobileMacTheme.blurRadius(nil) == 0)
+        #expect(CmuxMobileMacTheme.blurRadius(0) == 0)
+        #expect(CmuxMobileMacTheme.blurRadius(12) == 12)
+        #expect(CmuxMobileMacTheme.blurRadius(-1) == 20)
+        #expect(CmuxMobileMacTheme.blurRadius(-2) == 8)
+        // A hard black and white edge comes out soft: the pixel beside it is gray.
+        let sharp = UIGraphicsImageRenderer(size: CGSize(width: 40, height: 10), format: { let f = UIGraphicsImageRendererFormat(); f.scale = 1; return f }()).image { context in
+            UIColor.black.setFill(); context.fill(CGRect(x: 0, y: 0, width: 20, height: 10))
+            UIColor.white.setFill(); context.fill(CGRect(x: 20, y: 0, width: 20, height: 10))
+        }
+        #expect(CmuxMobileMacTheme.blurred(sharp, radius: 0) == nil)
+        let soft = try #require(CmuxMobileMacTheme.blurred(sharp, radius: 4))
+        #expect(soft.size == sharp.size)
+        let gray = try #require(Self.red(soft, x: 19, y: 5))
+        #expect(gray > 40 && gray < 215)
+    }
+
+    /// The red byte of pixel (x, y).
+    static func red(_ image: UIImage, x: Int, y: Int) -> Int? {
+        guard let cg = image.cgImage else { return nil }
+        var pixel = [UInt8](repeating: 0, count: 4)
+        guard let context = CGContext(data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                                      space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        context.draw(cg, in: CGRect(x: -x, y: y - cg.height + 1, width: cg.width, height: cg.height))
+        return Int(pixel[0])
+    }
+
+    /// Launch and offline: the last theme is read from disk before any link.
     @Test func theCacheIsReadBeforeAnyLink() async throws {
         let cache = Self.cache()
-        let bytes = Self.png()
-        var appearance = Self.mocha
-        appearance.wallpaper = .init(id: "a1b2", bytes: bytes.count, tintOpacity: 0.6)
         let first = CmuxMobileMacTheme(defaults: Self.defaults(), cache: cache)
-        first.apply(appearance, wallpaper: bytes)
-        // The colors change at once; the picture is written and decoded off the main actor.
+        first.apply(Self.mocha)
         #expect(first.palette == CmuxMobileMacPalette(Self.mocha))
-        #expect(!first.needsWallpaper(appearance))
         await first.settled()
-        #expect(first.wallpaper?.image != nil)
-        // The next launch, with no Mac reachable: the colors are there before the first frame.
+        // The next launch, with no Mac reachable: the palette is there before the first frame.
         let relaunched = CmuxMobileMacTheme(defaults: Self.defaults(), cache: cache)
-        #expect(relaunched.appearance == appearance)
+        #expect(relaunched.appearance == Self.mocha)
         #expect(relaunched.palette == CmuxMobileMacPalette(Self.mocha))
-        await relaunched.settled()
-        #expect(relaunched.wallpaper?.tint == 0.6)
-        #expect(relaunched.wallpaper?.image != nil)
-        #expect(!relaunched.needsWallpaper(appearance))
+    }
+
+    /// A wallpaper an earlier build kept is dropped at the next save, and none is written.
+    @Test func aSaveDropsAWallpaperAnEarlierBuildKept() async throws {
+        let cache = Self.cache()
+        try FileManager.default.createDirectory(at: cache.folder, withIntermediateDirectories: true)
+        try Data([1, 2, 3]).write(to: cache.folder.appendingPathComponent("wallpaper-ab12.img"))
+        var appearance = Self.mocha
+        appearance.wallpaper = .init(id: "ab12", bytes: 3, tintOpacity: 0.6)
+        let theme = CmuxMobileMacTheme(defaults: Self.defaults(), cache: cache)
+        theme.apply(appearance)
+        await theme.settled()
+        #expect(try FileManager.default.contentsOfDirectory(atPath: cache.folder.path) == ["appearance.json"])
     }
 
     /// A connected Mac's theme replaces the cached one, live and on disk.
@@ -125,8 +155,7 @@ import UIKit
         let theme = CmuxMobileMacTheme(defaults: Self.defaults(), cache: Self.cache())
         #expect(theme.matchesMac)
         #expect(theme.palette == nil)
-        #expect(theme.wallpaper == nil)
-        let stock = CmuxMobileColors.stockBg
+        let stock = CmuxMobileColors().bg
         #expect(theme.token(stock) { $0.bg } == stock)
     }
 
@@ -134,7 +163,7 @@ import UIKit
     @Test func theMacsColorTakesOnlyItsOwnAppearance() throws {
         let theme = CmuxMobileMacTheme(defaults: Self.defaults(), cache: Self.cache())
         theme.apply(Self.mocha)
-        let stock = CmuxMobileColors.stockBg
+        let stock = CmuxMobileColors().bg
         let token = theme.token(stock) { $0.bg }
         #expect(token.dark == CmuxMobileRGBA(hex: "#1e1e2e"))
         #expect(token.light == stock.light)
@@ -149,7 +178,7 @@ import UIKit
     @Test func systemDarkUnderALightMacThemeTakesTheDarkSlot() {
         let theme = CmuxMobileMacTheme(defaults: Self.defaults(), cache: Self.cache())
         theme.apply(Self.solarizedLight)
-        let stock = CmuxMobileColors.stockBg
+        let stock = CmuxMobileColors().bg
         let token = theme.token(stock) { $0.bg }
         let dark = token.uiColor.resolvedColor(with: UITraitCollection(userInterfaceStyle: .dark))
         let light = token.uiColor.resolvedColor(with: UITraitCollection(userInterfaceStyle: .light))
@@ -173,7 +202,7 @@ import UIKit
         theme.matchesMac = false
         #expect(theme.palette == nil)
         #expect(theme.macPalette != nil)
-        #expect(theme.token(CmuxMobileColors.stockLabel) { $0.label } == CmuxMobileColors.stockLabel)
+        #expect(theme.token(CmuxMobileColors().label) { $0.label } == CmuxMobileColors().label)
         #expect(CmuxMobileMacTheme(defaults: store, cache: cache).matchesMac == false)
     }
 

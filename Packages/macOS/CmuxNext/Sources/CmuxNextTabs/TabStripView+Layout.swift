@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 public import CmuxNextDesign
+import CmuxNextDesignTokens
 import CmuxNextWakeups
 import QuartzCore
 // Layout, frame application (edge fades: `TabEdgeFade`), and the FrameScheduler animation client.
@@ -60,7 +61,7 @@ extension TabStripView {
         var previousMaxX: CGFloat?
         var starts: [TabID: TabPlace] = [:]
         for slot in result.slots where slot.id != Self.placeholderID {
-            defer { if grows { previousMaxX = starts[slot.id]?.maxX ?? shownMaxX(slot.id) ?? slot.maxX } }
+            defer { if grows { previousMaxX = starts[slot.id]?.maxX ?? shownMaxX(slot.id, at: move?.begin) ?? slot.maxX } }
             guard var place = placed[slot.id] else { continue }
             if added.contains(slot.id), move != nil {
                 if let pendingDrop, pendingDrop.id == slot.id {
@@ -102,6 +103,7 @@ extension TabStripView {
         // An opening tab first shows where it opens from; the move takes it to its slot.
         if !starts.isEmpty { place(starts, mapping: mappingBefore) }
         applyFrames(move: move, scrollFrom: mappingBefore)
+        noteNaturalWidth()
     }
 
     /// ``isCrowded`` from the layout just made. Closing mode's pretend width keeps the tabs as they
@@ -111,7 +113,7 @@ extension TabStripView {
         let crowded = closingModeWidth == nil ? result.isOverflowing || squeezed : isCrowded
         guard crowded != isCrowded else { return }
         isCrowded = crowded
-        reveal.hover.restAlpha = TabTunables.restingControlAlpha(crowded: crowded)
+        reveal.hover.restAlpha = TabTunables.restingControlAlpha(crowded: crowded, minimal: DesignSettings.shared.sidebarSections.hidesControlsUntilHover)
         onCrowdedChange?(crowded)
     }
 
@@ -235,18 +237,18 @@ extension TabStripView {
         goesAt[id] = max(goesAt[id] ?? 0, end)
     }
 
-    /// Where `id`'s cell shows now, its right edge in content coordinates (the presentation layer
-    /// includes every move in flight); nil when it has no cell.
-    func shownMaxX(_ id: TabID) -> CGFloat? {
+    /// Where `id`'s cell shows at media time `time` (nil: now), its right edge in content coordinates, with every
+    /// move in flight (`TabStripMove.shownFrame`, also those added since the last commit); nil when it has no cell.
+    func shownMaxX(_ id: TabID, at time: CFTimeInterval? = nil) -> CGFloat? {
         guard let layer = cells[id]?.layer ?? id.chipGroupID.flatMap({ groups.chips[$0]?.layer }) else { return nil }
-        let frame = (layer.presentation() ?? layer).frame
+        let frame = TabStripMove.shownFrame(layer, at: time ?? CACurrentMediaTime())
         return scrollMapping.contentX(frame.maxX, isPinned: cells[id]?.item.isPinned ?? false)
     }
 
     /// Where `id`'s cell shows now, its left edge in content coordinates.
     func shownX(_ id: TabID) -> CGFloat? {
         guard let cell = cells[id] else { return nil }
-        return scrollMapping.contentX((cell.layer.presentation() ?? cell.layer).frame.minX, isPinned: cell.item.isPinned)
+        return scrollMapping.contentX(TabStripMove.shownFrame(cell.layer).minX, isPinned: cell.item.isPinned)
     }
 
     /// The strip's scroll mapping now: pinned tabs fixed, unpinned tabs at the scroll's current value.
@@ -338,15 +340,19 @@ extension TabStripView {
             let frame = cellFrame(place, isPinned: isPinned)
             let opacity = Float(min(max(place.alpha, 0), 1))
             var moved = false
+            // A tab still moving from an earlier change joins this one: it restarts from where it shows on this
+            // change's curve, so every tab of the strip moves on one curve and neighbours stay edge to edge.
+            let restarts = move.map { !$0.isScroll && TabStripMove.isMoving(cell.layer) } ?? false
             // A tab the scroll alone moves keeps its place on screen: its scroll part and the rest cancel.
-            if let move, frame != cell.frame || opacity != cell.layer.opacity || abs(scrollPart(isPinned: isPinned)) > 0.01 {
+            if let move, restarts || frame != cell.frame || opacity != cell.layer.opacity || abs(scrollPart(isPinned: isPinned)) > 0.01 {
                 // The root moves; its parts follow its width path (`TabCell.retimeInner`), its mask the pill's (`TabOcclusion`).
                 let before = TabStripMove.snapshot(cell.layer, depth: 0, masks: false)
                 let resized = frame.size != cell.frame.size
                 cell.setFrame(frame, laysOut: false)
                 cell.layer.opacity = opacity
-                moved = move.animate(from: before, closing: dying.contains(id), scroll: scrollPart(isPinned: isPinned))
-                if resized { cell.layoutLayers() }
+                moved = move.animate(from: before, closing: dying.contains(id), scroll: scrollPart(isPinned: isPinned), restarts: restarts)
+                // A new width path (a resize, or a restart that replaced the one in flight): the parts follow it.
+                if resized || restarts { cell.layoutLayers() }
             } else {
                 cell.frame = frame
                 cell.layer.opacity = opacity
@@ -370,9 +376,8 @@ extension TabStripView {
         framedCells = FramedCells(basis: cellFrameBasis(mapping: mapping), trailing: trailing, count: cells.count)
         let buttonWidth = metrics.newTabButtonWidth
         let buttonX = tabsClip.frame.minX + min(trailing - offset, viewportWidth) + newTabLeadingGap
-        // Square, centered on the tabs: it keeps its size when the tabs are shorter. The split look's `+ ⌄` is a tab's
-        // height, so its hover is a tab's band (Lucas 2026-11-12: "same height and roundness as tabs").
-        let buttonHeight = NewTabButtonView.frameHeight(split: newTabButton.splitSegment, side: buttonWidth, tabHeight: tabHeight)
+        // A tab's height in every look (`Metrics.tabBarControlSide`), the pane ⋮'s too, centered on the tabs.
+        let buttonHeight = NewTabButtonView.frameHeight
         let buttonFrame = CGRect(x: pixel(buttonX), y: pixel(tabY + (tabHeight - buttonHeight) / 2), width: buttonWidth, height: buttonHeight)
         let buttonFrom = newTabButton.frame.origin
         newTabButton.frame = buttonFrame
@@ -381,13 +386,14 @@ extension TabStripView {
         // The scroll moves it only where it follows the last tab both before and now (not held at the strip's end).
         let buttonEnd = pixel(tabsClip.frame.minX + viewportWidth) - 0.5
         let scroll = buttonFrame.minX < buttonEnd && buttonFrom.x < buttonEnd ? scrollPart(isPinned: false) : 0
-        if let move, buttonFrom != buttonFrame.origin || abs(scroll) > 0.01 {
-            // Both controls follow the same move and scroll, staying adjacent throughout the transition.
+        let buttonLayers = [newTabButton.layer, newTabMenuButton.layer].compactMap { $0 }
+        let buttonRestarts = move.map { !$0.isScroll && buttonLayers.contains(where: TabStripMove.isMoving) } ?? false
+        if let move, buttonRestarts || buttonFrom != buttonFrame.origin || abs(scroll) > 0.01 {
+            // Both controls follow the same move and scroll, staying adjacent throughout the transition; one still
+            // moving restarts from where it shows on this change's curve, with the tabs.
             let delta = CGPoint(x: buttonFrom.x - buttonFrame.minX - scroll, y: buttonFrom.y - buttonFrame.minY)
-            for layer in [newTabButton.layer, newTabMenuButton.layer].compactMap({ $0 }) {
-                if abs(delta.x) > 0.01 || abs(delta.y) > 0.01 {
-                    move.add(move.motion.additive("position", from: NSValue(point: delta), to: NSValue(point: .zero)), to: layer, as: "button")
-                }
+            for layer in buttonLayers {
+                move.move(layer, position: delta, as: "button")
                 move.addScroll(scroll, to: layer)
             }
         }

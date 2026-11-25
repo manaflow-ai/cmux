@@ -44,6 +44,9 @@ What is generated, in one place:
           timeout is the runner's, not the change's. A busy runner makes the guard slower, never red;
         - leaves a tracked generated file at --head that neither a committed generator nor the
           baseline covers.
+  generated_files_guard.py added --repo DIR --base REV --head REV
+      The first rule above alone (a new committed generated file), read from git objects only: no
+      working tree, no generator check. Seconds; the pre-push gate runs it on every push.
   generated_files_guard.py baseline --repo DIR
       Prints the baseline for DIR's tracked files (the last rule's set), to write the file.
 """
@@ -253,8 +256,8 @@ def read_head(repo: Path, path: str) -> bytes:
         return b""
 
 
-def why_generated(rules: Rules, repo: Path, path: str) -> str | None:
-    """Why `path` (in the working tree) is a generated file, or None."""
+def why_generated(rules: Rules, repo: Path, path: str, head: dict[str, bytes] | None = None) -> str | None:
+    """Why `path` (in the working tree, or HEAD's first bytes of it when given) is a generated file, or None."""
     if rules.committed_by_design(path):
         return None
     found = rules.generator_of(path)
@@ -264,7 +267,7 @@ def why_generated(rules: Rules, repo: Path, path: str) -> str | None:
         return "the base autofix regenerates it (scripts/cmux-next/generated_outputs.py)"
     if matches(path, rules.conventions):
         return f"its name marks it generated ({MANIFEST} conventions)"
-    if generated_header(read_head(repo, path)):
+    if generated_header(read_head(repo, path) if head is None else head.get(path, b"")):
         return "its header says it is generated"
     return None
 
@@ -311,6 +314,10 @@ def rule_changes(base: Rules, head: Rules, base_tracked: set[str]) -> list[str]:
                           "A committed generator's outputs may only narrow.")
     old_exports = {p for patterns, _ in base.exports for p in patterns}
     for pattern in sorted({p for patterns, _ in head.exports for p in patterns} - old_exports):
+        # Registering an existing output repairs ownership; it adds no generated file.
+        # Only literal paths qualify: a glob would authorize future committed outputs.
+        if pattern in base_tracked and not any(char in pattern for char in "*?["):
+            continue
         errors.append(f"{OUTPUTS}: {pattern} is a new committed export. Exports are committed generated "
                       "files; a new output belongs at build time (gitignored), not in the base autofix's list.")
     known = {json.dumps(e, sort_keys=True) for e in base.committed}
@@ -415,6 +422,71 @@ def hand_edits(rules: Rules, changed: list[tuple[str, str]], repo: Path | None =
     return errors
 
 
+def blob_heads(repo: Path, rev: str, paths: list[str]) -> dict[str, bytes]:
+    """The first HEADER_BYTES of each regular file PATHS name at REV, from git objects (one cat-file for all)."""
+    wanted = [p for p in paths if "\n" not in p]
+    if not wanted:
+        return {}
+    modes = {}
+    for record in git(repo, "ls-tree", "-z", rev, "--", *wanted).split("\0"):
+        if record:
+            meta, path = record.split("\t", 1)
+            modes[path] = meta.split()[0]
+    regular = [p for p in wanted if modes.get(p) in ("100644", "100755")]
+    if not regular:
+        return {}
+    result = subprocess.run(["git", "-C", str(repo), "cat-file", "--batch"], capture_output=True, check=False,
+                            input="".join(f"{rev}:{p}\n" for p in regular).encode("utf-8", "surrogateescape"))
+    if result.returncode != 0:
+        raise RuntimeError(f"git cat-file --batch: {result.stderr.decode('utf-8', 'replace').strip()}")
+    out, at, heads = result.stdout, 0, {}
+    for path in regular:
+        end = out.index(b"\n", at)
+        header = out[at:end].split()
+        at = end + 1
+        if len(header) != 3:  # "<name> missing"
+            continue
+        size = int(header[2])
+        heads[path] = out[at:at + min(size, HEADER_BYTES)]
+        at += size + 1
+    return heads
+
+
+def new_generated(base: Rules, head: Rules | None, repo: Path, added: list[str],
+                  heads: dict[str, bytes] | None = None) -> list[tuple[str, str]]:
+    """(path, error) per added file that is generated and that no "committed" generator covers. The base's rules decide,
+    and an output the change itself declares (say a new "build" generator's) is generated too unless the head covers
+    it (rule_changes judges that cover). HEADS: the files' first bytes from git (None: the working tree)."""
+    errors = []
+    for path in added:
+        if base.covered(path):
+            continue
+        why = why_generated(base, repo, path, heads) or (
+            None if head is None or head.covered(path) else why_generated(head, repo, path, heads))
+        if why:
+            errors.append((path,
+                f"{path}: a new committed generated file ({why}). Generated files are build output: "
+                "gitignore it and generate it where it is used (the build, the test preload, the install "
+                "hook), the way the web bundles and the page strings are (ce0b9e76, #21946)."))
+    return errors
+
+
+def added_generated(repo: Path, base_rev: str, head_rev: str) -> list[str]:
+    """check()'s first rule alone, from git objects only (no working tree, no generator runs): the pre-push gate's
+    fast pass, so a direct push or a merge meets it before it lands (2026-11-22: #49757 committed
+    SettingsSchema+Appearance5.generated.swift, a settings-sources output the build plugin makes, and the package
+    stopped compiling; the full check runs on a pull request into feat-cmux-next only with full-ci)."""
+    base = rules_at(repo, base_rev)
+    if base is None:
+        return []
+    added = [path for status, path in changes(repo, base_rev, head_rev) if status == "A"]
+    added = [path for path in added if not base.covered(path)]
+    if not added:
+        return []
+    return [error for _, error in new_generated(base, rules_at(repo, head_rev), repo, added,
+                                                blob_heads(repo, head_rev, added))]
+
+
 def check(repo: Path, base_rev: str, head_rev: str, exports=None) -> tuple[list[str], list[str]]:
     base = rules_at(repo, base_rev, exports)
     if base is None:
@@ -423,21 +495,13 @@ def check(repo: Path, base_rev: str, head_rev: str, exports=None) -> tuple[list[
     if head is None:
         return [f"{MANIFEST} is deleted. It is the list of generators this guard reads; keep it."], []
     changed = changes(repo, base_rev, head_rev)
-    errors: list[str] = []
-    reported: set[str] = set()
-    for status, path in changed:
-        if status != "A" or base.covered(path):
-            continue
-        # The base's rules decide, and an output the change itself declares (say a new "build"
-        # generator's) is generated too unless the head covers it (rule_changes judges that cover).
-        why = why_generated(base, repo, path) or (None if head.covered(path) else why_generated(head, repo, path))
-        if why:
-            reported.add(path)
-            errors.append(
-                f"{path}: a new committed generated file ({why}). Generated files are build output: "
-                "gitignore it and generate it where it is used (the build, the test preload, the install "
-                "hook), the way the web bundles and the page strings are (ce0b9e76, #21946).")
-    base_tracked = set(git(repo, "ls-tree", "-r", "--name-only", "-z", base_rev).split("\0")) - {""}
+    found = new_generated(base, head, repo, [path for status, path in changed if status == "A"])
+    errors: list[str] = [error for _, error in found]
+    reported = {path for path, _ in found}
+    # A gitlink is a separate repository, not an existing output file to register.
+    base_tracked = {record.split("\t", 1)[1]
+                    for record in git(repo, "ls-tree", "-r", "-z", base_rev).split("\0")
+                    if record and record.split("\t", 1)[0].split()[1] == "blob"}
     errors += rule_changes(base, head, base_tracked)
     notes: list[str] = []
     errors += hand_edits(base, changed, repo, notes, until=time.monotonic() + DEADLINE_SECONDS)
@@ -470,8 +534,17 @@ def main(argv: list[str]) -> int:
     run.add_argument("--base", required=True)
     run.add_argument("--head", required=True)
     sub.add_parser("baseline").add_argument("--repo", type=Path, default=Path("."))
+    fast = sub.add_parser("added", help="only the new-generated-file rule, from git objects (the pre-push gate)")
+    fast.add_argument("--repo", type=Path, default=Path("."))
+    fast.add_argument("--base", required=True)
+    fast.add_argument("--head", required=True)
     args = parser.parse_args(argv)
     repo = args.repo.resolve()
+    if args.command == "added":
+        errors = added_generated(repo, args.base, args.head)
+        for error in errors:
+            print(f"error: {error}")
+        return 1 if errors else 0
     if args.command == "baseline":
         manifest = (repo / MANIFEST).read_text(encoding="utf-8")
         outputs = repo / OUTPUTS

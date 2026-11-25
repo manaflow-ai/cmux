@@ -1,3 +1,4 @@
+import CmuxNextDaemon
 import CmuxNextServerHelper
 import Foundation
 
@@ -34,16 +35,15 @@ nonisolated struct ServerFixLedger: Sendable {
 
     let url: URL
 
-    /// `~/Library/Application Support/cmux/server-fix-ledger/<helper label>.json`:
-    /// keyed by this build's helper label (`<bundle id>.server-helper`), as
-    /// each build (DEV and NIGHTLY tags too) has its own helper. It outlives
-    /// app restarts; only reverts remove entries.
+    /// `~/Library/Application Support/cmux-next/server-fix-ledger/<helper label>.json`
+    /// (moved once from classic's `cmux`, ``ClassicFolderItemsMove``): keyed by this build's
+    /// helper label (`<bundle id>.server-helper`), as each build (DEV and NIGHTLY tags too)
+    /// has its own helper. It outlives app restarts; only reverts remove entries.
     static var standard: ServerFixLedger {
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
+        let support = DaemonLauncher.nextSupport()
         let label = Bundle.main.bundleIdentifier.flatMap { ServerHelperConstants().machServiceName(appBundleID: $0) }
             ?? "cmux.server-helper"
-        return ServerFixLedger(url: support.appendingPathComponent("cmux/server-fix-ledger/\(label).json"))
+        return ServerFixLedger(url: support.appendingPathComponent("server-fix-ledger/\(label).json"))
     }
 
     @concurrent func load() async -> Contents {

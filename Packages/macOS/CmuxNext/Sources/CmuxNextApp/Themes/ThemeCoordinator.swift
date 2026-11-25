@@ -87,7 +87,7 @@ final class ThemeCoordinator {
         let store = services.themeStore
         // `applied`: a live preview (a theme picker's highlighted row) shows too.
         chromeTheme = settings.applied.chromeTheme
-        store.setAccent(settings.applied.accent)
+        _ = (store.setAccent(settings.applied.accent), store.setSelection(settings.applied.selection))
         store.setAccentFollowsArt(AccentSetting.followsArt(settings.applied.root))
         applyChromeTheme()
         artAccentObservation = Task { [weak self] in
@@ -96,10 +96,10 @@ final class ThemeCoordinator {
                 self?.applyChromeTheme()
             }
         }
-        // `appearance.accent` re-derives the terminal-theme tokens (the store) and the app theme.
+        // `appearance.accent` and `.selection` re-derive the terminal-theme tokens (the store) and the app theme.
         accentObservation = Task { [weak self] in
-            for await accent in ObservationStream({ settings.applied.accent }) {
-                guard let self, store.setAccent(accent) else { continue }
+            for await (accent, selection) in ObservationStream({ (settings.applied.accent, settings.applied.selection) }) {
+                guard let self, (store.setAccent(accent), store.setSelection(selection)) != (false, false) else { continue }
                 self.applyChromeTheme()
             }
         }
@@ -118,6 +118,7 @@ final class ThemeCoordinator {
     }
 
     private func applyChromeTheme() {
+        defer { services.windows.recordSaver.launchRecord.schedule() }
         let store = services.themeStore
         let resolved = chromeTheme.flatMap(ThemeSpec.init).flatMap(resolver.resolve)
         // The theme file's colors, never the config's own color lines (the terminals keep those).
@@ -203,6 +204,7 @@ final class ThemeCoordinator {
         applyWorkspaceBackground(content)
         for pane in content.panes.values { applyPaneBackground(pane) }
         for id in content.panes.values.flatMap(\.orderedIDs) { services.cache.existingTerminal(id.rawValue).map { catchUp($0, fresh: false) } }
+        for pane in content.panes.values { pane.guestTerminal.map { catchUp($0.entry, fresh: false) } }
     }
 
     /// `entry` takes its theme as of the last `apply`. `fresh`: its surface was just made or
@@ -257,9 +259,10 @@ final class ThemeCoordinator {
     /// every live surface's config at once: the config event pays for it, never a later workspace
     /// or tab switch (the perf gate's relaunch tab switches caught a config apply on the switch).
     func apply(forceSurfaces: Bool = false) {
+        defer { services.windows.recordSaver.launchRecord.schedule() }
         applies.advance()
         for controller in services.windows.controllers { windowDidChange(controller) }
-        if forceSurfaces { for entry in services.cache.terminals.values { entry.themeBinding.syncSurface(force: true) } }
+        if forceSurfaces { for entry in Array(services.cache.terminals.values) + services.cache.guestTerminals.values.map(\.entry) { entry.themeBinding.syncSurface(force: true) } }
     }
 
     func setTheme(of scope: ThemeScope, to text: String?) {
@@ -269,6 +272,7 @@ final class ThemeCoordinator {
         guard resolved != nil || themed.contains(scope) else { return }
         if resolved == nil { themed.remove(scope) } else { themed.add(scope) }
         scope.setOverride(resolved?.spec, input: resolved?.input)
+        services.windows.recordSaver.launchRecord.schedule()
     }
 
     // MARK: Commit and preview

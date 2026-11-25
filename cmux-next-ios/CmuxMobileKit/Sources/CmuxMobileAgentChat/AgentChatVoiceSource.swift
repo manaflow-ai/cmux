@@ -19,6 +19,7 @@ public final class AgentChatVoiceSource: AgentVoiceSource {
 
     public var voiceSourceID: String { "chat:\(store.summary.macID):\(store.summary.id)" }
     public var voiceAgentName: String { store.summary.agentName }
+    public var voiceMacID: String? { store.summary.macID.isEmpty ? nil : store.summary.macID }
 
     public func startVoiceFeed(_ speak: @escaping @MainActor (String) -> Void) -> AgentVoiceFeed {
         let follower = Follower(store: store, tracker: AgentChatVoiceTracker(speech: speech), speak: speak)

@@ -27,6 +27,44 @@ async fn prompt_becomes_user_line_and_result_answers_it() {
     }
 }
 
+#[tokio::test]
+async fn streamed_text_with_zero_turn_metadata_ends_the_prompt() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let req = Message::request(
+        9,
+        method::SESSION_PROMPT,
+        json!({"sessionId": "acp-1", "prompt": [{"type": "text", "text": "warm up"}]}),
+    );
+    let Outbound::Lines(_) = t.outbound(&req).await else { panic!() };
+
+    // A text-only Claude stream has no whole `assistant` line. Claude Code's
+    // result can nevertheless report zero API turns and zero API time, the
+    // same metadata used for a resumed process's startup noise.
+    t.inbound(&json!({
+        "type": "stream_event",
+        "event": {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "ready"}}
+    }))
+    .await;
+    let msgs = t
+        .inbound(&json!({
+            "type": "result",
+            "subtype": "success",
+            "is_error": false,
+            "num_turns": 0,
+            "duration_api_ms": 0,
+            "result": "ready"
+        }))
+        .await;
+    assert!(
+        msgs.iter().any(|m| matches!(
+            m,
+            Message::Response { id, result: Some(r), .. }
+                if id.as_u64() == Some(9) && r["stopReason"] == "end_turn"
+        )),
+        "streamed text left its prompt open: {msgs:?}"
+    );
+}
+
 /// Claude Code's stream-json bridge accepts a client `side_question` control
 /// request while its main turn is running. It answers with the callback's
 /// payload, without an ACP prompt or transcript event.
@@ -605,6 +643,10 @@ async fn modes_are_claude_codes_own_labels_descriptions_and_order() {
 async fn versioned_family_names_reach_claude_code_as_full_ids() {
     assert_eq!(model_id("opus-5-5"), "claude-opus-5-5");
     assert_eq!(model_id("sonnet-5-5[1m]"), "claude-sonnet-5-5[1m]");
+    // Leo, 2026-11-22: Claude Code refused `fable-5.2` (`unrecognized_model`).
+    assert_eq!(model_id("fable-5.2"), "claude-fable-5-2");
+    assert_eq!(model_id("Fable 5.2"), "claude-fable-5-2");
+    assert_eq!(model_id("opus-5.5[1m]"), "claude-opus-5-5[1m]");
     for unchanged in ["opus", "opusplan", "opus[1m]", "claude-opus-5-5", "default", "gpt-6.1-sol"] {
         assert_eq!(model_id(unchanged), unchanged);
     }
@@ -658,4 +700,117 @@ fn claude_chats_ask_for_thinking_summaries() {
         plan.args
     );
     assert!(plan.args.iter().any(|a| a == "omitted"));
+}
+
+/// Two chats in two folders shared no cached system prompt: Claude Code's per-machine sections
+/// (cwd, env, memory paths, git status) sat inside it. Every chat moves them to its first user
+/// message; a profile that passes the flag itself is not given a second copy.
+#[test]
+fn claude_chats_keep_per_machine_sections_out_of_the_cached_system_prompt() {
+    let profile: crate::config::HarnessProfile =
+        serde_json::from_value(json!({"kind": "claude-stdio", "argv": ["claude"]})).unwrap();
+    let plan = spawn_plan(&profile, None, false, None, None, "default", None);
+    assert_eq!(
+        plan.args.iter().filter(|a| *a == EXCLUDE_DYNAMIC_FLAG).count(),
+        1,
+        "{:?}",
+        plan.args
+    );
+    let resumed = spawn_plan(&profile, Some("sid"), true, None, None, "default", None);
+    assert!(resumed.args.iter().any(|a| a == EXCLUDE_DYNAMIC_FLAG), "{:?}", resumed.args);
+
+    let pinned: crate::config::HarnessProfile = serde_json::from_value(
+        json!({"kind": "claude-stdio", "argv": ["claude", EXCLUDE_DYNAMIC_FLAG]}),
+    )
+    .unwrap();
+    let plan = spawn_plan(&pinned, None, false, None, None, "default", None);
+    assert_eq!(
+        plan.args.iter().filter(|a| *a == EXCLUDE_DYNAMIC_FLAG).count(),
+        1,
+        "{:?}",
+        plan.args
+    );
+}
+
+/// The mode the translator starts in is the mode the spawned Claude Code runs in: the one the
+/// profile's argv pins (both spellings), else the chat's, with `bypassPermissions` moved to Claude
+/// Code's own mode only when the process could not take it. `spawn_plan` puts that same mode on
+/// the command line, and never a second `--permission-mode` over a pinned one.
+#[test]
+fn the_translator_starts_in_the_mode_the_process_runs_in() {
+    let profile = |argv: Value| -> crate::config::HarnessProfile {
+        serde_json::from_value(json!({"kind": "claude-stdio", "argv": argv})).unwrap()
+    };
+    let flag_values = |plan: &SpawnPlan| -> Vec<String> {
+        plan.args
+            .iter()
+            .enumerate()
+            .filter(|(_, a)| *a == "--permission-mode")
+            .map(|(i, _)| plan.args[i + 1].clone())
+            .collect()
+    };
+
+    for pinned in [
+        profile(json!(["claude", "--permission-mode", "default"])),
+        profile(json!(["claude", "--permission-mode=default"])),
+    ] {
+        for asked in ["auto", "bypassPermissions", "acceptEdits"] {
+            assert_eq!(spawn_mode(&pinned, asked), "default", "{:?} asked {asked}", pinned.argv);
+            let plan = spawn_plan(&pinned, None, false, Some("fresh"), None, asked, None);
+            let named = plan.args.iter().filter(|a| a.starts_with("--permission-mode")).count();
+            assert_eq!(named, 1, "only the profile's own mode: {:?}", plan.args);
+        }
+    }
+
+    let open = profile(json!(["claude"]));
+    for asked in ["auto", "default", "acceptEdits", "plan"] {
+        assert_eq!(spawn_mode(&open, asked), asked);
+        let plan = spawn_plan(&open, None, false, Some("fresh"), None, asked, None);
+        assert_eq!(flag_values(&plan), [asked], "{:?}", plan.args);
+    }
+    let bypass = spawn_mode(&open, "bypassPermissions");
+    let plan = spawn_plan(&open, None, false, Some("fresh"), None, "bypassPermissions", None);
+    assert_eq!(flag_values(&plan), [bypass], "{:?}", plan.args);
+    let expected = if bypass_allowed(&open) { "bypassPermissions" } else { OWN_MODE };
+    assert_eq!(bypass, expected);
+
+    // A profile passing a skip flag itself takes bypassPermissions as it is.
+    let skips = profile(json!(["claude", "--dangerously-skip-permissions"]));
+    assert_eq!(spawn_mode(&skips, "bypassPermissions"), "bypassPermissions");
+}
+
+/// A Stop hook that blocks the stop: Claude Code writes its reason as a synthetic user line
+/// (`Stop hook feedback:\n<reason>`). It becomes one `stop_hook_feedback` update with the reason;
+/// a subagent's own, or a synthetic line with another head, is none.
+#[tokio::test]
+async fn a_stop_hook_block_is_one_update_with_its_reason() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let kinds = |msgs: &[Message]| -> Vec<Value> {
+        msgs.iter()
+            .filter_map(|m| match m {
+                Message::Notification { params, .. } => {
+                    params.as_ref().and_then(|p| p.get("update")).cloned()
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    let hook = json!({"type": "user", "session_id": "s", "parent_tool_use_id": null, "isSynthetic": true,
+        "message": {"role": "user", "content": [{"type": "text", "text": "Stop hook feedback:\n[~/.claude/hooks/check.sh]: 2 tests still fail."}]}});
+    let updates = kinds(&t.inbound(&hook).await);
+    assert_eq!(
+        updates,
+        [
+            json!({"sessionUpdate": "stop_hook_feedback", "text": "[~/.claude/hooks/check.sh]: 2 tests still fail."})
+        ]
+    );
+    let mut child = hook.clone();
+    child["parent_tool_use_id"] = json!("toolu_1");
+    assert!(
+        !kinds(&t.inbound(&child).await).iter().any(|u| u["sessionUpdate"] == "stop_hook_feedback"),
+        "a subagent's hook is its own"
+    );
+    let other = json!({"type": "user", "session_id": "s", "parent_tool_use_id": null, "isSynthetic": true,
+        "message": {"role": "user", "content": "hook text"}});
+    assert!(kinds(&t.inbound(&other).await).is_empty());
 }

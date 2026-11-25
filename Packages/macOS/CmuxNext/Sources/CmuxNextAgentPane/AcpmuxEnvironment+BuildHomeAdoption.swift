@@ -8,7 +8,8 @@ import os
 /// (`cmux __adopt-build-homes`, cmux-tui `build_adopt.rs`), the same code
 /// `cmux acp` and `cmux chief` run, so the app and the CLI adopt alike.
 ///
-/// Every start of an acpmux daemon (``AcpmuxDaemonLauncher``), the Chief
+/// Every start of an acpmux daemon of a home it may still change
+/// (``AcpmuxDaemonLauncher``, ``AcpmuxAdoptionGate``), the Chief
 /// owner and the brain host awaits ``adoptBuildHomes()`` first: it runs
 /// once per process, and only in cmux NEXT (a DEBUG build may name NEXT in
 /// `CMUX_NEXT_CHIEF_BUILD_ID`, tests only); every other build returns at once.
@@ -17,6 +18,13 @@ nonisolated extension AcpmuxEnvironment {
     /// deferred to a later launch; each step is logged).
     public static func adoptBuildHomes() async {
         await BuildHomeAdoption.run.value
+    }
+
+    /// Starts this launch's adoption now, from `main`, so the first acpmux start, the Chief owner and the brain
+    /// host find it done instead of starting it (it ran from the first of them, about 0.9 s after process start,
+    /// on the Chief's way to Home's first page). Returns at once; idempotent.
+    public static func startBuildHomeAdoption() {
+        _ = BuildHomeAdoption.run
     }
 }
 

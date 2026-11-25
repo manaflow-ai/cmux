@@ -105,10 +105,10 @@ struct ArtifactsSheet: View {
                             .monospacedDigit()
                             .padding(.horizontal, 14)
                             .frame(height: 34)
-                            .background(Color.primary.opacity(selected ? 0.16 : 0.06), in: .capsule)
+                            .cmuxMobilePressBackground(Color.primary.opacity(selected ? 0.16 : 0.06), in: .capsule)
                             .contentShape(.capsule)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.cmuxPressFillInLabel)
                     .accessibilityAddTraits(selected ? .isSelected : [])
                     .accessibilityIdentifier("artifacts.filter.\(item.rawValue.lowercased())")
                 }
@@ -117,7 +117,7 @@ struct ArtifactsSheet: View {
         .contentMargins(.horizontal, 16, for: .scrollContent)
         .scrollIndicators(.hidden)
         .foregroundStyle(.primary)
-        .sensoryFeedback(.selection, trigger: filter)
+        .cmuxMobileSensoryFeedback(.selection, trigger: filter)
         .fixedSize(horizontal: false, vertical: true)
     }
 }

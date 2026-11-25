@@ -6,12 +6,13 @@
   - over the limit it warns with a split hint and exits 3, a `Size:` line with a
     reason overrides it (exit 0), and allowlisted generated files never push a
     pull request over;
-  - its job (`size` in .github/workflows/pr-checks.yml) never fails: an oversized
-    pull request, an API error and a script crash all warn and pass (Leo,
-    2026-10-28: "you don't need to make it, like, a hard gate"), carries no "(advisory)" in its
-    name (next-autoland ignores such checks), and stays pull_request only (never
-    pull_request_target), a read-only token, no secrets or environment, Linux,
-    not a ruleset required check, draft-skipping and CI_QUOTA_HOLD-gated.
+  - its step (`pr-size` in ci/steps.toml, run by .github/workflows/pr-checks.yml's
+    `advisory` job since CI v2 step 6) never fails: an oversized pull request, an API
+    error and a script crash all warn and pass (Leo, 2026-10-28: "you don't need to make
+    it, like, a hard gate"), and its job stays pull_request only (never
+    pull_request_target), no secrets or environment, Linux, not a ruleset required
+    check; the job's pick step skips it on drafts and under CI_QUOTA_HOLD
+    (tests/test_pr_checks_base_only.py runs that step).
 """
 
 from __future__ import annotations
@@ -43,7 +44,10 @@ _git_fixture_spec.loader.exec_module(git_fixture_env)
 
 SCRIPT = ROOT / "scripts/ci/pr_size.py"
 WORKFLOW = ROOT / ".github/workflows/pr-checks.yml"
-JOB = "size"
+JOB = "advisory"
+STEP = "pr-size"
+sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+import ci_steps  # noqa: E402
 
 spec = importlib.util.spec_from_file_location("pr_size", SCRIPT)
 assert spec and spec.loader
@@ -98,6 +102,7 @@ class ExclusionAllowlistTests(unittest.TestCase):
         for path in (
             "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/CloudSessions.xcstrings",
             "plans/cmux-next/action-surfaces.json",
+            "plans/cmux-next/action-catalog.json",
             "schemas/settings/settings-schema.json",
             "web/data/next-docs/cli-reference.generated.json",
             "cmux-tui/Cargo.lock",
@@ -226,18 +231,22 @@ class WorkflowShapeTests(unittest.TestCase):
         self.text = WORKFLOW.read_text(encoding="utf-8")
         self.workflow = load(WORKFLOW)
         self.job = self.workflow["jobs"][JOB]
+        self.run_text = ci_steps.load().steps[STEP].run
+        self.pick = next(step for step in self.job["steps"] if step.get("id") == "pick")
 
     def test_pull_request_only_into_feat_cmux_next(self) -> None:
         on = self.workflow.get("on", self.workflow.get(True))
-        self.assertEqual(list(on), ["pull_request"])
+        # workflow_call: docs-only-fallback.yml calls it in a pull request's own context (scripts/ci/docs_only_paths.py).
+        self.assertEqual(list(on), ["pull_request", "workflow_call"])
         self.assertEqual(on["pull_request"]["branches"], ["feat-cmux-next"])
         self.assertIn("ready_for_review", on["pull_request"]["types"])
         self.assertNotIn("pull_request_target", self.text)
 
-    def test_read_only_token_no_secrets_no_environment(self) -> None:
+    def test_no_secrets_no_environment(self) -> None:
         self.assertEqual(self.workflow["permissions"], {})
         job = self.job
-        self.assertEqual(job["permissions"], {"contents": "read", "pull-requests": "read"})
+        # pull-requests: write is the status comment lines' (review-link, swift-logic); the size step only reads.
+        self.assertEqual(job["permissions"], {"contents": "read", "pull-requests": "write"})
         resolved = workflow_jobs.resolve(job, JOB)
         self.assertIsNone(resolved.environment)
         self.assertIsNotNone(resolved.runs_on_cells, "a runs-on matrix nothing resolves")
@@ -251,27 +260,34 @@ class WorkflowShapeTests(unittest.TestCase):
 
     def test_not_ruleset_required_gated_and_draft_skipping(self) -> None:
         job = self.job
-        self.assertEqual(job["name"], "PR size")
-        self.assertNotIn("advisory", job["name"].lower())
+        self.assertEqual(job["name"], "PR checks (advisory)")
         self.assertNotIn(context_of(JOB, job, WORKFLOW, self.workflow), REQUIRED_CHECKS)
-        self.assertNotIn("continue-on-error", job)
-        # Only the checkout may fail open (it measures nothing); the count step never does.
-        for step in job["steps"]:
-            if step.get("id") != "checkout":
-                self.assertNotIn("continue-on-error", step)
-        self.assertIn("steps.checkout.outcome", str(job["steps"][-1]["env"]))
-        self.assertIn(GATE, str(job["if"]))
-        self.assertIn(DRAFT, str(job["if"]))
+        step = ci_steps.load().steps[STEP]
+        self.assertEqual((step.job, step.blocks, step.title), ("advisory", False, "PR size"))
+        # A failed checkout measures nothing: the run step warns and passes.
+        run = next(s for s in job["steps"] if s.get("name") == "Run the advisory steps")
+        self.assertIn("steps.checkout.outcome", str(run["env"]))
+        # The pick step drops it on a draft and under the hold (tests/test_pr_checks_base_only.py runs it).
+        self.assertIn("vars.CI_QUOTA_HOLD", str(self.pick["env"]))
+        self.assertIn("github.event.pull_request.draft", str(self.pick["env"]))
+        self.assertIn("review-link|swift-logic|pr-size|ui-review) [ \"$DRAFT\" != true ] || continue", self.pick["run"])
+        self.assertIn("review-link|swift-logic|pr-size|ui-review) [ \"$HOLD\" != 1 ] || continue", self.pick["run"])
         self.assertIn(JOB, HOLD_GATED[WORKFLOW.name])
         self.assertIn(JOB, DRAFT_SKIPPED[WORKFLOW.name])
+        self.assertIn(DRAFT, str(job["if"]).split("'edited'", 1)[1], "a draft's edit starts no runner")
+        self.assertIn(GATE, str(job["if"]).split("'edited'", 1)[1], "a held edit starts no runner")
 
-    def test_every_edit_runs_it(self) -> None:
-        # Edited runs share one cancel-in-progress group: a title edit that skipped the job could cancel
-        # the run of a body edit and leave no measured answer.
+    def test_an_edit_runs_it_only_when_it_moves_a_size_line(self) -> None:
+        # The `Size:` line is all it reads from the description. Any other edit starts no runner and takes a
+        # concurrency group of its own, so it never cancels a body edit's measuring run
+        # (tests/test_ci_edit_events_start_no_runner.py simulates the events).
         condition = str(self.job["if"])
-        self.assertIn('"edited"', condition)
-        self.assertNotIn("changes.body", condition)
-        self.assertNotIn("changes.title", condition)
+        self.assertIn("github.event.action == 'edited'", condition)
+        self.assertIn("contains(github.event.changes.body.from, 'Size:')", condition)
+        self.assertIn("contains(github.event.changes.body.from, 'Size:')", self.pick["env"]["SIZE_EDIT"])
+        self.assertIn('[ "$SIZE_EDIT" != true ] || picked+=(pr-size)', self.pick["run"])
+        group = str(self.workflow["concurrency"]["group"])
+        self.assertIn("format('edit-{0}', github.run_id)", group)
 
     def run_step(self, script_exit: int | None, gh_exit: int = 0, checkout: str = "success",
                  live_body: str | None = None, event_body: str = "", lines: int = 10) -> int:
@@ -280,10 +296,13 @@ class WorkflowShapeTests(unittest.TestCase):
     def run_step_output(self, script_exit: int | None, gh_exit: int = 0, checkout: str = "success",
                         live_body: str | None = None, event_body: str = "", lines: int = 10,
                         graphql: list[str] | None = None, calls: list[str] | None = None) -> tuple[int, str]:
-        """The job's own count step with gh stubbed, and the script stubbed (SCRIPT_EXIT) or the real one (None).
+        """The table's pr-size step, as ci_steps.py runs it, with gh stubbed, and the script stubbed (SCRIPT_EXIT)
+        or the real one (None); `checkout` other than success runs the workflow's run step instead, which warns.
         `graphql`: the lines the GraphQL query's --jq prints (None: the query fails, so the REST fallback reads).
         `calls` collects each gh invocation's arguments."""
-        run = self.job["steps"][-1]["run"]
+        run = self.run_text
+        if checkout != "success":
+            run = next(s for s in self.job["steps"] if s.get("name") == "Run the advisory steps")["run"]
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             (directory / "scripts/ci").mkdir(parents=True)
@@ -314,7 +333,8 @@ class WorkflowShapeTests(unittest.TestCase):
             (bin_dir / "gh").chmod(0o755)
             env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "RUNNER_TEMP": str(directory),
                    "GITHUB_EVENT_PATH": str(event), "REPOSITORY": "o/r", "PR": "1", "CHECKOUT": checkout}
-            done = subprocess.run(["bash", "-c", run], cwd=directory, env=env, capture_output=True, text=True)
+            done = subprocess.run(["bash", "-euo", "pipefail", "-c", run], cwd=directory, env=env,
+                                  capture_output=True, text=True)
             if calls is not None and (directory / "calls.log").exists():
                 calls.extend((directory / "calls.log").read_text(encoding="utf-8").splitlines())
             return done.returncode, done.stdout
@@ -348,7 +368,7 @@ class WorkflowShapeTests(unittest.TestCase):
 
     def test_the_query_pages_with_end_cursor(self) -> None:
         # gh api graphql --paginate re-sends page 1 forever unless the cursor variable is $endCursor.
-        run = self.job["steps"][-1]["run"]
+        run = self.run_text
         self.assertIn("$endCursor:String", run)
         self.assertIn("after:$endCursor", run)
         self.assertIn("pageInfo{hasNextPage endCursor}", run)
@@ -390,10 +410,10 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertEqual(self.run_step(3, checkout="failure"), 0, "a failed checkout warns and passes")
 
     def test_script_comes_from_the_base_commit(self) -> None:
-        checkout = self.job["steps"][0]
+        checkout = next(s for s in self.job["steps"] if s.get("id") == "checkout")
         self.assertEqual(checkout["with"]["ref"], "${{ github.event.pull_request.base.sha }}")
-        self.assertIn("scripts/ci/pr_size.py", self.text)
-        self.assertIn("scripts/ci/pr_size_exclusions.json", self.text)
+        self.assertIn("scripts/ci/pr_size.py", checkout["with"]["sparse-checkout"])
+        self.assertIn("scripts/ci/pr_size_exclusions.json", checkout["with"]["sparse-checkout"])
 
 
 if __name__ == "__main__":

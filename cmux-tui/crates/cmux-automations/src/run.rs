@@ -80,6 +80,47 @@ pub struct Run {
     /// The automation version that ran.
     #[serde(default)]
     pub version: u64,
+    /// 0 for a first try; N for the Nth automatic retry of a run whose
+    /// process could not start ([`is_retryable`]).
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub attempt: u32,
+    /// The run this one retries.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_of: Option<String>,
+}
+
+fn is_zero_u32(n: &u32) -> bool {
+    *n == 0
+}
+
+/// Automatic retries of one run, at most.
+pub const MAX_RETRIES: u32 = 3;
+/// The wait before retry N+1, after the failure it retries.
+pub const RETRY_BACKOFF_SECONDS: [i64; MAX_RETRIES as usize] = [30, 120, 480];
+/// A start failure older than this is history, never retried (a runner that
+/// upgrades does not replay last week).
+pub const RETRY_WINDOW_SECONDS: i64 = 3_600;
+
+/// Whether a failure is the machine's, not the run's: its process could not
+/// start (`start_failed`) or its body could not be spawned (`error: ...`).
+/// Only those are retried; a body that ran and failed is the person's to see,
+/// and a run whose runner died may have done part of its work.
+pub fn is_retryable(reason: &str) -> bool {
+    reason.starts_with("start_failed") || reason.starts_with("error:")
+}
+
+/// The id of retry `attempt` of run `of`: the same retry is one run however
+/// often a tick sees it due.
+pub fn retry_run_id(of: &str, attempt: u32) -> String {
+    digest_id(&[of.as_bytes(), b"retry", attempt.to_string().as_bytes()])
+}
+
+/// Failed runs that finished after `seen_at` (unix seconds): what the
+/// Automations page marks unread and the sidebar counts.
+pub fn unread_failures(runs: &[Run], seen_at: i64) -> usize {
+    runs.iter()
+        .filter(|r| r.state == RunState::Failed && r.finished_at.unwrap_or(r.created_at) > seen_at)
+        .count()
 }
 
 fn is_zero(n: &u64) -> bool {

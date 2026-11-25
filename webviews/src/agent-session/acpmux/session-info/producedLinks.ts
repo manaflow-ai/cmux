@@ -17,6 +17,7 @@
 // Cost: each row's findings are kept per row object (a row is replaced, never changed, when it grows;
 // direct.ts bumps its version), so an update reads only its new and changed rows, and a streaming
 // reply is not read until it settles.
+import { PrefixFold } from "../conversation/prefixFlatMap";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { mcpCall } from "../conversation/mcpCalls";
 import { pullRequestSourceCommand } from "../summary/transcriptPullRequests";
@@ -66,7 +67,7 @@ const PUSHED = /^\s*[+ ]?\s*[0-9a-f]{7,40}\.\.\.?([0-9a-f]{7,40})\s+\S+\s+->\s+\
 const PUSHED_TO = /^To\s+(?:https:\/\/|ssh:\/\/git@|git@)?github\.com[:/]([\w.-]+\/[\w.-]+?)(?:\.git)?\/?\s*$/m;
 /// A reply's own claim: a verb, then what it produced.
 const SAID =
-  /\b(opened|filed|merged|landed)\s+(?:(?:the\s+)?PR\s+|issue\s+)?\[?(https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/(?:pull|issues)\/\d+|[\w-][\w.-]*\/[\w.-]+#\d+|(?:PR\s*)?#\d+)/gi;
+  /\b(opened|filed|merged|landed)\s+((?:the\s+)?PR\s+|issue\s+)?\[?(https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/(?:pull|issues)\/\d+|[\w-][\w.-]*\/[\w.-]+#\d+|(?:PR\s*)?#\d+)/gi;
 
 const succeeded = (tool: Tool) => tool.status === "completed" && (tool.exitCode ?? 0) === 0;
 const parse = (text: string | undefined): unknown => {
@@ -186,7 +187,9 @@ function replyFindings(text: string): Finding[] {
   const found: Finding[] = [];
   for (const match of text.replace(/```[\s\S]*?(?:```|$)/g, " ").matchAll(SAID)) {
     const verb = match[1]!.toLowerCase();
-    const target = match[2]!;
+    // "Opened PR #12": the word before the target says what it is, as a target that starts with PR does.
+    const named = match[2]?.trim().toLowerCase();
+    const target = match[3]!;
     const merged = verb === "merged" || verb === "landed" ? { merged: true as const } : {};
     const url = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/(pull|issues)\/(\d+)$/.exec(target);
     if (url) {
@@ -195,7 +198,8 @@ function replyFindings(text: string): Finding[] {
       continue;
     }
     const ref = /^([\w-][\w.-]*\/[\w.-]+)#(\d+)$/.exec(target);
-    const pr = verb !== "filed" && (verb !== "opened" || /^PR/i.test(target) || !!merged.merged);
+    const pr =
+      verb !== "filed" && (verb !== "opened" || named?.endsWith("pr") || /^PR/i.test(target) || !!merged.merged);
     if (ref)
       found.push({
         kind: verb === "filed" ? "issue" : pr ? "pullRequest" : "either",
@@ -235,42 +239,61 @@ export function producedLabel(link: ProducedLink, pullRequest: (n: number) => st
 
 /// The pull requests, issues and commits the chat produced, in the order it first produced each, each
 /// once (a pull request it opened and then merged is one row, merged). `repository` is the chat
-/// folder's `owner/name`, for a bare number.
+/// folder's `owner/name`, for a bare number. Read on every update while Session Info shows: the rows
+/// again only past the prefix an update kept, and the links listed again only when the findings
+/// changed (PrefixFold), one fold per folder.
 export function producedLinks(rows: readonly AcpmuxRow[], repository?: string | null): ProducedLink[] {
+  const key = repository ?? "";
+  let fold = folds.get(key);
+  if (!fold) {
+    // A page shows a few folders' chats: the folds stay few, and each holds its rows weakly.
+    if (folds.size >= 8) folds.clear();
+    folds.set(
+      key,
+      (fold = new PrefixFold(
+        (row: AcpmuxRow) => rowFindings(row),
+        (found) => linksOf(found, repository),
+      )),
+    );
+  }
+  return fold.read(rows);
+}
+const folds = new Map<string, PrefixFold<AcpmuxRow, Finding, ProducedLink[]>>();
+
+function linksOf(findings: readonly Finding[], repository?: string | null): ProducedLink[] {
   const found = new Map<string, ProducedLink>();
-  for (const row of rows)
-    for (const finding of rowFindings(row)) {
-      if (finding.kind === "commit") {
-        const key = `commit:${finding.repo.toLowerCase()}@${finding.sha.slice(0, 7)}`;
-        if (!found.has(key))
-          found.set(key, {
-            key,
-            kind: "commit",
-            repo: finding.repo,
-            sha: finding.sha,
-            url: `https://github.com/${finding.repo}/commit/${finding.sha}`,
-          });
-        continue;
-      }
-      const repo = "repo" in finding ? finding.repo : repository;
-      if (!repo) continue;
-      // Issues and pull requests share a number space: one row per number, a pull request once any
-      // call proves it one.
-      const key = `${repo.toLowerCase()}#${finding.number}`;
-      const prior = found.get(key);
-      const pr = finding.kind === "pullRequest" || finding.kind === "pullRequestIn" || prior?.kind === "pullRequest";
-      const merged = !!(finding.merged || prior?.merged);
-      // A Map keeps a key where it was first set: a later merge of an opened pull request moves nothing.
-      found.set(key, {
-        key,
-        // An unknown kind ("opened #12") reads as an issue's `#N`: GitHub sends an /issues/N that is a
-        // pull request on to it.
-        kind: pr ? "pullRequest" : "issue",
-        repo: prior?.repo ?? repo,
-        number: finding.number,
-        url: `https://github.com/${prior?.repo ?? repo}/${pr ? "pull" : "issues"}/${finding.number}`,
-        ...(merged ? { merged: true as const } : {}),
-      });
+  for (const finding of findings) {
+    if (finding.kind === "commit") {
+      const key = `commit:${finding.repo.toLowerCase()}@${finding.sha.slice(0, 7)}`;
+      if (!found.has(key))
+        found.set(key, {
+          key,
+          kind: "commit",
+          repo: finding.repo,
+          sha: finding.sha,
+          url: `https://github.com/${finding.repo}/commit/${finding.sha}`,
+        });
+      continue;
     }
+    const repo = "repo" in finding ? finding.repo : repository;
+    if (!repo) continue;
+    // Issues and pull requests share a number space: one row per number, a pull request once any
+    // call proves it one.
+    const key = `${repo.toLowerCase()}#${finding.number}`;
+    const prior = found.get(key);
+    const pr = finding.kind === "pullRequest" || finding.kind === "pullRequestIn" || prior?.kind === "pullRequest";
+    const merged = !!(finding.merged || prior?.merged);
+    // A Map keeps a key where it was first set: a later merge of an opened pull request moves nothing.
+    found.set(key, {
+      key,
+      // An unknown kind ("opened #12") reads as an issue's `#N`: GitHub sends an /issues/N that is a
+      // pull request on to it.
+      kind: pr ? "pullRequest" : "issue",
+      repo: prior?.repo ?? repo,
+      number: finding.number,
+      url: `https://github.com/${prior?.repo ?? repo}/${pr ? "pull" : "issues"}/${finding.number}`,
+      ...(merged ? { merged: true as const } : {}),
+    });
+  }
   return [...found.values()];
 }

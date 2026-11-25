@@ -12,7 +12,7 @@ import {
   type RouterHistory,
 } from "@tanstack/react-router";
 import { readCompare, writeCompare, type CompareState } from "../compare";
-import { readEnv, writeEnv, type GalleryEnv } from "../env";
+import { readShellEnv, writeShellEnv, type GalleryEnv } from "../env";
 import { readTunes, writeTunes } from "../../experiments/tunable";
 import { readOptions, writeOptions } from "../options";
 import { readyEntries } from "../entryStore";
@@ -51,7 +51,7 @@ function stringifySearch(search: Record<string, unknown>): string {
           : [[key, typeof value === "string" ? value : String(value)]],
     ),
   );
-  const params = writeEnv(readEnv(new URLSearchParams(flat)));
+  const params = writeShellEnv(readShellEnv(new URLSearchParams(flat)));
   const view = search.view;
   if (typeof view === "string" && view !== "variant" && (VIEWS as readonly string[]).includes(view))
     params.set("view", view);
@@ -76,7 +76,8 @@ export function validateShellSearch(raw: Record<string, unknown>): ShellSearch {
       ? readCompare(writeCompare(raw.compare as CompareState))
       : readCompare(params);
   return {
-    ...readEnv(params),
+    // Absent background is the painting: every preview opens over it (env.ts SHELL_DEFAULT_BACKGROUND).
+    ...readShellEnv(params),
     view,
     compare,
     tune: writeTunes(readTunes(strings.tune ?? "")),

@@ -17,6 +17,7 @@
 // back has not passed) nothing is drawn: the composer just clears.
 import { MOTION_SEND_MS } from "../../../motion/scale.generated";
 import { motionMode } from "../../../ui/motion/motionMode";
+import { motionToken } from "../../../ui/motion/motionTokens";
 import { entranceAllowed } from "../../shared/pageReveal";
 import { cssTimeMs } from "./fold";
 import { INLINE_TOKEN } from "../attachments";
@@ -72,7 +73,7 @@ export function tuckSent(box: HTMLElement | null | undefined, sent: HTMLElement 
   const editor = box.querySelector<HTMLElement>(".acpmux-composer-prompt [contenteditable]");
   if (!view || !main || !editor) return;
   const style = tuckStyle(box);
-  if (style === "none" || motionMode(doc) !== "full" || !entranceAllowed(doc)) return;
+  if (style === "none" || motionMode(doc, box) !== "full" || !entranceAllowed(doc)) return;
   const duration = sendMs(box);
   if (!(duration > 0)) return;
   const ghost = sent;
@@ -211,8 +212,7 @@ function tuckStyle(box: Element): SendTuckStyle {
 
 /// The send clock (`--agent-motion-send`, scaled with the host's speed), the scale's value without one.
 function sendMs(box: Element): number {
-  const token = box.ownerDocument.defaultView?.getComputedStyle(box).getPropertyValue("--agent-motion-send") ?? "";
-  return cssTimeMs(token) ?? MOTION_SEND_MS;
+  return cssTimeMs(motionToken(box, "--agent-motion-send")) ?? MOTION_SEND_MS;
 }
 
 /// A layer over the pane for one half of the tuck: it takes no pointer and draws nothing itself.

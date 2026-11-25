@@ -3,7 +3,7 @@ import Foundation
 /// Strings of the remote desktop pane (Resources/Localizable.xcstrings).
 nonisolated enum RemoteViewStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, bundle: .module)
+        String(localized: key, defaultValue: value, bundle: .localizedModule)
     }
 
     static var modeView: String { t("rd.mode.view", "View") }
@@ -40,28 +40,24 @@ nonisolated enum RemoteViewStrings {
     static var statusEnded: String { t("rd.status.ended", "ended") }
 
     static func connectingTitle(_ host: String) -> String { String(format: t("rd.state.connecting.title", "Connecting to %@…"), host) }
-    static var connectingDetail: String { t("rd.state.connecting.detail", "Finding the fastest path to this machine.") }
     static func reconnectingTitle(_ host: String) -> String { String(format: t("rd.state.reconnecting.title", "Reconnecting to %@…"), host) }
-    static var connectingCloudDetail: String { t("rd.state.connecting.cloudDetail", "Connecting through your Cloud tunnel.") }
     static func consentTitle(_ host: String) -> String { String(format: t("rd.state.consent.title", "Waiting for consent on %@…"), host) }
     static func consentDetail(_ host: String) -> String {
         String(format: t("rd.state.consent.detail", "Someone at %@ must allow this session."), host)
     }
 
     static func kickedTitle(_ name: String) -> String { String(format: t("rd.state.kicked.title", "Disconnected by %@"), name) }
-    static func kickedDetail(_ name: String, _ host: String) -> String {
-        String(format: t("rd.state.kicked.detail", "%1$@ ended your session on %2$@."), name, host)
-    }
 
     static var stoppedTitle: String { t("rd.state.stopped.title", "Host stopped sharing") }
-    static func stoppedDetail(_ host: String) -> String {
-        String(format: t("rd.state.stopped.detail", "%@ turned off Remote Desktop. The last frame is shown."), host)
+
+    static var hostFailedTitle: String { t("rd.state.hostFailed.title", "Host couldn’t share its screen") }
+    /// The host's own reason (`failed: <reason>`), named for the host.
+    static func hostFailedDetail(_ host: String, _ reason: String) -> String {
+        String(format: t("rd.state.hostFailed.detail", "%1$@ couldn’t share its screen: %2$@"), host, reason)
     }
 
     static var viewerStoppedTitle: String { t("rd.state.viewerStopped.title", "Session ended") }
-    static var viewerStoppedDetail: String { t("rd.state.viewerStopped.detail", "You stopped this session.") }
     static var lostTitle: String { t("rd.state.lost.title", "Connection lost") }
-    static func lostDetail(_ host: String) -> String { String(format: t("rd.state.lost.detail", "The path to %@ closed."), host) }
     static var deniedTitle: String { t("rd.state.denied.title", "Not allowed") }
     static func deniedDetail(_ host: String) -> String {
         String(format: t("rd.state.denied.detail", "%@ did not allow this session."), host)
@@ -108,10 +104,21 @@ nonisolated enum RemoteViewStrings {
     static var unavailableRemoteRecord: String {
         t("rd.tab.unavailable.remoteRecord", "This tab came from another machine. Remote desktop tabs open only on the Mac that made them.")
     }
-    static func confirmTitle(_ host: String) -> String { String(format: t("rd.tab.confirm.title", "Connect to %@?"), host) }
-    static var confirmDetail: String {
-        t("rd.tab.confirm.detail", "A script, an agent or a restore opened this tab. Nothing connects until you choose Connect.")
+    /// The card's title: the machine's name, or "Cloud machine" when it has none a person reads
+    /// (the app passes an empty name for a generated one, never an id).
+    static func confirmTitle(_ target: RemoteConnectionTarget) -> String {
+        let name = target.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? cloudMachine : name
     }
+    /// The status chip's text: status and region, or nil when there is neither.
+    static func confirmStatus(_ target: RemoteConnectionTarget) -> String? {
+        let values: [String] = [target.status, target.region].compactMap { value -> String? in
+            guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+            return value
+        }
+        return values.isEmpty ? nil : values.joined(separator: " · ")
+    }
+    static var cloudMachine: String { t("rd.machine.cloud", "Cloud machine") }
     static var connect: String { t("rd.action.connect", "Connect") }
     static var unavailableInvalidAddress: String {
         t("rd.tab.unavailable.invalidAddress", "This tab's remote desktop address is not valid.")

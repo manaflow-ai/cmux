@@ -22,6 +22,11 @@ public nonisolated enum RemotePaneEvent: Sendable, Hashable {
     case stopAllUpstreams
     /// The latency hold's flip came due with no new sample (``RemoteLatencyHold/due``).
     case latencyCheck
+    /// A quiet reconnect's notice bound came due (``RemotePaneState/reconnectNoticeDelay``).
+    case reconnectNoticeCheck
+    /// A first connect's notice bound came due (``RemotePaneState/connectNoticeDelay``); the pane also sends it
+    /// once at its start, which stamps when the connect began.
+    case connectNoticeCheck
 }
 
 /// The pane's single writer. Pure: `reduce` maps a state, an event and the time it
@@ -33,6 +38,24 @@ public struct RemotePaneReducer {
         var next = reduceEvent(state, event)
         // A new session's path is not measured yet: nothing to hold.
         if next.status?.rttMs == nil { next.latency.reset() } else { next.latency.sample(over: next.sampleOverLimit, at: now) }
+        // A reconnect over the last frame is silent until it has run for the notice bound.
+        if next.reconnecting {
+            let since = next.reconnectingSince ?? now
+            next.reconnectingSince = since
+            next.reconnectNoticeDue = now - since >= RemotePaneState.reconnectNoticeDelay
+        } else {
+            next.reconnectingSince = nil
+            next.reconnectNoticeDue = false
+        }
+        // A first connect is silent for the short coming-up time; its card has Cancel once it shows.
+        if next.comingUp {
+            let since = next.connectingSince ?? now
+            next.connectingSince = since
+            next.connectNoticeDue = now - since >= RemotePaneState.connectNoticeDelay
+        } else {
+            next.connectingSince = nil
+            next.connectNoticeDue = false
+        }
         return next
     }
 
@@ -91,7 +114,7 @@ public struct RemotePaneReducer {
         case .stopAllUpstreams:
             next.status?.upstream.active = []
             next.status?.upstream.requested = []
-        case .latencyCheck:
+        case .latencyCheck, .reconnectNoticeCheck, .connectNoticeCheck:
             break
         }
         return next

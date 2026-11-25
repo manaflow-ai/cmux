@@ -57,26 +57,48 @@ public struct TabCloseGuard: Sendable {
 /// The foreground programs the Mac last reported per terminal tab
 /// (`process-info`), read when the grid opens so a close of a busy tab asks
 /// at once (full verify 2026-10-19 D7: the question came 2.1-2.4 s after the
-/// tap). Entries older than `maxAge` are unknown.
+/// tap). An entry stays known until its terminal draws output
+/// (`outputSince`: a program starts or ends with output); after that it is
+/// known for `maxAge` more, while the grid reads it again.
 public struct TabProgramCache: Sendable {
     public static let maxAge: Double = 5
-    private var entries: [String: (programs: [String], at: Double)] = [:]
+    private var entries: [String: (programs: [String], at: Double, changed: Bool)] = [:]
 
     public init() {}
 
     public mutating func record(tabID: String, programs: [String], at time: Double) {
-        entries[tabID] = (programs, time)
+        entries[tabID] = (programs, time, false)
     }
 
     public mutating func forget(tabID: String) {
         entries[tabID] = nil
     }
 
+    /// The Mac said the terminal drew output since its entry was read.
+    public mutating func outputSince(tabID: String) {
+        entries[tabID]?.changed = true
+    }
+
+    /// The app left the foreground at `time`: output there goes unheard, so
+    /// every entry still known is marked as if its terminal drew output then
+    /// (known `maxAge` more, while the grid reads it again on return), never
+    /// wiped at once: a close right after a one-second app switch still asks
+    /// at once. One already past its age goes.
+    public mutating func markStale(at time: Double) {
+        for (id, entry) in entries {
+            if entry.changed, time - entry.at > Self.maxAge {
+                entries[id] = nil
+            } else {
+                entries[id] = (entry.programs, time, true)
+            }
+        }
+    }
+
     /// The programs of all `tabIDs` (sorted, unique), or nil when any is unknown or stale.
     public func programs(of tabIDs: [String], now: Double) -> [String]? {
         var all = Set<String>()
         for id in tabIDs {
-            guard let entry = entries[id], now - entry.at <= Self.maxAge else { return nil }
+            guard let entry = entries[id], !entry.changed || now - entry.at <= Self.maxAge else { return nil }
             all.formUnion(entry.programs.filter { !$0.isEmpty })
         }
         return all.sorted()

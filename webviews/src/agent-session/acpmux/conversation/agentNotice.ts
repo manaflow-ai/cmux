@@ -18,6 +18,8 @@
 // text through `acpmux send` at a shell; `legacyNotice` reads that head (only from a shell's or the
 // outbox's `acpmux send`, never a prompt the person typed in the pane) so today's pages read too.
 
+import type { NoticeBodyLook } from "./noticeLook";
+
 export type NoticeSeverity = "info" | "warn" | "fire";
 export type NoticeLink = { url: string; label?: string };
 
@@ -42,6 +44,11 @@ export type AgentNotice = {
   /// How many more notices went in with this one (a digest of notices, incomingMessage.ts): the
   /// line names this one, the most severe, and counts the rest.
   more?: number;
+  /// How many times its condition came (acpmux notice_read.rs `condition_key`, hub/inbox.rs
+  /// `notice`), when more than once: the line reads "×3, last 09:40Z", one row for them all.
+  repeats?: number;
+  /// When the newest of those came (ms).
+  lastAt?: number;
 };
 
 const SEVERITIES: readonly string[] = ["info", "warn", "fire"];
@@ -61,7 +68,10 @@ export const shownSender = (name: string) => (isSystemSender(name) ? "" : name);
 /// A system notice's body as the reader sees it: without the `Task bg-…: COMMAND` line (the title
 /// already names the command; the id is the model's handle) and the `(bg_output reads all of it.)`
 /// hint, which names a tool only the model calls (acpmux hub/bg_notify.rs `end_body`).
+/// A body that only says the title again (tell-coordinator gave a title-only notice its title as
+/// its body) is none: the opened notice shows its title then (`openedNoticeText`).
 export function shownNoticeBody(notice: AgentNotice, body: string): string {
+  if (saysTitle(body, notice.title)) return "";
   if (!notice.system) return body;
   const lines = body.split("\n");
   if (lines[0] && TASK_LINE.test(lines[0])) lines.shift();
@@ -360,6 +370,23 @@ export function noticeMarkdown(body: string, links: readonly NoticeLink[]): stri
     .join(" · ");
   return body ? `${body}\n\n${line}` : line;
 }
+
+/// What an opened notice says above its links (IncomingMessageCard.tsx). Its head (sender, machine,
+/// severity) and title are the line's: the body, and a notice of a title alone its title, never "No
+/// message text" (Leo, 2026-11-14, on spend-watch's one-line WARN that opened to that copy: "this is
+/// weird"). A body never starts with its title again: a digest lists its titles, a title cut from a
+/// long first line has that line whole in its body. Gallery versions (noticeLook.ts
+/// `NoticeBodyLook`): `title-body`, the title whole above the body (a tool's notice); `wrap`, the
+/// body alone, the line's title wrapping whole while open.
+export function openedNoticeText(notice: AgentNotice, body: string, look: NoticeBodyLook = "body"): string {
+  if (look === "wrap") return body;
+  if (look === "title-body" && !notice.system && body) return `${notice.title}\n\n${body}`;
+  return body || notice.title;
+}
+
+/// Whether `body` says `title` and nothing more, its runs of spaces and line breaks as one space, as
+/// the title's are (`noticeTitle`). A title cut with `…` keeps the body that says it whole.
+const saysTitle = (body: string, title: string) => body.replace(/\s+/g, " ").trim() === title;
 
 /// A notice's whole text as the transcript row keeps it for Find, Copy, export and the empty-row
 /// check: its title, then what the opened line shows. Never empty: a notice of a title alone is

@@ -20,6 +20,10 @@ export const DIFF_PAGE_COMMAND_ACTIONS: Readonly<Record<string, string>> = {
   toggleViewed: "diffViewerToggleViewed",
   collapseFile: "diffViewerCollapseFile",
   expandFile: "diffViewerExpandFile",
+  // Cmd-=, Cmd--, Cmd-0: the code's size (diff-viewer/fontZoom.ts).
+  zoomIn: "diffViewerZoomIn",
+  zoomOut: "diffViewerZoomOut",
+  zoomReset: "diffViewerZoomReset",
   // The shared page commands: Find opens the find bar, focusSearch the file search.
   find: "diffViewerOpenFind",
   focusSearch: "diffViewerOpenFileSearch",

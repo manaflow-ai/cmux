@@ -43,6 +43,10 @@ extension PageWebView {
         // Which engine shows the page, and why when it is WebKit (``PageEnginePolicy``).
         members["engine"] = .string(chromiumSession != nil ? "chromium" : "webkit")
         members["webkit_reason"] = chromiumSession != nil ? .null : engineDecision.webKitReason.map { .string($0.rawValue) } ?? .null
+        if let pushes = chromiumSession?.bridge.pushes {
+            members["pushes"] = ["scripts": .number(Double(pushes.scripts)), "batches": .number(Double(pushes.batches)),
+                                 "bytes": .number(Double(pushes.bytes))]
+        }
         return .object(members)
     }
 
@@ -377,6 +381,16 @@ extension PageWebView {
     /// clipboard read), in a window that is never key. As a person's Cmd-V into a cmux page does,
     /// a picture the pasteboard holds as TIFF only first gets its PNG (``PastedImagePNGHold``):
     /// `png_ms` is how long that took. The host's paste record runs next (``chromiumPasted()``).
+    /// Trusted DevTools key events into the page Chromium shows: each `Input.dispatchKeyEvent` call's parameters, in
+    /// order. A page window that is not key takes no AppKit key, as it takes no AppKit click (``debugPress(x:y:native:beforeRelease:)``).
+    /// - Parameter events: The calls' parameters (`DebugKeyDevToolsEvents` builds a key's).
+    /// - Returns: false on WebKit, or when DevTools refused a call.
+    public func debugDevToolsKeys(_ events: [[String: any Sendable]]) async -> Bool {
+        guard let page = chromiumSession?.page else { return false }
+        for params in events where (try? await page.devTools("Input.dispatchKeyEvent", params: params)) == nil { return false }
+        return true
+    }
+
     public func debugPaste() async -> JSONValue {
         guard let page = chromiumSession?.page else { return ["error": "not a Chromium page"] }
         chromiumUserInput(at: ProcessInfo.processInfo.systemUptime)
@@ -399,16 +413,11 @@ extension PageWebView {
         return .object(result)
     }
 
-    /// Every element matching `selector` in document order: its `data-*` attributes, classes and
-    /// first 120 characters of text (a list's order and row state as the page draws it).
+    /// Every element matching `selector` in document order: its `data-*` attributes, classes, first
+    /// 120 characters of text (a list's order and row state as the page draws it), and its `role` and
+    /// accessible `label` when it has them (PageDebugQuery).
     public func debugQuery(_ selector: String) async -> JSONValue {
-        let script = """
-        return JSON.stringify([...document.querySelectorAll(selector)].map((el) => ({
-          data: Object.assign({}, el.dataset), classes: [...el.classList], text: (el.innerText || '').slice(0, 120) })));
-        """
-        guard let text = await callPageFunction(script, arguments: ["selector": selector]) as? String,
-              let value = try? JSONValue.parse(Data(text.utf8)) else { return ["error": "query failed"] }
-        return ["elements": value]
+        PageDebugQuery.answer(await callPageFunction(PageDebugQuery.script, arguments: ["selector": selector]))
     }
 
     /// Focuses the first element matching `selector` (or keeps the focused one) and inserts `text`
@@ -423,6 +432,70 @@ extension PageWebView {
         """
         let inserted = await callPageFunction(script, arguments: ["selector": selector ?? NSNull(), "text": text])
         return inserted as? Bool == true
+    }
+
+    /// debug.page `select` (`selector`?, `from`, `to`?) and `blur` (`selector`?, `clear`?): `debugSelect`
+    /// and `debugBlur` with the call's parameters.
+    public func debugEdit(_ params: [String: JSONValue]) async -> JSONValue {
+        let selector = params["selector"]?.stringValue
+        if params["action"]?.stringValue == "blur" {
+            return ["blurred": .bool(await debugBlur(selector: selector, clear: params["clear"]?.boolValue == true))]
+        }
+        return await debugSelect(selector: selector, from: params["from"]?.intValue ?? 0, to: params["to"]?.intValue)
+    }
+
+    /// Focuses the first element matching `selector` (or the focused one) and selects characters
+    /// `from` to `to` of its text (`from == to`: the caret there; `to` nil: the end): an input's or
+    /// textarea's selection range, else a range over a contenteditable's text, so a capture shows a
+    /// field's caret and selection. DEBUG verb only.
+    public func debugSelect(selector: String?, from: Int, to: Int?) async -> JSONValue {
+        let script = """
+        const el = selector ? document.querySelector(selector) : document.activeElement;
+        if (!el) { return JSON.stringify({ error: 'no element matches ' + selector }); }
+        el.focus();
+        if (typeof el.setSelectionRange === 'function') {
+          const length = el.value.length;
+          const end = to === null ? length : Math.min(to, length);
+          el.setSelectionRange(Math.min(from, end), end);
+          return JSON.stringify({ selected: el.value.slice(Math.min(from, end), end), length });
+        }
+        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+        const range = document.createRange();
+        let seen = 0, start = null, last = null;
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          last = node;
+          if (start === null && from <= seen + node.data.length) { range.setStart(node, from - seen); start = node; }
+          if (start !== null && to !== null && to <= seen + node.data.length) { range.setEnd(node, to - seen); break; }
+          seen += node.data.length;
+        }
+        if (start === null) { range.selectNodeContents(el); range.collapse(false); }
+        else if (to === null && last) { range.setEnd(last, last.data.length); }
+        const selection = document.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        return JSON.stringify({ selected: selection.toString() });
+        """
+        guard let text = await callPageFunction(script, arguments: ["selector": selector ?? NSNull(), "from": from, "to": to ?? NSNull()]) as? String,
+              let reply = try? JSONValue.parse(Data(text.utf8)) else { return ["error": "page not loaded"] }
+        return reply
+    }
+
+    /// Takes the keyboard focus from the first element matching `selector` (or the focused one), first
+    /// deleting its text as typed input when `clear`. DEBUG verb only.
+    public func debugBlur(selector: String?, clear: Bool = false) async -> Bool {
+        let script = """
+        const el = selector ? document.querySelector(selector) : document.activeElement;
+        if (!el || typeof el.blur !== 'function') { return false; }
+        if (clear) {
+          el.focus();
+          if (typeof el.select === 'function') { el.select(); } else { document.execCommand('selectAll'); }
+          document.execCommand('delete');
+        }
+        el.blur();
+        document.getSelection()?.removeAllRanges();
+        return true;
+        """
+        return await callPageFunction(script, arguments: ["selector": selector ?? NSNull(), "clear": clear]) as? Bool == true
     }
 
     /// Writes the page as WebKit rendered it to `url` as PNG.

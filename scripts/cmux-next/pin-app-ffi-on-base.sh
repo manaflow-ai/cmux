@@ -30,6 +30,9 @@
 #    (scripts/cmux-next/app_ffi_additive.py): a removed or changed declaration
 #    can break the Swift build, so result=pr and the pull request's app compile
 #    proves it first;
+#  - the action catalog crate is unchanged from the installed pin. Header-compatible
+#    catalog changes still require app handlers, so result=pr sends them through
+#    the re-pin PR's runtime HandlerCoverageTests before the pin lands;
 #  - scripts/cmux-next/check-app-ffi-pin.sh --verify-release passes on the
 #    pinned tree (the sources match and the release carries the checksum).
 # A tip that moves during the push is re-read and the pin re-applied, 5 times.

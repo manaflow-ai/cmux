@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 use crate::hub::{Hub, HubWriter};
+use crate::registry::Registry;
 use cmux_scope::Scope;
 use std::collections::{HashSet, VecDeque};
 use std::future::Future;
@@ -20,6 +21,9 @@ pub struct V2 {
     pub hub: Arc<Hub>,
     pub writer: Mutex<Option<HubWriter>>,
     surfaces: Arc<HashSet<String>>,
+    /// The chat registry: made only when the daemon writes books (`books` in the set, a store on
+    /// disk).
+    registry: Option<Registry>,
 }
 
 impl V2 {
@@ -28,7 +32,22 @@ impl V2 {
     }
 
     pub fn with_surfaces(hub: Hub, writer: HubWriter, surfaces: HashSet<String>) -> Self {
-        Self { hub: Arc::new(hub), writer: Mutex::new(Some(writer)), surfaces: Arc::new(surfaces) }
+        Self {
+            hub: Arc::new(hub),
+            writer: Mutex::new(Some(writer)),
+            surfaces: Arc::new(surfaces),
+            registry: None,
+        }
+    }
+
+    /// The handle with a chat registry: the daemon's when it writes books.
+    pub fn with_registry(mut self, registry: Registry) -> Self {
+        self.registry = Some(registry);
+        self
+    }
+
+    pub fn registry(&self) -> Option<&Registry> {
+        self.registry.as_ref()
     }
 
     pub fn hub(&self) -> Arc<Hub> {
@@ -122,11 +141,10 @@ where
     }
     let mut panics = VecDeque::new();
     let mut delay = policy.first_wait;
-    let mut failed = false;
     loop {
         // A failed chat stays failed during its probationary attempt. Its actor publishes
         // Running only after recovery succeeds, so callers cannot observe false readiness.
-        if !failed {
+        if *health.borrow() != Health::Failed {
             health.send_replace(Health::Starting);
         }
         let mut active = Active(scope.spawn_named("chat-actor", start()));
@@ -135,9 +153,22 @@ where
                 health.send_replace(Health::Ended);
                 return Ok(value);
             }
-            Ok(Err(error)) => {
-                health.send_replace(Health::Failed);
-                return Err(Failure::Task(error));
+            Ok(Err(_error)) => {
+                let now = Instant::now();
+                while panics
+                    .front()
+                    .is_some_and(|at| now.duration_since(*at) >= policy.panic_window)
+                {
+                    panics.pop_front();
+                }
+                if panics.len() == policy.panic_limit {
+                    panics.pop_front();
+                }
+                panics.push_back(now);
+                let failed = panics.len() >= policy.panic_limit;
+                health.send_replace(if failed { Health::Failed } else { Health::Restarting });
+                sleep(if failed { policy.failed_wait } else { delay }).await;
+                delay = delay.saturating_mul(2).min(policy.max_wait);
             }
             Err(error) if error.is_panic() => {
                 let now = Instant::now();
@@ -152,7 +183,7 @@ where
                     panics.pop_front();
                 }
                 panics.push_back(now);
-                failed = panics.len() >= policy.panic_limit;
+                let failed = panics.len() >= policy.panic_limit;
                 health.send_replace(if failed { Health::Failed } else { Health::Restarting });
                 sleep(if failed { policy.failed_wait } else { delay }).await;
                 delay = delay.saturating_mul(2).min(policy.max_wait);
@@ -166,120 +197,5 @@ where
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    };
-
-    #[tokio::test(start_paused = true)]
-    async fn a_panic_restarts_through_the_factory_after_a_wait() {
-        let scope = Scope::new("supervision-test");
-        let starts = Arc::new(AtomicUsize::new(0));
-        let (health, _) = watch::channel(Health::Starting);
-        let policy = Policy { first_wait: Duration::from_millis(10), ..Policy::default() };
-        let before = Instant::now();
-        let result = supervise(
-            &scope,
-            || {
-                let starts = Arc::clone(&starts);
-                async move {
-                    if starts.fetch_add(1, Ordering::SeqCst) == 0 {
-                        panic!("injected actor panic");
-                    }
-                    Ok::<_, ()>(42)
-                }
-            },
-            policy,
-            health,
-        )
-        .await;
-        assert!(matches!(result, Ok(42)));
-        assert_eq!(starts.load(Ordering::SeqCst), 2);
-        assert!(before.elapsed() >= policy.first_wait);
-        assert!(scope.close(Duration::from_secs(1)).await.joined());
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn five_panics_fail_the_chat_without_a_sixth_immediate_start() {
-        let scope = Arc::new(Scope::new("supervision-test"));
-        let owned_scope = Arc::clone(&scope);
-        let starts = Arc::new(AtomicUsize::new(0));
-        let owned = Arc::clone(&starts);
-        let (health, mut receiver) = watch::channel(Health::Starting);
-        let policy = Policy { first_wait: Duration::from_millis(1), ..Policy::default() };
-        let supervisor = tokio::spawn(async move {
-            supervise(
-                &owned_scope,
-                move || {
-                    let starts = Arc::clone(&owned);
-                    async move {
-                        starts.fetch_add(1, Ordering::SeqCst);
-                        panic!("injected actor panic");
-                        #[allow(unreachable_code)]
-                        Ok::<(), ()>(())
-                    }
-                },
-                policy,
-                health,
-            )
-            .await
-        });
-        let observed = tokio::time::timeout(Duration::from_secs(5), async {
-            loop {
-                if *receiver.borrow_and_update() == Health::Failed {
-                    break;
-                }
-                if receiver.changed().await.is_err() {
-                    break;
-                }
-            }
-        })
-        .await;
-        assert!(observed.is_ok());
-        assert_eq!(*receiver.borrow(), Health::Failed);
-        assert_eq!(starts.load(Ordering::SeqCst), 5);
-        supervisor.abort();
-        assert!(supervisor.await.is_err());
-        assert!(scope.close(Duration::from_secs(1)).await.joined());
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn cancelling_the_supervisor_also_cancels_its_writer() {
-        struct Writer(watch::Sender<bool>);
-        impl Drop for Writer {
-            fn drop(&mut self) {
-                self.0.send_replace(true);
-            }
-        }
-        let scope = Arc::new(Scope::new("supervision-test"));
-        let owned_scope = Arc::clone(&scope);
-        let (closed, mut receiver) = watch::channel(false);
-        let (started, mut ready) = watch::channel(false);
-        let (health, _) = watch::channel(Health::Starting);
-        let supervisor = tokio::spawn(async move {
-            supervise(
-                &owned_scope,
-                move || {
-                    let writer = Writer(closed.clone());
-                    let started = started.clone();
-                    async move {
-                        let _writer = writer;
-                        started.send_replace(true);
-                        std::future::pending::<Result<(), ()>>().await
-                    }
-                },
-                Policy::default(),
-                health,
-            )
-            .await
-        });
-        assert!(ready.changed().await.is_ok());
-        supervisor.abort();
-        assert!(supervisor.await.is_err());
-        assert!(receiver.changed().await.is_ok());
-        assert!(*receiver.borrow());
-        assert!(scope.close(Duration::from_secs(1)).await.joined());
-    }
-}
+#[path = "life_tests.rs"]
+mod tests;

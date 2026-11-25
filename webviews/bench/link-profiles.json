@@ -1,0 +1,9 @@
+{
+  "comment": "The link between the app and the daemon or session host, for the restart-to-settled harness (bench/linkModel.ts for the chat page, the terminal reattach measure in cmux-tui reads the same file). rttMs is the round trip; bps the bandwidth each way in bits per second, 0 for unlimited.",
+  "profiles": {
+    "local": { "rttMs": 0, "bps": 0 },
+    "rtt50": { "rttMs": 50, "bps": 0 },
+    "rtt200": { "rttMs": 200, "bps": 0 },
+    "throttled": { "rttMs": 150, "bps": 1000000 }
+  }
+}

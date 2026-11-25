@@ -175,7 +175,7 @@ NEXT = "refs/heads/feat-cmux-next"
 def route_ctx(event, ref, generated, swift, targets, daemon, tree, marker, labels=()):
     """path_route's own expression context: its route step, the tree probes and the marker upload."""
     return {"github": {"event_name": event, "ref": ref,
-                       "event": {"pull_request": {"labels": [{"name": label} for label in labels]}}},
+                       "event": {"pull_request": {"base": {"ref": "feat-cmux-next"}, "labels": [{"name": label} for label in labels]}}},
             "steps": {"route": {"outputs": {"generated": generated, "swift": swift, "swift_targets": targets,
                                             "daemon": daemon}},
                       "tree": {"outputs": {"tree_state": tree}}, "tree-final": {"outputs": {}},
@@ -243,7 +243,7 @@ class GeneratedFoldTest(unittest.TestCase):
                        "tree_state": tree_state, "generated_host": host}
             head = "someone/fork" if fork else REPO
             ctx = {"github": {"event_name": event, "ref": ref, "repository": REPO,
-                              "event": {"pull_request": {"head": {"repo": {"full_name": head}},
+                              "event": {"pull_request": {"base": {"ref": "feat-cmux-next"}, "head": {"repo": {"full_name": head}},
                                                          "labels": [{"name": label} for label in labels]}}},
                    "inputs": {}, "cancelled": False,
                    "needs": {"path_route": {"outputs": outputs}, "web-bundles": {"result": web},
@@ -339,7 +339,11 @@ class GeneratedFoldTest(unittest.TestCase):
                 self.assertTrue(ours["continue-on-error"])
                 self.assertEqual(ours["run"], theirs["run"])
                 self.assertEqual(ours.get("id"), theirs.get("id"))
-            self.assertEqual(self.step(host, CHECKS[0])["env"], {"CMUX_ACTION_SURFACES_SKIP_BUILD": "1"})
+            # CMUX_NEXT_JOB_BUILT=plain: the judge keeps this job's build aside and puts it back after the
+            # base export, instead of rebuilding HEAD (judge-action-exports.sh).
+            for job in (host, self.generated):
+                self.assertEqual(self.step(job, CHECKS[0])["env"],
+                                 {"CMUX_ACTION_SURFACES_SKIP_BUILD": "1", "CMUX_NEXT_JOB_BUILT": "plain"})
 
     def test_the_hosts_give_a_verdict_after_their_suites_and_never_fail_on_it(self):
         for host, suites in ((self.daemon, "Run the live-daemon suites"),
@@ -459,6 +463,8 @@ class GeneratedFoldTest(unittest.TestCase):
         (repo / "Packages/macOS/CmuxNext/Package.swift").write_text("")
         bin_dir.mkdir()
         # A swift that refuses a --package-path that is not a package, as SwiftPM does.
+        (bin_dir / "uname").write_text("#!/bin/sh\necho Linux\n")
+        (bin_dir / "uname").chmod(0o755)
         (bin_dir / "swift").write_text(
             "#!/usr/bin/env bash\n"
             "args=(\"$@\"); for ((i = 0; i < ${#args[@]}; i++)); do\n"

@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use cmux_mobile_link::api::{ApiClient, DeviceRegistration, IceCache, IceServer};
 use cmux_mobile_link::dial::{self, SessionEvents};
 use cmux_mobile_link::signaling::{SignalEnvelope, SignalPayload};
-use cmux_mobile_link::{DialOptions, LinkConfig, SignalingClient, Timeline, TransportKind};
+use cmux_mobile_link::{BuildSpace, DialOptions, LinkConfig, SignalingClient, Timeline, TransportKind};
 
 use crate::auth::{Tokens, claims};
 use crate::config::{HostConfig, ServiceConfig};
@@ -36,11 +36,16 @@ pub enum IceSource {
     /// `GET /v1/ice` with a current access token (the signaling socket
     /// outlives any one token), cached while the credentials have half
     /// their lifetime left and refreshed ahead of the next dial, so an
-    /// answer never waits on an HTTP round trip.
+    /// answer never waits on an HTTP round trip. After a wake or a network
+    /// change the last servers stay, stale: an answer uses them at once and
+    /// a refresh runs beside it, for the next answer.
     Api {
         base_url: String,
+        build_space: Option<BuildSpace>,
         tokens: Arc<Tokens>,
         cache: Arc<IceCache>,
+        /// A background refresh is running (one at a time).
+        refreshing: Arc<std::sync::atomic::AtomicBool>,
     },
 }
 
@@ -48,56 +53,158 @@ pub enum IceSource {
 const LONG_LIVED: Duration = Duration::from_secs(20);
 const QUICK_RECONNECT: Duration = Duration::from_millis(150);
 
-/// How long an answer waits for `GET /v1/ice` when nothing is cached.
+/// How long an answer waits for `GET /v1/ice` when nothing was ever fetched
+/// (the first answer of this process, or after a failed first fetch).
 const ICE_BUDGET: Duration = Duration::from_secs(5);
 
+/// Measurement only: answer as before stale ICE servers were kept (a wake
+/// or a network change drops them, and the next answer waits for
+/// `GET /v1/ice`). Off by default; tests turn it on for their baseline.
+static FETCH_AFTER_WAKE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Measurement only (see [`FETCH_AFTER_WAKE`]).
+pub fn set_fetch_after_wake(on: bool) {
+    FETCH_AFTER_WAKE.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Where an answer's ICE servers came from (its timeline mark).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IceOrigin {
+    /// Fresh in the cache (or fixed).
+    Cached,
+    /// The last ones, past a wake, a network change or their lifetime; a
+    /// refresh runs in the background.
+    Stale,
+    /// Fetched while the answer waited.
+    Fetched,
+}
+
+impl IceOrigin {
+    fn mark(self) -> &'static str {
+        match self {
+            Self::Cached => "ice_servers_cached",
+            Self::Stale => "ice_servers_stale",
+            Self::Fetched => "ice_servers_fetched",
+        }
+    }
+}
+
 impl IceSource {
-    pub fn api(base_url: String, tokens: Arc<Tokens>) -> Self {
-        Self::Api { base_url, tokens, cache: Arc::new(IceCache::new()) }
+    /// cmux's WebSocket relay for an answer of `device_id` (PROTOCOL.md
+    /// "WebSocket relay"): on the backend this source asks for ICE servers,
+    /// with a current access token at each join. `None` for fixed servers
+    /// (tests, tools) and when `CMUX_MOBILE_RELAY=0` turns it off.
+    pub fn relay(&self, device_id: &str) -> Option<cmux_mobile_link::dial::relay::RelayEndpoint> {
+        let Self::Api { base_url, build_space, tokens, .. } = self else { return None };
+        if std::env::var("CMUX_MOBILE_RELAY").is_ok_and(|value| value == "0") {
+            return None;
+        }
+        let tokens = Arc::clone(tokens);
+        Some(cmux_mobile_link::dial::relay::RelayEndpoint::new(
+            base_url.clone(),
+            build_space.clone(),
+            device_id,
+            move || {
+                let tokens = Arc::clone(&tokens);
+                Box::pin(async move { tokens.access_token().await.ok() })
+            },
+        ))
     }
 
-    /// The servers and whether they came from the cache.
-    pub(crate) async fn servers(&self) -> (Vec<IceServer>, bool) {
+    pub fn api(base_url: String, build_space: Option<BuildSpace>, tokens: Arc<Tokens>) -> Self {
+        Self::Api {
+            base_url,
+            build_space,
+            tokens,
+            cache: Arc::new(IceCache::new()),
+            refreshing: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        }
+    }
+
+    /// The servers for an answer and where they came from. Only with
+    /// nothing ever fetched does this wait (at most [`ICE_BUDGET`]).
+    pub async fn servers(&self) -> (Vec<IceServer>, IceOrigin) {
         match self {
-            Self::Fixed(servers) => (servers.clone(), true),
-            Self::Api { base_url, tokens, cache } => {
+            Self::Fixed(servers) => (servers.clone(), IceOrigin::Cached),
+            Self::Api { cache, .. } => {
                 if let Some(servers) = cache.fresh() {
-                    return (servers, true);
+                    return (servers, IceOrigin::Cached);
                 }
-                let token = match tokens.access_token().await {
-                    Ok(token) => token,
-                    Err(error) => {
-                        tracing::warn!("no access token for GET /v1/ice ({error:#}); host candidates only");
-                        return (Vec::new(), false);
-                    }
-                };
-                cache.get(&ApiClient::new(base_url, &token), ICE_BUDGET).await
+                if !FETCH_AFTER_WAKE.load(std::sync::atomic::Ordering::Relaxed)
+                    && let Some(servers) = cache.last()
+                {
+                    self.refresh_in_background();
+                    return (servers, IceOrigin::Stale);
+                }
+                (self.fetch().await, IceOrigin::Fetched)
             }
         }
     }
 
-    /// A sleep can outlast TURN credentials while the platform's monotonic clock
-    /// stands still. Never reuse pre-wake ICE credentials for the next phone dial.
-    fn invalidate(&self) {
+    /// `GET /v1/ice` within [`ICE_BUDGET`], into the cache; no servers when
+    /// it fails.
+    async fn fetch(&self) -> Vec<IceServer> {
+        let Self::Api { base_url, build_space, tokens, cache, .. } = self else { return Vec::new() };
+        let token = match tokens.access_token().await {
+            Ok(token) => token,
+            Err(error) => {
+                tracing::warn!("no access token for GET /v1/ice ({error:#}); host candidates only");
+                return Vec::new();
+            }
+        };
+        let api = ApiClient::new(base_url, &token).with_build_space(build_space.clone());
+        cache.get(&api, ICE_BUDGET).await.0
+    }
+
+    /// Fetch fresh servers beside the caller, unless a refresh runs already.
+    fn refresh_in_background(&self) {
+        let Self::Api { refreshing, .. } = self else { return };
+        if refreshing.swap(true, std::sync::atomic::Ordering::AcqRel) {
+            return;
+        }
+        let source = self.clone();
+        let flag = Arc::clone(refreshing);
+        tokio::spawn(async move {
+            source.fetch().await;
+            flag.store(false, std::sync::atomic::Ordering::Release);
+        });
+    }
+
+    /// A sleep can outlast TURN credentials while the platform's monotonic
+    /// clock stands still, and a network change may need other servers: the
+    /// cached ones are stale now. They are kept for the next answer, which
+    /// would otherwise wait for `GET /v1/ice`, and a refresh starts at once.
+    pub fn invalidate(&self) {
         if let Self::Api { cache, .. } = self {
-            cache.clear();
+            if FETCH_AFTER_WAKE.load(std::sync::atomic::Ordering::Relaxed) {
+                cache.clear();
+                return;
+            }
+            cache.mark_stale();
+            self.refresh_in_background();
         }
     }
 
     /// Measurement support (`CMUX_MOBILE_BASELINE`): fetch per answer, as before the cache.
-    async fn servers_uncached(&self) -> (Vec<IceServer>, bool) {
-        self.invalidate();
+    async fn servers_uncached(&self) -> (Vec<IceServer>, IceOrigin) {
+        if let Self::Api { cache, .. } = self {
+            cache.clear();
+        }
         self.servers().await
     }
 
     /// Keep the cache filled while the host runs: fetch now, then again
     /// whenever it is about to go stale.
     fn keep_fresh(&self) -> Option<tokio::task::JoinHandle<()>> {
-        let Self::Api { .. } = self else { return None };
+        let Self::Api { cache, .. } = self else { return None };
         let source = self.clone();
+        let cache = Arc::clone(cache);
         Some(tokio::spawn(async move {
             loop {
-                let (servers, _) = source.servers().await;
+                let servers = match cache.fresh() {
+                    Some(servers) => servers,
+                    None => source.fetch().await,
+                };
                 let wait = if servers.is_empty() { Duration::from_secs(30) } else { Duration::from_secs(60) };
                 tokio::time::sleep(wait).await;
             }
@@ -107,12 +214,17 @@ impl IceSource {
 
 /// When a phone first registered (`GET /v1/me/devices` `createdAt`), for the
 /// pairing prompt. Every phone that may dial is the Mac owner's own device.
-fn registration_lookup(base_url: String, tokens: Arc<Tokens>) -> crate::pairing::RegistrationLookup {
+fn registration_lookup(
+    base_url: String,
+    build_space: Option<BuildSpace>,
+    tokens: Arc<Tokens>,
+) -> crate::pairing::RegistrationLookup {
     Arc::new(move |phone: String| {
-        let (base_url, tokens) = (base_url.clone(), Arc::clone(&tokens));
+        let (base_url, build_space, tokens) = (base_url.clone(), build_space.clone(), Arc::clone(&tokens));
         Box::pin(async move {
             let token = tokens.access_token().await.ok()?;
-            let devices = ApiClient::new(&base_url, &token).my_devices().await.ok()?;
+            let devices =
+                ApiClient::new(&base_url, &token).with_build_space(build_space).my_devices().await.ok()?;
             devices
                 .into_iter()
                 .find(|d| d.device_id.eq_ignore_ascii_case(&phone) && d.kind != "mac")
@@ -122,21 +234,48 @@ fn registration_lookup(base_url: String, tokens: Arc<Tokens>) -> crate::pairing:
     })
 }
 
-/// Run until the process is stopped, reconnecting with backoff. Returns `Ok` only when
-/// the owner removed this Mac (`removed`): registering again would undo that.
-pub async fn run(config: HostConfig) -> Result<()> {
+/// Why [`run`] returned: hostd stops for good and exits with the matching status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stopped {
+    /// The owner removed this Mac (`removed`): registering again would undo that ([`EXIT_REMOVED`]).
+    Removed,
+    /// The service refused this Mac's device id: another account registered it (`403 not_owner`).
+    /// Retrying with the same id never helps; the app makes a new id ([`EXIT_NOT_OWNED`]).
+    DeviceNotOwned,
+}
+
+impl Stopped {
+    /// The process exit status a supervisor reads.
+    pub fn exit_status(self) -> i32 {
+        match self {
+            Self::Removed => EXIT_REMOVED,
+            Self::DeviceNotOwned => EXIT_NOT_OWNED,
+        }
+    }
+}
+
+/// Run until the process is stopped, reconnecting with backoff. Returns only when
+/// retrying cannot help ([`Stopped`]).
+pub async fn run(config: HostConfig) -> Result<Stopped> {
     run_with_changes(config, crate::netwatch::changes()).await
 }
 
-async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::Receiver<u64>) -> Result<()> {
+async fn run_with_changes(
+    config: HostConfig,
+    mut changes: tokio::sync::watch::Receiver<u64>,
+) -> Result<Stopped> {
     let tokens = Arc::new(Tokens::new(config.tokens.clone()));
     let mut services = config.services.clone();
     if let Some(pairing) = services.pairing.as_mut() {
-        pairing.registration = Some(registration_lookup(config.base_url.clone(), Arc::clone(&tokens)));
+        pairing.registration = Some(registration_lookup(
+            config.base_url.clone(),
+            config.build_space.clone(),
+            Arc::clone(&tokens),
+        ));
     }
     let services = Arc::new(services);
     // One ICE cache for the life of the process (reconnects keep it).
-    let ice = IceSource::api(config.base_url.clone(), Arc::clone(&tokens));
+    let ice = IceSource::api(config.base_url.clone(), config.build_space.clone(), Arc::clone(&tokens));
     let _notifications = if crate::notify::enabled() {
         // Paired phones that gave a push key get sealed notifications (sealed_notify.rs).
         let sealer = services.pairing.as_ref().map(|pairing| {
@@ -150,6 +289,7 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
         });
         Some(AbortTask(tokio::spawn(crate::notify::run(
             config.base_url.clone(),
+            config.build_space.clone(),
             config.device_id.clone(),
             Arc::clone(&tokens),
             config.services.acpmux.clone(),
@@ -160,7 +300,23 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
     } else {
         None
     };
+    // The relay cache's copy of this Mac's chats for phones to read while it sleeps
+    // (`relay_feed.rs`); only with `LINK_RELAY_CACHE=on` and the app's identity key.
+    let _relay_feed = (crate::relay_feed::enabled() && services.pairing.is_some()).then(|| {
+        AbortTask(tokio::spawn(crate::relay_feed::run(
+            Arc::clone(&services),
+            config.base_url.clone(),
+            config.build_space.clone(),
+            config.device_id.clone(),
+            Arc::clone(&tokens),
+            config.session_exposure.clone(),
+            crate::relay_feed::FeedTiming::default(),
+        )))
+    });
     let mailbox = mailbox_for(&services, config.session_exposure.clone());
+    // Phones beside this Mac link through its local hub with no Worker and
+    // no internet (local_link.rs); it outlives every Worker reconnect.
+    let _local_link = crate::local_link::start(&config, &services, &mailbox).await;
     // This Mac reaching the person's other machines through the same warm
     // socket (`link_socket.rs`); only with the app, which holds the identity key.
     let (signaling_now, signaling_watch) = tokio::sync::watch::channel(None::<SignalingClient>);
@@ -169,12 +325,14 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
             device_id: config.device_id.clone(),
             device_name: config.device_name.clone(),
             base_url: config.base_url.clone(),
+            build_space: config.build_space.clone(),
             tokens: Arc::clone(&tokens),
             ice: ice.clone(),
             signaling: signaling_watch.clone(),
             identity: pairing.identity.clone(),
             activity: Arc::clone(&pairing.activity),
             links: Default::default(),
+            pairing: Some(pairing.clone()),
         });
         let path = crate::link_socket::socket_path(&services.daemon_socket());
         AbortTask(tokio::spawn(async move {
@@ -183,8 +341,15 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
             }
         }))
     });
+    // Per-service byte rates for `cmux device traffic` (traffic.rs).
+    let _traffic = AbortTask(tokio::spawn(crate::traffic::run_sampler()));
     // Phones keep their WireGuard sessions when the Mac changes networks.
     let _network_watch = AbortTask(tokio::spawn(crate::netwatch::run()));
+    // NAT port mapping (portmap.rs): sessions answered from now on ask the
+    // home router for a public port, in the background; off with
+    // CMUX_MOBILE_PORTMAP=0. A network change roams each session, which maps
+    // its new socket and deletes the old mapping.
+    crate::portmap::install();
     // Live tunnels can roam even while signaling is unreachable. Rehome resends
     // their latest endpoint announcements once the replacement socket connects.
     let _endpoint_refresh = AbortTask(tokio::spawn(crate::netwatch::refresh_endpoints(changes.clone())));
@@ -194,6 +359,12 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
         tracing::warn!("test signals on (SIGUSR1 media black hole, SIGUSR2 media kill)");
         crate::media_session::spawn_test_signals();
     }
+    // The LAN direct path (lan.rs): runs whether or not signaling is up, so a
+    // phone on this Mac's network reaches it with the internet down.
+    let _lan =
+        crate::lan::start(Arc::clone(&services), config.include_loopback, config.session_exposure.clone())
+            .await
+            .map(AbortTask);
     let mut backoff = Duration::from_secs(1);
     loop {
         control::emit(&Event::Connecting);
@@ -213,7 +384,7 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
                 // Registering again would undo the owner's removal: stop for good.
                 tracing::warn!(reason, "this Mac was removed from the account's devices; stopping");
                 control::emit(&Event::Removed);
-                return Ok(());
+                return Ok(Stopped::Removed);
             }
             Ok(reason) => {
                 tracing::warn!(reason, "signaling ended; reconnecting");
@@ -223,6 +394,13 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
                 backoff =
                     if started.elapsed() > LONG_LIVED { QUICK_RECONNECT } else { Duration::from_secs(1) };
                 reason
+            }
+            Err(error) if not_owner(&error) => {
+                // Another account registered this device id (an id an older build kept for
+                // whoever signed in first, say): the same id is refused every time.
+                tracing::warn!("the service says another account owns this Mac's device id; stopping");
+                control::emit(&Event::DeviceNotOwned);
+                return Ok(Stopped::DeviceNotOwned);
             }
             Err(error) => {
                 tracing::warn!("connection attempt failed: {error:#}");
@@ -260,7 +438,7 @@ async fn connect_once(
         .clone()
         .or_else(|| claims(&token).sub)
         .context("the access token has no sub; set CMUX_MOBILE_OWNER_USER_ID")?;
-    let api = ApiClient::new(&config.base_url, &token);
+    let api = ApiClient::new(&config.base_url, &token).with_build_space(config.build_space.clone());
     let (machine_id, sibling_device_ids) = config.machine(&owner);
     let device = api
         .register_device(&DeviceRegistration {
@@ -275,14 +453,23 @@ async fn connect_once(
         .await
         .context("POST /v1/devices")?;
     tracing::info!(device = %device, "registered");
-    let signaling = SignalingClient::connect(&config.base_url, &token, &config.team_id, &config.device_id)
-        .await
-        .context("signaling connect")?;
+    let signaling = SignalingClient::connect_in(
+        &config.base_url,
+        &token,
+        &config.team_id,
+        &config.device_id,
+        config.build_space.as_ref(),
+    )
+    .await
+    .context("signaling connect")?;
     // Cancellation on wake/network change must close the old socket and stop
     // its auxiliary tasks; dropping a SignalingClient alone does neither.
     signaling_now.send_replace(Some(signaling.clone()));
-    let mut lifetime =
-        ConnectionLifetime { signaling: signaling.clone(), tasks: Vec::new(), published: signaling_now.clone() };
+    let mut lifetime = ConnectionLifetime {
+        signaling: signaling.clone(),
+        tasks: Vec::new(),
+        published: signaling_now.clone(),
+    };
     tracing::info!(device_id = config.device_id, "signaling connected");
     // Sessions of the previous socket (WireGuard tunnels outlive it) send
     // their `bye` on this one now.
@@ -328,10 +515,25 @@ impl Drop for ConnectionLifetime {
 /// hostd's exit status after the owner removed this Mac (`removed`): a supervisor must not restart it.
 pub const EXIT_REMOVED: i32 = 78;
 
+/// hostd's exit status after the service refused this Mac's device id (`not_owner`): the app
+/// forgets that id for the account and starts hostd with a new one.
+pub const EXIT_NOT_OWNED: i32 = 79;
+
 /// Whether the signaling socket closed because the owner removed this device
 /// (`DELETE /v1/devices/:id` closes it with 4002 `removed`, PROTOCOL.md).
 pub fn removed(reason: &str) -> bool {
     reason.starts_with("signaling closed by server: 4002 ")
+}
+
+/// Whether registering this device was refused because another account owns its id
+/// (`POST /v1/devices` answered `403 not_owner`, PROTOCOL.md).
+pub fn not_owner(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        matches!(
+            cause.downcast_ref::<cmux_mobile_link::api::ApiError>(),
+            Some(cmux_mobile_link::api::ApiError::Status { status: 403, body }) if body.contains("\"not_owner\"")
+        )
+    })
 }
 
 /// Whether `error` is the backend refusing the access token (HTTP 401 from the API or
@@ -366,6 +568,8 @@ fn mailbox_for(
         trust: pairing.trust.clone(),
         identity: pairing.identity.clone(),
         spent: Arc::clone(&pairing.spent_replies),
+        cursor: Arc::clone(&pairing.mailbox_cursor),
+        order: Default::default(),
         key_wait: crate::pairing::TRUST_WAIT,
         applier: Arc::new(crate::mailbox_apply::LiveApplier {
             acpmux: services.acpmux.clone(),
@@ -422,6 +626,43 @@ pub fn answer_mailbox(
             }
         }
     });
+}
+
+/// Whether this Mac takes relay-held sends (RFD 0142 R8; `CMUX_MOBILE_RELAY_HOLD=1`, off by default).
+fn relay_hold() -> bool {
+    std::env::var("CMUX_MOBILE_RELAY_HOLD").is_ok_and(|v| v == "1")
+}
+
+/// Relay-held sends on answered session `session_id` (RFD 0142 R8): each `held_item` the relay drains to this
+/// Mac's socket goes through the mailbox like a mailbox frame (its spent ids apply an id once, whichever
+/// route carried it), and every settled one is acked over the relay. Ends with the session.
+pub fn drain_relay_held(session_id: &str, mailbox: Arc<crate::mailbox::Mailbox>) {
+    let Some(ports) = cmux_mobile_link::dial::wireguard::relay_hold_port(session_id, false) else { return };
+    let session = session_id.to_owned();
+    tokio::spawn(cmux_mobile_link::hold_route::drain_held(ports, move |items| {
+        let (mailbox, session) = (Arc::clone(&mailbox), session.clone());
+        async move {
+            let items: Vec<_> = items
+                .into_iter()
+                .map(|item| cmux_mobile_link::signaling::MailboxItem {
+                    id: item.id,
+                    from: item.from,
+                    sealed: item.sealed,
+                    at: None,
+                    seq: None,
+                })
+                .collect();
+            let count = items.len();
+            let handled = mailbox.handle(items, crate::mailbox::now()).await;
+            tracing::info!(
+                session_id = session,
+                held = count,
+                settled = handled.results.len(),
+                "relay-held items"
+            );
+            handled.results.into_iter().map(|result| result.id).collect()
+        }
+    }));
 }
 
 /// Answer every admitted dial on `signaling` until it closes; returns the
@@ -530,21 +771,25 @@ async fn answer_session(
     kind: TransportKind,
     context: AnswerContext,
 ) {
-    let mut peer = Peer {
+    let peer = Peer {
         device_id: first.from.clone(),
         session_id: first.session_id.clone(),
         video: None,
         session_exposure: context.session_exposure.clone(),
+        route: None,
+        path: None,
+        viewport: None,
     };
     let session_id = first.session_id.clone();
     let timeline = Timeline::new();
     timeline.mark("offer_received");
     let baseline = std::env::var_os("CMUX_MOBILE_BASELINE").is_some();
-    let (ice_servers, cached) =
+    let (ice_servers, origin) =
         if baseline { context.ice.servers_uncached().await } else { context.ice.servers().await };
-    timeline.mark(if cached { "ice_servers_cached" } else { "ice_servers_fetched" });
+    timeline.mark(origin.mark());
     let options = DialOptions {
         ice_servers,
+        relay: context.ice.relay(signaling.device_id()),
         include_loopback: context.include_loopback,
         exclude_cgnat: context.exclude_cgnat,
         timeline: timeline.clone(),
@@ -560,6 +805,21 @@ async fn answer_session(
         // video while it works (media_session.rs; CMUX_MOBILE_WEBRTC_MEDIA=0 turns
         // it off).
         webrtc_media: std::env::var("CMUX_MOBILE_WEBRTC_MEDIA").map_or(true, |v| v != "0"),
+        // The corporate network simulations, as on the phone (PROTOCOL.md
+        // "Corporate networks"): CMUX_MOBILE_DEV_DROP_WIREGUARD=1 drops every
+        // WireGuard-shaped UDP datagram, CMUX_MOBILE_DEV_PROXY_ONLY=1 lets
+        // TURN over TLS out only through the system's proxy.
+        drop_wireguard_udp: std::env::var_os("CMUX_MOBILE_DEV_DROP_WIREGUARD").is_some(),
+        egress: cmux_mobile_link::egress::Egress {
+            require_proxy: std::env::var_os("CMUX_MOBILE_DEV_PROXY_ONLY").is_some(),
+            ..Default::default()
+        },
+        block_udp: std::env::var_os("CMUX_MOBILE_DEV_PROXY_ONLY").is_some(),
+        // The reliable link (per-channel seq/ack/replay; a dropped carrier
+        // resumes): off unless CMUX_MOBILE_RELIABLE=1, and on only when the
+        // phone offers it too.
+        reliable: reliable_link(),
+        resume_registry: reliable_link().then(|| resume_registry(&peer.device_id)),
         ..DialOptions::default()
     };
     let connected = match dial::answer(&signaling, first, events, &options, LinkConfig::default()).await {
@@ -569,10 +829,38 @@ async fn answer_session(
             return;
         }
     };
+    if let Some(mailbox) = context.mailbox.clone().filter(|_| relay_hold()) {
+        drain_relay_held(&session_id, mailbox);
+    }
+    if connected.resumed {
+        // A new carrier under a link this phone already has: its channels
+        // and services run on, served where it was first answered.
+        tracing::info!(session_id, ?kind, phone = peer.device_id, timings = %timeline.summary(), "link resumed");
+        return;
+    }
+    serve_link(connected, kind, peer, timeline, context.services).await;
+}
+
+/// Serve a link that is up (answered through signaling, or accepted on the
+/// LAN mesh, `lan.rs`) until it closes.
+pub(crate) async fn serve_link(
+    connected: dial::Connected,
+    kind: TransportKind,
+    mut peer: Peer,
+    timeline: Timeline,
+    service_config: Arc<ServiceConfig>,
+) {
+    let session_id = peer.session_id.clone();
     let path = *connected.path.borrow();
+    peer.route =
+        Some(crate::services::LinkRoute { path: connected.path.clone(), peer: connected.peer.clone() });
+    peer.path = Some(connected.path.clone());
     if let Some(cmux_mobile_link::media::MediaLane::Out(video)) = connected.link.media() {
         peer.video = Some(video);
     }
+    // The overlay's viewport sync port, bound on the first channel that syncs.
+    peer.viewport =
+        connected.overlay.clone().map(|overlay| Arc::new(crate::viewport_link::LinkHub::new(overlay)));
     tracing::info!(session_id, ?kind, ?path, phone = peer.device_id, video = peer.video.is_some(), timings = %timeline.summary(), "link up");
     control::emit(&Event::PhoneUp {
         session_id: session_id.clone(),
@@ -594,7 +882,25 @@ async fn answer_session(
             });
         }
     });
-    let auth = Arc::new(crate::pairing::LinkAuth::default());
+    // Path and srtt on every path change and every 10 s (path_report.rs): a
+    // relay link, its resets and its round trip, readable from this log.
+    let report_session = session_id.clone();
+    let path_report = tokio::spawn(cmux_mobile_link::path_report::run(
+        connected.path.clone(),
+        connected.link.rtt(),
+        move |line| {
+            tracing::info!(
+                session_id = report_session,
+                path = ?line.path,
+                srtt_ms = ?line.srtt_ms(),
+                rtt_ms = ?line.rtt_ms(),
+                changes = line.changes,
+                reason = ?line.reason,
+                "link path rtt"
+            );
+        },
+    ));
+    let auth = Arc::new(crate::pairing::LinkAuth::with_tunnel_keys(connected.tunnel_keys.clone()));
     // The phone may open a WebRTC media session for this link's video.
     let _hybrid = match (&peer.video, connected.webrtc_media) {
         (Some(video), true) => Some(crate::media_session::register(
@@ -602,7 +908,7 @@ async fn answer_session(
             &peer.device_id,
             video.clone(),
             Arc::clone(&auth),
-            context.services.pairing.is_some(),
+            service_config.pairing.is_some(),
             connected.link.closed_state(),
         )),
         _ => None,
@@ -632,22 +938,18 @@ async fn answer_session(
         }
         // In open order: a channel opened after `auth` waits for it. One
         // `auth` runs at a time per link.
-        if incoming.service == "auth" && context.services.pairing.is_some() && !auth.try_begin() {
+        if incoming.service == "auth" && service_config.pairing.is_some() && !auth.try_begin() {
             tokio::spawn(services::refuse(incoming, "busy", "this iPhone's pairing is already running"));
             continue;
         }
-        if incoming.service == "auth" && context.services.pairing.is_none() {
+        if incoming.service == "auth" && service_config.pairing.is_none() {
             auth.begin();
         }
-        tokio::spawn(services::serve(
-            Arc::clone(&context.services),
-            peer.clone(),
-            Arc::clone(&auth),
-            incoming,
-        ));
+        tokio::spawn(services::serve(Arc::clone(&service_config), peer.clone(), Arc::clone(&auth), incoming));
     }
     let reason = connected.link.closed().await;
     path_watch.abort();
+    path_report.abort();
     drop_watch.abort();
     tracing::info!(session_id, reason, "link down");
     control::emit(&Event::PhoneDown { session_id, reason });
@@ -664,6 +966,26 @@ mod tests {
         assert!(!removed("signaling closed by server: 4001 moved"));
         assert!(!removed("signaling read failed: 4002"));
         assert!(!removed("signaling socket closed"));
+    }
+
+    #[test]
+    fn only_a_not_owner_refusal_of_the_registration_stops_hostd() {
+        let refused = anyhow::Error::new(cmux_mobile_link::api::ApiError::Status {
+            status: 403,
+            body: r#"{"error":{"code":"not_owner","message":"this deviceId belongs to another user"}}"#
+                .into(),
+        })
+        .context("POST /v1/devices");
+        assert!(not_owner(&refused));
+        let member = anyhow::Error::new(cmux_mobile_link::api::ApiError::Status {
+            status: 403,
+            body: r#"{"error":{"code":"not_member","message":"not a member"}}"#.into(),
+        })
+        .context("POST /v1/devices");
+        assert!(!not_owner(&member));
+        assert!(!not_owner(&anyhow::anyhow!("signaling connect")));
+        assert_eq!(Stopped::DeviceNotOwned.exit_status(), 79);
+        assert_eq!(Stopped::Removed.exit_status(), 78);
     }
 
     #[test]
@@ -697,3 +1019,18 @@ impl Drop for AbortTask {
 #[cfg(test)]
 #[path = "host_recovery_tests.rs"]
 mod recovery_tests;
+
+/// Whether this Mac accepts the reliable link (CMUX_MOBILE_RELIABLE=1).
+fn reliable_link() -> bool {
+    std::env::var("CMUX_MOBILE_RELIABLE").is_ok_and(|v| v == "1")
+}
+
+/// The resume registry of one paired phone: its links wait there for its
+/// resume, and no other device's carrier can resume them.
+fn resume_registry(device_id: &str) -> Arc<cmux_mobile_link::ResumeRegistry> {
+    static REGISTRIES: std::sync::LazyLock<
+        std::sync::Mutex<std::collections::HashMap<String, Arc<cmux_mobile_link::ResumeRegistry>>>,
+    > = std::sync::LazyLock::new(Default::default);
+    let mut registries = REGISTRIES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    Arc::clone(registries.entry(device_id.to_lowercase()).or_default())
+}

@@ -6,24 +6,105 @@ use cmux_json::JsonSet as _;
 /// Render raw terminal output bytes to plain text by replaying them through
 /// a fresh terminal emulator sized to the recorded geometry, then formatting
 /// the full page list without escapes ([`ghostty_vt::Terminal::plain_text`]).
-/// The scrollback budget is the window's own byte count, so no row of the
-/// bounded window is evicted before formatting.
+/// The temporary emulator must not use the input byte count as its
+/// scrollback budget: Ghostty accounts resident page bytes, so many short
+/// lines can evict history even when their VT replay is small. The default
+/// renderer gives it a bounded resident budget and refuses a projection that
+/// reaches that cap rather than claiming a complete window.
+///
+/// The formatter trims trailing blank rows, so a window that ends on a line
+/// feed would lose it, and a client that appends each window from its
+/// `next_offset` would run the next window's first line into this one's last
+/// (`2` and `3` read `23`). The text ends with as many line feeds as the
+/// bytes did after their last printed character.
 pub(super) fn render_terminal_output_plain<'a>(
     chunks: impl Iterator<Item = &'a [u8]> + Clone,
     cols: u16,
     rows: u16,
 ) -> anyhow::Result<String> {
-    let scrollback: usize = chunks.clone().map(<[u8]>::len).sum();
+    const MAX_RENDER_SCROLLBACK_BYTES: usize = 64 * 1024 * 1024;
+    let input_bytes = chunks.clone().map(<[u8]>::len).sum::<usize>();
+    let scrollback =
+        input_bytes.saturating_mul(64).max(input_bytes).clamp(1 << 20, MAX_RENDER_SCROLLBACK_BYTES);
+    render_terminal_output_plain_with_scrollback(chunks, cols, rows, scrollback)
+}
+
+pub(super) fn render_terminal_output_plain_with_scrollback<'a>(
+    chunks: impl Iterator<Item = &'a [u8]> + Clone,
+    cols: u16,
+    rows: u16,
+    scrollback: usize,
+) -> anyhow::Result<String> {
     let mut terminal = ghostty_vt::Terminal::new(
         cols.max(1),
         rows.max(1),
         scrollback,
         ghostty_vt::Callbacks::default(),
     )?;
+    let mut ends = TrailingLineFeeds::default();
     for chunk in chunks {
         terminal.vt_write(chunk);
+        ends.scan(chunk);
     }
-    Ok(terminal.plain_text()?)
+    let expected_rows = ends.line_feeds.saturating_add(1);
+    if terminal.scrollbar().is_some_and(|scrollbar| scrollbar.total < expected_rows) {
+        anyhow::bail!("terminal output projection evicted retained rows");
+    }
+    if terminal.primary_resident_bytes().is_some_and(|resident| resident >= scrollback as u64) {
+        anyhow::bail!("terminal output projection exceeded its bounded history budget");
+    }
+    let mut text = terminal.plain_text()?;
+    text.truncate(text.trim_end_matches('\n').len());
+    text.extend(std::iter::repeat_n('\n', ends.count));
+    Ok(text)
+}
+
+/// The line feeds after the last printed character of a byte stream, read
+/// across chunk boundaries. Carriage returns, spaces, tabs, other controls and
+/// escape sequences (CSI, the string sequences, two-byte) print nothing, so they neither count
+/// nor reset the count.
+#[derive(Default)]
+struct TrailingLineFeeds {
+    count: usize,
+    line_feeds: u64,
+    state: EscapeState,
+}
+
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+enum EscapeState {
+    #[default]
+    Ground,
+    Escape,
+    Csi,
+    Osc,
+}
+
+impl TrailingLineFeeds {
+    fn scan(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.state = match (self.state, b) {
+                (EscapeState::Ground, b'\n') => {
+                    self.count += 1;
+                    self.line_feeds = self.line_feeds.saturating_add(1);
+                    EscapeState::Ground
+                }
+                (_, 0x1b) => EscapeState::Escape,
+                (EscapeState::Ground, b) if b <= b' ' || b == 0x7f => EscapeState::Ground,
+                (EscapeState::Ground, _) => {
+                    self.count = 0;
+                    EscapeState::Ground
+                }
+                (EscapeState::Escape, b'[') => EscapeState::Csi,
+                // OSC, DCS, SOS, PM and APC strings end at BEL or ST (ESC \).
+                (EscapeState::Escape, b']' | b'P' | b'X' | b'^' | b'_') => EscapeState::Osc,
+                (EscapeState::Escape, _) => EscapeState::Ground,
+                (EscapeState::Csi, 0x40..=0x7e) => EscapeState::Ground,
+                (EscapeState::Csi, _) => EscapeState::Csi,
+                (EscapeState::Osc, 0x07) => EscapeState::Ground,
+                (EscapeState::Osc, _) => EscapeState::Osc,
+            };
+        }
+    }
 }
 
 pub(super) fn terminal_output_read_result(
@@ -31,12 +112,14 @@ pub(super) fn terminal_output_read_result(
     start_offset: u64,
     next_offset: u64,
     complete: bool,
+    snapshot: bool,
 ) -> Value {
     serde_json::json!({
         "text": text,
         "start_offset": start_offset.to_string(),
         "next_offset": next_offset.to_string(),
         "complete": complete,
+        "snapshot": snapshot,
     })
 }
 

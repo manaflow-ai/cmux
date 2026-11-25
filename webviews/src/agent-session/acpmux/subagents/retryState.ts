@@ -5,13 +5,14 @@
 // "Retrying (2/4) after a capacity error" with the turning ring. A failed row offers Retry, which
 // asks acpmux (`_acpmux/retry`) to run it again now; acpmux retries a Claude Agent-tool subagent
 // by prompting its parent to resume it by its agent id. Where acpmux cannot (no `retryable`, a
-// daemon without the method, a shell run of another family), the row asks the chat's agent to run
-// it again instead: one line naming it and its task, through the composer's send.
+// daemon without the method, a shell run of another family), the row offers no Retry: the chat's
+// agent already read the error as its own tool call's result (Leo, 2026-11-14: "we maybe want to
+// remove the "ask parent to retry" if we haven't already").
 //
 // The daemon's field names live in ``readRetry`` and ``RETRY_METHOD`` alone.
 import type { StringKey, Translate } from "../i18n";
 import type { RetrySummary } from "../protocol/generated/types";
-import type { Subagent } from "./subagentFold";
+import type { Subagent } from "./subagent";
 
 /// A retry acpmux has scheduled: which attempt of how many, why, and when it runs (epoch ms). The
 /// session row's is acpmux's `RetrySummary`; a subagent's carries the same four fields.
@@ -102,8 +103,7 @@ export type SessionRetryFields = { retry?: RetryState; retryDeciding?: true; sta
 
 /// A subagent's phase. `child`: a sub-session's own session row, whose retry acpmux keeps there.
 /// `capabilities`: what acpmux's `initialize` named, undefined from one that names none (its
-/// Retry then tries the method and falls back on an unknown one). One that names them and not this
-/// row's: a subagent then gets the ask, a sub-session no Retry (only acpmux retries a chat's turn).
+/// Retry then tries the method). One that names them and not this row's: no Retry.
 export function subagentRetry(
   agent: Pick<Subagent, "state" | "parent" | "retry" | "retriedOut" | "retryable" | "child" | "harness">,
   capabilities?: ReadonlySet<string>,
@@ -122,7 +122,7 @@ export function subagentRetry(
       : undefined
     : !agent.harness && agent.retryable && served(SUBAGENT_RETRY)
       ? "daemon"
-      : "ask";
+      : undefined;
   return { kind: "failed", ...(action && { action }), ...(agent.retriedOut && { gaveUp: agent.retriedOut }) };
 }
 
@@ -163,10 +163,11 @@ export function retryLabel(t: Translate, retry: RetryState): string {
 
 /// Whether a prompt record is acpmux's continuation of a failed turn or subagent, never the
 /// person's: its provenance is `auto_resume` (a turn's retry, automatic or manual) or
-/// `subagent_retry` (a subagent resumed by its agent id).
+/// `subagent_retry` (a subagent resumed by its agent id) or `subagent_resume` (the row's Resume,
+/// hub/subagent_resume.rs).
 export function isRetryContinuation(msg: { _meta?: { provenance?: unknown } } | undefined): boolean {
   const kind = (msg?._meta?.provenance as { kind?: unknown } | undefined)?.kind;
-  return kind === "auto_resume" || kind === "subagent_retry";
+  return kind === "auto_resume" || kind === "subagent_retry" || kind === "subagent_resume";
 }
 
 /// acpmux's ask that the chat's agent resume a subagent that failed on a transient error (acpmux
@@ -206,25 +207,17 @@ export function subagentRetryNotice(
   return { ...(name ? { name } : {}), ...(agentId ? { agentId } : {}), ...(error ? { error } : {}) };
 }
 
-/// What a row's Retry does: `daemon` asks acpmux, `ask` asks the chat's agent.
-export type RetryAction = "daemon" | "ask";
+/// What a row's Retry does: `daemon` asks acpmux, the only one that retries.
+export type RetryAction = "daemon";
 
 /// The Retry a failed row offers (``subagentRetry``): an acpmux sub-session and a subagent acpmux
-/// says it can retry go to acpmux; any other is the chat's agent's to run again.
+/// says it can retry go to acpmux; any other offers none.
 export function retryActionOf(
   agent: Parameters<typeof subagentRetry>[0],
   capabilities?: ReadonlySet<string>,
 ): RetryAction | undefined {
   const phase = subagentRetry(agent, capabilities);
   return phase.kind === "failed" ? phase.action : undefined;
-}
-
-/// The line the chat's agent gets when the row asks it to retry.
-export function askPrompt(agent: Pick<Subagent, "name" | "task">, t: Translate): string {
-  const line = (text: string) => text.replace(/\s+/g, " ").trim();
-  const name = line(agent.name);
-  const task = agent.task && line(agent.task) !== name ? line(agent.task) : undefined;
-  return task ? t("retry.askTask", { name, task }) : t("retry.ask", { name });
 }
 
 /// The short note a Retry acpmux refused leaves on its row.
@@ -235,21 +228,21 @@ export type RetryNote = "retry.nothingFailed" | "retry.busy" | "retry.failed" | 
 export const TURN_RETRY = "turn-retry-v1";
 export const SUBAGENT_RETRY = "subagent-retry-v1";
 
-/// What a row's Retry reaches: acpmux's request, the composer's send, and the capabilities acpmux
-/// said it serves (undefined from a daemon that names none: Retry then tries the method and, for a
-/// subagent, falls back on an unknown one).
+/// What a row's Retry reaches: acpmux's request and the capabilities acpmux said it serves
+/// (undefined from a daemon that names none: Retry then tries the method).
 export type RetryDeps = {
   request: (method: string, params: Record<string, unknown>) => Promise<unknown>;
-  send: (text: string) => Promise<unknown>;
   capabilities?: ReadonlySet<string>;
-  /// Whether the pane still shows the row's chat, connected: checked before acpmux is asked and
-  /// again before the ask is sent. A Retry it can't reach is refused `retry.failed`, never sent.
+  /// Whether the pane still shows the row's chat, connected: checked before acpmux is asked. A
+  /// Retry it can't reach is refused `retry.failed`, never sent.
   reaches?: () => boolean;
 };
 
 /// A refusal's words. `retry.nothing_failed` says why (`data.why`): running again, or gone for
 /// good (the chat closed, the subagent resumed, replaced, ended or forgotten), else nothing failed.
-export function refusalNote(error: unknown): RetryNote | "ask" | "unknown-method" {
+/// `unsupported`: a daemon without the method, or one that cannot retry a subagent; a failed turn's
+/// Retry then sends its prompt again (turnRetry.ts), a subagent's says `retry.failed`.
+export function refusalNote(error: unknown): RetryNote | "unsupported" {
   const value = (error ?? {}) as { code?: unknown; reason?: unknown; data?: { why?: unknown } };
   const codes = [value.code, value.reason].map((part) => (part === undefined ? "" : String(part)));
   const has = (code: string) => codes.includes(code);
@@ -262,47 +255,25 @@ export function refusalNote(error: unknown): RetryNote | "ask" | "unknown-method
     return "retry.nothingFailed";
   }
   if (has("retry.stopped") || has("retry.unknown_subagent")) return "retry.gone";
-  // An older acpmux that cannot retry a subagent: the chat's agent can.
-  if (has("retry.subagent_unsupported")) return "ask";
-  if (has("-32601")) return "unknown-method";
+  if (has("retry.subagent_unsupported") || has("-32601")) return "unsupported";
   return "retry.failed";
 }
 
-/// Runs a row's Retry for `agent` of chat `chat`: the one the row offers (``retryActionOf``),
-/// acpmux's when it serves it, else the ask. Settles with the note to show, or undefined when it went.
+/// Runs a row's Retry for `agent` of chat `chat`: acpmux's (``retryActionOf``), the only one a row
+/// offers. Settles with the note to show, or undefined when it went.
 /// A second Retry of the same target is the row's to prevent (its button stays disabled until the
 /// row changes) and acpmux's to refuse (`retry.busy` while one is in flight); this keeps no state.
-export async function runRetry(
-  agent: RetryTarget,
-  chat: string,
-  deps: RetryDeps,
-  t: Translate,
-): Promise<RetryNote | undefined> {
-  const action = retryActionOf(agent, deps.capabilities);
-  if (!action) return undefined;
-  const away = () => deps.reaches !== undefined && !deps.reaches();
-  if (away()) return "retry.failed";
-  if (action === "daemon") {
-    const params = agent.child ? { sessionId: agent.child } : { sessionId: chat, subagentId: agent.id };
-    try {
-      await deps.request(RETRY_METHOD, params);
-      return undefined;
-    } catch (error) {
-      // Only a daemon without the method, or one that cannot retry a subagent, falls back to
-      // asking, and only for a subagent; any other refusal says why.
-      const note = refusalNote(error);
-      if (note !== "ask" && note !== "unknown-method") return note;
-      if (agent.child) return "retry.failed";
-    }
-  }
-  // Checked again after acpmux answered: the pane may have moved to another chat meanwhile.
-  if (away()) return "retry.failed";
+export async function runRetry(agent: RetryTarget, chat: string, deps: RetryDeps): Promise<RetryNote | undefined> {
+  if (!retryActionOf(agent, deps.capabilities)) return undefined;
+  if (deps.reaches !== undefined && !deps.reaches()) return "retry.failed";
+  const params = agent.child ? { sessionId: agent.child } : { sessionId: chat, subagentId: agent.id };
   try {
-    await deps.send(askPrompt(agent, t));
+    await deps.request(RETRY_METHOD, params);
     return undefined;
-  } catch {
-    return "retry.failed";
+  } catch (error) {
+    const note = refusalNote(error);
+    return note === "unsupported" ? "retry.failed" : note;
   }
 }
 
-export type RetryTarget = Parameters<typeof retryActionOf>[0] & Pick<Subagent, "id" | "name" | "task">;
+export type RetryTarget = Parameters<typeof retryActionOf>[0] & Pick<Subagent, "id">;

@@ -92,3 +92,59 @@ test("a refusal without an offer still gets a new key, so room made by hand lets
   expect(store.getSnapshot().create).toBeUndefined();
   unsubscribe();
 });
+
+test("a machine removed before the create answered is not added back by the answer", async () => {
+  const { store, provider, unsubscribe } = await atLimit();
+  store.closeCreate();
+  const a1 = provider.machines.find((m) => m.id === "vm_a1")!;
+  provider.emitRemoved("vm_a1");
+  await flush();
+  const madeRoom = (store as unknown as { madeRoom(machine: unknown): void }).madeRoom.bind(store);
+  madeRoom({ ...a1, status: "paused", revision: String(Number(a1.revision) + 1) });
+  expect(store.getSnapshot().machines.some((m) => m.id === "vm_a1")).toBe(false);
+  unsubscribe();
+});
+
+test("a pause that fails keeps the limit notice and the offer, and a second try creates", async () => {
+  const { store, provider, unsubscribe } = await atLimit();
+  provider.failNext = CloudOps.machinePause;
+  await store.makeRoom();
+  for (let i = 0; i < 4; i++) await flush();
+  expect(store.getSnapshot().create?.refusal?.kind).toBe("quota_exceeded");
+  expect(store.getSnapshot().create?.offer).toMatchObject({ kind: "pause", machine: "vm_d4" });
+  expect(store.getSnapshot().create?.submitting).toBe(false);
+  expect(store.getSnapshot().create?.errorCode).toBe("cmux.cloud.upstream_error");
+  expect(store.getSnapshot().create?.error).toBeTruthy();
+  expect(store.getSnapshot().error).toBeUndefined();
+  expect(store.getSnapshot().connection).toBe("connected");
+  expect(creates(provider)).toHaveLength(1);
+  await store.makeRoom();
+  for (let i = 0; i < 4; i++) await flush();
+  expect(creates(provider)).toHaveLength(2);
+  expect(store.getSnapshot().create).toBeUndefined();
+  unsubscribe();
+});
+
+test("a pause that finds the machine already stopped goes on to the create", async () => {
+  const { store, provider, unsubscribe } = await atLimit();
+  provider.failNext = CloudOps.machinePause;
+  provider.failCode = "cmux.cloud.not_running";
+  await store.makeRoom();
+  for (let i = 0; i < 4; i++) await flush();
+  // The create is sent (the mock's machine still runs, so its answer is the mock's own).
+  expect(creates(provider)).toHaveLength(2);
+  expect(store.getSnapshot().create?.error).toBeUndefined();
+  expect(store.getSnapshot().create?.refusal?.kind).toBe("quota_exceeded");
+  unsubscribe();
+});
+
+test("a lost link during the pause shows the page disconnected", async () => {
+  const { store, provider, unsubscribe } = await atLimit();
+  provider.offline = true;
+  await store.makeRoom();
+  for (let i = 0; i < 4; i++) await flush();
+  expect(store.getSnapshot().connection).toBe("disconnected");
+  expect(store.getSnapshot().create?.offer).toMatchObject({ kind: "pause" });
+  expect(creates(provider)).toHaveLength(1);
+  unsubscribe();
+});

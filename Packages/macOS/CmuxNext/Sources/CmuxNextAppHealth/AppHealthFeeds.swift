@@ -20,15 +20,13 @@ public import Foundation
 /// - the session daemon connection (`acpmux`, "Connection to the session service"): connected or not,
 ///   answering its heartbeat and its requests or not (`DaemonHealthSink`: the first
 ///   timed-out request shows it at once). Repairs: Retry Now, then a reconnect with a fresh drop budget;
-///   never a kill;
+///   never a kill. A connection that is up and answering also tells `sessionDaemon` its owner is ready;
 /// - the page host (`pageHost`): page loads and the daemon's page listener (asked for when a page
 ///   found no listener credential). Repair: `DaemonService.ensurePageListener()`.
 @MainActor
 public final class AppHealthFeeds {
     /// The app's health (the Rust model's host), which every feed writes to.
     public let health: AppHealth
-    /// App health's popover; a trigger (the restore lane's sidebar card) calls `popover.open(over:)`.
-    public let popover: AppHealthPopover
     private let daemon: DaemonService
     private let stateDirectory: URL?
     private let work: BackgroundWork
@@ -36,22 +34,17 @@ public final class AppHealthFeeds {
     public let pageFeed: any PageHealthFeed
     /// The follow of the local daemon connection (`AppHealthConnectionFeed`), for the app's life.
     private var connectionFeed: Task<Void, Never>?
-    /// Each window's footer line (``makeIndicator(over:)``) and the headline they show.
-    private let indicators = NSHashTable<AppHealthIndicatorView>.weakObjects()
-    private var headline: AppHealth.Headline?
 
     /// - Parameters:
     ///   - stateDirectory: The session daemon's state directory, whose registry size is read once.
     ///   - work: The app's blocking-work lanes (the size read runs on `.files`).
-    ///   - overlayProcess: The overlay pages' one web content process, for the popover's panel.
-    public init(daemon: DaemonService, stateDirectory: URL?, work: BackgroundWork, overlayProcess: PageOverlayProcess?) {
+    public init(daemon: DaemonService, stateDirectory: URL?, work: BackgroundWork) {
         let health = AppHealth()
         self.health = health
         self.daemon = daemon
         self.stateDirectory = stateDirectory
         self.work = work
         pageFeed = AppHealthPageFeed(health: health)
-        popover = AppHealthPopover(health: health, overlayProcess: overlayProcess)
     }
 
     /// Before the daemon starts (its first ensure is a health fact). The debug socket's `debug.health`
@@ -59,11 +52,6 @@ public final class AppHealthFeeds {
     public func start() {
         guard connectionFeed == nil else { return }
         let health = health
-        // The footer lines follow the snapshot, in order, on main (one subscription for the app's life, as this object's).
-        health.subscribe { [self] snapshot in
-            let headline = AppHealth.headline(of: snapshot)
-            MainDelivery().later { self.show(headline) } // always queued, so the lines keep the snapshots' order
-        }
         // A restore that still makes progress holds the watch's automatic replace.
         daemon.recovery.holdsReplace = { health.holdsReplace }
         // The session daemon: the launcher's facts, and once the registry's size.
@@ -94,21 +82,6 @@ public final class AppHealthFeeds {
         health.setInjector(.acpmux) { [weak daemon] _, fault in await Self.dropConnection(daemon, fault: fault) }
         health.setInjector(.pageHost) { [weak daemon] _, fault in await Self.removeListenerFile(daemon, fault: fault) }
         #endif
-    }
-
-    /// A window's footer line: hidden while all is well, a press opens the popover over `window`.
-    public func makeIndicator(over window: @escaping @MainActor () -> NSWindow?) -> AppHealthIndicatorView {
-        let view = AppHealthIndicatorView()
-        view.onPress = { [popover] in popover.open(over: window()) }
-        view.show(headline)
-        indicators.add(view)
-        return view
-    }
-
-    private func show(_ headline: AppHealth.Headline?) {
-        guard headline != self.headline else { return }
-        self.headline = headline
-        for view in indicators.allObjects { view.show(headline) }
     }
 
     nonisolated static func note(_ signal: DaemonHealthSink.Signal, health: AppHealth) {
@@ -172,30 +145,44 @@ public final class AppHealthFeeds {
 @MainActor
 enum AppHealthConnectionFeed {
     enum Link: Equatable, Sendable {
-        case starting, up, down
+        /// Before this launch's first connection: the daemon is still starting.
+        case starting
+        /// Connected and answering; `pid` is the owner's when the handshake named it.
+        case up(pid: Int32?)
+        case down
     }
 
     static func follow(_ daemon: DaemonService, health: AppHealth) -> Task<Void, Never> {
         let links = ObservationStream { [weak daemon] () -> Link in
             guard let daemon else { return .starting }
-            if case .connected = daemon.store.connectionState { return daemon.recovery.daemonNotAnswering ? .down : .up }
+            if case .connected = daemon.store.connectionState {
+                return daemon.recovery.daemonNotAnswering ? .down : .up(pid: daemon.store.identity?.pid)
+            }
             // Before the first connection of this launch the daemon is still starting.
             return daemon.store.connects > 0 ? .down : .starting
         }
         // task-owner: AppHealthFeeds (`connectionFeed`), for the app's life; event driven (Observation).
         return Task {
-            for await link in links {
-                switch link {
-                case .starting:
-                    break
-                case .up:
-                    health.event(AppHealth.acpmuxID, .connected)
-                    health.visibility(AppHealth.acpmuxID, visible: false)
-                case .down:
-                    health.visibility(AppHealth.acpmuxID, visible: true)
-                    health.event(AppHealth.acpmuxID, .disconnected)
-                }
-            }
+            for await link in links { apply(link, to: health) }
+        }
+    }
+
+    /// One change of the connection, told to app health.
+    nonisolated static func apply(_ link: Link, to health: AppHealth) {
+        switch link {
+        case .starting:
+            break
+        case .up(let pid):
+            health.event(AppHealth.acpmuxID, .connected)
+            health.visibility(AppHealth.acpmuxID, visible: false)
+            // An owner that is connected and answers is serving: it is not restoring and not in a
+            // start loop, whatever an earlier ensure or replace left (a progress line seen after its
+            // end, a replace refused after it wrote). Without this a stale restore read as stalled
+            // and showed "Session service isn't responding" until the next launch (2026-11-13).
+            health.noteDaemonReady(pid: pid ?? 0)
+        case .down:
+            health.visibility(AppHealth.acpmuxID, visible: true)
+            health.event(AppHealth.acpmuxID, .disconnected)
         }
     }
 }

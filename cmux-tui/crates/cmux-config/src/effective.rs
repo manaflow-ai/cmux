@@ -26,7 +26,7 @@ pub struct EffectiveSettings {
 
 impl EffectiveSettings {
     /// Merges, highest first: MDM forced, team enforced, the user's file,
-    /// MDM recommended, team default, product default (an absent key).
+    /// MDM recommended, team default, the build's default, product default (an absent key).
     pub fn merge(
         file: &Value,
         managed: &ManagedPreferences,
@@ -46,6 +46,12 @@ impl EffectiveSettings {
             }
         }
         for (key, value) in sorted_setting_entries(&team.defaults) {
+            if value_at(&root, &key_path(key)).is_none() {
+                root = with_value(&root, value.clone(), &key_path(key));
+            }
+        }
+        // Lowest: the build's defaults (Swift `SettingsBuildDefaults.filling`).
+        for (key, value) in sorted_setting_entries(schema.build_defaults()) {
             if value_at(&root, &key_path(key)).is_none() {
                 root = with_value(&root, value.clone(), &key_path(key));
             }

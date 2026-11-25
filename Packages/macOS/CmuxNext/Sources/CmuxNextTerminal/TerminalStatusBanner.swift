@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// Small label over a terminal whose link is down: the last screen stays
 /// visible behind it. The theme's raised surface and secondary text, no
@@ -226,18 +227,14 @@ final class TerminalStatusBanner: NSView {
     /// "Restoring…" shows only after `restoringRevealDelay`, so an attach
     /// that answers at once (the usual case) never flashes the label.
     static let restoringRevealDelay: CFTimeInterval = 0.5
-    /// "Reconnecting…" and "Reconnecting to the shell…" show only after
-    /// `reconnectingRevealDelay`: a version handoff marks every tab adopting
-    /// while the new daemon takes its host back (a slow host costs up to 1 s
-    /// of connect retries and 2 s of handshake, after up to 2 s waiting for
-    /// the owner to say ready), and a dropped view re-attaches at once. Those
-    /// clear within it and never show; one that lasts still shows, and the
-    /// stopped states show at once.
-    static let reconnectingRevealDelay: CFTimeInterval = 5
-    /// "Disconnected: …" shows only after `disconnectedRevealDelay`: a daemon restart drops every
-    /// pane's link, and a click, a key or the link back re-attaches within it, so a drop that heals
-    /// at once never flashes the label on every pane.
-    static let disconnectedRevealDelay: CFTimeInterval = 1.5
+    /// "Disconnected: …" over the last frame shows only after `disconnectedRevealDelay`, the same
+    /// shared quiet time: a daemon restart drops every pane's link, a hidden pane's drop or quiet
+    /// re-attaches that ran out still heal on a click, a key or the link back, so a drop that heals
+    /// within it never flashes the label on every pane. It was 1.5 s. A state the app knows is final
+    /// shows at once (``revealDelay(for:stall:)`` returns nil): the terminal exited (its shell, its host
+    /// lost, the session shut down), an administrator turned the link off, or the daemon gave up on the
+    /// shell (a lost link, another build).
+    static let disconnectedRevealDelay: CFTimeInterval = QuietHold.connectionDelaySeconds
     /// A new pane's "Starting…" mark shows only after `startingRevealDelay`: the daemon confirms a
     /// split or a tab well within it, so the usual one never shows a mark.
     static let startingRevealDelay: CFTimeInterval = 1
@@ -249,13 +246,13 @@ final class TerminalStatusBanner: NSView {
     /// before it fades in; nil shows it at once. Only transient states wait.
     static func revealDelay(for status: TerminalConnectionStatus, stall: TerminalShellStall?) -> CFTimeInterval? {
         if let stall = shownStall(status, stall) {
-            return stall == .reconnecting ? reconnectingRevealDelay : nil
+            return nil
         }
         switch status {
         case .restoring: return restoringRevealDelay
         case .starting: return startingRevealDelay
         case .disconnected(.turnedOffByOrganization, _): return nil
-        case .disconnected(_, reconnecting: true): return reconnectingRevealDelay
+        case .disconnected(_, reconnecting: true): return nil  // never said (``text(for:hostLoss:cause:stall:strings:)``)
         case .disconnected(_, reconnecting: false): return disconnectedRevealDelay
         case .connected, .exited: return nil
         }
@@ -322,13 +319,18 @@ final class TerminalStatusBanner: NSView {
                 return strings.text("terminal.link.lost.restartExhausted", defaultValue: "Terminal stopped: its host kept failing")
             case .restartFailed:
                 return strings.text("terminal.link.lost.restartFailed", defaultValue: "Terminal stopped: it could not restart")
+            case .restartFailedNoFreeTerminal:
+                return strings.text("terminal.link.lost.restartFailed.noPty", defaultValue: "Terminal stopped: out of terminals. Close some, then restart.")
             case nil:
                 return strings.text("terminal.link.exited", defaultValue: "Process exited")
             }
         case .disconnected(.turnedOffByOrganization, _):
             return strings.text("terminal.link.turnedOffByOrganization", defaultValue: "Turned off by your organization")
         case .disconnected(_, reconnecting: true):
-            return strings.text("terminal.link.reconnecting", defaultValue: "Reconnecting…")
+            // A reattach on its way says nothing, however long it takes: the last frame stays (Leo, 2026-11-24:
+            // "let's just keep optimistically connecting and reinforcing the connection and sync-ups can be
+            // satisfying instead of making the user think they're constsntly suspended in a state of connection limbo").
+            return nil
         case .disconnected(let cause, reconnecting: false):
             let reason = switch cause {
             case .streamEnded:
@@ -347,10 +349,11 @@ final class TerminalStatusBanner: NSView {
         }
     }
 
-    /// The stall the banner names: any, unless the terminal exited or an
-    /// administrator turned the link off.
+    /// The stall the banner names: any but a redial on its way (the daemon reconnecting to the shell says
+    /// nothing, as a reattach does), unless the terminal exited or an administrator turned the link off.
     private static func shownStall(_ status: TerminalConnectionStatus, _ stall: TerminalShellStall?) -> TerminalShellStall? {
-        guard status != .exited, status != .disconnected(.turnedOffByOrganization, reconnecting: false) else { return nil }
+        guard status != .exited, status != .disconnected(.turnedOffByOrganization, reconnecting: false),
+              stall != .reconnecting else { return nil }
         return stall
     }
 

@@ -1,10 +1,12 @@
 // A Read row named the file by its absolute path (dogfood run, hq #1893): "Read
 // /Users/you/src/app/docs/guide.md" pushed the file's name off a narrow pane. A row now names a
-// file inside the session's folder by its path from there, and keeps a file outside it whole.
+// file inside the session's folder by its path from there, and keeps a file outside it whole. A Read
+// row now names the file alone (ReadLabel.tsx); edit rows keep the path from the session's folder.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { describedText, visibleLabelText } from "./support/factsCard";
 import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
@@ -31,26 +33,57 @@ afterAll(async () => {
   await teardownDom(saved, { scope });
 });
 
-const read = (path: string) =>
+const tool = (kind: string, path: string) =>
   ({
     kind: "activity",
-    text: "Read",
-    tool: { id: path, kind: "read", title: "Read File", status: "completed", locations: [{ path }] },
+    text: kind === "read" ? "Read" : "Edit",
+    tool: { id: path, kind, title: kind === "read" ? "Read File" : "Edit", status: "completed", locations: [{ path }] },
   }) as never;
 
-test("a tool row names a file in the session's folder by its path from there", async () => {
+async function render(kind: string) {
   const { createRoot } = await import("react-dom/client");
   const { ToolRow } = await import("../src/agent-session/acpmux/conversation/ToolRow");
   const { SessionCwdContext } = await import("../src/agent-session/acpmux/turnChanges/sessionRows");
+  act(() => root?.unmount());
   root = createRoot(host);
   await act(async () =>
     root!.render(
       <SessionCwdContext.Provider value="/Users/you/src/app/">
-        <ToolRow item={read("/Users/you/src/app/docs/guide.md")} />
-        <ToolRow item={read("/Users/you/notes.md")} />
+        <ToolRow item={tool(kind, "/Users/you/src/app/docs/guide.md")} />
+        <ToolRow item={tool(kind, "/Users/you/notes.md")} />
       </SessionCwdContext.Provider>,
     ),
   );
-  const labels = [...host.querySelectorAll(".cv-tool__text")].map((node) => node.textContent);
-  expect(labels).toEqual(["Read docs/guide.md", "Read /Users/you/notes.md"]);
+  return [...host.querySelectorAll(".cv-tool__text")].map(visibleLabelText);
+}
+
+test("a tool row names a file in the session's folder by its path from there", async () => {
+  expect(await render("edit")).toEqual(["Edit docs/guide.md", "Edit /Users/you/notes.md"]);
+});
+
+// Since the 2026-11-14 change a Read row names its file by its name alone, the full path on hover.
+test("a Read row names its file by its name, with its full path in the accessible description", async () => {
+  expect(await render("read")).toEqual(["Read guide.md", "Read notes.md"]);
+  const descriptions = [...host.querySelectorAll(".cv-tool__file")].map(describedText);
+  expect(descriptions).toEqual(["/Users/you/src/app/docs/guide.md", "/Users/you/notes.md"]);
+});
+
+test("a failed read or a read of several files is no flat read row, so its row still opens", async () => {
+  const { readPath } = await import("../src/agent-session/acpmux/conversation/readPath");
+  const read = (status: string, paths: string[]) =>
+    ({ id: "r", kind: "read", title: "Read File", status, locations: paths.map((path) => ({ path })) }) as never;
+  expect(readPath(read("completed", ["/a/guide.md"]))).toBe("/a/guide.md");
+  expect(readPath(read("failed", ["/a/guide.md"]))).toBeUndefined();
+  expect(readPath(read("completed", ["/a/guide.md", "/a/notes.md"]))).toBeUndefined();
+});
+
+test("a piped read stays a command, and a read after any cd keeps its path as written", async () => {
+  const { readPath, readFullPath } = await import("../src/agent-session/acpmux/conversation/readPath");
+  const shell = (command: string) =>
+    ({ id: "s", kind: "execute", title: command, command, status: "completed", exitCode: 0 }) as never;
+  expect(readPath(shell("cat build.log | grep error"))).toBeUndefined();
+  expect(readPath(shell("cat foo.ts"))).toBe("foo.ts");
+  expect(readFullPath("foo.ts", shell("cat foo.ts"), "/repo")).toBe("/repo/foo.ts");
+  for (const command of ["cd .. && cat foo.ts", "cd $D && cat foo.ts", "cd /tmp; cat foo.ts"])
+    expect(readFullPath("foo.ts", shell(command), "/repo")).toBe("foo.ts");
 });

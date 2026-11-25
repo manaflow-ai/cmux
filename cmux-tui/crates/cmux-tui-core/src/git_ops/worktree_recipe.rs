@@ -19,6 +19,19 @@
 //! turns the repository's off), and its include lines come after the
 //! repository's, so a `!` line takes one back. Both are read from the main
 //! checkout, as it is now.
+//!
+//! A command the repository's files give runs only once the person has
+//! seen it and said yes ([`Resolved::consent`], kept by
+//! `worktree_setup::approvals`): a clone can carry any script. The user's
+//! own saved commands need no such answer, and nor do the include lines
+//! alone (they copy files of this machine's main checkout into this
+//! machine's worktree, and run nothing).
+//!
+//! The two files are the repository's own: each is read through the real
+//! folders of the main checkout ([`super::work_tree_entry`]). A file that is
+//! a link, or that is below a link in the main checkout, is not read, and the
+//! reply says so with [`LINK_PROBLEM`]. A main checkout whose top folder the
+//! walk does not take gives no file and no problem text.
 
 use std::io::Read as _;
 use std::path::Path;
@@ -26,6 +39,7 @@ use std::path::Path;
 use serde::Serialize;
 use serde_json::{Value, json};
 
+use super::work_tree_entry::{Kind, NoEntry, Tree};
 use super::worktree_include;
 use crate::Mux;
 use crate::state::projects::WorktreeRecipe;
@@ -34,6 +48,8 @@ use crate::state::projects::WorktreeRecipe;
 pub(crate) const PROJECT_FILE: &str = ".cmux/worktree.toml";
 /// The largest recipe or include file read.
 const MAX_FILE_BYTES: u64 = 256 * 1024;
+/// What is wrong with a recipe file that is a link or is below a link.
+const LINK_PROBLEM: &str = "not read: the file or a folder above it is a symbolic link";
 
 /// The recipe a worktree runs with.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
@@ -65,6 +81,39 @@ pub(crate) struct Resolved {
 }
 
 impl Resolved {
+    /// The fingerprint of what the repository's own files make this recipe
+    /// run (a setup or teardown that no saved command replaces) and copy,
+    /// when they make it run anything: the answer a person gives after
+    /// reading the recipe is kept by it, so a changed script asks again.
+    /// `None`: nothing of the repository's runs, so nothing waits for one.
+    pub(crate) fn consent(&self) -> Option<String> {
+        use sha2::{Digest as _, Sha256};
+        let saved = self.saved.clone().unwrap_or_default();
+        let from_repository = |saved: &Option<String>, repository: &Option<String>| {
+            if saved.is_some() {
+                return None;
+            }
+            repository.clone().filter(|text| !text.trim().is_empty())
+        };
+        let setup = from_repository(&saved.setup, &self.repository.setup);
+        let teardown = from_repository(&saved.teardown, &self.repository.teardown);
+        if setup.is_none() && teardown.is_none() {
+            return None;
+        }
+        let mut hash = Sha256::new();
+        for part in [setup.as_deref(), teardown.as_deref()] {
+            hash.update(part.map_or(0_u8, |_| 1_u8).to_le_bytes());
+            hash.update((part.unwrap_or_default().len() as u64).to_le_bytes());
+            hash.update(part.unwrap_or_default().as_bytes());
+        }
+        for line in &self.repository.include {
+            hash.update((line.len() as u64).to_le_bytes());
+            hash.update(line.as_bytes());
+        }
+        let digest = hash.finalize();
+        Some(digest.iter().take(16).map(|byte| format!("{byte:02x}")).collect())
+    }
+
     pub(crate) fn value(&self) -> Value {
         let mut value = json!({
             "setup": self.recipe.setup,
@@ -117,7 +166,8 @@ pub(crate) fn resolve(mux: &Mux, main_root: Option<&Path>, project: &Path) -> Re
 }
 
 fn read_repository(root: &Path, resolved: &mut Resolved) {
-    match read_text(&root.join(worktree_include::FILE_NAME)) {
+    let Some(mut tree) = Tree::open(root) else { return };
+    match read_text(&mut tree, worktree_include::FILE_NAME) {
         Ok(Some(text)) => {
             resolved.files.push(worktree_include::FILE_NAME);
             resolved.repository.include.extend(text.lines().map(str::to_string));
@@ -125,7 +175,7 @@ fn read_repository(root: &Path, resolved: &mut Resolved) {
         Ok(None) => {}
         Err(error) => resolved.problems.push(format!("{}: {error}", worktree_include::FILE_NAME)),
     }
-    let text = match read_text(&root.join(PROJECT_FILE)) {
+    let text = match read_text(&mut tree, PROJECT_FILE) {
         Ok(Some(text)) => text,
         Ok(None) => return,
         Err(error) => return resolved.problems.push(format!("{PROJECT_FILE}: {error}")),
@@ -157,15 +207,28 @@ fn read_repository(root: &Path, resolved: &mut Resolved) {
     }
 }
 
-/// A regular file's text (`None` when there is none). A link is not read:
-/// the recipe is the repository's own.
-fn read_text(path: &Path) -> Result<Option<String>, String> {
-    match std::fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.is_file() => {}
-        Ok(_) => return Err("not a regular file".into()),
-        Err(_) => return Ok(None),
+/// The text of the regular file `file` of the checkout `tree` (`None` when
+/// there is none). A link is not read, at the file's own name or at a folder
+/// above it: the recipe is the repository's own.
+fn read_text(tree: &mut Tree, file: &str) -> Result<Option<String>, String> {
+    let entry = match tree.entry(Path::new(file)) {
+        Ok(entry) => entry,
+        Err(NoEntry::Link) => return Err(LINK_PROBLEM.into()),
+        // A file in the place of a folder above it: no recipe file is there.
+        Err(NoEntry::NotFolder | NoEntry::Nothing) => return Ok(None),
+    };
+    match entry.kind() {
+        Some(Kind::File) => {}
+        Some(Kind::Link) => return Err(LINK_PROBLEM.into()),
+        Some(Kind::Folder | Kind::Other) => return Err("not a regular file".into()),
+        None => return Ok(None),
     }
-    let file = std::fs::File::open(path).map_err(|error| error.to_string())?;
+    // The open follows no link either: a link that took the file's place
+    // after the look above is refused with the same words.
+    let file = entry.open_file().map_err(|error| match entry.kind() {
+        Some(Kind::Link) => LINK_PROBLEM.to_string(),
+        _ => error.to_string(),
+    })?;
     let mut text = String::new();
     file.take(MAX_FILE_BYTES + 1).read_to_string(&mut text).map_err(|error| error.to_string())?;
     if text.len() as u64 > MAX_FILE_BYTES {
@@ -187,36 +250,5 @@ fn saved(mux: &Mux, project: &Path) -> Option<WorktreeRecipe> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn reads_the_repository_files() {
-        let mut bytes = [0_u8; 6];
-        getrandom::fill(&mut bytes).unwrap();
-        let hex: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
-        let root = std::env::temp_dir().join(format!("cmux-recipe-{hex}"));
-        std::fs::create_dir_all(root.join(PROJECT_FILE).parent().unwrap()).unwrap();
-        std::fs::write(root.join(".worktreeinclude"), ".env\n").unwrap();
-        std::fs::write(
-            root.join(PROJECT_FILE),
-            "setup = \"npm ci\"\nrun = \"npm run dev\"\nteardown = \"make down\"\ninclude = [\"config/local.json\"]\nports = 3\n",
-        )
-        .unwrap();
-        let mut resolved = Resolved {
-            recipe: Recipe::default(),
-            repository: Recipe::default(),
-            saved: None,
-            files: Vec::new(),
-            problems: Vec::new(),
-        };
-        read_repository(&root, &mut resolved);
-        assert_eq!(resolved.repository.setup.as_deref(), Some("npm ci"));
-        assert_eq!(resolved.repository.teardown.as_deref(), Some("make down"));
-        assert_eq!(resolved.repository.include, [".env", "config/local.json"]);
-        assert_eq!(resolved.files, [".worktreeinclude", PROJECT_FILE]);
-        assert_eq!(resolved.repository.run.as_deref(), Some("npm run dev"));
-        assert_eq!(resolved.problems, [format!("{PROJECT_FILE}: ports is not read")]);
-        std::fs::remove_dir_all(root).unwrap();
-    }
-}
+#[path = "worktree_recipe_tests.rs"]
+mod tests;

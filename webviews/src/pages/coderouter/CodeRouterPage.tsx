@@ -2,6 +2,8 @@
 // Again, the accounts CodeRouter holds, and API keys (not available until the ops exist). Account
 // rows show redacted labels and opaque handles only; the host never sends an email or a secret.
 import { useSyncExternalStore } from "react";
+import { ConnectionChip } from "../../ui/ConnectionChip";
+import { useConnectionQuiet } from "../../ui/lasting";
 import type { Strings } from "../shared/i18n";
 import type { CodeRouterStore } from "./store";
 import type { ProviderRow } from "./types";
@@ -16,10 +18,15 @@ const PROVIDER_STATUS: Record<string, string> = {
 export function CodeRouterPage({ store, strings }: { store: CodeRouterStore; strings: Strings }) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const { t } = strings;
-  if (snap.connection === "disconnected" && !snap.status) return <div className="cr-empty">{t("disconnected")}</div>;
+  // A lost link keeps the last status and rows, and says so only once it lasts (ui/lasting.ts) as a
+  // corner mark that takes no room: a daemon restart drops it for a few seconds.
+  const downLasting = useConnectionQuiet(snap.connection === "disconnected");
+  if (snap.connection === "disconnected" && !snap.status)
+    return <div className="cr-empty">{downLasting ? <ConnectionChip text={t("disconnected")} /> : null}</div>;
   const signedIn = snap.status?.signed_in === true;
   return (
     <div className="cr-page">
+      {downLasting ? <ConnectionChip text={t("disconnected")} /> : null}
       <header className="cr-header">
         <div className="cr-title-row">
           <h1 className="cr-title">{t("page.title")}</h1>

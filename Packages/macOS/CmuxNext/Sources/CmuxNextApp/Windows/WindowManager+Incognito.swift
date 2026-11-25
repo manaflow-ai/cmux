@@ -45,7 +45,7 @@ extension WindowManager {
         // Claimed before anything else runs: the pending claim keeps the session alive until the window opens.
         let key = WorkspaceKey.generate()
         claimNew(workspaceID: key.rawValue, window: windowID)
-        recordIncognitoWorkspaces() // phones hide it before the daemon creates it (PhoneIncognitoHiding)
+        recordIncognitoWorkspaces() // the ledger has it before the daemon creates it
         Task { [services] in
             guard let connection = daemon.connection else {
                 claims.pending[key.rawValue] = nil
@@ -97,6 +97,8 @@ extension WindowManager {
     func isIncognito(window windowID: String) -> Bool {
         registry.value.isIncognito(windowID)
     }
+    /// The windows stage 0's launch images keep: open, not incognito (`WindowLaunchImages`).
+    var launchImageWindows: [(id: String, window: NSWindow)] { controllers.compactMap { c in c.window.flatMap { isIncognito(window: c.state.id) ? nil : (c.state.id, $0) } } }
 
     /// The browser profile a page of `workspaceID` uses: the incognito
     /// session's for an incognito window, else nil (the caller's default).
@@ -127,7 +129,6 @@ extension WindowManager {
         for (workspace, window) in claims.pending where value.isIncognito(window) { ids.insert(workspace) }
         // The daemon closes ephemeral workspaces itself; the ledger keeps only incognito workspaces it does not know as such.
         incognitoLedger.record(ids.filter { !EphemeralWorkspaces.isEphemeral($0, self) }, spaces: Set(incognitoSpaces.values.map(\.rawValue)))
-        PhoneIncognitoHiding.publish(ids, self)
     }
 
     /// Pins the incognito window's workspace `key` on `daemon` to its incognito space, so the window, which shows
