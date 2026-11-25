@@ -36,10 +36,14 @@ use serde_json::{Value, json};
 
 use super::{GlobalArgs, OutputMode};
 
+#[path = "cloud_journey/repo.rs"]
+mod repo;
+
 pub(super) const USAGE: &str = "\
 usage: cmux cloud journey [--backend staging|prod|dev|preview-N | --api URL] [--team TEAM_ID]
                           [--model-stub FILE] [--prompt TEXT] [--chat-timeout SECONDS]
                           [--out DIR] [--json]
+                          [--repo SPEC [--machine-config FILE]] [--keep]
 
 The Cloud journey's core, headless, on this binary's own Cloud client: sign in,
 create machine, running, first exec, pass Claude login, start agent (claude),
@@ -52,6 +56,13 @@ Auth: CMUX_CLOUD_ACCESS_TOKEN (and CMUX_CLOUD_API_URL or --backend), else
 CMUX_DOGFOOD_STACK_EMAIL and CMUX_DOGFOOD_STACK_PASSWORD (the agent test
 account). The chat's model connection is CLAUDE_CODE_OAUTH_TOKEN; --model-stub
 FILE runs that model stub on the machine instead, with a made-up login.
+
+--repo SPEC (OWNER/NAME, a GitHub or https git URL, #REF) is a moved project's
+journey (cmux migrate): after the first exec the machine clones it and applies
+its machine config (--machine-config FILE, else the checkout's own
+.cmux/machine.toml) as the app's start does, and the chat starts in the
+checkout. --keep leaves the machine running at the end (its id is in the
+delete step) instead of deleting it.
 ";
 
 /// The shipped app's chat start size (cloud-journey.ts `CHAT_START_SIZE`, the platform's CHAT_START_SHAPE).
@@ -78,6 +89,11 @@ pub(super) struct Args {
     pub prompt: String,
     pub chat_budget: Duration,
     pub out: Option<PathBuf>,
+    /// `--repo`: the moved project's repository (repo.rs).
+    pub repo: Option<String>,
+    pub machine_config: Option<PathBuf>,
+    /// `--keep`: the machine is the migrated project's, so it stays.
+    pub keep: bool,
 }
 
 /// `Some(exit code)` when `args` is `cloud journey …`.
@@ -111,6 +127,9 @@ pub(super) fn parse(words: &[String]) -> Result<Args, String> {
         prompt: DEFAULT_PROMPT.to_owned(),
         chat_budget: DEFAULT_CHAT_BUDGET,
         out: None,
+        repo: None,
+        machine_config: None,
+        keep: false,
     };
     let mut it = words.iter();
     while let Some(word) = it.next() {
@@ -128,8 +147,18 @@ pub(super) fn parse(words: &[String]) -> Result<Args, String> {
                 args.chat_budget = Duration::from_secs(seconds.clamp(10, 3600));
             }
             "--out" => args.out = Some(PathBuf::from(value()?)),
+            "--repo" => {
+                let spec = value()?;
+                repo::parse_repo(&spec)?;
+                args.repo = Some(spec);
+            }
+            "--machine-config" => args.machine_config = Some(PathBuf::from(value()?)),
+            "--keep" => args.keep = true,
             other => return Err(format!("unknown argument {other}")),
         }
+    }
+    if args.machine_config.is_some() && args.repo.is_none() {
+        return Err("--machine-config needs --repo SPEC".to_owned());
     }
     Ok(args)
 }
@@ -308,6 +337,19 @@ pub(super) fn launch_credential_program(
     name: &str,
     value: &str,
 ) -> String {
+    launch_credential_program_in(session, harness, name, value, None)
+}
+
+/// [`launch_credential_program`] with the chat's folder: `cwd` (a moved project's checkout), else
+/// the machine user's home.
+pub(super) fn launch_credential_program_in(
+    session: &str,
+    harness: &str,
+    name: &str,
+    value: &str,
+    cwd: Option<&str>,
+) -> String {
+    let cwd = serde_json::to_string(cwd.unwrap_or("")).unwrap_or_else(|_| "\"\"".into());
     let params = json!({
         "mcpServers": [],
         "_meta": { "acpmux": { "name": session, "harness": harness, "credentials": { "env": { name: value } } } },
@@ -320,8 +362,8 @@ pub(super) fn launch_credential_program(
         r#"python3 -I - <<'CMUX_JOURNEY_START'
 import json, os, socket, sys
 params = json.loads({params})
-params['cwd'] = os.environ.get('HOME') or '/home/cmux'
-home = params['cwd']
+home = os.environ.get('HOME') or '/home/cmux'
+params['cwd'] = {cwd} or home
 paths = [p for p in (os.environ.get('ACPMUX_SOCKET'), home + '/.cmux/acpmux/acpmux.sock', home + '/{own}/acpmux.sock') if p]
 def call(f, s, i, method, p):
     s.sendall((json.dumps({{'jsonrpc': '2.0', 'id': i, 'method': method, 'params': p}}) + '\n').encode())
@@ -410,6 +452,30 @@ struct Exec<'a> {
 }
 
 impl Exec<'_> {
+    /// Writes `data` to `path` on the machine over the Cloud file API (`/fs/write`).
+    async fn write(&self, path: &str, data: &[u8], mode: u32) -> Result<(), String> {
+        use base64::Engine as _;
+        let url = self.scope.route(&self.machine, "/fs/write").map_err(|e| e.to_string())?;
+        let mut request = self
+            .client
+            .post(url)
+            .bearer_auth(self.credential)
+            .timeout(Duration::from_secs(60))
+            .json(&json!({ "path": path, "dataBase64": base64::engine::general_purpose::STANDARD.encode(data), "mode": mode }));
+        if let Some(team) = self.scope.team() {
+            request = request.header(cmux_cloud_client::TEAM_HEADER, team);
+        }
+        let response =
+            request.send().await.map_err(|e| format!("fs/write {path}: {}", e.without_url()))?;
+        let status = response.status();
+        let body: Value = response.json().await.unwrap_or(Value::Null);
+        if !status.is_success() || body.get("ok") == Some(&Value::Bool(false)) {
+            let code = body.pointer("/error/code").and_then(Value::as_str).unwrap_or("");
+            return Err(format!("fs/write {path}: HTTP {} {code}", status.as_u16()));
+        }
+        Ok(())
+    }
+
     async fn run(&mut self, command: &str, timeout_ms: u64) -> Result<ExecAnswer, String> {
         if !self.direct && self.session.as_ref().is_none_or(|(_, at)| at.elapsed() > SESSION_REUSE)
         {
@@ -680,8 +746,12 @@ async fn journey(global: &GlobalArgs, args: &Args) -> Result<i32, String> {
     )
     .await;
 
-    // delete, pass or fail
+    // delete, pass or fail; --keep leaves a moved project's machine running.
     let t0 = Instant::now();
+    if args.keep {
+        j.record("delete", Status::Skip, t0, &format!("kept: machine {machine_id} (--keep)"));
+        return Ok(finish(&j, json_out));
+    }
     let delete_key = cmux_cloud_client::client_key();
     let mut deleted = Err(String::new());
     for attempt in 0..4 {
@@ -807,10 +877,40 @@ async fn chat_steps(
         }
     }
 
+    // clone repo, machine config: a moved project's journey (repo.rs).
+    let mut checkout = None;
+    if let Some(spec) = &args.repo {
+        let t0 = Instant::now();
+        let parsed = match repo::parse_repo(spec) {
+            Ok(parsed) => parsed,
+            Err(error) => {
+                j.fail("clone repo", t0, &error);
+                return Err(());
+            }
+        };
+        let config = match &args.machine_config {
+            Some(path) => match std::fs::read(path) {
+                Ok(bytes) if bytes.len() <= cmux_cloud_start_core::machine_config::MAX_BYTES => {
+                    Some(bytes)
+                }
+                Ok(_) => {
+                    j.fail("machine config", t0, &format!("{} is over 64 KiB", path.display()));
+                    return Err(());
+                }
+                Err(error) => {
+                    j.fail("machine config", t0, &format!("{}: {error}", path.display()));
+                    return Err(());
+                }
+            },
+            None => None,
+        };
+        checkout = Some(repo::repo_steps(j, &mut exec, &parsed, config.as_deref()).await?);
+    }
+
     // model stub on the machine
     if let Some(stub) = &args.model_stub {
         let t0 = Instant::now();
-        match start_stub(&mut exec, exec_client, scope, bearer, stub, nonce).await {
+        match start_stub(&mut exec, stub, nonce).await {
             Ok(port) => j.pass(
                 "model stub on the machine",
                 t0,
@@ -861,7 +961,13 @@ async fn chat_steps(
     let t0 = Instant::now();
     let program = format!(
         "{GUEST}{}",
-        launch_credential_program(&session, "claude", "CLAUDE_CODE_OAUTH_TOKEN", login)
+        launch_credential_program_in(
+            &session,
+            "claude",
+            "CLAUDE_CODE_OAUTH_TOKEN",
+            login,
+            checkout.as_deref()
+        )
     );
     match exec.run(&program, 120_000).await {
         Ok(r) if r.exit_code == 0 && r.stdout.contains("@@session ") => {
@@ -978,34 +1084,14 @@ async fn chat_steps(
 /// points Claude Code's settings there. Answers the port.
 async fn start_stub(
     exec: &mut Exec<'_>,
-    client: &reqwest::Client,
-    scope: &Scope,
-    bearer: &str,
     stub: &std::path::Path,
     nonce: &str,
 ) -> Result<String, String> {
-    use base64::Engine as _;
     let program =
         std::fs::read(stub).map_err(|e| format!("--model-stub {}: {e}", stub.display()))?;
     let script = stub_script().to_string().into_bytes();
     for (path, data) in [(STUB_FILE, program), (STUB_SCRIPT, script)] {
-        let url = scope.route(&exec.machine, "/fs/write").map_err(|e| e.to_string())?;
-        let mut request = client
-            .post(url)
-            .bearer_auth(bearer)
-            .timeout(Duration::from_secs(60))
-            .json(&json!({ "path": path, "dataBase64": base64::engine::general_purpose::STANDARD.encode(&data), "mode": 0o644 }));
-        if let Some(team) = scope.team() {
-            request = request.header(cmux_cloud_client::TEAM_HEADER, team);
-        }
-        let response =
-            request.send().await.map_err(|e| format!("fs/write {path}: {}", e.without_url()))?;
-        let status = response.status();
-        let body: Value = response.json().await.unwrap_or(Value::Null);
-        if !status.is_success() || body.get("ok") == Some(&Value::Bool(false)) {
-            let code = body.pointer("/error/code").and_then(Value::as_str).unwrap_or("");
-            return Err(format!("fs/write {path}: HTTP {} {code}", status.as_u16()));
-        }
+        exec.write(path, &data, 0o644).await?;
     }
     let point = "python3 - \"$port\" <<'PY'\nimport json, pathlib, sys\np = pathlib.Path('/home/cmux/.claude/settings.json')\nc = json.loads(p.read_text()) if p.exists() else {}\nc.setdefault('env', {})['ANTHROPIC_BASE_URL'] = 'http://127.0.0.1:' + sys.argv[1]\np.parent.mkdir(parents=True, exist_ok=True)\np.write_text(json.dumps(c))\nprint('stub-ready')\nPY";
     let (log, ready, file, script) =
