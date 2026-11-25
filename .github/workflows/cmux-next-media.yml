@@ -951,6 +951,8 @@ jobs:
             scripts/ci/pr_media_ocr_tesseract.py
             scripts/ci/pr_media_ocr.swift
             scripts/cmux-next/media/publish.py
+            scripts/cmux-next/flicker-check.py
+            scripts/cmux-next/recording-shifts-report.py
           sparse-checkout-cone-mode: false
 
       # The pull request to comment on: the one the handed-off run was for, read
@@ -1024,6 +1026,16 @@ jobs:
         env:
           DEBIAN_FRONTEND: noninteractive
         run: command -v ffmpeg >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg >/dev/null)
+
+      # Leo, 2026-11-24: "this on reviving had tons of layout shifts." Every tour's capture.mov is read frame by
+      # frame for blocks that jump (move in one frame and stay), blinks and staggered settles; the table goes to
+      # this run's summary and <capture>.shifts.json beside each video. A report, never a failure: the seeded
+      # recordings (ci/steps.toml recording-shifts) are what gate the detector.
+      - name: Layout shifts in the tour recordings
+        if: ${{ inputs.publish_run != '' }}
+        continue-on-error: true
+        timeout-minutes: 10
+        run: python3 -I scripts/cmux-next/recording-shifts-report.py "$RUNNER_TEMP/media" --summary "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the media and update the comment
         if: ${{ steps.target.outputs.pr != '' }}

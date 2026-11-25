@@ -65,7 +65,10 @@
 #               to ui-video.mp4 in the artifact: before/after videos of a change;
 #               with ffmpeg on the host (Homebrew), also ui-video-small.mp4:
 #               540 wide, H.264 CRF 30, no audio, small enough for PR media
-#               (lane-gh media takes at most 25 MiB)
+#               (lane-gh media takes at most 25 MiB); with ffmpeg, also
+#               ui-video-shifts.md and ui-video.mp4.shifts.json: the jumps
+#               (layout shifts), blinks and staggered settles in the video
+#               (scripts/cmux-next/recording-shifts-report.py, report only)
 #             profile record a CPU stack-sampling profile of the UI test run:
 #               `xctrace record --instrument 'Time Profiler' --all-processes`
 #               on the host (a simulator app is a host process, so every launch
@@ -1639,6 +1642,15 @@ print(f"MOBILEBENCH video-start t={t0:.3f} source=launch")
       fi
     elif [[ -s "$out/ui-video.mp4" ]]; then
       note "- UI test video, small copy: no ffmpeg on this host, none"
+    fi
+    # Layout shifts in the recording (Leo, 2026-11-24: "this on reviving had tons of layout shifts"): blocks that
+    # jump in one frame, blinks and staggered settles, as ui-video.mp4.shifts.json and a table in the notes.
+    # A report, never this step's failure; the seeded recordings in CI are what gate the detector.
+    if [[ -s "$out/ui-video.mp4" && -n "$ffmpeg_bin" ]]; then
+      PATH="$(dirname "$ffmpeg_bin"):$PATH" python3 -I scripts/cmux-next/recording-shifts-report.py "$out/ui-video.mp4" \
+        --title "Layout shifts in ui-video.mp4" >"$out/ui-video-shifts.md" 2>"$work/ui-video-shifts.log" || true
+      note "- UI test video, layout shifts (ui-video-shifts.md): $(grep -m1 '^| `' "$out/ui-video-shifts.md" 2>/dev/null || echo "not read, see ui-video-shifts.log")"
+      cp "$work/ui-video-shifts.log" "$out/" 2>/dev/null || true
     fi
   fi
   if [[ $ui_profile -eq 1 ]]; then

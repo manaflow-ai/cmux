@@ -254,6 +254,19 @@ jobs:
             --build "$BUILD" --run-url "$RUN_URL" --out "$OUT"
           cp "$RAW/journey.log" "$OUT/journey.log" 2>/dev/null || true
           cat "$OUT/summary.md" >> "$GITHUB_STEP_SUMMARY"
+      # Leo, 2026-11-24: "this on reviving had tons of layout shifts." journey.mp4 read frame by frame for blocks
+      # that jump (move in one frame and stay), blinks and staggered settles: the table in this run's summary and
+      # journey.mp4.shifts.json in the artifact. A report, never a failure (the seeded recordings gate the detector).
+      - name: Layout shifts in the journey recording
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        timeout-minutes: 10
+        run: |
+          [ -s "$OUT/journey.mp4" ] || { echo "no journey.mp4"; exit 0; }
+          export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+          command -v ffmpeg >/dev/null || { echo "no ffmpeg on this host: no layout-shift report" | tee -a "$GITHUB_STEP_SUMMARY"; exit 0; }
+          python3 -I scripts/cmux-next/recording-shifts-report.py "$OUT/journey.mp4" \
+            --title "Layout shifts in journey.mp4" --summary "$GITHUB_STEP_SUMMARY"
       - name: Upload first-user-journey-ios
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
