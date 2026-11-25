@@ -7,7 +7,7 @@ extension DaemonLanePolicy {
     static let commandFields: [String: Set<String>] = [
         "ack-tab-notifications": ["surface"],
         "add-tabs-to-tab-group": ["group", "surfaces", "transaction"],
-        "attach-surface": ["cols", "expected_generation", "expected_terminal_id", "hybrid_frame", "hybrid_stream", "mode", "output_coalesce_ms", "replay_history_rows", "replay_history_start", "resume_generation", "resume_offset", "rows", "snapshot", "snapshot_images", "snapshot_local_history", "snapshot_version", "surface", "viewer_backlog_bytes"],
+        "attach-surface": ["cols", "expected_generation", "expected_terminal_id", "hybrid_frame", "hybrid_stream", "mode", "output_coalesce_ms", "replay_history_rows", "replay_history_start", "resume_generation", "resume_max_bytes", "resume_offset", "rows", "snapshot", "snapshot_images", "snapshot_local_history", "snapshot_version", "surface", "viewer_backlog_bytes"],
         "bind-conversation-tab-session": ["expected_session", "harness", "session", "surface"],
         "browser-activate": ["surface"],
         "browser-back": ["surface"],
@@ -55,7 +55,7 @@ extension DaemonLanePolicy {
         "list-tab-groups": [],
         "list-terminals": [],
         "list-workspace-groups": [],
-        "list-workspaces": ["after", "known", "limit"],
+        "list-workspaces": ["after", "known", "limit", "since"],
         "machine-listening-tcp": [],
         "machine-usage": [],
         "move-tab": ["index", "pane", "surface", "transaction"],

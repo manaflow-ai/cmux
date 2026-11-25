@@ -123,8 +123,8 @@ class FixtureRepo(unittest.TestCase):
     def tearDown(self):
         self.scratch.cleanup()
 
-    def route(self, changed, event="pull_request"):
-        return tooling_steps.route(self.root, WORKFLOW, "tooling-tests", changed, event)
+    def route(self, changed, event="pull_request", added_deleted=None):
+        return tooling_steps.route(self.root, WORKFLOW, "tooling-tests", changed, event, added_deleted)
 
     def verdicts(self, decision):
         return {s.key: s for s in decision.steps}
@@ -172,7 +172,7 @@ class FixtureRepo(unittest.TestCase):
         self.assertIn("mystery_module_nowhere", steps["tt-c"].reason)
 
     def test_a_step_naming_no_test_or_hiding_its_script_runs(self):
-        steps = self.verdicts(self.route(["webviews/src/pane.tsx"]))
+        steps = self.verdicts(self.route(["docs/notes.md"]))
         self.assertTrue(steps["tt-d"].run)
         self.assertIn("no test", steps["tt-d"].reason)
         self.assertTrue(steps["tt-e"].run)
@@ -224,6 +224,15 @@ class FixtureRepo(unittest.TestCase):
         steps = self.verdicts(tooling_steps.route(self.root, WORKFLOW, "tooling-tests", ["webviews/src/new.tsx"],
                                                   "pull_request", ["webviews/src/new.tsx"]))
         self.assertTrue(steps["tt-h"].run, steps["tt-h"].reason)
+
+    def test_a_command_run_from_a_variable_is_judged_only_for_a_non_product_diff(self):
+        # tt-f's script runs `bash "$t"`: any file of tests/shell may run, so a tooling change runs it, but a diff of
+        # product source alone (which no tooling test reads) skips it.
+        steps = self.verdicts(self.route(["webviews/src/pane.tsx"]))
+        self.assertFalse(steps["tt-f"].run, steps["tt-f"].reason)
+        # With a file of its own directory in the diff, it runs.
+        steps = self.verdicts(self.route(["webviews/src/pane.tsx", "tests/shell/new.test.sh"]))
+        self.assertTrue(steps["tt-f"].run, steps["tt-f"].reason)
 
     def test_a_workflow_or_router_change_runs_every_step(self):
         for changed in (WORKFLOW, "scripts/ci/tooling_steps.py", "scripts/ci/workflow_paths_cover_inputs.py",
@@ -318,6 +327,33 @@ class DeclaredInputs(unittest.TestCase):
                 self.declare(text)
             steps = self.verdicts(self.route(["webviews/src/pane.tsx"]))
             self.assertTrue(steps["tt-d"].run, text)
+
+    def test_a_traced_declaration_alone_decides_its_step(self):
+        # 2026-11-23T18..11-24T18: tt-measure-tests ran on 3,637 of 4,398 tooling-tests jobs (6.9k runner-min/day): the
+        # walker's folder and whole-tree guesses (a script naming Packages/macOS/CmuxNext, a `git ls-files`) matched
+        # nearly every diff its declared globs did not. With "traced": true, its globs and resolved files decide it.
+        added = ["webviews/src/new.tsx"]
+        steps = self.verdicts(self.route(added, added_deleted=added))
+        self.assertTrue(steps["tt-h"].run, steps["tt-h"].reason)  # undeclared: the whole-tree guess holds
+        self.declare('{"%s": {"tooling-tests": {"tt-h": {"inputs": ["tests/test_h.py", "data/**"], '
+                     '"why": "traced: reads only its test and data/", "traced": true}}}}' % WORKFLOW)
+        steps = self.verdicts(self.route(added, added_deleted=added))
+        self.assertFalse(steps["tt-h"].run, steps["tt-h"].reason)
+        self.assertIn("traced", steps["tt-h"].reason)
+        for path in ("data/new.txt", "tests/test_h.py"):
+            steps = self.verdicts(self.route([path], added_deleted=[path]))
+            self.assertTrue(steps["tt-h"].run, (path, steps["tt-h"].reason))
+        # "traced" counts only as the literal true, on an entry load_declared accepts.
+        self.declare('{"%s": {"tooling-tests": {"tt-h": {"inputs": ["tests/test_h.py"], "why": "x", '
+                     '"traced": "yes"}}}}' % WORKFLOW)
+        steps = self.verdicts(self.route(added, added_deleted=added))
+        self.assertTrue(steps["tt-h"].run, steps["tt-h"].reason)
+
+    def test_the_real_traced_steps_are_declared_steps(self):
+        workflow = ".github/workflows/cmux-next-guards.yml"
+        traced = tooling_steps.load_traced(ROOT, workflow, "tooling-tests")
+        self.assertIn("tt-measure-tests", traced)
+        self.assertLessEqual(traced, set(tooling_steps.load_declared(ROOT, workflow, "tooling-tests")))
 
     def test_parse_trace_reads_the_checkout_only(self):
         repo = tooling_steps.Repo.load(self.root)
