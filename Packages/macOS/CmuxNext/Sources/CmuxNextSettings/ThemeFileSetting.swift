@@ -93,6 +93,21 @@ extension SettingsController {
         guard descriptor.path == ThemeFileSetting.configPath else {
             return descriptor.paletteOptions(current: current, inherited: inherited, themeColors: themeColors)
         }
+        return themeFileOptions(descriptor, current: current)
+    }
+
+    /// ``paletteOptions(_:current:inherited:themeColors:)`` for a row read with the palette in one
+    /// batch (``SettingsSchema/reads(root:storedRoot:keys:palette:)``), `current` the value it was read for.
+    public func paletteOptions(_ descriptor: SettingDescriptor, read: SettingRowRead, current: JSONValue?,
+                               themeColors: [ThemeRGB]) -> [SettingOption] {
+        guard descriptor.path == ThemeFileSetting.configPath else {
+            return descriptor.paletteOptions(read, themeColors: themeColors)
+        }
+        return themeFileOptions(descriptor, current: current)
+    }
+
+    /// `appearance.themeFile`'s values: None and every file in the themes folder.
+    private func themeFileOptions(_ descriptor: SettingDescriptor, current: JSONValue?) -> [SettingOption] {
         let names = themeFileSources.keys.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
         return [SettingOption(value: nil, title: descriptor.defaultLabel ?? "", isCurrent: current == nil)]
             + names.map { SettingOption(value: .string($0), title: $0, isCurrent: current?.stringValue == $0) }

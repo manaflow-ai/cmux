@@ -28,6 +28,12 @@ extension SettingsController {
         descriptor.effectiveValue(in: snapshot.root)?.boolValue ?? false
     }
 
+    /// ``isOn(_:)`` for each of `descriptors` by key, in one Rust call (`schema.rows`), for a menu that
+    /// lists many switches.
+    public func onStates(_ descriptors: [SettingDescriptor]) -> [String: Bool] {
+        SettingsSchema.reads(root: snapshot.root, keys: descriptors.map(\.id)).mapValues { $0.effective?.boolValue ?? false }
+    }
+
     /// Whether a managed layer (MDM, team policy) holds `descriptor`, so a menu shows it disabled.
     public func isLocked(_ descriptor: SettingDescriptor) -> Bool {
         managedKeys[descriptor.id] != nil

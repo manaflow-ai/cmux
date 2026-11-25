@@ -47,15 +47,19 @@ public final class CustomizationsMenu: NSObject, NSMenuDelegate {
     public func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
         let settings = settings()
-        for group in SettingsSchema.quickToggleGroups(developerTools: DevTools.isEnabled) {
+        let groups = SettingsSchema.quickToggleGroups(developerTools: DevTools.isEnabled)
+        // Every switch's state in one Rust call, not two per row.
+        let on = settings?.onStates(groups.flatMap(\.rows)) ?? [:]
+        for group in groups {
             menu.addItem(.sectionHeader(title: group.title))
             for descriptor in group.rows {
+                let isOn = on[descriptor.id] ?? false
                 guard let row = registry.makeArgumentMenuItem(for: "palette.toggleSetting",
                                                                arguments: ["setting": .string(descriptor.id),
-                                                                           "on": .bool(!(settings?.isOn(descriptor) ?? false))],
+                                                                           "on": .bool(!isOn)],
                                                                title: descriptor.title) else { continue }
                 row.toolTip = descriptor.help
-                row.state = settings?.isOn(descriptor) == true ? .on : .off
+                row.state = isOn ? .on : .off
                 row.isEnabled = settings.map { !$0.isLocked(descriptor) } ?? false
                 menu.addItem(row)
             }

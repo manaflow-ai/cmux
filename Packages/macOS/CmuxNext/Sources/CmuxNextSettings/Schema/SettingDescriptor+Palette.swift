@@ -40,8 +40,25 @@ extension SettingDescriptor {
     /// has no value: ``inheritedValue(in:)``). Kinds with free text (fonts,
     /// sounds, addresses, hosts, times) list nothing; the palette types them.
     public func paletteOptions(current: JSONValue?, inherited: JSONValue? = nil, themeColors: [ThemeRGB]) -> [SettingOption] {
-        let reply = paletteReply(current: current, inherited: inherited, themeColors: themeColors)
-        return (reply["options"]?.arrayValue ?? []).map { option in
+        options(in: paletteReply(current: current, inherited: inherited, themeColors: themeColors), themeColors: themeColors)
+    }
+
+    /// ``paletteOptions(current:inherited:themeColors:)`` for a row read with the palette in one batch
+    /// (``SettingsSchema/reads(root:storedRoot:keys:palette:)`` with the same `themeColors`).
+    public func paletteOptions(_ read: SettingRowRead, themeColors: [ThemeRGB]) -> [SettingOption] {
+        options(in: read.palette ?? .object([:]), themeColors: themeColors)
+    }
+
+    /// ``paletteSummary(current:options:)`` for a row read with the palette in one batch.
+    public func paletteSummary(_ read: SettingRowRead, options: [SettingOption]) -> String? {
+        if options.contains(where: { $0.value == nil && $0.isCurrent }) { return nil }
+        guard let titles = read.palette?["summary"]?.arrayValue else { return nil }
+        return titles.map { localized($0) }.joined(separator: ", ")
+    }
+
+    /// The options of a `schema.palette_options` reply, with their titles in the app's language.
+    private func options(in reply: JSONValue, themeColors: [ThemeRGB]) -> [SettingOption] {
+        (reply["options"]?.arrayValue ?? []).map { option in
             let swatches: [ThemeRGB] = if let index = option["swatch"]?["theme"]?.intValue, themeColors.indices.contains(index) {
                 [themeColors[index]]
             } else if let hex = option["swatch"]?["hex"]?.stringValue, let color = ThemeRGB(cssHex: hex) {
@@ -75,9 +92,7 @@ extension SettingDescriptor {
     private func paletteReply(current: JSONValue?, inherited: JSONValue?, themeColors: [ThemeRGB]) -> JSONValue {
         var request: [String: JSONValue] = [
             "key": .string(id), "current": current ?? .null, "inherited": inherited ?? .null,
-            "theme_colors": .array(themeColors.map { (color: ThemeRGB) -> JSONValue in
-                ["red": .number(color.red), "green": .number(color.green), "blue": .number(color.blue), "alpha": .number(color.alpha)]
-            }),
+            "theme_colors": .array(themeColors.map(\.rustRequest)),
         ]
         let reply = SettingsRust.answer("schema.palette_options", .object(request))
         guard let raw = reply["need"]?["selection"]?.stringValue else { return reply }

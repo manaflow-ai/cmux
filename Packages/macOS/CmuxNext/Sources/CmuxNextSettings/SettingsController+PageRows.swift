@@ -2,14 +2,18 @@
 // alongside the effective value so web can distinguish an explicit default from an unset key.
 extension SettingsController {
     public func pageRows(section: String?, managedInfo: (ManagedSource) -> JSONValue) -> JSONValue {
-        let root = snapshot.root
-        return .array(SettingsSchema.all.filter { section == nil || $0.section.rawValue == section }.map { descriptor in
+        let descriptors = SettingsSchema.all.filter { section == nil || $0.section.rawValue == section }
+        // One Rust call reads every row (`schema.rows`): the effective value from the snapshot, the
+        // stored one from the person's file.
+        let reads = SettingsSchema.reads(root: snapshot.root, storedRoot: fileRoot, keys: descriptors.map(\.id))
+        return .array(descriptors.map { descriptor in
+            let read = reads[descriptor.id]
             var row: JSONValue = [
                 "key": .string(descriptor.id),
-                "value": descriptor.effectiveValue(in: root) ?? .null,
-                "stored": descriptor.storedValue(in: fileRoot) ?? .null,
+                "value": read?.effective ?? .null,
+                "stored": read?.stored ?? .null,
                 "default": defaultValue(of: descriptor) ?? .null,
-                "customized": .bool(isCustomized(descriptor)),
+                "customized": .bool(isCustomized(descriptor, stored: read?.stored)),
                 "managed": managedSource(for: descriptor).map(managedInfo) ?? .null,
             ]
             if descriptor.path == ChatSettings.rootsPath, case .object(var members) = row {
