@@ -124,12 +124,11 @@ impl Hub {
     /// whole lists too.
     pub(super) fn trim_closed_peer_rows(&self, peer: &str, generation: u64) {
         let gone = {
-            let peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
-            let Some(current) = peers.get(peer).filter(|p| p.generation == generation).cloned()
-            else {
+            // The rows writer lock, then the registry with no lock (`peer_table.rs`).
+            let mut map = self.remote_sessions.write();
+            let Some(current) = self.peers.get(peer).filter(|p| p.generation == generation) else {
                 return;
             };
-            let mut map = self.remote_sessions.write();
             let past = past_bound(map.of_peer(peer).map(|(key, row)| Closed {
                 key: key.clone(),
                 closed: row.summary.closed(),
@@ -193,6 +192,57 @@ mod tests {
         let peer = crate::peer::Peer::new(name, "ws://127.0.0.1:9", None, None, tx);
         hub.peers.lock().unwrap().insert(name.to_owned(), peer.clone());
         (hub, peer)
+    }
+
+    /// Leo's daemon, 2026-11-25: every tokio worker parked on the peer registry's mutex, because
+    /// a peer's list notice took it and, still holding it, waited on the rows writer lock. A
+    /// lookup of any peer by name (an outbox attempt, a key route) then waited for every row
+    /// write. Now a lookup answers while a notice waits on the rows writer, and the notice still
+    /// lands once the writer lets go.
+    #[test]
+    fn a_peer_lookup_never_waits_behind_a_notice_waiting_on_the_rows_writer() {
+        use crate::peer::PeerNotice;
+        let (hub, peer) = hub_with_peer("vm");
+        let rows_of = |ids: &[&str]| {
+            PeerNotice::sessions_from_values(
+                ids.iter()
+                    .map(|id| json!({"sessionId": id, "status": "idle", "updatedAt": 1}))
+                    .collect(),
+            )
+        };
+        hub.apply_peer_notice("vm", peer.generation, rows_of(&["s1", "s2"]));
+        let rows = hub.remote_sessions.write();
+        let notice = {
+            let hub = hub.clone();
+            let generation = peer.generation;
+            std::thread::spawn(move || {
+                // A purge: before, it took the registry, then waited on the rows writer.
+                let purge = PeerNotice::SessionChanged {
+                    session: json!({"sessionId": "s2"}),
+                    kind: "purged".into(),
+                    seq: 1,
+                };
+                hub.apply_peer_notice("vm", generation, purge);
+            })
+        };
+        // The notice is under way and waits on the rows writer this test holds.
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let (tx, rx) = std::sync::mpsc::channel();
+        {
+            let hub = hub.clone();
+            std::thread::spawn(move || {
+                let started = std::time::Instant::now();
+                let found = hub.peer("vm").is_some();
+                tx.send((found, started.elapsed())).unwrap();
+            });
+        }
+        let answered = rx.recv_timeout(std::time::Duration::from_secs(2));
+        drop(rows);
+        notice.join().unwrap();
+        let (found, took) = answered.expect("a peer lookup waited behind a peer notice");
+        assert!(found);
+        assert!(took < std::time::Duration::from_millis(500), "lookup took {took:?}");
+        assert_eq!(listed_ids(&hub), ["s1"]);
     }
 
     fn listed_ids(hub: &Hub) -> Vec<String> {
