@@ -639,9 +639,9 @@ export function ComposerContext({
           // to Cloud as that folder (projected or copied), a GitHub checkout too (cmux#55104), never as its GitHub
           // origin's repository (cmux#53226); a GitHub repository picked as one (`pickedRepo`) stays the repository.
           localOnCloud &&
-            pickedFolder !== undefined &&
-            pickedRepo === undefined &&
-            (pickedFolder === pickedHere || pickedFolder === pickedBefore)
+          pickedFolder !== undefined &&
+          pickedRepo === undefined &&
+          (pickedFolder === pickedHere || pickedFolder === pickedBefore)
           ? pickedFolder
           : cloudRepositoryPick(
               pickedFolder,

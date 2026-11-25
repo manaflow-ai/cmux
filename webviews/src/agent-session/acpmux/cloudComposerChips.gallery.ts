@@ -11,7 +11,7 @@
 import { agentPaneEntry, type AgentPaneVariant } from "../../gallery/format";
 import { noChat } from "../../gallery/fixtures/acpmux";
 import type { Play, PlayContext } from "../../gallery/play";
-import { COMPOSER_EDITOR } from "./composerSelectors";
+import { COMPOSER_EDITOR, MODEL_PICKER } from "./composerSelectors";
 
 const FIELD = COMPOSER_EDITOR;
 const STRIP = ".acpmux-composer-context";
@@ -296,7 +296,7 @@ const widthVariants = Object.fromEntries(
 /// around and stuff when i select cloud, change modes and stuff"). Every frame from This Mac at rest through Cloud,
 /// a Mode pick and back to This Mac, the model chip's box is where it was at rest (within rounding), and the
 /// location strip's chips keep their row. A frame with no model chip is a move too.
-const MODEL = ".acpmux-model .acpmux-picker-button";
+const MODEL = MODEL_PICKER;
 const SHIFT_PX = 1;
 type Box = { x: number; y: number; width: number; height: number };
 const boxOf = (element: Element | null): Box | null => {
