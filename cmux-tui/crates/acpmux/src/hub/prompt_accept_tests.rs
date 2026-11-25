@@ -374,11 +374,11 @@ async fn a_second_copy_hears_no_turn_before_the_first_is_accepted() {
 }
 
 /// Leo, 2026-11-25: "no prompt holds `prompt_admission` across an unbounded await ... A delivery
-/// always gets an answer within seconds". Every prompt here probes the agent while its child lock
-/// is held (as a call that never came back can do): each is still answered within seconds. Some may
-/// start directly after the bounded probe, while others are accepted as queued, and all run once
-/// the lock comes back (`prompt_admission.rs`). Before, the first held the chat's admission across
-/// that await and every later prompt waited unanswered (one chat: 66 restored notices, none ran).
+/// always gets an answer within seconds". Every prompt here sticks in its setup on the agent's
+/// lock (held by the test, as a call that never came back holds it): each is still answered,
+/// queued, within seconds, and the queue runs them all once the lock comes back
+/// (`prompt_admission.rs`). Before, the first held the chat's admission across that await and every
+/// later prompt waited for it unanswered (one chat: 66 restored notices, none answered).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn prompts_stuck_in_setup_are_answered_queued_within_seconds_and_the_queue_drains() {
     let (hub, s) = chat().await;
@@ -392,29 +392,26 @@ async fn prompts_stuck_in_setup_are_answered_queued_within_seconds_and_the_queue
         accepted.push(rx);
     }
     let started = std::time::Instant::now();
-    let mut queued = Vec::new();
     for (i, rx) in accepted.into_iter().enumerate() {
         let left = bound.saturating_sub(started.elapsed());
         let notice = tokio::time::timeout(left, rx)
             .await
             .unwrap_or_else(|_| panic!("prompt {i} got no answer within {bound:?}"))
             .unwrap();
-        assert!(
-            notice["queued"] == json!(true) || notice["state"] == json!("started"),
-            "prompt {i} was answered without being queued or started: {notice}"
+        assert_eq!(
+            (&notice["queued"], &notice["state"], &notice["deferred"]),
+            (&json!(true), &json!("queued"), &json!(true)),
+            "{notice}"
         );
-        if notice["queued"] == json!(true) {
-            assert_eq!(notice["deferred"], json!(true), "{notice}");
-            queued.push(format!("stuck-{i}"));
-        }
     }
     let journal = hub.events(&s.id, 0, 10_000).unwrap();
-    for prompt_id in queued {
+    for i in 0..8 {
         assert!(
-            journal.iter().any(|r| r.kind == "queued" && r.msg["promptId"] == prompt_id),
-            "{prompt_id} is queued durably when it is answered"
+            journal.iter().any(|r| r.kind == "queued" && r.msg["promptId"] == format!("stuck-{i}")),
+            "stuck-{i} is queued durably when it is answered"
         );
     }
+    assert!(s.turn().is_none(), "nothing ran while the agent's lock was held");
 
     // The lock comes back: every prompt runs from the queue, each with its own answer.
     drop(stuck);
