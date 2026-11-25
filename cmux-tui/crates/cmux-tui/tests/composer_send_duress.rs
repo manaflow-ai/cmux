@@ -1168,7 +1168,7 @@ fn the_recorder_log_is_classified_per_send() {
 }
 
 /// The table: both policies, every condition, 100 Sends each (about 3 min; on demand:
-/// `cargo test -p cmux-tui --test composer_send_duress -- --ignored composer_send_duress_table`).
+/// `cargo test -p cmux-tui --test it -- --ignored composer_send_duress_table`).
 #[test]
 fn composer_send_duress_table() {
     let sends = env_u64("COMPOSER_SEND_SENDS", 100) as usize;
