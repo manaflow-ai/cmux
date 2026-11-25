@@ -693,6 +693,11 @@ async fn a_stale_local_ad_does_not_delay_the_service_dial() {
         elapsed < baseline + Duration::from_millis(500),
         "the stale ad delayed the service dial: {elapsed:?} against {baseline:?} with no ad"
     );
+    println!(
+        "MATRIX {{\"cell\": \"nearby_stale_ad\", \"variant\": \"WebRtc\", \"no_ad_ms\": {:.1}, \"stale_ad_ms\": {:.1}}}",
+        baseline.as_secs_f64() * 1000.0,
+        elapsed.as_secs_f64() * 1000.0
+    );
     raced.close();
     local_link_remove(instance);
     local_link_pair(mac_id, None);
@@ -800,7 +805,10 @@ async fn with_no_internet_the_hub_is_the_whole_dial() {
         );
         assert!(!names.contains(&"signaling_open"), "{transport:?}: {marks:?}");
         echo_once(&handle).await;
-        eprintln!("no-internet hub dial ({transport:?}): {elapsed:?}");
+        println!(
+            "MATRIX {{\"cell\": \"nearby_no_internet\", \"variant\": \"{transport:?}\", \"dial_ms\": {:.1}}}",
+            elapsed.as_secs_f64() * 1000.0
+        );
         handle.close();
         forget_hub(instance, mac_id);
         pool.reset().await;
@@ -834,7 +842,10 @@ async fn the_hub_wins_against_a_hung_worker() {
     assert!(names(&marks).contains(&"local_link"), "{marks:?}");
     assert!(elapsed < Duration::from_secs(2), "the hub's win waited on the Worker: {elapsed:?}");
     echo_once(&handle).await;
-    eprintln!("hub against a hung Worker: {elapsed:?}");
+    println!(
+        "MATRIX {{\"cell\": \"nearby_hung_worker\", \"variant\": \"WebRtc\", \"dial_ms\": {:.1}}}",
+        elapsed.as_secs_f64() * 1000.0
+    );
     handle.close();
     forget_hub(instance, mac_id);
     pool.reset().await;

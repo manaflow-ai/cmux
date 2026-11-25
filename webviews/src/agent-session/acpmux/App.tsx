@@ -7227,7 +7227,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ...(keptStopping && { stopping: true as const }),
       // The Quick Composer's send never forks (it has no review to show), so its model menu
       // holds no pick of another harness either (review of #37196: it drew the hold, then sent
-      // the message to this chat).
+      // the message to this chat): a pick of another harness's model starts a chat on it
+      // (ComposerPickers `switchHarness`, cmux#55750).
       ...(quick && { canHandoff: false }),
       // Cloud picked: the first send starts the chat on a Cloud machine, which decides its mode.
       ...(cloudPicked && { startsOnCloud: true as const }),
