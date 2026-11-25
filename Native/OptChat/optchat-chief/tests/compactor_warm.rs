@@ -25,7 +25,7 @@ fn warm_sessions(agents: &FakeAgents) -> Vec<String> {
 }
 
 #[test]
-fn the_start_up_probe_leaves_no_warm_claude_code_running() {
+fn the_start_up_probe_leaves_no_warm_cli_running() {
     let dir = tempfile::tempdir().unwrap();
     let agents = FakeAgents::new(Box::new(|_, _| {
         vec![
@@ -66,4 +66,43 @@ fn the_start_up_probe_leaves_no_warm_claude_code_running() {
     };
     optchat_host::run_node(&compactor, &request).unwrap();
     assert_eq!(warm_sessions(&agents).len(), 1);
+}
+
+#[test]
+fn codex_cli_reuses_a_warm_compactor_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = FakeAgents::new(Box::new(|_, _| {
+        vec![
+            update(
+                "agent_message_chunk",
+                json!({"content": {"type": "text", "text": "user: ping"}}),
+            ),
+            json!({"dir": "mux", "kind": "turn_end", "msg": {"stopReason": "end_turn"}}),
+        ]
+    }));
+    let home = dir.path().join("mux");
+    let paths = optchat_chief::paths::Paths::new(&home);
+    let spec = CompactorSpec {
+        work: dir.path().join("work"),
+        ..compactor_spec(&paths, &home, "codex", Family::Codex, None)
+    };
+    let compactor =
+        AcpmuxCompactor::new(agents.clone(), spec, Slots::new(COMPACTOR_SESSIONS)).with_warm(1);
+    let request = |node| optchat_host::CompactRequest {
+        imported: false,
+        node: optchat_host::NodeId::new(0, node),
+        system: "SYS".into(),
+        context: "<chat>\n</chat>".into(),
+        step: "STEP".into(),
+        cut: None,
+    };
+
+    optchat_host::run_node(&compactor, &request(0)).unwrap();
+    let first_warm = warm_sessions(&agents);
+    assert_eq!(first_warm.len(), 1);
+    optchat_host::run_node(&compactor, &request(1)).unwrap();
+
+    let inner = agents.inner.lock().unwrap();
+    assert_eq!(inner.prompt_sessions.len(), 2);
+    assert_eq!(inner.prompt_sessions[1], first_warm[0]);
 }

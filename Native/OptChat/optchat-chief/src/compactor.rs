@@ -200,8 +200,8 @@ pub fn compactor_sessions_from(value: Option<&str>) -> usize {
         .unwrap_or(COMPACTOR_SESSIONS)
 }
 
-/// Warm sessions the main compactor keeps (`with_warm`): a node takes a
-/// Claude Code process that already started instead of waiting for one.
+/// Warm sessions each acpmux compactor keeps (`with_warm`): a node takes a
+/// CLI process that already started instead of waiting for one.
 /// Each idle one costs a process (200-400 MB) and holds a slot; most turns
 /// end with 1-4 nodes to build, so 4 cover them, and a burst starts the
 /// rest cold. A session is never reused across nodes: each node needs a
@@ -211,7 +211,7 @@ pub const WARM_SESSIONS: usize = 4;
 
 /// How long warm sessions outlive the compactor's last work: the next
 /// turn's nodes start fast, and an idle Chief does not keep about 0.8 GB of
-/// Claude Code processes. `OPTCHAT_COMPACTOR_WARM_IDLE_SECS` sets it.
+/// CLI processes. `OPTCHAT_COMPACTOR_WARM_IDLE_SECS` sets it.
 pub const WARM_IDLE: Duration = Duration::from_secs(600);
 
 /// `WARM_IDLE`, or `OPTCHAT_COMPACTOR_WARM_IDLE_SECS` when it is a number.
@@ -351,7 +351,7 @@ impl Slots {
     /// `jobs` nodes at once, and `spares` more slots where warm sessions
     /// start ahead: a node that frees its slot starts the next session in
     /// the background (`rewarm`), and a waiting node takes a ready one, so
-    /// its prompt does not wait for a Claude Code start (about 3.7 s).
+    /// its prompt does not wait for a CLI start (about 3.7 s).
     pub fn with_spares(jobs: usize, spares: usize) -> Arc<Slots> {
         let jobs = jobs.max(1);
         Arc::new(Slots {
@@ -1712,11 +1712,11 @@ impl AcpmuxCompactor {
         self.wipe_codex(live.slot);
         // The next node's session starts now, in this slot, so it does not
         // wait for one; else the slot goes back. Not after the start-up
-        // probe: no chat work follows it, and its warm Claude Code sat idle
+        // probe: no chat work follows it, and its warm CLI sat idle
         // from launch until the idle reap (about 100 MB).
         if self.warm > 0 && node != PROBE_NODE && !is_describe(node) && self.slots.rewarm(self.warm)
         {
-            // Off the node's path: starting Claude Code takes seconds, and
+            // Off the node's path: starting a CLI takes seconds, and
             // the node's line (and any turn waiting for it) must not wait.
             let (slot, system, ours) = (live.slot, live.system.clone(), live.ours);
             match self.me.upgrade() {
@@ -1782,7 +1782,7 @@ fn is_describe(node: NodeId) -> bool {
 }
 
 impl Drop for AcpmuxCompactor {
-    /// The warm sessions end with the compactor: no Claude Code process
+    /// The warm sessions end with the compactor: no CLI process
     /// outlives the host idle.
     fn drop(&mut self) {
         self.idle_timer.stop();

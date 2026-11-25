@@ -1116,9 +1116,9 @@ acpmux unless `OPTCHAT_COMPACTOR=api`:
   seconds, prompts and token use (`compactor node <id> (<model>): 9.8 s, 1
   prompt(s), uncached .. cache write .. cache read .. output .., $..`). At
   most COMPACTOR_SESSIONS (16) compactor sessions prompt at once, main and
-  fallback model together; the main compactor keeps up to WARM_SESSIONS (4)
+  fallback model together; each acpmux compactor keeps up to WARM_SESSIONS (4)
   of them started ahead while no node waits, so the next turn's nodes prompt
-  a ready Claude Code process (one node per session: each node needs a
+  a ready CLI process (one node per session: each node needs a
   fresh conversation); warm sessions end after 10 minutes without
   compactor work. OPTCHAT_COMPACTOR_SPARES adds slots where warm sessions
   start ahead during a backlog; it is 0 by default (no gain measured, see

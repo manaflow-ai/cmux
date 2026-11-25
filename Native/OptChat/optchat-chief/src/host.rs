@@ -1518,6 +1518,7 @@ fn start(
                     .with_log(compactor_log.clone())
                     .with_trace(trace.clone())
                     .with_cache_ttl(shared_ttl.clone())
+                    .with_warm(crate::compactor::WARM_SESSIONS)
             };
             let effort = compactor_effort
                 .clone()
@@ -1550,7 +1551,6 @@ fn start(
             let main = build(compactor_model.as_deref())
                 .with_alternate_harness(alternate)
                 .with_model_fallback(env("OPTCHAT_CHIEF_MODEL"))
-                .with_warm(crate::compactor::WARM_SESSIONS)
                 .shared();
             let describer = main.clone() as Arc<dyn crate::brain::images::Describe>;
             judge = Some(main.clone() as Arc<dyn crate::brain::ReactionJudge>);
