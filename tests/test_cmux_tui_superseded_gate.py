@@ -85,7 +85,13 @@ class SupersededGateTest(unittest.TestCase):
         self.assertIn(SCRIPT, mine["run"])
         # tree-preflight's step adds the coalescing-window arguments (#51879); the gate asks the same question.
         self.assertTrue(theirs["run"].startswith(mine["run"]), (mine["run"], theirs["run"]))
-        self.assertEqual({k: v for k, v in theirs["env"].items() if k in mine["env"]}, mine["env"])
+        # Same inputs, but tree-preflight's REST reads go out on a CI pool token first (the gate holds no secret).
+        token_keys = {"GH_TOKEN", "GH_TOKEN_SPARES"}
+        self.assertEqual({k: v for k, v in theirs["env"].items() if k in mine["env"] and k not in token_keys},
+                         {k: v for k, v in mine["env"].items() if k not in token_keys})
+        self.assertEqual(mine["env"]["GH_TOKEN"], "${{ github.token }}")
+        self.assertEqual(theirs["env"]["GH_TOKEN"], "${{ env.CI_POOL_GH_TOKEN || github.token }}")
+        self.assertTrue(theirs["env"]["GH_TOKEN_SPARES"].endswith("${{ github.token }}"))
         self.assertTrue(all("secrets." not in str(v) for v in mine["env"].values()))
         checkout = gate["steps"][0]["with"]
         self.assertIn(SCRIPT, checkout["sparse-checkout"])
