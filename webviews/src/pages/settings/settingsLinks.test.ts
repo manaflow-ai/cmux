@@ -45,7 +45,7 @@ test("every row, card, category and connection has an id", () => {
   const registered = new Set(ids.map((entry) => entry.id));
   const missing = [
     ...categories.map((c) => c.id),
-    ...[...homes.keys()],
+    ...homes.keys(),
     ...CATEGORY_CARDS.filter((card) => cardHome(card) !== null).map((card) => `${cardHome(card)}/${card}`),
     ...Object.keys(SETTINGS_CONNECTIONS).map((name) => `connections/${name}`),
   ].filter((id) => !registered.has(id));

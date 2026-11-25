@@ -3939,31 +3939,15 @@ button.menu-disclosure {
   display: contents;
 }
 
-/* The row, card or connection a deep link landed on (settingsLinks.ts), highlighted for a moment. */
+/* The row, card or connection a deep link landed on (settingsLinks.ts): ringed while
+ * LinkLanding.tsx holds the attribute (LINK_HIGHLIGHT_MS). */
 [data-link-target] {
   outline: var(--cmux-focus-ring-width, 1.5px) solid var(--ds-color-focus);
   outline-offset: 2px;
-  border-radius: var(--ds-radius-md, 8px);
-  animation: settings-link-target 2.4s ease-out forwards;
-}
-
-@keyframes settings-link-target {
-  0%,
-  60% {
-    outline-color: var(--ds-color-focus);
-  }
-  100% {
-    outline-color: transparent;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  [data-link-target] {
-    animation: none;
-  }
 }
 
 /* A link that named nothing on the page says what it asked for. */
 .link-missing {
+  display: block;
   margin: 0 0 12px;
 }

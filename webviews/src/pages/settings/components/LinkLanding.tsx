@@ -17,8 +17,8 @@ export function linkTargetElement(root: ParentNode, selector: string): HTMLEleme
   return found;
 }
 
-/** Scrolls to and highlights `target` once it draws; true from `onMiss` when a required one never does. */
-export function useLinkLanding(target: string | null, required: boolean): boolean {
+/** Highlights `target` once it draws (and scrolls to it when `scroll`); true when a required one never draws. */
+export function useLinkLanding(target: string | null, required: boolean, scroll = required): boolean {
   const [absent, setAbsent] = useState(false);
   useEffect(() => {
     setAbsent(false);
@@ -30,7 +30,10 @@ export function useLinkLanding(target: string | null, required: boolean): boolea
       const element = linkTargetElement(root, target);
       if (!element) return false;
       landed = element;
-      element.scrollIntoView?.({ block: element.matches("[data-row-key]") ? "center" : "start" });
+      // A card scrolls itself to the top once its rows draw (its `reveal` prop) and a focused row
+      // centers itself (revealRow): both own their timing, so here only a connection's row, which
+      // nothing else reveals, scrolls; every target is highlighted.
+      if (scroll) element.scrollIntoView?.({ block: "start" });
       element.setAttribute("data-link-target", "");
       cleared = setTimeout(() => element.removeAttribute("data-link-target"), LINK_HIGHLIGHT_MS);
       return true;
@@ -53,15 +56,15 @@ export function useLinkLanding(target: string | null, required: boolean): boolea
       clearTimeout(cleared);
       (landed as HTMLElement | null)?.removeAttribute("data-link-target");
     };
-  }, [target, required]);
+  }, [target, required, scroll]);
   return absent;
 }
 
 /** The line a link that landed on nothing shows, naming what it asked for. */
 export function LinkMissing({ name }: { name: string }) {
   return (
-    <p className="link-missing row-help" role="status" data-link-missing={name}>
+    <output className="link-missing row-help" data-link-missing={name}>
       {t("settingsPage.link.missing", name)}
-    </p>
+    </output>
   );
 }
