@@ -205,9 +205,16 @@ fn a_broker_pr_create_tool_counts_the_url_its_answer_names() {
     let publish = json!({"toolCallId": "p1", "title": "mcp__repo__repo_publish",
         "rawInput": {"repo": "o/r", "branch": "lane/x"}});
     let published = json!({"toolCallId": "p1", "status": "completed",
-        "content": [{"type": "text", "text": "{\"data\":{\"html_url\":\"https://github.com/o/r/pull/9\"}}"}]});
+        "content": [{"type": "text", "text": "o/r lane/x: abc123 pushed through broker\nhttps://api.github.com/repos/o/r/pulls/9"}]});
     assert_eq!(track(&mut calls, &publish), None);
     assert_eq!(track(&mut calls, &published).as_deref(), Some("https://github.com/o/r/pull/9"));
+
+    let published_json = json!({"toolCallId": "p2", "title": "repo_publish", "status": "completed",
+        "content": [{"type": "text", "text": "{\"data\":{\"url\":\"https://api.github.com/repos/o/r/pulls/10\"}}"}]});
+    assert_eq!(
+        track(&mut calls, &published_json).as_deref(),
+        Some("https://github.com/o/r/pull/10")
+    );
 }
 
 #[test]

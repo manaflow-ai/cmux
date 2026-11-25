@@ -21,6 +21,12 @@ use super::*;
 static PULL_URL: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[0-9]+$").unwrap() // crash-allow: constant pattern
 });
+static API_PULL_URL: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"^https://api\.github\.com/repos/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/pulls/([0-9]+)$",
+    )
+    .unwrap() // crash-allow: constant pattern
+});
 
 /// The `"number": N` of a `lane-gh call land|close` call's JSON arguments. `None` only if the
 /// constant pattern failed to build, which its tests rule out.
@@ -455,7 +461,9 @@ fn output_text(update: &Value) -> String {
     }
     let mut text = String::new();
     for block in update.get("content").and_then(Value::as_array).into_iter().flatten() {
-        if let Some(t) = block.pointer("/content/text").and_then(Value::as_str) {
+        if let Some(t) =
+            block.pointer("/content/text").or_else(|| block.get("text")).and_then(Value::as_str)
+        {
             text.push_str(t);
             text.push('\n');
         }
@@ -500,6 +508,15 @@ fn printed_url(output: &str) -> Option<String> {
     bare_urls(output).pop()
 }
 
+/// Normalizes GitHub's API pull URL to the browser URL stored in session metadata.
+fn normalize_pull_url(value: &str) -> Option<String> {
+    if PULL_URL.is_match(value) {
+        return Some(value.to_owned());
+    }
+    let captures = API_PULL_URL.captures(value)?;
+    Some(format!("https://github.com/{}/{}/pull/{}", &captures[1], &captures[2], &captures[3]))
+}
+
 /// The pull request a broker create answered with: `{"ok": true, "status": 201, "data":
 /// {"html_url": URL, ...}}` (the MCP tool and `lane-gh call pr_create`), or the bare URL `gh pr
 /// create` prints. A refusal (`"ok": false`, a cooldown, a 409) names none.
@@ -513,15 +530,22 @@ fn created_url(output: &str) -> Option<String> {
             return None;
         }
         if let Some(url) = answer
-            .pointer("/data/html_url")
+            .pointer("/data/url")
+            .or_else(|| answer.pointer("/data/html_url"))
+            .or_else(|| answer.get("url"))
             .or_else(|| answer.get("html_url"))
             .and_then(Value::as_str)
-            .filter(|url| PULL_URL.is_match(url))
+            .and_then(normalize_pull_url)
         {
             return Some(url.to_owned());
         }
     }
-    printed_url(output)
+    output
+        .lines()
+        .map(str::trim)
+        .filter_map(normalize_pull_url)
+        .last()
+        .or_else(|| printed_url(output))
 }
 
 /// Notes a `tool_call` or `tool_call_update` into `m`: a shell call that runs `gh pr create` is
