@@ -153,6 +153,10 @@ def route(event: dict, callees: dict, files: list[str] | None,
     pr = event.get("pull_request") or {}
     labels = {str(label.get("name") or "") for label in pr.get("labels") or []}
     added = str((event.get("label") or {}).get("name") or "") if action == "labeled" else ""
+    if added == head_tier.LAND_LABEL:
+        # The land handoff (head_tier's land rule): the same head now runs the full tier, as when a draft is marked
+        # ready, so every callee that skips a cheap head starts on it (each listens to ready_for_review).
+        action, added = "ready_for_review", ""
     start, why = [], {}
     for name, config in sorted(callees.items()):
         if action not in config["types"]:
@@ -173,7 +177,8 @@ def route(event: dict, callees: dict, files: list[str] | None,
             why[name] = "fast-track: runs after the merge (post-merge batch and push runs)"
             continue
         if cheap and not config.get("draft"):
-            why[name] = "draft: starts when marked ready for review (or with full-ci)"
+            why[name] = ("draft: starts when marked ready for review (or with full-ci)" if pr.get("draft") is not False
+                         else tier_reason)
             continue
         if files is None:
             start.append(name)
@@ -251,11 +256,20 @@ def check(callees: dict, entry_text: str, workflows: Path) -> list[str]:
     return problems
 
 
+def land_status(event: dict, decided: tuple[str, str]) -> str:
+    """The `cmux/land-tier` commit status for EVENT's head (pr-router.yml posts it): `pending` while the land rule holds
+    it on the cheap tier (or idle), `success` once it runs the full tier, empty where the land rule does not apply."""
+    if (os.environ.get("CI_LAND_TIER", "1").strip() in ("0", "")) or not head_tier.land_rule_applies(event):
+        return ""
+    return "success" if decided[0] == "full" else "pending"
+
+
 def write_outputs(start: list[str], why: dict[str, str], files: list[str] | None,
-                  table: list[str] | None = None) -> None:
+                  table: list[str] | None = None, status: str = "") -> None:
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
         out.write(f"start={json.dumps(start, separators=(',', ':'))}\n")
         out.write(f"table={json.dumps(table or [], separators=(',', ':'))}\n")
+        out.write(f"land_status={status}\n")
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     lines = ["### pr router", "",
              f"changed files: {len(files) if files is not None else 'unknown'}", "",
@@ -278,7 +292,8 @@ def main(argv: list[str]) -> int:
         start, why = route(event, callees, files, decided=decided)
         labels = {str(label.get("name") or "") for label in (event.get("pull_request") or {}).get("labels") or []}
         full = decided[0] == "full" or FULL_CI in labels
-        write_outputs(start, why, files, table_jobs_routed(callees, files, full=full))
+        write_outputs(start, why, files, table_jobs_routed(callees, files, full=full),
+                      land_status(event, decided))
         return 0
     if mode == "check":
         problems = check(callees, ENTRY.read_text(), ENTRY.parent)
