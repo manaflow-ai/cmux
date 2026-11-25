@@ -5129,8 +5129,14 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
             // clipped; the app's first rows stay pinned at the top (the top
             // exception) and the body moves down only as far as the cursor's row
             // needs. Set in the layout pass, so inside the keyboard's own animation.
+            // The rows the app draws (the Mac's grid as fed, else the claimed
+            // area's), as `drawnRowsBottom` counts them. Not `surface.grid.rows`:
+            // the surface is the mirror's (screen plus margins, 153 rows on a
+            // 6.3" phone), so the lift pushed the grid ~1700 pt off screen
+            // with the keyboard down (#53958).
+            let drawnRows = appliedHostRows ?? model.session.remoteRows ?? tuiGridHold.rows(page: tuiRows)
             let placement = TerminalGridSizing(cellHeight: cell.height)
-                .keyboardPlacement(gridRows: surface.grid.rows, visibleHeight: tuiClip.bounds.height,
+                .keyboardPlacement(gridRows: drawnRows, visibleHeight: tuiClip.bounds.height,
                                    cursorRow: surface.cursorViewportRow.map { $0 - tuiRowShift })
             if placement.lift != tuiKeyboardLift {
                 tuiKeyboardLift = placement.lift
