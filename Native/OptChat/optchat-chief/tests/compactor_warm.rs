@@ -24,6 +24,19 @@ fn warm_sessions(agents: &FakeAgents) -> Vec<String> {
         .collect()
 }
 
+fn warm_session_ids(agents: &FakeAgents) -> Vec<String> {
+    agents
+        .inner
+        .lock()
+        .unwrap()
+        .specs
+        .iter()
+        .enumerate()
+        .filter(|(_, spec)| spec.name.contains("-warm-"))
+        .map(|(index, _)| format!("s{}", index + 1))
+        .collect()
+}
+
 #[test]
 fn the_start_up_probe_leaves_no_warm_cli_running() {
     let dir = tempfile::tempdir().unwrap();
@@ -98,7 +111,7 @@ fn codex_cli_reuses_a_warm_compactor_session() {
     };
 
     optchat_host::run_node(&compactor, &request(0)).unwrap();
-    let first_warm = warm_sessions(&agents);
+    let first_warm = warm_session_ids(&agents);
     assert_eq!(first_warm.len(), 1);
     optchat_host::run_node(&compactor, &request(1)).unwrap();
 
