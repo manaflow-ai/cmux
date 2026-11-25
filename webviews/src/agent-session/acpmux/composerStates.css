@@ -617,10 +617,9 @@
   :root:not([data-agent-motion="off"]) .acpmux-stop-pulse[data-stop-pulse="bump"] {
     animation: acpmux-stop-bump-timer var(--agent-motion-move, 180ms) linear both;
   }
-  /* The bump swells the glyph itself; the pulse span only times it. One button's own children. */
-  :root:not([data-agent-motion="off"])
-    .acpmux-send.acpmux-cancel:has(> .acpmux-stop-pulse[data-stop-pulse="bump"])
-    > :not(.acpmux-stop-pulse) {
+  /* The bump swells the glyph itself; the pulse span only times it. One button's own children: the
+     button carries the pulse's look while it plays (SendSlotGlyph.tsx StopPulse). */
+  :root:not([data-agent-motion="off"]) .acpmux-send.acpmux-cancel[data-stop-pulse="bump"] > :not(.acpmux-stop-pulse) {
     animation: acpmux-stop-bump var(--agent-motion-move, 180ms) var(--agent-ease-out) both;
   }
 }
@@ -819,6 +818,19 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 .nt-box[data-focused],
 body .nt-popover.nt-popover-focused.nt-popover-focused {
   --acpmux-card-ring: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge-focus);
+}
+/* The focused hairline eases in over the arrival step and out over the leave step (the motion scale's
+   own tokens). The hover has no ring or glow: the border stays the one plain hairline (Leo
+   2026-11-25: "why do we have glow in ring?"). */
+@media (prefers-reduced-motion: no-preference) {
+  .acpmux-composer-box,
+  .nt-box {
+    transition: box-shadow var(--agent-motion-out) var(--agent-ease-out);
+  }
+  .acpmux-composer-box[data-focused],
+  .nt-box[data-focused] {
+    transition-duration: var(--agent-motion-in);
+  }
 }
 /* The stack is one outline: a focused composer lifts the edge of every part joined to it (the Goal
    banner, the running tray, the queue, attachment tiles) with the card's, never the card's alone
@@ -1044,6 +1056,16 @@ body .nt-popover.nt-popover-focused.nt-popover-focused {
 .acpmux-queued > .acpmux-queued-menu > .acpmux-queued-actions {
   align-self: end;
 }
+/* A queued row's last action (its menu) centres on the mic below it: the composer's inset plus half
+   of what the control box is wider than the action (cmux#56151: a literal 6 px put it 5 px right of
+   the mic). test/composer-stack-columns.test.ts measures it. */
+.acpmux-queued {
+  /* The actions' box (styles.css .acpmux-queued-action). */
+  --acpmux-queued-action-size: 22px;
+  padding-right: calc(
+    var(--acpmux-composer-inset) + (var(--acpmux-composer-control) - var(--acpmux-queued-action-size)) / 2
+  );
+}
 /* The fold's line continues the list's tray and side edges, down to the strip. */
 .acpmux-queue-foldbar {
   display: flex;
@@ -1236,4 +1258,25 @@ body .nt-popover.nt-popover-focused.nt-popover-focused {
    its words and placeholder sit at the muted ink until the Cloud chat opens. Color only: nothing moves. */
 .acpmux-composer-prompt.is-cloud-starting [contenteditable] {
   color: var(--agent-muted);
+}
+
+/* The vim mode (agentPane.composerVimKeys, composer/vimKeys.ts): NORMAL or INSERT in the box's top
+   right, drawn over the box and out of its grid. Quiet text, no fill; NORMAL reads a step stronger
+   as the mode that is not typing. */
+.acpmux-vim-mode {
+  position: absolute;
+  top: 4px;
+  right: var(--ds-space-3);
+  z-index: var(--layer-raised, 1);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  font-weight: var(--weight-emphasis);
+  letter-spacing: 0.04em;
+  color: var(--agent-text-secondary, color-mix(in srgb, var(--agent-text) 55%, transparent));
+  pointer-events: none;
+  user-select: none;
+}
+.acpmux-vim-mode[data-vim-mode="normal"] {
+  color: var(--agent-text);
 }

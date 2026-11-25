@@ -16,6 +16,9 @@ set -euo pipefail
 want="${1:?usage: ensure-bun.sh VERSION BIN_DIR}"
 bin="${2:?usage: ensure-bun.sh VERSION BIN_DIR}"
 mkdir -p "$bin"
+# setup-bun puts `bunx` beside `bun` (bun acts as bunx when called by that name); playwright's webServer and
+# package scripts call it, so every way out below links it too.
+trap 'ln -sf bun "$bin/bunx" 2>/dev/null || true' EXIT
 
 if have_bin="$(command -v bun 2>/dev/null)" && have="$(bun --version 2>/dev/null)" && [ "$have" = "$want" ]; then
   ln -sf "$have_bin" "$bin/bun"
@@ -34,7 +37,7 @@ if [ -n "$cache" ] && [ -x "$cache/bun" ] && [ "$("$cache/bun" --version 2>/dev/
 fi
 base="${ENSURE_BUN_DIST:-https://github.com/oven-sh/bun/releases/download}/bun-v$want"
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+trap 'rm -rf "$tmp"; ln -sf bun "$bin/bunx" 2>/dev/null || true' EXIT
 get() {
   curl -fsSL --retry 3 --retry-all-errors --connect-timeout 20 --max-time 120 \
     --speed-limit 1024 --speed-time 30 -o "$2" "$1"

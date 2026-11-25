@@ -16,7 +16,7 @@ import { categories, categoryOf, defaultCategory, isCategory } from "./categorie
 import { MockTeams } from "./mockTeams";
 import { mockThemeColors } from "./mockThemes";
 import { schema } from "./schema";
-import { mockDevicesState } from "./mockProvider";
+import { mockDevicesState, mockDomains } from "./mockProvider";
 import { ACCOUNT_LISTS } from "../shared/signIn/galleryFixtures";
 import MARTIN_PANDEMONIUM from "../../gallery/fixtures/art/martin-pandemonium.jpg?inline";
 import FRIEDRICH_FOREST_MOONLIGHT from "../../gallery/fixtures/art/friedrich-forest-moonlight.jpg?inline";
@@ -117,6 +117,8 @@ const host: Partial<HostLists> = {
       active: true,
       color: "#7F5FA8",
       color_key: "research build machine",
+      // A Remote machine's AutoCloud enrollment (_acpmux/autocloud_enroll there), off: opt-in for customers.
+      autocloud: { on: false, error: null },
     },
     // A Cloud machine cmux made: its Dedicated agent machine switch (acpmux vmHost), on by default.
     {
@@ -198,6 +200,26 @@ const rowShapeMachines: HostLists["machines"] = [
     vm_host: { on: true, busy: false, error: null },
   },
 ];
+/** One Remote machine with its AutoCloud enrollment in `autocloud`, for the autocloud-* variants. */
+function autoCloudMachines(autocloud: NonNullable<HostLists["machines"][number]["autocloud"]>): HostLists["machines"] {
+  return [
+    {
+      id: "sample-remote-mac",
+      title: "Studio Mac",
+      subtitle: "Online · Remote",
+      active: true,
+      color: "#7F5FA8",
+      color_key: "studio mac",
+      autocloud,
+    },
+  ];
+}
+const macCaps = ["arm64", "macos", "xcode", "ios-simulator", "gpu-metal"];
+const autoCloudPlay = async (ctx: Parameters<NonNullable<SettingsPageVariant["play"]>>[0]) => {
+  const card = ctx.find({ selector: '[data-card="machines"]' });
+  card.setAttribute("data-gallery-capture", "");
+  card.scrollIntoView({ block: "center" });
+};
 const rowShapeEnvironments: CloudEnvironmentsState = {
   available: true,
   loading: false,
@@ -340,6 +362,25 @@ const variants: Record<string, SettingsPageVariant> = {
     host: { ...host, harness_placement: "left" },
     options: { values: { "agentPane.display.harnessPlacement": "symbols" } },
     note: "An explicit top symbols choice wins over the old left rail and offers Reset.",
+  }),
+  // Taste Board #15: Beta chips on experimental rows (appearance.settingsBetaChips, off by default).
+  "beta-chips-off": variant("experimental", {
+    focus: "appearance.settingsBetaChips",
+    note: "Beta chips off (the default): the Experimental page and its sidebar entry exactly as today.",
+  }),
+  "beta-chips-on": variant("experimental", {
+    focus: "appearance.settingsBetaChips",
+    options: { values: { "appearance.settingsBetaChips": true } },
+    note: "Beta chips on: each experimental row's title and the Experimental sidebar entry carry a small Beta chip.",
+  }),
+  "beta-chips-on-labs": variant("experimental", {
+    focus: "labs.previewFeatures",
+    options: { values: { "appearance.settingsBetaChips": true } },
+    note: "Beta chips on, scrolled to the Labs rows (Preview Features, Voice Room, Live Code).",
+  }),
+  "beta-chips-on-general": variant("general", {
+    options: { values: { "appearance.settingsBetaChips": true } },
+    note: "Beta chips on, on an everyday page: no row gets a chip; only the Experimental sidebar entry does.",
   }),
   "agent-tools": variant("agents", {
     focus: "agents.cmuxMcp",
@@ -999,6 +1040,59 @@ Object.assign(variants, {
   "long-rooms": variant("rooms", { host: { ...host, rooms: longRows, browser_profiles: longProfiles } }),
   "long-profiles": variant("browser", { host: { ...host, rooms: [], browser_profiles: longProfiles } }),
   "long-machines": variant("machines", { host: { ...host, machines: longRows } }),
+  "autocloud-off": variant("machines", {
+    host: {
+      ...host,
+      machines: autoCloudMachines({ on: false, error: null }),
+    },
+    note: "A Remote machine not in AutoCloud: Off, where to turn it on, the always-on idle note (customers' default).",
+    play: autoCloudPlay,
+  }),
+  "autocloud-accepting": variant("machines", {
+    host: {
+      ...host,
+      machines: autoCloudMachines({
+        on: true,
+        error: null,
+        accepting: true,
+        owner_idle: true,
+        policy: { teams: [], agents: [], hours: null },
+        caps: macCaps,
+      }),
+    },
+    note: "Enrolled and taking work while the owner is away: the owner-only policy and the Mac's capability badges.",
+    play: autoCloudPlay,
+  }),
+  "autocloud-owner-active": variant("machines", {
+    host: {
+      ...host,
+      machines: autoCloudMachines({
+        on: true,
+        error: null,
+        accepting: false,
+        owner_idle: false,
+        policy: {
+          teams: ["Sample team"],
+          agents: ["claude", "codex"],
+          hours: { from: 22, to: 7 },
+        },
+        caps: macCaps,
+      }),
+    },
+    note: "Enrolled with a team, agents and overnight hours, waiting because the owner is using it.",
+    play: autoCloudPlay,
+  }),
+  "autocloud-error": variant("machines", {
+    host: {
+      ...host,
+      machines: autoCloudMachines({
+        on: false,
+        error: "Studio Mac did not answer.",
+      }),
+    },
+    note: "The machine's AutoCloud report could not be read: its error under the idle note.",
+    play: autoCloudPlay,
+  }),
   "machines-row-shape": variant("accounts", {
     host: { ...host, machines: rowShapeMachines },
     options: { values: { "appearance.machineColors": { "research build machine": "#7F5FA8" } } },
@@ -1087,6 +1181,16 @@ Object.assign(variants, {
     focus: "notifications.attention.mark",
     options: { values: { "notifications.attention.mark": "glow" } },
     note: "Settings > Notifications with Needs You Look set to Glow: a waiting tab or sidebar row glows in place of its badge.",
+  }),
+  // What's New custom-notification-sound (https://github.com/manaflow-ai/cmux/issues/55219): a sound
+  // of the person's own picked with Custom Sound… (the menu's last item) and a Sound Duration.
+  "custom-notification-sound": variant("notifications", {
+    focus: "notifications.sounds.maxSeconds",
+    options: {
+      values: { "notifications.sound": "My Chime", "notifications.sounds.maxSeconds": 3 },
+      domains: { ...mockDomains, sounds: [...mockDomains.sounds, "My Chime"] },
+    },
+    note: "Sound set to a custom file (My Chime) and Sound Duration at 3 s.",
   }),
   // What's New agent-blocked-notification: Agent Blocked delivery set to Banner (default Off).
   "agent-blocked-banner": variant("notifications", {
@@ -2038,6 +2142,7 @@ export default settingsPageEntry({
     "pages/settings/components/SearchField.tsx",
     "pages/settings/components/SearchResults.tsx",
     "pages/settings/components/SectionActions.tsx",
+    "pages/settings/components/BetaChip.tsx",
     "pages/settings/components/SectionList.tsx",
     "pages/settings/components/SectionRoute.tsx",
     "pages/settings/components/SectionView.tsx",

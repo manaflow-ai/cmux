@@ -99,6 +99,7 @@ import {
   DEV_TREE_SCRIPT,
   FIRST_BUILD,
 } from "./dev-tree";
+import { gitDefaultsCommand } from "./git-defaults";
 import { GITHUB_SHIM_DIR, githubAuthFiles, githubAuthLinkCommand } from "./github-auth";
 import {
   AGENT_TOOLS_BAKED_ROLES,
@@ -106,6 +107,8 @@ import {
   agentToolsDaemonEnv,
   agentToolsFiles,
   agentToolsLinkCommand,
+  browserChromiumPath,
+  imageToolsSmokeCommand,
   browserRoleBakePhases,
   daemonEnvLines,
   RD_SOCKET,
@@ -555,6 +558,20 @@ export function storeProfileScript(): string {
   return `# cmux store: user-space programs (images/cmux-vm). Managed, do not edit.\ncase ":$PATH:" in *:${CURRENT_BIN}:*) ;; *) PATH=${CURRENT_BIN}:$PATH ;; esac\ncase ":$PATH:" in *:${GITHUB_SHIM_DIR}:*) ;; *) PATH=${GITHUB_SHIM_DIR}:$PATH ;; esac\nexport PATH\n`;
 }
 
+/** Where the Antigravity CLI's updater is turned off: login shells, and the systemd user manager (acpmux.service). */
+export const AGY_PROFILE_PATH = "/etc/profile.d/cmux-agy.sh";
+export const AGY_USER_ENV_PATH = "/etc/environment.d/60-cmux-agy.conf";
+/** agy updates itself in the background unless this is set; the lock pins its version and the store is root's. */
+export const AGY_NO_SELF_UPDATE_ENV = "AGY_CLI_DISABLE_AUTO_UPDATE";
+
+export function agyProfileScript(): string {
+  return `# cmux: the store pins agy (images/cmux-vm/inputs.lock.json); its own updater stays off. Managed, do not edit.\nexport ${AGY_NO_SELF_UPDATE_ENV}=1\n`;
+}
+
+export function agyUserEnvironment(): string {
+  return `# cmux: the store pins agy (images/cmux-vm/inputs.lock.json); its own updater stays off. Managed, do not edit.\n${AGY_NO_SELF_UPDATE_ENV}=1\n`;
+}
+
 function coderouterProfileScript(): string {
   // The CLI dials the same edge alias as the agents; the edge injects the route token.
   return `# cmux: the coderouter CLI uses the VM edge alias; no login and no token on disk. Managed, do not edit.\nexport CODEROUTER_API_URL=${sq(`https://${vmEdgeAliasDomain()}`)}\n`;
@@ -811,11 +828,16 @@ async function installStore(ctx: Ctx): Promise<void> {
   await L.step(vm, "store-profile", `${profileCommand(lock)} && chown -R root:root /opt/cmux`);
   await writeGuestFile(vm, "/etc/profile.d/00-cmux-store.sh", storeProfileScript(), 0o644);
   await writeGuestFile(vm, "/etc/profile.d/cmux-coderouter.sh", coderouterProfileScript(), 0o644);
+  await writeGuestFile(vm, AGY_PROFILE_PATH, agyProfileScript(), 0o644);
+  await L.step(vm, "agy-user-env-dir", "mkdir -p /etc/environment.d");
+  await writeGuestFile(vm, AGY_USER_ENV_PATH, agyUserEnvironment(), 0o644);
   await L.step(vm, "store-user-profile", storeUserProfilePathCommand());
   ctx.result.storeBytes = (await L.step(vm, "store-size", `du -sb ${STORE_DIR} | cut -f1`)).trim();
   // git and gh with repo-scoped GitHub App tokens and no secret at rest (github-auth.ts).
   for (const file of githubAuthFiles()) await writeGuestFile(vm, file.path, file.text, file.mode);
   await L.step(vm, "github-auth", githubAuthLinkCommand(STORE_PATH));
+  // Parallel checkout, untracked cache, index v4 for every machine (RFD 0065 piece 3; git-defaults.ts).
+  await L.step(vm, "git-defaults", gitDefaultsCommand());
 }
 
 /** The supervisor runs `$HOME/.cmux/bin/cmux-tui`: link it (and the hook helper beside it) into the store. */
@@ -1002,7 +1024,8 @@ async function installAgentTools(ctx: Ctx): Promise<void> {
   const files = agentToolsFiles(lock);
   for (const phase of browserRoleBakePhases(lock)) await L.step(vm, phase.name, phase.command);
   for (const file of files) await writeGuestFile(vm, file.path, file.text, file.mode);
-  ctx.result.agentTools = (await L.step(vm, "agent-tools-link", `sh -n ${AGENT_TOOLS_PROFILE} && ${agentToolsLinkCommand()}`)).trim().split("\n").at(-2);
+  ctx.result.agentTools = (await L.step(vm, "agent-tools-link", `sh -n ${AGENT_TOOLS_PROFILE} && ${agentToolsLinkCommand(browserChromiumPath(lock))}`)).trim().split("\n").at(-2);
+  await L.step(vm, "image-tools-smoke", imageToolsSmokeCommand());
   await L.step(vm, "agent-tools-desktop", rdSetupCommand());
 }
 
@@ -1013,7 +1036,7 @@ async function installAgentTools(ctx: Ctx): Promise<void> {
 async function installGraduated(ctx: Ctx): Promise<void> {
   const g = readGraduated();
   if (g.apt.length + g.npm.length === 0) return;
-  ctx.result.graduated = (await ctx.L.step(ctx.vm, "graduated", graduatedInstallCommand(g, APT_UPDATE_COMMAND), 290_000)).trim().split("\n").at(-1);
+  ctx.result.graduated = (await ctx.L.step(ctx.vm, "graduated", graduatedInstallCommand(g, APT_UPDATE_COMMAND), 540_000)).trim().split("\n").at(-1);
 }
 
 /** The npm cache a first `npm install` finds (dep-cache.ts); the image record's size is read after clean. */

@@ -216,6 +216,23 @@ class TeamSignedWorkflow(unittest.TestCase):
         self.assertIn("screen_sharing_helper_release.py objects", publish)
         self.assertEqual(self.jobs["publish-helper"]["needs"], ["plan", "sign-helper"])
 
+    def test_the_plan_waits_through_a_rate_limited_commit_check(self):
+        # Runs 45423971003 and 45422219117 failed at "Check the commit" with "API rate limit exceeded
+        # for installation"; its gh call goes through gh_budget_wait.sh, as the artifacts dispatch does.
+        steps = self.jobs["plan"]["steps"]
+        names = [step.get("name") for step in steps]
+        install = names.index("Wait through a rate-limited gh call")
+        self.assertIn("tools/scripts/ci/gh_budget_wait.sh --install", steps[install]["run"])
+        self.assertLess(names.index("Checkout this workflow's tools"), install)
+        check = names.index("Check the commit")
+        self.assertLess(install, check)
+        self.assertIn("gh api", steps[check]["run"])
+        # The wait fits in the job.
+        self.assertLessEqual(int(steps[check]["env"]["GH_BUDGET_WAIT_MAX_SECONDS"]) / 60,
+                             self.jobs["plan"]["timeout-minutes"] - 2)
+        for step in steps[:install]:
+            self.assertNotIn("gh ", step.get("run", ""), step.get("name"))
+
     def test_it_never_writes_the_ad_hoc_tree(self):
         run = "\n".join(step.get("run", "") for step in self.jobs["publish"]["steps"])
         self.assertIn("--write-once", run)

@@ -367,7 +367,9 @@ test("with Quiet Connections off, a subagent's retry that heals in 6 s says so t
   expect(ms).toBe(6_000);
 });
 
-test("with Quiet Connections off, a connector that connects in 0.8 s says so for the 0.8 s", async () => {
+// A connector's "Connecting" waits the shared bound with the switch off too: base made that the default
+// (#54496), so the switch leaves it be.
+test("with Quiet Connections off, a connector that connects in 0.8 s still never says it is connecting", async () => {
   setExperimentSwitches({});
   const ms = await labelExposure(
     "off-connector-connects-0.8s",
@@ -378,7 +380,7 @@ test("with Quiet Connections off, a connector that connects in 0.8 s says so for
     5_000,
     connecting,
   );
-  expect(ms).toBe(800);
+  expect(ms).toBe(0);
 });
 
 test("with Quiet Connections off, the guest says Connecting for its 0.8 s connect and Reconnecting the whole 6 s drop", async () => {

@@ -3,8 +3,7 @@
 import type { AcpmuxSnapshot } from "../../model";
 import type { Translate } from "../../i18n";
 import type { NativeInfoActions, NativeInfoRow, NativeInfoSection, NativeInfoTone } from "./model";
-import type { ConnectionQuietKeys } from "../../../../ui/lasting";
-import { connectingShown, summarizeConnectors } from "../connectorState";
+import { summarizeConnectors } from "../connectorState";
 import { imessageError, type IMessageView } from "../imessage";
 
 type McpServer = NonNullable<NonNullable<AcpmuxSnapshot["summary"]>["mcpServers"]>[number];
@@ -27,13 +26,10 @@ export type ConnectorsInput = {
   /// A Reconnect under way or failed, by server (ReconnectButton's own state, held by the caller).
   reconnecting?: Readonly<Record<string, "reconnecting" | "failed">>;
   imessage?: IMessageView;
-  /// Whether a server's connect has waited out the shared bound (the page's `useConnectionQuietKeys`,
-  /// connectorState.ts ``connectingShown``): until then its row says nothing of its state. Without
-  /// it (a fixture) every connect has lasted.
-  connectionQuiet?: ConnectionQuietKeys;
+  /// A pending server has lasted the shared bound (lasting.ts `useConnectionQuiet`, held by the caller):
+  /// until then its row says nothing and the section counts it loaded.
+  pendingShown?: boolean;
 };
-
-const LASTED: ConnectionQuietKeys = (_key, down) => down;
 
 export function connectorsSection(
   input: ConnectorsInput,
@@ -41,9 +37,9 @@ export function connectorsSection(
   t: Translate,
 ): NativeInfoSection | undefined {
   const { servers, onReconnect } = input;
-  const connectionQuiet = input.connectionQuiet ?? LASTED;
   if (servers.length === 0 && !input.imessage) return undefined;
-  const summary = summarizeConnectors(servers, connectionQuiet);
+  const pendingShown = input.pendingShown ?? true;
+  const summary = summarizeConnectors(servers, pendingShown);
   const rows = servers.map((server): NativeInfoRow => {
     const row: NativeInfoRow = {
       id: server.name,
@@ -70,16 +66,10 @@ export function connectorsSection(
         ],
       };
     }
-    if (server.status === "pending" && !connectingShown(server, connectionQuiet)) return row;
+    if (server.status === "pending") return pendingShown ? { ...row, trailing: t("rail.connectorPending") } : row;
     return {
       ...row,
-      trailing: t(
-        server.status === "failed"
-          ? "sessionInfo.connectors.needsReconnect"
-          : server.status === "pending"
-            ? "rail.connectorPending"
-            : "composer.envConnected",
-      ),
+      trailing: t(server.status === "failed" ? "sessionInfo.connectors.needsReconnect" : "composer.envConnected"),
     };
   });
   const imessage = input.imessage;

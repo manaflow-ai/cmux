@@ -64,7 +64,6 @@ import { activity, assistant, chat, tool } from "../src/gallery/fixtures/acpmux"
 import { withCloudMachineSummary } from "../src/agent-session/acpmux/cloudSummary";
 import { SummaryCard } from "../src/agent-session/acpmux/summary/SummaryCard";
 import { settleReact } from "./support/domTeardown";
-import { LASTING_MS, setLastingGrace } from "../src/ui/lasting";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -921,47 +920,42 @@ test("a new chat in a narrow pane opens Session Info as a popover when the perso
 test("Connectors says how many to reconnect, else how many connected, else None; open, each server's status", async () => {
   const container = installDom(true);
   const base = chat([]);
-  // Every connect has lasted the shared bound (connectorState.ts): the gallery's zero grace shows it at once.
-  setLastingGrace(0);
-  try {
-    await render(container, {
-      ...base,
-      summary: {
-        ...base.summary!,
-        mcpServers: [
-          { name: "github", status: "connected" },
-          { name: "linear", status: "failed" },
-          { name: "sentry", status: "pending" },
-        ],
-      },
-    });
-    // Usage always shows in the chat's own panel (None here), under the Show more line.
-    expect(sectionIds(container)).toEqual(["environment", "context", "usage", "connectors"]);
-    const connectors = section(container, "connectors")!;
-    // As Claude Code desktop's head: the servers to reconnect, when any failed.
-    expect(meta(connectors)).toBe("1 to reconnect");
-    expect(connectors.querySelector(".acpmux-session-info-row")).toBeNull();
-    await click(head(connectors));
-    const rows = [...section(container, "connectors")!.querySelectorAll(".acpmux-session-info-row")].map(
-      (row) => row.textContent,
-    );
-    expect(rows).toEqual(["githubConnected", "linearNeeds reconnect", "sentryConnecting"]);
+  await render(container, {
+    ...base,
+    summary: {
+      ...base.summary!,
+      mcpServers: [
+        { name: "github", status: "connected" },
+        { name: "linear", status: "failed" },
+        { name: "sentry", status: "pending" },
+      ],
+    },
+  });
+  // Usage always shows in the chat's own panel (None here), under the Show more line.
+  expect(sectionIds(container)).toEqual(["environment", "context", "usage", "connectors"]);
+  const connectors = section(container, "connectors")!;
+  // As Claude Code desktop's head: the servers to reconnect, when any failed.
+  expect(meta(connectors)).toBe("1 to reconnect");
+  expect(connectors.querySelector(".acpmux-session-info-row")).toBeNull();
+  await click(head(connectors));
+  const rows = [...section(container, "connectors")!.querySelectorAll(".acpmux-session-info-row")].map(
+    (row) => row.textContent,
+  );
+  // A server still connecting says nothing until that lasts the shared bound (lasting.ts `CONNECTION_QUIET_MS`).
+  expect(rows).toEqual(["githubConnected", "linearNeeds reconnect", "sentry"]);
 
-    // None failed: how many the harness loaded, never a green connected count.
-    await render(container, {
-      ...base,
-      summary: { ...base.summary!, mcpServers: [{ name: "github", status: "connected" }] },
-    });
-    expect(meta(section(container, "connectors"))).toBe("1 loaded");
+  // None failed: how many the harness loaded, never a green connected count.
+  await render(container, {
+    ...base,
+    summary: { ...base.summary!, mcpServers: [{ name: "github", status: "connected" }] },
+  });
+  expect(meta(section(container, "connectors"))).toBe("1 loaded");
 
-    // A harness that reports none: the section stays, folded, with one plain line, None (Lucas,
-    // 2026-11-05: Usage and Connectors always show).
-    await render(container, base);
-    expect(meta(section(container, "connectors"))).toBe(translate("sessionInfo.none"));
-    expect(section(container, "connectors")!.querySelector(".acpmux-session-info-row")).toBeNull();
-  } finally {
-    setLastingGrace(LASTING_MS);
-  }
+  // A harness that reports none: the section stays, folded, with one plain line, None (Lucas,
+  // 2026-11-05: Usage and Connectors always show).
+  await render(container, base);
+  expect(meta(section(container, "connectors"))).toBe(translate("sessionInfo.none"));
+  expect(section(container, "connectors")!.querySelector(".acpmux-session-info-row")).toBeNull();
 });
 
 /// A `gh pr create` the agent ran, printing its pull request's URL.
@@ -1275,7 +1269,7 @@ test("Subagents names each running one on its line, and folds the ended ones int
     root.render(<SessionInfo agents={agents} onOpenSubagent={(id) => shown.push(id)} />);
   });
   const subagents = section(container, "subagents")!;
-  expect(meta(subagents)).toBe("3 running · 1 failed · 39 done");
+  expect(meta(subagents)).toBe("3 · 1 failed · 39 done");
   // No row of identical avatars and no "+N": the running ones by name, oldest first.
   expect(subagents.querySelector(".acpmux-session-info-subagents__running .cv-subagent-avatar")).toBeNull();
   expect(subagents.textContent).not.toMatch(/\+\d/);
@@ -1378,7 +1372,7 @@ test("the chats the agent started are listed under Subagents, counted with them,
     );
   });
   const subagents = section(container, "subagents")!;
-  expect(meta(subagents)).toBe("1 waiting · 3 running · 1 failed · 2 done");
+  expect(meta(subagents)).toBe("1 waiting · 3 · 1 failed · 2 done");
   // Running: the chat waiting on the person first, then the subagent and the running chats.
   expect(lines(subagents)).toEqual([
     ["Rename the settings keys", "Waiting"],
@@ -1418,7 +1412,7 @@ test("with only started chats Subagents is still drawn, and the running line's c
   // What it runs (Subagents) comes after Context and before the Show more line's Usage and Connectors
   // (sectionOrder.ts DEFAULT_ORDER). The chat's code edits are no Outputs (chatOutputs.ts).
   expect(sectionIds(container)).toEqual(["environment", "context", "subagents", "usage", "connectors"]);
-  expect(meta(section(container, "subagents"))).toBe("1 running · 1 done");
+  expect(meta(section(container, "subagents"))).toBe("1 · 1 done");
   // Closed, with Subagents folded: the running line's "2 subagents" opens it at Subagents.
   await click(head(section(container, "subagents")!));
   await click(toggle(container)!);
@@ -1488,7 +1482,7 @@ test("a Cloud VM chat's children, as its machine's daemon lists them with the ch
     root.render(<SessionInfo sessions={children} onOpenSession={(id) => opened.push(id)} />);
   });
   const subagents = section(container, "subagents")!;
-  expect(meta(subagents)).toBe("1 running · 1 done");
+  expect(meta(subagents)).toBe("1 · 1 done");
   await click(endedRow(subagents)!);
   expect(lines(subagents)).toEqual([
     ["Run the e2e suite", "Running"],
