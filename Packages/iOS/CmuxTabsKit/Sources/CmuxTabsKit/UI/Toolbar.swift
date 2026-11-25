@@ -147,7 +147,11 @@ struct TabsToolbar: View {
     /// does: a black terminal in light mode reads white chip titles, not black ones.
     private var bandScheme: ColorScheme? {
         guard showsStrip, let color = tab?.pageColor else { return nil }
-        return TabsKitStatusBarStyle(over: UIColor(color)) == .lightContent ? .dark : .light
+        // Resolved for the screen's own appearance: `UITraitCollection.current` is not dark while
+        // SwiftUI draws, so an adaptive color (the chat's background) read as its light value and
+        // turned the bar light in dark mode: the neighbors' titles went black on black.
+        let trait = UITraitCollection(userInterfaceStyle: colorScheme == .dark ? .dark : .light)
+        return TabsKitStatusBarStyle(over: UIColor(color).resolvedColor(with: trait)) == .lightContent ? .dark : .light
     }
     private var historyState: BackForwardState { BackForwardState(tab: tab, sidesVisible: chrome.sidesVisible, editing: chrome.editing) }
     private var splitBack: Bool { historyState.forwardShown }
