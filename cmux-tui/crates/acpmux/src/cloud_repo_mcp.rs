@@ -37,6 +37,20 @@ folder may be empty. Attach one at any time with add_repo (list_repos finds name
 may also offer the person Add repository. A needs_github result is retried automatically after Connect \
 GitHub finishes. When asked what this environment is, say these things plainly.";
 
+/// [`INSTRUCTIONS`] and what this machine can do (`cloud_machine_facts.rs`): its size and the
+/// capabilities it has here, read when the server starts.
+pub fn instructions() -> String {
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from).unwrap_or_else(|| "/".into());
+    with_facts(&crate::cloud_machine_facts::paragraph(&crate::cloud_machine_facts::Facts::read(
+        &home,
+    )))
+}
+
+/// [`INSTRUCTIONS`] followed by `facts`, when there are any.
+pub fn with_facts(facts: &str) -> String {
+    if facts.is_empty() { INSTRUCTIONS.to_owned() } else { format!("{INSTRUCTIONS}\n\n{facts}") }
+}
+
 /// Cloud machines carry the same image marker used by acpmux host updates.
 pub fn is_cloud_machine() -> bool {
     std::path::Path::new("/etc/cmux/vm-kind").exists()
@@ -75,7 +89,7 @@ pub(crate) fn served(daemon: &Arc<crate::tools_mcp::Daemon>) -> Result<crate::to
         SERVER_NAME,
         SESSION_ENV,
         tools(),
-        Some(INSTRUCTIONS.to_owned()),
+        Some(instructions()),
         daemon,
         |daemon, session, params| async move { call(&daemon, &session, &params).await },
     )
@@ -86,7 +100,7 @@ pub async fn run() -> Result<()> {
         SERVER_NAME,
         SESSION_ENV,
         tools(),
-        Some(INSTRUCTIONS.to_owned()),
+        Some(instructions()),
         |daemon, session, params| async move { call(&daemon, &session, &params).await },
     )
     .await
@@ -361,6 +375,14 @@ mod tests {
         )
         .await;
         assert_eq!(result["isError"], false);
+    }
+
+    #[test]
+    fn the_machine_facts_follow_the_instructions_only_when_read() {
+        assert_eq!(with_facts(""), INSTRUCTIONS);
+        let text = with_facts("This machine has 2 CPUs.");
+        assert!(text.starts_with(INSTRUCTIONS) && text.ends_with("This machine has 2 CPUs."));
+        assert!(instructions().starts_with(INSTRUCTIONS));
     }
 
     #[test]

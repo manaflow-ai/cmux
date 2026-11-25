@@ -65,6 +65,7 @@ pub mod clock;
 pub(crate) mod clock_text;
 pub mod close_why;
 pub mod cloud_host;
+pub mod cloud_machine_facts;
 pub mod cloud_model_plane;
 pub mod cloud_repo_mcp;
 pub mod cloud_rewind;
