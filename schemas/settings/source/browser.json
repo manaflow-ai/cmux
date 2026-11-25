@@ -169,7 +169,7 @@
         {
           "key": "browser.siteEngines",
           "name": "siteEngines",
-          "note": "Site to engine; the default sends sites whose protected (DRM) media does not play in Chromium to WebKit. music.youtube.com is not in it: it plays in Chromium.",
+          "note": "Site to engine; empty by default: protected (Widevine) media plays in Chromium (the plain helper loads Google's CDM), so no site needs WebKit to play.",
           "title": {
             "key": "settings.browser.siteEngines",
             "text": "Site Engines"
@@ -183,17 +183,7 @@
             "type": "BrowserSiteEngines",
             "prefixed": true
           },
-          "default": {
-            "amazon.com/gp/video": "webkit",
-            "disneyplus.com": "webkit",
-            "hulu.com": "webkit",
-            "max.com": "webkit",
-            "music.apple.com": "webkit",
-            "netflix.com": "webkit",
-            "primevideo.com": "webkit",
-            "spotify.com": "webkit",
-            "tv.apple.com": "webkit"
-          },
+          "default": {},
           "keywords": [
             "drm",
             "widevine",

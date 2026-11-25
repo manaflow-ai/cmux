@@ -162,7 +162,7 @@ import {
   type IncomingContext,
   type IncomingMessage,
 } from "./conversation/incomingMessage";
-import { noticeRowText } from "./conversation/agentNotice";
+import { automatedNotice, noticeRowText, shownNoticeBody } from "./conversation/agentNotice";
 import { inboxMessages, inboxText, type InboxMessage, type InboxNotice } from "./conversation/inboxNotice";
 import { newerSurge, surgeCounts, surgeOfEvent, type SurgeHold } from "./conversation/surgeHold";
 import { recapDismissed, rememberRecapDismissed } from "./conversation/recapDismissed";
@@ -1835,6 +1835,15 @@ export class AcpmuxDirectClient {
   /// that message's own chunks go on in the row, above what came (the same `messageId`, or any text
   /// from an agent that sends none, until its next step).
   private assistantCut = false;
+  /// A reply whose row ended at something that is not a step of the agent's (a turn end or summary the
+  /// same message's text then outran, a background turn's end, a subagent's group, a segment acpmux
+  /// numbered again): the next chunk of that message goes on in its row, so one message is one bubble
+  /// (Leo, 2026-11-22: "you also basically said the same thing"; images/1157.png, 1158.png). A real
+  /// step (a thought, a call the person sees, a plan, a compaction, a card) clears it.
+  private pausedReply?: { row: string; messageId: string };
+  /// The newest chunk seq each reply row took (`agent_message_chunk`): a chunk at or below it is in
+  /// the row already, so folding it again (a refold that kept the row, a repair) adds nothing.
+  private replyChunkSeq = new Map<string, number>();
   private streamingActivity?: string;
   /// The open turn's plan row: its later `plan` updates redraw this one list (cx-ncc.80).
   private planRow?: string;
@@ -3129,6 +3138,8 @@ export class AcpmuxDirectClient {
     this.streamingAssistant = undefined;
     this.streamingAssistantMessageId = undefined;
     this.assistantCut = false;
+    this.pausedReply = undefined;
+    this.replyChunkSeq.clear();
     this.streamingActivity = undefined;
     this.planRow = undefined;
     this.optimisticPromptRows.clear();
@@ -7716,6 +7727,7 @@ export class AcpmuxDirectClient {
         if (reaction.row !== undefined && gone.has(reaction.row)) this.reactions.delete(key);
       for (const rowId of gone) {
         this.toolRowScopes.delete(rowId);
+        this.replyChunkSeq.delete(rowId);
         this.supersededRowIds.delete(rowId);
         this.runChangeRows.delete(rowId);
         this.compactionHeardAt.delete(rowId);
@@ -7728,6 +7740,7 @@ export class AcpmuxDirectClient {
       }
       if (left(this.streamingActivity)) this.streamingActivity = undefined;
       if (left(this.streamingSegment?.row)) this.streamingSegment = undefined;
+      if (left(this.pausedReply?.row)) this.pausedReply = undefined;
       if (left(this.planRow)) this.planRow = undefined;
       if (left(this.lastUnanswered?.rowId)) this.lastUnanswered = undefined;
     }
@@ -8678,6 +8691,10 @@ export class AcpmuxDirectClient {
     this.streamingAssistantMessageId = undefined;
     this.streamingSegment = undefined;
     this.assistantCut = false;
+    this.pausedReply = undefined;
+    // The rows refolded take their chunks again; a row kept above the cut keeps its mark.
+    if (frozenBefore === undefined) this.replyChunkSeq.clear();
+    else for (const [row, seq] of this.replyChunkSeq) if (seq >= frozenBefore) this.replyChunkSeq.delete(row);
     this.streamingActivity = undefined;
     if (frozenBefore === undefined) {
       this.supersededMessageIds.clear();
@@ -9120,12 +9137,15 @@ export class AcpmuxDirectClient {
     // words carry another one ("-", hub/stream.rs), so they start their own row, and a prompt's
     // reply a record split goes on in its row, never as a second row the background turn owns.
     // A background turn's own row never goes on past its end (it stayed streaming, which held its
-    // footer back until the next prompt).
-    const stamped =
-      this.streamingAssistant !== undefined &&
-      this.streamingSegment?.row === this.streamingAssistant &&
-      this.rows.get(this.streamingAssistant)?.inBackground === undefined;
-    if (!stamped) this.endAssistantSegment();
+    // footer back until the next prompt). Unless that prompt is what ended it (reason "prompt"): it
+    // lands next, and a message the agent is still writing goes on in its row above it, streaming,
+    // never settled mid-sentence with its markdown open (Leo, 2026-11-22 08:25Z: "ok, well. this
+    // happened again. you need to help decide what goes on in this case and perfect it.").
+    const streamingRow = this.streamingAssistant;
+    const stampedRow = streamingRow !== undefined && this.streamingSegment?.row === streamingRow;
+    const promptCut = state === "ended" && turn.reason === "prompt" && this.streamingAssistantMessageId !== undefined;
+    const stamped = stampedRow && (promptCut || this.rows.get(streamingRow)?.inBackground === undefined);
+    if (!stamped) this.pauseAssistantSegment();
     this.streamingActivity = undefined;
     this.planRow = undefined;
     // Nor does a subagent group: the next subagent starts a group of its own, in its own turn.
@@ -9571,8 +9591,10 @@ export class AcpmuxDirectClient {
         continue;
       }
       // A new group ends the text and tool calls before it, like a tool call does.
+      // A subagent's group is not a step of the session's own: a message still being written goes on
+      // in its row above the group (acpmux hub/stream.rs `cuts_reply` cuts no reply at one either).
       if (!this.rows.has(row.id)) {
-        this.endAssistantSegment();
+        this.pauseAssistantSegment();
         this.streamingActivity = undefined;
       }
       const previous = this.rows.get(row.id)?.subagents;
@@ -10073,8 +10095,11 @@ export class AcpmuxDirectClient {
         // row until its next step, since the agent reads the steer only there: a reply cut in two
         // reads worse than a steer's answer run on (Leo, 2026-11-05: "If your text is streaming, I
         // shouldn't be able to interrupt it"). A prompt that opens a turn is answered from its
-        // first word, so without message ids the text after it is that answer.
-        if (msg.steer === true || this.streamingAssistantMessageId) this.holdAssistantSegment();
+        // first word, so without message ids the text after it is that answer. A reply its background
+        // turn's end paused (that end came for this prompt) is held the same way: the rest of its
+        // message goes on in its row above the prompt (Leo, 2026-11-22 08:25Z: "ok, well. this
+        // happened again. you need to help decide what goes on in this case and perfect it.").
+        if (msg.steer === true || this.streamingAssistantMessageId || this.pausedReply) this.holdAssistantSegment();
         else this.endAssistantSegment();
         // A call id names a call within its prompt: an adapter that numbers calls per process
         // reuses one in a later prompt, whose call draws under that prompt (cx-jzhka). A steer
@@ -10394,8 +10419,9 @@ export class AcpmuxDirectClient {
         this.openQuestions.clear();
         this.heldEdits.clear();
         // A new row, never an in-place change: emitted snapshots share row objects, and the
-        // transcript's memo compares the drawn row's version with the next one.
-        this.endAssistantSegment();
+        // transcript's memo compares the drawn row's version with the next one. More of the same
+        // message after the end (an end the agent outran) goes on in the reply's row, above the end.
+        this.pauseAssistantSegment();
         this.rows.delete("typing");
         this.rows.delete(TURN_RETRY);
         const checkpoint = event.kind === "turn_result" ? readSummaryCheckpoint(msg) : undefined;
@@ -10528,11 +10554,22 @@ export class AcpmuxDirectClient {
         this.streamingAssistant = undefined;
         this.streamingAssistantMessageId = undefined;
       }
+      // The message whose row ended at no step of the agent's goes on in that row: one message, one
+      // bubble, whatever came between (a turn end it outran, a background turn's end, a subagent's group).
+      const paused = this.pausedReply;
+      if (!this.streamingAssistant && paused && messageId === paused.messageId && this.rows.has(paused.row)) {
+        this.streamingAssistant = paused.row;
+        this.streamingAssistantMessageId = messageId;
+        this.assistantCut = false;
+      }
+      this.pausedReply = undefined;
       // After a cut only the cut message's own text goes on in its row; anything else starts below.
       if (this.assistantCut && messageId !== this.streamingAssistantMessageId) this.endAssistantSegment();
       // acpmux ends a reply's segment where the pane cuts its row (hub/stream.rs `cuts_reply`): a
       // chunk of another segment starts its own row, even under the same messageId, so a page that
-      // lacks the record the cut was at (a thought, a call) still draws the two rows.
+      // lacks the record the cut was at (a thought, a call) still draws the two rows. Under the same
+      // messageId, a segment of another turn or boot goes on in the row: acpmux numbered the message
+      // again without a step (a turn that started under it, a restart), never a cut.
       const stampedSegment = replySegment(event);
       const stamped = stampedSegment === undefined ? undefined : replyRowKey(stampedSegment, messageId);
       const segment = this.streamingSegment;
@@ -10540,7 +10577,8 @@ export class AcpmuxDirectClient {
         stamped !== undefined &&
         this.streamingAssistant &&
         segment?.row === this.streamingAssistant &&
-        segment.segment !== stamped
+        segment.segment !== stamped &&
+        (!messageId || messageId !== this.streamingAssistantMessageId || !renumberedSegment(segment.segment, stamped))
       ) {
         const prior = this.rows.get(this.streamingAssistant);
         if (prior) this.rows.set(prior.id, { ...prior, version: prior.version + 1, streaming: false });
@@ -10561,6 +10599,10 @@ export class AcpmuxDirectClient {
         : stamped !== undefined && !this.rows.has(`assistant-${stamped}`)
           ? `assistant-${stamped}`
           : `assistant-${event.seq}`;
+      // A chunk the row took already (seq at or below the row's newest) adds nothing again.
+      const taken = this.replyChunkSeq.get(id);
+      if (taken !== undefined && event.seq <= taken) return;
+      this.replyChunkSeq.set(id, event.seq);
       this.streamGrew = sameMessage;
       // A message after the reply that was streaming when the steer went: the agent read it.
       if (!sameMessage) this.landSteer();
@@ -10590,6 +10632,36 @@ export class AcpmuxDirectClient {
         if (!ids.includes(id)) this.messageRows.set(messageId, [...ids, id]);
       }
       this.rows.delete("typing");
+    } else if (event.kind === "stop_hook_feedback") {
+      // A Stop hook blocked the agent's stop and sent it back with its reason (acpmux claude_stdio):
+      // one quiet notice line from "hook" in the running turn, the reason behind its chevron, so what
+      // the agent writes next reads as the hook's doing, not the agent saying it again. Leo,
+      // 2026-11-22: "i assume you got re-prompted here. i thought we removed those. you also
+      // basically said the same thing, so there didnt seem to be a point to that. if you did get
+      // hooked, i think it should get displayed better."
+      this.endAssistantSegment();
+      this.streamingActivity = undefined;
+      const reason = typeof update?.text === "string" ? update.text : "";
+      const raw = `Stop hook feedback:\n${reason}`;
+      const read = automatedNotice(raw);
+      if (!read) return;
+      const message = {
+        name: read.notice.sender,
+        notice: read.notice,
+        text: shownNoticeBody(read.notice, read.body),
+        raw,
+      };
+      const id = `stop-hook-${event.seq}`;
+      this.rows.set(id, {
+        id,
+        version: 1,
+        at: event.at,
+        kind: "user",
+        text: noticeRowText(read.notice, message.text),
+        incoming: { kind: "message", message },
+        untyped: true,
+        continues: true,
+      });
     } else if (event.kind === "agent_thought_chunk" && text) {
       const steers = this.waitingSteers.length;
       this.landSteer();
@@ -11177,7 +11249,7 @@ export class AcpmuxDirectClient {
     this.turnPrompt = undefined;
     this.turnTokens = undefined;
     this.turnTokenSplit = undefined;
-    this.endAssistantSegment();
+    this.pauseAssistantSegment();
     this.streamingActivity = undefined;
     this.rows.delete("typing");
     this.rows.delete(TURN_RETRY);
@@ -11213,9 +11285,27 @@ export class AcpmuxDirectClient {
   /// Something not the agent's own lands mid-turn (a prompt, a steer, another agent's message, a
   /// notice): a reply still streaming keeps its row for the rest of its text, which stays one
   /// message above what landed; anything else the agent writes next starts below it.
+  /// A reply already paused (its background turn ended under it, then the person's prompt came) stays
+  /// paused: the rest of the same message still goes on in its row, one message one bubble.
   private holdAssistantSegment(): void {
-    if (this.streamingAssistant) this.assistantCut = true;
-    else this.endAssistantSegment();
+    if (this.streamingAssistant) {
+      this.assistantCut = true;
+      return;
+    }
+    const paused = this.pausedReply;
+    this.endAssistantSegment();
+    this.pausedReply = paused;
+  }
+
+  /// The streaming reply's row ends as `endAssistantSegment` ends it, at something that is no step of
+  /// the agent's: more of the same message still goes on in that row (`pausedReply`).
+  private pauseAssistantSegment(): void {
+    const row = this.streamingAssistant;
+    const messageId = this.streamingAssistantMessageId;
+    const paused = this.pausedReply;
+    this.endAssistantSegment();
+    if (row && messageId) this.pausedReply = { row, messageId };
+    else this.pausedReply = paused;
   }
 
   /// A turn's checked claims mark its last reply: only claims whose phrase the reply holds, so a
@@ -11230,6 +11320,7 @@ export class AcpmuxDirectClient {
 
   private endAssistantSegment(): void {
     this.assistantCut = false;
+    this.pausedReply = undefined;
     if (!this.streamingAssistant) return;
     const row = this.rows.get(this.streamingAssistant);
     if (row) this.rows.set(row.id, { ...row, version: row.version + 1, streaming: false });
@@ -16878,6 +16969,7 @@ export class AcpmuxDirectClient {
       // The live reply's segment (`replySegment`): the page's chunks never take its place.
       streamingSegment: this.streamingSegment,
       assistantCut: this.assistantCut,
+      pausedReply: this.pausedReply,
       streamingActivity: this.streamingActivity,
       planRow: this.planRow,
       progressRow: this.progressRow,
@@ -16926,6 +17018,7 @@ export class AcpmuxDirectClient {
     this.streamingAssistantMessageId = undefined;
     this.streamingSegment = undefined;
     this.assistantCut = false;
+    this.pausedReply = undefined;
     this.streamingActivity = undefined;
     this.planRow = undefined;
     this.progressRow = undefined;
@@ -17459,4 +17552,12 @@ const probeRefusals = new Set(["remote.unsupported", "transport.method_refused",
 function refusedByHost(error: AcpmuxRpcError): boolean {
   const data = error.data && typeof error.data === "object" ? (error.data as Record<string, unknown>) : undefined;
   return data?.origin === "native";
+}
+
+/// Whether `next` is `previous` numbered again rather than cut: acpmux names a segment
+/// `<turn>.<boot>.<n>` (hub/stream.rs `reply_segment_for`), and a cut keeps the turn and boot and
+/// bumps `n`, while a new turn or a daemon restart changes the prefix.
+function renumberedSegment(previous: string, next: string): boolean {
+  const prefix = (segment: string) => segment.slice(0, Math.max(0, segment.lastIndexOf(".")));
+  return prefix(previous) !== prefix(next);
 }
