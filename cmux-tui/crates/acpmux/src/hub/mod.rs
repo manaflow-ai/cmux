@@ -154,6 +154,7 @@ mod fork_replay;
 pub mod fork_subagent;
 mod fork_transcript_auth;
 pub mod forum;
+pub mod forum_hosted;
 pub(crate) mod full_access_bound;
 pub(crate) mod full_access_children;
 mod handoff;
@@ -253,6 +254,7 @@ mod earned_access;
 #[cfg_attr(not(test), allow(dead_code))]
 mod earned_events;
 mod hybrid_hold;
+mod launch_backoff;
 pub mod ledger;
 mod list_order;
 mod model_alias;
@@ -1042,6 +1044,8 @@ pub struct Hub {
     pub(super) mailbox: Mailbox,
     /// The forum log (`forum.rs`, `hub/forum.rs`).
     pub(super) forum: std::sync::OnceLock<crate::forum::Forum>,
+    /// The team's hosted forum, set up from the env on first use (`hub/forum_hosted.rs`).
+    pub(super) forum_hosted: std::sync::OnceLock<forum_hosted::Slot>,
     pub(super) sessions: StdMutex<HashMap<String, Arc<Session>>>,
     /// The chats that left memory, each a compact row (`evict.rs`).
     pub(crate) evicted: evict::Tier,
@@ -1684,6 +1688,7 @@ impl Hub {
             store: Box::new(crate::store::ForkView::new(store)),
             mailbox,
             forum: std::sync::OnceLock::new(),
+            forum_hosted: std::sync::OnceLock::new(),
             sessions: StdMutex::new(HashMap::new()),
             evicted: Default::default(),
             spoken_handle_renames: StdMutex::new(()),
@@ -2526,6 +2531,7 @@ impl Hub {
             hibernated_at: AtomicU64::new(hibernated_at),
             wake_cause: StdMutex::new(None),
             policy_refusal: Default::default(),
+            launch_backoff: Default::default(),
             agent_requests: std::sync::atomic::AtomicUsize::new(0),
             web_control_ended: AtomicBool::new(false),
             floor: Default::default(),
