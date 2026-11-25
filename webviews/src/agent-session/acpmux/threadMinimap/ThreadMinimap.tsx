@@ -42,9 +42,10 @@ import { MARK_OPACITY, threadMinimapMark } from "./mark.experiment";
 import { threadMinimapWave } from "./wave.experiment";
 import { HoverWave, ZipperWave } from "./hoverWave";
 import { RailRevealIntent } from "./railIntent";
-import { threadMinimapReveal } from "./reveal.experiment";
+import { REST_REVEAL_SWITCH, threadMinimapReveal } from "./reveal.experiment";
 import { INCOMING_LOOK, threadMinimapIncoming } from "./incoming.experiment";
 import { experimentArm } from "../../../experiments/experiment";
+import { useExperimentSwitch } from "../../../experiments/switches";
 import { tickRanges } from "./tickWindow";
 import { RailRows, tickRows, turnRows } from "./railRows";
 import { PromptHeads } from "../promptHeads";
@@ -518,14 +519,19 @@ function ThreadMinimapView({
   /// A press that began in the text is under way (a selection drag): the rail and its strip take no
   /// pointer until it ends (threadMinimap.css `data-text-press`), so a drag along the edge keeps selecting.
   const [textPress, setTextPress] = useState(false);
-  /// How the strip treats a resting or dragging pointer (reveal.experiment.ts), read once per pane.
-  const [revealArm] = useState(() => experimentArm(threadMinimapReveal));
+  /// How the strip treats a resting or dragging pointer (reveal.experiment.ts). Off by default (Leo's UI
+  /// merge hold, 2026-11-24): with Settings > Advanced > Experiments > Prompt Rail Waits for a Resting
+  /// Pointer (`experiments.threadMinimapRestReveal`) off, the strip keeps the earlier `immediate`
+  /// behavior; on, it takes the arm chosen for this pane (read once, `intent` unless overridden).
+  const restReveal = useExperimentSwitch(REST_REVEAL_SWITCH);
+  const [chosenRevealArm] = useState(() => experimentArm(threadMinimapReveal));
+  const revealArm = restReveal ? chosenRevealArm : "immediate";
   const revealIntent = useRef<RailRevealIntent | undefined>(undefined);
   revealIntent.current ??= new RailRevealIntent(
     () => intentCalls.current.reveal(),
     () => intentCalls.current.hide(),
     undefined,
-    revealArm === "intent" ? undefined : 0,
+    chosenRevealArm === "intent" ? undefined : 0,
   );
   useEffect(() => {
     const intent = revealIntent.current;
@@ -549,6 +555,7 @@ function ThreadMinimapView({
     page.addEventListener("blur", end);
     return () => {
       intent.cancel();
+      setTextPress(false);
       page.removeEventListener("pointerdown", press, true);
       page.removeEventListener("pointerup", end, true);
       page.removeEventListener("pointercancel", end, true);

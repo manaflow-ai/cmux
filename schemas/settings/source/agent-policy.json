@@ -533,7 +533,8 @@
         "experiments.menuRowStates",
         "experiments.toastsV2",
         "experiments.terminalHistoryFind",
-        "experiments.terminalHistory"
+        "experiments.terminalHistory",
+        "experiments.threadMinimapRestReveal"
       ]
     },
     {

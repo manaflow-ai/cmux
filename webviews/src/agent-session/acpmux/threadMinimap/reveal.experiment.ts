@@ -7,7 +7,9 @@ import { defineExperiment } from "../../../experiments/experiment";
 /// occluded rail only for a pointer at rest (railIntent.ts REVEAL_DWELL) and gives the rail no pointer
 /// while a press that began in the text is down. `press-guard` keeps only the second half. `immediate` is
 /// the earlier behavior: the strip reveals on the frame the pointer touches it, drag or not.
-/// Dogfood switches from `cmux.experiments`: {"thread-minimap-reveal":"immediate"}.
+/// Dogfood switches from `cmux.experiments`: {"thread-minimap-reveal":"immediate"}. The arms apply only
+/// with the person's switch on (REST_REVEAL_SWITCH, `experiments.threadMinimapRestReveal`, default off);
+/// off, every pane keeps `immediate`.
 export const threadMinimapReveal = defineExperiment({
   id: "thread-minimap-reveal",
   title: "Prompt rail reveal intent",
@@ -28,3 +30,7 @@ export const threadMinimapReveal = defineExperiment({
   },
   defaultArm: "intent",
 });
+
+/// The Settings > Advanced > Experiments switch (`experiments.threadMinimapRestReveal`) that turns the
+/// arms above on. Off by default (Leo's UI merge hold, 2026-11-24).
+export const REST_REVEAL_SWITCH = "threadMinimapRestReveal";
