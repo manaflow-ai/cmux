@@ -370,7 +370,7 @@ function installFrameReader() {
       for (const row of Array.from(scope.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]"))) {
         const box = row.getBoundingClientRect();
         if (box.height > 0 && box.bottom > view.top && box.top < view.bottom)
-          rows.push({ id: row.dataset.rowId ?? "", top: box.top });
+          rows.push({ id: row.dataset.rowId ?? "", top: box.top, h: box.height, w: box.width, edge: row.dataset.edge ?? row.className.slice(0, 80) } as never);
       }
     rows.sort((x, y) => x.top - y.top);
     const composer = rootHidden
@@ -393,7 +393,7 @@ function installFrameReader() {
       })(),
       ...(scroller
         ? {
-            geo: `sh=${scroller.scrollHeight} ch=${scroller.clientHeight} thread=${(() => {
+            geo: `sh=${scroller.scrollHeight} ch=${scroller.clientHeight} cw=${scroller.clientWidth} ow=${scroller.offsetWidth} fonts=${document.fonts.status} thread=${(() => {
               const thread = scroller.querySelector<HTMLElement>(".acpmux-thread");
               return thread
                 ? `${thread.style.cssText.replace(/\s+/g, "")}|h=${thread.getBoundingClientRect().height.toFixed(1)}`
@@ -679,7 +679,7 @@ try {
   releases.push(() => statics.stop(true));
   const base = `http://127.0.0.1:${statics.port}`;
   const urlFor = (session: string) =>
-    `${base}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${session}`;
+    `${base}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&session=${session}`;
 
   const browser: Browser = await chromium.launch({ headless: true });
   releases.push(() => browser.close());
@@ -791,7 +791,7 @@ try {
         if (process.env.FRAMES === "1" && judged.shifts > 0)
           for (const frame of read.frames.filter((one) => one.t >= read.t0))
             console.log(
-              `    frame +${(frame.t - read.t0).toFixed(1)} st=${frame.scrollTop?.toFixed(1)} ${(frame as { geo?: string }).geo ?? ""} ${frame.rows.map((row) => `${row.id}@${row.top.toFixed(1)}`).join(" ")}`,
+              `    frame +${(frame.t - read.t0).toFixed(1)} st=${frame.scrollTop?.toFixed(1)} ${(frame as { geo?: string }).geo ?? ""} ${frame.rows.map((row) => `${row.id}@${row.top.toFixed(1)}+${(row as never as {h:number}).h?.toFixed(1)}w${(row as never as {w:number}).w?.toFixed(1)}[${(row as never as {edge:string}).edge}]`).join(" ")}`,
             );
         let bottom: string | undefined;
         for (const frame of read.frames) {
