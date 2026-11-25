@@ -225,7 +225,18 @@ struct TeamPage: View {
     let auth: CmuxMobileAuthModel
     let edit: () -> Void
     let invite: () -> Void
-    @State private var members: SettingsLoad<[TeamMember]> = .loading
+    private let cache: LastKnownList?
+    @State private var members: SettingsLoad<[TeamMember]>
+    @State private var memberRequest = 0
+
+    init(team: Team, auth: CmuxMobileAuthModel, cache: LastKnownList?, edit: @escaping () -> Void, invite: @escaping () -> Void) {
+        self.team = team
+        self.auth = auth
+        self.cache = cache
+        self.edit = edit
+        self.invite = invite
+        _members = State(initialValue: cache?.read([TeamMember].self).map(SettingsLoad.loaded) ?? .loading)
+    }
 
     var body: some View {
         List {
@@ -250,8 +261,10 @@ struct TeamPage: View {
                 switch members {
                 case .loading:
                     CmuxMobileGutterRow {
+                        // placeholder-ok: No member list has ever been received for this account and team.
                         CmuxSpinner()
                     } content: {
+                        // placeholder-ok: First load of this team's member list.
                         Text("Loading members").foregroundStyle(theme.colors.label2)
                     }
                 case .failed(let message):
@@ -290,11 +303,19 @@ struct TeamPage: View {
     }
 
     private func loadMembers() async {
+        memberRequest += 1
+        let request = memberRequest
         if case .loaded = members {} else { members = .loading }
+        let userID = auth.user?.id
         do {
-            members = .loaded(try await auth.teamMembers(teamID: team.id))
+            let list = try await auth.teamMembers(teamID: team.id)
+            guard !Task.isCancelled, request == memberRequest, userID == auth.user?.id else { return }
+            members = .loaded(list)
+            cache?.save(list)
         } catch is CancellationError {
         } catch {
+            guard !Task.isCancelled, request == memberRequest, userID == auth.user?.id else { return }
+            if case .loaded = members { return }
             members = .failed("Couldn't load the team's members.")
         }
     }
@@ -339,6 +360,15 @@ struct TerminalPage: View {
                 Text("On a slow connection, what you type shows at once, underlined until the remote confirms it.")
             }
             Section {
+                Toggle(isOn: $settings.predictiveEchoFullScreen) {
+                    SettingsLabel("Predictive Echo in Full-Screen Apps", symbol: "bolt.horizontal.circle")
+                }
+                .accessibilityIdentifier("settings.predictiveEchoFullScreen")
+                .disabled(!settings.predictiveEcho)
+            } footer: {
+                Text("Also predicts typing into full-screen apps such as Claude Code and Codex. A key shows only after the app printed the two before it where they were typed.")
+            }
+            Section {
                 Toggle(isOn: $settings.terminalJumpToBottom) {
                     SettingsLabel("Jump to Bottom Button", symbol: "arrow.down.to.line")
                 }
@@ -361,6 +391,30 @@ struct TerminalPage: View {
                 .accessibilityIdentifier("settings.terminalChatToggle")
             } footer: {
                 Text("Adds Show Chat and Show Terminal to a Claude Code or Codex tab's menu when both views can open.")
+            }
+            Section {
+                Toggle(isOn: $settings.terminalPlainScroll) {
+                    SettingsLabel("Plain Scroll in Full-Screen Apps", symbol: "scroll")
+                }
+                .accessibilityIdentifier("settings.terminalPlainScroll")
+            } footer: {
+                Text("Scrolling up in a full-screen app such as Claude Code moves through the rows this phone already has, like any page, instead of asking the app to scroll.")
+            }
+            Section {
+                Toggle(isOn: $settings.terminalZoomFullScreenApps) {
+                    SettingsLabel("Zoom Full-Screen Apps", symbol: "plus.magnifyingglass")
+                }
+                .accessibilityIdentifier("settings.terminalZoomFullScreenApps")
+            } footer: {
+                Text("Shows vim, htop or Codex at the Mac's size: pinch to zoom, drag to pan, and the Mac pane keeps its size. Typing into one fits it to the phone, which remembers that program. Applies to terminals opened next.")
+            }
+            Section {
+                Toggle(isOn: $settings.terminalHistoryFind) {
+                    SettingsLabel("Find in Whole History", symbol: "doc.text.magnifyingglass")
+                }
+                .accessibilityIdentifier("settings.terminalHistoryFind")
+            } footer: {
+                Text("Find searches the terminal's whole history on the Mac, not only the lines on this phone.")
             }
             Section {
                 Toggle(isOn: $settings.wrapCode) { SettingsLabel("Wrap code and diff lines", symbol: "text.word.spacing") }
@@ -616,6 +670,14 @@ struct TransportPage: View {
                 Text("Sends every connection's keepalive at the same moments, every 10 seconds, so the radio wakes once for all of them instead of for each. Applies at the next connection.")
             }
             Section {
+                Toggle(isOn: $settings.quietCloudConnect) {
+                    Text("Quiet Cloud Connections")
+                }
+                .accessibilityIdentifier("settings.transport.quietCloudConnect")
+            } footer: {
+                Text("Cloud chats and machines that answer within 10 seconds show no loading or connecting message, and a short outage behind Cloud lists you already see shows no alert. Longer waits and failures still show.")
+            }
+            Section {
                 Toggle(isOn: $settings.agentCLIHybrid) {
                     Text("Agent CLI Screen Changes")
                 }
@@ -786,6 +848,7 @@ struct Acknowledgement: Sendable {
             Acknowledgement("marked", "MIT", "Markdown in the Feed", "https://github.com/markedjs/marked"),
             Acknowledgement("Temml", "MIT", "Math", "https://github.com/ronkok/Temml"),
             Acknowledgement("highlight.js", "BSD 3-Clause", "Code highlighting", "https://github.com/highlightjs/highlight.js"),
+            Acknowledgement("Geist", "SIL OFL 1.1", "The welcome screen's wordmark and tagline", "https://github.com/vercel/geist-font"),
         ]),
     ]
 }
